@@ -2,11 +2,11 @@
 
 import {
   Home,
+  Heart,
   Users,
   Box,
   FileText,
   School,
-  HeadphonesIcon,
   MessageSquare,
   Settings,
   BarChart,
@@ -16,7 +16,6 @@ import {
   Bell,
   HelpCircle,
   LogOut,
-  UserPlus,
   Shield,
   ClipboardList,
   TabletSmartphone,
@@ -32,6 +31,7 @@ import {
   Lock,
   LucideIcon,
   LayoutGrid,
+  Lightbulb,
   Building,
   Boxes,
   CalendarClock,
@@ -48,9 +48,11 @@ import {
   UserCheck,
   Package,
   Bookmark,
+  Compass,
   Cpu,
   Award,
   CheckSquare,
+  CircleDot,
   TrendingUp,
   Wrench,
   FileBarChart2,
@@ -64,14 +66,31 @@ import {
   PhoneCall,
   Target,
   Megaphone,
-  LineChart,
   Workflow,
   MessagesSquare,
   Radio,
   Rocket,
   Vote,
-  SearchCheck,
-  UserCog
+  Activity,
+  Brain,
+  Hammer,
+  TreePine,
+  UserCircle2,
+  Trophy as TrophyIcon,
+  PieChart,
+  Wallet,
+  Scale,
+  ShieldCheck,
+  // Campus Living Icons
+  Hotel,
+  UtensilsCrossed,
+  WashingMachine,
+  HeartPulse,
+  ClipboardPlus,
+  SprayCan,
+  Stethoscope,
+  LayoutDashboard,
+  UsersRound,
 } from 'lucide-react';
 import { CustomRole } from '@/types/auth';
 // FEATURE_FLAGS import removed - not used in sidebar filtering
@@ -85,16 +104,25 @@ export interface RolePermissionData {
   permissions: Record<string, boolean>;
 }
 
-interface MenuItem {
+/**
+ * Recursive submenu type — can nest arbitrarily deep.
+ * Optional `icon` and `submenus` fields make existing flat submenus continue to work
+ * while also enabling multi-tier nesting (e.g. Learners Council → Structure → Positions).
+ */
+export interface Submenu {
+  href: string;
+  label: string;
+  active: boolean;
+  icon?: LucideIcon;
+  submenus?: Submenu[];
+}
+
+export interface MenuItem {
   href: string;
   label: string;
   icon: LucideIcon;
   active: boolean;
-  submenus: Array<{
-    href: string;
-    label: string;
-    active: boolean;
-  }>;
+  submenus: Submenu[];
 }
 
 interface MenuGroup {
@@ -121,12 +149,19 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/my-bug-reports': 'learners.bug_reports.view',
   '/bug-leaderboard': 'learners.bug_reports.view',
 
+  // Documents
+  '/documents': 'documents.view',
+  '/documents/history': 'documents.history.view',
+  '/documents/settings': 'documents.settings.view',
+  '/documents/templates': 'documents.templates.view',
+
   // User Management
   '/users': 'users.view',
   '/users/dashboard': 'users.dashboard.view',
   '/users/activity': 'users.activity.view',
   '/users/roles': 'roles.assign',
   '/users/role-management': 'roles.create',
+  '/users/permissions-audit': 'users.permissions_audit.view',
 
   // Application Hub
   '/application-hub': 'application_hub.view',
@@ -165,6 +200,11 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/learners/change-requests': 'learners.change-requests.view',
   '/learners/change-requests/[id]': 'learners.change-requests.view',
 
+  // Learner Counseling (Phase 1 — placeholder gate; module pages land in Phase 2)
+  // Spec: specs/counselor-taxonomy-spec.md. Role seed:
+  // supabase/migrations/20260427_counselor_taxonomy_phase1.sql
+  '/learners/counseling': 'learners.counseling.view',
+
   // Organization Management
   '/organizations/dashboard': 'organizations.dashboard.view',
   '/organizations/institutions': 'organizations.institutions.view',
@@ -188,7 +228,41 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/staff/dashboard': 'staff.dashboard.view',
   '/staff/class-incharges': 'staff.class_incharges.view',
 
+  // HR Management (Sprints 1-6) — keys match permissions.ts HR block and hr_* RLS policies
+  '/hr': 'hr.dashboard.view',
+  '/hr/employees': 'hr.employees.view',
+  '/hr/employees/new': 'hr.employees.create',
+  '/hr/employees/[id]': 'hr.employees.view',
+  '/hr/employees/[id]/edit': 'hr.employees.edit',
+  '/hr/policies': 'hr.policies.view',
+  '/hr/policies/[table]': 'hr.policies.view',
+  // HR Leave — parent + 6 submenus shown in sidebar
+  '/hr/leave': 'hr.leave.view',
+  '/hr/leave/apply': 'hr.leave.apply',
+  '/hr/leave/my-applications': 'hr.leave.view',
+  '/hr/leave/approve': 'hr.leave.approve',
+  '/hr/leave/calendar': 'hr.leave.view',
+  '/hr/leave/balance': 'hr.leave.balance.view',
+  '/hr/leave/encashment': 'hr.leave.encashment.view',
+  '/hr/leave/[id]': 'hr.leave.view',
+  // HR Recruitment — parent + 3 submenus
+  '/hr/recruitment': 'hr.recruitment.view',
+  '/hr/recruitment/submit': 'hr.recruitment.create',
+  '/hr/recruitment/my': 'hr.recruitment.view',
+  '/hr/recruitment/candidates': 'hr.recruitment.view',
+  '/hr/recruitment/approvals': 'hr.recruitment.approve',
+
+  // Staff Counseling (Phase 1 — placeholder gate; module pages land in Phase 2)
+  // Spec: specs/counselor-taxonomy-spec.md. Role seed:
+  // supabase/migrations/20260427_counselor_taxonomy_phase1.sql
+  '/hr/counseling': 'hr.counseling.view',
+
   // Academic Management
+  // Added 2026-04-24 (Wave 2b PR-S2): module root for the flat sidebar row.
+  // Broadest academic-facing permission chosen so faculty/HOD/principal who
+  // have sub-permissions continue seeing the Academic sidebar row even
+  // though the row now points at /academic instead of /academic/years.
+  '/academic': 'academic.years.view',
   '/academic/years': 'academic.years.view',
   '/academic/leave-calendar': 'academic.leaves.view',
   '/academic/leaves': 'academic.leaves.view',
@@ -206,6 +280,17 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/learners/leave-onduty/apply': 'learners.leave_onduty.apply',
   '/learners/leave-onduty/my-applications': 'learners.leave_onduty.view',
 
+  // Exceptions & Privileges
+  '/academic/privileges': 'academic.privileges.view',
+  '/academic/privileges/new': 'academic.privileges.create',
+  '/academic/privileges/[id]': 'academic.privileges.view',
+  '/academic/privileges/[id]/members': 'academic.privileges.manage',
+  '/academic/privileges/[id]/review': 'academic.privileges.review',
+  '/academic/privileges/[id]/renewals': 'academic.privileges.manage',
+  '/academic/privileges/templates': 'academic.privileges.manage',
+  '/learners/privileges/my': 'learners.privileges.view',
+  '/learners/privileges/my/report': 'learners.privileges.report',
+
   '/academic/staff-planning': 'academic.staff.planning.view',
   '/academic/timetables': 'academic.timetables.view',
   '/academic/timetables/templates': 'academic.timetables.templates.view',
@@ -222,6 +307,10 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/academic/attendance/reports': 'academic.attendance.reports.view',
   '/academic/attendance/consolidation': 'academic.attendance.consolidation.view',
 
+  // Internal Marks (CIA) - Mark Entry & Reports
+  '/academic/internal-marks': 'academic.internal-marks.view',
+  '/academic/internal-marks/report': 'academic.internal-marks.view',
+
   // Regulations Management
   '/academic/regulations': 'academic.regulations.view',
   '/academic/regulations/new': 'academic.regulations.create',
@@ -235,12 +324,37 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // Notification Management
   '/admin/notifications': 'notifications.view',
   '/admin/notifications/new': 'notifications.create',
+  '/admin/notifications/compliance': 'notifications.view',
+  '/admin/notifications/audiences': 'notifications.view',
 
   // System Management
+  // Work Pulse
+  '/work-pulse': 'work_pulse.view',
+  '/work-pulse/all': 'work_pulse.all.view',
+  '/work-pulse/agents': 'work_pulse.agents.view',
+  '/work-pulse/impact': 'work_pulse.impact.view',
+
+  // VAC (Value-Added Courses) Module
+  '/vac': 'vac.courses.view',
+  '/vac/my-courses': 'vac.my_courses.view',
+  '/vac/progress': 'vac.progress.view',
+  '/vac/case': 'vac.case.view',
+  '/vac/admin': 'vac.admin.view',
+  '/vac/admin/courses': 'vac.admin.courses.view',
+  '/vac/admin/courses/new': 'vac.admin.courses.create',
+  '/vac/admin/enrollments': 'vac.admin.enrollments.view',
+  '/vac/admin/analytics': 'vac.admin.analytics.view',
+  '/vac/admin/case': 'vac.admin.case.view',
+  '/vac/admin/case/tracks': 'vac.admin.case.tracks.view',
+  '/vac/admin/case/batches': 'vac.admin.case.batches.view',
+  '/vac/admin/case/readiness': 'vac.admin.case.readiness.view',
+  '/vac/admin/settings': 'vac.admin.settings.view',
+
   '/system/api-management': 'system.api.view',
   '/system/lti-tools': 'lti.tools.view',
   '/admin/bug-reports': 'system.bugs.view',
   '/admin/ai-query-tools': 'super_admin', // Super admin only - AI Query Tools Registry
+  '/admin/page-metadata': 'super_admin', // Super admin only - Page Search Metadata
 
   // Lifecycle Analytics
   '/admin/lifecycle': 'admin.lifecycle.view',
@@ -251,18 +365,17 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/admin/lti/launches': 'lti.launches.view',
 
   // Billing Management - Admin/Staff Views
-  '/billing/categories/parent-categories': 'billing.parent_categories.view',
-  '/billing/categories/parent-categories/new':
-    'billing.parent_categories.create',
-  '/billing/categories/parent-categories/[id]/edit':
-    'billing.parent_categories.edit',
-  '/billing/categories/sub-categories': 'billing.sub_categories.view',
-  '/billing/categories/sub-categories/new': 'billing.sub_categories.create',
-  '/billing/categories/sub-categories/[id]/edit': 'billing.sub_categories.edit',
-  '/billing/categories/item-categories': 'billing.item_categories.view',
-  '/billing/categories/item-categories/new': 'billing.item_categories.create',
-  '/billing/categories/item-categories/[id]/edit':
-    'billing.item_categories.edit',
+  // 3-tier categories. RLS uses 4 keys (billing.categories.{view,create,edit,delete})
+  // for all 3 tables, so all 9 paths below check the same 4 keys.
+  '/billing/categories/parent-categories': 'billing.categories.view',
+  '/billing/categories/parent-categories/new': 'billing.categories.create',
+  '/billing/categories/parent-categories/[id]/edit': 'billing.categories.edit',
+  '/billing/categories/sub-categories': 'billing.categories.view',
+  '/billing/categories/sub-categories/new': 'billing.categories.create',
+  '/billing/categories/sub-categories/[id]/edit': 'billing.categories.edit',
+  '/billing/categories/item-categories': 'billing.categories.view',
+  '/billing/categories/item-categories/new': 'billing.categories.create',
+  '/billing/categories/item-categories/[id]/edit': 'billing.categories.edit',
   '/billing/schedule': 'billing.schedule.view',
   '/billing/schedule/new': 'billing.schedule.create',
   '/billing/schedule/bulk-create': 'billing.schedule.create',
@@ -290,6 +403,8 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/billing/invoices/[id]': 'billing.invoices.view',
   '/billing/invoices/[id]/edit': 'billing.invoices.edit',
   '/billing/reports': 'billing.reports.view',
+  '/billing/onboarding': 'billing.onboarding.view',
+  '/billing/payment': 'billing.payment.view',
 
 
   // Resource Management
@@ -333,11 +448,15 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/service-requests/[id]/edit': 'service_requests.edit_own',
 
   // Admission CRM Module
+  // Added 2026-04-24 (Wave 2b PR-S2): module root for the flat sidebar row.
+  '/admission': 'admission.dashboard.view',
   '/admission/dashboard': 'admission.dashboard.view',
   '/admission/analytics': 'admission.analytics.view',
   '/admission/group-dashboard': 'admission.group_dashboard.view',
   '/admission/insights': 'admission.insights.view',
   '/admission/insights/status': 'admission.insights.view',
+  '/admission/marketing': 'admission.marketing.view',
+  '/admission/data-quality': 'admission.data_quality.view',
 
   // Admission Leads
   '/admission/leads': 'admission.leads.view',
@@ -347,6 +466,12 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // Admission Applications
   '/admission/applications': 'admission.applications.view',
   '/admission/applications/[id]': 'admission.applications.view',
+
+  // GD-PI (Group Discussion & Personal Interview)
+  '/admission/gd-pi': 'admission.applications.view',
+  '/admission/gd-pi/new': 'admission.applications.create',
+  '/admission/gd-pi/[id]': 'admission.applications.view',
+  '/admission/gd-pi/[id]/evaluate': 'admission.applications.edit',
 
   // Admission Counselors
   '/admission/counselors': 'admission.counselors.view',
@@ -389,9 +514,9 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/admission/marketing/voice-agents': 'admission.marketing.voice.view',
   '/admission/marketing/voice-broadcast': 'admission.marketing.voice.view',
   '/admission/marketing/expos': 'admission.marketing.expos.view',
-  '/admission/marketing/expos/masters': 'admission.marketing.expos.view',
+  '/admission/marketing/expos/masters': 'admission.marketing.expos.create',
   '/admission/marketing/expos/new': 'admission.marketing.expos.create',
-  '/admission/marketing/expos/analytics': 'admission.marketing.expos.view',
+  '/admission/marketing/expos/analytics': 'admission.marketing.expos.create',
 
   // Admission Data Quality
   '/admission/data-quality/data-profiling': 'admission.data_quality.view',
@@ -409,8 +534,39 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/admission/settings/workflow-config': 'admission.settings.workflows.manage',
   '/admission/settings/assignment-rules': 'admission.settings.assignment.view',
   '/admission/settings/sources': 'admission.settings.sources.view',
+  '/admission/settings/seat-config': 'admission.settings.seats.view',
+  // Added 2026-04-23 — admission_years module was created 2026-04-21 but its
+  // route→permission mapping and sidebar entry were never wired. Super admins
+  // bypass permission checks but still need the link rendered here to navigate.
+  '/admission/settings/years': 'admission.settings.years.view',
+  '/admission/settings/years/new': 'admission.settings.years.create',
+  '/admission/settings/years/[id]': 'admission.settings.years.view',
+  '/admission/settings/years/[id]/edit': 'admission.settings.years.edit',
+
+  // PDE (Principal Development Engine) — Learning
+  '/learn/quests': 'pde.quests.view',
+  '/learn/capabilities': 'pde.capabilities.view',
+  '/learn/build': 'pde.build.view',
+  '/learn/channels': 'pde.channels.view',
+  '/learn/profile': 'pde.profile.view',
+  '/learn/leaderboard': 'pde.leaderboard.view',
 
   // Startup Studio
+  // Added 2026-04-24 (Wave 2b PR-S2): module root for the flat sidebar row.
+  '/startup-studio': 'startup_studio.analytics.view',
+  '/startup-studio/portfolio': 'startup_studio.analytics.view',
+  '/startup-studio/mentors': 'startup_studio.analytics.view',
+  '/startup-studio/alumni': 'startup_studio.analytics.view',
+  '/startup-studio/kpi': 'startup_studio.analytics.view',
+  '/startup-studio/marketing': 'startup_studio.analytics.view',
+  '/startup-studio/finance': 'startup_studio.analytics.view',
+  '/startup-studio/governance': 'startup_studio.analytics.view',
+  '/startup-studio/solve-for-100': 'startup_studio.events.view',
+  '/startup-studio/solve-for-100/dashboard': 'startup_studio.events.view',
+  '/startup-studio/solve-for-100/leaderboard': 'startup_studio.leaderboard.view',
+  '/startup-studio/solve-for-100/mentor': 'startup_studio.analytics.view',
+  '/startup-studio/solve-for-100/programs': 'startup_studio.analytics.view',
+  '/startup-studio/solve-for-100/admin': 'startup_studio.analytics.view',
   '/startup-studio/events': 'startup_studio.events.view',
   '/startup-studio/events/[id]/registrations': 'startup_studio.registrations.manage',
   '/startup-studio/events/[id]/venues': 'startup_studio.venues.manage',
@@ -424,8 +580,320 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/startup-studio/events/[id]/vote': 'startup_studio.events.view',
   '/startup-studio/events/[id]/checklists': 'startup_studio.checklists.manage',
   '/startup-studio/events/[id]/dashboard': 'startup_studio.analytics.view',
+  '/startup-studio/events/[id]/solve-for-100': 'startup_studio.events.view',
+  '/startup-studio/events/[id]/solve-for-100/weekly': 'startup_studio.events.view',
+  '/startup-studio/events/[id]/solve-for-100/icp': 'startup_studio.events.view',
+  '/startup-studio/events/[id]/solve-for-100/mentor': 'startup_studio.evaluations.manage',
+
+  // Solution Hub
+  '/solutions': 'solutions.dashboard.view',
+  '/solutions/list': 'solutions.dashboard.view',
+  '/solutions/pipeline': 'solutions.pipeline.view',
+  '/solutions/pipeline/list': 'solutions.pipeline.view',
+  '/solutions/pipeline/analytics': 'solutions.pipeline.analytics.view',
+  '/solutions/clients': 'solutions.clients.view',
+  '/solutions/builders': 'solutions.builders.view',
+  '/solutions/training': 'solutions.training.view',
+  '/solutions/training/programs': 'solutions.training.programs.view',
+  '/solutions/training/sessions': 'solutions.training.sessions.view',
+  '/solutions/training/cohort': 'solutions.training.cohort.view',
+  '/solutions/content': 'solutions.content.view',
+  '/solutions/content/deliverables': 'solutions.content.deliverables.view',
+  '/solutions/content/production': 'solutions.content.production.view',
+  '/solutions/content/queue': 'solutions.content.queue.view',
+  '/solutions/payments': 'solutions.payments.view',
+  '/solutions/earnings': 'solutions.earnings.view',
+  '/solutions/discovery': 'solutions.discovery.view',
+  '/solutions/publications': 'solutions.publications.view',
+  '/solutions/products': 'solutions.products.view',
+  '/solutions/software': 'solutions.software.view',
+  '/solutions/software/builders': 'solutions.software.builders.view',
+  '/solutions/software/phases': 'solutions.software.phases.view',
+  '/solutions/matlab': 'solutions.matlab.view',
+  '/solutions/paradigm-shift': 'solutions.paradigm_shift.view',
+  '/solutions/ai-solution-compliance': 'solutions.compliance.view',
+  // '/solutions/departments' retired April 2026 — replaced by paradigm-shift
+
+  // Learners Council
+  '/learners-council': 'learners_council.dashboard.view',
+  '/learners-council/structure': 'learners_council.structure.view',
+  '/learners-council/structure/members': 'learners_council.structure.view',
+  '/learners-council/structure/positions': 'learners_council.structure.view',
+  '/learners-council/structure/terms': 'learners_council.structure.view',
+  '/learners-council/yuva': 'learners_council.structure.view',
+  '/learners-council/structure/verticals': 'learners_council.structure.view',
+  '/learners-council/structure/committees': 'learners_council.structure.view',
+  '/learners-council/communication': 'learners_council.communication.view',
+  '/learners-council/communication/polls': 'learners_council.communication.view',
+  '/learners-council/communication/forums': 'learners_council.communication.view',
+  '/learners-council/communication/chat': 'learners_council.communication.view',
+  '/learners-council/events': 'learners_council.events.view',
+  '/learners-council/events/calendar': 'learners_council.events.view',
+  '/learners-council/events/proposals': 'learners_council.events.view',
+  '/learners-council/od': 'learners_council.od.view',
+  '/learners-council/od/approvals': 'learners_council.od.view',
+  '/learners-council/od/chains': 'learners_council.od.view',
+  '/learners-council/selection': 'learners_council.selection.view',
+  '/learners-council/selection/nominations': 'learners_council.selection.view',
+  '/learners-council/selection/interviews': 'learners_council.selection.view',
+  '/learners-council/selection/elections': 'learners_council.selection.view',
+  '/learners-council/issues': 'learners_council.issues.view',
+  '/learners-council/settings': 'learners_council.settings.view',
+
+  // Campus Living Module
+  '/campus-living': 'campus_living.dashboard.view',
+  '/campus-living/blocks': 'campus_living.blocks.view',
+  '/campus-living/allocations': 'campus_living.allocations.view',
+  '/campus-living/allocations/roommate-matching': 'campus_living.allocations.view',
+  '/campus-living/residents': 'campus_living.residents.view',
+  '/campus-living/my-hostel': 'campus_living.vacate_requests.view_own',
+  '/campus-living/my-hostel/vacate-request': 'campus_living.vacate_requests.submit',
+  '/campus-living/vacate-requests': 'campus_living.vacate_requests.view',
+  '/campus-living/attendance': 'campus_living.attendance.view',
+  '/campus-living/leave': 'campus_living.leave.view',
+  '/campus-living/gate-passes': 'campus_living.gate_passes.view',
+  '/campus-living/mess': 'campus_living.mess.view',
+  '/campus-living/mess/menu': 'campus_living.mess.menu.view',
+  '/campus-living/mess/meals': 'campus_living.mess.meals.view',
+  '/campus-living/mess/billing': 'campus_living.mess.billing.view',
+  '/campus-living/mess/feedback': 'campus_living.mess.feedback.view',
+  '/campus-living/mess/waste': 'campus_living.mess.waste.view',
+  '/campus-living/visitors': 'campus_living.visitors.view',
+  '/campus-living/maintenance': 'campus_living.maintenance.view',
+  '/campus-living/maintenance/preventive': 'campus_living.maintenance.view',
+  '/campus-living/maintenance/preventive/tasks': 'campus_living.maintenance.view',
+  '/campus-living/allocations/onboarding': 'campus_living.allocations.view',
+  '/campus-living/allocations/onboarding/templates': 'campus_living.allocations.view',
+  '/campus-living/wellness': 'campus_living.wellness.view',
+  '/campus-living/wellness/surveys': 'campus_living.wellness.view',
+  '/campus-living/laundry': 'campus_living.laundry.view',
+  '/campus-living/laundry/orders': 'campus_living.laundry.view',
+  '/campus-living/laundry/schedule': 'campus_living.laundry.view',
+  '/campus-living/laundry/settings': 'campus_living.laundry.view',
+  '/campus-living/maintenance/contracts': 'campus_living.maintenance.view',
+  '/campus-living/housekeeping': 'campus_living.housekeeping.view',
+  '/campus-living/housekeeping/schedules': 'campus_living.housekeeping.view',
+  '/campus-living/housekeeping/tasks': 'campus_living.housekeeping.view',
+  '/campus-living/health': 'campus_living.health.view',
+  '/campus-living/dashboard': 'campus_living.dashboard.view',
+  '/campus-living/activity': 'campus_living.activity.view',
+  '/campus-living/calendar': 'campus_living.calendar.view',
+  '/campus-living/community': 'campus_living.community.view',
+  '/campus-living/community/settings': 'campus_living.community.manage',
+  '/campus-living/safety': 'campus_living.safety.view',
+  '/campus-living/safety/incidents': 'campus_living.safety.incidents.view',
+  '/campus-living/safety/anti-ragging': 'campus_living.safety.anti_ragging.view',
+  '/campus-living/safety/inspections': 'campus_living.safety.inspections.view',
+  '/campus-living/analytics': 'campus_living.analytics.view',
+  '/campus-living/reports': 'campus_living.reports.view',
+  '/campus-living/settings': 'campus_living.settings.view',
+  '/campus-living/settings/approval-chains': 'campus_living.approval_chains.view',
+
+  // Faculty Innovation Portfolio (spec v1.0.0 — 2026-04-15)
+  '/faculty/innovation': 'faculty_innovation.initiative.submit',
+  '/faculty/innovation/submit': 'faculty_innovation.initiative.submit',
+  '/faculty/innovation/portfolio': 'faculty_innovation.initiative.view_own',
+  '/faculty/innovation/approval-queue': 'faculty_innovation.initiative.approve',
+  '/faculty/innovation/collab-request': 'faculty_innovation.collab_request.create',
+
+  // Compliance Unification Program — Accreditation routes
+  '/accreditation': 'accreditation.view',                       // PR-A7 landing
+  '/accreditation/coverage': 'accreditation.coverage.view',     // PR-A7 coverage dashboard
+  '/accreditation/naac': 'accreditation.naac.view',             // PR-A8 c1 NAAC IQAC dashboard
+  '/accreditation/naac/committees': 'accreditation.naac.committees.view',         // PR-A8 c2
+  '/accreditation/naac/committees/[id]': 'accreditation.naac.committees.view',    // PR-A8 c2
+  '/accreditation/naac/dcf-export': 'accreditation.naac.dcf_export',              // PR-A8 c2 (super-admin)
+  '/accreditation/naac/surveys/consent': 'accreditation.naac.surveys.consent.submit',  // PR-A8 c2
+  '/accreditation/naac/surveys/8.4-export': 'accreditation.naac.surveys.export', // PR-A8 c2
+  '/accreditation/nirf': 'accreditation.nirf.view',             // PR-A9
+  '/accreditation/nba': 'accreditation.nba.view',               // PR-A10
+  '/accreditation/qs': 'accreditation.qs.view',                 // PR-A11 placeholder
+  '/accreditation/dci': 'accreditation.dci.view',               // PR-A12
+  '/accreditation/pci': 'accreditation.pci.view',               // PR-A13
+  '/accreditation/inc': 'accreditation.inc.view',               // PR-A14
+  '/accreditation/ncte': 'accreditation.ncte.view',             // PR-A15
+  '/accreditation/aicte': 'accreditation.aicte.view',           // PR-A15
+  '/accreditation/ugc': 'accreditation.ugc.view',               // PR-A15
+
+  // Events — Propose (Stream C, 2026-04-26)
+  '/events/propose': 'events.proposals.view',
+
+  // Audit Workflow Sprint 01
+  '/audit': 'audit.cycle.view',
+  '/audit/dashboard': 'audit.cycle.view',
+  '/audit/cycles': 'audit.cycle.view',
+  '/audit/cycles/new': 'audit.cycle.manage',
+  '/audit/cycles/[id]': 'audit.cycle.view',
+  '/audit/cycles/[id]/findings': 'audit.finding.view',
+  '/audit/cycles/[id]/parameters': 'audit.parameter.view',
+  '/audit/cycles/[id]/attestations': 'audit.attestation.view',
+  '/audit/findings': 'audit.finding.view',
+  '/audit/findings/[id]': 'audit.finding.view',
+  '/audit/my-findings': 'audit.finding.rectify',
+  '/audit/parameters': 'audit.parameter.view',
+  '/audit/parameters/[code]': 'audit.parameter.view',
+  '/audit/parameters/settings': 'audit.parameter.manage',
+  '/audit/finding-types/settings': 'audit.finding_type.manage',
+
+  // OKR Module (resurrected from clean-ss-deploy, PR #230)
+  '/okr': 'okr.view',
+  '/okr/objectives': 'okr.objectives.view',
+  '/okr/objectives/new': 'okr.objectives.create',
+  '/okr/objectives/create': 'okr.objectives.create',
+  '/okr/objectives/[id]': 'okr.objectives.view',
+  '/okr/objectives/[id]/edit': 'okr.objectives.edit',
+  '/okr/check-in': 'okr.checkin.view',
+  '/okr/analytics': 'okr.analytics.view',
+  '/okr/team': 'okr.team.view',
+  '/okr/department': 'okr.department.view',
+  '/okr/organization': 'okr.organization.view',
+  '/okr/cascade': 'okr.cascade.view',
+  '/okr/manage': 'okr.manage.view',
+  '/okr/admin/compliance': 'okr.admin.view',
+  '/okr/elective': 'okr.elective.view',
+  '/okr/elective/[id]': 'okr.elective.view',
+  '/okr/elective/[id]/edit': 'okr.elective.edit',
+  '/okr/abcd': 'okr.abcd.view',
+
+  // Billing — Payment chip (originally patched by PR #511, included here so
+  // this PR's gate exits 0 regardless of merge order between the two PRs.
+  // Trivial conflict-resolve if both land: identical entry on either side.)
+  '/billing/payment': 'billing.payment.view',
+
+  // Tier-2 chip-leak sweep (2026-04-27, PR follow-up to #511).
+  // The audit `comm -23 <find-pages> <sidebar-keys>` surfaced 23 routes that
+  // had a page.tsx but no MENU_PERMISSIONS entry — AutoTabNav defaults to
+  // "show" when a route has no entry (see auto-tab-nav.tsx:131), so these
+  // chips leaked to every role inside their parent module's tab strip.
+  // Routes considered always-visible (dashboard / notifications) are NOT
+  // mapped here — they go in the AutoTabNav allow-list and the new
+  // tier-2-coverage gate's allow-list. Keys without a catalog entry yet are
+  // added in the same PR to lib/constants/permissions.ts.
+
+  // Academic — Course Grades (Faculty LTI grade view, see comment in page.tsx)
+  '/academic/course-grades': 'academic.course-grades.view',
+
+  // Academic — Leave/OnDuty parent landing (redirects to /approvals)
+  '/academic/leave-onduty': 'academic.leave_onduty.approve',
+
+  // Administration
+  '/admin/reset-driver-passwords': 'admin.reset_driver_passwords.manage',
+  '/admin/saml': 'admin.saml.manage',
+
+  // Audit Workflow — External Auditor admin UI (page.tsx says
+  // "Permission: super_admin or audit.external_auditor.manage")
+  '/audit/external-auditors': 'audit.external_auditor.manage',
+
+  // Board of Studies — five tier-2 sub-pages under /bos
+  '/bos/compositions': 'bos.compositions.view',
+  '/bos/experts': 'bos.experts.view',
+  '/bos/meetings': 'bos.meetings.view',
+  '/bos/reports': 'bos.reports.view',
+  '/bos/ta-da': 'bos.ta_da.view',
+
+  // OKR — admin landing (redirects to /okr/admin/compliance which is gated
+  // by okr.admin.view; reuse the same key on the parent)
+  '/okr/admin': 'okr.admin.view',
+
+  // Solutions Hub
+  '/solutions/new': 'solutions.dashboard.view',
+  '/solutions/settings': 'solutions.settings.view',
+
+  // Startup Studio — five tier-2 sub-pages
+  '/startup-studio/analytics': 'startup_studio.analytics.view',
+  '/startup-studio/cycles': 'startup_studio.cycles.view',
+  '/startup-studio/nif': 'startup_studio.nif.view',
+  '/startup-studio/problem-bank': 'startup_studio.problem_bank.view',
+  '/startup-studio/submissions': 'startup_studio.submissions.view',
+
+  // User Management — new user form (creator-only)
+  '/users/new': 'users.create',
+
+  // Menu-coverage baseline cleanup (2026-04-27, follow-up to PR #511 / #515).
+  // The check:menu-coverage gate flagged 30 sidebar hrefs with no
+  // MENU_PERMISSIONS entry — without these mappings, every non-super-admin
+  // role saw an empty link list under Administration, Health & Wellness,
+  // Events (marathon submenu), Faculty (PDE submenu), Admin (PDE submenu),
+  // and Board of Studies. Each entry below maps to either an existing
+  // catalogued key or to a key newly added in lib/constants/permissions.ts
+  // in this same PR (Events + Health categories, plus pde.admin.* /
+  // pde.faculty.* sub-keys under existing PDE category).
+
+  // Academic — student-facing "My Privileges" landing (mirrors /learners/privileges/my)
+  '/academic/privileges/my': 'learners.privileges.view',
+
+  // Administration parent landing
+  '/admin': 'admin.view',
+
+  // Administration — LTI Dashboard (admin surface for LTI tools, distinct from
+  // sub-pages /admin/lti/{analytics,grade-sync,launches} which already have entries)
+  '/admin/lti': 'lti.monitor',
+
+  // Administration — PDE admin tree (Super Admin / IQAC / Lifecycle leads)
+  '/admin/pde': 'pde.admin.view',
+  '/admin/pde/assessments': 'pde.admin.assessments.view',
+  '/admin/pde/at-risk': 'pde.admin.at_risk.view',
+  '/admin/pde/capabilities': 'pde.admin.capabilities.view',
+  '/admin/pde/engagement': 'pde.admin.engagement.view',
+  '/admin/pde/lti': 'pde.admin.lti.view',
+  '/admin/pde/quests': 'pde.admin.quests.view',
+
+  // Board of Studies — parent landing (children /bos/{compositions,experts,...} above)
+  '/bos': 'bos.view',
+
+  // Events — Marathon submenu (companion to existing /events/propose entry)
+  '/events/marathon': 'events.marathon.view',
+  '/events/marathon/new': 'events.marathon.create',
+
+  // Faculty — PDE faculty tree (Faculty / HOD / Mentor surface)
+  '/faculty/pde': 'pde.faculty.view',
+  '/faculty/pde/analytics': 'pde.faculty.analytics.view',
+  '/faculty/pde/assessments': 'pde.faculty.assessments.view',
+  '/faculty/pde/dashboard': 'pde.faculty.dashboard.view',
+  '/faculty/pde/demonstrations': 'pde.faculty.demonstrations.view',
+  '/faculty/pde/quests': 'pde.faculty.quests.view',
+
+  // Health & Wellness — 9 tier-2 surfaces (parent /health is a PARENT in the
+  // sidebar so it's auto-shown when any child is grantable)
+  '/health/dashboard': 'health.dashboard.view',
+  '/health/profile': 'health.profile.view',
+  '/health/leaderboard': 'health.leaderboard.view',
+  '/health/sports': 'health.sports.view',
+  '/health/fitness': 'health.fitness.view',
+  '/health/training': 'health.training.view',
+  '/health/achievements': 'health.achievements.view',
+  '/health/assessments': 'health.assessments.view',
+  '/health/counselor': 'health.counselor.view',
+
+  // Learners — Leave/OnDuty parent landing (children /learners/leave-onduty/{apply,my-applications} above)
+  '/learners/leave-onduty': 'learners.leave_onduty.view',
+
+  // Service Requests — All Services chip (admin/staff cross-institution view)
+  '/service-requests/all-services': 'service_requests.view_all',
 };
 
+/**
+ * GetPages — sidebar tree builder.
+ *
+ * **Wave 2b PR-S2 (2026-04-24):** Structural rewrite per
+ * `specs/mobile-sidebar-bottomnav-spec.md` (D2):
+ *   - One module row per top-level URL prefix under each section header.
+ *   - Sub-entries that used to render inline are now PRESERVED AS DATA on
+ *     the module row's `submenus[]` field — the renderer in
+ *     `components/Navbar/menu.tsx` no longer renders them inline. PR-S3
+ *     will consume these sub-entries as the flyout panel source.
+ *   - Each module row's `href` points at its module root (`/<slug>`) per
+ *     D3. Sub-entries keep their exact original href/label/active logic
+ *     so the flyout can drop straight in without re-deriving them.
+ *   - `GetRoleBasedPages` permission filter is UNCHANGED: a module row is
+ *     visible if the user has permission on the parent href OR on ANY of
+ *     its submenus (existing logic at line ~2197). This preserves current
+ *     per-role sidebar visibility exactly — no regressions.
+ *
+ * Dead entries removed:
+ *   - `/documents` section — no `app/(routes)/documents` page exists on
+ *     prod; flagged during PR #409 sweep.
+ */
 export function GetPages(pathname: string): MenuGroup[] {
   return [
     {
@@ -451,894 +919,271 @@ export function GetPages(pathname: string): MenuGroup[] {
       groupLabel: 'User Management',
       menus: [
         {
-          href: '/users/dashboard',
-          label: 'Analytics Dashboard',
-          active: pathname === '/users/dashboard',
-          icon: BarChart,
-          submenus: []
-        },
-        {
+          // Single module row — all user-management sub-entries (Analytics
+          // Dashboard, Roles, Role Management, Activity, Permissions Audit)
+          // collapse into `submenus[]` as DATA for the PR-S3 flyout.
           href: '/users',
-          label: 'All Users',
-          active: pathname === '/users',
+          label: 'Users',
+          active: pathname === '/users' || pathname.startsWith('/users/'),
           icon: Users,
-          submenus: []
-        },
-        {
-          href: '/users/roles',
-          label: 'Roles Assignment',
-          active: pathname === '/users/roles',
-          icon: Shield,
-          submenus: []
-        },
-        {
-          href: '/users/role-management',
-          label: 'Role Management',
-          active: pathname === '/users/role-management',
-          icon: Settings,
-          submenus: []
-        },
-        {
-          href: '/users/activity',
-          label: 'Activity Audit Logs',
-          active: pathname === '/users/activity',
-          icon: ClipboardCheck,
-          submenus: []
+          submenus: [
+            { href: '/users/dashboard', label: 'Analytics Dashboard', active: pathname === '/users/dashboard' },
+            { href: '/users', label: 'All Users', active: pathname === '/users' },
+            { href: '/users/roles', label: 'Roles Assignment', active: pathname === '/users/roles' },
+            { href: '/users/role-management', label: 'Role Management', active: pathname === '/users/role-management' },
+            { href: '/users/activity', label: 'Activity Audit Logs', active: pathname === '/users/activity' },
+            { href: '/users/permissions-audit', label: 'Permissions Audit', active: pathname === '/users/permissions-audit' },
+          ]
         }
       ]
     },
     {
+      // Wave 2 merged 'Application Management' into 'Applications'.
       groupLabel: 'Applications',
       menus: [
         {
-          href: '/application-hub/api-guidelines',
-          label: 'API Guidelines',
-          active: pathname === '/application-hub/api-guidelines',
-          icon: BookOpen, // or any other icon you prefer
-          submenus: []
-        },
-        {
           href: '/application-hub',
           label: 'Application Hub',
-          active: pathname === '/application-hub',
-          icon: LayoutGrid, // or any other icon you prefer
-          submenus: []
-        }
-      ]
-    },
-    {
-      groupLabel: 'Application Management',
-      menus: [
+          active: pathname === '/application-hub' || pathname.startsWith('/application-hub/'),
+          icon: LayoutGrid,
+          submenus: [
+            { href: '/application-hub', label: 'Application Hub', active: pathname === '/application-hub' },
+            { href: '/application-hub/api-guidelines', label: 'API Guidelines', active: pathname === '/application-hub/api-guidelines' },
+          ]
+        },
         {
           href: '/applications',
-          label: 'All Applications',
-          active: pathname === '/applications',
+          label: 'Applications',
+          active: pathname === '/applications' || pathname.startsWith('/applications/'),
           icon: TabletSmartphone,
-          submenus: []
-        },
-        {
-          href: '/applications/new',
-          label: 'Add New Application',
-          active: pathname === '/applications/new',
-          icon: Box,
-          submenus: []
-        },
-        {
-          href: '/applications/categories',
-          label: 'Categories & Subcategories',
-          active: pathname === '/applications/categories',
-          icon: Tags,
-          submenus: []
+          submenus: [
+            { href: '/applications', label: 'All Applications', active: pathname === '/applications' },
+            { href: '/applications/new', label: 'Add New Application', active: pathname === '/applications/new' },
+            { href: '/applications/categories', label: 'Categories & Subcategories', active: pathname === '/applications/categories' },
+          ]
         }
       ]
     },
-
     {
-      groupLabel: 'Organization Management',
+      groupLabel: 'Organization',
       menus: [
         {
-          href: '/organizations/dashboard',
-          label: 'Dashboard',
-          active: pathname.startsWith('/organizations/dashboard'),
-          icon: LayoutGrid,
-          submenus: []
-        },
-        {
-          href: '/organizations/institutions',
-          label: 'Institutions',
-          active: pathname.startsWith('/organizations/institutions'),
+          href: '/organizations',
+          label: 'Organizations',
+          active: pathname === '/organizations' || pathname.startsWith('/organizations/'),
           icon: Building,
-          submenus: []
-        },
+          submenus: [
+            { href: '/organizations/dashboard', label: 'Dashboard', active: pathname.startsWith('/organizations/dashboard') },
+            { href: '/organizations/institutions', label: 'Institutions', active: pathname.startsWith('/organizations/institutions') },
+            { href: '/organizations/degrees', label: 'Degrees', active: pathname.startsWith('/organizations/degrees') },
+            { href: '/organizations/departments', label: 'Departments', active: pathname.startsWith('/organizations/departments') },
+            { href: '/organizations/programs', label: 'Programs', active: pathname.startsWith('/organizations/programs') },
+            { href: '/organizations/semesters', label: 'Semesters', active: pathname.startsWith('/organizations/semesters') },
+            { href: '/organizations/sections', label: 'Sections', active: pathname.startsWith('/organizations/sections') },
+            { href: '/organizations/courses', label: 'Courses', active: pathname.startsWith('/organizations/courses') },
+            { href: '/organizations/courses/mappings', label: 'Course Mappings', active: pathname === '/organizations/courses/mappings' },
+          ]
+        }
+      ]
+    },
+    {
+      groupLabel: 'Academic',
+      menus: [
+        // Single sidebar entry — all Academic navigation lives in the
+        // module's in-page tab bar (AcademicNav, see app/(routes)/academic/
+        // _components/academic-nav.tsx). Mirrors Campus Living + Learners
+        // Council + Admission CRM. Per-section SectionSubNavs for Leaves,
+        // Leave/OnDuty, Privileges, Timetables, Attendance.
+        //
+        // Why: flat sidebar (1 entry per module) + in-page tabs scales
+        // across JKKN's 8+ high-traffic modules. URLs UNCHANGED — preserves
+        // faculty daily workflow bookmarks.
         {
-          href: '/organizations/degrees',
-          label: 'Degrees',
-          active: pathname.startsWith('/organizations/degrees'),
-          icon: Boxes,
-          submenus: []
-        },
-        {
-          href: '/organizations/departments',
-          label: 'Departments',
-          active: pathname.startsWith('/organizations/departments'),
-          icon: Flame,
-          submenus: []
-        },
-        {
-          href: '/organizations/programs',
-          label: 'Programs',
-          active: pathname.startsWith('/organizations/programs'),
+          // D3: click → module root. `/academic` resolves to the in-page
+          // AcademicNav (nav-config.ts) which handles all drill-down.
+          href: '/academic',
+          label: 'Academic',
+          active: pathname === '/academic' || pathname.startsWith('/academic/'),
           icon: GraduationCap,
           submenus: []
         },
         {
-          href: '/organizations/semesters',
-          label: 'Semesters',
-          active: pathname.startsWith('/organizations/semesters'),
-          icon: CalendarDays,
+          // Board of Studies — institutional governance + expert management.
+          // Navigation lives in the module's in-page tab bar (BOS_NAV_TABS,
+          // see app/(routes)/bos/layout.tsx) and nav-config.ts.
+          href: '/bos',
+          label: 'Board of Studies',
+          active: pathname === '/bos' || pathname.startsWith('/bos/'),
+          icon: ClipboardList,
           submenus: []
-        },
-        {
-          href: '/organizations/sections',
-          label: 'Sections',
-          active: pathname.startsWith('/organizations/sections'),
-          icon: BookOpen,
-          submenus: []
-        },
-        {
-          href: '/organizations/courses',
-          label: 'Courses',
-          active: pathname === '',
-          icon: BookOpen,
-          submenus: [
-            {
-              href: '/organizations/courses',
-              label: 'All Courses',
-              active: pathname === '/organizations/courses'
-            },
-            {
-              href: '/organizations/courses/mappings',
-              label: 'Course Mappings',
-              active: pathname === '/organizations/courses/mappings'
-            }
-          ]
         }
       ]
     },
     {
-      groupLabel: 'Academic Management',
+      groupLabel: 'Campus Living',
       menus: [
+        // Single sidebar entry — all Campus Living navigation lives in the
+        // module's in-page tab bar (CLNav, see app/(routes)/campus-living/
+        // _components/cl-nav.tsx). This mirrors the Learners Council pattern
+        // where the sidebar shows only "Learners Council" as one entry.
+        //
+        // Why: deep sidebar nesting doesn't scale across 8+ modules. The
+        // in-page tab pattern keeps the sidebar flat (1 entry per module)
+        // and puts workflow-specific navigation adjacent to the content.
         {
-          href: '/academic/years',
-          label: 'Academic Years',
-          active: pathname === '/academic/years',
-          icon: CalendarDays,
+          href: '/campus-living',
+          label: 'Campus Living',
+          active: pathname === '/campus-living' || pathname.startsWith('/campus-living/'),
+          icon: Hotel,
           submenus: []
-        },
-        {
-          href: '/academic/regulations',
-          label: 'Regulations',
-          active: pathname.startsWith('/academic/regulations'),
-          icon: Bookmark,
-          submenus: []
-        },
-        {
-          href: '/academic/batches',
-          label: 'Batches',
-          active: pathname.startsWith('/academic/batches'),
-          icon: Boxes,
-          submenus: []
-        },
-        {
-          href: '/academic/periods',
-          label: 'Periods',
-          active: pathname === '/academic/periods',
-          icon: Clock,
-          submenus: []
-        },
-        {
-          href: '/academic/leave-calendar',
-          label: 'Leave Calendar',
-          active: pathname === '/academic/leave-calendar',
-          icon: Calendar,
-          submenus: []
-        },
-        {
-          href: '/academic/leaves',
-          label: 'Leave Management',
-          active: pathname.startsWith('/academic/leaves'),
-          icon: CalendarX2,
-          submenus: [
-            {
-              href: '/academic/leaves',
-              label: 'All Leaves',
-              active: pathname === '/academic/leaves'
-            },
-            {
-              href: '/academic/leaves/settings/types',
-              label: 'Leave Types',
-              active: pathname === '/academic/leaves/settings/types'
-            },
-            {
-              href: '/academic/leaves/settings/workflows',
-              label: 'Approval Workflows',
-              active: pathname === '/academic/leaves/settings/workflows'
-            }
-          ]
-        },
-        {
-          href: '/academic/leave-onduty',
-          label: 'Leave/OnDuty',
-          active: pathname.startsWith('/academic/leave-onduty'),
-          icon: Briefcase,
-          submenus: [
-            {
-              href: '/academic/leave-onduty/approvals',
-              label: 'Approvals',
-              active: pathname === '/academic/leave-onduty/approvals'
-            },
-            {
-              href: '/academic/leave-onduty/settings',
-              label: 'Workflow Settings',
-              active: pathname === '/academic/leave-onduty/settings'
-            },
-            {
-              href: '/academic/leave-onduty/reports',
-              label: 'Reports',
-              active: pathname === '/academic/leave-onduty/reports'
-            }
-          ]
-        },
-        {
-          href: '/academic/staff-planning',
-          label: 'Staff Planning',
-          active: pathname === '/academic/staff-planning',
-          icon: UserSearch,
-          submenus: []
-        },
-        {
-          href: '/academic/timetables',
-          label: 'Timetables',
-          active: pathname.startsWith('/academic/timetables'),
-          icon: CalendarClock,
-          submenus: [
-            {
-              href: '/academic/timetables',
-              label: 'Manage Timetables',
-              active: pathname === '/academic/timetables'
-            },
-            {
-              href: '/academic/timetables/templates',
-              label: 'Template Library',
-              active: pathname.startsWith('/academic/timetables/templates')
-            },
-            {
-              href: '/academic/timetables/faculty-calendar',
-              label: 'Timetable Calendar',
-              active: pathname.startsWith(
-                '/academic/timetables/faculty-calendar'
-              )
-            }
-          ]
-        },
-        {
-          href: '/academic/attendance',
-          label: 'Attendance',
-          active: pathname.startsWith('/academic/attendance'),
-          icon: ClipboardCheck,
-          submenus: [
-            {
-              href: '/academic/attendance/dashboard',
-              label: 'Attendance Dashboard',
-              active: pathname.startsWith('/academic/attendance/dashboard')
-            },
-            {
-              href: '/academic/attendance/pending',
-              label: 'Pending Attendance',
-              active: pathname.startsWith('/academic/attendance/pending')
-            },
-            {
-              href: '/academic/attendance',
-              label: 'Mark Attendance',
-              active: pathname === '/academic/attendance'
-            },
-            {
-              href: '/academic/attendance/reports',
-              label: 'Attendance Reports',
-              active: pathname.startsWith('/academic/attendance/reports')
-            },
-            {
-              href: '/academic/attendance/consolidation',
-              label: 'Consolidation Reports',
-              active: pathname.startsWith('/academic/attendance/consolidation')
-            }
-          ]
         }
+
+        // ↓ Previous nested structure removed. All routes remain reachable
+        // via the CLNav tab bar (Overview, Dashboard, Residents, Attendance,
+        // Services, Facility, Community, Insights, Settings) and per-section
+        // SectionSubNav components. URLs are UNCHANGED — no bookmarks break.
       ]
     },
     {
       groupLabel: 'Admission CRM',
       menus: [
+        // Single sidebar entry — all Admission navigation lives in the module's
+        // in-page tab bar (AdmissionNav, see app/(routes)/admission/
+        // _components/admission-nav.tsx). Mirrors Campus Living + Learners
+        // Council. Section sub-tabs (Marketing, Counselors, Consultants,
+        // Data Quality, Settings) render via per-section SectionSubNav.
+        //
+        // Why: flat sidebar (1 entry per module) + in-page tabs keeps nav
+        // adjacent to content. URLs are UNCHANGED — no bookmarks break.
         {
-          href: '/admission/dashboard',
-          label: 'Dashboard',
-          active: pathname === '/admission/dashboard',
-          icon: LayoutGrid,
+          // D3: click → module root. `/admission` renders AdmissionNav with
+          // section sub-tabs (Marketing, Counselors, Consultants, etc).
+          href: '/admission',
+          label: 'Admission CRM',
+          active: pathname === '/admission' || pathname.startsWith('/admission/'),
+          icon: UserCheck,
           submenus: []
-        },
-        {
-          href: '/admission/analytics',
-          label: 'Analytics',
-          active: pathname === '/admission/analytics',
-          icon: LineChart,
-          submenus: []
-        },
-        {
-          href: '/admission/group-dashboard',
-          label: 'Group Dashboard',
-          active: pathname === '/admission/group-dashboard',
-          icon: Building2,
-          submenus: []
-        },
-        {
-          href: '/admission/leads',
-          label: 'Leads',
-          active: pathname.startsWith('/admission/leads'),
-          icon: UserPlus,
-          submenus: [
-            {
-              href: '/admission/leads',
-              label: 'All Leads',
-              active: pathname === '/admission/leads'
-            },
-            {
-              href: '/admission/leads/new',
-              label: 'New Lead',
-              active: pathname === '/admission/leads/new'
-            }
-          ]
-        },
-        {
-          href: '/admission/applications',
-          label: 'Applications',
-          active: pathname.startsWith('/admission/applications'),
-          icon: FileText,
-          submenus: []
-        },
-        {
-          href: '/admission/counselors',
-          label: 'Counselors',
-          active: pathname.startsWith('/admission/counselors'),
-          icon: HeadphonesIcon,
-          submenus: [
-            {
-              href: '/admission/counselors',
-              label: 'All Counselors',
-              active: pathname === '/admission/counselors'
-            },
-            {
-              href: '/admission/counselors/daily-view',
-              label: 'Daily View',
-              active: pathname === '/admission/counselors/daily-view'
-            },
-            {
-              href: '/admission/counselors/calls',
-              label: 'Call Logs',
-              active: pathname === '/admission/counselors/calls'
-            },
-            {
-              href: '/admission/counselors/reminders',
-              label: 'Reminders',
-              active: pathname === '/admission/counselors/reminders'
-            },
-            {
-              href: '/admission/counselors/alerts',
-              label: 'Activity Alerts',
-              active: pathname === '/admission/counselors/alerts'
-            },
-            {
-              href: '/admission/counselors/briefing',
-              label: 'Daily Briefing',
-              active: pathname === '/admission/counselors/briefing'
-            },
-            {
-              href: '/admission/counselors/team',
-              label: 'Team',
-              active: pathname.startsWith('/admission/counselors/team')
-            }
-          ]
-        },
-        {
-          href: '/admission/consultants',
-          label: 'Consultants',
-          active: pathname.startsWith('/admission/consultants'),
-          icon: UserCog,
-          submenus: [
-            {
-              href: '/admission/consultants',
-              label: 'All Consultants',
-              active: pathname === '/admission/consultants'
-            },
-            {
-              href: '/admission/consultants/new',
-              label: 'Add Consultant',
-              active: pathname === '/admission/consultants/new'
-            },
-            {
-              href: '/admission/consultants/commissions',
-              label: 'Commissions',
-              active: pathname === '/admission/consultants/commissions'
-            },
-            {
-              href: '/admission/consultants/referrals',
-              label: 'Referrals',
-              active: pathname === '/admission/consultants/referrals'
-            },
-            {
-              href: '/admission/consultants/rewards',
-              label: 'Rewards',
-              active: pathname === '/admission/consultants/rewards'
-            },
-            {
-              href: '/admission/consultants/analytics',
-              label: 'Analytics',
-              active: pathname === '/admission/consultants/analytics'
-            }
-          ]
-        },
-        {
-          href: '/admission/insights',
-          label: 'AI Insights',
-          active: pathname.startsWith('/admission/insights'),
-          icon: Sparkles,
-          submenus: []
-        },
-        {
-          href: '/admission/marketing',
-          label: 'Marketing',
-          active: pathname.startsWith('/admission/marketing'),
-          icon: Megaphone,
-          submenus: [
-            {
-              href: '/admission/marketing/campaigns/monitoring',
-              label: 'Campaign Monitor',
-              active: pathname === '/admission/marketing/campaigns/monitoring'
-            },
-            {
-              href: '/admission/marketing/campaigns/roi',
-              label: 'Campaign ROI',
-              active: pathname === '/admission/marketing/campaigns/roi'
-            },
-            {
-              href: '/admission/marketing/campaigns/segments',
-              label: 'Segments',
-              active: pathname === '/admission/marketing/campaigns/segments'
-            },
-            {
-              href: '/admission/marketing/chat',
-              label: 'WhatsApp Chat',
-              active: pathname.startsWith('/admission/marketing/chat')
-            },
-            {
-              href: '/admission/marketing/chatbot',
-              label: 'Chatbot',
-              active: pathname.startsWith('/admission/marketing/chatbot')
-            },
-            {
-              href: '/admission/marketing/parent-communication',
-              label: 'Parent Communication',
-              active: pathname === '/admission/marketing/parent-communication'
-            },
-            {
-              href: '/admission/marketing/re-engagement',
-              label: 'Re-engagement',
-              active: pathname === '/admission/marketing/re-engagement'
-            },
-            {
-              href: '/admission/marketing/remarketing',
-              label: 'Remarketing',
-              active: pathname === '/admission/marketing/remarketing'
-            },
-            {
-              href: '/admission/marketing/voice-agents',
-              label: 'Voice Agents',
-              active: pathname === '/admission/marketing/voice-agents'
-            },
-            {
-              href: '/admission/marketing/voice-broadcast',
-              label: 'Voice Broadcast',
-              active: pathname === '/admission/marketing/voice-broadcast'
-            },
-            {
-              href: '/admission/marketing/database',
-              label: 'Database',
-              active: pathname === '/admission/marketing/database'
-            },
-            {
-              href: '/admission/marketing/publishers',
-              label: 'Publishers',
-              active: pathname === '/admission/marketing/publishers'
-            },
-            {
-              href: '/admission/marketing/expos',
-              label: 'Expos',
-              active: pathname.startsWith('/admission/marketing/expos')
-            },
-            {
-              href: '/admission/marketing/expos/masters',
-              label: 'Expo Masters',
-              active: pathname === '/admission/marketing/expos/masters'
-            },
-            {
-              href: '/admission/marketing/expos/analytics',
-              label: 'Expo Analytics',
-              active: pathname === '/admission/marketing/expos/analytics'
-            },
-          ]
-        },
-        {
-          href: '/admission/data-quality',
-          label: 'Data Quality',
-          active: pathname.startsWith('/admission/data-quality'),
-          icon: SearchCheck,
-          submenus: [
-            {
-              href: '/admission/data-quality/data-profiling',
-              label: 'Data Profiling',
-              active: pathname === '/admission/data-quality/data-profiling'
-            },
-            {
-              href: '/admission/data-quality/deduplication',
-              label: 'Deduplication',
-              active: pathname === '/admission/data-quality/deduplication'
-            },
-            {
-              href: '/admission/data-quality/phone-validation',
-              label: 'Phone Validation',
-              active: pathname === '/admission/data-quality/phone-validation'
-            }
-          ]
-        },
-        {
-          href: '/admission/settings',
-          label: 'Settings',
-          active: pathname.startsWith('/admission/settings'),
-          icon: Settings,
-          submenus: [
-            {
-              href: '/admission/settings',
-              label: 'General Settings',
-              active: pathname === '/admission/settings'
-            },
-            {
-              href: '/admission/settings/workflows',
-              label: 'Workflows',
-              active: pathname === '/admission/settings/workflows'
-            },
-            {
-              href: '/admission/settings/workflow-config',
-              label: 'Workflow Config',
-              active: pathname === '/admission/settings/workflow-config'
-            },
-            {
-              href: '/admission/settings/assignment-rules',
-              label: 'Assignment Rules',
-              active: pathname === '/admission/settings/assignment-rules'
-            },
-            {
-              href: '/admission/settings/sources',
-              label: 'Lead Sources',
-              active: pathname === '/admission/settings/sources'
-            },
-            {
-              href: '/admission/settings/templates',
-              label: 'Templates',
-              active: pathname.startsWith('/admission/settings/templates')
-            },
-            {
-              href: '/admission/settings/whatsapp-numbers',
-              label: 'WhatsApp Numbers',
-              active: pathname === '/admission/settings/whatsapp-numbers'
-            }
-          ]
         }
       ]
     },
 
     {
-      groupLabel: 'Facilitators Management',
+      // Wave 2 merged 'Employee Management' into 'Human Resources'.
+      groupLabel: 'Human Resources',
       menus: [
         {
-          href: '/staff/dashboard',
-          label: 'Analytics Dashboard',
-          active: pathname === '/staff/dashboard',
-          icon: BarChart,
-          submenus: []
-        },
-        {
-          href: '/staff/category',
-          label: 'Facilitators Category',
-          active: pathname === '/staff/category',
-          icon: Tags,
-          submenus: []
-        },
-        {
-          href: '/staff/list',
-          label: 'Facilitators List',
-          active: pathname === '/staff/list',
+          href: '/staff',
+          label: 'Staff',
+          active: pathname === '/staff' || pathname.startsWith('/staff/'),
           icon: Users,
-          submenus: []
+          submenus: [
+            { href: '/staff/dashboard', label: 'Analytics Dashboard', active: pathname === '/staff/dashboard' },
+            { href: '/staff/category', label: 'Employee Category', active: pathname === '/staff/category' },
+            { href: '/staff/list', label: 'Employee List', active: pathname === '/staff/list' },
+            { href: '/staff/class-incharges', label: 'Class Incharges', active: pathname.startsWith('/staff/class-incharges') },
+          ]
         },
         {
-          href: '/staff/class-incharges',
-          label: 'Class Incharges',
-          active: pathname.startsWith('/staff/class-incharges'),
-          icon: UserCheck,
-          submenus: []
+          href: '/hr',
+          label: 'HR',
+          active: pathname === '/hr' || pathname.startsWith('/hr/'),
+          icon: Building,
+          submenus: [
+            { href: '/hr', label: 'HR Command Center', active: pathname === '/hr' },
+            { href: '/hr/employees', label: 'Non-Staff Workforce', active: pathname.startsWith('/hr/employees') },
+            { href: '/hr/policies', label: 'Policies', active: pathname.startsWith('/hr/policies') },
+            { href: '/hr/leave', label: 'Leave', active: pathname.startsWith('/hr/leave') },
+            { href: '/hr/leave/apply', label: 'Leave · Apply', active: pathname === '/hr/leave/apply' },
+            { href: '/hr/leave/my-applications', label: 'Leave · My Applications', active: pathname === '/hr/leave/my-applications' },
+            { href: '/hr/leave/approve', label: 'Leave · Approve Inbox', active: pathname === '/hr/leave/approve' },
+            { href: '/hr/leave/calendar', label: 'Leave · Calendar', active: pathname === '/hr/leave/calendar' },
+            { href: '/hr/leave/balance', label: 'Leave · Balance', active: pathname === '/hr/leave/balance' },
+            { href: '/hr/leave/encashment', label: 'Leave · Encashment', active: pathname === '/hr/leave/encashment' },
+            { href: '/hr/recruitment', label: 'Recruitment', active: pathname.startsWith('/hr/recruitment') },
+            { href: '/hr/recruitment/submit', label: 'Recruitment · Submit Candidate', active: pathname === '/hr/recruitment/submit' },
+            { href: '/hr/recruitment/my', label: 'Recruitment · My Candidates', active: pathname === '/hr/recruitment/my' },
+            { href: '/hr/recruitment/approvals', label: 'Recruitment · Approvals', active: pathname === '/hr/recruitment/approvals' },
+          ]
         }
       ]
     },
     {
       groupLabel: 'Learners',
       menus: [
-        // Learner Portal (Student Self-Service) - Only for role='student'
         {
-          href: '/learners/my-timetable',
-          label: 'My Timetable',
-          active: pathname === '/learners/my-timetable',
-          icon: CalendarClock,
-          submenus: []
-        },
-        {
-          href: '/learners/my-attendance',
-          label: 'My Attendance',
-          active: pathname.startsWith('/learners/my-attendance'),
-          icon: ClipboardCheck,
-          submenus: []
-        },
-        {
-          href: '/learners/my-profile',
-          label: 'My Profile',
-          active: pathname === '/learners/my-profile',
-          icon: Users,
-          submenus: []
-        },
-        {
-          href: '/learners/leave-onduty/my-applications',
-          label: 'Leave/OnDuty',
-          active: pathname.startsWith('/learners/leave-onduty'),
-          icon: Briefcase,
-          submenus: []
-        },
-
-        // Admin Features
-        {
-          href: '/learners/analytics',
-          label: 'Analytics Dashboard',
-          active: pathname.startsWith('/learners/analytics'),
-          icon: BarChart,
-          submenus: []
-        },
-        {
-          href: '/learners/enquiries',
-          label: 'Admission Management',
-          active: pathname.startsWith('/learners/enquiries') || pathname.startsWith('/learners/applications'),
-          icon: ClipboardCheck,
+          // Single module row — portal pages (my-*, leave-onduty) + admin
+          // pages (profiles, alumni, analytics, enquiries, change-requests)
+          // all collapse into `submenus[]`. GetRoleBasedPages still gates
+          // student-only portal entries (the `/learners/my-` / leave-onduty
+          // check at line ~2189 operates on the submenus array intact).
+          href: '/learners',
+          label: 'Learners',
+          active: pathname === '/learners' || pathname.startsWith('/learners/'),
+          icon: GraduationCap,
           submenus: [
-            {
-              href: '/learners/enquiries',
-              label: 'All Enquiries',
-              active: pathname === '/learners/enquiries'
-            },
-            {
-              href: '/learners/enquiries/new',
-              label: 'New Enquiry',
-              active: pathname === '/learners/enquiries/new'
-            }
+            // Student portal (role=student — filtered downstream)
+            { href: '/learners/my-timetable', label: 'My Timetable', active: pathname === '/learners/my-timetable' },
+            { href: '/learners/my-attendance', label: 'My Attendance', active: pathname.startsWith('/learners/my-attendance') },
+            { href: '/learners/my-profile', label: 'My Profile', active: pathname === '/learners/my-profile' },
+            { href: '/learners/leave-onduty', label: 'Leave/OnDuty · Landing', active: pathname === '/learners/leave-onduty' },
+            { href: '/learners/leave-onduty/my-applications', label: 'Leave/OnDuty · My Applications', active: pathname === '/learners/leave-onduty/my-applications' },
+            { href: '/learners/leave-onduty/apply', label: 'Leave/OnDuty · Apply', active: pathname === '/learners/leave-onduty/apply' },
+            { href: '/academic/privileges/my', label: 'My Privileges', active: pathname.startsWith('/academic/privileges/my') },
+            // Admin
+            { href: '/learners/analytics', label: 'Analytics Dashboard', active: pathname.startsWith('/learners/analytics') },
+            { href: '/learners/enquiries', label: 'Admission · All Admitted', active: pathname === '/learners/enquiries' },
+            { href: '/learners/enquiries/new', label: 'Admission · New Admitted', active: pathname === '/learners/enquiries/new' },
+            { href: '/learners/profiles', label: 'Learner Profiles', active: pathname.startsWith('/learners/profiles') },
+            { href: '/learners/alumni', label: 'Alumni & Graduates', active: pathname.startsWith('/learners/alumni') },
+            { href: '/learners/change-requests', label: 'Change Requests', active: pathname.startsWith('/learners/change-requests') },
           ]
-        },
-        {
-          href: '/learners/profiles',
-          label: 'Learner Profiles',
-          active: pathname.startsWith('/learners/profiles'),
-          icon: Users,
-          submenus: [
-            {
-              href: '/learners/profiles',
-              label: 'All Profiles',
-              active: pathname === '/learners/profiles'
-            }
-           
-          ]
-        },
-        {
-          href: '/learners/alumni',
-          label: 'Alumni & Graduates',
-          active: pathname.startsWith('/learners/alumni'),
-          icon: Award,
-          submenus: []
-        },
-        {
-          href: '/learners/change-requests',
-          label: 'Change Requests',
-          active: pathname.startsWith('/learners/change-requests'),
-          icon: FileCheck,
-          submenus: []
         }
       ]
     },
-
-
-    // NEW: Unified Learners Module (Will replace old modules)
-
-   
     {
-      groupLabel: 'Accounts',
+      groupLabel: 'Billing & Accounts',
       menus: [
         {
-          href: '/billing/categories',
-          label: 'Categories',
-          active: pathname.startsWith('/billing/categories'),
-          icon: FolderTree,
+          href: '/billing',
+          label: 'Billing',
+          active: pathname === '/billing' || pathname.startsWith('/billing/'),
+          icon: Wallet,
           submenus: [
-            {
-              href: '/billing/categories/parent-categories',
-              label: 'All Parent Categories',
-              active: pathname === '/billing/categories/parent-categories'
-            },
-            {
-              href: '/billing/categories/sub-categories',
-              label: 'All Sub Categories',
-              active: pathname === '/billing/categories/sub-categories'
-            },
-            {
-              href: '/billing/categories/item-categories',
-              label: 'All Item Categories',
-              active: pathname === '/billing/categories/item-categories'
-            }
+            { href: '/billing/categories/parent-categories', label: 'Categories · Parents', active: pathname === '/billing/categories/parent-categories' },
+            { href: '/billing/categories/sub-categories', label: 'Categories · Subs', active: pathname === '/billing/categories/sub-categories' },
+            { href: '/billing/categories/item-categories', label: 'Categories · Items', active: pathname === '/billing/categories/item-categories' },
+            { href: '/billing/schedule', label: 'Schedule · All Bills', active: pathname === '/billing/schedule' },
+            { href: '/billing/schedule/students', label: 'Schedule · Student Search', active: pathname.startsWith('/billing/schedule/students') },
+            { href: '/billing/onboarding', label: 'Learner Onboarding', active: pathname.startsWith('/billing/onboarding') },
+            { href: '/billing/receipts', label: 'Receipts', active: pathname.startsWith('/billing/receipts') },
+            { href: '/billing/discounts', label: 'Scholarships', active: pathname.startsWith('/billing/discounts') },
+            { href: '/billing/refunds', label: 'Refunds', active: pathname.startsWith('/billing/refunds') },
+            { href: '/billing/invoices', label: 'Invoices', active: pathname.startsWith('/billing/invoices') },
+            { href: '/billing/reports', label: 'Reports', active: pathname.startsWith('/billing/reports') },
           ]
-        },
-        {
-          href: '/billing/schedule',
-          label: 'Schedule',
-          active: pathname.startsWith('/billing/schedule'),
-          icon: Calendar,
-          submenus: [
-            {
-              href: '/billing/schedule/students',
-              label: 'Student Search',
-              active: pathname.startsWith('/billing/schedule/students')
-            },
-            {
-              href: '/billing/schedule',
-              label: 'All Bills',
-              active: pathname === '/billing/schedule'
-            }
-          ]
-        },
-        {
-          href: '/billing/receipts',
-          label: 'Receipts',
-          active: pathname.startsWith('/billing/receipts'),
-          icon: FileText,
-          submenus: [
-            {
-              href: '/billing/receipts',
-              label: 'All Receipts',
-              active: pathname === '/billing/receipts'
-            }
-          ]
-        },
-        {
-          href: '/billing/discounts',
-          label: 'Scholarships',
-          active: pathname.startsWith('/billing/discounts'),
-          icon: Tags,
-          submenus: []
-        },
-        {
-          href: '/billing/refunds',
-          label: 'Refunds',
-          active: pathname.startsWith('/billing/refunds'),
-          icon: RefreshCw,
-          submenus: [
-            {
-              href: '/billing/refunds',
-              label: 'All Refunds',
-              active: pathname === '/billing/refunds'
-            }
-          ]
-        },
-        {
-          href: '/billing/invoices',
-          label: 'Invoices',
-          active: pathname.startsWith('/billing/invoices'),
-          icon: FileBarChart,
-          submenus: []
-        },
-        {
-          href: '/billing/reports',
-          label: 'Reports',
-          active: pathname.startsWith('/billing/reports'),
-          icon: BarChart,
-          submenus: []
         }
       ]
     },
-    
+    // "Documents" section removed — `/documents` has no page on prod
+    // (flagged in PR #409 sweep; no `app/(routes)/documents` folder).
     {
-      groupLabel: 'Resource Management',
+      groupLabel: 'Resources',
       menus: [
         {
-          href: '/resource-management/analytics-dashboard',
-          label: 'Dashboard',
-          active: pathname.startsWith(
-            '/resource-management/analytics-dashboard'
-          ),
-          icon: LayoutGrid,
-          submenus: []
-        },
-        {
-          href: '/resource-management/categories',
-          label: 'Categories',
-          active: pathname === '',
-          icon: FolderTree,
-          submenus: [
-            {
-              href: '/resource-management/categories',
-              label: 'Parent categories',
-              active: pathname === '/resource-management/categories'
-            },
-            {
-              href: '/resource-management/categories/sub-categories',
-              label: 'Sub categories',
-              active:
-                pathname === '/resource-management/categories/sub-categories'
-            }
-          ]
-        },
-
-        {
-          href: '/resource-management/resources',
+          href: '/resource-management',
           label: 'Resources',
-          active: pathname.startsWith('/resource-management/resources'),
+          active: pathname === '/resource-management' || pathname.startsWith('/resource-management/'),
           icon: Package,
-          submenus: []
-        },
-        {
-          href: '/resource-management/reservations',
-          label: 'Reservations',
-          active: pathname.startsWith('/resource-management/reservations'),
-          icon: Calendar,
           submenus: [
-            {
-              href: '/resource-management/reservations',
-              label: 'All Reservations',
-              active: pathname === '/resource-management/reservations'
-            },
-            {
-              href: '/resource-management/reservations/my-reservations',
-              label: 'My Reservations',
-              active:
-                pathname === '/resource-management/reservations/my-reservations'
-            }
+            { href: '/resource-management/analytics-dashboard', label: 'Dashboard', active: pathname.startsWith('/resource-management/analytics-dashboard') },
+            { href: '/resource-management/categories', label: 'Categories · Parents', active: pathname === '/resource-management/categories' },
+            { href: '/resource-management/categories/sub-categories', label: 'Categories · Subs', active: pathname === '/resource-management/categories/sub-categories' },
+            { href: '/resource-management/resources', label: 'Resources', active: pathname.startsWith('/resource-management/resources') },
+            { href: '/resource-management/reservations', label: 'Reservations · All', active: pathname === '/resource-management/reservations' },
+            { href: '/resource-management/reservations/my-reservations', label: 'Reservations · Mine', active: pathname === '/resource-management/reservations/my-reservations' },
+            { href: '/resource-management/reservations/approvals', label: 'Reservations · Approvals', active: pathname.startsWith('/resource-management/reservations/approvals') },
+            { href: '/resource-management/maintenance', label: 'Maintenance', active: pathname.startsWith('/resource-management/maintenance') },
           ]
-        },
-        {
-          href: '/resource-management/reservations/approvals',
-          label: 'Approvals',
-          active: pathname.startsWith(
-            '/resource-management/reservations/approvals'
-          ),
-          icon: CheckSquare,
-          submenus: []
-        },
-        {
-          href: '/resource-management/maintenance',
-          label: 'Maintenance',
-          active: pathname.startsWith('/resource-management/maintenance'),
-          icon: Wrench,
-          submenus: []
         }
       ]
     },
@@ -1348,34 +1193,14 @@ export function GetPages(pathname: string): MenuGroup[] {
         {
           href: '/service-requests',
           label: 'Service Requests',
-          active: pathname.startsWith('/service-requests'),
+          active: pathname === '/service-requests' || pathname.startsWith('/service-requests/'),
           icon: ClipboardList,
           submenus: [
-            {
-              href: '/service-requests/my-requests',
-              label: 'My Requests',
-              active: pathname === '/service-requests/my-requests'
-            },
-            {
-              href: '/service-requests/all-services',
-              label: 'All Requests',
-              active: pathname === '/service-requests/all-services'
-            },
-            {
-              href: '/service-requests/approvals',
-              label: 'Pending Approvals',
-              active: pathname === '/service-requests/approvals'
-            },
-            {
-              href: '/service-requests/analytics',
-              label: 'Analytics',
-              active: pathname === '/service-requests/analytics'
-            },
-            {
-              href: '/service-requests/types',
-              label: 'Manage Services',
-              active: pathname.startsWith('/service-requests/types')
-            }
+            { href: '/service-requests/my-requests', label: 'My Requests', active: pathname === '/service-requests/my-requests' },
+            { href: '/service-requests/all-services', label: 'All Requests', active: pathname === '/service-requests/all-services' },
+            { href: '/service-requests/approvals', label: 'Pending Approvals', active: pathname === '/service-requests/approvals' },
+            { href: '/service-requests/analytics', label: 'Analytics', active: pathname === '/service-requests/analytics' },
+            { href: '/service-requests/types', label: 'Manage Services', active: pathname.startsWith('/service-requests/types') },
           ]
         }
       ]
@@ -1384,197 +1209,309 @@ export function GetPages(pathname: string): MenuGroup[] {
       groupLabel: 'Administration',
       menus: [
         {
-          href: '/admin/notifications',
-          label: 'Notifications',
-          active: pathname.startsWith('/admin/notifications'),
-          icon: Bell,
+          href: '/admin',
+          label: 'Administration',
+          active: pathname === '/admin' || pathname.startsWith('/admin/'),
+          icon: Shield,
           submenus: [
-            {
-              href: '/admin/notifications',
-              label: 'All Notifications',
-              active: pathname === '/admin/notifications'
-            },
-            {
-              href: '/admin/notifications/new',
-              label: 'Send Notification',
-              active: pathname === '/admin/notifications/new'
-            }
+            // Notifications
+            { href: '/admin/notifications', label: 'Notifications · All', active: pathname === '/admin/notifications' },
+            { href: '/admin/notifications/new', label: 'Notifications · Send', active: pathname === '/admin/notifications/new' },
+            { href: '/admin/notifications/compliance', label: 'Notifications · Compliance', active: pathname === '/admin/notifications/compliance' },
+            { href: '/admin/notifications/audiences', label: 'Notifications · Audiences', active: pathname.startsWith('/admin/notifications/audiences') },
+            // LTI
+            { href: '/admin/lti', label: 'LTI · Dashboard', active: pathname === '/admin/lti' },
+            { href: '/admin/lti/analytics', label: 'LTI · Analytics', active: pathname === '/admin/lti/analytics' },
+            { href: '/admin/lti/grade-sync', label: 'LTI · Grade Sync', active: pathname === '/admin/lti/grade-sync' },
+            { href: '/admin/lti/launches', label: 'LTI · Launch Debug', active: pathname === '/admin/lti/launches' },
+            // PDE (Admin)
+            { href: '/admin/pde', label: 'PDE · Dashboard', active: pathname === '/admin/pde' },
+            { href: '/admin/pde/assessments', label: 'PDE · Assessments', active: pathname === '/admin/pde/assessments' || pathname === '/admin/pde/assessments/create' },
+            { href: '/admin/pde/quests', label: 'PDE · Quests', active: pathname === '/admin/pde/quests' || pathname === '/admin/pde/quests/create' },
+            { href: '/admin/pde/capabilities', label: 'PDE · Capabilities', active: pathname === '/admin/pde/capabilities' },
+            { href: '/admin/pde/engagement', label: 'PDE · Engagement', active: pathname === '/admin/pde/engagement' },
+            { href: '/admin/pde/at-risk', label: 'PDE · At-Risk', active: pathname === '/admin/pde/at-risk' },
+            { href: '/admin/pde/lti', label: 'PDE · LTI Config', active: pathname === '/admin/pde/lti' },
+            // Other
+            { href: '/audit-trail', label: 'Audit Trail', active: pathname.startsWith('/audit-trail') },
+            { href: '/admin/lifecycle', label: 'Lifecycle Analytics', active: pathname.startsWith('/admin/lifecycle') },
+            { href: '/admin/page-metadata', label: 'Page Metadata', active: pathname.startsWith('/admin/page-metadata') },
           ]
-        },
+        }
+      ]
+    },
+    {
+      groupLabel: 'OKR',
+      menus: [
+        // Single sidebar entry — all OKR navigation lives in the module's
+        // in-page tab bar (OKRNav, see app/(routes)/okr/_components/
+        // okr-nav.tsx). Mirrors Campus Living + Learners Council + Admission
+        // CRM. SectionSubNav on /okr/objectives for All/Create.
+        //
+        // Why: flat sidebar (1 entry per module) + in-page tabs scales
+        // across JKKN's 8+ modules. URLs UNCHANGED.
         {
-          href: '/admin/lti',
-          label: 'LTI Monitoring',
-          active: pathname.startsWith('/admin/lti'),
-          icon: Gauge,
-          submenus: [
-            {
-              href: '/admin/lti/analytics',
-              label: 'Analytics Dashboard',
-              active: pathname === '/admin/lti/analytics'
-            },
-            {
-              href: '/admin/lti/grade-sync',
-              label: 'Grade Sync',
-              active: pathname === '/admin/lti/grade-sync'
-            },
-            {
-              href: '/admin/lti/launches',
-              label: 'Launch Debug',
-              active: pathname === '/admin/lti/launches'
-            }
-          ]
-        },
-        {
-          href: '/audit-trail',
-          label: 'Audit Trail',
-          active: pathname.startsWith('/audit-trail'),
-          icon: History,
-          submenus: []
-        },
-        {
-          href: '/admin/lifecycle',
-          label: 'Lifecycle Analytics',
-          active: pathname.startsWith('/admin/lifecycle'),
-          icon: BarChart3,
+          href: '/okr',
+          label: 'OKR & Performance',
+          active: pathname === '/okr' || pathname.startsWith('/okr/'),
+          icon: Target,
           submenus: []
         }
       ]
     },
     {
+      // Wave 2 merged 'Learning' + 'Value Added Courses' into 'Learning & Courses'.
+      // The /vac entry below was previously its own groupLabel; now folded here.
+      groupLabel: 'Learning & Courses',
+      menus: [
+        {
+          href: '/learn',
+          label: 'Learning',
+          active: pathname === '/learn' || pathname.startsWith('/learn/'),
+          icon: BookOpen,
+          submenus: [
+            { href: '/learn/quests', label: 'Quest Board', active: pathname === '/learn/quests' || pathname.startsWith('/learn/quests/') },
+            { href: '/learn/capabilities', label: 'Capability Tree', active: pathname.startsWith('/learn/capabilities') },
+            { href: '/learn/build', label: 'Build Arena', active: pathname.startsWith('/learn/build') },
+            { href: '/learn/channels', label: 'Channels', active: pathname.startsWith('/learn/channels') },
+            { href: '/learn/profile', label: 'Profile', active: pathname === '/learn/profile' },
+            { href: '/learn/leaderboard', label: 'Leaderboard', active: pathname === '/learn/leaderboard' },
+          ]
+        },
+        {
+          href: '/vac',
+          label: 'Value Added Courses',
+          active: pathname === '/vac' || pathname.startsWith('/vac/'),
+          icon: BookOpen,
+          submenus: [
+            { href: '/vac', label: 'Course Catalog', active: pathname === '/vac' },
+            { href: '/vac/my-courses', label: 'My Courses', active: pathname.startsWith('/vac/my-courses') },
+            { href: '/vac/case', label: 'CASE Tracker', active: pathname.startsWith('/vac/case') && !pathname.includes('/admin') },
+            { href: '/vac/admin', label: 'Admin · Dashboard', active: pathname === '/vac/admin' },
+            { href: '/vac/admin/courses', label: 'Admin · Courses', active: pathname.startsWith('/vac/admin/courses') },
+            { href: '/vac/admin/enrollments', label: 'Admin · Enrollments', active: pathname.startsWith('/vac/admin/enrollments') },
+            { href: '/vac/admin/analytics', label: 'Admin · Analytics', active: pathname.startsWith('/vac/admin/analytics') },
+            { href: '/vac/admin/case', label: 'Admin · CASE', active: pathname.startsWith('/vac/admin/case') },
+            { href: '/vac/admin/settings', label: 'Admin · Settings', active: pathname.startsWith('/vac/admin/settings') },
+          ]
+        }
+      ]
+    },
+    {
+      groupLabel: 'Health & Wellness',
+      menus: [
+        {
+          href: '/health',
+          label: 'Health & Wellness',
+          active: pathname === '/health' || pathname.startsWith('/health/'),
+          icon: HeartPulse,
+          submenus: [
+            { href: '/health/dashboard', label: 'Health Dashboard', active: pathname === '/health/dashboard' },
+            { href: '/health/profile', label: 'My Health Profile', active: pathname === '/health/profile' },
+            { href: '/health/leaderboard', label: 'Leaderboard', active: pathname === '/health/leaderboard' },
+            { href: '/health/sports', label: 'Sports Profile', active: pathname === '/health/sports' },
+            { href: '/health/fitness', label: 'Fitness Tests', active: pathname === '/health/fitness' || pathname.startsWith('/health/fitness/') },
+            { href: '/health/training', label: 'Training Log', active: pathname === '/health/training' },
+            { href: '/health/achievements', label: 'Achievements', active: pathname === '/health/achievements' },
+            { href: '/health/assessments', label: 'Mental Health Check-In', active: pathname === '/health/assessments' },
+            { href: '/health/counselor', label: 'Counselor Dashboard', active: pathname === '/health/counselor' },
+          ]
+        }
+      ]
+    },
+    {
+      groupLabel: 'Events',
+      menus: [
+        {
+          href: '/events',
+          label: 'Events',
+          active: pathname === '/events' || pathname.startsWith('/events/'),
+          icon: Calendar,
+          submenus: [
+            { href: '/events/marathon', label: 'Marathon · All Events', active: pathname === '/events/marathon' },
+            { href: '/events/marathon/new', label: 'Marathon · New Event', active: pathname === '/events/marathon/new' },
+            // Stream C (2026-04-26): event_proposals workflow — chat-bypass propose intake
+            { href: '/events/propose', label: 'Propose an Event', active: pathname === '/events/propose' || pathname.startsWith('/events/propose/') },
+          ]
+        }
+      ]
+    },
+    {
       groupLabel: 'Startup Studio',
-      menus: (() => {
-        // Extract active event ID from pathname: /startup-studio/events/[uuid]/...
-        const eventMatch = pathname.match(/\/startup-studio\/events\/([^/]+)/);
-        const activeId = eventMatch?.[1] && eventMatch[1] !== 'events' ? eventMatch[1] : null;
-
-        return [
-          {
-            href: '/startup-studio/events',
-            label: 'Events',
-            active: pathname.startsWith('/startup-studio'),
-            icon: Rocket,
-            submenus: activeId ? [
-              {
-                href: `/startup-studio/events/${activeId}/dashboard`,
-                label: 'Analytics Dashboard',
-                active: pathname.includes('/dashboard')
-              },
-              {
-                href: `/startup-studio/events/${activeId}/my-team`,
-                label: 'My Team',
-                active: pathname.includes('/my-team')
-              },
-              {
-                href: `/startup-studio/events/${activeId}/my-registration`,
-                label: 'My Registration',
-                active: pathname.includes('/my-registration')
-              },
-              {
-                href: `/startup-studio/events/${activeId}/submit`,
-                label: 'Submit Project',
-                active: pathname.includes('/submit')
-              },
-              {
-                href: `/startup-studio/events/${activeId}/my-assignment`,
-                label: 'My Assignment',
-                active: pathname.includes('/my-assignment')
-              },
-              {
-                href: `/startup-studio/events/${activeId}/registrations`,
-                label: 'Registrations',
-                active: pathname.includes('/registrations')
-              },
-              {
-                href: `/startup-studio/events/${activeId}/venues`,
-                label: 'Venues & Mentors',
-                active: pathname.includes('/venues')
-              },
-              {
-                href: `/startup-studio/events/${activeId}/demo-day`,
-                label: 'Demo Day',
-                active: pathname.includes('/demo-day')
-              },
-              {
-                href: `/startup-studio/events/${activeId}/evaluate`,
-                label: 'Evaluate Teams',
-                active: pathname.includes('/evaluate')
-              },
-              {
-                href: `/startup-studio/events/${activeId}/leaderboard`,
-                label: 'Leaderboard',
-                active: pathname.includes('/leaderboard')
-              },
-              {
-                href: `/startup-studio/events/${activeId}/vote`,
-                label: 'Live Voting',
-                active: pathname.includes('/vote')
-              },
-              {
-                href: `/startup-studio/events/${activeId}/checklists`,
-                label: 'Checklists',
-                active: pathname.includes('/checklists')
-              },
-              {
-                href: `/startup-studio/events/${activeId}/declare`,
-                label: 'Declare Track',
-                active: pathname.includes('/declare')
-              },
-              {
-                href: `/startup-studio/events/${activeId}/case-study`,
-                label: 'Case Study',
-                active: pathname.includes('/case-study')
-              },
-            ] : []
-          }
-        ];
-      })()
+      menus: [
+        // Single sidebar entry — all Startup Studio navigation lives in the
+        // module's in-page tab bar rendered by AutoTabNav (driven by
+        // app/(routes)/startup-studio/nav-config.ts — 9 groups incl.
+        // Solve-for-100's nested sub-tabs). Event-specific 15-tab
+        // SectionSubNav renders dynamically on /events/[id] pages via
+        // layout.tsx (useParams-driven). Mirrors Campus Living +
+        // Learners Council + Admission CRM.
+        //
+        // Why: flat sidebar (1 entry per module) + dynamic in-page subnav
+        // for event context. URLs UNCHANGED — all /events/[id]/<tab> routes
+        // preserved.
+        {
+          // D3: click → module root. `/startup-studio` renders AutoTabNav
+          // from startup-studio/nav-config.ts (9 groups).
+          href: '/startup-studio',
+          label: 'Startup Studio',
+          active: pathname === '/startup-studio' || pathname.startsWith('/startup-studio/'),
+          icon: Rocket,
+          submenus: []
+        }
+      ]
+    },
+    {
+      groupLabel: 'Solution Hub',
+      menus: [
+        // Single sidebar entry — all Solution Hub navigation lives in the
+        // module's in-page tab bar, rendered by AutoTabNav reading
+        // app/(routes)/solutions/nav-config.ts. Mirrors Campus Living +
+        // Learners Council + Admission CRM. Pipeline / Training / Content
+        // / Products sub-tabs are nested as tier-3 `children` in the
+        // nav-config — no per-section layout.tsx needed.
+        //
+        // Why: flat sidebar (1 entry per module) + in-page tabs keeps nav
+        // adjacent to content. URLs are UNCHANGED — no bookmarks break.
+        {
+          href: '/solutions',
+          label: 'Solution Hub',
+          active: pathname === '/solutions' || pathname.startsWith('/solutions/'),
+          icon: LayoutGrid,
+          submenus: []
+        }
+      ]
+    },
+    // 'Value Added Courses' standalone groupLabel was folded into 'Learning & Courses' above (Wave 2).
+    {
+      groupLabel: 'Work Pulse',
+      menus: [
+        {
+          href: '/work-pulse',
+          label: 'Work Pulse',
+          active: pathname === '/work-pulse' || pathname.startsWith('/work-pulse/'),
+          icon: Activity,
+          submenus: [
+            { href: '/work-pulse', label: 'My Pulse', active: pathname === '/work-pulse' },
+            { href: '/work-pulse/agents', label: 'Agent Board', active: pathname.startsWith('/work-pulse/agents') },
+            { href: '/work-pulse/all', label: 'All Submissions', active: pathname.startsWith('/work-pulse/all') },
+            { href: '/work-pulse/impact', label: 'Impact', active: pathname.startsWith('/work-pulse/impact') },
+          ]
+        }
+      ]
+    },
+    {
+      groupLabel: 'Learners Council',
+      menus: [
+        {
+          href: '/learners-council',
+          label: 'Learners Council',
+          active: pathname === '/learners-council' || pathname.startsWith('/learners-council/'),
+          icon: Vote,
+          submenus: [
+            { href: '/learners-council', label: 'Dashboard', active: pathname === '/learners-council' },
+            { href: '/learners-council/structure', label: 'Structure · Overview', active: pathname === '/learners-council/structure' },
+            { href: '/learners-council/structure/positions', label: 'Structure · Positions', active: pathname.startsWith('/learners-council/structure/positions') },
+            { href: '/learners-council/structure/committees', label: 'Structure · Committees', active: pathname.startsWith('/learners-council/structure/committees') },
+            { href: '/learners-council/communication', label: 'Communication', active: pathname.startsWith('/learners-council/communication') },
+            { href: '/learners-council/events', label: 'Events', active: pathname.startsWith('/learners-council/events') },
+            { href: '/learners-council/od', label: 'OD Requests', active: pathname.startsWith('/learners-council/od') },
+            { href: '/learners-council/selection', label: 'Selection', active: pathname.startsWith('/learners-council/selection') },
+            { href: '/learners-council/issues', label: 'Issues', active: pathname.startsWith('/learners-council/issues') },
+            { href: '/learners-council/settings', label: 'Settings', active: pathname.startsWith('/learners-council/settings') },
+          ]
+        }
+      ]
+    },
+    {
+      groupLabel: 'Faculty',
+      menus: [
+        {
+          href: '/faculty',
+          label: 'Faculty',
+          active: pathname === '/faculty' || pathname.startsWith('/faculty/'),
+          icon: UserCheck,
+          submenus: [
+            { href: '/faculty/innovation', label: 'Innovation · Dashboard', active: pathname === '/faculty/innovation' },
+            { href: '/faculty/innovation/submit', label: 'Innovation · Submit', active: pathname === '/faculty/innovation/submit' },
+            { href: '/faculty/innovation/portfolio', label: 'Innovation · Portfolio', active: pathname === '/faculty/innovation/portfolio' },
+            { href: '/faculty/innovation/approval-queue', label: 'Innovation · Approvals', active: pathname === '/faculty/innovation/approval-queue' },
+            { href: '/faculty/innovation/collab-request', label: 'Innovation · Collab Request', active: pathname === '/faculty/innovation/collab-request' },
+            { href: '/faculty/pde', label: 'PDE · Landing', active: pathname === '/faculty/pde' },
+            { href: '/faculty/pde/dashboard', label: 'PDE · Dashboard', active: pathname === '/faculty/pde/dashboard' },
+            { href: '/faculty/pde/assessments', label: 'PDE · Assessments', active: pathname === '/faculty/pde/assessments' },
+            { href: '/faculty/pde/quests', label: 'PDE · Quests', active: pathname === '/faculty/pde/quests' },
+            { href: '/faculty/pde/demonstrations', label: 'PDE · Demonstrations', active: pathname === '/faculty/pde/demonstrations' },
+            { href: '/faculty/pde/analytics', label: 'PDE · Analytics', active: pathname === '/faculty/pde/analytics' },
+          ]
+        }
+      ]
+    },
+    {
+      // Audit Workflow Sprint 01 — Lead Auditor / Group Registrar surface
+      groupLabel: 'Audit Workflow',
+      menus: [
+        // Single sidebar entry — all audit navigation lives in the module's
+        // in-page tab bar (AutoTabNav, see app/(routes)/audit/nav-config.ts)
+        // with 5 tabs: Dashboard, Cycles, Findings (+ All/My/Types), Parameters
+        // (+ Catalog/Settings), Attestations. Mirrors Accreditation + OKR +
+        // Campus Living + Learners Council pattern.
+        //
+        // Why: flat sidebar (1 entry per module) + in-page tabs keep the
+        // sidebar scalable as the 36-parameter audit workflow grows. Route
+        // permission gating (audit.cycle.view) lives in MENU_PERMISSIONS map
+        // above. Distinct from /audit-trail (platform activity log) in the
+        // Administration group.
+        {
+          href: '/audit',
+          label: 'Audit Workflow',
+          active: pathname === '/audit' || pathname.startsWith('/audit/'),
+          icon: ShieldCheck,
+          submenus: []
+        }
+      ]
+    },
+    {
+      // Compliance Unification Program — Accreditation group
+      groupLabel: 'Accreditation',
+      menus: [
+        // Single sidebar entry — all 10 accreditation bodies live in the
+        // module's in-page tab bar (AccreditationNav, see app/(routes)/
+        // accreditation/_components/accreditation-nav.tsx). Mirrors Campus
+        // Living + Learners Council + Admission CRM. NAAC has a 5-tab
+        // SectionSubNav on /accreditation/naac for its DCF/survey/IQAC pages.
+        //
+        // Why: flat sidebar (1 entry per module) + in-page tabs scales
+        // better as more compliance bodies are added. URLs UNCHANGED.
+        {
+          href: '/accreditation',
+          label: 'Accreditation',
+          active: pathname === '/accreditation' || pathname.startsWith('/accreditation/'),
+          icon: Award,
+          submenus: []
+        }
+      ]
     },
     {
       groupLabel: 'System',
       menus: [
         {
-          href: '/system/api-management',
-          label: 'API Management',
-          active: pathname === '/system/api-management',
-          icon: Key,
-          submenus: []
-        },
-        {
-          href: '/system/lti-tools',
-          label: 'LTI Tools',
-          active: pathname.startsWith('/system/lti-tools'),
-          icon: Link2,
-          submenus: []
-        },
-        {
-          href: '/admin/bug-reports',
-          label: 'Bug Reports',
-          active: pathname.startsWith('/admin/bug-reports') || pathname.startsWith('/my-bug-reports') || pathname.startsWith('/bug-leaderboard'),
-          icon: Bug,
+          href: '/system',
+          label: 'System',
+          active:
+            pathname === '/system' ||
+            pathname.startsWith('/system/') ||
+            pathname.startsWith('/admin/bug-reports') ||
+            pathname.startsWith('/admin/ai-query-tools'),
+          icon: Settings,
           submenus: [
-            {
-              href: '/my-bug-reports',
-              label: 'My Bug Reports',
-              active: pathname === '/my-bug-reports'
-            },
-            {
-              href: '/bug-leaderboard',
-              label: 'Bug Leaderboard',
-              active: pathname === '/bug-leaderboard'
-            },
-            {
-              href: '/admin/bug-reports',
-              label: 'All Bug Reports',
-              active: pathname === '/admin/bug-reports'
-            }
+            { href: '/system/api-management', label: 'API Management', active: pathname === '/system/api-management' },
+            { href: '/system/lti-tools', label: 'LTI Tools', active: pathname.startsWith('/system/lti-tools') },
+            { href: '/my-bug-reports', label: 'My Bug Reports', active: pathname === '/my-bug-reports' },
+            { href: '/bug-leaderboard', label: 'Bug Leaderboard', active: pathname === '/bug-leaderboard' },
+            { href: '/admin/bug-reports', label: 'All Bug Reports', active: pathname === '/admin/bug-reports' },
+            { href: '/admin/ai-query-tools', label: 'AI Query Tools', active: pathname.startsWith('/admin/ai-query-tools') },
           ]
-        },
-        {
-          href: '/admin/ai-query-tools',
-          label: 'AI Query Tools',
-          active: pathname.startsWith('/admin/ai-query-tools'),
-          icon: Bot,
-          submenus: []
         }
       ]
     }
@@ -1587,7 +1524,7 @@ export function GetPages(pathname: string): MenuGroup[] {
 // Without this, MENU_PERMISSIONS['/startup-studio/events/572a5836-.../my-team'] = undefined
 // → whole Startup Studio group is filtered out for students navigating inside an event.
 const UUID_SEGMENT_REGEX = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
-function normalizeRoute(href: string): string {
+export function normalizeRoute(href: string): string {
   return href.replace(UUID_SEGMENT_REGEX, '[id]');
 }
 
