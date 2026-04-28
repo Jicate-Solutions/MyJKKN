@@ -9039,6 +9039,11 @@ BEGIN
 END $fn_lead$;
 
 -- Generator 3: pending leave applications >48h → dashboard:approval
+-- Updated: 2026-04-28 - Director-fallback: was silently skipping every leave
+-- application with NULL final_approver_id (CONTINUE). Now routes via
+-- fn_resolve_dashboard_target(employee's institution) so unrouted leave
+-- requests still surface to the Director instead of disappearing.
+-- Mirrors fn_generate_recruitment_approval_items / fn_generate_unresolved_bug_items.
 CREATE OR REPLACE FUNCTION fn_generate_pending_leave_approval_items()
 RETURNS INT LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $fn_leave$
 DECLARE
@@ -9048,14 +9053,17 @@ BEGIN
     SELECT la.id, la.employee_id, la.final_approver_id,
            la.start_date, la.end_date, la.total_days, la.status,
            la.created_at, la.reason, la.is_emergency,
+           s.institution_id AS institution_id,
            EXTRACT(EPOCH FROM (NOW() - la.created_at))/3600 AS hours_pending
     FROM hr_leave_applications la
+    LEFT JOIN staff s ON s.id = la.employee_id
     WHERE la.status = 'pending' AND la.created_at < NOW() - INTERVAL '48 hours'
       AND la.created_at > NOW() - INTERVAL '30 days' AND la.superseded_by IS NULL
     ORDER BY la.created_at ASC LIMIT 200
   LOOP
-    v_target := v_leave.final_approver_id;
-    IF v_target IS NULL THEN CONTINUE; END IF;
+    -- Fallback: route to Director when leave intake didn't set final_approver_id.
+    v_target := COALESCE(v_leave.final_approver_id, fn_resolve_dashboard_target(v_leave.institution_id));
+    IF v_target IS NULL THEN CONTINUE; END IF;  -- truly no super_admin exists; cannot route
     v_hours := v_leave.hours_pending::INT;
     v_key := 'leave_pending:' || v_leave.id::text || ':' || CURRENT_DATE::text;
     v_created := v_created + fn_create_dashboard_work_item(
@@ -9063,10 +9071,12 @@ BEGIN
       CASE WHEN v_leave.is_emergency THEN 'urgent' WHEN v_hours > 96 THEN 'high' ELSE 'normal' END,
       'Leave request pending ' || v_hours || 'h — ' || v_leave.total_days::text || ' day(s)',
       COALESCE(v_leave.reason, 'No reason provided') || ' | ' ||
-        v_leave.start_date::text || ' to ' || v_leave.end_date::text,
+        v_leave.start_date::text || ' to ' || v_leave.end_date::text ||
+        CASE WHEN v_leave.final_approver_id IS NULL THEN ' — UNASSIGNED, routed to Director' ELSE '' END,
       jsonb_build_object('leave_id', v_leave.id, 'employee_id', v_leave.employee_id,
         'days', v_leave.total_days, 'url', '/hr/leave/applications/' || v_leave.id::text,
-        'is_emergency', v_leave.is_emergency),
+        'is_emergency', v_leave.is_emergency,
+        'unassigned_fallback', v_leave.final_approver_id IS NULL),
       v_target, v_key, CASE WHEN v_leave.is_emergency THEN 4 ELSE 24 END);
   END LOOP;
   RETURN v_created;
