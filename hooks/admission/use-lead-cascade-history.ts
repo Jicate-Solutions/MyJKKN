@@ -46,8 +46,11 @@ export const cascadeHistoryKeys = {
 async function fetchCascadeHistory(leadId: string): Promise<CascadeEntry[]> {
   const supabase = createClientSupabaseClient();
 
-  // Fetch raw history rows with counselor profile joins.
-  // admission_counselors joins profiles via user_id for names + emails.
+  // admission_counselors has name + email columns directly (denormalized).
+  // Use PostgREST FK alias: from_counselor:from_counselor_id(id,name,email)
+  // Verified live against production DB 2026-04-28 — profiles join via user_id
+  // does NOT work (no FK relationship exposed); counselor name/email are on the
+  // admission_counselors row itself.
   const { data, error } = await (supabase as any)
     .from('admission_lead_cascade_history')
     .select(`
@@ -59,14 +62,8 @@ async function fetchCascadeHistory(leadId: string): Promise<CascadeEntry[]> {
       cascaded_at,
       triggered_by,
       metadata,
-      from_counselor:from_counselor_id (
-        id,
-        profiles:user_id ( full_name, email )
-      ),
-      to_counselor:to_counselor_id (
-        id,
-        profiles:user_id ( full_name, email )
-      )
+      from_counselor:from_counselor_id ( id, name, email ),
+      to_counselor:to_counselor_id ( id, name, email )
     `)
     .eq('lead_id', leadId)
     .order('cascaded_at', { ascending: false });
@@ -87,10 +84,10 @@ async function fetchCascadeHistory(leadId: string): Promise<CascadeEntry[]> {
     cascaded_at: row.cascaded_at,
     triggered_by: row.triggered_by,
     metadata: row.metadata ?? {},
-    from_counselor_name: row.from_counselor?.profiles?.full_name ?? null,
-    from_counselor_email: row.from_counselor?.profiles?.email ?? null,
-    to_counselor_name: row.to_counselor?.profiles?.full_name ?? null,
-    to_counselor_email: row.to_counselor?.profiles?.email ?? null,
+    from_counselor_name: row.from_counselor?.name ?? null,
+    from_counselor_email: row.from_counselor?.email ?? null,
+    to_counselor_name: row.to_counselor?.name ?? null,
+    to_counselor_email: row.to_counselor?.email ?? null,
   }));
 }
 
