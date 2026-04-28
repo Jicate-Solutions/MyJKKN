@@ -5,7 +5,6 @@ import { createClientSupabaseClient } from '@/lib/supabase/client';
 import type {
   GroupDashboardData,
   InstitutionAdmissionSummary,
-  CrossCampusDuplicate,
   SeatAnalyticsRow,
   SourceAnalyticsRow,
   GeographyAnalyticsRow,
@@ -122,23 +121,6 @@ export class GroupDashboardService {
     return { institutions: rows, totals };
   }
 
-  /**
-   * Find cross-campus duplicate leads
-   */
-  static async findCrossCampusDuplicates(): Promise<CrossCampusDuplicate[]> {
-    const { data, error } = await (this.supabase as any).rpc(
-      'find_cross_campus_duplicates'
-    );
-
-    if (error) {
-      // RPC may not exist - fall back to client-side query
-      console.warn('[admission/group] Cross-campus dedup RPC not available, using fallback');
-      return this.findDuplicatesFallback();
-    }
-
-    return (data || []) as CrossCampusDuplicate[];
-  }
-
   static async getSeatAnalytics(
     institutionId?: string
   ): Promise<SeatAnalyticsRow[]> {
@@ -253,58 +235,4 @@ export class GroupDashboardService {
     return rows.sort((a, b) => b.fill_percentage - a.fill_percentage);
   }
 
-  private static async findDuplicatesFallback(): Promise<CrossCampusDuplicate[]> {
-    // Simple fallback: find leads with same phone across institutions
-    const { data, error } = await (this.supabase as any)
-      .from('admission_leads')
-      .select('id, institution_id, full_name, phone, email, funnel_stage')
-      .not('funnel_stage', 'in', '("enrolled","lost")')
-      .not('phone', 'is', null)
-      .order('phone');
-
-    if (error || !data) return [];
-
-    const leads = data as {
-      id: string;
-      institution_id: string;
-      full_name: string;
-      phone: string;
-      email: string | null;
-      funnel_stage: string;
-    }[];
-
-    // Group by phone and find cross-institution matches
-    const phoneMap = new Map<string, typeof leads>();
-    for (const lead of leads) {
-      if (!lead.phone) continue;
-      const existing = phoneMap.get(lead.phone) || [];
-      existing.push(lead);
-      phoneMap.set(lead.phone, existing);
-    }
-
-    const duplicates: CrossCampusDuplicate[] = [];
-    for (const [, group] of phoneMap) {
-      if (group.length < 2) continue;
-      // Check cross-institution
-      for (let i = 0; i < group.length; i++) {
-        for (let j = i + 1; j < group.length; j++) {
-          if (group[i].institution_id !== group[j].institution_id) {
-            duplicates.push({
-              lead_1_id: group[i].id,
-              institution_1: group[i].institution_id,
-              institution_1_name: '',
-              lead_2_id: group[j].id,
-              institution_2: group[j].institution_id,
-              institution_2_name: '',
-              full_name: group[i].full_name,
-              phone: group[i].phone,
-              confidence: group[i].email === group[j].email ? 1.0 : 0.9,
-            });
-          }
-        }
-      }
-    }
-
-    return duplicates.sort((a, b) => b.confidence - a.confidence);
-  }
 }

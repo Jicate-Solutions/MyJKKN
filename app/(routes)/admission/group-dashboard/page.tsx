@@ -9,7 +9,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useGroupDashboard, groupDashboardKeys } from '@/hooks/admission/use-group-dashboard';
 import { admissionAccreditationKeys } from '@/hooks/admission/use-admission-accreditation-report';
 import { InstitutionComparisonTable } from './_components/institution-comparison-table';
-import { CrossCampusDedup } from './_components/cross-campus-dedup';
+import { GroupFunnelChart, InstitutionPerformanceChart } from './_components/overview-charts';
 import { SeatAnalyticsDashboard } from './_components/seat-analytics-dashboard';
 import { SourceAnalyticsTab } from './_components/source-analytics-tab';
 import { GeographyAnalyticsTab } from './_components/geography-analytics-tab';
@@ -150,13 +150,16 @@ export default function GroupDashboardPage() {
               <TabsTrigger value="comparison" className="text-xs">Comparison</TabsTrigger>
             </TabsList>
 
-            {/* Tab: Overview (existing) */}
+            {/* Tab: Overview */}
             <TabsContent value="overview" className="space-y-4">
+              {data && (
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                  <GroupFunnelChart data={data} />
+                  <InstitutionPerformanceChart data={data} />
+                </div>
+              )}
               <InstitutionComparisonTable institutions={data?.institutions || []} />
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                <CrossCampusDedup />
-                <NAACReportGenerator />
-              </div>
+              <NAACReportGenerator />
             </TabsContent>
 
             {/* Tab: Seat Analytics */}

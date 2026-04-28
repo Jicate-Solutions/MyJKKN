@@ -15,7 +15,6 @@ export const groupDashboardKeys = {
       admissionYearId ?? 'no-ay',
       programStartYear ?? 'no-year',
     ] as const,
-  duplicates: () => [...groupDashboardKeys.all, 'duplicates'] as const,
   seatAnalytics: (institutionId?: string) =>
     [...groupDashboardKeys.all, 'seats', institutionId ?? 'all'] as const,
   sourceAnalytics: (institutionId?: string) =>
@@ -66,14 +65,6 @@ export function useGroupDashboard(
     // Wait until we know which year to query — prevents an all-time fetch
     // before GroupAdmissionYearSelect resolves the default cohort.
     enabled: programStartYear !== null && programStartYear !== undefined,
-  });
-}
-
-export function useCrossCampusDuplicates() {
-  return useQuery({
-    queryKey: groupDashboardKeys.duplicates(),
-    queryFn: () => GroupDashboardService.findCrossCampusDuplicates(),
-    staleTime: 10 * 60 * 1000,
   });
 }
 

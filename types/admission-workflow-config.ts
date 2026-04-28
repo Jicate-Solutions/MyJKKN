@@ -154,17 +154,6 @@ export interface InstitutionComparisonRow {
   active_learners: number;
 }
 
-export interface CrossCampusDuplicate {
-  lead_1_id: string;
-  institution_1: string;
-  institution_1_name: string;
-  lead_2_id: string;
-  institution_2: string;
-  institution_2_name: string;
-  full_name: string;
-  phone: string;
-  confidence: number;
-}
 
 // Default stage definitions
 export const ALL_ADMISSION_STAGES: { id: string; label: string }[] = [
