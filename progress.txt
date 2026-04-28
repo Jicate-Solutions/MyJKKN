@@ -1,3 +1,50 @@
+## Session: 2026-04-28 (pane 937875b3) — Counselor rules-engine spec #537 100% shipped (11 PRs, 1 deploy, 1 critical post-deploy bug surfaced)
+
+### Accomplished
+
+**Wave 1 — 5 quick-wins (all merged + deployed live)**
+- PR #543: STAFF_ROLES whitelist expansion + backfill — call attribution lift 5.91% → 14.56% (live: 318/2184)
+- PR #544: /admission/counselors unassigned-leads alert banner ("12,369 leads unassigned (87%)") + extracted shared `<DataAlertBanner>` primitive at components/shared/data-alert-banner/ + retrofitted OverdueAlertBanner consumer (Q2 violation caught + fixed pre-merge)
+- PR #545: DialWhomNumber preservation spike (column added, webhook capture live, cron-path TODO flagged for Signal 4 follow-up)
+- PR #546: /admission/counselors/briefing today's-status panel (4 counselors × briefed/not-briefed badges)
+- PR #547: /admission/counselors/productivity partial-attribution caveat banner (renders when attribution_pct < 50%)
+
+**Wave 2 — counselor rules-engine spec #537, all 7 phases**
+- PR #549: Phase 3 routing-engine v2 — 4 SQL functions (fn_is_counselor_on_duty + fn_auto_assign_counselor_v2 + fn_cascade_off_duty_counselors + fn_flush_queued_leads). 3-tier routing with legacy Tier-3 fallback. Tier-3 100% routing rate confirmed via fixture test pre-merge.
+- PR #550: Phase 4 cron route /api/cron/counselor-shift-flip every 15 min. 3 tasks per run (cascade + flush + midnight emergency-off clear), each in own try/catch. Success-marker on every run including no-ops.
+- PR #552: Phase 7 junction seeds + lead_source enum alignment. master 10→20, schedules 0→28, institutions 0→4, sources 0→80. Tier-1 routing CONFIRMED LIVE via fixture test (source='website' which previously bypassed Tier 1).
+- PR #554: Phase 5 UI /admission/counselors/team 5-tab page (Members + Roster + Allocation + Rules + Activity). 13 files / 1,440 LOC. Reused Button+Link+usePathname nav primitive from api-nav.tsx.
+- PR #553: Phase 6 lead-detail handover banner + cascaded-readonly view. Banner conditionally renders when admission_lead_cascade_history has rows for the lead. Browser-verified empty + populated states pre-merge.
+
+**Deploy + verification**
+- Vercel deploy fired 07:00 IST — build 9m51s, status Ready (deployment my-jkkn-50wqn5kx3)
+- 4 prod surfaces browser-verified live: /admission/counselors banner, /admission/counselors/productivity caveat, /admission/counselors/briefing status panel, /solutions/pipeline regression-free
+- Cron route HTTP 200 first run: 512 counselors processed, 357 leads flushed in 1804ms
+
+### CRITICAL post-deploy bug surfaced (07:15 IST)
+- admission_lead_cascade_history accumulated 904 rows in 1 hour (512 off-duty cascades + 392 queue-flushes)
+- Investigation agent A12 dispatched at session-end to diagnose root cause (likely fn_is_counselor_on_duty returning FALSE incorrectly OR queue-flush oscillation loop)
+
+### Method that worked
+- 12 worktree agents over the session, file-disjoint by design (caught Q2 violation pre-merge for one PR via mid-flight refactor)
+- Empirical-first: every migration applied via Supabase MCP BEFORE PR open, fixture-tested in real DB, before/after probes captured in PR body
+- Watchdog-stall recovery pattern proven: when an agent stalls past 600s, read its worktree artifacts and finish inline (saved Phase 3a from re-spawn)
+
+### Outstanding (next session)
+- A12 cron-bug diagnosis + hotfix
+- Phase 8 spec (duty-log table for precise off-duty tracking — addresses cascade simplification flagged in PR #549)
+- Cron-monitor scheduled remote agent for next 24h (per /schedule skill)
+- Memory captures: agent-watchdog-stall-recovery + phase-decomposition-for-complex-specs
+
+### Live data state (post-deploy 2026-04-28 07:15 IST)
+- Call attribution: 14.56% (318/2184) — holding from PR #543 lift
+- Unassigned leads: 12,369 (87%) — banner surface live
+- DialWhomNumber capture: 0 (overnight, no inbound calls — populates ~9 AM)
+- Cascade history: 904 rows in last hour ⚠️ over-firing under investigation
+- Counselor functions: 4 live, trigger bound to v2
+- Junction tables: schedules 28, institutions 4, sources 80
+
+---
 ## Session: 2026-04-27 → 2026-04-28 (pane 9badc7fe) — BottomNav Tier-D Holographic glass + Dashboard glass experiment + Attention Bar 5-layer architecture
 
 ### Accomplished
