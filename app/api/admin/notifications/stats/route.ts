@@ -1,50 +1,13 @@
 import { NextResponse } from 'next/server';
-import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { withAuth } from '@/lib/auth/with-auth';
 
 export const dynamic = 'force-dynamic';
 
-export async function GET() {
+export const GET = withAuth(async (_request, auth) => {
   try {
-    const supabase = await createServerSupabaseClient();
+    const supabase = auth.supabase;
 
-    // Get the current user
-    const {
-      data: { user },
-      error: authError
-    } = await supabase.auth.getUser();
-
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
-    // Check permissions (same as notifications list)
-    const { data: userProfileData } = await supabase
-      .from('profiles')
-      .select('role')
-      .eq('id', user.id)
-      .single();
-
-    const userProfile = userProfileData as { role: string } | null;
-
-    const { data: rolePermissionsData } = await supabase
-      .from('custom_roles')
-      .select('permissions')
-      .eq('role_key', userProfile?.role || '')
-      .single();
-
-    const rolePermissions = rolePermissionsData as { permissions: Record<string, boolean> } | null;
-
-    const hasPermission =
-      userProfile?.role === 'super_admin' ||
-      rolePermissions?.permissions?.['notifications.view'] === true ||
-      rolePermissions?.permissions?.['notifications.view.all'] === true;
-
-    if (!hasPermission) {
-      return NextResponse.json(
-        { error: 'Insufficient permissions' },
-        { status: 403 }
-      );
-    }
+    // Permission gate is enforced in the wrapper (notifications.view).
 
     // Get total notifications sent
     const { count: totalSent } = await supabase
@@ -101,4 +64,4 @@ export async function GET() {
       { status: 500 }
     );
   }
-}
+}, { allowApiKey: false, requirePermission: 'notifications.view' });
