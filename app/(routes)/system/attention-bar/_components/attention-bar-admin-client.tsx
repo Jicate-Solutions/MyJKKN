@@ -68,7 +68,7 @@ export function AttentionBarAdminClient() {
     .map(t => t.permKey)
     .filter((k): k is string => k !== null);
 
-  const { hasPermission, isLoading: isPermLoading } = usePermissions(allPermKeys);
+  const { can: hasPermission, isLoading: isPermLoading } = usePermissions(allPermKeys);
 
   // Determine which tabs the user can see
   const visibleTabs = TAB_DEFS.filter(tab => {
@@ -175,6 +175,7 @@ export function AttentionBarAdminClient() {
             <TabDefaults />
           </TabsContent>
 
+          {/* TAB-3:RULES */}
           <TabsContent value='rules'>
             <TabRules />
           </TabsContent>
@@ -183,6 +184,7 @@ export function AttentionBarAdminClient() {
             <TabBehavior />
           </TabsContent>
 
+          {/* TAB-5:AI */}
           <TabsContent value='ai'>
             <TabAi isSuperAdmin={isSuperAdmin} />
           </TabsContent>
