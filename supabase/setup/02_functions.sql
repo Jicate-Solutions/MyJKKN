@@ -11351,3 +11351,24 @@ COMMENT ON FUNCTION public.fn_aqs_attendance_faculty_compliance_today(UUID) IS
     'capped at 10. HOD dept via staff.profile_id FK or institution_email fallback.';
 
 GRANT EXECUTE ON FUNCTION public.fn_aqs_attendance_faculty_compliance_today(UUID) TO authenticated, service_role;
+
+-- =============================================================================
+-- _expo_event_institution_id  (RLS recursion-breaker)
+-- Added: 2026-04-28 (migration 20260428_expo_rls_recursion_hotfix)
+-- =============================================================================
+-- Returns the parent expo_event's institution_id WITHOUT triggering RLS, so
+-- child-table policies (expo_event_team_members, expo_wa_message_queue) can
+-- scope by institution without creating a transitive recursion loop with
+-- expo_events_select_team_member. SECURITY DEFINER is the short-circuit.
+-- =============================================================================
+CREATE OR REPLACE FUNCTION public._expo_event_institution_id(p_expo_event_id uuid)
+RETURNS uuid
+LANGUAGE sql
+SECURITY DEFINER
+STABLE
+SET search_path = public
+AS $$
+  SELECT institution_id FROM expo_events WHERE id = p_expo_event_id LIMIT 1;
+$$;
+
+GRANT EXECUTE ON FUNCTION public._expo_event_institution_id(uuid) TO authenticated;

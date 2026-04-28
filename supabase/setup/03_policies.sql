@@ -3435,92 +3435,106 @@ CREATE POLICY "case_studies_delete_admin"
 
 -- ═══════════════════════════════════════════════════════════════════════════
 -- EXPO MODULE RLS POLICIES
--- Updated: 2026-03-14 - Expos are global (not institution-scoped), all authenticated users have full access
+-- Updated: 2026-04-28 — Migrated to dynamic permission pattern (user_has_permission +
+--                       role_has_institution_access). Replaces hardcoded 'admission'
+--                       role_key whitelist so admission_staff and any other custom
+--                       role granted 'admission.marketing.expos.*' via Role Management
+--                       UI gain access automatically. Pattern matches expo_event_stalls
+--                       (BUG-003146) and CLAUDE.md "Standardized RLS Policy Pattern".
+-- Preserved: expo_events_select_team_member, expo_reports_select_team_member,
+--            expo_reports_insert_team_member (defined in their own migrations).
 -- ═══════════════════════════════════════════════════════════════════════════
 
--- Updated: 2026-03-26 — Added super_admin + admission role bypass to all expo policies
+-- expo_masters --------------------------------------------------------------
 CREATE POLICY "expo_masters_select" ON expo_masters FOR SELECT USING (
-  institution_id IN (SELECT institution_id FROM user_institution_access WHERE user_id = auth.uid())
-  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
-  OR EXISTS (SELECT 1 FROM user_roles ur JOIN custom_roles cr ON ur.role_id = cr.id WHERE ur.user_id = auth.uid() AND cr.role_key = 'admission')
+  is_super_admin() OR is_admin()
+  OR (user_has_permission('admission.marketing.expos.view')
+      AND role_has_institution_access(institution_id))
 );
 CREATE POLICY "expo_masters_insert" ON expo_masters FOR INSERT WITH CHECK (
-  institution_id IN (SELECT institution_id FROM user_institution_access WHERE user_id = auth.uid())
-  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
-  OR EXISTS (SELECT 1 FROM user_roles ur JOIN custom_roles cr ON ur.role_id = cr.id WHERE ur.user_id = auth.uid() AND cr.role_key = 'admission')
+  is_super_admin() OR is_admin()
+  OR (user_has_permission('admission.marketing.expos.create')
+      AND role_has_institution_access(institution_id))
 );
 CREATE POLICY "expo_masters_update" ON expo_masters FOR UPDATE USING (
-  institution_id IN (SELECT institution_id FROM user_institution_access WHERE user_id = auth.uid())
-  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
-  OR EXISTS (SELECT 1 FROM user_roles ur JOIN custom_roles cr ON ur.role_id = cr.id WHERE ur.user_id = auth.uid() AND cr.role_key = 'admission')
+  is_super_admin() OR is_admin()
+  OR (user_has_permission('admission.marketing.expos.edit')
+      AND role_has_institution_access(institution_id))
 );
 CREATE POLICY "expo_masters_delete" ON expo_masters FOR DELETE USING (
-  institution_id IN (SELECT institution_id FROM user_institution_access WHERE user_id = auth.uid())
-  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
-  OR EXISTS (SELECT 1 FROM user_roles ur JOIN custom_roles cr ON ur.role_id = cr.id WHERE ur.user_id = auth.uid() AND cr.role_key = 'admission')
+  is_super_admin() OR is_admin()
+  OR (user_has_permission('admission.marketing.expos.delete')
+      AND role_has_institution_access(institution_id))
 );
 
+-- expo_events ---------------------------------------------------------------
 CREATE POLICY "expo_events_select" ON expo_events FOR SELECT USING (
-  institution_id IN (SELECT institution_id FROM user_institution_access WHERE user_id = auth.uid())
-  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
-  OR EXISTS (SELECT 1 FROM user_roles ur JOIN custom_roles cr ON ur.role_id = cr.id WHERE ur.user_id = auth.uid() AND cr.role_key = 'admission')
+  is_super_admin() OR is_admin()
+  OR (user_has_permission('admission.marketing.expos.view')
+      AND role_has_institution_access(institution_id))
 );
 CREATE POLICY "expo_events_insert" ON expo_events FOR INSERT WITH CHECK (
-  institution_id IN (SELECT institution_id FROM user_institution_access WHERE user_id = auth.uid())
-  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
-  OR EXISTS (SELECT 1 FROM user_roles ur JOIN custom_roles cr ON ur.role_id = cr.id WHERE ur.user_id = auth.uid() AND cr.role_key = 'admission')
+  is_super_admin() OR is_admin()
+  OR (user_has_permission('admission.marketing.expos.create')
+      AND role_has_institution_access(institution_id))
 );
 CREATE POLICY "expo_events_update" ON expo_events FOR UPDATE USING (
-  institution_id IN (SELECT institution_id FROM user_institution_access WHERE user_id = auth.uid())
-  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
-  OR EXISTS (SELECT 1 FROM user_roles ur JOIN custom_roles cr ON ur.role_id = cr.id WHERE ur.user_id = auth.uid() AND cr.role_key = 'admission')
+  is_super_admin() OR is_admin()
+  OR (user_has_permission('admission.marketing.expos.edit')
+      AND role_has_institution_access(institution_id))
 );
 CREATE POLICY "expo_events_delete" ON expo_events FOR DELETE USING (
-  institution_id IN (SELECT institution_id FROM user_institution_access WHERE user_id = auth.uid())
-  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
-  OR EXISTS (SELECT 1 FROM user_roles ur JOIN custom_roles cr ON ur.role_id = cr.id WHERE ur.user_id = auth.uid() AND cr.role_key = 'admission')
+  is_super_admin() OR is_admin()
+  OR (user_has_permission('admission.marketing.expos.delete')
+      AND role_has_institution_access(institution_id))
 );
 
+-- expo_event_team_members (no direct institution_id; scope via parent event) -
 CREATE POLICY "expo_team_select" ON expo_event_team_members FOR SELECT USING (
-  expo_event_id IN (SELECT id FROM expo_events WHERE institution_id IN (SELECT institution_id FROM user_institution_access WHERE user_id = auth.uid()))
-  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
-  OR EXISTS (SELECT 1 FROM user_roles ur JOIN custom_roles cr ON ur.role_id = cr.id WHERE ur.user_id = auth.uid() AND cr.role_key = 'admission')
+  is_super_admin() OR is_admin()
+  OR (user_has_permission('admission.marketing.expos.view')
+      AND role_has_institution_access(_expo_event_institution_id(expo_event_id)))
+  OR expo_event_id IN (SELECT get_my_expo_team_event_ids())
 );
 CREATE POLICY "expo_team_insert" ON expo_event_team_members FOR INSERT WITH CHECK (
-  expo_event_id IN (SELECT id FROM expo_events WHERE institution_id IN (SELECT institution_id FROM user_institution_access WHERE user_id = auth.uid()))
-  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
-  OR EXISTS (SELECT 1 FROM user_roles ur JOIN custom_roles cr ON ur.role_id = cr.id WHERE ur.user_id = auth.uid() AND cr.role_key = 'admission')
+  is_super_admin() OR is_admin()
+  OR (user_has_permission('admission.marketing.expos.create')
+      AND role_has_institution_access(_expo_event_institution_id(expo_event_id)))
+  OR expo_event_id IN (SELECT get_my_expo_team_event_ids())
 );
 CREATE POLICY "expo_team_update" ON expo_event_team_members FOR UPDATE USING (
-  expo_event_id IN (SELECT id FROM expo_events WHERE institution_id IN (SELECT institution_id FROM user_institution_access WHERE user_id = auth.uid()))
-  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
-  OR EXISTS (SELECT 1 FROM user_roles ur JOIN custom_roles cr ON ur.role_id = cr.id WHERE ur.user_id = auth.uid() AND cr.role_key = 'admission')
+  is_super_admin() OR is_admin()
+  OR (user_has_permission('admission.marketing.expos.edit')
+      AND role_has_institution_access(_expo_event_institution_id(expo_event_id)))
+  OR expo_event_id IN (SELECT get_my_expo_team_event_ids())
 );
 CREATE POLICY "expo_team_delete" ON expo_event_team_members FOR DELETE USING (
-  expo_event_id IN (SELECT id FROM expo_events WHERE institution_id IN (SELECT institution_id FROM user_institution_access WHERE user_id = auth.uid()))
-  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
-  OR EXISTS (SELECT 1 FROM user_roles ur JOIN custom_roles cr ON ur.role_id = cr.id WHERE ur.user_id = auth.uid() AND cr.role_key = 'admission')
+  is_super_admin() OR is_admin()
+  OR (user_has_permission('admission.marketing.expos.delete')
+      AND role_has_institution_access(_expo_event_institution_id(expo_event_id)))
+  OR expo_event_id IN (SELECT get_my_expo_team_event_ids())
 );
 
+-- expo_daily_reports --------------------------------------------------------
 CREATE POLICY "expo_reports_select" ON expo_daily_reports FOR SELECT USING (
-  institution_id IN (SELECT institution_id FROM user_institution_access WHERE user_id = auth.uid())
-  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
-  OR EXISTS (SELECT 1 FROM user_roles ur JOIN custom_roles cr ON ur.role_id = cr.id WHERE ur.user_id = auth.uid() AND cr.role_key = 'admission')
+  is_super_admin() OR is_admin()
+  OR (user_has_permission('admission.marketing.expos.view')
+      AND role_has_institution_access(institution_id))
 );
 CREATE POLICY "expo_reports_insert" ON expo_daily_reports FOR INSERT WITH CHECK (
-  institution_id IN (SELECT institution_id FROM user_institution_access WHERE user_id = auth.uid())
-  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
-  OR EXISTS (SELECT 1 FROM user_roles ur JOIN custom_roles cr ON ur.role_id = cr.id WHERE ur.user_id = auth.uid() AND cr.role_key = 'admission')
+  is_super_admin() OR is_admin()
+  OR (user_has_permission('admission.marketing.expos.create')
+      AND role_has_institution_access(institution_id))
 );
 CREATE POLICY "expo_reports_update" ON expo_daily_reports FOR UPDATE USING (
-  institution_id IN (SELECT institution_id FROM user_institution_access WHERE user_id = auth.uid())
-  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
-  OR EXISTS (SELECT 1 FROM user_roles ur JOIN custom_roles cr ON ur.role_id = cr.id WHERE ur.user_id = auth.uid() AND cr.role_key = 'admission')
+  is_super_admin() OR is_admin()
+  OR (user_has_permission('admission.marketing.expos.edit')
+      AND role_has_institution_access(institution_id))
 );
 CREATE POLICY "expo_reports_delete" ON expo_daily_reports FOR DELETE USING (
-  institution_id IN (SELECT institution_id FROM user_institution_access WHERE user_id = auth.uid())
-  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
-  OR EXISTS (SELECT 1 FROM user_roles ur JOIN custom_roles cr ON ur.role_id = cr.id WHERE ur.user_id = auth.uid() AND cr.role_key = 'admission')
+  is_super_admin() OR is_admin()
+  OR (user_has_permission('admission.marketing.expos.delete')
+      AND role_has_institution_access(institution_id))
 );
 
 -- =============================================================================
@@ -3532,10 +3546,12 @@ CREATE POLICY "expo_reports_delete" ON expo_daily_reports FOR DELETE USING (
 
 ALTER TABLE expo_wa_message_queue ENABLE ROW LEVEL SECURITY;
 
+-- Updated: 2026-04-28 — Migrated to dynamic permission pattern (matches expo module sweep)
 CREATE POLICY "expo_wa_queue_select" ON expo_wa_message_queue FOR SELECT USING (
-  expo_event_id = ANY(get_my_expo_event_ids())
-  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
-  OR EXISTS (SELECT 1 FROM user_roles ur JOIN custom_roles cr ON ur.role_id = cr.id WHERE ur.user_id = auth.uid() AND cr.role_key = 'admission')
+  is_super_admin() OR is_admin()
+  OR (user_has_permission('admission.marketing.expos.view')
+      AND role_has_institution_access(_expo_event_institution_id(expo_event_id)))
+  OR expo_event_id = ANY(get_my_expo_event_ids())
 );
 
 -- =============================================================================
