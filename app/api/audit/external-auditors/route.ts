@@ -4,9 +4,16 @@ export const dynamic = 'force-dynamic';
 // Time-boxed External Auditor admin. Super-admin (or users with
 // audit.external_auditor.manage) only. See
 // lib/services/audit/audit-external-auditor-service.ts for substrate notes.
+//
+// Permission gate is delegated to withAuth({ requirePermission:
+// 'audit.external_auditor.manage' }) — the wrapper triad covers super_admin
+// bypass + is_admin (admin/administrator) + user_has_permission. Legacy
+// 'registrar' role and the bespoke get_user_merged_permissions RPC fallback
+// are retired; users with the registrar role should be granted
+// audit.external_auditor.manage via Role Management UI.
 
 import { NextResponse, connection } from 'next/server';
-import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { withAuth } from '@/lib/auth/with-auth';
 import {
   AuditExternalAuditorService,
   EXTERNAL_AUDITOR_ROLE_KEY,
@@ -14,37 +21,10 @@ import {
   type ExternalAuditorRow,
 } from '@/lib/services/audit/audit-external-auditor-service';
 
-// Permission gate helper. Super_admin bypass OR audit.external_auditor.manage
-// via merged permissions OR legacy role = registrar.
-async function requireManagePermission(supabase: any): Promise<{ ok: true; userId: string } | { ok: false; status: number; error: string }> {
-  const { data: userData, error: userError } = await supabase.auth.getUser();
-  if (userError || !userData?.user) return { ok: false, status: 401, error: 'Unauthorized' };
-  const userId = userData.user.id as string;
-
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('is_super_admin, role')
-    .eq('id', userId)
-    .maybeSingle();
-  if (profile?.is_super_admin === true) return { ok: true, userId };
-  if (profile?.role === 'super_admin' || profile?.role === 'admin' || profile?.role === 'administrator' || profile?.role === 'registrar') {
-    return { ok: true, userId };
-  }
-
-  // Check merged permissions via get_user_merged_permissions RPC
-  const { data: merged } = await supabase.rpc('get_user_merged_permissions', { p_user_id: userId });
-  if (merged && typeof merged === 'object' && merged['audit.external_auditor.manage'] === true) {
-    return { ok: true, userId };
-  }
-  return { ok: false, status: 403, error: 'Forbidden: requires super_admin or audit.external_auditor.manage' };
-}
-
-export async function GET(_request: Request) {
+export const GET = withAuth(async (_request, auth) => {
   await connection();
   try {
-    const supabase = await createServerSupabaseClient();
-    const guard = await requireManagePermission(supabase);
-    if (!guard.ok) return NextResponse.json({ error: guard.error }, { status: guard.status });
+    const supabase = auth.supabase;
 
     // Find all profiles with the external_auditor_timeboxed role (via user_roles).
     const { data: roleRow, error: roleErr } = await supabase
@@ -119,14 +99,13 @@ export async function GET(_request: Request) {
       { status: 500 }
     );
   }
-}
+}, { allowApiKey: false, requirePermission: 'audit.external_auditor.manage' });
 
-export async function POST(request: Request) {
+export const POST = withAuth(async (request, auth) => {
   await connection();
   try {
-    const supabase = await createServerSupabaseClient();
-    const guard = await requireManagePermission(supabase);
-    if (!guard.ok) return NextResponse.json({ error: guard.error }, { status: guard.status });
+    const supabase = auth.supabase;
+    const userId = auth.user.id;
 
     const body = (await request.json()) as CreateExternalAuditorInput;
     if (!body?.email || !body?.expires_at || !Array.isArray(body.institution_ids) || body.institution_ids.length === 0) {
@@ -186,7 +165,7 @@ export async function POST(request: Request) {
     }
 
     if (!profile) throw new Error('Unable to resolve or stage profile');
-    const userId = (profile as { id: string }).id;
+    const profileId = (profile as { id: string }).id;
 
     // Resolve role id + assign via user_roles (idempotent).
     const { data: roleRow, error: roleErr } = await supabase
@@ -201,17 +180,17 @@ export async function POST(request: Request) {
     const { error: urErr } = await (supabase as any)
       .from('user_roles')
       .upsert(
-        { user_id: userId, role_id: roleId, is_primary: false, assigned_by: guard.userId },
+        { user_id: profileId, role_id: roleId, is_primary: false, assigned_by: userId },
         { onConflict: 'user_id,role_id', ignoreDuplicates: true }
       );
     if (urErr) throw urErr;
 
     // Insert user_institution_access rows per institution.
     const accessRows = body.institution_ids.map((iid) => ({
-      user_id: userId,
+      user_id: profileId,
       institution_id: iid,
       access_type: 'read_only',
-      granted_by: guard.userId,
+      granted_by: userId,
       is_active: true,
       expires_at: expiresDate.toISOString(),
     }));
@@ -230,7 +209,7 @@ export async function POST(request: Request) {
         if (retryErr) throw retryErr;
         return NextResponse.json(
           {
-            data: { user_id: userId, expires_at: null },
+            data: { user_id: profileId, expires_at: null },
             metadata: {
               created: true,
               warning:
@@ -244,7 +223,7 @@ export async function POST(request: Request) {
     }
 
     return NextResponse.json(
-      { data: { user_id: userId, expires_at: expiresDate.toISOString() }, metadata: { created: true } },
+      { data: { user_id: profileId, expires_at: expiresDate.toISOString() }, metadata: { created: true } },
       { status: 201 }
     );
   } catch (error) {
@@ -254,4 +233,4 @@ export async function POST(request: Request) {
       { status: 500 }
     );
   }
-}
+}, { allowApiKey: false, requirePermission: 'audit.external_auditor.manage' });
