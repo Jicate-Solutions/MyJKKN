@@ -48,6 +48,10 @@
       "schedule": "7 * * * *"
     },
     {
+      "path": "/api/cron/counselor-shift-flip?secret=${CRON_SECRET}",
+      "schedule": "*/15 * * * *"
+    },
+    {
       "path": "/api/cron/sync-inbound-calls",
       "schedule": "*/15 * * * *"
     },
