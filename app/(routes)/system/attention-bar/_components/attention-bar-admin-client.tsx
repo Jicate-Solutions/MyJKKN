@@ -188,6 +188,7 @@ export function AttentionBarAdminClient() {
             <TabAi isSuperAdmin={isSuperAdmin} />
           </TabsContent>
 
+          {/* TAB-6:AUDIT */}
           <TabsContent value='audit'>
             <TabAudit />
           </TabsContent>
