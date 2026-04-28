@@ -7,8 +7,14 @@ import { GroupDashboardService } from '@/lib/services/admission/group-dashboard-
 
 export const groupDashboardKeys = {
   all: ['admission-group-dashboard'] as const,
-  overview: (institutionIds?: string[]) =>
-    [...groupDashboardKeys.all, 'overview', institutionIds ?? 'all'] as const,
+  overview: (institutionIds?: string[], admissionYearId?: string | null, programStartYear?: number | null) =>
+    [
+      ...groupDashboardKeys.all,
+      'overview',
+      institutionIds ?? 'all',
+      admissionYearId ?? 'no-ay',
+      programStartYear ?? 'no-year',
+    ] as const,
   duplicates: () => [...groupDashboardKeys.all, 'duplicates'] as const,
   seatAnalytics: (institutionId?: string) =>
     [...groupDashboardKeys.all, 'seats', institutionId ?? 'all'] as const,
@@ -46,12 +52,20 @@ function useSeatsRealtimeInvalidation() {
   }, [queryClient]);
 }
 
-export function useGroupDashboard(institutionIds?: string[]) {
+export function useGroupDashboard(
+  institutionIds?: string[],
+  admissionYearId?: string | null,
+  programStartYear?: number | null
+) {
   return useQuery({
-    queryKey: groupDashboardKeys.overview(institutionIds),
-    queryFn: () => GroupDashboardService.getGroupDashboard(institutionIds),
+    queryKey: groupDashboardKeys.overview(institutionIds, admissionYearId, programStartYear),
+    queryFn: () =>
+      GroupDashboardService.getGroupDashboard(institutionIds, admissionYearId, programStartYear),
     staleTime: 5 * 60 * 1000,
     refetchOnWindowFocus: true,
+    // Wait until we know which year to query — prevents an all-time fetch
+    // before GroupAdmissionYearSelect resolves the default cohort.
+    enabled: programStartYear !== null && programStartYear !== undefined,
   });
 }
 

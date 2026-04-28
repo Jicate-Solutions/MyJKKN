@@ -62,13 +62,23 @@ export interface SLAConfig {
 }
 
 // Group dashboard types
+// Updated 2026-04-28: source is now fn_group_dashboard_overview RPC. Counts are
+// admission-year-scoped. `applied` & `enrolled` semantics changed:
+//   applied  = learners_profiles.lifecycle_status IN ('admitted','pending','approved','account','waitlisted')
+//   enrolled = learners_profiles.lifecycle_status = 'active'
+// (previously these read admission_leads.funnel_stage, which never advances
+//  past 'application_started' in production — hence the always-zero bug.)
 export interface InstitutionAdmissionSummary {
   institution_id: string;
   institution_name: string;
   total_leads: number;
+  active_crm_leads: number;
+  lost_leads: number;
   applied: number;
   enrolled: number;
+  rejected: number;
   total_seats: number;
+  filled_seats: number;
   fill_percentage: number;
 }
 
@@ -78,6 +88,7 @@ export interface GroupDashboardData {
     total_leads: number;
     total_applied: number;
     total_enrolled: number;
+    total_rejected: number;
     total_seats: number;
     overall_fill_percentage: number;
   };
