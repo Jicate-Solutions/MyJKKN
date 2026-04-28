@@ -179,12 +179,15 @@ export async function evaluateLayer2(ctx: ResolverContext): Promise<LayerResult>
 
 async function loadCandidateRules(page: string, role: string): Promise<RuleRow[]> {
   const supabase = await createServerSupabaseClient();
+  // Use .in() rather than .or() so that special chars in `page` (slashes,
+  // commas, asterisks) don't get re-parsed by PostgREST's or-grammar. Wildcards
+  // ('*') and exact match are both string equality, so .in() is the cleanest fit.
   const { data, error } = await supabase
     .from('quick_action_rules')
     .select('id, rule_name, page, role, when_clause, action_template, priority, created_at, institution_id')
     .eq('is_active', true)
-    .or(`page.eq.${page},page.eq.*`)
-    .or(`role.eq.${role},role.eq.*`)
+    .in('page', [page, '*'])
+    .in('role', [role, '*'])
     .order('priority', { ascending: false })
     .order('created_at', { ascending: true });
 
