@@ -1584,6 +1584,17 @@ export const PERMISSION_CATEGORIES = [
       { key: 'health.assessments.view', label: 'View Mental Health Check-In' },
       { key: 'health.counselor.view', label: 'View Counselor Dashboard' }
     ]
+  },
+  {
+    name: 'Attention Bar',
+    key: 'attention_bar',
+    permissions: [
+      { key: 'attention_bar.rules.view', label: 'View Layer 2 Rules' },
+      { key: 'attention_bar.rules.manage', label: 'Manage Layer 2 Rules' },
+      { key: 'attention_bar.audit.view', label: 'View Audit Log + Aggregates' },
+      { key: 'attention_bar.config.manage', label: 'Manage System Config + Budgets' },
+      { key: 'attention_bar.test_sandbox.use', label: 'Use Test Sandbox' }
+    ]
   }
 ];
 
