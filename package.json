@@ -23,7 +23,10 @@
     "check:nav": "echo '[deprecated] check:nav retired — superseded by check:reachability (#441, #442). Script retained for historical/debug; removed from build gate 2026-04-24.' && node scripts/assert-nav-coverage.mjs --max-unverified 99 --max-orphans 99 || true",
     "check:reachability": "tsx scripts/check-nav-reachability.ts --max-unreachable 0",
     "check:attention-bar": "tsx scripts/check-attention-bar-coverage.ts",
-    "check:attention-bar-layer4": "tsx scripts/check-attention-bar-layer4-rails.ts"
+    "check:attention-bar-layer2": "tsx scripts/check-attention-bar-layer2-rules.ts",
+    "check:attention-bar-layer3": "tsx scripts/check-attention-bar-layer3-rails.ts",
+    "check:attention-bar-layer4": "tsx scripts/check-attention-bar-layer4-rails.ts",
+    "check:attention-bar-all": "npm run check:attention-bar && npm run check:attention-bar-layer2 && npm run check:attention-bar-layer3 && npm run check:attention-bar-layer4"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.68.0",
