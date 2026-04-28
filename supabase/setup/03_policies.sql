@@ -5457,3 +5457,94 @@ USING (
     AND public.role_has_institution_access(institution_id)
   )
 );
+
+-- ════════════════════════════════════════════════════════════════════════════
+-- Updated: 2026-04-28 — Attention Bar Phase 1 — RLS Policies
+-- 7 tables × 15 policies. All follow CLAUDE.md standardized pattern:
+--   (is_super_admin OR is_admin) OR (user_has_permission AND institution_access)
+-- Permission keys: attention_bar.{rules.view, rules.manage, audit.view, config.manage, test_sandbox.use}
+-- Applied to prod via Supabase MCP 2026-04-28.
+-- ════════════════════════════════════════════════════════════════════════════
+
+ALTER TABLE public.quick_action_rules         ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.quick_action_state_queries ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.quick_action_taps          ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.quick_action_user_consent  ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.quick_action_ai_cache      ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.quick_action_audit         ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.quick_action_config        ENABLE ROW LEVEL SECURITY;
+
+-- quick_action_rules
+DROP POLICY IF EXISTS qar_select ON public.quick_action_rules;
+CREATE POLICY qar_select ON public.quick_action_rules
+    FOR SELECT USING (
+        is_super_admin() OR is_admin()
+        OR (user_has_permission('attention_bar.rules.view')
+            AND (institution_id IS NULL OR role_has_institution_access(institution_id)))
+    );
+DROP POLICY IF EXISTS qar_modify ON public.quick_action_rules;
+CREATE POLICY qar_modify ON public.quick_action_rules
+    FOR ALL USING (
+        is_super_admin()
+        OR user_has_permission('attention_bar.rules.manage')
+    );
+
+-- quick_action_state_queries
+DROP POLICY IF EXISTS qasq_select ON public.quick_action_state_queries;
+CREATE POLICY qasq_select ON public.quick_action_state_queries
+    FOR SELECT USING (
+        is_super_admin() OR is_admin()
+        OR user_has_permission('attention_bar.rules.view')
+    );
+DROP POLICY IF EXISTS qasq_modify ON public.quick_action_state_queries;
+CREATE POLICY qasq_modify ON public.quick_action_state_queries
+    FOR ALL USING (is_super_admin());
+
+-- quick_action_taps (user reads/inserts/deletes own; admin reads all)
+DROP POLICY IF EXISTS qat_self_read ON public.quick_action_taps;
+CREATE POLICY qat_self_read ON public.quick_action_taps
+    FOR SELECT USING (user_id = auth.uid() OR is_super_admin() OR is_admin());
+DROP POLICY IF EXISTS qat_self_insert ON public.quick_action_taps;
+CREATE POLICY qat_self_insert ON public.quick_action_taps
+    FOR INSERT WITH CHECK (user_id = auth.uid());
+DROP POLICY IF EXISTS qat_self_delete ON public.quick_action_taps;
+CREATE POLICY qat_self_delete ON public.quick_action_taps
+    FOR DELETE USING (user_id = auth.uid() OR is_super_admin());
+
+-- quick_action_user_consent (user owns their row)
+DROP POLICY IF EXISTS qauc_self ON public.quick_action_user_consent;
+CREATE POLICY qauc_self ON public.quick_action_user_consent
+    FOR ALL USING (user_id = auth.uid() OR is_super_admin());
+
+-- quick_action_ai_cache
+DROP POLICY IF EXISTS qac_select ON public.quick_action_ai_cache;
+CREATE POLICY qac_select ON public.quick_action_ai_cache
+    FOR SELECT USING (auth.uid() IS NOT NULL);
+DROP POLICY IF EXISTS qac_modify ON public.quick_action_ai_cache;
+CREATE POLICY qac_modify ON public.quick_action_ai_cache
+    FOR ALL USING (is_super_admin());
+
+-- quick_action_audit (admin reads via permission, self reads/deletes own)
+DROP POLICY IF EXISTS qau_admin_read ON public.quick_action_audit;
+CREATE POLICY qau_admin_read ON public.quick_action_audit
+    FOR SELECT USING (
+        is_super_admin() OR is_admin()
+        OR user_has_permission('attention_bar.audit.view')
+    );
+DROP POLICY IF EXISTS qau_self_read ON public.quick_action_audit;
+CREATE POLICY qau_self_read ON public.quick_action_audit
+    FOR SELECT USING (user_id = auth.uid());
+DROP POLICY IF EXISTS qau_self_delete ON public.quick_action_audit;
+CREATE POLICY qau_self_delete ON public.quick_action_audit
+    FOR DELETE USING (user_id = auth.uid() OR is_super_admin());
+
+-- quick_action_config (admin reads via permission, super_admin writes)
+DROP POLICY IF EXISTS qaconf_read ON public.quick_action_config;
+CREATE POLICY qaconf_read ON public.quick_action_config
+    FOR SELECT USING (
+        is_super_admin() OR is_admin()
+        OR user_has_permission('attention_bar.config.manage')
+    );
+DROP POLICY IF EXISTS qaconf_write ON public.quick_action_config;
+CREATE POLICY qaconf_write ON public.quick_action_config
+    FOR ALL USING (is_super_admin());
