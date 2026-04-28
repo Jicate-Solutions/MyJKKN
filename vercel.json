@@ -1,7 +1,7 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "nextjs",
-  "ignoreCommand": "git diff HEAD^ HEAD --quiet -- . ':(exclude)supabase' ':(exclude)docs' ':(exclude)specs' ':(exclude).claude' ':(exclude).github' ':(exclude)*.md'",
+  "ignoreCommand": "if [ -z \"$VERCEL_GIT_PREVIOUS_SHA\" ] || ! git cat-file -e \"$VERCEL_GIT_PREVIOUS_SHA\" 2>/dev/null; then exit 1; else git diff \"$VERCEL_GIT_PREVIOUS_SHA\" HEAD --quiet -- . ':(exclude)supabase' ':(exclude)docs' ':(exclude)specs' ':(exclude).claude' ':(exclude).github' ':(exclude)*.md'; fi",
   "regions": ["bom1"],
   "git": {
     "deploymentEnabled": false
@@ -74,6 +74,10 @@
     {
       "path": "/api/cron/attention-bar-prune?secret=${CRON_SECRET}",
       "schedule": "47 18 * * *"
+    },
+    {
+      "path": "/api/cron/duty-log-retention?secret=${CRON_SECRET}",
+      "schedule": "0 3 * * 0"
     }
   ]
 }
