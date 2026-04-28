@@ -9,12 +9,13 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useGroupDashboard, groupDashboardKeys } from '@/hooks/admission/use-group-dashboard';
 import { admissionAccreditationKeys } from '@/hooks/admission/use-admission-accreditation-report';
 import { InstitutionComparisonTable } from './_components/institution-comparison-table';
-import { CrossCampusDedup } from './_components/cross-campus-dedup';
+import { GroupFunnelChart, InstitutionPerformanceChart } from './_components/overview-charts';
 import { SeatAnalyticsDashboard } from './_components/seat-analytics-dashboard';
 import { SourceAnalyticsTab } from './_components/source-analytics-tab';
 import { GeographyAnalyticsTab } from './_components/geography-analytics-tab';
 import { InstitutionComparisonAdvanced } from './_components/institution-comparison-advanced';
 import { NAACReportGenerator } from './_components/naac-report-generator';
+import { GroupAdmissionYearSelect } from './_components/group-admission-year-select';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
   Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList,
@@ -22,7 +23,7 @@ import {
 } from '@/components/ui/breadcrumb';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 
 
 /**
@@ -45,7 +46,16 @@ export default function GroupDashboardPage() {
     return accessibleInstitutions.map((i) => i.institution_id);
   }, [canAccessAllInstitutions, accessibleInstitutions]);
 
-  const { data, isLoading, isFetching, isError, error } = useGroupDashboard(scopedInstitutionIds);
+  // Selected admission year cohort (program_start_year). Null until the
+  // GroupAdmissionYearSelect resolves the latest active cohort, then it
+  // auto-selects and the dashboard query unblocks.
+  const [selectedYear, setSelectedYear] = useState<number | null>(null);
+
+  const { data, isLoading, isFetching, isError, error } = useGroupDashboard(
+    scopedInstitutionIds,
+    null,
+    selectedYear
+  );
 
   const handleRefresh = () => {
     queryClient.invalidateQueries({ queryKey: groupDashboardKeys.all });
@@ -95,19 +105,25 @@ export default function GroupDashboardPage() {
               </div>
             </div>
             <div className="flex items-center gap-2">
+              <GroupAdmissionYearSelect
+                institutionIds={scopedInstitutionIds}
+                value={selectedYear}
+                onChange={setSelectedYear}
+              />
               <Button size="sm" variant="ghost" onClick={handleRefresh} disabled={isFetching}>
                 <RefreshCw className={`h-4 w-4 ${isFetching ? 'animate-spin' : ''}`} />
               </Button>
             </div>
           </div>
 
-          {/* Admission funnel summary — always visible */}
+          {/* Admission funnel summary — always visible, scoped to selected admission year */}
           {!isLoading && data?.totals && (
-            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
               {[
                 { label: 'Total Leads', value: data.totals.total_leads },
                 { label: 'Applied', value: data.totals.total_applied },
                 { label: 'Enrolled', value: data.totals.total_enrolled },
+                { label: 'Rejected', value: data.totals.total_rejected },
                 { label: 'Total Seats', value: data.totals.total_seats || '—' },
                 {
                   label: 'Fill Rate',
@@ -134,33 +150,48 @@ export default function GroupDashboardPage() {
               <TabsTrigger value="comparison" className="text-xs">Comparison</TabsTrigger>
             </TabsList>
 
-            {/* Tab: Overview (existing) */}
+            {/* Tab: Overview */}
             <TabsContent value="overview" className="space-y-4">
+              {data && (
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                  <GroupFunnelChart data={data} />
+                  <InstitutionPerformanceChart data={data} />
+                </div>
+              )}
               <InstitutionComparisonTable institutions={data?.institutions || []} />
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                <CrossCampusDedup />
-                <NAACReportGenerator />
-              </div>
+              <NAACReportGenerator />
             </TabsContent>
 
             {/* Tab: Seat Analytics */}
             <TabsContent value="seats">
-              <SeatAnalyticsDashboard />
+              <SeatAnalyticsDashboard
+                institutionIds={scopedInstitutionIds}
+                programStartYear={selectedYear}
+              />
             </TabsContent>
 
             {/* Tab: Source Analytics */}
             <TabsContent value="sources">
-              <SourceAnalyticsTab />
+              <SourceAnalyticsTab
+                institutionIds={scopedInstitutionIds}
+                programStartYear={selectedYear}
+              />
             </TabsContent>
 
             {/* Tab: Geography */}
             <TabsContent value="geography">
-              <GeographyAnalyticsTab />
+              <GeographyAnalyticsTab
+                institutionIds={scopedInstitutionIds}
+                programStartYear={selectedYear}
+              />
             </TabsContent>
 
             {/* Tab: Advanced Comparison */}
             <TabsContent value="comparison">
-              <InstitutionComparisonAdvanced />
+              <InstitutionComparisonAdvanced
+                institutionIds={scopedInstitutionIds}
+                programStartYear={selectedYear}
+              />
             </TabsContent>
           </Tabs>
         </div>

@@ -42,6 +42,7 @@ export function InstitutionComparisonTable({
             <TableHead className="text-right">Leads</TableHead>
             <TableHead className="text-right">Applied</TableHead>
             <TableHead className="text-right">Enrolled</TableHead>
+            <TableHead className="text-right">Rejected</TableHead>
             <TableHead className="text-right">Seats</TableHead>
             <TableHead className="text-right">Fill %</TableHead>
           </TableRow>
@@ -55,6 +56,7 @@ export function InstitutionComparisonTable({
               <TableCell className="text-right">{inst.total_leads}</TableCell>
               <TableCell className="text-right">{inst.applied}</TableCell>
               <TableCell className="text-right">{inst.enrolled}</TableCell>
+              <TableCell className="text-right">{inst.rejected}</TableCell>
               <TableCell className="text-right">{inst.total_seats || '—'}</TableCell>
               <TableCell className="text-right">
                 {inst.total_seats > 0 ? getFillBadge(inst.fill_percentage) : '—'}

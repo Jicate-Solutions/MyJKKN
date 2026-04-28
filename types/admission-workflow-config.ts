@@ -61,14 +61,46 @@ export interface SLAConfig {
   token_payment_days?: number;
 }
 
+// Daily admission pivot row — from fn_seat_analytics_daily_pivot RPC.
+// Powers the Daily Pivot sub-tab inside Seat Analytics.
+export interface SeatPivotRow {
+  institution_id: string;
+  institution_name: string;
+  program_id: string;
+  program_short: string;        // e.g. "CSE", "MBA", "ECE-SH"
+  program_name: string;
+  course_short: string;         // e.g. "B.E - CSE", "MBA"
+  stream: string;               // e.g. "ENGINEERING"
+  level: string;                // "UG" | "PG" | ""
+  is_lateral: boolean;
+  study_year: string;           // "I YEAR" | "II YEAR"
+  group_label: string;          // e.g. "UG ENGINEERING - I YEAR"
+  group_sort_key: string;
+  intake: number;
+  filled: number;
+  balance: number;
+  fill_percentage: number;
+  daily_counts: Record<string, number>; // { "2026-03-25": 2, "2026-03-28": 1, ... }
+}
+
 // Group dashboard types
+// Updated 2026-04-28: source is now fn_group_dashboard_overview RPC. Counts are
+// admission-year-scoped. `applied` & `enrolled` semantics changed:
+//   applied  = learners_profiles.lifecycle_status IN ('admitted','pending','approved','account','waitlisted')
+//   enrolled = learners_profiles.lifecycle_status = 'active'
+// (previously these read admission_leads.funnel_stage, which never advances
+//  past 'application_started' in production — hence the always-zero bug.)
 export interface InstitutionAdmissionSummary {
   institution_id: string;
   institution_name: string;
   total_leads: number;
+  active_crm_leads: number;
+  lost_leads: number;
   applied: number;
   enrolled: number;
+  rejected: number;
   total_seats: number;
+  filled_seats: number;
   fill_percentage: number;
 }
 
@@ -78,6 +110,7 @@ export interface GroupDashboardData {
     total_leads: number;
     total_applied: number;
     total_enrolled: number;
+    total_rejected: number;
     total_seats: number;
     overall_fill_percentage: number;
   };
@@ -104,14 +137,14 @@ export interface SeatAnalyticsRow {
   last_filled_at: string | null;
 }
 
-// Source analytics — from get_source_analytics RPC
+// Source analytics — from fn_source_analytics RPC.
+// Updated 2026-04-28: dropped academic_year_id / academic_year_name (legacy
+// from the old academic-year-FK design); RPC now takes p_admission_year integer.
 export interface SourceAnalyticsRow {
   institution_id: string;
   institution_name: string;
   source: string | null;
   referral_type: string | null;
-  academic_year_id: string | null;
-  academic_year_name: string | null;
   lead_count: number;
   enrolled_count: number;
   conversion_rate: number;
@@ -143,17 +176,6 @@ export interface InstitutionComparisonRow {
   active_learners: number;
 }
 
-export interface CrossCampusDuplicate {
-  lead_1_id: string;
-  institution_1: string;
-  institution_1_name: string;
-  lead_2_id: string;
-  institution_2: string;
-  institution_2_name: string;
-  full_name: string;
-  phone: string;
-  confidence: number;
-}
 
 // Default stage definitions
 export const ALL_ADMISSION_STAGES: { id: string; label: string }[] = [

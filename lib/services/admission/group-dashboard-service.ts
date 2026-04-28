@@ -5,189 +5,121 @@ import { createClientSupabaseClient } from '@/lib/supabase/client';
 import type {
   GroupDashboardData,
   InstitutionAdmissionSummary,
-  CrossCampusDuplicate,
   SeatAnalyticsRow,
+  SeatPivotRow,
   SourceAnalyticsRow,
   GeographyAnalyticsRow,
   InstitutionComparisonRow,
 } from '@/types/admission-workflow-config';
+
+const EMPTY_GROUP_DASHBOARD: GroupDashboardData = {
+  institutions: [],
+  totals: {
+    total_leads: 0,
+    total_applied: 0,
+    total_enrolled: 0,
+    total_rejected: 0,
+    total_seats: 0,
+    overall_fill_percentage: 0,
+  },
+};
 
 export class GroupDashboardService {
   private static supabase = createClientSupabaseClient();
 
   /**
    * Get admission summary across the institutions the user has access to.
-   * When `institutionIds` is provided, the query is explicitly scoped to those IDs.
-   * When undefined, callers must be global users — RLS on `institutions` enforces scope.
+   * Backed by fn_group_dashboard_overview RPC (added 2026-04-28).
+   *
+   * @param institutionIds  scope; pass undefined for all-accessible (RLS-enforced)
+   * @param admissionYearId strict-mode filter on the admission_year UUID
+   * @param programStartYear pragmatic-mode filter (used when admission_year_id is sparse)
+   *
+   * If both year args are null/undefined the RPC returns all-time totals — the
+   * Overview tab UI always passes programStartYear (defaulted to the latest cohort).
    */
-  static async getGroupDashboard(institutionIds?: string[]): Promise<GroupDashboardData> {
-    let instQuery = this.supabase
-      .from('institutions')
-      .select('id, name');
+  static async getGroupDashboard(
+    institutionIds?: string[],
+    admissionYearId?: string | null,
+    programStartYear?: number | null
+  ): Promise<GroupDashboardData> {
+    if (institutionIds !== undefined && institutionIds.length === 0) {
+      return EMPTY_GROUP_DASHBOARD;
+    }
 
-    if (institutionIds !== undefined) {
-      if (institutionIds.length === 0) {
-        return {
-          institutions: [],
-          totals: {
-            total_leads: 0,
-            total_applied: 0,
-            total_enrolled: 0,
-            total_seats: 0,
-            overall_fill_percentage: 0,
-          },
-        };
+    // RPC requires a non-null institution array. If caller didn't scope (super-admin),
+    // resolve all accessible institutions first via RLS-respecting select.
+    let resolvedInstitutionIds = institutionIds;
+    if (resolvedInstitutionIds === undefined) {
+      const { data: insts, error: instErr } = await (this.supabase as any)
+        .from('institutions')
+        .select('id');
+      if (instErr) {
+        console.error('[admission/group] Failed to resolve institutions:', instErr);
+        throw instErr;
       }
-      instQuery = instQuery.in('id', institutionIds);
+      resolvedInstitutionIds = ((insts ?? []) as Array<{ id: string }>).map((i) => i.id);
+      if (resolvedInstitutionIds.length === 0) return EMPTY_GROUP_DASHBOARD;
     }
 
-    const { data: institutions, error: instError } = await instQuery;
-
-    if (instError) {
-      console.error('[admission/group] Failed to fetch institutions:', instError);
-      throw instError;
-    }
-
-    if (!institutions || institutions.length === 0) {
-      return {
-        institutions: [],
-        totals: {
-          total_leads: 0,
-          total_applied: 0,
-          total_enrolled: 0,
-          total_seats: 0,
-          overall_fill_percentage: 0,
-        },
-      };
-    }
-
-    const resolvedInstitutionIds = institutions.map((i) => i.id);
-
-    // Get lead counts per institution per stage
-    const { data: leadsData, error: leadsError } = await (this.supabase as any)
-      .from('admission_leads')
-      .select('institution_id, funnel_stage')
-      .in('institution_id', resolvedInstitutionIds);
-
-    if (leadsError) {
-      console.error('[admission/group] Failed to fetch leads:', leadsError);
-      throw leadsError;
-    }
-
-    // Seat Configuration writes to `intake_history`. The old code read from a
-    // nonexistent `institution_seat_config` table so totals always came back 0.
-    // The overview tab has no AY filter — users expect to see their *most recently
-    // configured* seats per program. Picking a single "current AY" per institution
-    // is unreliable (institutions commonly have multiple overlapping active AYs
-    // like "2025-2026", "2025-2026 Additional 1", etc.). So instead we read the
-    // latest intake_history row per (institution, program) by updated_at desc and
-    // fall back to programs.sanctioned_intake for programs never configured.
-    const [{ data: programsData }, { data: ihData }] = await Promise.all([
-      (this.supabase as any)
-        .from('programs')
-        .select('id, institution_id, sanctioned_intake')
-        .in('institution_id', resolvedInstitutionIds)
-        .eq('is_active', true),
-      (this.supabase as any)
-        .from('intake_history')
-        .select('program_id, sanctioned_intake, updated_at')
-        .in('institution_id', resolvedInstitutionIds)
-        .order('updated_at', { ascending: false }),
-    ]);
-
-    // First row wins per program_id — ordered by updated_at desc above.
-    const ihByProgram = new Map<string, number>();
-    for (const r of (ihData ?? []) as Array<{
-      program_id: string;
-      sanctioned_intake: number;
-    }>) {
-      if (!ihByProgram.has(r.program_id)) ihByProgram.set(r.program_id, r.sanctioned_intake);
-    }
-
-    const seatData: Array<{ institution_id: string; total_seats: number }> = [];
-    for (const p of (programsData ?? []) as Array<{
-      id: string;
-      institution_id: string;
-      sanctioned_intake: number | null;
-    }>) {
-      const seats = ihByProgram.get(p.id) ?? p.sanctioned_intake ?? 0;
-      if (seats > 0) seatData.push({ institution_id: p.institution_id, total_seats: seats });
-    }
-
-    // Aggregate by institution
-    const leadsByInst = new Map<string, { total: number; applied: number; enrolled: number }>();
-    for (const lead of (leadsData || []) as { institution_id: string; funnel_stage: string }[]) {
-      const current = leadsByInst.get(lead.institution_id) || { total: 0, applied: 0, enrolled: 0 };
-      current.total += 1;
-      if (['application_submitted', 'documents_pending', 'documents_verified',
-        'interview_scheduled', 'interview_completed', 'offer_sent',
-        'offer_accepted', 'token_paid', 'enrolled'].includes(lead.funnel_stage)) {
-        current.applied += 1;
-      }
-      if (lead.funnel_stage === 'enrolled') {
-        current.enrolled += 1;
-      }
-      leadsByInst.set(lead.institution_id, current);
-    }
-
-    const seatsByInst = new Map<string, number>();
-    for (const seat of (seatData || []) as { institution_id: string; total_seats: number }[]) {
-      const existing = seatsByInst.get(seat.institution_id) || 0;
-      seatsByInst.set(seat.institution_id, existing + seat.total_seats);
-    }
-
-    // Build summaries
-    const summaries: InstitutionAdmissionSummary[] = institutions.map((inst) => {
-      const leads = leadsByInst.get(inst.id) || { total: 0, applied: 0, enrolled: 0 };
-      const seats = seatsByInst.get(inst.id) || 0;
-      return {
-        institution_id: inst.id,
-        institution_name: inst.name,
-        total_leads: leads.total,
-        applied: leads.applied,
-        enrolled: leads.enrolled,
-        total_seats: seats,
-        fill_percentage: seats > 0 ? Math.round((leads.enrolled / seats) * 100) : 0,
-      };
+    const { data, error } = await (this.supabase as any).rpc('fn_group_dashboard_overview', {
+      p_institution_ids: resolvedInstitutionIds,
+      p_admission_year_id: admissionYearId ?? null,
+      p_program_start_year: programStartYear ?? null,
     });
 
-    // Sort by enrolled descending
-    summaries.sort((a, b) => b.enrolled - a.enrolled);
+    if (error) {
+      console.error('[admission/group] fn_group_dashboard_overview failed:', error);
+      throw error;
+    }
 
-    // Calculate totals
-    const totals = summaries.reduce(
+    type Row = {
+      institution_id: string;
+      institution_name: string;
+      total_leads: number;
+      active_crm_leads: number;
+      lost_leads: number;
+      applied_learners: number;
+      active_learners: number;
+      rejected_learners: number;
+      total_seats: number;
+      filled_seats: number;
+      fill_percentage: number;
+    };
+
+    const rows = ((data ?? []) as Row[]).map((r): InstitutionAdmissionSummary => ({
+      institution_id: r.institution_id,
+      institution_name: r.institution_name,
+      total_leads: Number(r.total_leads),
+      active_crm_leads: Number(r.active_crm_leads),
+      lost_leads: Number(r.lost_leads),
+      applied: Number(r.applied_learners),
+      enrolled: Number(r.active_learners),
+      rejected: Number(r.rejected_learners),
+      total_seats: Number(r.total_seats),
+      filled_seats: Number(r.filled_seats),
+      fill_percentage: Number(r.fill_percentage),
+    }));
+
+    rows.sort((a, b) => b.enrolled - a.enrolled);
+
+    const totals = rows.reduce(
       (acc, s) => ({
         total_leads: acc.total_leads + s.total_leads,
         total_applied: acc.total_applied + s.applied,
         total_enrolled: acc.total_enrolled + s.enrolled,
+        total_rejected: acc.total_rejected + s.rejected,
         total_seats: acc.total_seats + s.total_seats,
         overall_fill_percentage: 0,
       }),
-      { total_leads: 0, total_applied: 0, total_enrolled: 0, total_seats: 0, overall_fill_percentage: 0 }
+      { total_leads: 0, total_applied: 0, total_enrolled: 0, total_rejected: 0, total_seats: 0, overall_fill_percentage: 0 }
     );
     totals.overall_fill_percentage =
       totals.total_seats > 0
         ? Math.round((totals.total_enrolled / totals.total_seats) * 100)
         : 0;
 
-    return { institutions: summaries, totals };
-  }
-
-  /**
-   * Find cross-campus duplicate leads
-   */
-  static async findCrossCampusDuplicates(): Promise<CrossCampusDuplicate[]> {
-    const { data, error } = await (this.supabase as any).rpc(
-      'find_cross_campus_duplicates'
-    );
-
-    if (error) {
-      // RPC may not exist - fall back to client-side query
-      console.warn('[admission/group] Cross-campus dedup RPC not available, using fallback');
-      return this.findDuplicatesFallback();
-    }
-
-    return (data || []) as CrossCampusDuplicate[];
+    return { institutions: rows, totals };
   }
 
   static async getSeatAnalytics(
@@ -203,159 +135,172 @@ export class GroupDashboardService {
     return (data ?? []) as SeatAnalyticsRow[];
   }
 
+  /**
+   * Daily admission pivot — one row per (institution, program) for a given
+   * admission_year, with daily_counts JSONB keyed by IST date.
+   * Backed by fn_seat_analytics_daily_pivot (added 2026-04-28).
+   *
+   * @param institutionIds  scope; undefined => all-accessible (super-admin path)
+   * @param admissionYear   integer cohort, e.g. 2026
+   */
+  static async getSeatDailyPivot(
+    institutionIds: string[] | undefined,
+    admissionYear: number,
+    excludeBulkMigrated = false
+  ): Promise<SeatPivotRow[]> {
+    // The RPC requires a non-null institution array. For super-admins (undefined)
+    // we resolve all RLS-accessible institutions first (same pattern as
+    // getGroupDashboard). For scoped users with explicit empty array, short-circuit.
+    let resolvedInstitutionIds = institutionIds;
+    if (resolvedInstitutionIds === undefined) {
+      const { data: insts, error: instErr } = await (this.supabase as any)
+        .from('institutions')
+        .select('id');
+      if (instErr) {
+        console.error('[admission/group] Failed to resolve institutions for pivot:', instErr);
+        throw instErr;
+      }
+      resolvedInstitutionIds = ((insts ?? []) as Array<{ id: string }>).map((i) => i.id);
+    }
+    if (resolvedInstitutionIds.length === 0) return [];
+
+    const { data, error } = await (this.supabase as any).rpc('fn_seat_analytics_daily_pivot', {
+      p_institution_ids: resolvedInstitutionIds,
+      p_admission_year: admissionYear,
+      p_exclude_bulk_migrated: excludeBulkMigrated,
+    });
+    if (error) {
+      console.error('[admission/group] fn_seat_analytics_daily_pivot failed:', error);
+      throw error;
+    }
+    // Coerce numeric strings (Postgres NUMERIC arrives as string in JS)
+    return ((data ?? []) as any[]).map((r): SeatPivotRow => ({
+      ...r,
+      intake: Number(r.intake),
+      filled: Number(r.filled),
+      balance: Number(r.balance),
+      fill_percentage: Number(r.fill_percentage),
+      daily_counts: (r.daily_counts ?? {}) as Record<string, number>,
+    }));
+  }
+
+  /**
+   * AY-scoped source breakdown. Backed by fn_source_analytics RPC.
+   * Replaces the legacy get_source_analytics(uuid, uuid) — which used the
+   * sparse academic_year_id FK and lacked role_has_institution_access().
+   *
+   * @param institutionIds  scope; undefined => super-admin all-accessible
+   * @param admissionYear   cohort year integer (e.g. 2026); null => all-time
+   */
   static async getSourceAnalytics(
-    institutionId?: string,
-    academicYearId?: string
+    institutionIds: string[] | undefined,
+    admissionYear: number | null
   ): Promise<SourceAnalyticsRow[]> {
-    const { data, error } = await (this.supabase as any).rpc('get_source_analytics', {
-      p_institution_id: institutionId ?? null,
-      p_academic_year_id: academicYearId ?? null,
+    let resolved = institutionIds;
+    if (resolved === undefined) {
+      const { data: insts, error: instErr } = await (this.supabase as any)
+        .from('institutions')
+        .select('id');
+      if (instErr) {
+        console.error('[admission/group] Failed to resolve institutions for sources:', instErr);
+        throw instErr;
+      }
+      resolved = ((insts ?? []) as Array<{ id: string }>).map((i) => i.id);
+    }
+    if (resolved.length === 0) return [];
+
+    const { data, error } = await (this.supabase as any).rpc('fn_source_analytics', {
+      p_institution_ids: resolved,
+      p_admission_year: admissionYear ?? null,
     });
     if (error) {
-      console.error('[admission/group] get_source_analytics failed:', error);
+      console.error('[admission/group] fn_source_analytics failed:', error);
       throw error;
     }
-    return (data ?? []) as SourceAnalyticsRow[];
+    return ((data ?? []) as any[]).map((r): SourceAnalyticsRow => ({
+      ...r,
+      lead_count: Number(r.lead_count),
+      enrolled_count: Number(r.enrolled_count),
+      conversion_rate: Number(r.conversion_rate),
+    }));
   }
 
+  /**
+   * AY-scoped geographic distribution. Backed by fn_geography_analytics.
+   * Replaces legacy get_geography_analytics(uuid, uuid).
+   */
   static async getGeographyAnalytics(
-    institutionId?: string,
-    academicYearId?: string
+    institutionIds: string[] | undefined,
+    admissionYear: number | null
   ): Promise<GeographyAnalyticsRow[]> {
-    const { data, error } = await (this.supabase as any).rpc('get_geography_analytics', {
-      p_institution_id: institutionId ?? null,
-      p_academic_year_id: academicYearId ?? null,
+    let resolved = institutionIds;
+    if (resolved === undefined) {
+      const { data: insts, error: instErr } = await (this.supabase as any)
+        .from('institutions')
+        .select('id');
+      if (instErr) {
+        console.error('[admission/group] Failed to resolve institutions for geography:', instErr);
+        throw instErr;
+      }
+      resolved = ((insts ?? []) as Array<{ id: string }>).map((i) => i.id);
+    }
+    if (resolved.length === 0) return [];
+
+    const { data, error } = await (this.supabase as any).rpc('fn_geography_analytics', {
+      p_institution_ids: resolved,
+      p_admission_year: admissionYear ?? null,
     });
     if (error) {
-      console.error('[admission/group] get_geography_analytics failed:', error);
+      console.error('[admission/group] fn_geography_analytics failed:', error);
       throw error;
     }
-    return (data ?? []) as GeographyAnalyticsRow[];
+    return ((data ?? []) as any[]).map((r): GeographyAnalyticsRow => ({
+      ...r,
+      active_learners: Number(r.active_learners),
+    }));
   }
 
-  static async getInstitutionComparison(): Promise<InstitutionComparisonRow[]> {
-    const [seatRows, sourceRows, geoRows] = await Promise.all([
-      this.getSeatAnalytics(),
-      this.getSourceAnalytics(),
-      this.getGeographyAnalytics(),
-    ]);
-
-    // Aggregate seat data per institution
-    const seatMap = new Map<string, { name: string; total_seats: number; filled_seats: number }>();
-    for (const r of seatRows) {
-      const cur = seatMap.get(r.institution_id) ?? { name: r.institution_name, total_seats: 0, filled_seats: 0 };
-      cur.total_seats += r.total_seats;
-      cur.filled_seats += Number(r.filled_seats);
-      seatMap.set(r.institution_id, cur);
-    }
-
-    // Aggregate source data per institution
-    const sourceMap = new Map<string, { total_leads: number; enrolled: number; sourceCounts: Map<string, number> }>();
-    for (const r of sourceRows) {
-      const cur = sourceMap.get(r.institution_id) ?? { total_leads: 0, enrolled: 0, sourceCounts: new Map() };
-      cur.total_leads += Number(r.lead_count);
-      cur.enrolled += Number(r.enrolled_count);
-      const src = r.source ?? 'unknown';
-      cur.sourceCounts.set(src, (cur.sourceCounts.get(src) ?? 0) + Number(r.enrolled_count));
-      sourceMap.set(r.institution_id, cur);
-    }
-
-    // Top district per institution
-    const districtMap = new Map<string, { district: string; count: number }>();
-    for (const r of geoRows) {
-      if (!r.district) continue;
-      const cur = districtMap.get(r.institution_id);
-      if (!cur || Number(r.active_learners) > cur.count) {
-        districtMap.set(r.institution_id, { district: r.district, count: Number(r.active_learners) });
+  /**
+   * Institution-level comparison metrics. Backed by fn_institution_comparison
+   * RPC (added 2026-04-28) which produces one row per institution with
+   * funnel-correct, internally-consistent semantics — replacing the legacy
+   * client-side 3-way fan-out that mixed inconsistent lifecycle_status sets.
+   */
+  static async getInstitutionComparison(
+    institutionIds: string[] | undefined,
+    admissionYear: number | null
+  ): Promise<InstitutionComparisonRow[]> {
+    let resolved = institutionIds;
+    if (resolved === undefined) {
+      const { data: insts, error: instErr } = await (this.supabase as any)
+        .from('institutions')
+        .select('id');
+      if (instErr) {
+        console.error('[admission/group] Failed to resolve institutions for comparison:', instErr);
+        throw instErr;
       }
+      resolved = ((insts ?? []) as Array<{ id: string }>).map((i) => i.id);
     }
+    if (resolved.length === 0) return [];
 
-    // Total active learners per institution from geography data
-    const activeMap = new Map<string, number>();
-    for (const r of geoRows) {
-      activeMap.set(r.institution_id, (activeMap.get(r.institution_id) ?? 0) + Number(r.active_learners));
+    const { data, error } = await (this.supabase as any).rpc('fn_institution_comparison', {
+      p_institution_ids: resolved,
+      p_admission_year: admissionYear ?? null,
+    });
+    if (error) {
+      console.error('[admission/group] fn_institution_comparison failed:', error);
+      throw error;
     }
-
-    const rows: InstitutionComparisonRow[] = [];
-    for (const [instId, seat] of seatMap) {
-      const src = sourceMap.get(instId);
-      const topSrcEntry = src
-        ? [...src.sourceCounts.entries()].sort((a, b) => b[1] - a[1])[0]
-        : undefined;
-      rows.push({
-        institution_id: instId,
-        institution_name: seat.name,
-        total_seats: seat.total_seats,
-        filled_seats: seat.filled_seats,
-        fill_percentage: seat.total_seats > 0
-          ? Math.round((seat.filled_seats / seat.total_seats) * 100)
-          : 0,
-        total_leads: src?.total_leads ?? 0,
-        enrolled_count: src?.enrolled ?? 0,
-        conversion_rate: src && src.total_leads > 0
-          ? Math.round((src.enrolled / src.total_leads) * 100 * 10) / 10
-          : 0,
-        top_source: topSrcEntry?.[0] ?? null,
-        top_district: districtMap.get(instId)?.district ?? null,
-        active_learners: activeMap.get(instId) ?? 0,
-      });
-    }
-
-    return rows.sort((a, b) => b.fill_percentage - a.fill_percentage);
+    return ((data ?? []) as any[]).map((r): InstitutionComparisonRow => ({
+      ...r,
+      total_seats: Number(r.total_seats),
+      filled_seats: Number(r.filled_seats),
+      fill_percentage: Number(r.fill_percentage),
+      total_leads: Number(r.total_leads),
+      enrolled_count: Number(r.enrolled_count),
+      conversion_rate: Number(r.conversion_rate),
+      active_learners: Number(r.active_learners),
+    }));
   }
 
-  private static async findDuplicatesFallback(): Promise<CrossCampusDuplicate[]> {
-    // Simple fallback: find leads with same phone across institutions
-    const { data, error } = await (this.supabase as any)
-      .from('admission_leads')
-      .select('id, institution_id, full_name, phone, email, funnel_stage')
-      .not('funnel_stage', 'in', '("enrolled","lost")')
-      .not('phone', 'is', null)
-      .order('phone');
-
-    if (error || !data) return [];
-
-    const leads = data as {
-      id: string;
-      institution_id: string;
-      full_name: string;
-      phone: string;
-      email: string | null;
-      funnel_stage: string;
-    }[];
-
-    // Group by phone and find cross-institution matches
-    const phoneMap = new Map<string, typeof leads>();
-    for (const lead of leads) {
-      if (!lead.phone) continue;
-      const existing = phoneMap.get(lead.phone) || [];
-      existing.push(lead);
-      phoneMap.set(lead.phone, existing);
-    }
-
-    const duplicates: CrossCampusDuplicate[] = [];
-    for (const [, group] of phoneMap) {
-      if (group.length < 2) continue;
-      // Check cross-institution
-      for (let i = 0; i < group.length; i++) {
-        for (let j = i + 1; j < group.length; j++) {
-          if (group[i].institution_id !== group[j].institution_id) {
-            duplicates.push({
-              lead_1_id: group[i].id,
-              institution_1: group[i].institution_id,
-              institution_1_name: '',
-              lead_2_id: group[j].id,
-              institution_2: group[j].institution_id,
-              institution_2_name: '',
-              full_name: group[i].full_name,
-              phone: group[i].phone,
-              confidence: group[i].email === group[j].email ? 1.0 : 0.9,
-            });
-          }
-        }
-      }
-    }
-
-    return duplicates.sort((a, b) => b.confidence - a.confidence);
-  }
 }

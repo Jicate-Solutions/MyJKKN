@@ -11351,3 +11351,618 @@ COMMENT ON FUNCTION public.fn_aqs_attendance_faculty_compliance_today(UUID) IS
     'capped at 10. HOD dept via staff.profile_id FK or institution_email fallback.';
 
 GRANT EXECUTE ON FUNCTION public.fn_aqs_attendance_faculty_compliance_today(UUID) TO authenticated, service_role;
+
+-- =============================================================================
+-- _expo_event_institution_id  (RLS recursion-breaker)
+-- Added: 2026-04-28 (migration 20260428_expo_rls_recursion_hotfix)
+-- =============================================================================
+-- Returns the parent expo_event's institution_id WITHOUT triggering RLS, so
+-- child-table policies (expo_event_team_members, expo_wa_message_queue) can
+-- scope by institution without creating a transitive recursion loop with
+-- expo_events_select_team_member. SECURITY DEFINER is the short-circuit.
+-- =============================================================================
+CREATE OR REPLACE FUNCTION public._expo_event_institution_id(p_expo_event_id uuid)
+RETURNS uuid
+LANGUAGE sql
+SECURITY DEFINER
+STABLE
+SET search_path = public
+AS $$
+  SELECT institution_id FROM expo_events WHERE id = p_expo_event_id LIMIT 1;
+$$;
+
+GRANT EXECUTE ON FUNCTION public._expo_event_institution_id(uuid) TO authenticated;
+
+-- =============================================================================
+-- fn_group_dashboard_overview — Admission CRM group dashboard funnel counts
+-- Added: 2026-04-28 (migration 20260428_fn_group_dashboard_overview)
+-- =============================================================================
+-- Returns one row per institution with leads (admission_leads), learners
+-- (learners_profiles), and seats (admission_years.sanctioned_intake), scoped
+-- by admission year. Two scoping modes:
+--   p_admission_year_id  — strict filter (only ~3% leads populate this today)
+--   p_program_start_year — pragmatic fallback: matches admission_year_id when
+--                          present, else EXTRACT(year FROM created_at).
+-- Replaces the buggy JS fan-out that read funnel_stage='enrolled' (rarely
+-- written) instead of learners_profiles.lifecycle_status (canonical truth).
+-- =============================================================================
+CREATE OR REPLACE FUNCTION public.fn_group_dashboard_overview(
+  p_institution_ids    uuid[],
+  p_admission_year_id  uuid    DEFAULT NULL,
+  p_program_start_year integer DEFAULT NULL
+)
+RETURNS TABLE (
+  institution_id    uuid,
+  institution_name  text,
+  total_leads       bigint,
+  active_crm_leads  bigint,
+  lost_leads        bigint,
+  applied_learners  bigint,
+  active_learners   bigint,
+  rejected_learners bigint,
+  total_seats       bigint,
+  filled_seats      bigint,
+  fill_percentage   numeric
+)
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  WITH ay_scope AS (
+    SELECT id, ay.institution_id, program_id, program_start_year, sanctioned_intake
+    FROM admission_years ay
+    WHERE ay.is_active = true
+      AND ay.institution_id = ANY(p_institution_ids)
+      AND (
+            (p_admission_year_id IS NOT NULL AND ay.id = p_admission_year_id)
+         OR (p_admission_year_id IS NULL AND p_program_start_year IS NOT NULL
+             AND ay.program_start_year = p_program_start_year)
+         OR (p_admission_year_id IS NULL AND p_program_start_year IS NULL)
+          )
+  ),
+  lead_counts AS (
+    SELECT
+      al.institution_id,
+      COUNT(*)                                                                 AS total,
+      COUNT(*) FILTER (WHERE COALESCE(al.is_active, true) AND NOT COALESCE(al.is_lost, false)) AS active_crm,
+      COUNT(*) FILTER (WHERE COALESCE(al.is_lost, false) OR al.funnel_stage::text IN ('lost','not_reachable')) AS lost
+    FROM admission_leads al
+    WHERE al.institution_id = ANY(p_institution_ids)
+      AND (
+            (p_admission_year_id IS NOT NULL
+             AND al.admission_year_id = p_admission_year_id)
+         OR (p_admission_year_id IS NULL AND p_program_start_year IS NOT NULL
+             AND ( al.admission_year_id IN (SELECT id FROM ay_scope)
+                OR (al.admission_year_id IS NULL
+                    AND EXTRACT(year FROM al.created_at)::int = p_program_start_year) ))
+         OR (p_admission_year_id IS NULL AND p_program_start_year IS NULL)
+          )
+    GROUP BY al.institution_id
+  ),
+  learner_counts AS (
+    SELECT
+      lp.institution_id,
+      COUNT(*) FILTER (WHERE lp.lifecycle_status::text IN ('admitted','pending','approved','account','waitlisted')) AS applied,
+      COUNT(*) FILTER (WHERE lp.lifecycle_status::text = 'active')   AS active,
+      COUNT(*) FILTER (WHERE lp.lifecycle_status::text = 'rejected') AS rejected,
+      COUNT(*) FILTER (WHERE lp.lifecycle_status::text IN ('admitted','active','graduated')) AS filled
+    FROM learners_profiles lp
+    WHERE lp.institution_id IS NOT NULL
+      AND lp.institution_id = ANY(p_institution_ids)
+      AND (
+            (p_admission_year_id IS NOT NULL
+             AND lp.admission_year_id = p_admission_year_id)
+         OR (p_admission_year_id IS NULL AND p_program_start_year IS NOT NULL
+             AND ( lp.admission_year_id IN (SELECT id FROM ay_scope)
+                OR (lp.admission_year_id IS NULL
+                    AND lp.admission_year = p_program_start_year) ))
+         OR (p_admission_year_id IS NULL AND p_program_start_year IS NULL)
+          )
+    GROUP BY lp.institution_id
+  ),
+  seat_totals AS (
+    SELECT institution_id, SUM(sanctioned_intake)::bigint AS total_seats
+    FROM ay_scope
+    GROUP BY institution_id
+  )
+  SELECT
+    i.id,
+    i.name::text,
+    COALESCE(lc.total,           0)::bigint,
+    COALESCE(lc.active_crm,      0)::bigint,
+    COALESCE(lc.lost,            0)::bigint,
+    COALESCE(lpc.applied,        0)::bigint,
+    COALESCE(lpc.active,         0)::bigint,
+    COALESCE(lpc.rejected,       0)::bigint,
+    COALESCE(st.total_seats,     0)::bigint,
+    COALESCE(lpc.filled,         0)::bigint,
+    CASE WHEN COALESCE(st.total_seats, 0) = 0 THEN 0::numeric
+         ELSE ROUND(COALESCE(lpc.filled, 0)::numeric / st.total_seats * 100, 1)
+    END
+  FROM institutions i
+  LEFT JOIN lead_counts    lc  ON lc.institution_id  = i.id
+  LEFT JOIN learner_counts lpc ON lpc.institution_id = i.id
+  LEFT JOIN seat_totals    st  ON st.institution_id  = i.id
+  WHERE i.id = ANY(p_institution_ids)
+  ORDER BY i.name;
+$$;
+
+COMMENT ON FUNCTION public.fn_group_dashboard_overview(uuid[], uuid, integer) IS
+  'Group dashboard Overview tab funnel counts. Returns one row per institution with lead/learner/seat metrics scoped by admission year. Pass p_admission_year_id for strict filter, or p_program_start_year for pragmatic fallback.';
+
+GRANT EXECUTE ON FUNCTION public.fn_group_dashboard_overview(uuid[], uuid, integer) TO authenticated, service_role;
+
+-- =============================================================================
+-- _admission_stream_label + fn_seat_analytics_daily_pivot
+-- Added: 2026-04-28 (migration 20260428_fn_seat_analytics_daily_pivot)
+-- =============================================================================
+-- Powers the "Daily Pivot" sub-tab inside Seat Analytics. Returns one row per
+-- (institution × resolved program) for a given admission_year, with daily_counts
+-- JSONB map keyed by IST date. Merges -SH first-year-shared programs into base.
+-- Date source: COALESCE(activated_at, created_at) AT TIME ZONE 'Asia/Kolkata'.
+-- =============================================================================
+
+CREATE OR REPLACE FUNCTION public._admission_stream_label(p_counselling_code text)
+RETURNS text
+LANGUAGE sql
+IMMUTABLE
+AS $$
+  SELECT CASE p_counselling_code
+    WHEN 'CET' THEN 'ENGINEERING'
+    WHEN 'COP' THEN 'PHARMACY'
+    WHEN 'CAS' THEN 'ARTS & SCIENCE'
+    WHEN 'AHS' THEN 'ALLIED HEALTH SCIENCES'
+    WHEN 'CNR' THEN 'NURSING'
+    WHEN 'DCH' THEN 'DENTAL'
+    WHEN 'COE' THEN 'EDUCATION'
+    ELSE NULL
+  END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public._admission_stream_label(text) TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.fn_seat_analytics_daily_pivot(
+  p_institution_ids       uuid[],
+  p_admission_year        integer,
+  p_exclude_bulk_migrated boolean DEFAULT false
+)
+RETURNS TABLE (
+  institution_id    uuid,
+  institution_name  text,
+  program_id        uuid,
+  program_short     text,
+  program_name      text,
+  course_short      text,
+  stream            text,
+  level             text,
+  is_lateral        boolean,
+  study_year        text,
+  group_label       text,
+  group_sort_key    text,
+  intake            integer,
+  filled            integer,
+  balance           integer,
+  fill_percentage   numeric,
+  daily_counts      jsonb
+)
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  WITH eligible_institutions AS (
+    SELECT id FROM institutions
+    WHERE id = ANY(p_institution_ids) AND role_has_institution_access(id)
+  ),
+  program_resolution AS (
+    SELECT
+      p.id AS original_id,
+      COALESCE(base.id, p.id) AS resolved_id
+    FROM programs p
+    LEFT JOIN programs base
+      ON p.program_id LIKE '%-SH'
+     AND base.program_id = regexp_replace(p.program_id, '-SH$', '')
+     AND base.program_id NOT LIKE '%-SH'
+     AND base.id <> p.id
+  ),
+  ay_anchor AS (
+    SELECT DISTINCT ay.institution_id, pr.resolved_id AS program_id
+    FROM admission_years ay
+    JOIN programs p           ON p.id = ay.program_id
+    JOIN program_resolution pr ON pr.original_id = ay.program_id
+    WHERE ay.is_active = true
+      AND ay.institution_id IN (SELECT id FROM eligible_institutions)
+      AND ay.program_start_year = p_admission_year
+      AND COALESCE(p.is_active, true) = true
+  ),
+  lp_anchor AS (
+    SELECT DISTINCT lp.institution_id, pr.resolved_id AS program_id
+    FROM learners_profiles lp
+    JOIN programs p           ON p.id = lp.program_id
+    JOIN program_resolution pr ON pr.original_id = lp.program_id
+    WHERE lp.institution_id IN (SELECT id FROM eligible_institutions)
+      AND lp.admission_year = p_admission_year
+      AND lp.lifecycle_status::text IN ('admitted','active','graduated')
+      AND COALESCE(p.is_active, true) = true
+  ),
+  anchor AS (
+    SELECT institution_id, program_id FROM ay_anchor
+    UNION
+    SELECT institution_id, program_id FROM lp_anchor
+  ),
+  intake_per_program AS (
+    SELECT
+      ay.institution_id,
+      pr.resolved_id AS program_id,
+      bool_or(
+        (ay.program_end_year - ay.program_start_year)
+          < COALESCE(p.program_duration_yrs::int, 4)
+      ) AS has_lateral_row,
+      SUM(ay.sanctioned_intake)::int AS intake_total
+    FROM admission_years ay
+    JOIN programs p           ON p.id = ay.program_id
+    JOIN program_resolution pr ON pr.original_id = ay.program_id
+    WHERE ay.is_active = true
+      AND ay.program_start_year = p_admission_year
+    GROUP BY ay.institution_id, pr.resolved_id
+  ),
+  filled_per_day AS (
+    SELECT
+      lp.institution_id,
+      pr.resolved_id AS program_id,
+      (COALESCE(lp.activated_at, lp.created_at) AT TIME ZONE 'Asia/Kolkata')::date AS admit_date,
+      COUNT(*)::int AS cnt
+    FROM learners_profiles lp
+    JOIN program_resolution pr ON pr.original_id = lp.program_id
+    WHERE lp.institution_id IN (SELECT id FROM eligible_institutions)
+      AND lp.admission_year = p_admission_year
+      AND lp.lifecycle_status::text IN ('admitted','active','graduated')
+      AND (NOT p_exclude_bulk_migrated OR lp.migrated_at IS NULL)
+    GROUP BY lp.institution_id, pr.resolved_id,
+             (COALESCE(lp.activated_at, lp.created_at) AT TIME ZONE 'Asia/Kolkata')::date
+  ),
+  per_program AS (
+    SELECT
+      a.institution_id,
+      i.name           AS institution_name,
+      i.counselling_code,
+      a.program_id,
+      p.program_id     AS program_short,
+      p.program_name,
+      d.degree_type,
+      dept.department_code,
+      COALESCE(ipp.has_lateral_row, false) AS has_lateral_row,
+      COALESCE(ipp.intake_total, 0)         AS intake_total,
+      COALESCE(SUM(fpd.cnt), 0)::int        AS filled,
+      jsonb_object_agg(fpd.admit_date::text, fpd.cnt)
+        FILTER (WHERE fpd.admit_date IS NOT NULL) AS daily_counts
+    FROM anchor a
+    JOIN institutions i        ON i.id    = a.institution_id
+    JOIN programs p            ON p.id    = a.program_id
+    LEFT JOIN intake_per_program ipp ON ipp.institution_id = a.institution_id AND ipp.program_id = a.program_id
+    LEFT JOIN degrees d        ON d.id    = p.degree_id
+    LEFT JOIN departments dept ON dept.id = p.department_id
+    LEFT JOIN filled_per_day fpd
+      ON fpd.institution_id = a.institution_id AND fpd.program_id = a.program_id
+    GROUP BY
+      a.institution_id, i.name, i.counselling_code,
+      a.program_id, p.program_id, p.program_name, d.degree_type, dept.department_code,
+      ipp.has_lateral_row, ipp.intake_total
+  )
+  SELECT
+    pp.institution_id,
+    pp.institution_name,
+    pp.program_id,
+    pp.program_short,
+    pp.program_name,
+    -- Use the full programs.program_name as the user-facing course label.
+    pp.program_name                                           AS course_short,
+    COALESCE(_admission_stream_label(pp.counselling_code), pp.institution_name) AS stream,
+    UPPER(COALESCE(pp.degree_type, ''))                      AS level,
+    pp.has_lateral_row                                        AS is_lateral,
+    CASE WHEN pp.has_lateral_row THEN 'II YEAR' ELSE 'I YEAR' END AS study_year,
+    CASE
+      WHEN pp.has_lateral_row THEN
+        COALESCE(_admission_stream_label(pp.counselling_code), pp.institution_name)
+        || ' - LATERAL ENTRY - II YEAR'
+      ELSE
+        UPPER(COALESCE(pp.degree_type, '')) || ' '
+        || COALESCE(_admission_stream_label(pp.counselling_code), pp.institution_name)
+        || ' - I YEAR'
+    END                                                       AS group_label,
+    COALESCE(pp.counselling_code, 'ZZZ') || '.'
+      || UPPER(COALESCE(pp.degree_type, 'z')) || '.'
+      || CASE WHEN pp.has_lateral_row THEN '1' ELSE '0' END   AS group_sort_key,
+    pp.intake_total                                           AS intake,
+    pp.filled,
+    GREATEST(pp.intake_total - pp.filled, 0)                  AS balance,
+    CASE WHEN pp.intake_total = 0 THEN 0::numeric
+         ELSE ROUND(pp.filled::numeric / pp.intake_total * 100, 2)
+    END                                                       AS fill_percentage,
+    COALESCE(pp.daily_counts, '{}'::jsonb)                    AS daily_counts
+  FROM per_program pp
+  ORDER BY group_sort_key, course_short;
+$$;
+
+COMMENT ON FUNCTION public.fn_seat_analytics_daily_pivot(uuid[], integer, boolean) IS
+  'Daily admission pivot for Seat Analytics tab. -SH programs merged into base. Date: COALESCE(activated_at, created_at) AT TIME ZONE IST. SECURITY DEFINER + role_has_institution_access.';
+
+GRANT EXECUTE ON FUNCTION public.fn_seat_analytics_daily_pivot(uuid[], integer, boolean) TO authenticated, service_role;
+
+-- =============================================================================
+-- fn_source_analytics — AY-scoped source breakdown for Source Analytics tab
+-- Added: 2026-04-28 (migration 20260428_fn_source_analytics)
+-- =============================================================================
+-- Replaces get_source_analytics(uuid, uuid). Takes p_admission_year integer
+-- (cohort year) instead of academic_year_id UUID. enrolled_count is limited
+-- by the sparse al.learner_profile_id FK (~1.5% coverage today).
+-- =============================================================================
+CREATE OR REPLACE FUNCTION public.fn_source_analytics(
+  p_institution_ids uuid[],
+  p_admission_year  integer DEFAULT NULL
+)
+RETURNS TABLE (
+  institution_id    uuid,
+  institution_name  text,
+  source            text,
+  referral_type     text,
+  lead_count        integer,
+  enrolled_count    integer,
+  conversion_rate   numeric,
+  last_enrolled_at  timestamptz
+)
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  WITH eligible_institutions AS (
+    SELECT id FROM institutions
+    WHERE id = ANY(p_institution_ids) AND role_has_institution_access(id)
+  ),
+  cohort_ay_ids AS (
+    SELECT id FROM admission_years
+    WHERE p_admission_year IS NOT NULL
+      AND program_start_year = p_admission_year
+      AND is_active = true
+  ),
+  scoped_leads AS (
+    SELECT
+      al.id,
+      al.institution_id,
+      al.source::text                                  AS source,
+      COALESCE(NULLIF(TRIM(al.referral_type), ''), '') AS referral_type,
+      al.learner_profile_id
+    FROM admission_leads al
+    WHERE al.institution_id IN (SELECT id FROM eligible_institutions)
+      AND (
+        p_admission_year IS NULL
+        OR al.admission_year_id IN (SELECT id FROM cohort_ay_ids)
+        OR (al.admission_year_id IS NULL
+            AND EXTRACT(year FROM al.created_at)::int = p_admission_year)
+      )
+  ),
+  per_lead_status AS (
+    SELECT
+      sl.id, sl.institution_id, sl.source, sl.referral_type,
+      lp.lifecycle_status::text AS lp_status,
+      lp.activated_at
+    FROM scoped_leads sl
+    LEFT JOIN learners_profiles lp ON lp.id = sl.learner_profile_id
+    WHERE sl.learner_profile_id IS NULL
+       OR p_admission_year IS NULL
+       OR lp.admission_year = p_admission_year
+       OR lp.admission_year IS NULL
+  )
+  SELECT
+    pls.institution_id,
+    i.name::text                                                    AS institution_name,
+    pls.source,
+    pls.referral_type,
+    COUNT(*)::int                                                   AS lead_count,
+    COUNT(*) FILTER (WHERE pls.lp_status IN ('admitted','active','graduated'))::int AS enrolled_count,
+    CASE WHEN COUNT(*) = 0 THEN 0::numeric
+         ELSE ROUND(
+           COUNT(*) FILTER (WHERE pls.lp_status IN ('admitted','active','graduated'))::numeric
+             / COUNT(*)::numeric * 100, 2)
+    END                                                             AS conversion_rate,
+    MAX(pls.activated_at) FILTER (WHERE pls.lp_status IN ('admitted','active','graduated'))
+                                                                    AS last_enrolled_at
+  FROM per_lead_status pls
+  JOIN institutions i ON i.id = pls.institution_id
+  GROUP BY pls.institution_id, i.name, pls.source, pls.referral_type
+  ORDER BY i.name, pls.source, pls.referral_type;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.fn_source_analytics(uuid[], integer) TO authenticated, service_role;
+
+-- =============================================================================
+-- fn_geography_analytics — AY-scoped geographic distribution
+-- Added: 2026-04-28 (migration 20260428_fn_geography_analytics)
+-- =============================================================================
+-- Replaces get_geography_analytics(uuid, uuid). Normalizes state/district/taluk
+-- (case + whitespace), DISTINCT learners only, lifecycle_status broadened to
+-- match the Seat Analytics gold standard.
+-- =============================================================================
+CREATE OR REPLACE FUNCTION public.fn_geography_analytics(
+  p_institution_ids uuid[],
+  p_admission_year  integer DEFAULT NULL
+)
+RETURNS TABLE (
+  institution_id    uuid,
+  institution_name  text,
+  state             text,
+  district          text,
+  taluk             text,
+  active_learners   bigint
+)
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  WITH eligible_institutions AS (
+    SELECT id FROM institutions
+    WHERE id = ANY(p_institution_ids) AND role_has_institution_access(id)
+  ),
+  normalized AS (
+    SELECT
+      lp.id                                                                AS learner_id,
+      lp.institution_id,
+      INITCAP(NULLIF(TRIM(REGEXP_REPLACE(COALESCE(lp.permanent_address_state,    ''), '\s+', ' ', 'g')), '')) AS state_norm,
+      INITCAP(NULLIF(TRIM(REGEXP_REPLACE(COALESCE(lp.permanent_address_district, ''), '\s+', ' ', 'g')), '')) AS district_norm,
+      INITCAP(NULLIF(TRIM(REGEXP_REPLACE(COALESCE(lp.permanent_address_taluk,    ''), '\s+', ' ', 'g')), '')) AS taluk_norm
+    FROM learners_profiles lp
+    WHERE lp.institution_id IS NOT NULL
+      AND lp.institution_id IN (SELECT id FROM eligible_institutions)
+      AND lp.lifecycle_status::text IN ('admitted','active','graduated')
+      AND lp.permanent_address_district IS NOT NULL
+      AND TRIM(lp.permanent_address_district) <> ''
+      AND (p_admission_year IS NULL OR lp.admission_year = p_admission_year)
+  )
+  SELECT
+    n.institution_id,
+    i.name::text                       AS institution_name,
+    n.state_norm                       AS state,
+    n.district_norm                    AS district,
+    n.taluk_norm                       AS taluk,
+    COUNT(DISTINCT n.learner_id)::bigint AS active_learners
+  FROM normalized n
+  JOIN institutions i ON i.id = n.institution_id
+  GROUP BY n.institution_id, i.name, n.state_norm, n.district_norm, n.taluk_norm
+  HAVING COUNT(DISTINCT n.learner_id) > 0
+  ORDER BY i.name, n.state_norm, n.district_norm, n.taluk_norm;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.fn_geography_analytics(uuid[], integer) TO authenticated, service_role;
+
+-- =============================================================================
+-- fn_institution_comparison — single-RPC institution ranking
+-- Added: 2026-04-28 (migration 20260428_fn_institution_comparison)
+-- =============================================================================
+-- Replaces the client-side 3-way fan-out in
+-- GroupDashboardService.getInstitutionComparison() that combined three legacy
+-- RPCs with mismatched lifecycle_status semantics. One RPC, one consistent
+-- definition of "filled"/"active" matching fn_seat_analytics_daily_pivot.
+-- =============================================================================
+CREATE OR REPLACE FUNCTION public.fn_institution_comparison(
+  p_institution_ids uuid[],
+  p_admission_year  integer DEFAULT NULL
+)
+RETURNS TABLE (
+  institution_id    uuid,
+  institution_name  text,
+  total_seats       integer,
+  filled_seats      integer,
+  fill_percentage   numeric,
+  total_leads       integer,
+  enrolled_count    integer,
+  conversion_rate   numeric,
+  top_source        text,
+  top_district      text,
+  active_learners   integer
+)
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  WITH eligible_institutions AS (
+    SELECT id FROM institutions
+    WHERE id = ANY(p_institution_ids) AND role_has_institution_access(id)
+  ),
+  cohort_ay_ids AS (
+    SELECT id FROM admission_years
+    WHERE p_admission_year IS NOT NULL
+      AND program_start_year = p_admission_year
+      AND is_active = true
+  ),
+  seat_totals AS (
+    SELECT ay.institution_id, SUM(ay.sanctioned_intake)::int AS total_seats
+    FROM admission_years ay
+    WHERE ay.is_active = true
+      AND ay.institution_id IN (SELECT id FROM eligible_institutions)
+      AND (p_admission_year IS NULL OR ay.program_start_year = p_admission_year)
+    GROUP BY ay.institution_id
+  ),
+  learner_aggs AS (
+    SELECT
+      lp.institution_id,
+      COUNT(*) FILTER (WHERE lp.lifecycle_status::text IN ('admitted','active','graduated'))::int AS filled,
+      COUNT(*) FILTER (WHERE lp.lifecycle_status::text = 'active')::int AS active
+    FROM learners_profiles lp
+    WHERE lp.institution_id IS NOT NULL
+      AND lp.institution_id IN (SELECT id FROM eligible_institutions)
+      AND (p_admission_year IS NULL OR lp.admission_year = p_admission_year)
+    GROUP BY lp.institution_id
+  ),
+  lead_aggs AS (
+    SELECT al.institution_id, COUNT(*)::int AS total
+    FROM admission_leads al
+    WHERE al.institution_id IN (SELECT id FROM eligible_institutions)
+      AND (
+        p_admission_year IS NULL
+        OR al.admission_year_id IN (SELECT id FROM cohort_ay_ids)
+        OR (al.admission_year_id IS NULL
+            AND EXTRACT(year FROM al.created_at)::int = p_admission_year)
+      )
+    GROUP BY al.institution_id
+  ),
+  source_ranks AS (
+    SELECT
+      al.institution_id, al.source::text AS source,
+      ROW_NUMBER() OVER (PARTITION BY al.institution_id ORDER BY COUNT(*) DESC) AS rk
+    FROM admission_leads al
+    WHERE al.institution_id IN (SELECT id FROM eligible_institutions)
+      AND al.source IS NOT NULL
+      AND (
+        p_admission_year IS NULL
+        OR al.admission_year_id IN (SELECT id FROM cohort_ay_ids)
+        OR (al.admission_year_id IS NULL
+            AND EXTRACT(year FROM al.created_at)::int = p_admission_year)
+      )
+    GROUP BY al.institution_id, al.source
+  ),
+  district_ranks AS (
+    SELECT
+      lp.institution_id,
+      INITCAP(TRIM(REGEXP_REPLACE(lp.permanent_address_district, '\s+', ' ', 'g'))) AS district,
+      ROW_NUMBER() OVER (
+        PARTITION BY lp.institution_id ORDER BY COUNT(*) DESC
+      ) AS rk
+    FROM learners_profiles lp
+    WHERE lp.institution_id IS NOT NULL
+      AND lp.institution_id IN (SELECT id FROM eligible_institutions)
+      AND lp.lifecycle_status::text IN ('admitted','active','graduated')
+      AND lp.permanent_address_district IS NOT NULL
+      AND TRIM(lp.permanent_address_district) <> ''
+      AND (p_admission_year IS NULL OR lp.admission_year = p_admission_year)
+    GROUP BY lp.institution_id, INITCAP(TRIM(REGEXP_REPLACE(lp.permanent_address_district, '\s+', ' ', 'g')))
+  )
+  SELECT
+    i.id, i.name::text,
+    COALESCE(st.total_seats, 0),
+    COALESCE(la.filled, 0),
+    CASE WHEN COALESCE(st.total_seats, 0) = 0 THEN 0::numeric
+         ELSE ROUND(COALESCE(la.filled, 0)::numeric / st.total_seats * 100, 2)
+    END,
+    COALESCE(lda.total, 0),
+    COALESCE(la.active, 0),
+    CASE WHEN COALESCE(lda.total, 0) = 0 THEN 0::numeric
+         ELSE ROUND(COALESCE(la.active, 0)::numeric / lda.total * 100, 2)
+    END,
+    sr.source,
+    dr.district,
+    COALESCE(la.active, 0)
+  FROM institutions i
+  LEFT JOIN seat_totals    st  ON st.institution_id  = i.id
+  LEFT JOIN learner_aggs   la  ON la.institution_id  = i.id
+  LEFT JOIN lead_aggs      lda ON lda.institution_id = i.id
+  LEFT JOIN source_ranks   sr  ON sr.institution_id  = i.id AND sr.rk = 1
+  LEFT JOIN district_ranks dr  ON dr.institution_id  = i.id AND dr.rk = 1
+  WHERE i.id IN (SELECT id FROM eligible_institutions)
+  ORDER BY fill_percentage DESC, i.name;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.fn_institution_comparison(uuid[], integer) TO authenticated, service_role;

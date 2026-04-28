@@ -29,8 +29,15 @@ function scorecard(row: InstitutionComparisonRow) {
   return Math.round(score);
 }
 
-export function InstitutionComparisonAdvanced() {
-  const { data: rows = [], isLoading, isError } = useInstitutionComparison();
+interface InstitutionComparisonAdvancedProps {
+  /** Institution scope passed from the page; undefined => RLS-resolved super-admin all-access. */
+  institutionIds?: string[];
+  /** Selected admission year (cohort). When null the query is disabled until resolved. */
+  programStartYear: number | null;
+}
+
+export function InstitutionComparisonAdvanced({ institutionIds, programStartYear }: InstitutionComparisonAdvancedProps) {
+  const { data: rows = [], isLoading, isError } = useInstitutionComparison(institutionIds, programStartYear);
 
   if (isLoading) {
     return (
@@ -40,11 +47,21 @@ export function InstitutionComparisonAdvanced() {
     );
   }
 
-  if (isError || rows.length === 0) {
+  if (isError) {
     return (
       <Card>
         <CardContent className="py-8 text-center text-sm text-muted-foreground">
-          {isError ? 'Failed to load comparison data.' : 'No data available for comparison.'}
+          Failed to load comparison data.
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (rows.length === 0) {
+    return (
+      <Card>
+        <CardContent className="py-8 text-center text-sm text-muted-foreground">
+          No data available for the selected admission year.
         </CardContent>
       </Card>
     );
