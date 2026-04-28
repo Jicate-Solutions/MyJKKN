@@ -94,11 +94,17 @@ export function useSeatDailyPivot(
   useSeatsRealtimeInvalidation();
   return useQuery({
     queryKey: groupDashboardKeys.seatDailyPivot(institutionIds, admissionYear ?? undefined, excludeBulkMigrated),
+    // institutionIds === undefined  =>  super-admin "all institutions"; service resolves them via RLS.
+    // institutionIds === []         =>  scoped user with no access; service short-circuits to [].
     queryFn: () =>
-      GroupDashboardService.getSeatDailyPivot(institutionIds ?? [], admissionYear!, excludeBulkMigrated),
+      GroupDashboardService.getSeatDailyPivot(institutionIds, admissionYear!, excludeBulkMigrated),
     staleTime: 60_000,
     refetchOnWindowFocus: false,
-    enabled: !!institutionIds && institutionIds.length > 0 && admissionYear !== null && admissionYear !== undefined,
+    // Wait until we know which year to query. We allow institutionIds === undefined
+    // (super-admin path) but block when it's an empty array (no access).
+    enabled:
+      admissionYear !== null && admissionYear !== undefined
+      && (institutionIds === undefined || institutionIds.length > 0),
   });
 }
 

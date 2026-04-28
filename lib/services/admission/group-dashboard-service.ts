@@ -139,15 +139,33 @@ export class GroupDashboardService {
    * Daily admission pivot — one row per (institution, program) for a given
    * admission_year, with daily_counts JSONB keyed by IST date.
    * Backed by fn_seat_analytics_daily_pivot (added 2026-04-28).
+   *
+   * @param institutionIds  scope; undefined => all-accessible (super-admin path)
+   * @param admissionYear   integer cohort, e.g. 2026
    */
   static async getSeatDailyPivot(
-    institutionIds: string[],
+    institutionIds: string[] | undefined,
     admissionYear: number,
     excludeBulkMigrated = false
   ): Promise<SeatPivotRow[]> {
-    if (institutionIds.length === 0) return [];
+    // The RPC requires a non-null institution array. For super-admins (undefined)
+    // we resolve all RLS-accessible institutions first (same pattern as
+    // getGroupDashboard). For scoped users with explicit empty array, short-circuit.
+    let resolvedInstitutionIds = institutionIds;
+    if (resolvedInstitutionIds === undefined) {
+      const { data: insts, error: instErr } = await (this.supabase as any)
+        .from('institutions')
+        .select('id');
+      if (instErr) {
+        console.error('[admission/group] Failed to resolve institutions for pivot:', instErr);
+        throw instErr;
+      }
+      resolvedInstitutionIds = ((insts ?? []) as Array<{ id: string }>).map((i) => i.id);
+    }
+    if (resolvedInstitutionIds.length === 0) return [];
+
     const { data, error } = await (this.supabase as any).rpc('fn_seat_analytics_daily_pivot', {
-      p_institution_ids: institutionIds,
+      p_institution_ids: resolvedInstitutionIds,
       p_admission_year: admissionYear,
       p_exclude_bulk_migrated: excludeBulkMigrated,
     });
