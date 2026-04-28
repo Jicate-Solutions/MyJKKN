@@ -1,7 +1,7 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "nextjs",
-  "ignoreCommand": "git diff HEAD^ HEAD --quiet -- . ':(exclude)supabase' ':(exclude)docs' ':(exclude)specs' ':(exclude).claude' ':(exclude).github' ':(exclude)*.md'",
+  "ignoreCommand": "bash scripts/vercel-ignore.sh",
   "regions": ["bom1"],
   "git": {
     "deploymentEnabled": false
