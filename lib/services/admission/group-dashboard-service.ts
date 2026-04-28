@@ -260,78 +260,47 @@ export class GroupDashboardService {
     }));
   }
 
-  static async getInstitutionComparison(): Promise<InstitutionComparisonRow[]> {
-    // Note: this fan-out is scheduled for replacement by fn_institution_comparison
-    // RPC in the next commit. The (undefined, null) calls give all-time, all-
-    // institution data which preserves current Comparison-tab behavior.
-    const [seatRows, sourceRows, geoRows] = await Promise.all([
-      this.getSeatAnalytics(),
-      this.getSourceAnalytics(undefined, null),
-      this.getGeographyAnalytics(undefined, null),
-    ]);
-
-    // Aggregate seat data per institution
-    const seatMap = new Map<string, { name: string; total_seats: number; filled_seats: number }>();
-    for (const r of seatRows) {
-      const cur = seatMap.get(r.institution_id) ?? { name: r.institution_name, total_seats: 0, filled_seats: 0 };
-      cur.total_seats += r.total_seats;
-      cur.filled_seats += Number(r.filled_seats);
-      seatMap.set(r.institution_id, cur);
-    }
-
-    // Aggregate source data per institution
-    const sourceMap = new Map<string, { total_leads: number; enrolled: number; sourceCounts: Map<string, number> }>();
-    for (const r of sourceRows) {
-      const cur = sourceMap.get(r.institution_id) ?? { total_leads: 0, enrolled: 0, sourceCounts: new Map() };
-      cur.total_leads += Number(r.lead_count);
-      cur.enrolled += Number(r.enrolled_count);
-      const src = r.source ?? 'unknown';
-      cur.sourceCounts.set(src, (cur.sourceCounts.get(src) ?? 0) + Number(r.enrolled_count));
-      sourceMap.set(r.institution_id, cur);
-    }
-
-    // Top district per institution
-    const districtMap = new Map<string, { district: string; count: number }>();
-    for (const r of geoRows) {
-      if (!r.district) continue;
-      const cur = districtMap.get(r.institution_id);
-      if (!cur || Number(r.active_learners) > cur.count) {
-        districtMap.set(r.institution_id, { district: r.district, count: Number(r.active_learners) });
+  /**
+   * Institution-level comparison metrics. Backed by fn_institution_comparison
+   * RPC (added 2026-04-28) which produces one row per institution with
+   * funnel-correct, internally-consistent semantics — replacing the legacy
+   * client-side 3-way fan-out that mixed inconsistent lifecycle_status sets.
+   */
+  static async getInstitutionComparison(
+    institutionIds: string[] | undefined,
+    admissionYear: number | null
+  ): Promise<InstitutionComparisonRow[]> {
+    let resolved = institutionIds;
+    if (resolved === undefined) {
+      const { data: insts, error: instErr } = await (this.supabase as any)
+        .from('institutions')
+        .select('id');
+      if (instErr) {
+        console.error('[admission/group] Failed to resolve institutions for comparison:', instErr);
+        throw instErr;
       }
+      resolved = ((insts ?? []) as Array<{ id: string }>).map((i) => i.id);
     }
+    if (resolved.length === 0) return [];
 
-    // Total active learners per institution from geography data
-    const activeMap = new Map<string, number>();
-    for (const r of geoRows) {
-      activeMap.set(r.institution_id, (activeMap.get(r.institution_id) ?? 0) + Number(r.active_learners));
+    const { data, error } = await (this.supabase as any).rpc('fn_institution_comparison', {
+      p_institution_ids: resolved,
+      p_admission_year: admissionYear ?? null,
+    });
+    if (error) {
+      console.error('[admission/group] fn_institution_comparison failed:', error);
+      throw error;
     }
-
-    const rows: InstitutionComparisonRow[] = [];
-    for (const [instId, seat] of seatMap) {
-      const src = sourceMap.get(instId);
-      const topSrcEntry = src
-        ? [...src.sourceCounts.entries()].sort((a, b) => b[1] - a[1])[0]
-        : undefined;
-      rows.push({
-        institution_id: instId,
-        institution_name: seat.name,
-        total_seats: seat.total_seats,
-        filled_seats: seat.filled_seats,
-        fill_percentage: seat.total_seats > 0
-          ? Math.round((seat.filled_seats / seat.total_seats) * 100)
-          : 0,
-        total_leads: src?.total_leads ?? 0,
-        enrolled_count: src?.enrolled ?? 0,
-        conversion_rate: src && src.total_leads > 0
-          ? Math.round((src.enrolled / src.total_leads) * 100 * 10) / 10
-          : 0,
-        top_source: topSrcEntry?.[0] ?? null,
-        top_district: districtMap.get(instId)?.district ?? null,
-        active_learners: activeMap.get(instId) ?? 0,
-      });
-    }
-
-    return rows.sort((a, b) => b.fill_percentage - a.fill_percentage);
+    return ((data ?? []) as any[]).map((r): InstitutionComparisonRow => ({
+      ...r,
+      total_seats: Number(r.total_seats),
+      filled_seats: Number(r.filled_seats),
+      fill_percentage: Number(r.fill_percentage),
+      total_leads: Number(r.total_leads),
+      enrolled_count: Number(r.enrolled_count),
+      conversion_rate: Number(r.conversion_rate),
+      active_learners: Number(r.active_learners),
+    }));
   }
 
 }

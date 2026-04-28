@@ -39,8 +39,13 @@ export const groupDashboardKeys = {
       institutionIds ?? 'all',
       admissionYear ?? 'no-year',
     ] as const,
-  institutionComparison: () =>
-    [...groupDashboardKeys.all, 'comparison'] as const,
+  institutionComparison: (institutionIds?: string[], admissionYear?: number | null) =>
+    [
+      ...groupDashboardKeys.all,
+      'comparison',
+      institutionIds ?? 'all',
+      admissionYear ?? 'no-year',
+    ] as const,
 };
 
 // Invalidates all seat-analytics queries when learners_profiles changes (near-realtime).
@@ -150,11 +155,18 @@ export function useGeographyAnalytics(
   });
 }
 
-export function useInstitutionComparison() {
+export function useInstitutionComparison(
+  institutionIds: string[] | undefined,
+  admissionYear: number | null
+) {
+  useSeatsRealtimeInvalidation();
   return useQuery({
-    queryKey: groupDashboardKeys.institutionComparison(),
-    queryFn: () => GroupDashboardService.getInstitutionComparison(),
+    queryKey: groupDashboardKeys.institutionComparison(institutionIds, admissionYear),
+    queryFn: () => GroupDashboardService.getInstitutionComparison(institutionIds, admissionYear),
     staleTime: 60_000,
     refetchOnWindowFocus: false,
+    enabled:
+      admissionYear !== null && admissionYear !== undefined
+      && (institutionIds === undefined || institutionIds.length > 0),
   });
 }

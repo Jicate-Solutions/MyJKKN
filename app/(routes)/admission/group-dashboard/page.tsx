@@ -188,7 +188,10 @@ export default function GroupDashboardPage() {
 
             {/* Tab: Advanced Comparison */}
             <TabsContent value="comparison">
-              <InstitutionComparisonAdvanced />
+              <InstitutionComparisonAdvanced
+                institutionIds={scopedInstitutionIds}
+                programStartYear={selectedYear}
+              />
             </TabsContent>
           </Tabs>
         </div>
