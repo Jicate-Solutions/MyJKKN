@@ -5786,3 +5786,42 @@ CREATE POLICY platform_policies_update ON platform_policies
 DROP POLICY IF EXISTS platform_policies_delete ON platform_policies;
 CREATE POLICY platform_policies_delete ON platform_policies
   FOR DELETE USING (is_super_admin() OR is_admin());
+
+-- =====================================================================
+-- Updated: 2026-04-29 - Wave B.1 — Notification Generator Policy RLS.
+-- Reuses attention_bar.rules.manage permission (per spec §5 — adding a new
+-- permission key would create test-account churn for zero security gain).
+-- Audit table: read-only for users; writes go through SECURITY DEFINER trigger.
+-- =====================================================================
+ALTER TABLE public.notification_generator_config ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.notification_generator_config_audit ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS notif_gen_cfg_select ON public.notification_generator_config;
+CREATE POLICY notif_gen_cfg_select ON public.notification_generator_config
+FOR SELECT USING (
+  is_super_admin() OR is_admin() OR user_has_permission('attention_bar.rules.manage')
+);
+
+DROP POLICY IF EXISTS notif_gen_cfg_insert ON public.notification_generator_config;
+CREATE POLICY notif_gen_cfg_insert ON public.notification_generator_config
+FOR INSERT WITH CHECK (
+  is_super_admin() OR user_has_permission('attention_bar.rules.manage')
+);
+
+DROP POLICY IF EXISTS notif_gen_cfg_update ON public.notification_generator_config;
+CREATE POLICY notif_gen_cfg_update ON public.notification_generator_config
+FOR UPDATE USING (
+  is_super_admin() OR user_has_permission('attention_bar.rules.manage')
+);
+
+DROP POLICY IF EXISTS notif_gen_cfg_delete ON public.notification_generator_config;
+CREATE POLICY notif_gen_cfg_delete ON public.notification_generator_config
+FOR DELETE USING (
+  is_super_admin() OR user_has_permission('attention_bar.rules.manage')
+);
+
+DROP POLICY IF EXISTS notif_gen_cfg_audit_select ON public.notification_generator_config_audit;
+CREATE POLICY notif_gen_cfg_audit_select ON public.notification_generator_config_audit
+FOR SELECT USING (
+  is_super_admin() OR is_admin() OR user_has_permission('attention_bar.rules.manage')
+);

@@ -6,6 +6,15 @@
 
 ## 📝 Recent Changes
 
+- **2026-04-29** — Wave B.1 — Notification Generator Policy substrate
+  - Migration: `notification_generator_config_schema_v1`. Applied via Supabase MCP. Verified on prod: 2 tables created, 9 cols each, RLS enabled, 3 functions live (1 STABLE/DEFINER lookup + 2 trigger fns).
+  - `01_tables.sql`: appended `notification_generator_config` (per-generator policy rows, JSONB `config`) + `notification_generator_config_audit` (INSERT/UPDATE/DELETE log with old/new JSONB).
+  - `02_functions.sql`: appended `fn_notif_gen_cfg_set_updated_at` (touch trigger), `fn_log_notif_gen_cfg_change` (audit trigger, SECURITY DEFINER), `fn_get_generator_config(name, fallback)` (single source-of-truth lookup, STABLE + SECURITY DEFINER, returns hardcoded fallback when row missing/inactive — preserves day-1 behavior bit-identical). EXECUTE granted to `authenticated, service_role`.
+  - `03_policies.sql`: appended 5 policies (4 on config table + 1 on audit table). RLS reuses `attention_bar.rules.manage` permission per spec §5 (no new permission key).
+  - `04_triggers.sql`: appended 2 triggers (BEFORE UPDATE for updated_at, AFTER INSERT/UPDATE/DELETE for audit).
+  - Wave B.1 covers: schema (this commit) + backfill (next commit) + SR approval refactor (third commit). Waves B.2 (parallel-agent fan-out for the other 6 generators), B.3 (Tab 8 admin UI), B.4 (Layer 1 STATIC_DEFAULTS) are later.
+  - Spec authored at `specs/notification-generator-policy/SPEC.md` (lost via concurrent-session race; continuation prompt `.claude/continuation-prompt.5a44f1da.md` carries the executable contract).
+
 - **2026-04-29** — Phase 1.5a — `platform_policies` substrate (canonical runtime-config table)
   - Migration: `20260429000002_platform_policies_substrate.sql`. Applied via Supabase MCP. Verified on prod: 16 system seeds, 5 verification probes pass, fn_recompute_attendance_on_holiday_change body now reads from `fn_get_policy_int`.
   - `01_tables.sql`: appended `platform_policies` (key/scope/value JSONB, unique on key+scope+scope_id sentinel, 4 scope types).

@@ -12426,3 +12426,63 @@ GRANT EXECUTE ON FUNCTION fn_get_policy(TEXT, UUID) TO authenticated, service_ro
 GRANT EXECUTE ON FUNCTION fn_get_policy_int(TEXT, INT, UUID) TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION fn_get_policy_text(TEXT, TEXT, UUID) TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION fn_get_policy_bool(TEXT, BOOLEAN, UUID) TO authenticated, service_role;
+
+-- =====================================================================
+-- Updated: 2026-04-29 - Wave B.1 — Notification Generator Policy helpers.
+-- (1) fn_notif_gen_cfg_set_updated_at — touch trigger fn for updated_at
+-- (2) fn_log_notif_gen_cfg_change     — audit trigger fn (INSERT/UPDATE/DELETE)
+-- (3) fn_get_generator_config         — single source-of-truth lookup with
+--     hardcoded fallback, called by every generator. Day-1 behavior is
+--     preserved bit-identical because callers always pass their hardcoded
+--     baseline as p_fallback (so missing/inactive config row = baseline).
+-- =====================================================================
+CREATE OR REPLACE FUNCTION public.fn_notif_gen_cfg_set_updated_at()
+RETURNS TRIGGER LANGUAGE plpgsql SET search_path=public AS $fn_ngc_upd$
+BEGIN
+  NEW.updated_at = now();
+  RETURN NEW;
+END;
+$fn_ngc_upd$;
+
+CREATE OR REPLACE FUNCTION public.fn_log_notif_gen_cfg_change()
+RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $fn_ngc_audit$
+BEGIN
+  IF TG_OP = 'INSERT' THEN
+    INSERT INTO public.notification_generator_config_audit (generator_name, config_id, operation, new_config, changed_by)
+    VALUES (NEW.generator_name, NEW.id, 'INSERT', NEW.config, COALESCE(NEW.created_by, auth.uid()));
+    RETURN NEW;
+  ELSIF TG_OP = 'UPDATE' THEN
+    INSERT INTO public.notification_generator_config_audit (generator_name, config_id, operation, old_config, new_config, changed_by)
+    VALUES (NEW.generator_name, NEW.id, 'UPDATE', OLD.config, NEW.config, COALESCE(NEW.updated_by, auth.uid()));
+    RETURN NEW;
+  ELSIF TG_OP = 'DELETE' THEN
+    INSERT INTO public.notification_generator_config_audit (generator_name, config_id, operation, old_config, changed_by)
+    VALUES (OLD.generator_name, OLD.id, 'DELETE', OLD.config, auth.uid());
+    RETURN OLD;
+  END IF;
+  RETURN NULL;
+END;
+$fn_ngc_audit$;
+
+CREATE OR REPLACE FUNCTION public.fn_get_generator_config(
+  p_name TEXT,
+  p_fallback JSONB DEFAULT '{}'::jsonb
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path=public
+AS $fn_ngc_get$
+DECLARE v_config JSONB;
+BEGIN
+  SELECT config
+  INTO v_config
+  FROM public.notification_generator_config
+  WHERE generator_name = p_name AND is_active = true
+  LIMIT 1;
+
+  RETURN COALESCE(v_config, p_fallback);
+END;
+$fn_ngc_get$;
+GRANT EXECUTE ON FUNCTION public.fn_get_generator_config(TEXT, JSONB) TO authenticated, service_role;
