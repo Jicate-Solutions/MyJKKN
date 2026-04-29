@@ -5814,7 +5814,7 @@ USING (
   AND (
     is_super_admin()
     OR (storage.foldername(name))[1] IN (
-      SELECT br.id::text FROM bug_reports br WHERE br.user_id = auth.uid()
+      SELECT br.id::text FROM bug_reports br WHERE br.reporter_user_id = auth.uid()
     )
   )
 );
