@@ -42,16 +42,26 @@ import {
   PopoverTrigger
 } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle
+} from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import { OrganizationService } from '@/lib/services/organization/organization-service';
+import { DegreeService } from '@/lib/services/organization/degree-service';
+import { DepartmentService } from '@/lib/services/organization/department-service';
+import { ProgramService } from '@/lib/services/organization/program-service';
+import { SemesterService } from '@/lib/services/organization/semester-service';
 import { BillingCategoryService } from '@/lib/services/billing/categories/billing-category-service';
 import { useStudentsForBulkOperations } from '@/hooks/billing/use-student-search';
 import { useBulkCreateStudentBills } from '@/hooks/billing/use-student-bills';
 import { usePermissions } from '@/hooks/use-permissions';
-import type { Institution } from '@/types/organizations';
+import type { Institution, Degree, Department, Program, Semester } from '@/types/organizations';
 import type { BillingCategory } from '@/types/billing';
 import type { StudentForBilling } from '@/types/billing-schedule';
 
@@ -66,7 +76,9 @@ export const navMeta = {
 
 const bulkBillSchema = z.object({
   institution_id: z.string().min(1, 'Institution is required'),
+  degree_id: z.string().optional(),
   department_id: z.string().optional(),
+  program_id: z.string().optional(),
   semester_id: z.string().optional(),
   item_category_id: z.string().min(1, 'Item category is required'),
   bill_description: z.string().optional(),
@@ -85,9 +97,17 @@ type BulkBillFormData = z.infer<typeof bulkBillSchema>;
 export default function BulkCreateBillsPage() {
   const router = useRouter();
   const [institutions, setInstitutions] = useState<Institution[]>([]);
+  const [degrees, setDegrees] = useState<Degree[]>([]);
+  const [departments, setDepartments] = useState<Department[]>([]);
+  const [programs, setPrograms] = useState<Program[]>([]);
+  const [semesters, setSemesters] = useState<Semester[]>([]);
   const [itemCategories, setItemCategories] = useState<BillingCategory[]>([]);
   const [selectedStudents, setSelectedStudents] = useState<string[]>([]);
   const [isLoadingInstitutions, setIsLoadingInstitutions] = useState(true);
+  const [isLoadingDegrees, setIsLoadingDegrees] = useState(false);
+  const [isLoadingDepartments, setIsLoadingDepartments] = useState(false);
+  const [isLoadingPrograms, setIsLoadingPrograms] = useState(false);
+  const [isLoadingSemesters, setIsLoadingSemesters] = useState(false);
   const [isLoadingItemCategories, setIsLoadingItemCategories] = useState(false);
 
   const bulkCreateBills = useBulkCreateStudentBills();
@@ -116,7 +136,9 @@ export default function BulkCreateBillsPage() {
 
   const { data: studentsData } = useStudentsForBulkOperations(
     watchedValues.institution_id,
+    watchedValues.degree_id,
     watchedValues.department_id,
+    watchedValues.program_id,
     watchedValues.semester_id
   );
 
@@ -127,6 +149,67 @@ export default function BulkCreateBillsPage() {
   useEffect(() => {
     loadItemCategories();
   }, []);
+
+  // Cascading hierarchy loaders — institution → degree → department → program → semester.
+  // Each tier loads when its parent is set and clears when the parent is unset.
+  useEffect(() => {
+    if (watchedValues.institution_id) {
+      loadDegrees(watchedValues.institution_id);
+    } else {
+      setDegrees([]);
+    }
+  }, [watchedValues.institution_id]);
+
+  useEffect(() => {
+    if (watchedValues.institution_id && watchedValues.degree_id) {
+      loadDepartments(watchedValues.institution_id, watchedValues.degree_id);
+    } else {
+      setDepartments([]);
+    }
+  }, [watchedValues.institution_id, watchedValues.degree_id]);
+
+  useEffect(() => {
+    if (
+      watchedValues.institution_id &&
+      watchedValues.degree_id &&
+      watchedValues.department_id
+    ) {
+      loadPrograms(
+        watchedValues.institution_id,
+        watchedValues.degree_id,
+        watchedValues.department_id
+      );
+    } else {
+      setPrograms([]);
+    }
+  }, [
+    watchedValues.institution_id,
+    watchedValues.degree_id,
+    watchedValues.department_id
+  ]);
+
+  useEffect(() => {
+    if (
+      watchedValues.institution_id &&
+      watchedValues.degree_id &&
+      watchedValues.department_id &&
+      watchedValues.program_id
+    ) {
+      loadSemesters(
+        watchedValues.institution_id,
+        watchedValues.degree_id,
+        watchedValues.department_id,
+        watchedValues.program_id
+      );
+    } else {
+      setSemesters([]);
+    }
+  }, [
+    watchedValues.institution_id,
+    watchedValues.degree_id,
+    watchedValues.department_id,
+    watchedValues.program_id
+  ]);
 
   const loadInstitutions = async () => {
     try {
@@ -151,6 +234,85 @@ export default function BulkCreateBillsPage() {
       console.error('Error loading billing categories:', error);
     } finally {
       setIsLoadingItemCategories(false);
+    }
+  };
+
+  const loadDegrees = async (institutionId: string) => {
+    try {
+      setIsLoadingDegrees(true);
+      const data = await DegreeService.getDegrees({
+        institution_id: institutionId,
+        limit: 1000,
+        isActive: true
+      });
+      setDegrees(data.data);
+    } catch (error) {
+      console.error('Error loading degrees:', error);
+    } finally {
+      setIsLoadingDegrees(false);
+    }
+  };
+
+  const loadDepartments = async (institutionId: string, degreeId: string) => {
+    try {
+      setIsLoadingDepartments(true);
+      const data = await DepartmentService.getDepartments({
+        institution_id: institutionId,
+        degree_id: degreeId,
+        limit: 1000,
+        isActive: true
+      });
+      setDepartments(data.data);
+    } catch (error) {
+      console.error('Error loading departments:', error);
+    } finally {
+      setIsLoadingDepartments(false);
+    }
+  };
+
+  const loadPrograms = async (
+    institutionId: string,
+    degreeId: string,
+    departmentId: string
+  ) => {
+    try {
+      setIsLoadingPrograms(true);
+      const data = await ProgramService.getPrograms({
+        institution_id: institutionId,
+        degree_id: degreeId,
+        department_id: departmentId,
+        limit: 1000,
+        isActive: true
+      });
+      setPrograms(data.data);
+    } catch (error) {
+      console.error('Error loading programs:', error);
+    } finally {
+      setIsLoadingPrograms(false);
+    }
+  };
+
+  const loadSemesters = async (
+    institutionId: string,
+    degreeId: string,
+    departmentId: string,
+    programId: string
+  ) => {
+    try {
+      setIsLoadingSemesters(true);
+      const data = await SemesterService.getSemesters({
+        institution_id: institutionId,
+        degree_id: degreeId,
+        department_id: departmentId,
+        program_id: programId,
+        limit: 1000,
+        isActive: true
+      });
+      setSemesters(data.data);
+    } catch (error) {
+      console.error('Error loading semesters:', error);
+    } finally {
+      setIsLoadingSemesters(false);
     }
   };
 
@@ -220,17 +382,26 @@ export default function BulkCreateBillsPage() {
 
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className='space-y-6'>
-            <div className='grid grid-cols-1 lg:grid-cols-2 gap-6'>
-              {/* Left Column - Bill Details */}
-              <div className='space-y-6'>
-                <Card>
-                  <CardHeader>
-                    <CardTitle className='flex items-center gap-2'>
-                      <Building className='h-5 w-5' />
-                      Institution & Category
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className='space-y-4'>
+            <div className='space-y-6'>
+              {/* Linear flow: Step 1 (filters & bill) → Step 2 (students) → Step 3 (amount) → Submit. */}
+
+              {/* Step 1 — Filters & Bill Details */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className='flex items-center gap-2'>
+                    <span className='flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground'>
+                      1
+                    </span>
+                    <Building className='h-5 w-5' />
+                    Bill Details & Student Filters
+                  </CardTitle>
+                  <CardDescription>
+                    Pick the institution (required), then narrow the cohort by
+                    degree → department → program → semester. Set the billing
+                    category, an optional description, and the due date.
+                  </CardDescription>
+                </CardHeader>
+                  <CardContent className='space-y-4 grid grid-cols-1 md:grid-cols-2 gap-4'>
                     <FormField
                       control={form.control}
                       name='institution_id'
@@ -240,6 +411,11 @@ export default function BulkCreateBillsPage() {
                           <Select
                             onValueChange={(value) => {
                               field.onChange(value);
+                              // Reset all dependent hierarchy + dependent fields when institution changes.
+                              form.setValue('degree_id', undefined);
+                              form.setValue('department_id', undefined);
+                              form.setValue('program_id', undefined);
+                              form.setValue('semester_id', undefined);
                               form.setValue('item_category_id', '');
                               setSelectedStudents([]);
                             }}
@@ -268,12 +444,208 @@ export default function BulkCreateBillsPage() {
                       )}
                     />
 
+                    {/* Cascading hierarchy: Degree → Department → Program → Semester.
+                        Each tier is optional — picking institution alone fetches all
+                        students for that institution; deeper tiers narrow the set. */}
+                    <FormField
+                      control={form.control}
+                      name='degree_id'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Degree (optional)</FormLabel>
+                          <Select
+                            onValueChange={(value) => {
+                              const next = value === 'all' ? undefined : value;
+                              field.onChange(next);
+                              form.setValue('department_id', undefined);
+                              form.setValue('program_id', undefined);
+                              form.setValue('semester_id', undefined);
+                              setSelectedStudents([]);
+                            }}
+                            value={field.value || 'all'}
+                            disabled={
+                              !watchedValues.institution_id || isLoadingDegrees
+                            }
+                          >
+                            <FormControl>
+                              <SelectTrigger>
+                                <SelectValue
+                                  placeholder={
+                                    !watchedValues.institution_id
+                                      ? 'Select institution first'
+                                      : isLoadingDegrees
+                                      ? 'Loading degrees...'
+                                      : 'All degrees'
+                                  }
+                                />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              <SelectItem value='all'>All degrees</SelectItem>
+                              {degrees.map((degree) => (
+                                <SelectItem key={degree.id} value={degree.id}>
+                                  {degree.degree_name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={form.control}
+                      name='department_id'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Department (optional)</FormLabel>
+                          <Select
+                            onValueChange={(value) => {
+                              const next = value === 'all' ? undefined : value;
+                              field.onChange(next);
+                              form.setValue('program_id', undefined);
+                              form.setValue('semester_id', undefined);
+                              setSelectedStudents([]);
+                            }}
+                            value={field.value || 'all'}
+                            disabled={
+                              !watchedValues.degree_id || isLoadingDepartments
+                            }
+                          >
+                            <FormControl>
+                              <SelectTrigger>
+                                <SelectValue
+                                  placeholder={
+                                    !watchedValues.degree_id
+                                      ? 'Select degree first'
+                                      : isLoadingDepartments
+                                      ? 'Loading departments...'
+                                      : 'All departments'
+                                  }
+                                />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              <SelectItem value='all'>
+                                All departments
+                              </SelectItem>
+                              {departments.map((department) => (
+                                <SelectItem
+                                  key={department.id}
+                                  value={department.id}
+                                >
+                                  {department.department_name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={form.control}
+                      name='program_id'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Program (optional)</FormLabel>
+                          <Select
+                            onValueChange={(value) => {
+                              const next = value === 'all' ? undefined : value;
+                              field.onChange(next);
+                              form.setValue('semester_id', undefined);
+                              setSelectedStudents([]);
+                            }}
+                            value={field.value || 'all'}
+                            disabled={
+                              !watchedValues.department_id || isLoadingPrograms
+                            }
+                          >
+                            <FormControl>
+                              <SelectTrigger>
+                                <SelectValue
+                                  placeholder={
+                                    !watchedValues.department_id
+                                      ? 'Select department first'
+                                      : isLoadingPrograms
+                                      ? 'Loading programs...'
+                                      : 'All programs'
+                                  }
+                                />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              <SelectItem value='all'>All programs</SelectItem>
+                              {programs.map((program) => (
+                                <SelectItem
+                                  key={program.id}
+                                  value={program.id}
+                                >
+                                  {program.program_name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={form.control}
+                      name='semester_id'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Semester (optional)</FormLabel>
+                          <Select
+                            onValueChange={(value) => {
+                              const next = value === 'all' ? undefined : value;
+                              field.onChange(next);
+                              setSelectedStudents([]);
+                            }}
+                            value={field.value || 'all'}
+                            disabled={
+                              !watchedValues.program_id || isLoadingSemesters
+                            }
+                          >
+                            <FormControl>
+                              <SelectTrigger>
+                                <SelectValue
+                                  placeholder={
+                                    !watchedValues.program_id
+                                      ? 'Select program first'
+                                      : isLoadingSemesters
+                                      ? 'Loading semesters...'
+                                      : 'All semesters'
+                                  }
+                                />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              <SelectItem value='all'>All semesters</SelectItem>
+                              {semesters.map((semester) => (
+                                <SelectItem
+                                  key={semester.id}
+                                  value={semester.id}
+                                >
+                                  {semester.semester_name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
                     <FormField
                       control={form.control}
                       name='item_category_id'
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Item Category</FormLabel>
+                          <FormLabel>Billing Category</FormLabel>
                           <Select
                             onValueChange={field.onChange}
                             value={field.value}
@@ -368,186 +740,140 @@ export default function BulkCreateBillsPage() {
                   </CardContent>
                 </Card>
 
-                <Card>
-                  <CardHeader>
-                    <CardTitle className='flex items-center gap-2'>
-                      <IndianRupee className='h-5 w-5' />
-                      Amount Details
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className='space-y-4'>
-                    <div className='grid grid-cols-2 gap-4'>
-                      <FormField
-                        control={form.control}
-                        name='quantity'
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Quantity</FormLabel>
-                            <FormControl>
-                              <Input
-                                type='number'
-                                min='1'
-                                {...field}
-                                onChange={(e) =>
-                                  field.onChange(parseInt(e.target.value) || 1)
-                                }
-                              />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-
-                      <FormField
-                        control={form.control}
-                        name='unit_amount'
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Unit Amount (₹)</FormLabel>
-                            <FormControl>
-                              <Input
-                                type='number'
-                                min='0'
-                                step='0.01'
-                                placeholder='0.00'
-                                {...field}
-                                value={field.value?.toString() || ''}
-                                onChange={(e) =>
-                                  field.onChange(
-                                    parseFloat(e.target.value) || 0
-                                  )
-                                }
-                              />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                    </div>
-
-                    <FormField
-                      control={form.control}
-                      name='tax_amount'
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Tax Amount (₹)</FormLabel>
-                          <FormControl>
-                            <Input
-                              type='number'
-                              min='0'
-                              step='0.01'
-                              placeholder='0.00'
-                              {...field}
-                              value={field.value?.toString() || ''}
-                              onChange={(e) =>
-                                field.onChange(parseFloat(e.target.value) || 0)
-                              }
-                            />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-
-                    <div className='space-y-2 p-4 bg-muted rounded-md'>
-                      <div className='flex justify-between text-sm'>
-                        <span>Total Amount:</span>
-                        <span>₹{totalAmount.toFixed(2)}</span>
-                      </div>
-                      <div className='flex justify-between text-sm'>
-                        <span>Tax Amount:</span>
-                        <span>
-                          ₹{(watchedValues.tax_amount || 0).toFixed(2)}
-                        </span>
-                      </div>
-                      <div className='flex justify-between font-medium border-t pt-2'>
-                        <span>Final Amount:</span>
-                        <span>₹{finalAmount.toFixed(2)}</span>
-                      </div>
-                      {selectedStudents.length > 0 && (
-                        <div className='flex justify-between font-medium text-blue-600 border-t pt-2'>
-                          <span>
-                            Total for {selectedStudents.length} students:
-                          </span>
-                          <span>
-                            ₹
-                            {(finalAmount * selectedStudents.length).toFixed(2)}
-                          </span>
+              {/* Step 2 — Select Students */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className='flex items-center gap-2'>
+                    <span className='flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground'>
+                      2
+                    </span>
+                    <Users className='h-5 w-5' />
+                    Select Students
+                  </CardTitle>
+                  <CardDescription>
+                    {watchedValues.institution_id
+                      ? 'Pick which students should receive this bill. Only students matching your filters above are listed.'
+                      : 'Select an institution in step 1 to populate this list.'}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className='space-y-4'>
+                  {studentsData?.data && studentsData.data.length > 0 ? (
+                    <>
+                      <div className='flex items-center justify-between'>
+                        <div className='flex items-center space-x-2'>
+                          <Checkbox
+                            checked={
+                              selectedStudents.length ===
+                              studentsData.data.length
+                            }
+                            onCheckedChange={handleSelectAll}
+                          />
+                          <label className='text-sm font-medium'>
+                            Select All ({studentsData.data.length} students)
+                          </label>
                         </div>
-                      )}
-                    </div>
-                  </CardContent>
-                </Card>
-              </div>
+                        <Badge variant='outline'>
+                          {selectedStudents.length} selected
+                        </Badge>
+                      </div>
 
-              {/* Right Column - Student Selection */}
-              <div className='space-y-6'>
-                <Card>
-                  <CardHeader>
-                    <CardTitle className='flex items-center gap-2'>
-                      <Users className='h-5 w-5' />
-                      Select Students
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className='space-y-4'>
-                    {studentsData?.data && studentsData.data.length > 0 ? (
-                      <>
-                        <div className='flex items-center justify-between'>
-                          <div className='flex items-center space-x-2'>
+                      <div className='max-h-96 overflow-y-auto space-y-2'>
+                        {studentsData.data.map((student) => (
+                          <div
+                            key={student.id}
+                            className='flex items-center space-x-3 p-3 border rounded-lg hover:bg-muted'
+                          >
                             <Checkbox
-                              checked={
-                                selectedStudents.length ===
-                                studentsData.data.length
+                              checked={selectedStudents.includes(student.id)}
+                              onCheckedChange={(checked) =>
+                                handleSelectStudent(
+                                  student.id,
+                                  checked as boolean
+                                )
                               }
-                              onCheckedChange={handleSelectAll}
                             />
-                            <label className='text-sm font-medium'>
-                              Select All ({studentsData.data.length} students)
-                            </label>
-                          </div>
-                          <Badge variant='outline'>
-                            {selectedStudents.length} selected
-                          </Badge>
-                        </div>
-
-                        <div className='max-h-96 overflow-y-auto space-y-2'>
-                          {studentsData.data.map((student) => (
-                            <div
-                              key={student.id}
-                              className='flex items-center space-x-3 p-3 border rounded-lg hover:bg-muted'
-                            >
-                              <Checkbox
-                                checked={selectedStudents.includes(student.id)}
-                                onCheckedChange={(checked) =>
-                                  handleSelectStudent(
-                                    student.id,
-                                    checked as boolean
-                                  )
-                                }
-                              />
-                              <div className='flex-1'>
-                                <div className='font-medium'>
-                                  {`${student.first_name} ${student.last_name}`}
-                                </div>
-                                <div className='text-sm text-muted-foreground'>
-                                  {student.roll_number} • Outstanding: ₹
-                                  {student.outstanding_amount}
-                                </div>
+                            <div className='flex-1'>
+                              <div className='font-medium'>
+                                {`${student.first_name} ${student.last_name}`}
+                              </div>
+                              <div className='text-sm text-muted-foreground'>
+                                {student.roll_number} • Outstanding: ₹
+                                {student.outstanding_amount}
                               </div>
                             </div>
-                          ))}
-                        </div>
-                      </>
-                    ) : (
-                      <div className='text-center py-8 text-muted-foreground'>
-                        {watchedValues.institution_id
-                          ? 'No students found for the selected criteria'
-                          : 'Select an institution to view students'}
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  ) : (
+                    <div className='text-center py-8 text-muted-foreground'>
+                      {watchedValues.institution_id
+                        ? 'No students found for the selected criteria'
+                        : 'Select an institution above to view students'}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* Step 3 — Set Billing Amount */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className='flex items-center gap-2'>
+                    <span className='flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground'>
+                      3
+                    </span>
+                    <IndianRupee className='h-5 w-5' />
+                    Set Billing Amount
+                  </CardTitle>
+                  <CardDescription>
+                    Each selected student will be billed this amount. The total
+                    below updates live as you change the count.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className='space-y-4'>
+                  <FormField
+                    control={form.control}
+                    name='unit_amount'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Billing Amount (₹)</FormLabel>
+                        <FormControl>
+                          <Input
+                            type='number'
+                            min='0'
+                            step='0.01'
+                            placeholder='0.00'
+                            {...field}
+                            value={field.value?.toString() || ''}
+                            onChange={(e) =>
+                              field.onChange(parseFloat(e.target.value) || 0)
+                            }
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <div className='space-y-2 p-4 bg-muted rounded-md'>
+                    <div className='flex justify-between text-sm'>
+                      <span>Billing Amount per student:</span>
+                      <span>₹{finalAmount.toFixed(2)}</span>
+                    </div>
+                    {selectedStudents.length > 0 && (
+                      <div className='flex justify-between font-medium text-blue-600 border-t pt-2'>
+                        <span>
+                          Total for {selectedStudents.length} students:
+                        </span>
+                        <span>
+                          ₹
+                          {(finalAmount * selectedStudents.length).toFixed(2)}
+                        </span>
                       </div>
                     )}
-                  </CardContent>
-                </Card>
-              </div>
+                  </div>
+                </CardContent>
+              </Card>
             </div>
 
             {/* Form Actions */}
