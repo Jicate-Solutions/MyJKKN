@@ -99,7 +99,7 @@ export function LeaveDayCell({ day, date, dayInfo, isToday, canApplyLeave, onApp
             </div>
           ) : isSunday ? (
             <div className='text-[10px] text-red-600 font-medium text-center mt-1'>
-              Holiday
+              Online Learning Day
             </div>
           ) : null}
         </div>
@@ -148,8 +148,8 @@ export function LeaveDayCell({ day, date, dayInfo, isToday, canApplyLeave, onApp
             <div className='flex items-center gap-3 p-4 bg-gradient-to-r from-red-50 via-orange-50 to-red-50 rounded-lg border-2 border-red-300 shadow-md'>
               <span className='text-3xl'>🏖️</span>
               <div>
-                <p className='text-base font-bold text-red-700'>Sunday Holiday</p>
-                <p className='text-xs text-red-600 font-medium'>Default weekly holiday - No attendance</p>
+                <p className='text-base font-bold text-red-700'>Online Learning Day</p>
+                <p className='text-xs text-red-600 font-medium'>Default Online Learning Day — No on-campus attendance</p>
               </div>
             </div>
           )}
