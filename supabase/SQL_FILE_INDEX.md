@@ -7,8 +7,8 @@
 ## 📝 Recent Changes
 
 - **2026-04-29** — Bug Triage Agent — PR 1 — policy seeds + queue view + screenshot bucket
-  - Spec: `specs/bug-triage-agent/PLAN.md` (v2 with config-row doctrine applied). Operator ref: `specs/bug-triage-agent/POLICY-KEYS.md`.
-  - `01_tables.sql`: appended 7 `bug_triage_agent.*` rows in `platform_policies` (is_enabled, allowlist_tags, confidence_min, timeout_seconds, cron_schedule, submit_url_regex, lock_stale_secs) + JSON-shape comment for `bug_reports.metadata.repro_attempt`. All `is_system=true`.
+  - Spec: `specs/bug-triage-agent/PLAN.md` (v3 — "always Draft, main dev reviews" pivot, config-row doctrine applied). Operator ref: `specs/bug-triage-agent/POLICY-KEYS.md`.
+  - `01_tables.sql`: appended 8 `bug_triage_agent.*` rows in `platform_policies` (is_enabled, allowlist_tags, confidence_min, timeout_seconds, cron_schedule, submit_url_regex, lock_stale_secs, draft_pr_reviewer) + JSON-shape comment for `bug_reports.metadata.repro_attempt`. All `is_system=true`.
   - `05_views.sql`: appended `bug_reports_ready_for_repro` — FIFO queue of new/seen bugs with Lane-1 triage tag in `allowlist_tags` policy AND no prior `repro_attempt` (or `agent_error` >1h ago for retry). Returns 0 rows when `is_enabled=false` (instant kill switch).
   - `03_policies.sql`: appended `bug-repro-screenshots` private storage bucket (2MB, image MIME) + 2 RLS policies (super_admin + reporter SELECT, service_role write).
   - `lib/policies/keys.ts`: appended 7 `BUG_TRIAGE_*` constants.

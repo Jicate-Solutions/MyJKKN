@@ -5198,7 +5198,10 @@ INSERT INTO platform_policies (policy_key, scope_type, value, data_type, descrip
    'string', 'Regex of URL path segments where the agent is allowed to submit forms (POST/PUT). Anything not matching: navigate+click+fill only, no submit.', true),
 
   ('bug_triage_agent.lock_stale_secs',  'global', '600'::jsonb,
-   'number', 'Cross-agent lockfile staleness threshold (seconds). After this, .claude/locks/bug-triage.lock can be force-broken by the next invocation.', true)
+   'number', 'Cross-agent lockfile staleness threshold (seconds). After this, .claude/locks/bug-triage.lock can be force-broken by the next invocation. v1 (manual) ignores; reserved for future cron mode.', true),
+
+  ('bug_triage_agent.draft_pr_reviewer', 'global', '""'::jsonb,
+   'string', 'GitHub handle (no @) auto-assigned as reviewer on every Draft PR the agent opens. Empty = no auto-assignment. Set to the main developer who reviews autonomous bug-fix drafts.', true)
 ON CONFLICT (policy_key, scope_type, COALESCE(scope_id, '00000000-0000-0000-0000-000000000000'::uuid)) DO NOTHING;
 
 

@@ -1,6 +1,6 @@
 # Bug Triage Agent — Policy Keys Reference
 
-Operator reference for the 7 `platform_policies` rows that control the autonomous bug triage agent. All keys are `scope_type='global'` (no per-institution variation expected).
+Operator reference for the 8 `platform_policies` rows that control the autonomous bug triage agent. All keys are `scope_type='global'` (no per-institution variation expected).
 
 **Edit via:** SQL `UPDATE platform_policies SET value=... WHERE policy_key='bug_triage_agent.X'` OR (future) the `/admin/policies/bug-triage` UI.
 
@@ -18,7 +18,8 @@ Operator reference for the 7 `platform_policies` rows that control the autonomou
 | `bug_triage_agent.timeout_seconds` | number | `300` | Per-bug budget |
 | `bug_triage_agent.cron_schedule` | string | `"*/30 * * * *"` | Trigger cadence (IST) |
 | `bug_triage_agent.submit_url_regex` | string | `"/draft\|/propose\|/preview"` | Where forms can be submitted |
-| `bug_triage_agent.lock_stale_secs` | number | `600` | Lockfile break-after threshold |
+| `bug_triage_agent.lock_stale_secs` | number | `600` | Lockfile threshold (v2 cron only) |
+| `bug_triage_agent.draft_pr_reviewer` | string | `""` | GitHub handle auto-assigned to every Draft PR |
 
 ---
 
@@ -121,9 +122,28 @@ WHERE policy_key='bug_triage_agent.submit_url_regex';
 
 ---
 
-## `lock_stale_secs` (number)
+## `draft_pr_reviewer` (string, GitHub handle)
+
+GitHub username (no `@`) auto-assigned as reviewer on every Draft PR the agent opens. Empty string disables auto-assignment.
+
+**Default:** `""` (set this before enabling the agent — otherwise the main dev won't be notified).
+
+**Set:**
+```sql
+UPDATE platform_policies
+SET value = '"main-developer-handle"'::jsonb, updated_at=now()
+WHERE policy_key='bug_triage_agent.draft_pr_reviewer';
+```
+
+**Effect:** On `gh pr create --draft`, the agent passes `--reviewer <handle>`. Draft PRs go to that user's review queue, not the merge queue. Main dev verifies → flips Ready → merges.
+
+---
+
+## `lock_stale_secs` (number — v2 cron mode only)
 
 The agent uses a lockfile at `.claude/locks/bug-triage.lock` to prevent collision with parallel invocations or your active session. After this many seconds without update, the lock is considered stale and the next invocation breaks it.
+
+**v1 note:** Manual invocation (current) does not use the lockfile. Reserved for v2 (autonomous cron mode).
 
 | Value | Use case |
 |---|---|

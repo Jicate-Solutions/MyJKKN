@@ -37,6 +37,7 @@ export const POLICY_KEYS = {
   BUG_TRIAGE_CRON_SCHEDULE: 'bug_triage_agent.cron_schedule',
   BUG_TRIAGE_SUBMIT_URL_REGEX: 'bug_triage_agent.submit_url_regex',
   BUG_TRIAGE_LOCK_STALE_SECS: 'bug_triage_agent.lock_stale_secs',
+  BUG_TRIAGE_DRAFT_PR_REVIEWER: 'bug_triage_agent.draft_pr_reviewer',
 } as const;
 
 export type PolicyKey = typeof POLICY_KEYS[keyof typeof POLICY_KEYS];

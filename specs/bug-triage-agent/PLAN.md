@@ -6,6 +6,41 @@
 
 ---
 
+## v3 (2026-04-29 07:38) — "Always Draft + main dev review" pivot
+
+User pushback during apply-confirmation: "I WILL RUN IT AND SHIP IT AS DRAFT PR FOR THE MAIN DEVELOPER TO REVIEW"
+
+**Removes the two biggest risks** of v2:
+- Wrong-file patch can never ship to prod — Draft PRs don't auto-merge
+- Localhost verify no longer needed — main dev verifies during their review
+
+| v2 design | v3 design (THIS) |
+|---|---|
+| PR opens Ready if verify passed, Draft if skipped | **Always Draft** |
+| Localhost verify: stash → checkout → npm run dev :3304 → repro → restore | **Skip entirely** |
+| Lockfile prevents working-tree collision | Reserved for v2 cron mode; v1 manual ignores |
+| Cron-scheduled invocation every 30 min | **Manual invocation only in v1** — Omm runs `/bug-triage` when bugs accumulate |
+| 7 policy keys | **8 policy keys** — adds `draft_pr_reviewer` |
+
+**PR description template (PR 2 will implement):**
+```
+🤖 AUTO-DRAFTED BY bug-triage AGENT — REQUIRES HUMAN REVIEW
+
+This PR was opened autonomously based on:
+- Bug: BUG-XXXXXX
+- Lane-1 triage tag: <tag>
+- Localization confidence: <0.7-1.0>
+- Reproduction confirmed in production at <timestamp>
+
+⚠️ Reviewer responsibilities:
+1. Verify the patch matches the bug — don't trust the agent
+2. Run the repro script: <copy-paste cdp.py command>
+3. Test on localhost before flipping Ready
+4. If wrong: close PR + tag the bug with `agent_could_not_help`
+```
+
+---
+
 ## What changed since v1 (2026-04-26)
 
 | v1 design | v2 design (THIS) | Why |
