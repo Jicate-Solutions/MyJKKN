@@ -355,7 +355,20 @@ export function AttentionBar() {
             <Icon className="h-5 w-5" />
           </div>
 
-          {/* Label + context — flex-1 so CTA hugs the right edge. */}
+          {/* CTA pill — left-anchored to avoid collision with right-side
+              floating action buttons (bug-report FAB + lightning FAB) that
+              live at z-[80]+ on certain pages. Tap-target stays clear; the
+              label below truncates harmlessly if FABs overlap its right edge. */}
+          <span
+            className={cn(
+              'shrink-0 rounded-lg px-3 py-1.5 text-[12px] font-semibold shadow-sm ring-1 ring-inset ring-white/40',
+              styles.ctaBg,
+            )}
+          >
+            {action.cta}
+          </span>
+
+          {/* Label + context — flex-1 fills remaining space to the right. */}
           <div className="min-w-0 flex-1">
             <p className="truncate text-[15px] font-semibold leading-tight text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.3)]">
               {action.label}
@@ -366,16 +379,6 @@ export function AttentionBar() {
               </p>
             )}
           </div>
-
-          {/* CTA pill */}
-          <span
-            className={cn(
-              'shrink-0 rounded-lg px-3 py-1.5 text-[12px] font-semibold shadow-sm ring-1 ring-inset ring-white/40',
-              styles.ctaBg,
-            )}
-          >
-            {action.cta}
-          </span>
         </div>
       </Link>
     </div>
