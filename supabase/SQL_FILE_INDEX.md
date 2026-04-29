@@ -6,6 +6,16 @@
 
 ## 📝 Recent Changes
 
+- **2026-04-29** — Phase 1.5a — `platform_policies` substrate (canonical runtime-config table)
+  - Migration: `20260429000002_platform_policies_substrate.sql`. Applied via Supabase MCP. Verified on prod: 16 system seeds, 5 verification probes pass, fn_recompute_attendance_on_holiday_change body now reads from `fn_get_policy_int`.
+  - `01_tables.sql`: appended `platform_policies` (key/scope/value JSONB, unique on key+scope+scope_id sentinel, 4 scope types).
+  - `02_functions.sql`: appended `fn_get_policy(p_key, p_scope_id)` resolver (priority: user > institution > role > global) plus type-safe sugar `fn_get_policy_int/text/bool`. EXECUTE revoked from `PUBLIC, anon`; granted to `authenticated, service_role` (defense-in-depth — global policies would otherwise leak via `/rest/v1/rpc/`).
+  - `03_policies.sql`: appended RLS — SELECT for any authenticated user, INSERT/UPDATE/DELETE for `is_super_admin() OR is_admin()`.
+  - 16 seeds inserted (14 HR Sprint 5 from Section 17a Round 1-4 + 2 cross-cutting): holiday_backfill_lookback_days(90), audit_retention_years(7), geofence_mode(audit_only), geofence_radius_m(200), auto_approve_threshold_minutes(0), self_heal_step2_channels(["in_app"]), self_heal_window_hours(24), class_proxy_day_calc_default(HALF_DAY), cross_college_proxy_enabled(true), team_view_privacy_mode(full), monthly_letter_mode(on_demand), late_arrival_action(track_only), biometric_priority_over_self_mark(true), multi_day_pattern_detection(false), super_admin.digest.fanout_role_keys(10 roles), hr.dashboard.daily_brief.fanout_via_permission_key(hr.dashboard.view).
+  - PR #590 hardcode retirement: `fn_recompute_attendance_on_holiday_change` 90-day window now reads `fn_get_policy_int('hr.attendance.holiday_backfill_lookback_days', 90, v_inst_id)`. `fn_purge_attendance_audit_log` falls back to policy default when `hr_organizations.audit_retention_years` is NULL (per-org column still wins when set).
+  - TS helpers: `lib/policies/keys.ts` (POLICY_KEYS constants — single source of truth) + `lib/policies/get-policy.ts` (`getPolicy/Int/String/Bool/Array`). New keys must be added here AND seeded in DB.
+  - Phase 1.5b (admin UI at `/system/policies`) ships in a separate PR. Subsequent phases READ via `fn_get_policy*` and never hardcode.
+
 - **2026-04-28** — Attention Bar Phase 4a — 5 SECURITY DEFINER state-query functions for Layer 2 rules engine
   - Migration: `attention_bar_state_query_functions_v1.sql`. Applied via Supabase Management API. Verified: 5 functions created + 5 registry rows seeded.
   - `02_functions.sql`: 5 new functions appended — `fn_aqs_counselor_pending_leads`, `fn_aqs_attendance_unmarked_periods_today`, `fn_aqs_billing_overdue_invoices`, `fn_aqs_admission_leads_unassigned_count`, `fn_aqs_attendance_faculty_compliance_today`. All `SECURITY DEFINER SET search_path = public, pg_catalog`.
