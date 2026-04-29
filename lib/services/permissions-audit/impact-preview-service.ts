@@ -15,7 +15,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { MENU_PERMISSIONS } from '@/lib/sidebarMenuLink';
-import { getPolicyInt } from '@/lib/policies/get-policy';
+import { getPolicyInt } from '@/lib/policies/get-policy-client';
 
 export interface ImpactPreviewData {
   role: {

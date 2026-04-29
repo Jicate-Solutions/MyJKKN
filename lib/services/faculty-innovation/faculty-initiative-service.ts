@@ -38,7 +38,7 @@ import { FacultyInnovationNotificationService } from './notification-service';
 // Source of truth = `faculty.initiative.default_page_size` row seeded in
 // supabase/migrations/20260429000015_audit_faculty_page_size_policy.sql.
 //
-// We can't import getPolicyInt from '@/lib/policies/get-policy' because that
+// We can't import getPolicyInt from '@/lib/policies/get-policy-client' because that
 // helper uses the server (next/headers cookies) Supabase client and this
 // service runs in the browser (called by hooks/faculty-innovation/*).
 // Instead, we call the same fn_get_policy RPC via the existing browser

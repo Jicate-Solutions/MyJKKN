@@ -24,7 +24,7 @@ import { createClientSupabaseClient } from '@/lib/supabase/client';
 import type { AuditParameterCatalogRow } from '@/lib/types/audit';
 import { AuditParameterCatalogService } from './audit-parameter-catalog-service';
 import { AuditCycleService } from './audit-cycle-service';
-import { getPolicyInt } from '@/lib/policies/get-policy';
+import { getPolicyInt } from '@/lib/policies/get-policy-client';
 
 // Director's standing rule (2026-04-29): policy decisions live in
 // platform_policies, not in source. Constants below are *fallback only*.

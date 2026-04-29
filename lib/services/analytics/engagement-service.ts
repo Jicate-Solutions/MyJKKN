@@ -1,5 +1,5 @@
 import { createServiceRoleClient } from '@/lib/supabase/server';
-import { getPolicyInt } from '@/lib/policies/get-policy';
+import { getPolicyInt } from '@/lib/policies/get-policy-client';
 import type {
   EngagementMetrics,
   StudentEngagement,

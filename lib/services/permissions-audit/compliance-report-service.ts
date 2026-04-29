@@ -7,7 +7,7 @@
 // ============================================================================
 
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { getPolicyInt } from '@/lib/policies/get-policy';
+import { getPolicyInt } from '@/lib/policies/get-policy-client';
 
 export interface ComplianceReportData {
   generatedAt: string; // ISO
