@@ -9735,6 +9735,246 @@ REVOKE ALL ON FUNCTION fn_auto_assign_counselor() FROM PUBLIC, anon, authenticat
 -- Trigger fires via table OWNER permissions; service_role grant for completeness.
 GRANT EXECUTE ON FUNCTION fn_auto_assign_counselor() TO service_role;
 
+-- Updated: 2026-04-29 - fn_auto_assign_counselor_v2: 4-tier routing (rules-engine +
+-- policy-driven max-assignments cap). Mirrors migration
+-- 20260429000012_consume_counselor_max_assignments_policy.sql.
+-- Spec: specs/admission-counselor-rules-engine-phase8a-routing-rules-config.md (PR #561 gap closed).
+CREATE OR REPLACE FUNCTION fn_auto_assign_counselor_v2()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_counselor_id     UUID;
+
+  -- Rule-resolved values (all NULL when no active rules)
+  v_tf_active        BOOLEAN;
+  v_tf_allowed_roles TEXT[];
+  v_cif_active       BOOLEAN;
+  v_cif_enabled      BOOLEAN;
+  v_cif_max_overflow INT;
+
+  -- Policy-driven cap: read once per invocation from platform_policies.
+  -- Replaces the formerly hardcoded MAX_NEW_ASSIGNMENTS_PER_RUN = 50.
+  -- Fallback: 50 (matches prior default; safe if policy row is missing).
+  v_max_assignments  INT;
+
+BEGIN
+  -- Guard 1: Respect explicit assignments (CRM imports, manual overrides)
+  IF NEW.counselor_id IS NOT NULL THEN
+    RETURN NEW;
+  END IF;
+
+  -- Guard 2: Can't route without institution
+  IF NEW.institution_id IS NULL THEN
+    RETURN NEW;
+  END IF;
+
+  -- 4-tier routing wrapped in EXCEPTION so failures never block lead creation
+  BEGIN
+
+    -- -------------------------------------------------------------------------
+    -- Step A: Resolve active rules for this institution
+    -- Default-safe: if 0 active rules, all v_* vars stay NULL
+    -- -------------------------------------------------------------------------
+    SELECT
+      r.tf_active,
+      r.tf_allowed_roles,
+      r.cif_active,
+      r.cif_enabled,
+      r.cif_max_overflow
+    INTO
+      v_tf_active,
+      v_tf_allowed_roles,
+      v_cif_active,
+      v_cif_enabled,
+      v_cif_max_overflow
+    FROM fn_resolve_rules_for(NEW.institution_id) r;
+
+    -- Read max-assignments cap from platform_policies (Director-tweakable).
+    -- fn_get_policy_int handles NULL return (missing row) → returns the default.
+    -- cif_max_overflow from the rules engine takes precedence when a
+    -- cross_institution_fallback rule is active; this policy is the global
+    -- fallback when no per-institution rule overrides it.
+    v_max_assignments := fn_get_policy_int(
+      'admission.counselor.max_assignments_per_run',
+      50,
+      NULL
+    );
+
+    -- -------------------------------------------------------------------------
+    -- Step B: 3-tier query with optional taxonomy_filter applied
+    --
+    -- When taxonomy_filter rule IS active:
+    --   - Join admission_counselors → profiles (via email) → check profiles.role
+    --     IN v_tf_allowed_roles
+    --   - Counselors without a matching profile.role are excluded from ALL tiers
+    --
+    -- When taxonomy_filter rule is NOT active (v_tf_active IS NULL):
+    --   - No taxonomy join, identical to PR #549 Tier 3 (all active counselors)
+    --
+    -- Tier 1: counselor maps to BOTH institution AND source (junction tables)
+    -- Tier 2: counselor maps to institution only (junction table)
+    -- Tier 3: LEGACY — counselors.institution_id FK (current prod behavior)
+    -- -------------------------------------------------------------------------
+    WITH
+
+    -- Pre-filter: counselor eligibility after taxonomy check
+    -- When no taxonomy rule: eligible_counselors = ALL active counselors
+    eligible_counselors AS (
+      SELECT c.id AS counselor_id
+      FROM admission_counselors c
+      WHERE c.is_active = TRUE
+        AND (
+          -- No taxonomy rule → all counselors eligible
+          v_tf_active IS NULL
+          OR
+          -- Taxonomy rule active → filter by profiles.role
+          EXISTS (
+            SELECT 1
+            FROM profiles p
+            WHERE p.email = c.email
+              AND p.role = ANY(v_tf_allowed_roles)
+          )
+        )
+    ),
+
+    -- Tier 1: institution + source junction match (on-duty counselors only)
+    tier1_candidates AS (
+      SELECT
+        c.id,
+        COUNT(al.id) AS open_load
+      FROM admission_counselors c
+      JOIN eligible_counselors ec          ON ec.counselor_id = c.id
+      JOIN admission_counselor_institutions ci ON ci.counselor_id = c.id
+      JOIN admission_counselor_sources cs      ON cs.counselor_id = c.id
+      JOIN admission_lead_sources_master slm   ON slm.id = cs.source_id
+                                             AND slm.key = NEW.source::text
+      LEFT JOIN admission_leads al ON al.counselor_id = c.id
+        AND al.funnel_stage NOT IN (
+          'enrolled','confirmed','declined','withdrew','expired','lost','dormant'
+        )
+      WHERE ci.institution_id = NEW.institution_id
+        AND fn_is_counselor_on_duty(c.id, CURRENT_DATE)
+      GROUP BY c.id
+    ),
+
+    -- Tier 2: institution junction match (on-duty counselors only)
+    tier2_candidates AS (
+      SELECT
+        c.id,
+        COUNT(al.id) AS open_load
+      FROM admission_counselors c
+      JOIN eligible_counselors ec          ON ec.counselor_id = c.id
+      JOIN admission_counselor_institutions ci ON ci.counselor_id = c.id
+      LEFT JOIN admission_leads al ON al.counselor_id = c.id
+        AND al.funnel_stage NOT IN (
+          'enrolled','confirmed','declined','withdrew','expired','lost','dormant'
+        )
+      WHERE ci.institution_id = NEW.institution_id
+        AND fn_is_counselor_on_duty(c.id, CURRENT_DATE)
+      GROUP BY c.id
+    ),
+
+    -- Tier 3: LEGACY — counselors.institution_id FK (current prod behavior)
+    -- Note: fn_is_counselor_on_duty intentionally NOT called here for legacy parity.
+    -- Schedule/leave constraints only activate via Tiers 1+2 (junction-table path).
+    -- Taxonomy filter DOES apply to Tier 3 when rule is active (key improvement
+    -- over PR #549 which had no taxonomy gate at all).
+    tier3_candidates AS (
+      SELECT
+        c.id,
+        COUNT(al.id) AS open_load
+      FROM admission_counselors c
+      JOIN eligible_counselors ec ON ec.counselor_id = c.id
+      LEFT JOIN admission_leads al ON al.counselor_id = c.id
+        AND al.funnel_stage NOT IN (
+          'enrolled','confirmed','declined','withdrew','expired','lost','dormant'
+        )
+      WHERE c.institution_id = NEW.institution_id
+        AND c.is_active = TRUE
+      GROUP BY c.id
+    )
+
+    SELECT id INTO v_counselor_id
+    FROM (
+      -- Tier 1 wins if any match
+      SELECT id, open_load, 1 AS tier FROM tier1_candidates
+
+      UNION ALL
+
+      -- Tier 2: only if Tier 1 yielded nothing
+      SELECT id, open_load, 2 AS tier FROM tier2_candidates
+      WHERE NOT EXISTS (SELECT 1 FROM tier1_candidates)
+
+      UNION ALL
+
+      -- Tier 3 (legacy): only if Tiers 1+2 yielded nothing
+      SELECT id, open_load, 3 AS tier FROM tier3_candidates
+      WHERE NOT EXISTS (SELECT 1 FROM tier1_candidates)
+        AND NOT EXISTS (SELECT 1 FROM tier2_candidates)
+
+    ) all_tiers
+    ORDER BY tier ASC, open_load ASC, RANDOM()
+    LIMIT 1;
+
+    -- -------------------------------------------------------------------------
+    -- Step C: Tier 4 — cross-institution fallback (rules-gated)
+    --
+    -- Fires ONLY when:
+    --   (a) Tiers 1–3 yielded nothing (v_counselor_id IS NULL after Step B)
+    --   (b) cross_institution_fallback rule is active AND enabled=true
+    --
+    -- Pool: any on-duty, active counselor in the system (all institutions).
+    -- Taxonomy filter applied here too if active.
+    -- Cap: COALESCE(v_cif_max_overflow, v_max_assignments) — rule-level override
+    --      wins; policy-level value is the fallback when no per-institution rule
+    --      is configured. v_max_assignments replaces the formerly hardcoded 50.
+    --
+    -- DEFAULT-SAFE: when no cross_institution_fallback rule → v_cif_active IS NULL
+    --               → this block is skipped → behavior identical to PR #549.
+    -- -------------------------------------------------------------------------
+    IF v_counselor_id IS NULL
+       AND v_cif_active IS TRUE
+       AND v_cif_enabled IS TRUE
+    THEN
+      SELECT c.id INTO v_counselor_id
+      FROM admission_counselors c
+      JOIN eligible_counselors ec ON ec.counselor_id = c.id
+      LEFT JOIN admission_leads al ON al.counselor_id = c.id
+        AND al.funnel_stage NOT IN (
+          'enrolled','confirmed','declined','withdrew','expired','lost','dormant'
+        )
+      WHERE c.is_active = TRUE
+        AND fn_is_counselor_on_duty(c.id, CURRENT_DATE)
+      GROUP BY c.id
+      HAVING COUNT(al.id) < COALESCE(v_cif_max_overflow, v_max_assignments)
+      ORDER BY COUNT(al.id) ASC, RANDOM()
+      LIMIT 1;
+    END IF;
+
+  EXCEPTION WHEN OTHERS THEN
+    -- Fail-open: routing error → NULL counselor (queue surface)
+    -- This is identical to PR #549 behavior.
+    v_counselor_id := NULL;
+  END;
+
+  IF v_counselor_id IS NOT NULL THEN
+    NEW.counselor_id := v_counselor_id;
+  END IF;
+
+  -- If still NULL: lead lands in queue (counselor_id IS NULL, funnel_stage='new').
+  -- v_institutions_needing_admission_counselors surfaces these for Director.
+  -- fn_flush_queued_leads (cron) re-routes them every 15 min.
+
+  RETURN NEW;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION fn_auto_assign_counselor_v2() FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION fn_auto_assign_counselor_v2() TO service_role;
+
 -- One-shot backfill for the 492 real prospects (inbound_call/walk_in/referral/website/other).
 -- DELIBERATELY EXCLUDES source='education_fair' (6,537 one-day expo dump — needs
 -- separate audit by Director before bulk-assigning).
