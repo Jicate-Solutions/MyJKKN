@@ -80,8 +80,8 @@ export function CycleConfigDialog({
           </DialogTitle>
           <DialogDescription>
             Set the total number of cycles that rotate through this timetable.
-            The cycle counter advances only on working days — Sundays and
-            approved holidays are skipped.
+            The cycle counter advances only on On-Campus Learning Days —
+            Sundays and approved Online Learning Days are skipped.
           </DialogDescription>
         </DialogHeader>
 
