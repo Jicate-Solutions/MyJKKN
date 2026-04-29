@@ -8,7 +8,9 @@
 --
 -- DRAFT STATUS — DO NOT MERGE UNTIL Wave A.0 RESOLVES:
 --   1. class_rep role status (confirmed today: NOT a formal role) → roles-PR before this
---   2. AI Pulse Champion identity (likely Ranjith DTO JKKN — needs human confirm)
+--   2. AI Pulse Champion identity → ✅ RESOLVED 2026-04-29: Krishnaveni
+--      (default host_user_id for seeded ai_pulse_cycles rows = Krishnaveni's
+--      profiles.id; lookup pending in Wave A.0 follow-up)
 --   3. learners table FK column name (learners.id vs learners_profiles.id)
 --
 -- This migration creates the AI Pulse module substrate per spec §4:
