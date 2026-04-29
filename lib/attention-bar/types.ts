@@ -111,5 +111,29 @@ export interface StateQueryDescriptor {
   rateLimitPerMinute: number;
 }
 
-/** Output of resolver — possibly null only on truly catastrophic empty cascade. */
-export type ResolveResult = ResolvedAction | null;
+/**
+ * Output of `resolve()` — bundle that supports the 2-half split layout.
+ *
+ * Framework seam (added 2026-04-28): the bar can render two side-by-side pills
+ * when both `primary` and `secondary` are non-null. Until follow-up resolver
+ * work populates `secondary`, only `primary` is computed and `secondary` stays
+ * null — the renderer falls back to the single full-width pill (current
+ * production behaviour, unchanged).
+ *
+ * Fields:
+ *   - `primary`   — the resolved action from the priority cascade (0→2→3→1→4).
+ *                   Null only on a truly catastrophic empty cascade.
+ *   - `secondary` — the second action for the right half of the split bar.
+ *                   Always null in this PR; populated in a follow-up.
+ *   - `resolved`  — backcompat alias for `primary`. Existing consumers
+ *                   (e.g. tab-sandbox, the hook) read `resolved`; new consumers
+ *                   should read `primary`. Keep both in sync.
+ */
+export interface ResolveResult {
+  /** Backcompat alias = primary. Existing consumers may keep reading this. */
+  resolved: ResolvedAction | null;
+  /** Layer-cascade winner for the LEFT (or full-width) pill. */
+  primary: ResolvedAction | null;
+  /** RIGHT-pill action. Null until the follow-up resolver populates it. */
+  secondary: ResolvedAction | null;
+}

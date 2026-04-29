@@ -24,9 +24,23 @@
 import { useQuery } from '@tanstack/react-query';
 import type { ResolvedAction } from '@/lib/attention-bar/types';
 
+/**
+ * Wire shape returned by `/api/attention-bar/resolve`.
+ *
+ * 2-half split layout seam (added 2026-04-28):
+ *   - `primary`   — left/full-width pill action (cascade winner).
+ *   - `secondary` — right-pill action; null until the follow-up resolver
+ *                   PR populates it. While null, the bar renders a single
+ *                   full-width pill (current production behaviour).
+ *   - `resolved`  — backcompat alias for `primary`. New consumers should
+ *                   read `primary` directly.
+ */
 export interface ResolveResponse {
   page: string;
   role: string;
+  primary: ResolvedAction | null;
+  secondary: ResolvedAction | null;
+  /** @deprecated alias for `primary` — kept for backcompat with existing consumers */
   resolved: ResolvedAction | null;
 }
 
@@ -40,8 +54,9 @@ async function fetchResolved(page: string): Promise<ResolveResponse> {
 
   if (res.status === 401) {
     // Not authenticated — pill should render nothing. Return a synthesised
-    // empty response so consumers can treat it like "no action".
-    return { page, role: 'guest', resolved: null };
+    // empty response so consumers can treat it like "no action". Both
+    // `primary` and `secondary` are null; `resolved` mirrors `primary`.
+    return { page, role: 'guest', primary: null, secondary: null, resolved: null };
   }
 
   if (!res.ok) {
