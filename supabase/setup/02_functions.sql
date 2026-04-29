@@ -6288,9 +6288,14 @@ DECLARE
   v_items JSONB;
   v_counts JSONB;
 BEGIN
+  -- Updated: 2026-04-29 - Add 'fetched_at' to early-return so unauthenticated payload
+  -- conforms to QueueListResult TS contract (items + counts + fetched_at).
   IF v_user IS NULL THEN
-    RETURN jsonb_build_object('items', '[]'::jsonb, 'counts',
-      jsonb_build_object('total', 0, 'approval', 0, 'escalation', 0, 'rescue', 0, 'anomaly', 0));
+    RETURN jsonb_build_object(
+      'items', '[]'::jsonb,
+      'counts', jsonb_build_object('total', 0, 'approval', 0, 'escalation', 0, 'rescue', 0, 'anomaly', 0),
+      'fetched_at', NOW()
+    );
   END IF;
 
   SELECT jsonb_build_object(
