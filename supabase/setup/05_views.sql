@@ -927,7 +927,11 @@ WHERE (leave_types.scope)::text = 'staff'::text;
 -- Ordering: oldest first (FIFO).
 -- agent_error rows: re-included after 1h to allow one retry per crash (R20).
 -- ============================================================================
-CREATE OR REPLACE VIEW bug_reports_ready_for_repro AS
+-- 2026-04-29: hardened with security_invoker=true (was SECURITY DEFINER by default,
+-- caught by Supabase advisor; SECURITY DEFINER bypasses bug_reports RLS).
+DROP VIEW IF EXISTS bug_reports_ready_for_repro;
+CREATE VIEW bug_reports_ready_for_repro
+WITH (security_invoker = true) AS
 SELECT
   br.*,
   br.metadata->'triage'->>'tag' AS triage_tag,
