@@ -4782,7 +4782,10 @@ CREATE TABLE IF NOT EXISTS public.admission_lead_source_captures (
   utm_source      TEXT,
   utm_medium      TEXT,
   utm_campaign    TEXT,
-  referrer_id     UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+  -- Soft polymorphic pointer: profiles.id | learners_profiles.id | staff.id
+  -- depending on parent admission_leads.referral_type. No FK because
+  -- cross-table. User-readable copy lives on admission_leads.referred_by_{id,name}.
+  referrer_id     UUID,
   raw_payload     JSONB NOT NULL DEFAULT '{}'::jsonb,
   created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
   created_by      UUID REFERENCES public.profiles(id) ON DELETE SET NULL
