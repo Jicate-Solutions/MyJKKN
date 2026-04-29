@@ -9121,11 +9121,45 @@ END $fn_lead$;
 -- fn_resolve_dashboard_target(employee's institution) so unrouted leave
 -- requests still surface to the Director instead of disappearing.
 -- Mirrors fn_generate_recruitment_approval_items / fn_generate_unresolved_bug_items.
+-- Updated: 2026-04-29 - Wave B.2 — config-driven via fn_get_generator_config('pending_leave_approval', fallback).
 CREATE OR REPLACE FUNCTION fn_generate_pending_leave_approval_items()
 RETURNS INT LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $fn_leave$
 DECLARE
   v_created INT := 0; v_leave RECORD; v_target UUID; v_key TEXT; v_hours INT;
+  -- Wave B.2: config-driven constants
+  v_cfg JSONB;
+  v_category TEXT;
+  v_min_age_hours INT;
+  v_max_age_days INT;
+  v_batch_limit INT;
+  v_high_threshold_hours INT;
+  v_urgent_when_emergency BOOLEAN;
+  v_ttl_emergency_hours INT;
+  v_ttl_normal_hours INT;
+  v_fallback_to_director BOOLEAN;
 BEGIN
+  v_cfg := fn_get_generator_config('pending_leave_approval', '{
+    "category": "dashboard:approval",
+    "min_age_hours": 48,
+    "max_age_days": 30,
+    "batch_limit": 200,
+    "priority_thresholds_hours": {"high": 96},
+    "priority_overrides": {"urgent_when_is_emergency": true},
+    "ttl_hours": {"emergency": 4, "normal": 24},
+    "fallback_to_director": true,
+    "filters": {"status": "pending", "superseded_by_is_null": true}
+  }'::jsonb);
+
+  v_category             := COALESCE(v_cfg->>'category', 'dashboard:approval');
+  v_min_age_hours        := COALESCE((v_cfg->>'min_age_hours')::INT, 48);
+  v_max_age_days         := COALESCE((v_cfg->>'max_age_days')::INT, 30);
+  v_batch_limit          := COALESCE((v_cfg->>'batch_limit')::INT, 200);
+  v_high_threshold_hours := COALESCE((v_cfg->'priority_thresholds_hours'->>'high')::INT, 96);
+  v_urgent_when_emergency := COALESCE((v_cfg->'priority_overrides'->>'urgent_when_is_emergency')::BOOLEAN, true);
+  v_ttl_emergency_hours  := COALESCE((v_cfg->'ttl_hours'->>'emergency')::INT, 4);
+  v_ttl_normal_hours     := COALESCE((v_cfg->'ttl_hours'->>'normal')::INT, 24);
+  v_fallback_to_director := COALESCE((v_cfg->>'fallback_to_director')::BOOLEAN, true);
+
   FOR v_leave IN
     SELECT la.id, la.employee_id, la.final_approver_id,
            la.start_date, la.end_date, la.total_days, la.status,
@@ -9134,18 +9168,26 @@ BEGIN
            EXTRACT(EPOCH FROM (NOW() - la.created_at))/3600 AS hours_pending
     FROM hr_leave_applications la
     LEFT JOIN staff s ON s.id = la.employee_id
-    WHERE la.status = 'pending' AND la.created_at < NOW() - INTERVAL '48 hours'
-      AND la.created_at > NOW() - INTERVAL '30 days' AND la.superseded_by IS NULL
-    ORDER BY la.created_at ASC LIMIT 200
+    WHERE la.status = 'pending'
+      AND la.created_at < NOW() - make_interval(hours => v_min_age_hours)
+      AND la.created_at > NOW() - make_interval(days  => v_max_age_days)
+      AND la.superseded_by IS NULL
+    ORDER BY la.created_at ASC LIMIT v_batch_limit
   LOOP
     -- Fallback: route to Director when leave intake didn't set final_approver_id.
-    v_target := COALESCE(v_leave.final_approver_id, fn_resolve_dashboard_target(v_leave.institution_id));
-    IF v_target IS NULL THEN CONTINUE; END IF;  -- truly no super_admin exists; cannot route
+    IF v_fallback_to_director THEN
+      v_target := COALESCE(v_leave.final_approver_id, fn_resolve_dashboard_target(v_leave.institution_id));
+    ELSE
+      v_target := v_leave.final_approver_id;
+    END IF;
+    IF v_target IS NULL THEN CONTINUE; END IF;
     v_hours := v_leave.hours_pending::INT;
     v_key := 'leave_pending:' || v_leave.id::text || ':' || CURRENT_DATE::text;
     v_created := v_created + fn_create_dashboard_work_item(
-      'dashboard:approval',
-      CASE WHEN v_leave.is_emergency THEN 'urgent' WHEN v_hours > 96 THEN 'high' ELSE 'normal' END,
+      v_category,
+      CASE WHEN v_urgent_when_emergency AND v_leave.is_emergency THEN 'urgent'
+           WHEN v_hours > v_high_threshold_hours THEN 'high'
+           ELSE 'normal' END,
       'Leave request pending ' || v_hours || 'h — ' || v_leave.total_days::text || ' day(s)',
       COALESCE(v_leave.reason, 'No reason provided') || ' | ' ||
         v_leave.start_date::text || ' to ' || v_leave.end_date::text ||
@@ -9154,7 +9196,8 @@ BEGIN
         'days', v_leave.total_days, 'url', '/hr/leave/applications/' || v_leave.id::text,
         'is_emergency', v_leave.is_emergency,
         'unassigned_fallback', v_leave.final_approver_id IS NULL),
-      v_target, v_key, CASE WHEN v_leave.is_emergency THEN 4 ELSE 24 END);
+      v_target, v_key,
+      CASE WHEN v_leave.is_emergency THEN v_ttl_emergency_hours ELSE v_ttl_normal_hours END);
   END LOOP;
   RETURN v_created;
 END $fn_leave$;
