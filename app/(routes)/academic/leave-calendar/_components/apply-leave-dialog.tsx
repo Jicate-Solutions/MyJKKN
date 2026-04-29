@@ -166,7 +166,7 @@ export function ApplyLeaveDialog({
             <Label htmlFor='leave-name'>Leave Name <span className='text-destructive'>*</span></Label>
             <Input
               id='leave-name'
-              placeholder='e.g. Republic Day, Diwali Holiday'
+              placeholder='e.g. Republic Day, Diwali Online Learning Period'
               value={leaveName}
               onChange={(e) => setLeaveName(e.target.value)}
               disabled={submitting}
