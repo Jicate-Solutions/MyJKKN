@@ -8951,12 +8951,54 @@ BEGIN
 END $fn_create$;
 
 -- Generator 1: overdue invoices → dashboard:escalation
+-- Updated: 2026-04-29 - Wave B.2 — config-driven via fn_get_generator_config('overdue_invoice', fallback).
+-- All hardcoded constants (min_age_days_overdue, batch_limit, target_roles array,
+-- exclude_super_admin gate, priority_thresholds_days, ttl_hours per priority)
+-- now read from notification_generator_config. Hardcoded fallback inside the fn
+-- matches the backfilled row bit-identical (preserves day-1 behavior).
 CREATE OR REPLACE FUNCTION fn_generate_overdue_invoice_items()
 RETURNS INT LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $fn_ovd$
 DECLARE
   v_created INT := 0; v_inv RECORD; v_user RECORD; v_key TEXT;
   v_priority TEXT; v_name TEXT; v_phone TEXT;
+  -- Wave B.2: config-driven constants. Hardcoded fallback inside
+  -- fn_get_generator_config matches the backfilled row bit-identical.
+  v_cfg JSONB;
+  v_category TEXT;
+  v_min_days_overdue INT;
+  v_batch_limit INT;
+  v_target_roles TEXT[];
+  v_exclude_super_admin BOOLEAN;
+  v_urgent_days_threshold INT;
+  v_high_days_threshold INT;
+  v_ttl_urgent_hours INT;
+  v_ttl_high_hours INT;
+  v_ttl_normal_hours INT;
 BEGIN
+  v_cfg := fn_get_generator_config('overdue_invoice', '{
+    "category": "dashboard:escalation",
+    "min_age_days_overdue": 30,
+    "batch_limit": 500,
+    "target_roles": ["director","admin","accounts","principal"],
+    "exclude_super_admin": true,
+    "priority_thresholds_days": {"urgent": 90, "high": 60},
+    "ttl_hours": {"urgent": 24, "high": 48, "normal": 72}
+  }'::jsonb);
+
+  v_category             := COALESCE(v_cfg->>'category', 'dashboard:escalation');
+  v_min_days_overdue     := COALESCE((v_cfg->>'min_age_days_overdue')::INT, 30);
+  v_batch_limit          := COALESCE((v_cfg->>'batch_limit')::INT, 500);
+  v_target_roles         := COALESCE(
+                              ARRAY(SELECT jsonb_array_elements_text(v_cfg->'target_roles')),
+                              ARRAY['director','admin','accounts','principal']
+                            );
+  v_exclude_super_admin  := COALESCE((v_cfg->>'exclude_super_admin')::BOOLEAN, true);
+  v_urgent_days_threshold := COALESCE((v_cfg->'priority_thresholds_days'->>'urgent')::INT, 90);
+  v_high_days_threshold  := COALESCE((v_cfg->'priority_thresholds_days'->>'high')::INT, 60);
+  v_ttl_urgent_hours     := COALESCE((v_cfg->'ttl_hours'->>'urgent')::INT, 24);
+  v_ttl_high_hours       := COALESCE((v_cfg->'ttl_hours'->>'high')::INT, 48);
+  v_ttl_normal_hours     := COALESCE((v_cfg->'ttl_hours'->>'normal')::INT, 72);
+
   FOR v_inv IN
     SELECT bi.id, bi.institution_id, bi.student_id, bi.grand_total, bi.due_date,
            bi.invoice_number, bi.billing_period_from,
@@ -8965,12 +9007,14 @@ BEGIN
                      WHERE br.student_id = bi.student_id
                        AND br.receipt_date >= bi.billing_period_from), 0) AS paid_since_period
     FROM billing_invoices bi
-    WHERE bi.due_date < CURRENT_DATE - INTERVAL '30 days' AND bi.grand_total > 0
-    ORDER BY bi.due_date ASC LIMIT 500
+    WHERE bi.due_date < CURRENT_DATE - make_interval(days => v_min_days_overdue)
+      AND bi.grand_total > 0
+    ORDER BY bi.due_date ASC LIMIT v_batch_limit
   LOOP
     IF v_inv.paid_since_period >= v_inv.grand_total THEN CONTINUE; END IF;
-    v_priority := CASE WHEN v_inv.days_overdue > 90 THEN 'urgent'
-                       WHEN v_inv.days_overdue > 60 THEN 'high' ELSE 'normal' END;
+    v_priority := CASE WHEN v_inv.days_overdue > v_urgent_days_threshold THEN 'urgent'
+                       WHEN v_inv.days_overdue > v_high_days_threshold   THEN 'high'
+                       ELSE 'normal' END;
     SELECT TRIM(COALESCE(lp.first_name,'') || ' ' || COALESCE(lp.last_name,'')),
            COALESCE(lp.student_mobile, lp.father_mobile, lp.mother_mobile)
     INTO v_name, v_phone FROM learners_profiles lp WHERE lp.id = v_inv.student_id;
@@ -8981,13 +9025,13 @@ BEGIN
     FOR v_user IN
       SELECT DISTINCT p.id AS uid FROM profiles p
       WHERE p.institution_id = v_inv.institution_id
-        AND p.is_super_admin = FALSE
-        AND p.role IN ('director','admin','accounts','principal')
+        AND (NOT v_exclude_super_admin OR p.is_super_admin = FALSE)
+        AND p.role = ANY(v_target_roles)
     LOOP
       v_key := 'overdue_invoice:' || v_inv.id::text || ':' || CURRENT_DATE::text
                || ':' || v_user.uid::text;
       v_created := v_created + fn_create_dashboard_work_item(
-        'dashboard:escalation', v_priority,
+        v_category, v_priority,
         'Invoice ' || v_inv.invoice_number || ' overdue ' || v_inv.days_overdue || ' days — ₹' || v_inv.grand_total::text,
         v_name || ' owes ₹' || (v_inv.grand_total - v_inv.paid_since_period)::text || '. ' ||
           COALESCE('Contact: ' || v_phone, 'No phone on file.'),
@@ -8998,7 +9042,9 @@ BEGIN
           'url', '/billing/invoices/' || v_inv.id::text,
           'student_name', v_name, 'student_phone', v_phone),
         v_user.uid, v_key,
-        CASE WHEN v_priority = 'urgent' THEN 24 WHEN v_priority = 'high' THEN 48 ELSE 72 END);
+        CASE WHEN v_priority = 'urgent' THEN v_ttl_urgent_hours
+             WHEN v_priority = 'high'   THEN v_ttl_high_hours
+             ELSE v_ttl_normal_hours END);
     END LOOP;
   END LOOP;
   RETURN v_created;
