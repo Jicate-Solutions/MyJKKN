@@ -9083,11 +9083,61 @@ BEGIN
 END $fn_leave$;
 
 -- Generator 4: unmarked-attendance anomaly → dashboard:anomaly
+-- Updated: 2026-04-29 - Wave B.2 — config-driven via fn_get_generator_config('unmarked_attendance', fallback).
+-- Note: time_gate_ist_hour, learning_window_days, prioritize_emails are all
+-- config-row tunable. The body text "as of {hour}am" templates the gate hour,
+-- so changing the config row updates body copy too — no separate string config.
 CREATE OR REPLACE FUNCTION fn_generate_unmarked_attendance_items()
 RETURNS INT LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $fn_att$
-DECLARE v_created INT := 0; v_tt RECORD; v_target RECORD; v_key TEXT;
+DECLARE
+  v_created INT := 0; v_tt RECORD; v_target RECORD; v_key TEXT;
+  -- Wave B.2: config-driven constants
+  v_cfg JSONB;
+  v_category TEXT;
+  v_time_gate_ist_hour INT;
+  v_batch_limit_outer INT;
+  v_batch_limit_inner INT;
+  v_target_roles TEXT[];
+  v_exclude_super_admin BOOLEAN;
+  v_priority TEXT;
+  v_ttl_hours INT;
+  v_learning_window_days INT;
+  v_prioritize_emails TEXT[];
 BEGIN
-  IF EXTRACT(HOUR FROM (NOW() AT TIME ZONE 'Asia/Kolkata')) < 11 THEN RETURN 0; END IF;
+  v_cfg := fn_get_generator_config('unmarked_attendance', '{
+    "category": "dashboard:anomaly",
+    "time_gate_ist_hour": 11,
+    "batch_limit_outer": 100,
+    "batch_limit_inner": 50,
+    "target_roles": ["director","principal","hod","admin"],
+    "exclude_super_admin": true,
+    "priority": "normal",
+    "ttl_hours": 8,
+    "learning_window_days": 14,
+    "prioritize_emails": ["director@jkkn.ac.in"]
+  }'::jsonb);
+
+  v_category             := COALESCE(v_cfg->>'category', 'dashboard:anomaly');
+  v_time_gate_ist_hour   := COALESCE((v_cfg->>'time_gate_ist_hour')::INT, 11);
+  v_batch_limit_outer    := COALESCE((v_cfg->>'batch_limit_outer')::INT, 100);
+  v_batch_limit_inner    := COALESCE((v_cfg->>'batch_limit_inner')::INT, 50);
+  v_target_roles         := COALESCE(
+                              ARRAY(SELECT jsonb_array_elements_text(v_cfg->'target_roles')),
+                              ARRAY['director','principal','hod','admin']
+                            );
+  v_exclude_super_admin  := COALESCE((v_cfg->>'exclude_super_admin')::BOOLEAN, true);
+  v_priority             := COALESCE(v_cfg->>'priority', 'normal');
+  v_ttl_hours            := COALESCE((v_cfg->>'ttl_hours')::INT, 8);
+  v_learning_window_days := COALESCE((v_cfg->>'learning_window_days')::INT, 14);
+  v_prioritize_emails    := COALESCE(
+                              ARRAY(SELECT jsonb_array_elements_text(v_cfg->'prioritize_emails')),
+                              ARRAY['director@jkkn.ac.in']
+                            );
+
+  IF EXTRACT(HOUR FROM (NOW() AT TIME ZONE 'Asia/Kolkata')) < v_time_gate_ist_hour THEN
+    RETURN 0;
+  END IF;
+
   FOR v_tt IN
     SELECT t.id, t.institution_id, t.section_id, t.timetable_name
     FROM timetables t
@@ -9097,8 +9147,10 @@ BEGIN
         WHERE sa.timetable_id = t.id AND sa.attendance_date = CURRENT_DATE)
       AND EXISTS (SELECT 1 FROM student_attendance sa2
         WHERE sa2.timetable_id = t.id
-          AND sa2.attendance_date BETWEEN CURRENT_DATE - INTERVAL '14 days' AND CURRENT_DATE - INTERVAL '1 day')
-    LIMIT 100
+          AND sa2.attendance_date BETWEEN
+            CURRENT_DATE - make_interval(days => v_learning_window_days)
+            AND CURRENT_DATE - INTERVAL '1 day')
+    LIMIT v_batch_limit_outer
   LOOP
     v_key := 'unmarked_attendance:' || v_tt.id::text || ':' || CURRENT_DATE::text;
     -- 2026-04-23 targeting fix: (a) LIMIT 50 was LIMIT 5 — cut director off;
@@ -9111,22 +9163,22 @@ BEGIN
       SELECT p.id AS uid, p.email, p.institution_id AS p_inst
       FROM profiles p
       WHERE p.institution_id = v_tt.institution_id
-        AND p.is_super_admin = FALSE
-        AND p.role IN ('director','principal','hod','admin')
+        AND (NOT v_exclude_super_admin OR p.is_super_admin = FALSE)
+        AND p.role = ANY(v_target_roles)
       ORDER BY
-        CASE WHEN p.email = 'director@jkkn.ac.in' THEN 0
+        CASE WHEN p.email = ANY(v_prioritize_emails) THEN 0
              WHEN p.institution_id = v_tt.institution_id THEN 1
              ELSE 2 END,
         p.id
-      LIMIT 50
+      LIMIT v_batch_limit_inner
     LOOP
       v_created := v_created + fn_create_dashboard_work_item(
-        'dashboard:anomaly', 'normal',
+        v_category, v_priority,
         'Attendance not marked today — ' || COALESCE(v_tt.timetable_name, 'Section timetable'),
-        'No attendance rows for this timetable today as of 11am. Faculty may need a nudge.',
+        'No attendance rows for this timetable today as of ' || v_time_gate_ist_hour::text || 'am. Faculty may need a nudge.',
         jsonb_build_object('timetable_id', v_tt.id, 'section_id', v_tt.section_id,
           'url', '/academic/attendance/dashboard?timetable=' || v_tt.id::text),
-        v_target.uid, v_key || ':' || v_target.uid::text, 8);
+        v_target.uid, v_key || ':' || v_target.uid::text, v_ttl_hours);
     END LOOP;
   END LOOP;
   RETURN v_created;
