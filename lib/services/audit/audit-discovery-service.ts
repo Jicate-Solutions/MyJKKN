@@ -24,6 +24,21 @@ import { createClientSupabaseClient } from '@/lib/supabase/client';
 import type { AuditParameterCatalogRow } from '@/lib/types/audit';
 import { AuditParameterCatalogService } from './audit-parameter-catalog-service';
 import { AuditCycleService } from './audit-cycle-service';
+import { getPolicyInt } from '@/lib/policies/get-policy';
+
+// Director's standing rule (2026-04-29): policy decisions live in
+// platform_policies, not in source. Constants below are *fallback only*.
+// Source of truth = `audit.discovery.{max,default}_page_size` rows seeded
+// in supabase/migrations/20260429000015_audit_faculty_page_size_policy.sql.
+// NOTE: keys are not registered in lib/policies/keys.ts (deliberately
+// excluded from this PR per worker contract); cast `as any` until Phase 2
+// catalog cleanup adds them to POLICY_KEYS.
+const AUDIT_DISCOVERY_MAX_PAGE_SIZE_KEY =
+  'audit.discovery.max_page_size' as unknown as Parameters<typeof getPolicyInt>[0];
+const AUDIT_DISCOVERY_DEFAULT_PAGE_SIZE_KEY =
+  'audit.discovery.default_page_size' as unknown as Parameters<typeof getPolicyInt>[0];
+const AUDIT_DISCOVERY_MAX_PAGE_SIZE_FALLBACK = 100;
+const AUDIT_DISCOVERY_DEFAULT_PAGE_SIZE_FALLBACK = 100;
 
 export interface DiscoveryQueryResult {
   rows: Array<Record<string, unknown>>;
@@ -41,8 +56,25 @@ export interface RunQueryOptions {
 
 export class AuditDiscoveryService {
   private static supabase = createClientSupabaseClient();
-  private static readonly MAX_PAGE_SIZE = 100;
-  private static readonly DEFAULT_PAGE_SIZE = 100;
+
+  /**
+   * Resolve { max, def } page-size limits from platform_policies.
+   * Falls back to the legacy hardcoded 100/100 if the policy RPC fails.
+   * Server-context only (API routes) — getPolicyInt uses next/headers cookies.
+   */
+  private static async getPageSizeLimits(): Promise<{ max: number; def: number }> {
+    const [max, def] = await Promise.all([
+      getPolicyInt(
+        AUDIT_DISCOVERY_MAX_PAGE_SIZE_KEY,
+        AUDIT_DISCOVERY_MAX_PAGE_SIZE_FALLBACK
+      ),
+      getPolicyInt(
+        AUDIT_DISCOVERY_DEFAULT_PAGE_SIZE_KEY,
+        AUDIT_DISCOVERY_DEFAULT_PAGE_SIZE_FALLBACK
+      ),
+    ]);
+    return { max, def };
+  }
 
   /**
    * Client-side mirror of the DB validator. Returned on the critical path so
@@ -118,10 +150,12 @@ export class AuditDiscoveryService {
     }
 
     // Pagination clamp — mirrors the DB function's behaviour so UI stays in sync.
+    // Limits resolved from platform_policies (substrate-extending: PR #595).
+    const { max: maxPageSize, def: defaultPageSize } = await this.getPageSizeLimits();
     const page = Math.max(1, Math.floor(options.page ?? 1));
     const pageSize = Math.max(
       1,
-      Math.min(Math.floor(options.page_size ?? this.DEFAULT_PAGE_SIZE), this.MAX_PAGE_SIZE)
+      Math.min(Math.floor(options.page_size ?? defaultPageSize), maxPageSize)
     );
     const offset = (page - 1) * pageSize;
 
@@ -154,7 +188,7 @@ export class AuditDiscoveryService {
       sample: rows.slice(0, 5),
     };
 
-    if (totalCount > this.MAX_PAGE_SIZE && page === 1) {
+    if (totalCount > maxPageSize && page === 1) {
       result.warning = `Query returned ${totalCount} rows; showing first ${pageSize}. Use pagination or Export-to-CSV for full data.`;
     }
 
