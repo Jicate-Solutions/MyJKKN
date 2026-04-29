@@ -533,7 +533,7 @@ export function BottomNavbar() {
             id="more"
             icon={MoreHorizontal}
             label="More"
-            isActive={true} // Always show as active/highlighted
+            isActive={isMoreMenuOpen}
             hasSubmenu={true}
             hideIndicator={true} // Remove underline
             tileGradient="bg-gradient-to-br from-rose-400 via-pink-500 to-rose-700"
