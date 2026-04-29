@@ -27,6 +27,12 @@ export const POLICY_KEYS = {
   // Cross-cutting
   SUPER_ADMIN_DIGEST_FANOUT_ROLE_KEYS: 'super_admin.digest.fanout_role_keys',
   HR_DASHBOARD_DAILY_BRIEF_FANOUT_PERMISSION: 'hr.dashboard.daily_brief.fanout_via_permission_key',
+
+  // Attention Bar (Phase 5+, Director-tunable)
+  // When true, Layer 1 emits BOTH the role-specific entry AND the catch-all as
+  // two distinct hits — so the split bar renders by default on every page even
+  // when no Layer 2 rule has been configured. Default false → unchanged behaviour.
+  ATTENTION_BAR_L1_RETURN_SECONDARY: 'attention_bar.layer1.return_secondary',
 } as const;
 
 export type PolicyKey = typeof POLICY_KEYS[keyof typeof POLICY_KEYS];

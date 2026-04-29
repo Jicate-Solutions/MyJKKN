@@ -184,6 +184,30 @@ export async function resolve(ctx: ResolverContext): Promise<ResolveResult> {
         trace.push({ layer, result: 'matched' });
         hits.push({ layer, action: result.action });
       }
+
+      // Optional secondary emission from the SAME layer (added 2026-04-29).
+      // Today only Layer 1 sets this — when the Director enables the
+      // `attention_bar.layer1.return_secondary` policy, L1 returns both its
+      // role-specific entry AND the catch-all so the split bar can render on
+      // pages that have no Layer 2 rule. Subjected to the same
+      // self-referential filter as the primary; resolver still dedups by href
+      // when deriving final secondary down below.
+      if (result.secondary) {
+        if (result.secondary.href === ctx.page) {
+          trace.push({
+            layer,
+            result: 'skipped',
+            reason: `secondary self-referential — secondary.href === ctx.page (${ctx.page})`,
+          });
+        } else {
+          trace.push({
+            layer,
+            result: 'matched',
+            reason: 'secondary-from-same-layer',
+          });
+          hits.push({ layer, action: result.secondary });
+        }
+      }
     } else {
       trace.push({ layer, result: 'no-match', reason: result.reason });
     }
