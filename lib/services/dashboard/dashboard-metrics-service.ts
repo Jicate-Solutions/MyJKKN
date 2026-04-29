@@ -84,8 +84,26 @@ export async function getDashboardMetrics(
   });
 
   if (error) {
-    console.error('[dashboard/metrics] RPC error:', error);
-    throw new Error(`fn_dashboard_metrics failed: ${error.message}`);
+    // Serialize via getOwnPropertyNames — Supabase v2 wraps fetch failures in
+    // FetchError instances whose `.message` is non-enumerable, so the default
+    // `console.error('label:', err)` renders as `{}` and hides the real cause.
+    // Most common trigger here: stale auth cookie after long dev sessions or
+    // session expiry → PostgREST 401 → FetchError with empty enumerable props.
+    // (See comment block above re: 2026-04-21 silent-swallow fix.)
+    const serialized = JSON.stringify(error, Object.getOwnPropertyNames(error));
+    const looksAuthStale =
+      !error.message ||
+      /jwt|token|expired|unauthor/i.test(error.message ?? '') ||
+      serialized === '{}';
+    console.error('[dashboard/metrics] RPC error:', serialized, {
+      hint: looksAuthStale
+        ? 'Likely stale auth cookie — try a hard refresh / re-login.'
+        : 'Check fn_dashboard_metrics body and referenced tables.'
+    });
+    throw new Error(
+      `fn_dashboard_metrics failed: ${error.message ?? serialized}` +
+        (looksAuthStale ? ' (likely stale auth cookie — re-login)' : '')
+    );
   }
 
   return (data as DashboardMetrics) ?? EMPTY_METRICS;

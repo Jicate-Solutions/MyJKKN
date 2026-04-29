@@ -10715,3 +10715,15 @@ $fn_targeting$;
 
 REVOKE ALL ON FUNCTION fn_notification_is_for_user(JSONB, UUID) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION fn_notification_is_for_user(JSONB, UUID) TO authenticated, service_role;
+
+-- ============================================================================
+-- PostgREST schema cache reload (added 2026-04-28)
+-- Tells PostgREST to re-read pg_proc / pg_type after function changes.
+-- Without this, freshly created/modified functions return PGRST202
+-- "Could not find the function ... in the schema cache" until PostgREST
+-- restarts (~10 min idle refresh) or the next DDL event triggers a reload.
+-- Mirrors the trailer pattern used by all 11 migrations under
+-- supabase/migrations/ (e.g. 20260427_role_demotion_safeguards.sql,
+-- 20260424_bos_align_institutions_id_and_drop_expert_fk.sql).
+-- ============================================================================
+NOTIFY pgrst, 'reload schema';

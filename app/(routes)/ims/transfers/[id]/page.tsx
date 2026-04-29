@@ -2,6 +2,7 @@
 
 import { use } from 'react';
 import { ContentLayout } from '@/components/layout/content-layout';
+import { ImsActivityFeed } from '@/components/ims/activity-feed';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -190,6 +191,22 @@ export default function TransferDetailPage({ params }: { params: Promise<{ id: s
             </Button>
           )}
         </div>
+
+        {/* Phase F: end-to-end audit trail — request lifecycle */}
+        <ImsActivityFeed
+          entityType="indent"
+          entityId={id}
+          title="Request History"
+        />
+
+        {/* Phase F: shipment-level audit (if a shipment exists) */}
+        {shipments && shipments.length > 0 && (
+          <ImsActivityFeed
+            entityType="shipment"
+            entityId={shipments[0].id}
+            title="Shipment History"
+          />
+        )}
       </div>
     </ContentLayout>
   );

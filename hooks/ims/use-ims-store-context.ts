@@ -25,20 +25,25 @@ export function useImsStoreContext() {
   const storeName = useStore(useImsActiveStore, (s) => s.storeName);
   const setActiveStore = useImsActiveStore((s) => s.setActiveStore);
 
-  // A user is treated as "store-admin-like" for IMS gate purposes if:
-  // (a) their primary/legacy role is store_admin, OR
-  // (b) any of their assigned roles has role_key === 'store_admin', OR
-  // (c) any of their assigned roles has at least one IMS permission key
-  //     (covers custom roles like pos_operator, ims_handler, etc.)
+  // A user is "store-admin-like" — i.e. eligible to see the store-picker
+  // (Gate D) instead of the dead-end "No Store Assigned" (Gate C) — only when
+  // they can actually MANAGE stores. Tightened 2026-04-27 from the previous
+  // coarse `key.startsWith('ims')` check, which incorrectly let a sales-only
+  // operator (ims.sales.create) into the picker UI. The new gate keys off
+  // either the legacy `store_admin` role OR the explicit
+  // `ims.settings.stores.manage` permission grant.
+  //
+  // Why this matters: cashiers / POS operators should be auto-assigned their
+  // store via assigned_store_id (Priority 2 below); if that fails, they
+  // should see Gate C ("contact administrator"), NOT a picker that exposes
+  // every other institution's store.
   const isStoreAdmin =
     userProfile?.role === 'store_admin' ||
     userRoles.some(
       (r) =>
         r.role_key === 'store_admin' ||
         (r.permissions != null &&
-          Object.keys(r.permissions as Record<string, unknown>).some((k) =>
-            k.startsWith('ims')
-          ))
+          (r.permissions as Record<string, unknown>)['ims.settings.stores.manage'] === true)
     );
 
   const userInstitutionId = userProfile?.institution_id ?? null;

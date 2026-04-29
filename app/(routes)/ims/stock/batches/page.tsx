@@ -166,9 +166,13 @@ export default function BatchesPage() {
   const { data: expiringData, isLoading: expiringLoading } =
     useImsExpiringBatches(30, storeId || '', institutionId);
 
-  const allBatches: ImsStockBatch[] = Array.isArray(allBatchData)
-    ? allBatchData
-    : [];
+  // getStockBatches returns { data, metadata } (paginated wrapper); getExpiringBatches returns a flat array.
+  // Unwrap each according to its actual shape.
+  const allBatches: ImsStockBatch[] = Array.isArray(allBatchData?.data)
+    ? allBatchData.data
+    : Array.isArray(allBatchData)
+      ? allBatchData
+      : [];
   const expiringBatches: ImsStockBatch[] = Array.isArray(expiringData)
     ? expiringData
     : [];

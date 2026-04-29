@@ -5393,3 +5393,261 @@ CREATE POLICY notifications_update_admins ON notifications FOR UPDATE USING (
 CREATE POLICY notifications_delete_admins ON notifications FOR DELETE USING (
   is_super_admin() OR is_admin(auth.uid())
 );
+
+-- ================================================================================
+-- IMS (Inventory Management System) RLS POLICIES
+-- ================================================================================
+-- Added 2026-04-28 — wires the IMS module into MyJKKN's canonical role-based
+-- access. Replaces the legacy raw-role pattern
+--   USING (institution_id = (SELECT profiles.institution_id ...) OR get_current_user_role() = 'super_admin')
+-- with the standard pattern enforced project-wide:
+--   is_super_admin() OR is_admin(auth.uid())
+--   OR (user_has_permission('key') AND role_has_institution_access(institution_id))
+--
+-- Closes the two known security holes flagged in
+--   docs/modules/ims/2026-04-27-MODULE-supabase-database-schema.md §8:
+--     - ims_supply_shipments       previously USING (true)
+--     - ims_supply_shipment_items  previously USING (true)
+-- Both now require ims.transfers.{view,dispatch,receive} + institution access.
+--
+-- IMS table inventory (25 tables):
+--   13 institution-scoped root tables  (institution_id column on row)
+--    4 institution-scoped counter tables (atomic sequence increments)
+--    4 global reference tables          (no institution_id — units, suppliers, …)
+--    4 child / junction tables          (FK-scoped — RLS via parent EXISTS)
+--
+-- Guarded by `to_regclass('public.ims_stores')`. If IMS migrations have not
+-- been applied to the target database (e.g. a fresh staging cut), this entire
+-- block emits a NOTICE and exits — no error. Re-run after IMS DDL lands.
+--
+-- Why pg_temp helper functions: 25 tables × 4 policies = 100 near-identical
+-- DDL statements. The helpers compress this to one template + per-table call,
+-- which is auditable AND drops itself at session end (no permanent schema
+-- pollution). Permission keys are passed as arguments so per-table policy
+-- targets remain explicit and greppable.
+-- ================================================================================
+
+DO $$
+BEGIN
+  IF to_regclass('public.ims_stores') IS NULL THEN
+    RAISE NOTICE '[ims-rls] ims_* tables not present in this database — skipping IMS RLS section. Apply IMS table migration first, then re-run 03_policies.sql.';
+    RETURN;
+  END IF;
+
+  -- ── Helper #1: institution-scoped tables (13 root + 4 counters = 17) ─────────
+  -- Tables with an institution_id column directly on the row. Reads gated by
+  -- p_view, writes by p_write. Both also require role_has_institution_access
+  -- on the row's institution_id for non-admins.
+  CREATE OR REPLACE FUNCTION pg_temp.ims_apply_inst_policies(
+    p_table TEXT, p_view TEXT, p_write TEXT
+  ) RETURNS void AS $fn$
+  BEGIN
+    EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY', p_table);
+    EXECUTE format('DROP POLICY IF EXISTS %I ON public.%I', p_table || '_select', p_table);
+    EXECUTE format('DROP POLICY IF EXISTS %I ON public.%I', p_table || '_insert', p_table);
+    EXECUTE format('DROP POLICY IF EXISTS %I ON public.%I', p_table || '_update', p_table);
+    EXECUTE format('DROP POLICY IF EXISTS %I ON public.%I', p_table || '_delete', p_table);
+
+    EXECUTE format(
+      'CREATE POLICY %I ON public.%I FOR SELECT TO authenticated USING ('
+      'is_super_admin() OR is_admin(auth.uid()) '
+      'OR (user_has_permission(%L) AND role_has_institution_access(institution_id)))',
+      p_table || '_select', p_table, p_view);
+
+    EXECUTE format(
+      'CREATE POLICY %I ON public.%I FOR INSERT TO authenticated WITH CHECK ('
+      'is_super_admin() OR is_admin(auth.uid()) '
+      'OR (user_has_permission(%L) AND role_has_institution_access(institution_id)))',
+      p_table || '_insert', p_table, p_write);
+
+    EXECUTE format(
+      'CREATE POLICY %I ON public.%I FOR UPDATE TO authenticated '
+      'USING ('
+      'is_super_admin() OR is_admin(auth.uid()) '
+      'OR (user_has_permission(%L) AND role_has_institution_access(institution_id))) '
+      'WITH CHECK ('
+      'is_super_admin() OR is_admin(auth.uid()) '
+      'OR (user_has_permission(%L) AND role_has_institution_access(institution_id)))',
+      p_table || '_update', p_table, p_write, p_write);
+
+    EXECUTE format(
+      'CREATE POLICY %I ON public.%I FOR DELETE TO authenticated USING ('
+      'is_super_admin() OR is_admin(auth.uid()) '
+      'OR (user_has_permission(%L) AND role_has_institution_access(institution_id)))',
+      p_table || '_delete', p_table, p_write);
+  END;
+  $fn$ LANGUAGE plpgsql;
+
+  -- ── Helper #2: global reference tables (no institution_id) ───────────────────
+  -- Read open to any user with ims.view; writes restricted to settings keys.
+  CREATE OR REPLACE FUNCTION pg_temp.ims_apply_global_policies(
+    p_table TEXT, p_write TEXT
+  ) RETURNS void AS $fn$
+  BEGIN
+    EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY', p_table);
+    EXECUTE format('DROP POLICY IF EXISTS %I ON public.%I', p_table || '_select', p_table);
+    EXECUTE format('DROP POLICY IF EXISTS %I ON public.%I', p_table || '_insert', p_table);
+    EXECUTE format('DROP POLICY IF EXISTS %I ON public.%I', p_table || '_update', p_table);
+    EXECUTE format('DROP POLICY IF EXISTS %I ON public.%I', p_table || '_delete', p_table);
+
+    EXECUTE format(
+      'CREATE POLICY %I ON public.%I FOR SELECT TO authenticated USING ('
+      'is_super_admin() OR is_admin(auth.uid()) OR user_has_permission(%L))',
+      p_table || '_select', p_table, 'ims.view');
+
+    EXECUTE format(
+      'CREATE POLICY %I ON public.%I FOR INSERT TO authenticated WITH CHECK ('
+      'is_super_admin() OR is_admin(auth.uid()) OR user_has_permission(%L))',
+      p_table || '_insert', p_table, p_write);
+
+    EXECUTE format(
+      'CREATE POLICY %I ON public.%I FOR UPDATE TO authenticated '
+      'USING (is_super_admin() OR is_admin(auth.uid()) OR user_has_permission(%L)) '
+      'WITH CHECK (is_super_admin() OR is_admin(auth.uid()) OR user_has_permission(%L))',
+      p_table || '_update', p_table, p_write, p_write);
+
+    EXECUTE format(
+      'CREATE POLICY %I ON public.%I FOR DELETE TO authenticated USING ('
+      'is_super_admin() OR is_admin(auth.uid()) OR user_has_permission(%L))',
+      p_table || '_delete', p_table, p_write);
+  END;
+  $fn$ LANGUAGE plpgsql;
+
+  -- ── Helper #3: child tables (FK-scoped via parent EXISTS) ────────────────────
+  -- Child rows do not carry institution_id; instead, the parent does. Policy
+  -- joins to parent and checks role_has_institution_access(parent.institution_id).
+  -- p_fk = name of the FK column on the child pointing at the parent's id.
+  CREATE OR REPLACE FUNCTION pg_temp.ims_apply_child_policies(
+    p_table TEXT, p_fk TEXT, p_parent TEXT, p_view TEXT, p_write TEXT
+  ) RETURNS void AS $fn$
+  BEGIN
+    EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY', p_table);
+    EXECUTE format('DROP POLICY IF EXISTS %I ON public.%I', p_table || '_select', p_table);
+    EXECUTE format('DROP POLICY IF EXISTS %I ON public.%I', p_table || '_insert', p_table);
+    EXECUTE format('DROP POLICY IF EXISTS %I ON public.%I', p_table || '_update', p_table);
+    EXECUTE format('DROP POLICY IF EXISTS %I ON public.%I', p_table || '_delete', p_table);
+
+    EXECUTE format(
+      'CREATE POLICY %I ON public.%I FOR SELECT TO authenticated USING ('
+      'is_super_admin() OR is_admin(auth.uid()) OR EXISTS ('
+      '  SELECT 1 FROM public.%I p WHERE p.id = %I.%I '
+      '  AND user_has_permission(%L) AND role_has_institution_access(p.institution_id)))',
+      p_table || '_select', p_table, p_parent, p_table, p_fk, p_view);
+
+    EXECUTE format(
+      'CREATE POLICY %I ON public.%I FOR INSERT TO authenticated WITH CHECK ('
+      'is_super_admin() OR is_admin(auth.uid()) OR EXISTS ('
+      '  SELECT 1 FROM public.%I p WHERE p.id = %I.%I '
+      '  AND user_has_permission(%L) AND role_has_institution_access(p.institution_id)))',
+      p_table || '_insert', p_table, p_parent, p_table, p_fk, p_write);
+
+    EXECUTE format(
+      'CREATE POLICY %I ON public.%I FOR UPDATE TO authenticated '
+      'USING (is_super_admin() OR is_admin(auth.uid()) OR EXISTS ('
+      '  SELECT 1 FROM public.%I p WHERE p.id = %I.%I '
+      '  AND user_has_permission(%L) AND role_has_institution_access(p.institution_id))) '
+      'WITH CHECK (is_super_admin() OR is_admin(auth.uid()) OR EXISTS ('
+      '  SELECT 1 FROM public.%I p WHERE p.id = %I.%I '
+      '  AND user_has_permission(%L) AND role_has_institution_access(p.institution_id)))',
+      p_table || '_update', p_table,
+      p_parent, p_table, p_fk, p_write,
+      p_parent, p_table, p_fk, p_write);
+
+    EXECUTE format(
+      'CREATE POLICY %I ON public.%I FOR DELETE TO authenticated USING ('
+      'is_super_admin() OR is_admin(auth.uid()) OR EXISTS ('
+      '  SELECT 1 FROM public.%I p WHERE p.id = %I.%I '
+      '  AND user_has_permission(%L) AND role_has_institution_access(p.institution_id)))',
+      p_table || '_delete', p_table, p_parent, p_table, p_fk, p_write);
+  END;
+  $fn$ LANGUAGE plpgsql;
+
+  -- ── Apply: institution-scoped root tables (13) ───────────────────────────────
+  PERFORM pg_temp.ims_apply_inst_policies('ims_stores',                  'ims.view',                'ims.settings.stores.manage');
+  PERFORM pg_temp.ims_apply_inst_policies('ims_items',                   'ims.inventory.view',      'ims.inventory.edit');
+  PERFORM pg_temp.ims_apply_inst_policies('ims_stock_summary',           'ims.stock.view',          'ims.stock.adjust');
+  PERFORM pg_temp.ims_apply_inst_policies('ims_stock_batches',           'ims.stock.view',          'ims.stock.adjust');
+  PERFORM pg_temp.ims_apply_inst_policies('ims_stock_issues',            'ims.stock.view',          'ims.stock.adjust');
+  PERFORM pg_temp.ims_apply_inst_policies('ims_department_consumption',  'ims.stock.view',          'ims.stock.adjust');
+  PERFORM pg_temp.ims_apply_inst_policies('ims_goods_received_notes',    'ims.stock.grn.view',      'ims.stock.grn.create');
+  PERFORM pg_temp.ims_apply_inst_policies('ims_indent_requests',         'ims.indents.view',        'ims.indents.edit');
+  -- Closes the USING(true) hole flagged in schema doc §8:
+  PERFORM pg_temp.ims_apply_inst_policies('ims_supply_shipments',        'ims.transfers.view',      'ims.transfers.dispatch');
+  PERFORM pg_temp.ims_apply_inst_policies('ims_sales',                   'ims.sales.view',          'ims.sales.create');
+  PERFORM pg_temp.ims_apply_inst_policies('ims_shifts',                  'ims.sales.view',          'ims.sales.create');
+  PERFORM pg_temp.ims_apply_inst_policies('ims_upi_qr_payments',         'ims.sales.view',          'ims.sales.create');
+  -- Financial transactions: read-only at user level. Writes happen via DB
+  -- triggers as side-effects of sales/grn posting. Gate the write path behind
+  -- a synthetic key no role grants — only super_admin / is_admin can mutate.
+  PERFORM pg_temp.ims_apply_inst_policies('ims_financial_transactions',  'ims.financial.view',      'ims.financial.write_admin_only');
+
+  -- ── Apply: institution-scoped counter tables (4) ─────────────────────────────
+  -- Counters are bumped atomically by service code that already holds the
+  -- relevant create permission; align write gate to that key.
+  PERFORM pg_temp.ims_apply_inst_policies('ims_grn_number_counters',     'ims.stock.grn.view',      'ims.stock.grn.create');
+  PERFORM pg_temp.ims_apply_inst_policies('ims_indent_number_counters',  'ims.indents.view',        'ims.indents.create');
+  PERFORM pg_temp.ims_apply_inst_policies('ims_sale_number_counters',    'ims.sales.view',          'ims.sales.create');
+  PERFORM pg_temp.ims_apply_inst_policies('ims_batch_number_counters',   'ims.stock.view',          'ims.stock.adjust');
+
+  -- ── Apply: global reference tables (4) ───────────────────────────────────────
+  -- Shared across institutions; read for any IMS user, write gated per area.
+  PERFORM pg_temp.ims_apply_global_policies('ims_units',             'ims.settings.units.manage');
+  PERFORM pg_temp.ims_apply_global_policies('ims_unit_conversions',  'ims.settings.units.manage');
+  PERFORM pg_temp.ims_apply_global_policies('ims_item_categories',   'ims.inventory.categories.manage');
+  PERFORM pg_temp.ims_apply_global_policies('ims_suppliers',         'ims.settings.suppliers.manage');
+
+  -- ── Apply: child / junction tables (4) — RLS via parent EXISTS ───────────────
+  -- FK column names follow the convention <parent_singular>_id. If a child
+  -- table uses a different FK name, update the second arg here AND verify
+  -- against information_schema.columns before applying in production.
+  PERFORM pg_temp.ims_apply_child_policies(
+    'ims_grn_items',             'grn_id',
+    'ims_goods_received_notes',  'ims.stock.grn.view',  'ims.stock.grn.create');
+  PERFORM pg_temp.ims_apply_child_policies(
+    'ims_indent_request_items',  'indent_request_id',
+    'ims_indent_requests',       'ims.indents.view',    'ims.indents.edit');
+  -- Closes the USING(true) hole flagged in schema doc §8:
+  PERFORM pg_temp.ims_apply_child_policies(
+    'ims_supply_shipment_items', 'supply_shipment_id',
+    'ims_supply_shipments',      'ims.transfers.view',  'ims.transfers.dispatch');
+  PERFORM pg_temp.ims_apply_child_policies(
+    'ims_sale_items',            'sale_id',
+    'ims_sales',                 'ims.sales.view',      'ims.sales.create');
+
+  RAISE NOTICE '[ims-rls] Applied canonical role-based RLS to 25 ims_* tables.';
+END $$;
+
+-- =====================================================================
+-- IMS Activity Log RLS — Phase F (2026-04-28)
+-- Append-only audit trail for IMS workflow transitions.
+-- SELECT + INSERT only; intentionally NO UPDATE / DELETE policies so rows
+-- are tamper-resistant via RLS-respecting clients (compliance property).
+-- Service-role connections (used by SECURITY DEFINER functions) still
+-- bypass RLS — those don't run from the browser.
+-- =====================================================================
+
+DO $$
+BEGIN
+  IF to_regclass('public.ims_activity_log') IS NULL THEN
+    RAISE NOTICE '[ims-activity-log-rls] Skipped: ims_activity_log table not present.';
+    RETURN;
+  END IF;
+
+  ALTER TABLE public.ims_activity_log ENABLE ROW LEVEL SECURITY;
+
+  DROP POLICY IF EXISTS ims_activity_log_select ON public.ims_activity_log;
+  CREATE POLICY ims_activity_log_select ON public.ims_activity_log
+    FOR SELECT TO authenticated USING (
+      is_super_admin() OR is_admin(auth.uid())
+      OR (user_has_permission('ims.view') AND role_has_institution_access(institution_id))
+    );
+
+  DROP POLICY IF EXISTS ims_activity_log_insert ON public.ims_activity_log;
+  CREATE POLICY ims_activity_log_insert ON public.ims_activity_log
+    FOR INSERT TO authenticated WITH CHECK (
+      is_super_admin() OR is_admin(auth.uid())
+      OR (user_has_permission('ims.view') AND role_has_institution_access(institution_id))
+    );
+
+  RAISE NOTICE '[ims-activity-log-rls] Applied SELECT + INSERT policies (append-only).';
+END $$;

@@ -36,108 +36,61 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { useAuth } from '@/hooks/use-auth';
-import type {
-  ImsDepartmentStock,
-  ImsDepartmentStockMovement,
-} from '@/types/ims';
+import { useImsStoreContext } from '@/hooks/ims/use-ims-store-context';
+import {
+  useImsDepartmentsForSelect,
+  useImsDepartmentStock,
+  useImsDepartmentSummaries,
+  useImsDepartmentItemMovements,
+} from '@/hooks/ims/use-ims-departments';
+import type { ImsDepartmentStock } from '@/types/ims';
 
-// Placeholder department data -- in production this would come from a hook
-// e.g. useImsDepartmentStock(filters) backed by aggregation of stock_issues
-const PLACEHOLDER_DEPARTMENTS = [
-  { id: 'dept-1', name: 'Science Lab', totalItems: 42, totalValue: 125000 },
-  { id: 'dept-2', name: 'Computer Lab', totalItems: 28, totalValue: 89000 },
-  { id: 'dept-3', name: 'Library', totalItems: 15, totalValue: 34000 },
-  { id: 'dept-4', name: 'Sports', totalItems: 21, totalValue: 45000 },
-];
-
-const PLACEHOLDER_STOCK: ImsDepartmentStock[] = [
-  {
-    department_id: 'dept-1',
-    department_name: 'Science Lab',
-    item_id: 'item-1',
-    item_name: 'Test Tubes',
-    total_issued: 200,
-    total_consumed: 150,
-    total_returned: 10,
-    balance: 60,
-  },
-  {
-    department_id: 'dept-1',
-    department_name: 'Science Lab',
-    item_id: 'item-2',
-    item_name: 'Beakers 250ml',
-    total_issued: 50,
-    total_consumed: 30,
-    total_returned: 5,
-    balance: 25,
-  },
-  {
-    department_id: 'dept-2',
-    department_name: 'Computer Lab',
-    item_id: 'item-3',
-    item_name: 'Printer Paper A4',
-    total_issued: 100,
-    total_consumed: 80,
-    total_returned: 0,
-    balance: 20,
-  },
-];
-
-const PLACEHOLDER_MOVEMENTS: ImsDepartmentStockMovement[] = [
-  {
-    id: 'mov-1',
-    type: 'received',
-    quantity: 50,
-    notes: 'Initial issue from central store',
-    created_at: '2026-02-10T09:00:00Z',
-    created_by: { full_name: 'Admin User' },
-  },
-  {
-    id: 'mov-2',
-    type: 'consumed',
-    quantity: 20,
-    notes: 'Used for practical class',
-    created_at: '2026-02-12T14:30:00Z',
-    created_by: { full_name: 'Lab Assistant' },
-  },
-  {
-    id: 'mov-3',
-    type: 'returned',
-    quantity: 5,
-    notes: 'Surplus return',
-    created_at: '2026-02-15T11:00:00Z',
-    created_by: { full_name: 'Lab Assistant' },
-  },
-];
+const formatCurrency = (value: number) =>
+  value.toLocaleString('en-IN', {
+    style: 'currency',
+    currency: 'INR',
+    maximumFractionDigits: 0,
+  });
 
 const MOVEMENT_TYPE_BADGE: Record<string, string> = {
   received: 'bg-green-100 text-green-800',
   consumed: 'bg-blue-100 text-blue-800',
-  returned: 'bg-orange-100 text-orange-800',
   adjusted: 'bg-purple-100 text-purple-800',
 };
 
 export default function DepartmentStockPage() {
-  const { profile } = useAuth();
+  const { storeId, institutionId } = useImsStoreContext();
 
   const [departmentId, setDepartmentId] = useState<string>('all');
   const [search, setSearch] = useState('');
   const [historyDialogOpen, setHistoryDialogOpen] = useState(false);
-  const [selectedItem, setSelectedItem] = useState<ImsDepartmentStock | null>(null);
+  const [selectedItem, setSelectedItem] = useState<ImsDepartmentStock | null>(
+    null
+  );
 
-  // Filter stock data based on department and search
-  const filteredStock = PLACEHOLDER_STOCK.filter((row) => {
-    if (departmentId !== 'all' && row.department_id !== departmentId) return false;
-    if (search) {
-      const q = search.toLowerCase();
-      return (
-        row.item_name.toLowerCase().includes(q) ||
-        row.department_name.toLowerCase().includes(q)
-      );
-    }
-    return true;
-  });
+  const { data: departmentOptions = [] } =
+    useImsDepartmentsForSelect(institutionId);
+
+  const { data: summaries = [], isLoading: summariesLoading } =
+    useImsDepartmentSummaries({
+      store_id: storeId,
+      institution_id: institutionId,
+    });
+
+  const { data: stockRows = [], isLoading: stockLoading } =
+    useImsDepartmentStock({
+      store_id: storeId,
+      institution_id: institutionId,
+      department_id: departmentId,
+      search,
+    });
+
+  const { data: movements = [], isLoading: movementsLoading } =
+    useImsDepartmentItemMovements(
+      selectedItem?.department_id ?? null,
+      selectedItem?.item_id ?? null,
+      { store_id: storeId, institution_id: institutionId }
+    );
 
   const openHistory = (item: ImsDepartmentStock) => {
     setSelectedItem(item);
@@ -147,48 +100,65 @@ export default function DepartmentStockPage() {
   return (
     <ContentLayout title="Department Stock">
       <div className="space-y-6">
-        {/* Info Card */}
         <Alert>
           <Info className="h-4 w-4" />
           <AlertTitle>Department Stock Tracking</AlertTitle>
           <AlertDescription>
-            Department stock is tracked from stock issues. Select a department to
-            view its inventory. Data shown below is representative of the stock
-            movement workflow.
+            Department stock is tracked from stock issues and consumption
+            entries. Select a department below to filter its inventory.
           </AlertDescription>
         </Alert>
 
         {/* Department Summary Cards */}
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {PLACEHOLDER_DEPARTMENTS.map((dept) => (
-            <Card
-              key={dept.id}
-              className={`cursor-pointer transition-colors hover:border-primary ${
-                departmentId === dept.id ? 'border-primary bg-primary/5' : ''
-              }`}
-              onClick={() =>
-                setDepartmentId(departmentId === dept.id ? 'all' : dept.id)
-              }
-            >
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">
-                  {dept.name}
-                </CardTitle>
-                <Building2 className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-lg font-bold">{dept.totalItems} items</div>
-                <p className="text-sm text-muted-foreground">
-                  {dept.totalValue.toLocaleString('en-IN', {
-                    style: 'currency',
-                    currency: 'INR',
-                    maximumFractionDigits: 0,
-                  })}
-                </p>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+        {summariesLoading ? (
+          <div className="flex items-center justify-center py-8">
+            <BeatLoader color="hsl(var(--primary))" size={10} />
+          </div>
+        ) : summaries.length === 0 ? (
+          <Card>
+            <CardContent className="py-8 text-center text-muted-foreground">
+              <Building2 className="h-8 w-8 mx-auto mb-2 opacity-30" />
+              <p className="text-sm">
+                No department stock recorded for this store yet.
+              </p>
+            </CardContent>
+          </Card>
+        ) : (
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            {summaries.map((dept) => (
+              <Card
+                key={dept.department_id}
+                className={`cursor-pointer transition-colors hover:border-primary ${
+                  departmentId === dept.department_id
+                    ? 'border-primary bg-primary/5'
+                    : ''
+                }`}
+                onClick={() =>
+                  setDepartmentId(
+                    departmentId === dept.department_id
+                      ? 'all'
+                      : dept.department_id
+                  )
+                }
+              >
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">
+                    {dept.department_name}
+                  </CardTitle>
+                  <Building2 className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-lg font-bold">
+                    {dept.total_items} {dept.total_items === 1 ? 'item' : 'items'}
+                  </div>
+                  <p className="text-sm text-muted-foreground">
+                    {formatCurrency(dept.total_value)}
+                  </p>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        )}
 
         {/* Filters */}
         <Card>
@@ -209,9 +179,9 @@ export default function DepartmentStockPage() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Departments</SelectItem>
-                  {PLACEHOLDER_DEPARTMENTS.map((d) => (
+                  {departmentOptions.map((d) => (
                     <SelectItem key={d.id} value={d.id}>
-                      {d.name}
+                      {d.department_name}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -223,9 +193,14 @@ export default function DepartmentStockPage() {
         {/* Stock Table */}
         <Card>
           <CardContent className="p-0">
-            {filteredStock.length === 0 ? (
+            {stockLoading ? (
+              <div className="flex items-center justify-center py-12">
+                <BeatLoader color="hsl(var(--primary))" size={10} />
+              </div>
+            ) : stockRows.length === 0 ? (
               <div className="text-center py-12 text-muted-foreground">
-                No department stock found. Select a department or adjust filters.
+                No department stock found. Try a different department or clear
+                the search.
               </div>
             ) : (
               <Table>
@@ -240,7 +215,7 @@ export default function DepartmentStockPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredStock.map((row) => (
+                  {stockRows.map((row) => (
                     <TableRow key={`${row.department_id}-${row.item_id}`}>
                       <TableCell className="font-medium">
                         {row.item_name}
@@ -287,39 +262,52 @@ export default function DepartmentStockPage() {
               </DialogTitle>
             </DialogHeader>
             <div className="space-y-3 max-h-[400px] overflow-y-auto">
-              {PLACEHOLDER_MOVEMENTS.map((mov) => (
-                <div
-                  key={mov.id}
-                  className="flex items-start justify-between border rounded-lg p-3"
-                >
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2">
-                      <Badge
-                        variant="outline"
-                        className={
-                          MOVEMENT_TYPE_BADGE[mov.type] ?? 'bg-gray-100 text-gray-800'
-                        }
-                      >
-                        {mov.type}
-                      </Badge>
-                      <span className="font-medium">
-                        {mov.type === 'consumed' || mov.type === 'returned'
-                          ? `-${mov.quantity}`
-                          : `+${mov.quantity}`}
-                      </span>
-                    </div>
-                    {mov.notes && (
-                      <p className="text-sm text-muted-foreground">{mov.notes}</p>
-                    )}
-                    <p className="text-xs text-muted-foreground">
-                      by {mov.created_by?.full_name ?? 'Unknown'}
-                    </p>
-                  </div>
-                  <span className="text-xs text-muted-foreground whitespace-nowrap">
-                    {format(new Date(mov.created_at), 'dd MMM yyyy HH:mm')}
-                  </span>
+              {movementsLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <BeatLoader color="hsl(var(--primary))" size={10} />
                 </div>
-              ))}
+              ) : movements.length === 0 ? (
+                <p className="text-center text-sm text-muted-foreground py-8">
+                  No movements recorded for this item.
+                </p>
+              ) : (
+                movements.map((mov) => (
+                  <div
+                    key={mov.id}
+                    className="flex items-start justify-between border rounded-lg p-3"
+                  >
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <Badge
+                          variant="outline"
+                          className={
+                            MOVEMENT_TYPE_BADGE[mov.type] ??
+                            'bg-gray-100 text-gray-800'
+                          }
+                        >
+                          {mov.type}
+                        </Badge>
+                        <span className="font-medium">
+                          {mov.type === 'consumed'
+                            ? `-${mov.quantity}`
+                            : `+${mov.quantity}`}
+                        </span>
+                      </div>
+                      {mov.notes && (
+                        <p className="text-sm text-muted-foreground">
+                          {mov.notes}
+                        </p>
+                      )}
+                      <p className="text-xs text-muted-foreground">
+                        by {mov.created_by?.full_name ?? 'Unknown'}
+                      </p>
+                    </div>
+                    <span className="text-xs text-muted-foreground whitespace-nowrap">
+                      {format(new Date(mov.created_at), 'dd MMM yyyy HH:mm')}
+                    </span>
+                  </div>
+                ))
+              )}
             </div>
           </DialogContent>
         </Dialog>

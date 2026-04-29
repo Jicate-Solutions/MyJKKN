@@ -1,0 +1,12 @@
+▲ Next.js 16.2.2 (webpack)
+- Environments: .env.local
+- Experiments (use with caution):
+  · clientTraceMetadata
+  · optimizePackageImports
+  ✓ webpackMemoryOptimizations
+
+  Creating an optimized production build ...
+[webpack-cfg] cache disabled in production — Stream C 2026-04-26
+[webpack-cfg] cache disabled in production — Stream C 2026-04-26
+[webpack-cfg] cache disabled in production — Stream C 2026-04-26
+✓ (serwist) Bundling the service worker script with the URL '/sw.js' and the scope '/'...

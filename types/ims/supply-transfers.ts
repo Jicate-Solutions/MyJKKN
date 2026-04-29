@@ -22,6 +22,13 @@ export interface ImsSupplyShipment {
   received_at: string | null;
   received_by: string | null;
   receipt_notes: string | null;
+  // Logistics tracking (added 2026-04-28: columns existed in prod DB but were
+  // missing from this interface, so the Transfers detail page silently dropped them)
+  vehicle_no: string | null;
+  courier_name: string | null;
+  driver_name: string | null;
+  driver_contact: string | null;
+  expected_arrival: string | null;
   status: ImsShipmentStatus;
   created_at: string;
   updated_at: string;

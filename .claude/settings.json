@@ -34,6 +34,9 @@
       "Bash(rm -rf:*)",
       "Bash(rm -fr:*)",
       "Bash(sudo:*)"
+    ],
+    "additionalDirectories": [
+      "C:\\Users\\Admin\\Documents\\GitHub\\MyJKKN\\.git"
     ]
   }
 }

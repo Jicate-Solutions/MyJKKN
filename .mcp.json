@@ -2,7 +2,7 @@
   "mcpServers": {
     "supabase": {
       "type": "http",
-      "url": "https://mcp.supabase.com/mcp?project_ref=kvizhngldtiuufknvehv",
+      "url": "https://mcp.supabase.com/mcp?project_ref=hhprjbgknupaplivtoib",
       "headers": {
         "Authorization": "Bearer sbp_47018305daf9755154b028eb0e599cbb8097c0c8"
       }
@@ -18,14 +18,24 @@
     },
     "memory": {
       "command": "cmd",
-      "args": ["/c", "npx", "-y", "@modelcontextprotocol/server-memory@latest"],
+      "args": [
+        "/c",
+        "npx",
+        "-y",
+        "@modelcontextprotocol/server-memory@latest"
+      ],
       "env": {
         "MEMORY_STORE_PATH": "D:\\MyJKKN\\.claude\\memory"
       }
     },
     "actor-critic-thinking": {
       "command": "cmd",
-      "args": ["/c", "npx", "-y", "mcp-server-actor-critic-thinking"]
+      "args": [
+        "/c",
+        "npx",
+        "-y",
+        "mcp-server-actor-critic-thinking"
+      ]
     },
     "chrome-devtools": {
       "command": "cmd",
@@ -38,13 +48,18 @@
     },
     "next-devtools": {
       "command": "cmd",
-      "args": ["/c", "npx", "-y", "next-devtools-mcp@latest"]
+      "args": [
+        "/c",
+        "npx",
+        "-y",
+        "next-devtools-mcp@latest"
+      ]
     },
     "exotel": {
       "command": "npx",
       "args": [
         "mcp-remote",
-        "https://mcp.exotel.com/mcp", 
+        "https://mcp.exotel.com/mcp",
         "--header",
         "Authorization:${AUTH_HEADER}"
       ],

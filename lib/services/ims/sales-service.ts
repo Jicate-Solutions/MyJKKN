@@ -1,9 +1,11 @@
 // lib/services/ims/sales-service.ts
 // Updated: 2026-02-21 — Multi-store support (store_id as primary scope),
 // optimistic stock validation, new sale number format (PREFIX-YYMMDD-XXXX).
+// Updated: 2026-04-28 — Phase F: activity log integration on sale create.
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { ImsStockAdjustmentService } from './stock-adjustment-service';
+import { ImsActivityLogService } from './activity-log-service';
 import type {
   ImsSale,
   ImsSaleWithItems,
@@ -404,6 +406,23 @@ export class ImsSalesService {
       if (finError) {
         console.error('[ImsSalesService] Financial transaction insert failed:', finError);
       }
+
+      // Phase F: log to activity trail (POS audit)
+      await ImsActivityLogService.log({
+        entityType: 'sale',
+        entityId: sale.id,
+        institutionId: data.institution_id,
+        action: 'raised',
+        actorId: userId,
+        notes: data.customer_name ? `Sale to ${data.customer_name}` : null,
+        metadata: {
+          sale_number: saleNumber,
+          item_count: saleItems.length,
+          total_amount: totalAmount,
+          payment_method: data.payment_method,
+          customer_type: data.customer_type,
+        },
+      });
 
       return sale as ImsSale;
     } catch (error) {

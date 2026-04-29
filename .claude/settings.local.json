@@ -248,7 +248,8 @@
       "mcp__exotel__getBulkCallDetails",
       "mcp__plugin_vercel_vercel__list_teams",
       "mcp__plugin_vercel_vercel__list_projects",
-      "Bash(2>/dev/null)"
+      "Bash(2>/dev/null)",
+      "Read(//tmp/**)"
     ],
     "deny": [],
     "ask": []

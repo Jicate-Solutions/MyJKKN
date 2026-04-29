@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "npm run gen:routes && npm run check:sidebar && npm run check:reachability && npm run check:audit-coverage && cross-env NODE_OPTIONS='--max-old-space-size=49152 --max-semi-space-size=128' next build --webpack",
+    "build": "npm run gen:routes && npm run check:sidebar && npm run check:reachability && npm run check:audit-coverage && cross-env NODE_OPTIONS='--max-old-space-size=12288 --max-semi-space-size=128' next build --webpack",
     "start": "next start",
     "lint": "next lint",
     "check:sidebar": "tsx scripts/check-sidebar-health.ts",

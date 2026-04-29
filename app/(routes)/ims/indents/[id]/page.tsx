@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
+import { ImsActivityFeed } from '@/components/ims/activity-feed';
 import { useAuth } from '@/hooks/use-auth';
 import {
   useImsIndent,
@@ -430,6 +431,9 @@ export default function IndentDetailPage() {
             </Table>
           </CardContent>
         </Card>
+
+        {/* Phase F: end-to-end audit trail */}
+        <ImsActivityFeed entityType="indent" entityId={id} />
 
         {/* Reject Dialog */}
         <Dialog open={rejectDialogOpen} onOpenChange={setRejectDialogOpen}>

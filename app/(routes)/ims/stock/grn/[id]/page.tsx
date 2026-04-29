@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { ArrowLeft, AlertTriangle } from 'lucide-react';
 import { BeatLoader } from 'react-spinners';
 import { ContentLayout } from '@/components/layout/content-layout';
+import { ImsActivityFeed } from '@/components/ims/activity-feed';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -339,6 +340,9 @@ export default function GRNDetailPage({
             </div>
           </CardContent>
         </Card>
+
+        {/* Phase F: end-to-end audit trail */}
+        <ImsActivityFeed entityType="grn" entityId={id} />
       </div>
     </ContentLayout>
   );

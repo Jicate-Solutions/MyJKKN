@@ -1579,6 +1579,66 @@ export const PERMISSION_CATEGORIES = [
       { key: 'health.assessments.view', label: 'View Mental Health Check-In' },
       { key: 'health.counselor.view', label: 'View Counselor Dashboard' }
     ]
+  },
+  // Added 2026-04-27 — IMS (Inventory Management System) module integration
+  // into MyJKKN role-based access. Taxonomy follows Admission CRM precedent
+  // (module-level granularity ~28 keys) plus critical action keys for
+  // financial/audit separation: indents.approve, stock.adjust, sales.refund,
+  // grn.receive, transfers.{dispatch,receive}. The lowercase 'ims' key maps
+  // to module display name 'IMS' via module-mappings.ts derivation rule.
+  {
+    name: 'IMS',
+    key: 'ims',
+    permissions: [
+      // Gateway — required for any access to /ims/*
+      { key: 'ims.view', label: 'Access IMS Module' },
+
+      // Dashboard & Financial overview
+      { key: 'ims.dashboard.view', label: 'View IMS Dashboard' },
+      { key: 'ims.financial.view', label: 'View IMS Financial Audit' },
+
+      // Indents (request → approval workflow)
+      { key: 'ims.indents.view', label: 'View Indent Requests' },
+      { key: 'ims.indents.create', label: 'Create Indent Requests' },
+      { key: 'ims.indents.edit', label: 'Edit Indent Requests' },
+      { key: 'ims.indents.delete', label: 'Delete Indent Requests' },
+      { key: 'ims.indents.approve', label: 'Approve / Reject Indent Requests' },
+
+      // Inventory (items + categories)
+      { key: 'ims.inventory.view', label: 'View Inventory Items' },
+      { key: 'ims.inventory.create', label: 'Create Inventory Items' },
+      { key: 'ims.inventory.edit', label: 'Edit Inventory Items' },
+      { key: 'ims.inventory.delete', label: 'Delete Inventory Items' },
+      { key: 'ims.inventory.bulk_import', label: 'Bulk Import Inventory (Excel)' },
+      { key: 'ims.inventory.categories.manage', label: 'Manage Item Categories' },
+
+      // Stock (visibility + adjustments + GRN lifecycle)
+      { key: 'ims.stock.view', label: 'View Stock (Summary, Batches, Department)' },
+      { key: 'ims.stock.adjust', label: 'Adjust Stock (Write-off, Correction)' },
+      { key: 'ims.stock.grn.view', label: 'View Goods Received Notes' },
+      { key: 'ims.stock.grn.create', label: 'Create Goods Received Notes' },
+      { key: 'ims.stock.grn.edit', label: 'Edit Goods Received Notes' },
+      { key: 'ims.stock.grn.receive', label: 'Receive / Post Goods Received Notes' },
+
+      // Sales (POS + refunds)
+      { key: 'ims.sales.view', label: 'View Sales & History' },
+      { key: 'ims.sales.create', label: 'Create Sales (POS)' },
+      { key: 'ims.sales.refund', label: 'Refund / Void Sales' },
+
+      // Inter-store / Inter-institution Transfers (supply shipments)
+      { key: 'ims.transfers.view', label: 'View Supply Shipments / Transfers' },
+      { key: 'ims.transfers.dispatch', label: 'Dispatch Supply Shipments' },
+      { key: 'ims.transfers.receive', label: 'Receive Supply Shipments' },
+
+      // Reports
+      { key: 'ims.reports.view', label: 'View IMS Reports (Stock / Sales / Consumption / Indents / UPI)' },
+
+      // Settings (master data)
+      { key: 'ims.settings.view', label: 'View IMS Settings' },
+      { key: 'ims.settings.stores.manage', label: 'Manage IMS Stores' },
+      { key: 'ims.settings.suppliers.manage', label: 'Manage Suppliers' },
+      { key: 'ims.settings.units.manage', label: 'Manage Units & Unit Conversions' }
+    ]
   }
 ];
 

@@ -859,6 +859,51 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/health/assessments': 'health.assessments.view',
   '/health/counselor': 'health.counselor.view',
 
+  // IMS (Inventory Management System) — Added 2026-04-27. Module-level
+  // taxonomy mirrors Admission CRM precedent; gateway permission `ims.view`
+  // protects the parent /ims tree, child routes use specific keys so a sales
+  // cashier (ims.sales.*) can't accidentally reach stock adjustments
+  // (ims.stock.adjust). Permission catalog: lib/constants/permissions.ts.
+  '/ims': 'ims.view',
+  '/ims/dashboard': 'ims.dashboard.view',
+  '/ims/financial': 'ims.financial.view',
+  // Indents
+  '/ims/indents': 'ims.indents.view',
+  '/ims/indents/new': 'ims.indents.create',
+  '/ims/indents/pending': 'ims.indents.approve',
+  '/ims/indents/[id]': 'ims.indents.view',
+  // Inventory
+  '/ims/inventory/items': 'ims.inventory.view',
+  '/ims/inventory/categories': 'ims.inventory.categories.manage',
+  // Reports — single .view key gates all sub-reports (consumption/sales/stock/indents/upi)
+  '/ims/reports': 'ims.reports.view',
+  '/ims/reports/consumption': 'ims.reports.view',
+  '/ims/reports/indents': 'ims.reports.view',
+  '/ims/reports/sales': 'ims.reports.view',
+  '/ims/reports/stock': 'ims.reports.view',
+  '/ims/reports/upi': 'ims.reports.view',
+  // Sales (POS, history, receipt)
+  '/ims/sales': 'ims.sales.view',
+  '/ims/sales/history': 'ims.sales.view',
+  '/ims/sales/[id]': 'ims.sales.view',
+  '/ims/sales/[id]/receipt': 'ims.sales.view',
+  // Settings (master data — each sub-page maps to its specific manage key)
+  '/ims/settings/stores': 'ims.settings.stores.manage',
+  '/ims/settings/suppliers': 'ims.settings.suppliers.manage',
+  '/ims/settings/units': 'ims.settings.units.manage',
+  '/ims/settings/unit-conversions': 'ims.settings.units.manage',
+  // Stock (visibility + adjustments + GRN lifecycle)
+  '/ims/stock': 'ims.stock.view',
+  '/ims/stock/adjustments': 'ims.stock.adjust',
+  '/ims/stock/batches': 'ims.stock.view',
+  '/ims/stock/department': 'ims.stock.view',
+  '/ims/stock/grn': 'ims.stock.grn.view',
+  '/ims/stock/grn/new': 'ims.stock.grn.create',
+  '/ims/stock/grn/[id]': 'ims.stock.grn.view',
+  // Transfers (supply shipments)
+  '/ims/transfers': 'ims.transfers.view',
+  '/ims/transfers/[id]': 'ims.transfers.view',
+
   // Learners — Leave/OnDuty parent landing (children /learners/leave-onduty/{apply,my-applications} above)
   '/learners/leave-onduty': 'learners.leave_onduty.view',
 
@@ -1154,6 +1199,43 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/billing/refunds', label: 'Refunds', active: pathname.startsWith('/billing/refunds') },
             { href: '/billing/invoices', label: 'Invoices', active: pathname.startsWith('/billing/invoices') },
             { href: '/billing/reports', label: 'Reports', active: pathname.startsWith('/billing/reports') },
+          ]
+        }
+      ]
+    },
+    {
+      // 2026-04-28: visual sidebar entry for IMS. Permission keys + 31 route mappings
+      // already lived in MENU_PERMISSIONS / PERMISSION_CATEGORIES; the menu tree itself
+      // had no IMS group, so super_admins still couldn't see it. Pattern matches Billing
+      // (single top-level entry, all sections collapse into submenus[]).
+      groupLabel: 'IMS',
+      menus: [
+        {
+          href: '/ims/dashboard',
+          label: 'Inventory Management',
+          active: pathname === '/ims' || pathname.startsWith('/ims/'),
+          icon: Boxes,
+          submenus: [
+            { href: '/ims/dashboard', label: 'Dashboard', active: pathname === '/ims/dashboard' },
+            { href: '/ims/inventory/items', label: 'Items', active: pathname.startsWith('/ims/inventory/items') },
+            { href: '/ims/inventory/categories', label: 'Categories', active: pathname === '/ims/inventory/categories' },
+            { href: '/ims/stock', label: 'Stock', active: pathname === '/ims/stock' },
+            { href: '/ims/stock/grn', label: 'Stock · GRN', active: pathname.startsWith('/ims/stock/grn') },
+            { href: '/ims/stock/adjustments', label: 'Stock · Adjustments', active: pathname === '/ims/stock/adjustments' },
+            { href: '/ims/stock/batches', label: 'Stock · Batches', active: pathname === '/ims/stock/batches' },
+            { href: '/ims/stock/department', label: 'Stock · Department', active: pathname === '/ims/stock/department' },
+            { href: '/ims/indents', label: 'Indents', active: pathname === '/ims/indents' },
+            { href: '/ims/indents/new', label: 'Indents · New', active: pathname === '/ims/indents/new' },
+            { href: '/ims/indents/pending', label: 'Indents · Pending Approval', active: pathname === '/ims/indents/pending' },
+            { href: '/ims/transfers', label: 'Transfers', active: pathname.startsWith('/ims/transfers') },
+            { href: '/ims/sales', label: 'Sales (POS)', active: pathname === '/ims/sales' },
+            { href: '/ims/sales/history', label: 'Sales · History', active: pathname === '/ims/sales/history' },
+            { href: '/ims/reports', label: 'Reports', active: pathname.startsWith('/ims/reports') },
+            { href: '/ims/financial', label: 'Financial Audit', active: pathname === '/ims/financial' },
+            { href: '/ims/settings/stores', label: 'Settings · Stores', active: pathname === '/ims/settings/stores' },
+            { href: '/ims/settings/suppliers', label: 'Settings · Suppliers', active: pathname === '/ims/settings/suppliers' },
+            { href: '/ims/settings/units', label: 'Settings · Units', active: pathname === '/ims/settings/units' },
+            { href: '/ims/settings/unit-conversions', label: 'Settings · Unit Conversions', active: pathname === '/ims/settings/unit-conversions' },
           ]
         }
       ]

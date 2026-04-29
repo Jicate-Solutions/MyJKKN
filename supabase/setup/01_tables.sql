@@ -4202,6 +4202,25 @@ END $$;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_notifications_idempotency
   ON notifications(idempotency_key) WHERE idempotency_key IS NOT NULL;
 
+-- Updated: 2026-04-28 — Dashboard v2 columns referenced by RPCs but never authored
+-- (fn_dashboard_queue_list, fn_dashboard_morning_brief, fn_dashboard_metrics, fn_create_dashboard_work_item).
+-- Spec at specs/myjkkn-dashboard-v2-spec.md §3.1 assumed these existed; missing DDL caused
+-- 42703 errors at runtime against any DB cloned from setup/. See plan
+-- ~/.claude/plans/ps-c-users-admin-documents-github-myjkkn-radiant-dijkstra.md
+ALTER TABLE notifications
+  ADD COLUMN IF NOT EXISTS action_type VARCHAR(100),
+  ADD COLUMN IF NOT EXISTS action_config JSONB DEFAULT '{}'::jsonb,
+  ADD COLUMN IF NOT EXISTS acknowledgment_deadline_hours INT,
+  ADD COLUMN IF NOT EXISTS requires_acknowledgment BOOLEAN NOT NULL DEFAULT FALSE;
+
+ALTER TABLE user_notifications
+  ADD COLUMN IF NOT EXISTS acknowledged_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS escalated_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS escalation_level INT NOT NULL DEFAULT 0;
+
+CREATE INDEX IF NOT EXISTS idx_user_notifications_unack
+  ON user_notifications(user_id) WHERE acknowledged_at IS NULL;
+
 -- Updated: 2026-04-24 - Split notifications into announcement vs work_item
 -- Context: /admin/notifications page was being buried under operational cron-
 -- generated work items (1,595 dashboard:* rows / 30d vs 11 real announcements).
@@ -4757,3 +4776,99 @@ ALTER TABLE admission_counselors
 
 COMMENT ON COLUMN admission_counselors.deactivated_at IS 'Set when counselor row was soft-deleted via DELETE endpoint. NULL = never soft-deleted.';
 COMMENT ON COLUMN admission_counselors.deactivated_by IS 'User who triggered soft-delete (super-admin / admin / privileged staff).';
+
+-- =====================================================================
+-- IMS Module: this-session additions (Phase A5b + A0.5 + Phase F)
+-- Updated: 2026-04-28
+--
+-- This block restores source-of-truth for the IMS schema additions made
+-- during the 2026-04-28 production-readiness session. All changes use
+-- IF NOT EXISTS guards so re-applying is a no-op against the live DB.
+--
+-- The 25 base ims_* tables themselves are NOT defined in this file yet —
+-- they exist only in production from the original IMS migration deploy.
+-- The full table-level backfill is tracked in plan file:
+--   ~/.claude/plans/ps-c-users-admin-documents-github-myjkkn-radiant-dijkstra.md
+--
+-- Each ALTER below is wrapped in `to_regclass(...) IS NOT NULL` so the
+-- block no-ops cleanly on a fresh DB clone (base table missing → skip).
+-- Once the base IMS DDL section lands, these ALTERs will apply naturally.
+-- =====================================================================
+
+DO $$
+BEGIN
+  -- Phase A0.5: ims_stores distribution flags (added 2026-04-28).
+  IF to_regclass('public.ims_stores') IS NOT NULL THEN
+    ALTER TABLE public.ims_stores
+      ADD COLUMN IF NOT EXISTS is_central_supply_store BOOLEAN NOT NULL DEFAULT FALSE,
+      ADD COLUMN IF NOT EXISTS requires_local_approval BOOLEAN NOT NULL DEFAULT FALSE;
+  END IF;
+
+  -- Phase A5b.1: ims_items distribution + identity fields. Types in
+  -- types/ims/items.ts referenced these but they were missing in DB.
+  IF to_regclass('public.ims_items') IS NOT NULL THEN
+    ALTER TABLE public.ims_items
+      ADD COLUMN IF NOT EXISTS is_distributable BOOLEAN NOT NULL DEFAULT FALSE,
+      ADD COLUMN IF NOT EXISTS is_bundle BOOLEAN NOT NULL DEFAULT FALSE,
+      ADD COLUMN IF NOT EXISTS brand TEXT,
+      ADD COLUMN IF NOT EXISTS variant_attributes JSONB DEFAULT '{}'::jsonb,
+      ADD COLUMN IF NOT EXISTS image_url TEXT;
+  END IF;
+
+  -- Phase F: indent workflow audit columns. Service layer was setting these
+  -- (e.g., approved_at = new Date().toISOString()) but Postgres was silently
+  -- dropping the values because the columns didn't exist. requested_at also
+  -- backfilled from created_at for existing rows.
+  IF to_regclass('public.ims_indent_requests') IS NOT NULL THEN
+    ALTER TABLE public.ims_indent_requests
+      ADD COLUMN IF NOT EXISTS requested_at TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS approved_at TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS rejected_at TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS rejected_by UUID REFERENCES profiles(id),
+      ADD COLUMN IF NOT EXISTS local_approved_at TIMESTAMPTZ;
+    UPDATE public.ims_indent_requests
+      SET requested_at = COALESCE(requested_at, created_at)
+      WHERE requested_at IS NULL;
+  END IF;
+
+  -- Phase F: GRN workflow audit columns. Same pattern as indent — service
+  -- writes timestamps that were being dropped at the DB layer.
+  IF to_regclass('public.ims_goods_received_notes') IS NOT NULL THEN
+    ALTER TABLE public.ims_goods_received_notes
+      ADD COLUMN IF NOT EXISTS received_at TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS verified_at TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS approved_at TIMESTAMPTZ;
+    UPDATE public.ims_goods_received_notes
+      SET received_at = COALESCE(received_at, created_at)
+      WHERE received_at IS NULL;
+  END IF;
+END $$;
+
+-- Phase F: append-only audit trail for IMS workflows.
+-- Each row = one user action on one entity (indent / GRN / shipment / adjustment / sale).
+-- Mirrors MyJKKN's per-module audit pattern (attendance_audit_log).
+-- RLS in 03_policies.sql; intentionally no UPDATE/DELETE policies so rows are
+-- tamper-resistant via RLS-respecting clients (compliance grade).
+CREATE TABLE IF NOT EXISTS public.ims_activity_log (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  institution_id UUID NOT NULL REFERENCES institutions(id),
+  entity_type TEXT NOT NULL CHECK (entity_type IN ('indent','grn','shipment','adjustment','sale')),
+  entity_id UUID NOT NULL,
+  action TEXT NOT NULL CHECK (action IN ('raised','approved','rejected','verified','dispatched','received','cancelled','commented','adjusted')),
+  actor_id UUID NOT NULL REFERENCES profiles(id),
+  notes TEXT,
+  metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_ims_activity_log_entity
+  ON public.ims_activity_log(entity_type, entity_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_ims_activity_log_actor
+  ON public.ims_activity_log(actor_id);
+CREATE INDEX IF NOT EXISTS idx_ims_activity_log_inst
+  ON public.ims_activity_log(institution_id, created_at DESC);
+
+ALTER TABLE public.ims_activity_log ENABLE ROW LEVEL SECURITY;
+
+COMMENT ON TABLE public.ims_activity_log IS
+'Phase F (2026-04-28): per-IMS-entity transition history + comments. Append-only. Mirrors attendance_audit_log pattern. Each row = one user action on one entity (indent/grn/shipment/adjustment/sale).';

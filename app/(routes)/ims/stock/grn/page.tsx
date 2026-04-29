@@ -87,7 +87,12 @@ export default function GRNListPage() {
   const approveMutation = useApproveImsGRN();
   const cancelMutation = useCancelImsGRN();
 
-  const grns: ImsGoodsReceivedNote[] = Array.isArray(grnData) ? grnData : [];
+  // getGRNs returns { data, metadata } (paginated wrapper). Unwrap defensively.
+  const grns: ImsGoodsReceivedNote[] = Array.isArray(grnData?.data)
+    ? grnData.data
+    : Array.isArray(grnData)
+      ? grnData
+      : [];
 
   const handleVerify = async (id: string) => {
     try {

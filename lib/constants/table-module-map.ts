@@ -57,6 +57,7 @@ export const MODULE_PREFIXES: [string, string][] = [
   ['okr_', 'Work Pulse'],
   ['pulse_', 'Work Pulse'],
   ['health_', 'Health'],
+  ['ims_', 'IMS'],
   ['marathon_', 'Marathon'],
   ['hostel_', 'Campus Living'],
   ['mess_', 'Campus Living'],

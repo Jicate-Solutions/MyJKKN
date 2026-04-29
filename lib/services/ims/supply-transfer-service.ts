@@ -1,6 +1,7 @@
 // lib/services/ims/supply-transfer-service.ts
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { ImsActivityLogService } from './activity-log-service';
 import type {
   ImsSupplyShipment,
   ImsShipmentFilters,
@@ -155,7 +156,7 @@ export class ImsSupplyTransferService {
    */
   static async dispatchShipment(shipmentId: string, dto: DispatchShipmentDto): Promise<void> {
     try {
-      const { error } = await this.supabase
+      const { data: updated, error } = await this.supabase
         .from('ims_supply_shipments')
         .update({
           status: 'dispatched',
@@ -164,9 +165,24 @@ export class ImsSupplyTransferService {
           updated_at: new Date().toISOString(),
         })
         .eq('id', shipmentId)
-        .eq('status', 'preparing');   // guard: only from 'preparing'
+        .eq('status', 'preparing')   // guard: only from 'preparing'
+        .select('id, destination_institution_id, shipment_no')
+        .single();
 
       if (error) throw error;
+
+      // Phase F: log to activity trail. Use destination_institution_id for scoping
+      // (the receiving institution is who needs to see the dispatch event in their feed).
+      if (updated) {
+        await ImsActivityLogService.log({
+          entityType: 'shipment',
+          entityId: shipmentId,
+          institutionId: updated.destination_institution_id,
+          action: 'dispatched',
+          actorId: dto.dispatched_by,
+          metadata: { shipment_no: updated.shipment_no },
+        });
+      }
     } catch (error) {
       console.error('[ImsSupplyTransferService] dispatchShipment error:', error);
       throw error;
@@ -195,6 +211,30 @@ export class ImsSupplyTransferService {
       });
 
       if (error) throw error;
+
+      // Phase F: log to activity trail. Fetch shipment to know institution + status
+      // (status may be 'received' or 'received_with_variance' depending on RPC outcome).
+      const { data: shipment } = await this.supabase
+        .from('ims_supply_shipments')
+        .select('destination_institution_id, shipment_no, status')
+        .eq('id', shipmentId)
+        .single();
+
+      if (shipment) {
+        await ImsActivityLogService.log({
+          entityType: 'shipment',
+          entityId: shipmentId,
+          institutionId: shipment.destination_institution_id,
+          action: 'received',
+          actorId: receivedBy,
+          notes: notes && notes.trim() ? notes : null,
+          metadata: {
+            shipment_no: shipment.shipment_no,
+            status: shipment.status,
+            line_count: lines.length,
+          },
+        });
+      }
     } catch (error) {
       console.error('[ImsSupplyTransferService] confirmReceipt error:', error);
       throw error;
