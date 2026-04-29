@@ -2219,7 +2219,7 @@ export class LeaveManagementService {
             is_blocked: true,
             leave_id: leave.id,
             leave_name: leave.leave_name,
-            leave_type_name: leave.leave_type?.leave_type_name || 'Holiday',
+            leave_type_name: leave.leave_type?.leave_type_name || 'Online Learning Day',
             color_code: leave.leave_type?.color_code || '#6B7280'
           };
 
