@@ -6,13 +6,15 @@
 
 ## 📝 Recent Changes
 
-- **2026-04-29** — Wave B.1 — Notification Generator Policy substrate
-  - Migration: `notification_generator_config_schema_v1`. Applied via Supabase MCP. Verified on prod: 2 tables created, 9 cols each, RLS enabled, 3 functions live (1 STABLE/DEFINER lookup + 2 trigger fns).
+- **2026-04-29** — Wave B.1 — Notification Generator Policy substrate + 8-row backfill
+  - Migration 1: `notification_generator_config_schema_v1`. Applied via Supabase MCP. Verified on prod: 2 tables created, 9 cols each, RLS enabled, 3 functions live (1 STABLE/DEFINER lookup + 2 trigger fns).
+  - Migration 2: `notification_generator_config_backfill_v1`. Applied via Supabase MCP. 8 generator rows seeded with EXACT current hardcoded values: `overdue_invoice`, `stale_lead_rescue`, `pending_leave_approval`, `unmarked_attendance`, `recruitment_approval`, `sr_approval`, `unresolved_bug`, `unresolved_grievance`. ON CONFLICT DO NOTHING for idempotency. Audit trigger fired 8 INSERT rows on backfill (verified). All `is_active = true`.
   - `01_tables.sql`: appended `notification_generator_config` (per-generator policy rows, JSONB `config`) + `notification_generator_config_audit` (INSERT/UPDATE/DELETE log with old/new JSONB).
   - `02_functions.sql`: appended `fn_notif_gen_cfg_set_updated_at` (touch trigger), `fn_log_notif_gen_cfg_change` (audit trigger, SECURITY DEFINER), `fn_get_generator_config(name, fallback)` (single source-of-truth lookup, STABLE + SECURITY DEFINER, returns hardcoded fallback when row missing/inactive — preserves day-1 behavior bit-identical). EXECUTE granted to `authenticated, service_role`.
   - `03_policies.sql`: appended 5 policies (4 on config table + 1 on audit table). RLS reuses `attention_bar.rules.manage` permission per spec §5 (no new permission key).
   - `04_triggers.sql`: appended 2 triggers (BEFORE UPDATE for updated_at, AFTER INSERT/UPDATE/DELETE for audit).
-  - Wave B.1 covers: schema (this commit) + backfill (next commit) + SR approval refactor (third commit). Waves B.2 (parallel-agent fan-out for the other 6 generators), B.3 (Tab 8 admin UI), B.4 (Layer 1 STATIC_DEFAULTS) are later.
+  - JSONB shape varies per generator (no per-key constraints). E.g., `unmarked_attendance` has `batch_limit_outer`/`batch_limit_inner` instead of single `batch_limit`; `unresolved_grievance` has `trigger_conditions` array (sla_deadline, escalation_level, is_emergency). Each generator's caller passes its hardcoded baseline as `p_fallback` so missing/inactive row = day-1 baseline.
+  - Wave B.1 covers: schema + backfill (these 2 commits) + SR approval refactor (third commit). Waves B.2 (parallel-agent fan-out for the other 6 generators), B.3 (Tab 8 admin UI), B.4 (Layer 1 STATIC_DEFAULTS) are later.
   - Spec authored at `specs/notification-generator-policy/SPEC.md` (lost via concurrent-session race; continuation prompt `.claude/continuation-prompt.5a44f1da.md` carries the executable contract).
 
 - **2026-04-29** — Phase 1.5a — `platform_policies` substrate (canonical runtime-config table)
