@@ -5167,3 +5167,46 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_platform_policies_key_scope
 
 CREATE INDEX IF NOT EXISTS idx_platform_policies_active
   ON platform_policies (policy_key, is_active);
+
+-- =====================================================================
+-- Updated: 2026-04-29 - Wave B.1 — Notification Generator Policy substrate.
+-- Adds notification_generator_config + audit table. Per-generator policy
+-- rows (status filters, age windows, batch limits, priority thresholds,
+-- TTLs, role lists). Read via fn_get_generator_config(name, fallback).
+-- Edited via /system/attention-bar Tab 8 (planned in Wave B.3).
+-- Standing rule (memory: feedback_policy_decisions_must_be_config_rows.md):
+-- every threshold/mapping/feature-flag = row in config table + super_admin UI.
+-- =====================================================================
+CREATE TABLE IF NOT EXISTS public.notification_generator_config (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  generator_name  VARCHAR(100) UNIQUE NOT NULL,
+  description     TEXT,
+  config          JSONB NOT NULL,
+  is_active       BOOLEAN NOT NULL DEFAULT true,
+  created_by      UUID REFERENCES public.profiles(id),
+  updated_by      UUID REFERENCES public.profiles(id),
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_notif_gen_cfg_active
+  ON public.notification_generator_config (generator_name, is_active);
+COMMENT ON TABLE public.notification_generator_config IS
+  'Per-generator policy config rows. Wave B.1+. Read via fn_get_generator_config(name, fallback). Edited via /system/attention-bar Tab 8. Standing rule: every policy decision is a config-row.';
+
+CREATE TABLE IF NOT EXISTS public.notification_generator_config_audit (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  generator_name  VARCHAR(100) NOT NULL,
+  config_id       UUID REFERENCES public.notification_generator_config(id) ON DELETE SET NULL,
+  operation       VARCHAR(10) NOT NULL CHECK (operation IN ('INSERT','UPDATE','DELETE')),
+  old_config      JSONB,
+  new_config      JSONB,
+  changed_by      UUID REFERENCES public.profiles(id),
+  changed_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  reason          TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_notif_gen_cfg_audit_changed_at
+  ON public.notification_generator_config_audit (changed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_notif_gen_cfg_audit_generator
+  ON public.notification_generator_config_audit (generator_name, changed_at DESC);
+COMMENT ON TABLE public.notification_generator_config_audit IS
+  'Audit trail for notification_generator_config changes. Captures old/new config JSONB on every INSERT/UPDATE/DELETE so a misconfiguration can be reverted via the audit row.';
