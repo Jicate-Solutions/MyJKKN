@@ -7,13 +7,17 @@
 //
 // Retention policy:
 //   - Delete rows where event_at < now() - interval '<retention_days> days'
-//   - retention_days is read from the `retention_policies` table via
-//     get_retention_days('admission_counselor_duty_log') SECURITY DEFINER
-//     helper. Director's standing rule (2026-04-29) — every policy decision
-//     = config-table row + super_admin UI to write. Tweak from
-//     /admin/retention-policies in 5 seconds, no deploy.
-//   - Falls back to 90 days when the helper returns NULL (config row
-//     missing or enabled=false). 90 matches PR #586's original constant.
+//   - retention_days is read from the canonical `platform_policies` table
+//     via getPolicyInt('compliance.duty_log.retention_days', 90) — Phase 1.5a
+//     runtime-config substrate (migration 20260429000002). Director's
+//     standing rule (2026-04-29) — every policy decision = config-table row
+//     + super_admin UI to write. Tweak from /admin/policies in 5 seconds,
+//     no deploy.
+//   - Named anti-pattern: feedback_policy_decisions_must_be_config_rows.md
+//     (lines 60-63) — hardcoded constants for tunable thresholds = wrong.
+//   - Falls back to 90 days when the helper returns the default (policy row
+//     missing, RPC error, or value not a number). 90 matches PR #586's
+//     original constant.
 //   - PRESERVE the most-recent row per counselor regardless of age, so
 //     fn_get_off_duty_since() always has a baseline to anchor on. The
 //     migration that introduced the table (20260428_phase8_duty_log_implementation.sql)
@@ -37,6 +41,7 @@ export const maxDuration = 60;
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
+import { getPolicyInt } from '@/lib/policies/get-policy';
 
 export async function GET(request: NextRequest) {
   const started = Date.now();
@@ -65,35 +70,37 @@ export async function GET(request: NextRequest) {
   const supabase = createServiceRoleClient();
 
   // ----------------------------------------------------------------
-  // Read retention_days from config table (Director's zero-deploy rule —
-  // 2026-04-29 standing rule, R-001 reference impl). Falls back to 90
-  // when config row missing or `enabled=false` (helper returns NULL),
-  // matching PR #586's original behavior so this PR is a no-op at deploy.
+  // Read retention_days from platform_policies (Phase 1.5a substrate —
+  // 2026-04-29 Director rule). Falls back to 90 when policy row missing,
+  // RPC errors, or value not a number, matching PR #586's original
+  // behavior so this PR is a no-op at deploy.
+  //
+  // The `as any` on the key is intentional — keys.ts consolidation
+  // (adding COMPLIANCE_DUTY_LOG_RETENTION_DAYS) is a follow-up PR.
   // ----------------------------------------------------------------
   const FALLBACK_DAYS = 90;
   let retentionDays = FALLBACK_DAYS;
   try {
-    const { data: configDays, error: configErr } = await supabase.rpc(
-      'get_retention_days',
-      { p_table_name: 'admission_counselor_duty_log' },
+    retentionDays = await getPolicyInt(
+      'compliance.duty_log.retention_days' as any,
+      FALLBACK_DAYS,
     );
-    if (configErr) {
+    if (retentionDays <= 0) {
       console.warn(
-        '[cron/duty-log-retention] get_retention_days RPC failed; falling back to',
+        '[cron/duty-log-retention] policy returned non-positive value; falling back to',
         FALLBACK_DAYS,
-        configErr.message,
+        retentionDays,
       );
-    } else if (typeof configDays === 'number' && configDays > 0) {
-      retentionDays = configDays;
+      retentionDays = FALLBACK_DAYS;
     }
-    // configDays === null → enabled=false or row missing → keep fallback.
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     console.warn(
-      '[cron/duty-log-retention] get_retention_days threw; falling back to',
+      '[cron/duty-log-retention] getPolicyInt threw; falling back to',
       FALLBACK_DAYS,
       msg,
     );
+    retentionDays = FALLBACK_DAYS;
   }
 
   // ----------------------------------------------------------------
@@ -106,7 +113,7 @@ export async function GET(request: NextRequest) {
   // with a subquery via .not('id', 'in', ...). The PostgREST way:
   //
   //   DELETE FROM admission_counselor_duty_log
-  //   WHERE event_at < now() - interval '90 days'
+  //   WHERE event_at < now() - interval '<retentionDays> days'
   //     AND id NOT IN (
   //       SELECT DISTINCT ON (counselor_id) id
   //       FROM admission_counselor_duty_log
@@ -115,7 +122,7 @@ export async function GET(request: NextRequest) {
   //
   // Implementation: two steps
   //   1. Fetch the IDs of most-recent-per-counselor rows.
-  //   2. DELETE rows older than 90d whose id is NOT in that set.
+  //   2. DELETE rows older than retentionDays whose id is NOT in that set.
   // Independent try/catch — never aborts the success marker.
   // ----------------------------------------------------------------
   const result: {
