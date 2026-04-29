@@ -65,17 +65,27 @@ const LAYER_EVALUATORS: Record<Layer, (ctx: ResolverContext) => Promise<LayerRes
  * ─────────────────────────────────────────────────────────────── */
 
 /**
- * Resolve the Attention Bar action for the given context.
+ * Resolve the Attention Bar action(s) for the given context.
  *
- * Walks the priority cascade. First layer to return a match wins. Disabled
- * layers (via `ctx.enabledLayers` or per-user toggles) are skipped with a
- * trace entry. Errors thrown inside a layer evaluator are caught and turn
- * into 'error' trace entries; resolution falls through.
+ * Walks the priority cascade. First layer to return a match wins for the
+ * `primary` slot. Disabled layers (via `ctx.enabledLayers` or per-user toggles)
+ * are skipped with a trace entry. Errors thrown inside a layer evaluator are
+ * caught and turn into 'error' trace entries; resolution falls through.
  *
- * Returns null only if every layer including the catch-all '*'/'*' Layer 1
- * default failed — in practice should never happen at runtime since the
- * registry guarantees a global fallback. Phase 7 logs + audits this case
- * defensively so it surfaces in the admin Tab 6 audit log.
+ * Return shape (added 2026-04-28 — framework seam for 2-half split layout):
+ *   - `primary`   — winner of the cascade. Null only on a catastrophic empty
+ *                   cascade.
+ *   - `secondary` — second-pill action. Always null in this PR; the follow-up
+ *                   resolver-extension PR will populate it (e.g. running a
+ *                   second cascade with primary's layer/id excluded).
+ *   - `resolved`  — backcompat alias for `primary`. Audit + existing callers
+ *                   continue to use this name.
+ *
+ * Returns `{ primary: null, secondary: null, resolved: null }` only if every
+ * layer including the catch-all '*'/'*' Layer 1 default failed — in practice
+ * should never happen at runtime since the registry guarantees a global
+ * fallback. Phase 7 logs + audits this case defensively so it surfaces in the
+ * admin Tab 6 audit log.
  *
  * Anonymous resolves (userId === '' or null-equivalent): Layers 0/3/4 are
  * skipped because they read user-scoped DB rows that would either error or
@@ -131,7 +141,12 @@ export async function resolve(ctx: ResolverContext): Promise<ResolveResult> {
         resolved,
         trace,
       });
-      return resolved;
+      // Framework seam: secondary is wired but not computed yet. The
+      // follow-up resolver-extension PR will populate this slot (e.g. a
+      // second cascade pass that excludes `resolved.id`/`firedLayer`).
+      // Until then the renderer treats `secondary === null` as the signal
+      // to fall back to the existing single full-width pill.
+      return { primary: resolved, secondary: null, resolved };
     } else {
       trace.push({ layer, result: 'no-match', reason: result.reason });
     }
@@ -152,7 +167,7 @@ export async function resolve(ctx: ResolverContext): Promise<ResolveResult> {
     resolved: null,
     trace,
   });
-  return null;
+  return { primary: null, secondary: null, resolved: null };
 }
 
 /* ─────────────────────────────────────────────────────────────────
