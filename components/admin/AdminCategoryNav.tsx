@@ -31,10 +31,10 @@ import type { LucideIcon } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
 import {
-  getAdminNavTree,
   type AdminCategoryNode,
   type AdminPageNode,
 } from '@/lib/admin/nav-tree';
+import { useAdminNavTree } from '@/hooks/admin/use-admin-nav-tree';
 
 function getIcon(iconName: string): LucideIcon {
   const icon = (Icons as unknown as Record<string, LucideIcon>)[iconName];
@@ -62,7 +62,7 @@ export function AdminCategoryNav({
   className,
 }: AdminCategoryNavProps) {
   const pathname = usePathname();
-  const tree = getAdminNavTree();
+  const tree = useAdminNavTree();
   const node: AdminCategoryNode | undefined = tree.find((c) => c.key === category);
 
   if (!node) return null;

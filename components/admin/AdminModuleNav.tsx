@@ -24,7 +24,8 @@ import * as Icons from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
-import { getAdminNavTree, findActiveCategory } from '@/lib/admin/nav-tree';
+import { findActiveCategory } from '@/lib/admin/nav-tree';
+import { useAdminNavTree } from '@/hooks/admin/use-admin-nav-tree';
 
 function getIcon(iconName: string): LucideIcon {
   const icon = (Icons as unknown as Record<string, LucideIcon>)[iconName];
@@ -37,7 +38,7 @@ interface AdminModuleNavProps {
 
 export function AdminModuleNav({ className }: AdminModuleNavProps) {
   const pathname = usePathname();
-  const tree = getAdminNavTree();
+  const tree = useAdminNavTree();
   const active = pathname ? findActiveCategory(pathname) : null;
   const activeKey = active?.category.key ?? null;
 
