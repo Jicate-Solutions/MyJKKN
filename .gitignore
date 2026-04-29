@@ -55,6 +55,10 @@ tmpclaude-*
 # git worktrees
 .worktrees/
 .claude/worktrees/
+
+# Build logs (test artifacts, not for commit)
+build.log
+build-*.log
 docs/features/mathswork/SAML_PRIVATE_KEY_B64.txt
 docs/features/mathswork/SAML_PUBLIC_CERTIFICATE_B64.txt
 docs/features/mathswork/myjkkn-saml-private.pem

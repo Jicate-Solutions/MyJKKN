@@ -41,7 +41,31 @@ const nextConfig: NextConfig = {
   // these packages during compile regardless of dynamic-import usage. The
   // existing jspdf pattern in this array was the right answer — extending
   // it to the other three libs is the systemic fix.
-  serverExternalPackages: ['jspdf', 'jspdf-autotable', 'fflate', 'docx', 'exceljs', 'xlsx'],
+  // 2026-04-29 — expanded externalization sweep. Context: Vercel build was
+  // OOM-killed at ~4m 35s into webpack compile on the 4-core / 8 GB build
+  // container after the IMS module merge (commit cec0bd4af). A first-pass
+  // fix adding only `qrcode` was insufficient (local repro with --max-old-
+  // space-size=7168 still OOMed at ~7142 MB). The fix needed to cover all
+  // heavy libs that are *actually* SSR-imported across the codebase:
+  //   - qrcode   → lib/services/ims/payment-service.ts (IMS UPI QR)
+  //   - samlify  → lib/services/saml/saml-idp-service.ts
+  //   - web-push → 6 API routes (notifications, cron) — biggest single win
+  //   - @react-pdf/renderer → app/api/users/permissions-audit/compliance-report/route.ts
+  // jszip, html2canvas, @tiptap/*, react-pdf are client-only — not added.
+  // Same pattern as the 2026-04-24 docx/exceljs/xlsx fix; restores headroom
+  // on the 8 GB container without requiring Enhanced Builds.
+  serverExternalPackages: [
+    'jspdf',
+    'jspdf-autotable',
+    'fflate',
+    'docx',
+    'exceljs',
+    'xlsx',
+    'qrcode',
+    'samlify',
+    'web-push',
+    '@react-pdf/renderer',
+  ],
 
   // Turbopack is the default bundler in Next.js 16. The @serwist/next plugin
   // injects a webpack config for SW compilation (production only). This empty
@@ -272,7 +296,20 @@ const nextConfig: NextConfig = {
   }
 };
 
-export default withSentryConfig(withSerwist(nextConfig), {
+// 2026-04-29 — Sentry's webpack plugin is now opt-in via SENTRY_AUTH_TOKEN.
+// Without a token the plugin still walks the full compiled output to inject
+// debug-IDs and process source maps, even though it can't upload them. That
+// pass is a major build-memory consumer (~hundreds of MB on this codebase
+// and contributed to the 8 GB OOM on Vercel's default build container).
+// Vercel doesn't have SENTRY_AUTH_TOKEN set, so we skip the plugin there
+// entirely. Local devs and CI runners that DO set the token still get full
+// source-map upload + auto-instrumentation. Runtime Sentry SDK init in
+// sentry.{client,server,edge}.config.ts is unaffected — it runs at runtime,
+// not build time, so error reporting itself keeps working.
+const baseConfig = withSerwist(nextConfig);
+
+export default process.env.SENTRY_AUTH_TOKEN
+  ? withSentryConfig(baseConfig, {
   // For all available options, see:
   // https://www.npmjs.com/package/@sentry/webpack-plugin#options
 
@@ -286,8 +323,14 @@ export default withSentryConfig(withSerwist(nextConfig), {
   // For all available options, see:
   // https://docs.sentry.io/platforms/javascript/guides/nextjs/manual-setup/
 
-  // Upload a larger set of source maps for prettier stack traces (increases build time)
-  widenClientFileUpload: true,
+  // 2026-04-29 — disabled to reduce build-time memory pressure. Sentry's
+  // webpack plugin scans + processes source-map files even when no auth
+  // token is set (uploads skip, processing runs). With widenClientFileUpload
+  // OFF the plugin scans only the default narrow set, freeing memory during
+  // the webpack pass on Vercel's 8 GB build container.
+  // Trade-off: stack traces from chunked client files may be slightly less
+  // precise — acceptable for now to keep deploys green.
+  widenClientFileUpload: false,
 
   // Route browser requests to Sentry through a Next.js rewrite to circumvent ad-blockers.
   // This can increase your server load as well as your hosting bill.
@@ -308,4 +351,5 @@ export default withSentryConfig(withSerwist(nextConfig), {
       removeDebugLogging: true,
     },
   }
-});
+})
+  : baseConfig;
