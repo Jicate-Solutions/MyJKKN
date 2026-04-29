@@ -1617,6 +1617,28 @@ export const PERMISSION_CATEGORIES = [
       { key: 'attention_bar.config.manage', label: 'Manage System Config + Budgets' },
       { key: 'attention_bar.test_sandbox.use', label: 'Use Test Sandbox' }
     ]
+  },
+  {
+    // Added 2026-04-29 — HR Sprint 5 Phase 1
+    // Spec: specs/hrapp-sprint-5-attendance-spec.md Section 10
+    name: 'HR Attendance',
+    key: 'hr_attendance',
+    permissions: [
+      // Staff self-service
+      { key: 'hr.attendance.view_self', label: 'View own attendance' },
+      { key: 'hr.attendance.mark_self', label: 'Self-mark attendance (punch in/out)' },
+      { key: 'hr.attendance.regularize_self', label: 'Submit attendance regularization for self' },
+      // HOD / Principal team-level
+      { key: 'hr.attendance.view_team', label: 'View direct-report attendance' },
+      { key: 'hr.attendance.approve_team', label: 'Approve regularization for direct reports' },
+      // HR officer aggregate
+      { key: 'hr.attendance.view_all', label: 'View all attendance (HR officer)' },
+      { key: 'hr.attendance.override', label: 'Manual edit attendance records' },
+      { key: 'hr.attendance.export', label: 'Export attendance reports' },
+      { key: 'hr.attendance.regularize_approve', label: 'Approve regularization (HR officer)' },
+      // Compliance / audit
+      { key: 'hr.attendance.audit_export', label: 'Export attendance for audit/compliance' }
+    ]
   }
 ];
 
