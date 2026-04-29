@@ -6,7 +6,14 @@
 // (Sunday 03:00 UTC; sister PR registers the schedule).
 //
 // Retention policy:
-//   - Delete rows where event_at < now() - interval '90 days'
+//   - Delete rows where event_at < now() - interval '<retention_days> days'
+//   - retention_days is read from the `retention_policies` table via
+//     get_retention_days('admission_counselor_duty_log') SECURITY DEFINER
+//     helper. Director's standing rule (2026-04-29) — every policy decision
+//     = config-table row + super_admin UI to write. Tweak from
+//     /admin/retention-policies in 5 seconds, no deploy.
+//   - Falls back to 90 days when the helper returns NULL (config row
+//     missing or enabled=false). 90 matches PR #586's original constant.
 //   - PRESERVE the most-recent row per counselor regardless of age, so
 //     fn_get_off_duty_since() always has a baseline to anchor on. The
 //     migration that introduced the table (20260428_phase8_duty_log_implementation.sql)
@@ -56,6 +63,38 @@ export async function GET(request: NextRequest) {
   }
 
   const supabase = createServiceRoleClient();
+
+  // ----------------------------------------------------------------
+  // Read retention_days from config table (Director's zero-deploy rule —
+  // 2026-04-29 standing rule, R-001 reference impl). Falls back to 90
+  // when config row missing or `enabled=false` (helper returns NULL),
+  // matching PR #586's original behavior so this PR is a no-op at deploy.
+  // ----------------------------------------------------------------
+  const FALLBACK_DAYS = 90;
+  let retentionDays = FALLBACK_DAYS;
+  try {
+    const { data: configDays, error: configErr } = await supabase.rpc(
+      'get_retention_days',
+      { p_table_name: 'admission_counselor_duty_log' },
+    );
+    if (configErr) {
+      console.warn(
+        '[cron/duty-log-retention] get_retention_days RPC failed; falling back to',
+        FALLBACK_DAYS,
+        configErr.message,
+      );
+    } else if (typeof configDays === 'number' && configDays > 0) {
+      retentionDays = configDays;
+    }
+    // configDays === null → enabled=false or row missing → keep fallback.
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.warn(
+      '[cron/duty-log-retention] get_retention_days threw; falling back to',
+      FALLBACK_DAYS,
+      msg,
+    );
+  }
 
   // ----------------------------------------------------------------
   // Retention DELETE with most-recent-per-counselor carve-out.
@@ -108,8 +147,11 @@ export async function GET(request: NextRequest) {
     }
     result.preserved_recent_count = recentIdsByCounselor.size;
 
-    // Step 2: DELETE rows older than 90d that are NOT in the preserve set.
-    const cutoffIso = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
+    // Step 2: DELETE rows older than retentionDays that are NOT in the
+    // preserve set. retentionDays is config-driven (see top of handler).
+    const cutoffIso = new Date(
+      Date.now() - retentionDays * 24 * 60 * 60 * 1000,
+    ).toISOString();
     const preserveIds = Array.from(recentIdsByCounselor);
 
     let query = supabase
@@ -143,6 +185,7 @@ export async function GET(request: NextRequest) {
   console.warn('[cron/duty-log-retention] run-complete', JSON.stringify({
     success: !result.error,
     duration_ms: durationMs,
+    retention_days: retentionDays,
     deleted: result.deleted,
     preserved_recent_count: result.preserved_recent_count,
     error: result.error,
@@ -153,6 +196,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(
       {
         success: false,
+        retention_days: retentionDays,
         deleted: result.deleted,
         duration_ms: durationMs,
         preserved_recent_count: result.preserved_recent_count,
@@ -165,6 +209,7 @@ export async function GET(request: NextRequest) {
 
   return NextResponse.json({
     success: true,
+    retention_days: retentionDays,
     deleted: result.deleted,
     duration_ms: durationMs,
     preserved_recent_count: result.preserved_recent_count,
