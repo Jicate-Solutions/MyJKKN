@@ -12416,3 +12416,13 @@ SET search_path = public, pg_temp
 AS $$
   SELECT COALESCE((fn_get_policy(p_key, p_scope_id))::boolean, p_default);
 $$;
+
+-- 2026-04-29 (Phase 1.5a): lock fn_get_policy* — authenticated+service_role only
+REVOKE EXECUTE ON FUNCTION fn_get_policy(TEXT, UUID) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION fn_get_policy_int(TEXT, INT, UUID) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION fn_get_policy_text(TEXT, TEXT, UUID) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION fn_get_policy_bool(TEXT, BOOLEAN, UUID) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION fn_get_policy(TEXT, UUID) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION fn_get_policy_int(TEXT, INT, UUID) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION fn_get_policy_text(TEXT, TEXT, UUID) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION fn_get_policy_bool(TEXT, BOOLEAN, UUID) TO authenticated, service_role;

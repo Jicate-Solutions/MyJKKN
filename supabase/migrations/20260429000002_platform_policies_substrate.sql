@@ -304,3 +304,19 @@ BEGIN
   RETURN v_total;
 END;
 $$;
+
+-- ----------------------------------------------------------------------------
+-- 7. Lock down EXECUTE — anon should not read platform_policies via RPC.
+--    Inside the function auth.uid() is NULL for anon, so user/role scopes
+--    return nothing, but global policies would still leak. Revoke from anon
+--    and PUBLIC; grant explicitly to authenticated + service_role.
+-- ----------------------------------------------------------------------------
+REVOKE EXECUTE ON FUNCTION fn_get_policy(TEXT, UUID) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION fn_get_policy_int(TEXT, INT, UUID) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION fn_get_policy_text(TEXT, TEXT, UUID) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION fn_get_policy_bool(TEXT, BOOLEAN, UUID) FROM PUBLIC, anon;
+
+GRANT EXECUTE ON FUNCTION fn_get_policy(TEXT, UUID) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION fn_get_policy_int(TEXT, INT, UUID) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION fn_get_policy_text(TEXT, TEXT, UUID) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION fn_get_policy_bool(TEXT, BOOLEAN, UUID) TO authenticated, service_role;
