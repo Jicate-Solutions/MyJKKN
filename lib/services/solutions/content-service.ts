@@ -3,7 +3,7 @@
 
 import { BaseService, type BaseListResponse } from '../base-service';
 import { logger } from '@/lib/utils/enhanced-logger';
-import { getPolicyInt } from '@/lib/policies/get-policy';
+import { getPolicyInt } from '@/lib/policies/get-policy-client';
 import type {
   ContentOrder,
   ContentDeliverable,
