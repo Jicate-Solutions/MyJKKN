@@ -182,7 +182,7 @@ After Wave B: pre-spawn `pr-preflight` against the union of B.1–B.6 file sets 
 | PR #630 (`notifications.is_layer_0`) | **OPEN as of 2026-04-29** | B.3 escalation cascade can't render in Attention Bar until merged |
 | Class Rep formal role | ⚠️ Unverified | A.0 might need a separate roles-PR before A.1 |
 | Meet API access (host token) | Unknown | B.2 falls back to "Join Now" button-only attendance (still works, just less rich) |
-| AI Pulse Champion identity | **Likely: Ranjith (DTO JKKN)** — consistent caller-out across 4 weekly poster posts in AHS facilitators chat (Feb–Mar 2026). Needs human confirmation. | A.0 must lock the name + nominate a backup co-lead |
+| AI Pulse Champion identity | **Confirmed: Krishnaveni** — locked 2026-04-29 by Director. (Earlier vault-sweep guess of Ranjith DTO JKKN was wrong — Ranjith is the @-mention recipient for poster distribution, not the program owner.) | A.0 still needs co-lead nomination for succession-risk mitigation |
 | Lovable Week monthly cadence | Confirmed | Drives `cron_tick` policy default |
 
 | Risk | Mitigation |
@@ -218,7 +218,7 @@ After Wave B: pre-spawn `pr-preflight` against the union of B.1–B.6 file sets 
 
 ## 10. Open Questions
 
-1. **AI Pulse Champion identity** — vault sweep on 2026-04-29 strongly suggests **Ranjith (DTO JKKN)** based on 4 consecutive weekly poster reminders in AHS facilitators chat. Needs human confirmation + co-lead nomination.
+1. **AI Pulse Champion identity** — ✅ **Resolved 2026-04-29: Krishnaveni** (confirmed by Director). Co-lead nomination still needed for succession-risk mitigation.
 2. **Meet API tier** — does JKKN's Google Workspace tier support webhook-based attendance? Confirms B.2 architecture.
 3. **Class size variance** — if some classes have <25 students, do we still split into 5 teams or scale down? Policy `min_team_size` may be needed.
 4. **Recording storage** — Meet recordings to JKKN Drive or to MyJKKN storage bucket? IQAC retention requirement = 5 years.
