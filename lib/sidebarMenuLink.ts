@@ -326,7 +326,11 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/admin/notifications/new': 'notifications.create',
   '/admin/notifications/compliance': 'notifications.view',
   '/admin/notifications/audiences': 'notifications.view',
+  '/admin/notifications/recipients': 'super_admin',
   '/admin/whatsapp-limits': 'admin.whatsapp_limits.view',
+  '/admin/retention-policies': 'super_admin',
+  '/admin/counselors/routing-config': 'super_admin',
+  '/admin/counselors/alert-thresholds': 'super_admin',
 
   // System Management
   // Work Pulse
@@ -1261,7 +1265,11 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/admin/notifications/new', label: 'Notifications · Send', active: pathname === '/admin/notifications/new' },
             { href: '/admin/notifications/compliance', label: 'Notifications · Compliance', active: pathname === '/admin/notifications/compliance' },
             { href: '/admin/notifications/audiences', label: 'Notifications · Audiences', active: pathname.startsWith('/admin/notifications/audiences') },
+            { href: '/admin/notifications/recipients', label: 'Notifications · Recipients (config)', active: pathname.startsWith('/admin/notifications/recipients') },
             { href: '/admin/whatsapp-limits', label: 'WhatsApp · Send Limits', active: pathname.startsWith('/admin/whatsapp-limits') },
+            // Counselor routing (config-as-row, 2026-04-29)
+            { href: '/admin/counselors/routing-config', label: 'Counselors · Routing Config', active: pathname.startsWith('/admin/counselors/routing-config') },
+            { href: '/admin/counselors/alert-thresholds', label: 'Counselors · Alert Thresholds', active: pathname.startsWith('/admin/counselors/alert-thresholds') },
             // LTI
             { href: '/admin/lti', label: 'LTI · Dashboard', active: pathname === '/admin/lti' },
             { href: '/admin/lti/analytics', label: 'LTI · Analytics', active: pathname === '/admin/lti/analytics' },
@@ -1278,6 +1286,7 @@ export function GetPages(pathname: string): MenuGroup[] {
             // Other
             { href: '/audit-trail', label: 'Audit Trail', active: pathname.startsWith('/audit-trail') },
             { href: '/admin/lifecycle', label: 'Lifecycle Analytics', active: pathname.startsWith('/admin/lifecycle') },
+            { href: '/admin/retention-policies', label: 'Retention Policies (config)', active: pathname.startsWith('/admin/retention-policies') },
             { href: '/admin/page-metadata', label: 'Page Metadata', active: pathname.startsWith('/admin/page-metadata') },
           ]
         }
