@@ -1512,7 +1512,7 @@ export default function AttendanceMarkPage() {
             <AlertDescription>
               <div className='flex flex-col gap-2'>
                 <div className='font-semibold text-base'>
-                  🚫 Attendance Cannot Be Marked - Holiday
+                  🚫 On-Campus Attendance Cannot Be Marked — Online Learning Day
                 </div>
                 <div>
                   <strong>{leaveBlockInfo.leave_name}</strong>
