@@ -326,6 +326,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/admin/notifications/new': 'notifications.create',
   '/admin/notifications/compliance': 'notifications.view',
   '/admin/notifications/audiences': 'notifications.view',
+  '/admin/whatsapp-limits': 'admin.whatsapp_limits.view',
 
   // System Management
   // Work Pulse
@@ -1260,6 +1261,7 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/admin/notifications/new', label: 'Notifications · Send', active: pathname === '/admin/notifications/new' },
             { href: '/admin/notifications/compliance', label: 'Notifications · Compliance', active: pathname === '/admin/notifications/compliance' },
             { href: '/admin/notifications/audiences', label: 'Notifications · Audiences', active: pathname.startsWith('/admin/notifications/audiences') },
+            { href: '/admin/whatsapp-limits', label: 'WhatsApp · Send Limits', active: pathname.startsWith('/admin/whatsapp-limits') },
             // LTI
             { href: '/admin/lti', label: 'LTI · Dashboard', active: pathname === '/admin/lti' },
             { href: '/admin/lti/analytics', label: 'LTI · Analytics', active: pathname === '/admin/lti/analytics' },
