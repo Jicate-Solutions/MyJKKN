@@ -166,8 +166,24 @@ export async function resolve(ctx: ResolverContext): Promise<ResolveResult> {
     }
 
     if (result.matched) {
-      trace.push({ layer, result: 'matched' });
-      hits.push({ layer, action: result.action });
+      // Self-referential suppression: an action whose destination IS the page
+      // the user is already on adds no value — clicking it just reloads the
+      // current view. Skip it from the hit list so neither primary nor
+      // secondary surfaces a CTA pointing back to where the user already is.
+      // Comparison is strict equality on the full href string (intentional —
+      // `/dashboard` and `/dashboard?view=briefing` are different states of
+      // the same path and the latter IS a useful navigation; we only suppress
+      // exact matches).
+      if (result.action.href === ctx.page) {
+        trace.push({
+          layer,
+          result: 'skipped',
+          reason: `self-referential — action.href === ctx.page (${ctx.page})`,
+        });
+      } else {
+        trace.push({ layer, result: 'matched' });
+        hits.push({ layer, action: result.action });
+      }
     } else {
       trace.push({ layer, result: 'no-match', reason: result.reason });
     }
