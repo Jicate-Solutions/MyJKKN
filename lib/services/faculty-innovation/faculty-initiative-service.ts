@@ -33,7 +33,23 @@ import {
 import { FacultyInitiativeAuditService } from './faculty-initiative-audit-service';
 import { FacultyInnovationNotificationService } from './notification-service';
 
-const DEFAULT_PAGE_SIZE = 20;
+// Director's standing rule (2026-04-29): policy decisions live in
+// platform_policies, not in source. The constant below is a *fallback only*.
+// Source of truth = `faculty.initiative.default_page_size` row seeded in
+// supabase/migrations/20260429000015_audit_faculty_page_size_policy.sql.
+//
+// We can't import getPolicyInt from '@/lib/policies/get-policy' because that
+// helper uses the server (next/headers cookies) Supabase client and this
+// service runs in the browser (called by hooks/faculty-innovation/*).
+// Instead, we call the same fn_get_policy RPC via the existing browser
+// client and apply the type+null fallback inline.
+//
+// TODO: when lib/policies/get-policy.ts grows a client-safe sibling
+// (e.g. getPolicyIntClient), or fn_get_policy is wrapped behind a unified
+// helper, swap the inline RPC below for the shared helper.
+const FACULTY_INITIATIVE_DEFAULT_PAGE_SIZE_KEY =
+  'faculty.initiative.default_page_size';
+const FACULTY_INITIATIVE_DEFAULT_PAGE_SIZE_FALLBACK = 20;
 
 export class FacultyInitiativeService {
   private static supabase = createClientSupabaseClient();
@@ -50,6 +66,28 @@ export class FacultyInitiativeService {
     category: FacultyInitiative['category']
   ): FacultyApprovalAuthority {
     return CATEGORY_APPROVAL_AUTHORITY[category];
+  }
+
+  /**
+   * Resolve the default page size for list() from platform_policies.
+   * Falls back to the legacy hardcoded 20 if the policy RPC fails.
+   * Browser-safe: uses the existing static supabase client.
+   */
+  private static async getDefaultPageSize(): Promise<number> {
+    const { data, error } = await (this.supabase as any).rpc('fn_get_policy', {
+      p_key: FACULTY_INITIATIVE_DEFAULT_PAGE_SIZE_KEY,
+      p_scope_id: null,
+    });
+    if (error) {
+      console.warn(
+        `[faculty-innovation] fn_get_policy failed for ${FACULTY_INITIATIVE_DEFAULT_PAGE_SIZE_KEY}; using fallback`,
+        error
+      );
+      return FACULTY_INITIATIVE_DEFAULT_PAGE_SIZE_FALLBACK;
+    }
+    return typeof data === 'number'
+      ? data
+      : FACULTY_INITIATIVE_DEFAULT_PAGE_SIZE_FALLBACK;
   }
 
   /**
@@ -77,10 +115,11 @@ export class FacultyInitiativeService {
     filters: FacultyInitiativeFilters = {}
   ): Promise<FacultyInitiativeListResponse> {
     const page = filters.page && filters.page > 0 ? filters.page : 1;
+    const defaultPageSize = await this.getDefaultPageSize();
     const limit =
       filters.limit && filters.limit > 0 && filters.limit <= 100
         ? filters.limit
-        : DEFAULT_PAGE_SIZE;
+        : defaultPageSize;
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let query: any = (this.supabase as any)
