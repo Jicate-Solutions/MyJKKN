@@ -83,7 +83,7 @@ export function CalendarLegend({ institutionId }: CalendarLegendProps) {
           </div>
           <div className='flex items-center gap-2 p-2 rounded bg-red-50/50 border border-red-200'>
             <span className='text-sm flex-shrink-0'>🏖️</span>
-            <span className='text-xs font-medium text-red-600'>Sunday Holiday</span>
+            <span className='text-xs font-medium text-red-600'>Sunday — Online Learning Day</span>
           </div>
         </CardContent>
       </Card>
