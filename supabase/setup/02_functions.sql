@@ -12358,3 +12358,61 @@ BEGIN
   RETURN v_total;
 END;
 $fn$;
+
+
+-- ============================================================================
+-- 2026-04-29: platform_policies resolver functions (Phase 1.5a)
+-- ============================================================================
+
+-- Resolution priority: user-override > institution-override > role-override > global default
+CREATE OR REPLACE FUNCTION fn_get_policy(p_key TEXT, p_scope_id UUID DEFAULT NULL)
+RETURNS JSONB
+LANGUAGE SQL STABLE SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+  SELECT value FROM platform_policies
+  WHERE policy_key = p_key AND is_active = true
+    AND (
+      (scope_type='institution' AND scope_id=p_scope_id)
+      OR (scope_type='global' AND scope_id IS NULL)
+      OR (scope_type='role' AND scope_id IN (
+            SELECT cr.id FROM custom_roles cr WHERE EXISTS (
+              SELECT 1 FROM user_roles ur JOIN profiles p ON p.id=ur.user_id
+              WHERE ur.role_id=cr.id AND p.id=auth.uid()
+            )
+          ))
+      OR (scope_type='user' AND scope_id=auth.uid())
+    )
+  ORDER BY
+    CASE scope_type
+      WHEN 'user' THEN 1
+      WHEN 'institution' THEN 2
+      WHEN 'role' THEN 3
+      WHEN 'global' THEN 4
+    END
+  LIMIT 1;
+$$;
+
+CREATE OR REPLACE FUNCTION fn_get_policy_int(p_key TEXT, p_default INT, p_scope_id UUID DEFAULT NULL)
+RETURNS INT
+LANGUAGE SQL STABLE SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+  SELECT COALESCE((fn_get_policy(p_key, p_scope_id))::int, p_default);
+$$;
+
+CREATE OR REPLACE FUNCTION fn_get_policy_text(p_key TEXT, p_default TEXT, p_scope_id UUID DEFAULT NULL)
+RETURNS TEXT
+LANGUAGE SQL STABLE SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+  SELECT COALESCE((fn_get_policy(p_key, p_scope_id))#>>'{}', p_default);
+$$;
+
+CREATE OR REPLACE FUNCTION fn_get_policy_bool(p_key TEXT, p_default BOOLEAN, p_scope_id UUID DEFAULT NULL)
+RETURNS BOOLEAN
+LANGUAGE SQL STABLE SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+  SELECT COALESCE((fn_get_policy(p_key, p_scope_id))::boolean, p_default);
+$$;
