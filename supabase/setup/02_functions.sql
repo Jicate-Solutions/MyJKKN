@@ -9743,18 +9743,71 @@ BEGIN
 END $fn_recruit$;
 
 -- Generator 6: service-request approvals -> dashboard:approval
--- Updated: 2026-04-28 - Role-based fallback when approver_user_ids is empty.
--- Bug: 48/61 approval steps had empty approver_user_ids (legacy seed). Cron silently
--- skipped them. UI's useEligibleApprovers fell back to (role + institution_id +
--- is_active) at render-time so the visual stepper showed approvers, but no
--- notifications fired. Fix mirrors UI exactly. Migration applied via Supabase MCP
--- as `sr_approval_generator_role_fallback` 2026-04-28 IST 16:51.
+-- Updated: 2026-04-29 - Wave B.1 — config-driven via fn_get_generator_config('sr_approval', fallback).
+-- All hardcoded constants (statuses, age window, batch limit, priority threshold,
+-- TTL, exclude_super_admin gate, role-fallback toggle, returned-routes-to-requester
+-- toggle) now read from the notification_generator_config table. The fallback
+-- JSONB inside fn_get_generator_config() matches the backfilled row bit-identical
+-- so day-1 behavior is preserved if the config row is missing/inactive.
+-- Behavior preservation verified 2026-04-29: 4 qualifying SRs on prod, 2 routable
+-- → 2 emissions (matches OLD fn output); 2 skip cases (no approvers + role-resolves-zero)
+-- → both also skipped by NEW logic.
+-- Prior history:
+-- 2026-04-28 - Role-based fallback when approver_user_ids is empty (PR #581).
+--   Bug: 48/61 approval steps had empty approver_user_ids (legacy seed). Cron silently
+--   skipped them. UI's useEligibleApprovers fell back to (role + institution_id +
+--   is_active) at render-time so the visual stepper showed approvers, but no
+--   notifications fired. Now part of step_role_fallback_enabled config flag.
 CREATE OR REPLACE FUNCTION fn_generate_service_request_approval_items()
 RETURNS INT LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $fn_sr$
 DECLARE
   v_created INT := 0; v_sr RECORD; v_key TEXT; v_priority TEXT;
   v_approver UUID; v_step_approvers UUID[]; v_step_role TEXT;
+  -- Wave B.1: config-driven constants. fn_get_generator_config returns the
+  -- hardcoded fallback below if the config row is missing or inactive — so
+  -- day-1 behavior is preserved bit-identical even with no config row at all.
+  v_cfg JSONB;
+  v_category TEXT;
+  v_statuses TEXT[];
+  v_min_age_hours INT;
+  v_max_age_days INT;
+  v_batch_limit INT;
+  v_high_threshold_hours INT;
+  v_urgent_priority_match TEXT;
+  v_ttl_hours INT;
+  v_exclude_super_admin BOOLEAN;
+  v_step_role_fallback BOOLEAN;
+  v_returned_routes_to_requester BOOLEAN;
 BEGIN
+  v_cfg := fn_get_generator_config('sr_approval', '{
+    "category": "dashboard:approval",
+    "statuses": ["submitted","in_review","returned"],
+    "min_age_hours": 24,
+    "max_age_days": 180,
+    "batch_limit": 100,
+    "priority_thresholds_hours": {"high": 168},
+    "priority_overrides": {"urgent_when_priority_field_eq": "urgent"},
+    "ttl_hours": 72,
+    "exclude_super_admin": true,
+    "step_role_fallback_enabled": true,
+    "returned_routes_to_requester": true
+  }'::jsonb);
+
+  v_category             := COALESCE(v_cfg->>'category', 'dashboard:approval');
+  v_statuses             := COALESCE(
+                              ARRAY(SELECT jsonb_array_elements_text(v_cfg->'statuses')),
+                              ARRAY['submitted','in_review','returned']
+                            );
+  v_min_age_hours        := COALESCE((v_cfg->>'min_age_hours')::INT, 24);
+  v_max_age_days         := COALESCE((v_cfg->>'max_age_days')::INT, 180);
+  v_batch_limit          := COALESCE((v_cfg->>'batch_limit')::INT, 100);
+  v_high_threshold_hours := COALESCE((v_cfg->'priority_thresholds_hours'->>'high')::INT, 168);
+  v_urgent_priority_match := COALESCE(v_cfg->'priority_overrides'->>'urgent_when_priority_field_eq', 'urgent');
+  v_ttl_hours            := COALESCE((v_cfg->>'ttl_hours')::INT, 72);
+  v_exclude_super_admin  := COALESCE((v_cfg->>'exclude_super_admin')::BOOLEAN, true);
+  v_step_role_fallback   := COALESCE((v_cfg->>'step_role_fallback_enabled')::BOOLEAN, true);
+  v_returned_routes_to_requester := COALESCE((v_cfg->>'returned_routes_to_requester')::BOOLEAN, true);
+
   FOR v_sr IN
     SELECT sr.id, sr.request_number, sr.service_type_id, sr.requester_id,
            sr.institution_id,
@@ -9764,13 +9817,13 @@ BEGIN
            EXTRACT(EPOCH FROM (NOW() - COALESCE(sr.submitted_at, sr.created_at)))/3600 AS hours_pending
     FROM service_requests sr
     JOIN service_types st ON st.id = sr.service_type_id
-    WHERE sr.status::text IN ('submitted','in_review','returned')
-      AND COALESCE(sr.submitted_at, sr.created_at) < NOW() - INTERVAL '24 hours'
-      AND COALESCE(sr.submitted_at, sr.created_at) > NOW() - INTERVAL '180 days'
+    WHERE sr.status::text = ANY(v_statuses)
+      AND COALESCE(sr.submitted_at, sr.created_at) < NOW() - make_interval(hours => v_min_age_hours)
+      AND COALESCE(sr.submitted_at, sr.created_at) > NOW() - make_interval(days  => v_max_age_days)
     ORDER BY sr.submitted_at ASC NULLS LAST
-    LIMIT 100
+    LIMIT v_batch_limit
   LOOP
-    IF v_sr.status_text = 'returned' THEN
+    IF v_sr.status_text = 'returned' AND v_returned_routes_to_requester THEN
       v_step_approvers := ARRAY[v_sr.requester_id];
       v_step_role := NULL;
     ELSE
@@ -9784,7 +9837,8 @@ BEGIN
       -- Fallback: when explicit IDs are empty, resolve by role + SR institution
       -- (matches hooks/service-requests/use-eligible-approvers.ts: role IN [...] AND
       -- institution_id = SR.institution_id AND is_active=true).
-      IF (v_step_approvers IS NULL OR array_length(v_step_approvers, 1) IS NULL)
+      IF v_step_role_fallback
+         AND (v_step_approvers IS NULL OR array_length(v_step_approvers, 1) IS NULL)
          AND v_step_role IS NOT NULL AND v_sr.institution_id IS NOT NULL THEN
         SELECT array_agg(p.id)
         INTO v_step_approvers
@@ -9794,24 +9848,30 @@ BEGIN
           AND p.is_active = TRUE;
       END IF;
     END IF;
-    IF v_step_approvers IS NULL OR array_length(v_step_approvers, 1) IS NULL THEN CONTINUE; END IF;
-    v_priority := CASE WHEN v_sr.hours_pending > 168 THEN 'high'
-                       WHEN v_sr.priority_text = 'urgent' THEN 'urgent'
+
+    IF v_step_approvers IS NULL OR array_length(v_step_approvers, 1) IS NULL THEN
+      CONTINUE;
+    END IF;
+
+    v_priority := CASE WHEN v_sr.hours_pending > v_high_threshold_hours THEN 'high'
+                       WHEN v_sr.priority_text = v_urgent_priority_match THEN 'urgent'
                        ELSE 'normal' END;
     v_key := 'service_request:' || v_sr.id::text || ':' || CURRENT_DATE::text;
     FOREACH v_approver IN ARRAY v_step_approvers
     LOOP
-      IF EXISTS (SELECT 1 FROM profiles WHERE id = v_approver AND is_super_admin = TRUE) THEN
+      IF v_exclude_super_admin AND EXISTS (
+        SELECT 1 FROM profiles WHERE id = v_approver AND is_super_admin = TRUE
+      ) THEN
         CONTINUE;
       END IF;
       v_created := v_created + fn_create_dashboard_work_item(
-        'dashboard:approval', v_priority,
+        v_category, v_priority,
         'SR ' || v_sr.request_number || ' — ' || v_sr.service_type_name || ' (' || v_sr.status_text || ')',
         v_sr.service_type_name || ' pending ' || v_sr.hours_pending::INT || 'h. Step ' || COALESCE(v_sr.current_approval_step,1)::text,
         jsonb_build_object('service_request_id', v_sr.id, 'request_number', v_sr.request_number,
           'service_type_id', v_sr.service_type_id, 'status', v_sr.status_text,
           'url', '/services/requests/' || v_sr.id::text),
-        v_approver, v_key || ':' || v_approver::text, 72);
+        v_approver, v_key || ':' || v_approver::text, v_ttl_hours);
     END LOOP;
   END LOOP;
   RETURN v_created;
