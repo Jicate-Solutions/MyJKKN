@@ -9875,31 +9875,67 @@ GRANT EXECUTE ON FUNCTION public.migrate_pre_registered_profile_to_auth(uuid, uu
 -- all 19 rows with NULL final_approver_id; now routes to Director.
 -- Removed the "skip if super_admin" filter — queue surface IS Director's
 -- so super_admin-targeted items SHOULD appear there.
+-- Updated: 2026-04-29 - Wave B.2 — config-driven via fn_get_generator_config('recruitment_approval', fallback).
 CREATE OR REPLACE FUNCTION fn_generate_recruitment_approval_items()
 RETURNS INT LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $fn_recruit$
 DECLARE
   v_created INT := 0; v_cand RECORD; v_key TEXT; v_priority TEXT; v_target UUID;
+  -- Wave B.2: config-driven constants
+  v_cfg JSONB;
+  v_category TEXT;
+  v_min_age_hours INT;
+  v_max_age_days INT;
+  v_batch_limit INT;
+  v_high_threshold_hours INT;
+  v_urgent_when_emergency BOOLEAN;
+  v_ttl_emergency_hours INT;
+  v_ttl_normal_hours INT;
+  v_fallback_to_director BOOLEAN;
 BEGIN
+  v_cfg := fn_get_generator_config('recruitment_approval', '{
+    "category": "dashboard:approval",
+    "min_age_hours": 24,
+    "max_age_days": 90,
+    "batch_limit": 100,
+    "priority_thresholds_hours": {"high": 96},
+    "priority_overrides": {"urgent_when_is_emergency": true},
+    "ttl_hours": {"emergency": 8, "normal": 48},
+    "fallback_to_director": true
+  }'::jsonb);
+
+  v_category             := COALESCE(v_cfg->>'category', 'dashboard:approval');
+  v_min_age_hours        := COALESCE((v_cfg->>'min_age_hours')::INT, 24);
+  v_max_age_days         := COALESCE((v_cfg->>'max_age_days')::INT, 90);
+  v_batch_limit          := COALESCE((v_cfg->>'batch_limit')::INT, 100);
+  v_high_threshold_hours := COALESCE((v_cfg->'priority_thresholds_hours'->>'high')::INT, 96);
+  v_urgent_when_emergency := COALESCE((v_cfg->'priority_overrides'->>'urgent_when_is_emergency')::BOOLEAN, true);
+  v_ttl_emergency_hours  := COALESCE((v_cfg->'ttl_hours'->>'emergency')::INT, 8);
+  v_ttl_normal_hours     := COALESCE((v_cfg->'ttl_hours'->>'normal')::INT, 48);
+  v_fallback_to_director := COALESCE((v_cfg->>'fallback_to_director')::BOOLEAN, true);
+
   FOR v_cand IN
     SELECT id, name, role_title, role_category, final_approver_id, submitted_at,
            is_emergency, is_internal_transfer, institution_id,
            EXTRACT(EPOCH FROM (NOW() - submitted_at))/3600 AS hours_pending
     FROM hr_recruitment_candidates
     WHERE status = 'pending_approval'
-      AND submitted_at < NOW() - INTERVAL '24 hours'
-      AND submitted_at > NOW() - INTERVAL '90 days'
-    ORDER BY submitted_at ASC
-    LIMIT 100
+      AND submitted_at < NOW() - make_interval(hours => v_min_age_hours)
+      AND submitted_at > NOW() - make_interval(days  => v_max_age_days)
+    ORDER BY submitted_at ASC LIMIT v_batch_limit
   LOOP
     -- Fallback: route to Director when upstream HR didn't set final_approver_id.
-    v_target := COALESCE(v_cand.final_approver_id, fn_resolve_dashboard_target(v_cand.institution_id));
-    IF v_target IS NULL THEN CONTINUE; END IF;  -- truly no super_admin exists; cannot route
-    v_priority := CASE WHEN v_cand.is_emergency THEN 'urgent'
-                       WHEN v_cand.hours_pending > 96 THEN 'high'
+    IF v_fallback_to_director THEN
+      v_target := COALESCE(v_cand.final_approver_id, fn_resolve_dashboard_target(v_cand.institution_id));
+    ELSE
+      v_target := v_cand.final_approver_id;
+    END IF;
+    IF v_target IS NULL THEN CONTINUE; END IF;
+    v_priority := CASE WHEN v_urgent_when_emergency AND v_cand.is_emergency THEN 'urgent'
+                       WHEN v_cand.hours_pending > v_high_threshold_hours THEN 'high'
                        ELSE 'normal' END;
     v_key := 'recruitment:' || v_cand.id::text || ':' || CURRENT_DATE::text;
     v_created := v_created + fn_create_dashboard_work_item(
-      'dashboard:approval', v_priority,
+      v_category, v_priority,
       'Recruitment approval pending ' || v_cand.hours_pending::INT || 'h — ' || v_cand.role_title,
       v_cand.name || ' (' || v_cand.role_category || ')' ||
         CASE WHEN v_cand.is_internal_transfer THEN ' — internal transfer' ELSE '' END ||
@@ -9909,7 +9945,7 @@ BEGIN
         'unassigned_fallback', v_cand.final_approver_id IS NULL,
         'url', '/hr/recruitment/candidates/' || v_cand.id::text),
       v_target, v_key,
-      CASE WHEN v_cand.is_emergency THEN 8 ELSE 48 END);
+      CASE WHEN v_cand.is_emergency THEN v_ttl_emergency_hours ELSE v_ttl_normal_hours END);
   END LOOP;
   RETURN v_created;
 END $fn_recruit$;
