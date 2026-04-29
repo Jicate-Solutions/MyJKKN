@@ -6,6 +6,21 @@
 
 ## 📝 Recent Changes
 
+- **2026-04-29** — Wave B.2 — Notification Generator Policy: refactor remaining 7 generators to config-driven (7 of 7 migrations)
+  - All 7 remaining generators now read constants via `fn_get_generator_config(name, fallback)`:
+    * Migration 1: `overdue_invoice_generator_config_driven_v1` — fn_generate_overdue_invoice_items (escalation, 4 roles, 3-tier days_overdue priority, 3-tier TTL)
+    * Migration 2: `stale_lead_rescue_generator_config_driven_v1` — fn_generate_stale_lead_rescue_items (rescue, counselor → 4-role fallback)
+    * Migration 3: `pending_leave_approval_generator_config_driven_v1` — fn_generate_pending_leave_approval_items (approval, Director fallback, emergency-priority override)
+    * Migration 4: `unmarked_attendance_generator_config_driven_v1` — fn_generate_unmarked_attendance_items (anomaly, 11am IST gate, 14d learning window, prioritize_emails array)
+    * Migration 5: `recruitment_approval_generator_config_driven_v1` — fn_generate_recruitment_approval_items (approval, Director fallback)
+    * Migration 6: `unresolved_bug_generator_config_driven_v1` — fn_generate_unresolved_bug_items (rescue, 5 excluded triage tags, Director fallback)
+    * Migration 7: `unresolved_grievance_generator_config_driven_v1` — fn_generate_unresolved_grievance_items (approval, 4-tier priority CASE, escalation-aware TTL)
+  - All applied via Supabase MCP. `02_functions.sql` mirrors all 7 fn body rewrites with date-stamped Wave B.2 comment headers.
+  - **Behavior preservation verified live on prod 2026-04-29 via dispatcher run**: `fn_generate_all_dashboard_work_items()` returned per-generator JSON. All 8 of my refactored generators (sr_approval from B.1 + 7 from B.2) returned `error: null`. The 1 surfaced error was on `stale_leads` — an FK violation `notifications_created_by_fkey` from a `counselor_id` pointing to a deleted profile. This is pre-existing data drift; the OLD fn would fail identically because COALESCE(counselor_id, role-fallback) is unchanged. Hardening (EXISTS guard or FK SET NULL) is a separate PR scope.
+  - Hardcoded fallback inside each fn matches the corresponding backfilled row bit-identical → if the config row is deleted/disabled/missing-keys, behavior reverts to baseline.
+  - PL/pgSQL static-SQL pattern preserved across all 7: `make_interval()` for INTERVAL constants, plpgsql variables in `LIMIT`, `= ANY(array)` for IN-list parameterization, `<> ALL(array)` for NOT IN. Zero `EXECUTE format()` — PostgreSQL plans every cursor query.
+  - Wave B.2 SHIPS COMPLETE. Wave B.3 (Tab 8 admin UI in `/system/attention-bar`) + Wave B.4 (Layer 1 STATIC_DEFAULTS, separate spec) remain.
+
 - **2026-04-29** — Wave B.1 — Notification Generator Policy: substrate + 8-row backfill + SR approval refactor (3 of 3 migrations)
   - Migration 1: `notification_generator_config_schema_v1`. Applied via Supabase MCP. Verified on prod: 2 tables created, 9 cols each, RLS enabled, 3 functions live (1 STABLE/DEFINER lookup + 2 trigger fns).
   - Migration 2: `notification_generator_config_backfill_v1`. Applied via Supabase MCP. 8 generator rows seeded with EXACT current hardcoded values: `overdue_invoice`, `stale_lead_rescue`, `pending_leave_approval`, `unmarked_attendance`, `recruitment_approval`, `sr_approval`, `unresolved_bug`, `unresolved_grievance`. ON CONFLICT DO NOTHING for idempotency. Audit trigger fired 8 INSERT rows on backfill (verified). All `is_active = true`.

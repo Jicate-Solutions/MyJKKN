@@ -8951,12 +8951,54 @@ BEGIN
 END $fn_create$;
 
 -- Generator 1: overdue invoices → dashboard:escalation
+-- Updated: 2026-04-29 - Wave B.2 — config-driven via fn_get_generator_config('overdue_invoice', fallback).
+-- All hardcoded constants (min_age_days_overdue, batch_limit, target_roles array,
+-- exclude_super_admin gate, priority_thresholds_days, ttl_hours per priority)
+-- now read from notification_generator_config. Hardcoded fallback inside the fn
+-- matches the backfilled row bit-identical (preserves day-1 behavior).
 CREATE OR REPLACE FUNCTION fn_generate_overdue_invoice_items()
 RETURNS INT LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $fn_ovd$
 DECLARE
   v_created INT := 0; v_inv RECORD; v_user RECORD; v_key TEXT;
   v_priority TEXT; v_name TEXT; v_phone TEXT;
+  -- Wave B.2: config-driven constants. Hardcoded fallback inside
+  -- fn_get_generator_config matches the backfilled row bit-identical.
+  v_cfg JSONB;
+  v_category TEXT;
+  v_min_days_overdue INT;
+  v_batch_limit INT;
+  v_target_roles TEXT[];
+  v_exclude_super_admin BOOLEAN;
+  v_urgent_days_threshold INT;
+  v_high_days_threshold INT;
+  v_ttl_urgent_hours INT;
+  v_ttl_high_hours INT;
+  v_ttl_normal_hours INT;
 BEGIN
+  v_cfg := fn_get_generator_config('overdue_invoice', '{
+    "category": "dashboard:escalation",
+    "min_age_days_overdue": 30,
+    "batch_limit": 500,
+    "target_roles": ["director","admin","accounts","principal"],
+    "exclude_super_admin": true,
+    "priority_thresholds_days": {"urgent": 90, "high": 60},
+    "ttl_hours": {"urgent": 24, "high": 48, "normal": 72}
+  }'::jsonb);
+
+  v_category             := COALESCE(v_cfg->>'category', 'dashboard:escalation');
+  v_min_days_overdue     := COALESCE((v_cfg->>'min_age_days_overdue')::INT, 30);
+  v_batch_limit          := COALESCE((v_cfg->>'batch_limit')::INT, 500);
+  v_target_roles         := COALESCE(
+                              ARRAY(SELECT jsonb_array_elements_text(v_cfg->'target_roles')),
+                              ARRAY['director','admin','accounts','principal']
+                            );
+  v_exclude_super_admin  := COALESCE((v_cfg->>'exclude_super_admin')::BOOLEAN, true);
+  v_urgent_days_threshold := COALESCE((v_cfg->'priority_thresholds_days'->>'urgent')::INT, 90);
+  v_high_days_threshold  := COALESCE((v_cfg->'priority_thresholds_days'->>'high')::INT, 60);
+  v_ttl_urgent_hours     := COALESCE((v_cfg->'ttl_hours'->>'urgent')::INT, 24);
+  v_ttl_high_hours       := COALESCE((v_cfg->'ttl_hours'->>'high')::INT, 48);
+  v_ttl_normal_hours     := COALESCE((v_cfg->'ttl_hours'->>'normal')::INT, 72);
+
   FOR v_inv IN
     SELECT bi.id, bi.institution_id, bi.student_id, bi.grand_total, bi.due_date,
            bi.invoice_number, bi.billing_period_from,
@@ -8965,12 +9007,14 @@ BEGIN
                      WHERE br.student_id = bi.student_id
                        AND br.receipt_date >= bi.billing_period_from), 0) AS paid_since_period
     FROM billing_invoices bi
-    WHERE bi.due_date < CURRENT_DATE - INTERVAL '30 days' AND bi.grand_total > 0
-    ORDER BY bi.due_date ASC LIMIT 500
+    WHERE bi.due_date < CURRENT_DATE - make_interval(days => v_min_days_overdue)
+      AND bi.grand_total > 0
+    ORDER BY bi.due_date ASC LIMIT v_batch_limit
   LOOP
     IF v_inv.paid_since_period >= v_inv.grand_total THEN CONTINUE; END IF;
-    v_priority := CASE WHEN v_inv.days_overdue > 90 THEN 'urgent'
-                       WHEN v_inv.days_overdue > 60 THEN 'high' ELSE 'normal' END;
+    v_priority := CASE WHEN v_inv.days_overdue > v_urgent_days_threshold THEN 'urgent'
+                       WHEN v_inv.days_overdue > v_high_days_threshold   THEN 'high'
+                       ELSE 'normal' END;
     SELECT TRIM(COALESCE(lp.first_name,'') || ' ' || COALESCE(lp.last_name,'')),
            COALESCE(lp.student_mobile, lp.father_mobile, lp.mother_mobile)
     INTO v_name, v_phone FROM learners_profiles lp WHERE lp.id = v_inv.student_id;
@@ -8981,13 +9025,13 @@ BEGIN
     FOR v_user IN
       SELECT DISTINCT p.id AS uid FROM profiles p
       WHERE p.institution_id = v_inv.institution_id
-        AND p.is_super_admin = FALSE
-        AND p.role IN ('director','admin','accounts','principal')
+        AND (NOT v_exclude_super_admin OR p.is_super_admin = FALSE)
+        AND p.role = ANY(v_target_roles)
     LOOP
       v_key := 'overdue_invoice:' || v_inv.id::text || ':' || CURRENT_DATE::text
                || ':' || v_user.uid::text;
       v_created := v_created + fn_create_dashboard_work_item(
-        'dashboard:escalation', v_priority,
+        v_category, v_priority,
         'Invoice ' || v_inv.invoice_number || ' overdue ' || v_inv.days_overdue || ' days — ₹' || v_inv.grand_total::text,
         v_name || ' owes ₹' || (v_inv.grand_total - v_inv.paid_since_period)::text || '. ' ||
           COALESCE('Contact: ' || v_phone, 'No phone on file.'),
@@ -8998,42 +9042,75 @@ BEGIN
           'url', '/billing/invoices/' || v_inv.id::text,
           'student_name', v_name, 'student_phone', v_phone),
         v_user.uid, v_key,
-        CASE WHEN v_priority = 'urgent' THEN 24 WHEN v_priority = 'high' THEN 48 ELSE 72 END);
+        CASE WHEN v_priority = 'urgent' THEN v_ttl_urgent_hours
+             WHEN v_priority = 'high'   THEN v_ttl_high_hours
+             ELSE v_ttl_normal_hours END);
     END LOOP;
   END LOOP;
   RETURN v_created;
 END $fn_ovd$;
 
 -- Generator 2: stale leads → dashboard:rescue
+-- Updated: 2026-04-29 - Wave B.2 — config-driven via fn_get_generator_config('stale_lead_rescue', fallback).
 CREATE OR REPLACE FUNCTION fn_generate_stale_lead_rescue_items()
 RETURNS INT LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $fn_lead$
 DECLARE
   v_created INT := 0; v_lead RECORD; v_key TEXT;
   v_target_user UUID; v_hours_stale INT;
+  -- Wave B.2: config-driven constants
+  v_cfg JSONB;
+  v_category TEXT;
+  v_min_age_hours INT;
+  v_max_age_days INT;
+  v_batch_limit INT;
+  v_target_roles_fallback TEXT[];
+  v_high_threshold_hours INT;
+  v_ttl_hours INT;
 BEGIN
+  v_cfg := fn_get_generator_config('stale_lead_rescue', '{
+    "category": "dashboard:rescue",
+    "min_age_hours": 24,
+    "max_age_days": 30,
+    "batch_limit": 300,
+    "target_roles_fallback": ["admission","admin","admission_staff","super_admin"],
+    "priority_thresholds_hours": {"high": 72},
+    "ttl_hours": 24
+  }'::jsonb);
+
+  v_category := COALESCE(v_cfg->>'category', 'dashboard:rescue');
+  v_min_age_hours := COALESCE((v_cfg->>'min_age_hours')::INT, 24);
+  v_max_age_days  := COALESCE((v_cfg->>'max_age_days')::INT, 30);
+  v_batch_limit   := COALESCE((v_cfg->>'batch_limit')::INT, 300);
+  v_target_roles_fallback := COALESCE(
+                              ARRAY(SELECT jsonb_array_elements_text(v_cfg->'target_roles_fallback')),
+                              ARRAY['admission','admin','admission_staff','super_admin']
+                            );
+  v_high_threshold_hours := COALESCE((v_cfg->'priority_thresholds_hours'->>'high')::INT, 72);
+  v_ttl_hours     := COALESCE((v_cfg->>'ttl_hours')::INT, 24);
+
   FOR v_lead IN
     SELECT al.id, al.institution_id, al.counselor_id,
            COALESCE(al.last_activity_at, al.created_at) AS last_touch,
            EXTRACT(EPOCH FROM (NOW() - COALESCE(al.last_activity_at, al.created_at)))/3600 AS hours_stale
     FROM admission_leads al
-    WHERE COALESCE(al.last_activity_at, al.created_at) < NOW() - INTERVAL '24 hours'
-      AND COALESCE(al.last_activity_at, al.created_at) > NOW() - INTERVAL '30 days'
-    ORDER BY last_touch ASC LIMIT 300
+    WHERE COALESCE(al.last_activity_at, al.created_at) < NOW() - make_interval(hours => v_min_age_hours)
+      AND COALESCE(al.last_activity_at, al.created_at) > NOW() - make_interval(days  => v_max_age_days)
+    ORDER BY last_touch ASC LIMIT v_batch_limit
   LOOP
     v_hours_stale := v_lead.hours_stale::INT;
     v_target_user := COALESCE(v_lead.counselor_id,
       (SELECT p.id FROM profiles p WHERE p.institution_id = v_lead.institution_id
-         AND p.role IN ('admission','admin','admission_staff','super_admin') LIMIT 1));
+         AND p.role = ANY(v_target_roles_fallback) LIMIT 1));
     IF v_target_user IS NULL THEN CONTINUE; END IF;
     v_key := 'stale_lead:' || v_lead.id::text || ':' || CURRENT_DATE::text;
     v_created := v_created + fn_create_dashboard_work_item(
-      'dashboard:rescue',
-      CASE WHEN v_hours_stale > 72 THEN 'high' ELSE 'normal' END,
+      v_category,
+      CASE WHEN v_hours_stale > v_high_threshold_hours THEN 'high' ELSE 'normal' END,
       'Lead stale for ' || v_hours_stale || 'h',
       'Lead hasn''t been touched in ' || v_hours_stale || ' hours. Call now or broadcast rescue to team.',
       jsonb_build_object('lead_id', v_lead.id, 'counselor_id', v_lead.counselor_id,
         'hours_stale', v_hours_stale, 'url', '/admission/leads/' || v_lead.id::text),
-      v_target_user, v_key, 24);
+      v_target_user, v_key, v_ttl_hours);
   END LOOP;
   RETURN v_created;
 END $fn_lead$;
@@ -9044,11 +9121,45 @@ END $fn_lead$;
 -- fn_resolve_dashboard_target(employee's institution) so unrouted leave
 -- requests still surface to the Director instead of disappearing.
 -- Mirrors fn_generate_recruitment_approval_items / fn_generate_unresolved_bug_items.
+-- Updated: 2026-04-29 - Wave B.2 — config-driven via fn_get_generator_config('pending_leave_approval', fallback).
 CREATE OR REPLACE FUNCTION fn_generate_pending_leave_approval_items()
 RETURNS INT LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $fn_leave$
 DECLARE
   v_created INT := 0; v_leave RECORD; v_target UUID; v_key TEXT; v_hours INT;
+  -- Wave B.2: config-driven constants
+  v_cfg JSONB;
+  v_category TEXT;
+  v_min_age_hours INT;
+  v_max_age_days INT;
+  v_batch_limit INT;
+  v_high_threshold_hours INT;
+  v_urgent_when_emergency BOOLEAN;
+  v_ttl_emergency_hours INT;
+  v_ttl_normal_hours INT;
+  v_fallback_to_director BOOLEAN;
 BEGIN
+  v_cfg := fn_get_generator_config('pending_leave_approval', '{
+    "category": "dashboard:approval",
+    "min_age_hours": 48,
+    "max_age_days": 30,
+    "batch_limit": 200,
+    "priority_thresholds_hours": {"high": 96},
+    "priority_overrides": {"urgent_when_is_emergency": true},
+    "ttl_hours": {"emergency": 4, "normal": 24},
+    "fallback_to_director": true,
+    "filters": {"status": "pending", "superseded_by_is_null": true}
+  }'::jsonb);
+
+  v_category             := COALESCE(v_cfg->>'category', 'dashboard:approval');
+  v_min_age_hours        := COALESCE((v_cfg->>'min_age_hours')::INT, 48);
+  v_max_age_days         := COALESCE((v_cfg->>'max_age_days')::INT, 30);
+  v_batch_limit          := COALESCE((v_cfg->>'batch_limit')::INT, 200);
+  v_high_threshold_hours := COALESCE((v_cfg->'priority_thresholds_hours'->>'high')::INT, 96);
+  v_urgent_when_emergency := COALESCE((v_cfg->'priority_overrides'->>'urgent_when_is_emergency')::BOOLEAN, true);
+  v_ttl_emergency_hours  := COALESCE((v_cfg->'ttl_hours'->>'emergency')::INT, 4);
+  v_ttl_normal_hours     := COALESCE((v_cfg->'ttl_hours'->>'normal')::INT, 24);
+  v_fallback_to_director := COALESCE((v_cfg->>'fallback_to_director')::BOOLEAN, true);
+
   FOR v_leave IN
     SELECT la.id, la.employee_id, la.final_approver_id,
            la.start_date, la.end_date, la.total_days, la.status,
@@ -9057,18 +9168,26 @@ BEGIN
            EXTRACT(EPOCH FROM (NOW() - la.created_at))/3600 AS hours_pending
     FROM hr_leave_applications la
     LEFT JOIN staff s ON s.id = la.employee_id
-    WHERE la.status = 'pending' AND la.created_at < NOW() - INTERVAL '48 hours'
-      AND la.created_at > NOW() - INTERVAL '30 days' AND la.superseded_by IS NULL
-    ORDER BY la.created_at ASC LIMIT 200
+    WHERE la.status = 'pending'
+      AND la.created_at < NOW() - make_interval(hours => v_min_age_hours)
+      AND la.created_at > NOW() - make_interval(days  => v_max_age_days)
+      AND la.superseded_by IS NULL
+    ORDER BY la.created_at ASC LIMIT v_batch_limit
   LOOP
     -- Fallback: route to Director when leave intake didn't set final_approver_id.
-    v_target := COALESCE(v_leave.final_approver_id, fn_resolve_dashboard_target(v_leave.institution_id));
-    IF v_target IS NULL THEN CONTINUE; END IF;  -- truly no super_admin exists; cannot route
+    IF v_fallback_to_director THEN
+      v_target := COALESCE(v_leave.final_approver_id, fn_resolve_dashboard_target(v_leave.institution_id));
+    ELSE
+      v_target := v_leave.final_approver_id;
+    END IF;
+    IF v_target IS NULL THEN CONTINUE; END IF;
     v_hours := v_leave.hours_pending::INT;
     v_key := 'leave_pending:' || v_leave.id::text || ':' || CURRENT_DATE::text;
     v_created := v_created + fn_create_dashboard_work_item(
-      'dashboard:approval',
-      CASE WHEN v_leave.is_emergency THEN 'urgent' WHEN v_hours > 96 THEN 'high' ELSE 'normal' END,
+      v_category,
+      CASE WHEN v_urgent_when_emergency AND v_leave.is_emergency THEN 'urgent'
+           WHEN v_hours > v_high_threshold_hours THEN 'high'
+           ELSE 'normal' END,
       'Leave request pending ' || v_hours || 'h — ' || v_leave.total_days::text || ' day(s)',
       COALESCE(v_leave.reason, 'No reason provided') || ' | ' ||
         v_leave.start_date::text || ' to ' || v_leave.end_date::text ||
@@ -9077,17 +9196,68 @@ BEGIN
         'days', v_leave.total_days, 'url', '/hr/leave/applications/' || v_leave.id::text,
         'is_emergency', v_leave.is_emergency,
         'unassigned_fallback', v_leave.final_approver_id IS NULL),
-      v_target, v_key, CASE WHEN v_leave.is_emergency THEN 4 ELSE 24 END);
+      v_target, v_key,
+      CASE WHEN v_leave.is_emergency THEN v_ttl_emergency_hours ELSE v_ttl_normal_hours END);
   END LOOP;
   RETURN v_created;
 END $fn_leave$;
 
 -- Generator 4: unmarked-attendance anomaly → dashboard:anomaly
+-- Updated: 2026-04-29 - Wave B.2 — config-driven via fn_get_generator_config('unmarked_attendance', fallback).
+-- Note: time_gate_ist_hour, learning_window_days, prioritize_emails are all
+-- config-row tunable. The body text "as of {hour}am" templates the gate hour,
+-- so changing the config row updates body copy too — no separate string config.
 CREATE OR REPLACE FUNCTION fn_generate_unmarked_attendance_items()
 RETURNS INT LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $fn_att$
-DECLARE v_created INT := 0; v_tt RECORD; v_target RECORD; v_key TEXT;
+DECLARE
+  v_created INT := 0; v_tt RECORD; v_target RECORD; v_key TEXT;
+  -- Wave B.2: config-driven constants
+  v_cfg JSONB;
+  v_category TEXT;
+  v_time_gate_ist_hour INT;
+  v_batch_limit_outer INT;
+  v_batch_limit_inner INT;
+  v_target_roles TEXT[];
+  v_exclude_super_admin BOOLEAN;
+  v_priority TEXT;
+  v_ttl_hours INT;
+  v_learning_window_days INT;
+  v_prioritize_emails TEXT[];
 BEGIN
-  IF EXTRACT(HOUR FROM (NOW() AT TIME ZONE 'Asia/Kolkata')) < 11 THEN RETURN 0; END IF;
+  v_cfg := fn_get_generator_config('unmarked_attendance', '{
+    "category": "dashboard:anomaly",
+    "time_gate_ist_hour": 11,
+    "batch_limit_outer": 100,
+    "batch_limit_inner": 50,
+    "target_roles": ["director","principal","hod","admin"],
+    "exclude_super_admin": true,
+    "priority": "normal",
+    "ttl_hours": 8,
+    "learning_window_days": 14,
+    "prioritize_emails": ["director@jkkn.ac.in"]
+  }'::jsonb);
+
+  v_category             := COALESCE(v_cfg->>'category', 'dashboard:anomaly');
+  v_time_gate_ist_hour   := COALESCE((v_cfg->>'time_gate_ist_hour')::INT, 11);
+  v_batch_limit_outer    := COALESCE((v_cfg->>'batch_limit_outer')::INT, 100);
+  v_batch_limit_inner    := COALESCE((v_cfg->>'batch_limit_inner')::INT, 50);
+  v_target_roles         := COALESCE(
+                              ARRAY(SELECT jsonb_array_elements_text(v_cfg->'target_roles')),
+                              ARRAY['director','principal','hod','admin']
+                            );
+  v_exclude_super_admin  := COALESCE((v_cfg->>'exclude_super_admin')::BOOLEAN, true);
+  v_priority             := COALESCE(v_cfg->>'priority', 'normal');
+  v_ttl_hours            := COALESCE((v_cfg->>'ttl_hours')::INT, 8);
+  v_learning_window_days := COALESCE((v_cfg->>'learning_window_days')::INT, 14);
+  v_prioritize_emails    := COALESCE(
+                              ARRAY(SELECT jsonb_array_elements_text(v_cfg->'prioritize_emails')),
+                              ARRAY['director@jkkn.ac.in']
+                            );
+
+  IF EXTRACT(HOUR FROM (NOW() AT TIME ZONE 'Asia/Kolkata')) < v_time_gate_ist_hour THEN
+    RETURN 0;
+  END IF;
+
   FOR v_tt IN
     SELECT t.id, t.institution_id, t.section_id, t.timetable_name
     FROM timetables t
@@ -9097,8 +9267,10 @@ BEGIN
         WHERE sa.timetable_id = t.id AND sa.attendance_date = CURRENT_DATE)
       AND EXISTS (SELECT 1 FROM student_attendance sa2
         WHERE sa2.timetable_id = t.id
-          AND sa2.attendance_date BETWEEN CURRENT_DATE - INTERVAL '14 days' AND CURRENT_DATE - INTERVAL '1 day')
-    LIMIT 100
+          AND sa2.attendance_date BETWEEN
+            CURRENT_DATE - make_interval(days => v_learning_window_days)
+            AND CURRENT_DATE - INTERVAL '1 day')
+    LIMIT v_batch_limit_outer
   LOOP
     v_key := 'unmarked_attendance:' || v_tt.id::text || ':' || CURRENT_DATE::text;
     -- 2026-04-23 targeting fix: (a) LIMIT 50 was LIMIT 5 — cut director off;
@@ -9111,22 +9283,22 @@ BEGIN
       SELECT p.id AS uid, p.email, p.institution_id AS p_inst
       FROM profiles p
       WHERE p.institution_id = v_tt.institution_id
-        AND p.is_super_admin = FALSE
-        AND p.role IN ('director','principal','hod','admin')
+        AND (NOT v_exclude_super_admin OR p.is_super_admin = FALSE)
+        AND p.role = ANY(v_target_roles)
       ORDER BY
-        CASE WHEN p.email = 'director@jkkn.ac.in' THEN 0
+        CASE WHEN p.email = ANY(v_prioritize_emails) THEN 0
              WHEN p.institution_id = v_tt.institution_id THEN 1
              ELSE 2 END,
         p.id
-      LIMIT 50
+      LIMIT v_batch_limit_inner
     LOOP
       v_created := v_created + fn_create_dashboard_work_item(
-        'dashboard:anomaly', 'normal',
+        v_category, v_priority,
         'Attendance not marked today — ' || COALESCE(v_tt.timetable_name, 'Section timetable'),
-        'No attendance rows for this timetable today as of 11am. Faculty may need a nudge.',
+        'No attendance rows for this timetable today as of ' || v_time_gate_ist_hour::text || 'am. Faculty may need a nudge.',
         jsonb_build_object('timetable_id', v_tt.id, 'section_id', v_tt.section_id,
           'url', '/academic/attendance/dashboard?timetable=' || v_tt.id::text),
-        v_target.uid, v_key || ':' || v_target.uid::text, 8);
+        v_target.uid, v_key || ':' || v_target.uid::text, v_ttl_hours);
     END LOOP;
   END LOOP;
   RETURN v_created;
@@ -9703,31 +9875,67 @@ GRANT EXECUTE ON FUNCTION public.migrate_pre_registered_profile_to_auth(uuid, uu
 -- all 19 rows with NULL final_approver_id; now routes to Director.
 -- Removed the "skip if super_admin" filter — queue surface IS Director's
 -- so super_admin-targeted items SHOULD appear there.
+-- Updated: 2026-04-29 - Wave B.2 — config-driven via fn_get_generator_config('recruitment_approval', fallback).
 CREATE OR REPLACE FUNCTION fn_generate_recruitment_approval_items()
 RETURNS INT LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $fn_recruit$
 DECLARE
   v_created INT := 0; v_cand RECORD; v_key TEXT; v_priority TEXT; v_target UUID;
+  -- Wave B.2: config-driven constants
+  v_cfg JSONB;
+  v_category TEXT;
+  v_min_age_hours INT;
+  v_max_age_days INT;
+  v_batch_limit INT;
+  v_high_threshold_hours INT;
+  v_urgent_when_emergency BOOLEAN;
+  v_ttl_emergency_hours INT;
+  v_ttl_normal_hours INT;
+  v_fallback_to_director BOOLEAN;
 BEGIN
+  v_cfg := fn_get_generator_config('recruitment_approval', '{
+    "category": "dashboard:approval",
+    "min_age_hours": 24,
+    "max_age_days": 90,
+    "batch_limit": 100,
+    "priority_thresholds_hours": {"high": 96},
+    "priority_overrides": {"urgent_when_is_emergency": true},
+    "ttl_hours": {"emergency": 8, "normal": 48},
+    "fallback_to_director": true
+  }'::jsonb);
+
+  v_category             := COALESCE(v_cfg->>'category', 'dashboard:approval');
+  v_min_age_hours        := COALESCE((v_cfg->>'min_age_hours')::INT, 24);
+  v_max_age_days         := COALESCE((v_cfg->>'max_age_days')::INT, 90);
+  v_batch_limit          := COALESCE((v_cfg->>'batch_limit')::INT, 100);
+  v_high_threshold_hours := COALESCE((v_cfg->'priority_thresholds_hours'->>'high')::INT, 96);
+  v_urgent_when_emergency := COALESCE((v_cfg->'priority_overrides'->>'urgent_when_is_emergency')::BOOLEAN, true);
+  v_ttl_emergency_hours  := COALESCE((v_cfg->'ttl_hours'->>'emergency')::INT, 8);
+  v_ttl_normal_hours     := COALESCE((v_cfg->'ttl_hours'->>'normal')::INT, 48);
+  v_fallback_to_director := COALESCE((v_cfg->>'fallback_to_director')::BOOLEAN, true);
+
   FOR v_cand IN
     SELECT id, name, role_title, role_category, final_approver_id, submitted_at,
            is_emergency, is_internal_transfer, institution_id,
            EXTRACT(EPOCH FROM (NOW() - submitted_at))/3600 AS hours_pending
     FROM hr_recruitment_candidates
     WHERE status = 'pending_approval'
-      AND submitted_at < NOW() - INTERVAL '24 hours'
-      AND submitted_at > NOW() - INTERVAL '90 days'
-    ORDER BY submitted_at ASC
-    LIMIT 100
+      AND submitted_at < NOW() - make_interval(hours => v_min_age_hours)
+      AND submitted_at > NOW() - make_interval(days  => v_max_age_days)
+    ORDER BY submitted_at ASC LIMIT v_batch_limit
   LOOP
     -- Fallback: route to Director when upstream HR didn't set final_approver_id.
-    v_target := COALESCE(v_cand.final_approver_id, fn_resolve_dashboard_target(v_cand.institution_id));
-    IF v_target IS NULL THEN CONTINUE; END IF;  -- truly no super_admin exists; cannot route
-    v_priority := CASE WHEN v_cand.is_emergency THEN 'urgent'
-                       WHEN v_cand.hours_pending > 96 THEN 'high'
+    IF v_fallback_to_director THEN
+      v_target := COALESCE(v_cand.final_approver_id, fn_resolve_dashboard_target(v_cand.institution_id));
+    ELSE
+      v_target := v_cand.final_approver_id;
+    END IF;
+    IF v_target IS NULL THEN CONTINUE; END IF;
+    v_priority := CASE WHEN v_urgent_when_emergency AND v_cand.is_emergency THEN 'urgent'
+                       WHEN v_cand.hours_pending > v_high_threshold_hours THEN 'high'
                        ELSE 'normal' END;
     v_key := 'recruitment:' || v_cand.id::text || ':' || CURRENT_DATE::text;
     v_created := v_created + fn_create_dashboard_work_item(
-      'dashboard:approval', v_priority,
+      v_category, v_priority,
       'Recruitment approval pending ' || v_cand.hours_pending::INT || 'h — ' || v_cand.role_title,
       v_cand.name || ' (' || v_cand.role_category || ')' ||
         CASE WHEN v_cand.is_internal_transfer THEN ' — internal transfer' ELSE '' END ||
@@ -9737,7 +9945,7 @@ BEGIN
         'unassigned_fallback', v_cand.final_approver_id IS NULL,
         'url', '/hr/recruitment/candidates/' || v_cand.id::text),
       v_target, v_key,
-      CASE WHEN v_cand.is_emergency THEN 8 ELSE 48 END);
+      CASE WHEN v_cand.is_emergency THEN v_ttl_emergency_hours ELSE v_ttl_normal_hours END);
   END LOOP;
   RETURN v_created;
 END $fn_recruit$;
@@ -9882,33 +10090,72 @@ END $fn_sr$;
 -- all 221 rows with NULL assigned_to_user_id; now routes to Director.
 -- Removed the "skip if super_admin" filter for symmetry with recruit fix.
 -- Bulk untriaged backlog still surfaces to Director via daily digest below.
+-- Updated: 2026-04-29 - Wave B.2 — config-driven via fn_get_generator_config('unresolved_bug', fallback).
 CREATE OR REPLACE FUNCTION fn_generate_unresolved_bug_items()
 RETURNS INT LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $fn_bug$
 DECLARE
   v_created INT := 0; v_bug RECORD; v_key TEXT; v_target UUID;
   v_age_days INT; v_priority TEXT;
+  -- Wave B.2: config-driven constants
+  v_cfg JSONB;
+  v_category TEXT;
+  v_status_filter TEXT;
+  v_min_age_hours INT;
+  v_max_age_days INT;
+  v_batch_limit INT;
+  v_excluded_triage_tags TEXT[];
+  v_high_threshold_days INT;
+  v_ttl_hours INT;
+  v_fallback_to_director BOOLEAN;
 BEGIN
+  v_cfg := fn_get_generator_config('unresolved_bug', '{
+    "category": "dashboard:rescue",
+    "status": "new",
+    "min_age_hours": 72,
+    "max_age_days": 180,
+    "batch_limit": 100,
+    "excluded_triage_tags": ["not_a_bug","duplicate","content_only","obsolete","feature_request"],
+    "priority_thresholds_days": {"high": 14},
+    "ttl_hours": 72,
+    "fallback_to_director": true
+  }'::jsonb);
+
+  v_category             := COALESCE(v_cfg->>'category', 'dashboard:rescue');
+  v_status_filter        := COALESCE(v_cfg->>'status', 'new');
+  v_min_age_hours        := COALESCE((v_cfg->>'min_age_hours')::INT, 72);
+  v_max_age_days         := COALESCE((v_cfg->>'max_age_days')::INT, 180);
+  v_batch_limit          := COALESCE((v_cfg->>'batch_limit')::INT, 100);
+  v_excluded_triage_tags := COALESCE(
+                              ARRAY(SELECT jsonb_array_elements_text(v_cfg->'excluded_triage_tags')),
+                              ARRAY['not_a_bug','duplicate','content_only','obsolete','feature_request']
+                            );
+  v_high_threshold_days  := COALESCE((v_cfg->'priority_thresholds_days'->>'high')::INT, 14);
+  v_ttl_hours            := COALESCE((v_cfg->>'ttl_hours')::INT, 72);
+  v_fallback_to_director := COALESCE((v_cfg->>'fallback_to_director')::BOOLEAN, true);
+
   FOR v_bug IN
     SELECT id, display_id, page_url, description, priority,
            assigned_to_user_id, institution_id, module_name,
            EXTRACT(EPOCH FROM (NOW() - created_at))/3600 AS hours_old
     FROM bug_reports
-    WHERE status = 'new'
-      AND created_at < NOW() - INTERVAL '72 hours'
-      AND created_at > NOW() - INTERVAL '180 days'
-      AND COALESCE(metadata->'triage'->>'tag', '')
-        NOT IN ('not_a_bug','duplicate','content_only','obsolete','feature_request')
-    ORDER BY created_at ASC
-    LIMIT 100
+    WHERE status = v_status_filter
+      AND created_at < NOW() - make_interval(hours => v_min_age_hours)
+      AND created_at > NOW() - make_interval(days  => v_max_age_days)
+      AND COALESCE(metadata->'triage'->>'tag', '') <> ALL(v_excluded_triage_tags)
+    ORDER BY created_at ASC LIMIT v_batch_limit
   LOOP
     -- Fallback: route to Director when bug-report intake didn't set assigned_to_user_id.
-    v_target := COALESCE(v_bug.assigned_to_user_id, fn_resolve_dashboard_target(v_bug.institution_id));
-    IF v_target IS NULL THEN CONTINUE; END IF;  -- truly no super_admin exists; cannot route
+    IF v_fallback_to_director THEN
+      v_target := COALESCE(v_bug.assigned_to_user_id, fn_resolve_dashboard_target(v_bug.institution_id));
+    ELSE
+      v_target := v_bug.assigned_to_user_id;
+    END IF;
+    IF v_target IS NULL THEN CONTINUE; END IF;
     v_age_days := (v_bug.hours_old/24)::INT;
-    v_priority := CASE WHEN v_age_days > 14 THEN 'high' ELSE 'normal' END;
+    v_priority := CASE WHEN v_age_days > v_high_threshold_days THEN 'high' ELSE 'normal' END;
     v_key := 'unresolved_bug:' || v_bug.id::text || ':' || CURRENT_DATE::text;
     v_created := v_created + fn_create_dashboard_work_item(
-      'dashboard:rescue', v_priority,
+      v_category, v_priority,
       'Bug ' || COALESCE(v_bug.display_id, SUBSTR(v_bug.id::text, 1, 8)) || ' aging ' || v_age_days || 'd',
       LEFT(v_bug.description, 140) || ' | ' || COALESCE(v_bug.module_name, 'unknown module') ||
         CASE WHEN v_bug.assigned_to_user_id IS NULL THEN ' — UNASSIGNED, routed to Director' ELSE '' END,
@@ -9916,7 +10163,7 @@ BEGIN
         'module', v_bug.module_name,
         'unassigned_fallback', v_bug.assigned_to_user_id IS NULL,
         'url', '/bug-reports/' || v_bug.id::text),
-      v_target, v_key, 72);
+      v_target, v_key, v_ttl_hours);
   END LOOP;
   RETURN v_created;
 END $fn_bug$;
@@ -9943,12 +10190,62 @@ REVOKE ALL ON FUNCTION fn_generate_unresolved_bug_items() FROM PUBLIC, anon, aut
 -- Idempotency key: grievance_ticket:<id>:<CURRENT_DATE>
 -- Category: dashboard:approval (per /cnext brief).
 -- =====================================================================
+-- Updated: 2026-04-29 - Wave B.2 — config-driven via fn_get_generator_config('unresolved_grievance', fallback).
+-- The 3 trigger conditions (sla_deadline_breached / escalation_level>0 / is_emergency)
+-- remain hardcoded as the OR-clause in the WHERE — config row's `trigger_conditions`
+-- field is descriptive (documents the policy intent) rather than dynamically dispatched.
+-- Priority/TTL thresholds ARE config-tunable.
 CREATE OR REPLACE FUNCTION fn_generate_unresolved_grievance_items()
 RETURNS INT LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $fn_griev$
 DECLARE
   v_created INT := 0; v_griev RECORD; v_key TEXT; v_target UUID;
   v_priority TEXT; v_hours_past_sla INT;
+  -- Wave B.2: config-driven constants
+  v_cfg JSONB;
+  v_category TEXT;
+  v_statuses TEXT[];
+  v_max_age_days INT;
+  v_batch_limit INT;
+  v_urgent_when_emergency BOOLEAN;
+  v_urgent_when_escalation_gte INT;
+  v_high_when_escalation_eq INT;
+  v_high_when_hours_past_sla_gt INT;
+  v_ttl_urgent_hours INT;
+  v_ttl_normal_hours INT;
+  v_fallback_to_director BOOLEAN;
 BEGIN
+  v_cfg := fn_get_generator_config('unresolved_grievance', '{
+    "category": "dashboard:approval",
+    "statuses": ["open","assigned","in_progress","escalated"],
+    "max_age_days": 90,
+    "batch_limit": 50,
+    "trigger_conditions": ["sla_deadline_breached","escalation_level_gt_0","is_emergency"],
+    "filters": {"withdrawn_at_is_null": true, "resolved_at_is_null": true},
+    "priority_overrides": {
+      "urgent_when_is_emergency": true,
+      "urgent_when_escalation_gte": 2,
+      "high_when_escalation_eq": 1,
+      "high_when_hours_past_sla_gt": 24
+    },
+    "ttl_hours": {"urgent_or_escalation_gte_2": 4, "normal": 24},
+    "fallback_to_director": true
+  }'::jsonb);
+
+  v_category             := COALESCE(v_cfg->>'category', 'dashboard:approval');
+  v_statuses             := COALESCE(
+                              ARRAY(SELECT jsonb_array_elements_text(v_cfg->'statuses')),
+                              ARRAY['open','assigned','in_progress','escalated']
+                            );
+  v_max_age_days         := COALESCE((v_cfg->>'max_age_days')::INT, 90);
+  v_batch_limit          := COALESCE((v_cfg->>'batch_limit')::INT, 50);
+  v_urgent_when_emergency := COALESCE((v_cfg->'priority_overrides'->>'urgent_when_is_emergency')::BOOLEAN, true);
+  v_urgent_when_escalation_gte := COALESCE((v_cfg->'priority_overrides'->>'urgent_when_escalation_gte')::INT, 2);
+  v_high_when_escalation_eq := COALESCE((v_cfg->'priority_overrides'->>'high_when_escalation_eq')::INT, 1);
+  v_high_when_hours_past_sla_gt := COALESCE((v_cfg->'priority_overrides'->>'high_when_hours_past_sla_gt')::INT, 24);
+  v_ttl_urgent_hours     := COALESCE((v_cfg->'ttl_hours'->>'urgent_or_escalation_gte_2')::INT, 4);
+  v_ttl_normal_hours     := COALESCE((v_cfg->'ttl_hours'->>'normal')::INT, 24);
+  v_fallback_to_director := COALESCE((v_cfg->>'fallback_to_director')::BOOLEAN, true);
+
   FOR v_griev IN
     SELECT id, ticket_number, subject, description, institution_id,
            priority, status, sla_deadline, sla_status, escalation_level,
@@ -9957,27 +10254,31 @@ BEGIN
                 THEN EXTRACT(EPOCH FROM (NOW() - sla_deadline))/3600
                 ELSE 0 END AS hours_past_sla
     FROM grievance_tickets
-    WHERE status IN ('open','assigned','in_progress','escalated')
-      AND created_at > NOW() - INTERVAL '90 days'
+    WHERE status = ANY(v_statuses)
+      AND created_at > NOW() - make_interval(days => v_max_age_days)
       AND (sla_deadline < NOW() OR escalation_level > 0 OR is_emergency = TRUE)
       AND withdrawn_at IS NULL
       AND resolved_at IS NULL
     ORDER BY escalation_level DESC NULLS LAST, sla_deadline ASC NULLS LAST
-    LIMIT 50
+    LIMIT v_batch_limit
   LOOP
-    v_target := COALESCE(v_griev.assigned_to, fn_resolve_dashboard_target(v_griev.institution_id));
+    IF v_fallback_to_director THEN
+      v_target := COALESCE(v_griev.assigned_to, fn_resolve_dashboard_target(v_griev.institution_id));
+    ELSE
+      v_target := v_griev.assigned_to;
+    END IF;
     IF v_target IS NULL THEN CONTINUE; END IF;
     v_hours_past_sla := v_griev.hours_past_sla::INT;
     v_priority := CASE
-      WHEN v_griev.is_emergency THEN 'urgent'
-      WHEN v_griev.escalation_level >= 2 THEN 'urgent'
-      WHEN v_griev.escalation_level = 1 THEN 'high'
-      WHEN v_hours_past_sla > 24 THEN 'high'
+      WHEN v_urgent_when_emergency AND v_griev.is_emergency THEN 'urgent'
+      WHEN v_griev.escalation_level >= v_urgent_when_escalation_gte THEN 'urgent'
+      WHEN v_griev.escalation_level = v_high_when_escalation_eq THEN 'high'
+      WHEN v_hours_past_sla > v_high_when_hours_past_sla_gt THEN 'high'
       ELSE 'normal'
     END;
     v_key := 'grievance_ticket:' || v_griev.id::text || ':' || CURRENT_DATE::text;
     v_created := v_created + fn_create_dashboard_work_item(
-      'dashboard:approval', v_priority,
+      v_category, v_priority,
       'Grievance ' || v_griev.ticket_number || ' — ' || LEFT(v_griev.subject, 80),
       LEFT(v_griev.description, 140) ||
         CASE WHEN v_griev.escalation_level > 0 THEN ' | escalated L' || v_griev.escalation_level::text ELSE '' END ||
@@ -9993,7 +10294,11 @@ BEGIN
         'url', '/grievances/' || v_griev.id::text
       ),
       v_target, v_key,
-      CASE WHEN v_griev.is_emergency OR v_griev.escalation_level >= 2 THEN 4 ELSE 24 END
+      CASE
+        WHEN v_griev.is_emergency OR v_griev.escalation_level >= v_urgent_when_escalation_gte
+          THEN v_ttl_urgent_hours
+        ELSE v_ttl_normal_hours
+      END
     );
   END LOOP;
   RETURN v_created;
