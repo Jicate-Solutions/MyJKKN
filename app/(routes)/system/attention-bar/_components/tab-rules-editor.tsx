@@ -432,9 +432,7 @@ export function TabRulesEditor({ open, rule, onClose }: TabRulesEditorProps) {
             <Textarea
               id='when_clause'
               value={whenJson.raw}
-              onChange={(e) =>
-                setWhenJson({ raw: e.target.value, parsed: whenJson.parsed, error: whenJson.error })
-              }
+              onChange={(e) => setWhenJson(parseJsonField(e.target.value))}
               onBlur={() => setWhenJson(parseJsonField(whenJson.raw))}
               rows={8}
               className={`font-mono text-xs ${
@@ -457,13 +455,7 @@ export function TabRulesEditor({ open, rule, onClose }: TabRulesEditorProps) {
             <Textarea
               id='action_template'
               value={actionJson.raw}
-              onChange={(e) =>
-                setActionJson({
-                  raw: e.target.value,
-                  parsed: actionJson.parsed,
-                  error: actionJson.error,
-                })
-              }
+              onChange={(e) => setActionJson(parseJsonField(e.target.value))}
               onBlur={() => setActionJson(parseJsonField(actionJson.raw))}
               rows={10}
               className={`font-mono text-xs ${

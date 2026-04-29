@@ -7,8 +7,16 @@
  * institutions with zero active counselors.
  *
  * Renders only when either condition is true:
- *   - Top counselor open_leads > 3× median, OR
- *   - At least one institution has zero active counselors
+ *   - Top counselor open_leads / median > max_to_median_ratio.ratio (config row), OR
+ *   - Top counselor open_leads > max_open_leads_alert.threshold (config row), OR
+ *   - At least orphan_institution_alert.min_unassigned institutions have unassigned
+ *     leads + 0 active counselors (config row)
+ *
+ * All thresholds are loaded from the staffing_alert_thresholds table via
+ * useStaffingThreshold(). Edit them at /admin/counselors/alert-thresholds
+ * (super_admin only). Defaults match prior hardcoded behaviour.
+ *
+ * Director's STANDING RULE — every policy decision = config-table row + super_admin UI.
  *
  * Reuses DataAlertBanner from PR #544 (components/shared/data-alert-banner).
  *
@@ -18,24 +26,36 @@
 
 import { DataAlertBanner } from '@/components/shared/data-alert-banner/data-alert-banner';
 import { useCounselorStaffingStats } from '@/hooks/admission/use-counselor-staffing-stats';
-
-const OVERLOAD_RATIO_THRESHOLD = 3;
+import { useStaffingThreshold } from '@/lib/services/admin/staffing-alert-thresholds-service';
 
 export function CounselorStaffingAlert() {
   const { stats, loading } = useCounselorStaffingStats();
+  const { value: ratioCfg } = useStaffingThreshold('max_to_median_ratio');
+  const { value: maxLoadCfg } = useStaffingThreshold('max_open_leads_alert');
+  const { value: orphanCfg } = useStaffingThreshold('orphan_institution_alert');
 
   if (loading || !stats) return null;
 
-  const hasOverload = stats.ratio > OVERLOAD_RATIO_THRESHOLD;
-  const hasOrphans = stats.orphan_count > 0;
+  const ratioThreshold = ratioCfg.ratio;
+  const maxLoadThreshold = maxLoadCfg.threshold;
+  const minUnassignedThreshold = orphanCfg.min_unassigned;
+
+  const hasRatioOverload = stats.ratio > ratioThreshold;
+  const hasAbsoluteOverload = stats.top_load > maxLoadThreshold;
+  const hasOverload = hasRatioOverload || hasAbsoluteOverload;
+  const hasOrphans = stats.orphan_count >= minUnassignedThreshold;
 
   if (!hasOverload && !hasOrphans) return null;
 
   // Build a human-readable description combining both signals
   const parts: string[] = [];
-  if (hasOverload) {
+  if (hasRatioOverload) {
     parts.push(
       `Highest-load counselor has ${stats.top_load.toLocaleString()} open leads (${stats.ratio}× the median of ${stats.median_load.toLocaleString()}).`,
+    );
+  } else if (hasAbsoluteOverload) {
+    parts.push(
+      `Highest-load counselor has ${stats.top_load.toLocaleString()} open leads (above the configured ${maxLoadThreshold.toLocaleString()}-lead overload threshold).`,
     );
   }
   if (hasOrphans) {
@@ -50,9 +70,11 @@ export function CounselorStaffingAlert() {
   // Use top_load when overloaded, orphan_count otherwise.
   const primaryCount = hasOverload ? stats.top_load : stats.orphan_count;
 
-  const title = hasOverload
+  const title = hasRatioOverload
     ? `Counselor staffing imbalance detected — ${stats.ratio}× load ratio`
-    : `${stats.orphan_count} institution${stats.orphan_count !== 1 ? 's' : ''} without active counselors`;
+    : hasAbsoluteOverload
+      ? `Counselor overload — ${stats.top_load.toLocaleString()} open leads on one counselor`
+      : `${stats.orphan_count} institution${stats.orphan_count !== 1 ? 's' : ''} without active counselors`;
 
   return (
     <DataAlertBanner

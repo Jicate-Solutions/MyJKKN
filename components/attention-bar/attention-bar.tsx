@@ -39,6 +39,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import type { ResolvedAction } from '@/lib/attention-bar/types';
 import {
   Activity,
   AlertCircle,
@@ -215,7 +216,153 @@ const TONE_STYLES: Record<Tone, ToneStyle> = {
 };
 
 // ─────────────────────────────────────────────────────────────────
-// Component
+// AttentionPill — inner pill renderer
+//
+// One pill = one resolved action. The outer AttentionBar handles fixed
+// positioning + role="status" + a11y framing; this helper handles the
+// Link + tone styling + icon/CTA/label layout.
+//
+// `layoutMode`:
+//   - 'full' — single full-width pill (legacy single-pill behaviour). The
+//              `flex-1 min-w-0` wrapping done by the parent is harmless
+//              here because the parent passes a single child.
+//   - 'half' — half-width pill for the 2-half split layout. The parent
+//              wraps two of these in a `flex gap-2` row, each child
+//              gets `flex-1 min-w-0`. We drop the secondary `context`
+//              line and tighten the icon tile + horizontal padding so
+//              the CTA + label still fit on iPhone-SE width. Tap-target
+//              minimum height stays at 48px.
+//
+// CTA-on-LEFT pattern (matches PR #621): the CTA pill comes BEFORE the
+// label/context block in DOM order, so on the rendered screen the CTA
+// hugs the LEFT edge of the pill. This avoids collision with the
+// right-side floating action buttons (bug-report FAB + lightning FAB
+// at z-[80]+). The label container takes flex-1 + min-w-0 so it
+// truncates harmlessly to fill the remaining horizontal space.
+// ─────────────────────────────────────────────────────────────────
+
+interface AttentionPillProps {
+  action: ResolvedAction;
+  layoutMode: 'full' | 'half';
+}
+
+function AttentionPill({ action, layoutMode }: AttentionPillProps) {
+  const styles = TONE_STYLES[action.tone];
+  const Icon = resolveIcon(action.icon);
+  const isHalf = layoutMode === 'half';
+
+  return (
+    <Link
+      href={action.href}
+      prefetch={false}
+      className={cn(
+        'pointer-events-auto relative block overflow-hidden rounded-2xl',
+        'min-h-[48px]',
+        // Tighter horizontal padding when half-width — every pixel matters
+        // on iPhone-SE-class screens once the bar splits.
+        isHalf ? 'px-2 py-2' : 'px-3 py-2',
+        // In half mode, fill the parent flex track; in full mode the parent
+        // is a positioned div (no flex), so block-level is correct.
+        isHalf && 'h-full w-full min-w-0 flex-1',
+        'ring-1 ring-inset',
+        'transition-transform active:scale-[0.99]',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-black/20',
+        styles.bg,
+        styles.shadow,
+        styles.ring,
+        styles.pulse && 'animate-pulse',
+      )}
+      data-attention-pill-layout={layoutMode}
+      aria-label={`${action.label}. ${action.cta}.`}
+    >
+      {/* Tier-D holo shimmer — only for urgent. Conic-gradient rotated by
+          the holo-spin keyframe (6s linear). Matches TodaysFocusCard +
+          BottomNavItem treatment so the visual language is consistent. */}
+      {styles.shimmer && (
+        <span
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 animate-holo-spin"
+          style={{
+            background:
+              'conic-gradient(from 45deg at 50% 50%, rgba(255,255,255,0) 0deg, rgba(255,255,255,0.28) 60deg, rgba(255,255,255,0) 120deg, rgba(255,200,255,0.22) 180deg, rgba(255,255,255,0) 240deg, rgba(200,255,255,0.22) 300deg, rgba(255,255,255,0) 360deg)',
+          }}
+        />
+      )}
+      {/* Static specular highlight — anchored upper-left light cue.
+          Painted above the rotating shimmer so the sheen position
+          stays fixed (matches BottomNav tile treatment). */}
+      <span
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 rounded-2xl bg-gradient-to-br from-white/25 via-white/0 to-transparent"
+      />
+
+      <div className={cn('relative z-10 flex items-center', isHalf ? 'gap-2' : 'gap-3')}>
+        {/* Icon tile — slightly smaller in half mode to free up label width. */}
+        <div
+          className={cn(
+            'flex shrink-0 items-center justify-center rounded-xl ring-1 ring-inset ring-white/30',
+            isHalf ? 'h-8 w-8' : 'h-9 w-9',
+            styles.iconBg,
+          )}
+          aria-hidden="true"
+        >
+          <Icon className={isHalf ? 'h-4 w-4' : 'h-5 w-5'} />
+        </div>
+
+        {/* CTA pill — left-anchored to avoid collision with the right-side
+            floating action buttons (bug-report FAB + lightning FAB at
+            z-[80]+). The label below truncates harmlessly if FABs overlap
+            its right edge. Same pattern shipped in PR #621 for the
+            full-width case; we extend it to both halves of the split. */}
+        <span
+          className={cn(
+            'shrink-0 rounded-lg font-semibold shadow-sm ring-1 ring-inset ring-white/40',
+            isHalf ? 'px-2 py-1 text-[11px]' : 'px-3 py-1.5 text-[12px]',
+            styles.ctaBg,
+          )}
+        >
+          {action.cta}
+        </span>
+
+        {/* Label + context — flex-1 fills the remaining space to the right.
+            In half mode we drop the secondary context line so the headline
+            has more room to breathe; truncation is aggressive on both lines. */}
+        <div className="min-w-0 flex-1">
+          <p
+            className={cn(
+              'truncate font-semibold leading-tight text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.3)]',
+              isHalf ? 'text-[13px]' : 'text-[15px]',
+            )}
+          >
+            {action.label}
+          </p>
+          {/* Drop context in half mode — narrower width can't carry two
+              lines of text without truncating both into illegibility. */}
+          {!isHalf && action.context && (
+            <p className="truncate text-[12px] leading-tight text-white/80">
+              {action.context}
+            </p>
+          )}
+        </div>
+      </div>
+    </Link>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────
+// AttentionBar — outer fixed-position wrapper
+//
+// Reads `{ primary, secondary }` from the resolver via useAttentionBar.
+// Render branches:
+//   - both null            → empty state, render only RealtimeListener
+//   - primary only         → single full-width AttentionPill (current
+//                            production behaviour, unchanged)
+//   - primary + secondary  → 2-half split: a flex row with two AttentionPills
+//                            (50% each minus 8px gap), both using the
+//                            CTA-on-LEFT pattern.
+//
+// Until the follow-up resolver-extension PR populates `secondary`, this
+// component always takes the single-pill branch on production.
 // ─────────────────────────────────────────────────────────────────
 
 export function AttentionBar() {
@@ -272,23 +419,35 @@ export function AttentionBar() {
     );
   }
 
-  const action = data?.resolved;
-  if (!action) return <RealtimeListener />;
+  // Read the new bundle. Backcompat: if a stale API/cache still returns
+  // only `resolved`, treat it as `primary`. Production currently always
+  // returns `primary` populated and `secondary === null`.
+  const primary = data?.primary ?? data?.resolved ?? null;
+  const secondary = data?.secondary ?? null;
 
-  const styles = TONE_STYLES[action.tone];
-  const Icon = resolveIcon(action.icon);
+  if (!primary) return <RealtimeListener />;
+
+  const hasSecondary = secondary !== null;
 
   return (
     <div
       data-attention-bar
       // Canonical attribute for external monitoring/QA — the layer that fired
-      // for this render. Phase 7 polish: scrapers must not need to traverse
-      // classNames or guess from tone/icon. `data-fired-layer` is kept as an
-      // alias for backward-compat with anything that already shipped against
-      // the early Phase 2 attribute name.
-      data-attention-bar-layer={action.firedLayer}
-      data-fired-layer={action.firedLayer}
-      data-tone={action.tone}
+      // for the PRIMARY pill. Phase 7 polish: scrapers must not need to
+      // traverse classNames or guess from tone/icon. `data-fired-layer` is
+      // kept as an alias for backward-compat with anything that already
+      // shipped against the early Phase 2 attribute name.
+      data-attention-bar-layer={primary.firedLayer}
+      data-fired-layer={primary.firedLayer}
+      data-tone={primary.tone}
+      // Optional secondary metadata — exposed only when a second pill renders
+      // so QA scrapers can assert split-mode vs single-mode without DOM
+      // traversal. Absent when secondary is null (production today).
+      {...(hasSecondary && {
+        'data-attention-bar-secondary-layer': secondary.firedLayer,
+        'data-attention-bar-secondary-tone': secondary.tone,
+        'data-attention-bar-mode': 'split',
+      })}
       // Fixed positioning, anchored above the bottom-nav strip.
       // The bottom-nav itself is a `fixed bottom-0 z-[80]` element ~64px tall
       // on mobile (icons + label + safe-area). We sit just above it: bottom
@@ -304,80 +463,28 @@ export function AttentionBar() {
       }}
       role="status"
       aria-live="polite"
-      aria-label={`Attention bar: ${action.label}`}
+      aria-label={
+        hasSecondary
+          ? `Attention bar: ${primary.label}; ${secondary.label}`
+          : `Attention bar: ${primary.label}`
+      }
     >
-      <Link
-        href={action.href}
-        prefetch={false}
-        className={cn(
-          'pointer-events-auto relative block overflow-hidden rounded-2xl',
-          'min-h-[48px] px-3 py-2',
-          'ring-1 ring-inset',
-          'transition-transform active:scale-[0.99]',
-          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-black/20',
-          styles.bg,
-          styles.shadow,
-          styles.ring,
-          styles.pulse && 'animate-pulse',
-        )}
-        aria-label={`${action.label}. ${action.cta}.`}
-      >
-        {/* Tier-D holo shimmer — only for urgent. Conic-gradient rotated by
-            the holo-spin keyframe (6s linear). Matches TodaysFocusCard +
-            BottomNavItem treatment so the visual language is consistent. */}
-        {styles.shimmer && (
-          <span
-            aria-hidden="true"
-            className="pointer-events-none absolute inset-0 animate-holo-spin"
-            style={{
-              background:
-                'conic-gradient(from 45deg at 50% 50%, rgba(255,255,255,0) 0deg, rgba(255,255,255,0.28) 60deg, rgba(255,255,255,0) 120deg, rgba(255,200,255,0.22) 180deg, rgba(255,255,255,0) 240deg, rgba(200,255,255,0.22) 300deg, rgba(255,255,255,0) 360deg)',
-            }}
-          />
-        )}
-        {/* Static specular highlight — anchored upper-left light cue.
-            Painted above the rotating shimmer so the sheen position
-            stays fixed (matches BottomNav tile treatment). */}
-        <span
-          aria-hidden="true"
-          className="pointer-events-none absolute inset-0 rounded-2xl bg-gradient-to-br from-white/25 via-white/0 to-transparent"
-        />
-
-        <div className="relative z-10 flex items-center gap-3">
-          {/* Icon tile */}
-          <div
-            className={cn(
-              'flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ring-1 ring-inset ring-white/30',
-              styles.iconBg,
-            )}
-            aria-hidden="true"
-          >
-            <Icon className="h-5 w-5" />
-          </div>
-
-          {/* Label + context — flex-1 so CTA hugs the right edge. */}
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-[15px] font-semibold leading-tight text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.3)]">
-              {action.label}
-            </p>
-            {action.context && (
-              <p className="truncate text-[12px] leading-tight text-white/80">
-                {action.context}
-              </p>
-            )}
-          </div>
-
-          {/* CTA pill */}
-          <span
-            className={cn(
-              'shrink-0 rounded-lg px-3 py-1.5 text-[12px] font-semibold shadow-sm ring-1 ring-inset ring-white/40',
-              styles.ctaBg,
-            )}
-          >
-            {action.cta}
-          </span>
+      {hasSecondary ? (
+        // 2-half split — both pills get flex-1 + min-w-0 so they share
+        // bar width 50/50 with an 8px (gap-2) gap between them. The
+        // pointer-events-none on the outer wrapper passes clicks through
+        // to each Link individually.
+        <div className="flex w-full items-stretch gap-2">
+          <AttentionPill action={primary} layoutMode="half" />
+          <AttentionPill action={secondary} layoutMode="half" />
         </div>
-      </Link>
+      ) : (
+        // Single full-width pill — current production render path. Visual
+        // output is identical to pre-split-bar production (modulo PR #621's
+        // CTA-on-LEFT reorder which AttentionPill carries as the only
+        // canonical layout).
+        <AttentionPill action={primary} layoutMode="full" />
+      )}
     </div>
   );
 }

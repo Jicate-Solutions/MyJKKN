@@ -7,6 +7,7 @@
 // ============================================================================
 
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { getPolicyInt } from '@/lib/policies/get-policy-client';
 
 export interface ComplianceReportData {
   generatedAt: string; // ISO
@@ -65,14 +66,27 @@ export interface ComplianceReportData {
   }>;
 }
 
-const ORPHAN_LIST_LIMIT = 25;
-const MISMATCH_LIST_LIMIT = 25;
-const TOP_RLS_TABLES_LIMIT = 10;
+// List-limit constants now live in platform_policies (Phase 1.5a, 2026-04-29).
+// Tunable from super_admin UI without redeploy. Defaults below match the
+// historical hardcoded values (25 / 25 / 10) so behaviour is unchanged on
+// missing rows.
+// Migration: supabase/migrations/20260429000014_permissions_audit_limits_policy.sql
 
 export async function getComplianceReportData(
   serviceClient: SupabaseClient,
   generatedBy: { email: string; fullName: string | null },
 ): Promise<ComplianceReportData> {
+  // Resolve list limits from platform_policies in parallel with the data fan-out.
+  const [
+    ORPHAN_LIST_LIMIT,
+    MISMATCH_LIST_LIMIT,
+    TOP_RLS_TABLES_LIMIT,
+  ] = await Promise.all([
+    getPolicyInt('permissions_audit.orphan_list_limit' as any, 25),
+    getPolicyInt('permissions_audit.mismatch_list_limit' as any, 25),
+    getPolicyInt('permissions_audit.top_rls_tables_limit' as any, 10),
+  ]);
+
   // Fire every query in parallel — report is read-only, can't corrupt anything.
   const [
     profilesCountRes,

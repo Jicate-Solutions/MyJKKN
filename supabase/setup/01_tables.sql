@@ -4947,3 +4947,266 @@ INSERT INTO public.quick_action_config (key, value) VALUES
     ('layer_4.cache_ttl_minutes',      '60'::jsonb),
     ('layer_0.queue_pip_visible_at',   '1'::jsonb)
 ON CONFLICT (key) DO NOTHING;
+
+-- =====================================================
+-- 2026-04-29: HR Sprint 5 Attendance schema
+-- (per specs/hrapp-sprint-5-attendance-spec.md)
+-- =====================================================
+
+-- Forward-compatible: hr_employees.user_id for self-RLS
+ALTER TABLE hr_employees
+  ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES profiles(id);
+CREATE INDEX IF NOT EXISTS hr_employees_user_id_idx ON hr_employees(user_id);
+
+-- 1. Master: status types
+CREATE TABLE IF NOT EXISTS hr_attendance_status_types (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  institution_id UUID REFERENCES institutions(id),
+  code VARCHAR(20) NOT NULL,
+  label VARCHAR(50) NOT NULL,
+  affects_lop BOOLEAN DEFAULT FALSE,
+  affects_leave_balance BOOLEAN DEFAULT FALSE,
+  late_grace_minutes INT DEFAULT 0,
+  is_system BOOLEAN DEFAULT FALSE,
+  is_active BOOLEAN DEFAULT TRUE,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS hr_attendance_status_types_inst_code_uidx
+  ON hr_attendance_status_types (
+    COALESCE(institution_id, '00000000-0000-0000-0000-000000000000'::uuid),
+    code
+  );
+
+-- 2. Master: regularization reasons
+CREATE TABLE IF NOT EXISTS hr_regularization_reasons (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  institution_id UUID REFERENCES institutions(id),
+  code VARCHAR(30) NOT NULL,
+  label VARCHAR(100) NOT NULL,
+  is_system BOOLEAN DEFAULT FALSE,
+  is_active BOOLEAN DEFAULT TRUE,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS hr_regularization_reasons_inst_code_uidx
+  ON hr_regularization_reasons (
+    COALESCE(institution_id, '00000000-0000-0000-0000-000000000000'::uuid),
+    code
+  );
+
+-- 3. Daily attendance records (UNIQUE employee_id + work_date)
+CREATE TABLE IF NOT EXISTS hr_attendance_records (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  employee_id UUID NOT NULL REFERENCES hr_employees(id),
+  hr_organization_id UUID NOT NULL REFERENCES hr_organizations(id),
+  institution_id UUID REFERENCES institutions(id),
+  work_date DATE NOT NULL,
+  status_type_id UUID NOT NULL REFERENCES hr_attendance_status_types(id),
+  in_at TIMESTAMPTZ,
+  out_at TIMESTAMPTZ,
+  source VARCHAR(20) NOT NULL,
+  day_calc VARCHAR(15) DEFAULT 'FULL',
+  hours_worked NUMERIC(4, 2),
+  gps_lat NUMERIC(9, 6),
+  gps_lng NUMERIC(9, 6),
+  gps_accuracy_m INT,
+  recomputed_from_event_id UUID,
+  reconciled_by UUID REFERENCES profiles(id),
+  reconciled_at TIMESTAMPTZ,
+  notes TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  CONSTRAINT hr_attendance_records_employee_date_uniq UNIQUE (employee_id, work_date)
+);
+CREATE INDEX IF NOT EXISTS hr_attendance_records_emp_date_idx
+  ON hr_attendance_records(employee_id, work_date DESC);
+CREATE INDEX IF NOT EXISTS hr_attendance_records_org_date_idx
+  ON hr_attendance_records(hr_organization_id, work_date DESC);
+CREATE INDEX IF NOT EXISTS hr_attendance_records_inst_date_idx
+  ON hr_attendance_records(institution_id, work_date DESC);
+
+-- 4. Regularization workflow
+CREATE TABLE IF NOT EXISTS hr_attendance_regularizations (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  employee_id UUID NOT NULL REFERENCES hr_employees(id),
+  attendance_record_id UUID REFERENCES hr_attendance_records(id),
+  for_date DATE NOT NULL,
+  reason_code_id UUID REFERENCES hr_regularization_reasons(id),
+  reason_text TEXT,
+  proposed_status_type_id UUID REFERENCES hr_attendance_status_types(id),
+  proposed_in_at TIMESTAMPTZ,
+  proposed_out_at TIMESTAMPTZ,
+  status VARCHAR(20) DEFAULT 'pending',
+  approver_id UUID REFERENCES profiles(id),
+  approved_at TIMESTAMPTZ,
+  rejection_reason TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS hr_attendance_regs_emp_date_idx
+  ON hr_attendance_regularizations(employee_id, for_date DESC);
+CREATE INDEX IF NOT EXISTS hr_attendance_regs_status_idx
+  ON hr_attendance_regularizations(status) WHERE status='pending';
+
+-- 5. Exceptions queue
+CREATE TABLE IF NOT EXISTS hr_attendance_exceptions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  employee_id UUID REFERENCES hr_employees(id),
+  hr_organization_id UUID REFERENCES hr_organizations(id),
+  institution_id UUID REFERENCES institutions(id),
+  exception_date DATE NOT NULL,
+  exception_type VARCHAR(30) NOT NULL,
+  raw_payload JSONB,
+  resolution_status VARCHAR(20) DEFAULT 'open',
+  resolved_by UUID REFERENCES profiles(id),
+  resolved_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS hr_attendance_excs_emp_date_idx
+  ON hr_attendance_exceptions(employee_id, exception_date DESC);
+CREATE INDEX IF NOT EXISTS hr_attendance_excs_status_idx
+  ON hr_attendance_exceptions(resolution_status) WHERE resolution_status='open';
+
+-- 6. Audit log (parallel to attendance_audit_log; different FK shape)
+CREATE TABLE IF NOT EXISTS hr_attendance_audit_log (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  attendance_record_id UUID REFERENCES hr_attendance_records(id),
+  employee_id UUID REFERENCES hr_employees(id),
+  institution_id UUID REFERENCES institutions(id),
+  actor_id UUID REFERENCES profiles(id),
+  action VARCHAR(30) NOT NULL,
+  before_state JSONB,
+  after_state JSONB,
+  reason TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS hr_attendance_audit_record_idx
+  ON hr_attendance_audit_log(attendance_record_id);
+CREATE INDEX IF NOT EXISTS hr_attendance_audit_inst_created_idx
+  ON hr_attendance_audit_log(institution_id, created_at DESC);
+
+-- 7. Biometric devices master (vendor-agnostic, Round 2.1)
+DO $$ BEGIN
+  CREATE TYPE hr_biometric_vendor AS ENUM ('eSSL', 'ZKTeco', 'Suprema', 'Anviz', 'Other');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+CREATE TABLE IF NOT EXISTS hr_biometric_devices (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  hr_organization_id UUID REFERENCES hr_organizations(id),
+  institution_id UUID REFERENCES institutions(id),
+  device_name VARCHAR(100) NOT NULL,
+  vendor hr_biometric_vendor NOT NULL,
+  device_serial VARCHAR(100),
+  device_token VARCHAR(255),
+  location_label VARCHAR(150),
+  gps_lat NUMERIC(9, 6),
+  gps_lng NUMERIC(9, 6),
+  is_active BOOLEAN DEFAULT TRUE,
+  last_seen_at TIMESTAMPTZ,
+  config JSONB,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS hr_biometric_devices_org_idx
+  ON hr_biometric_devices(hr_organization_id);
+CREATE UNIQUE INDEX IF NOT EXISTS hr_biometric_devices_serial_uidx
+  ON hr_biometric_devices(device_serial) WHERE device_serial IS NOT NULL;
+
+-- 8. Biometric punches (append-only)
+CREATE TABLE IF NOT EXISTS hr_biometric_punches (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  device_id UUID REFERENCES hr_biometric_devices(id),
+  employee_id UUID REFERENCES hr_employees(id),
+  biometric_id VARCHAR(100),
+  punch_at TIMESTAMPTZ NOT NULL,
+  punch_kind VARCHAR(10),
+  raw_payload JSONB,
+  ingested_at TIMESTAMPTZ DEFAULT NOW(),
+  reconciled_to_record_id UUID REFERENCES hr_attendance_records(id)
+);
+CREATE INDEX IF NOT EXISTS hr_biometric_punches_emp_punch_idx
+  ON hr_biometric_punches(employee_id, punch_at DESC);
+CREATE INDEX IF NOT EXISTS hr_biometric_punches_device_punch_idx
+  ON hr_biometric_punches(device_id, punch_at DESC);
+CREATE INDEX IF NOT EXISTS hr_biometric_punches_ingested_idx
+  ON hr_biometric_punches(ingested_at DESC);
+
+-- 9. ALTER hr_organizations: geofence + audit retention
+ALTER TABLE hr_organizations
+  ADD COLUMN IF NOT EXISTS gps_geofence_lat NUMERIC(9, 6),
+  ADD COLUMN IF NOT EXISTS gps_geofence_lng NUMERIC(9, 6),
+  ADD COLUMN IF NOT EXISTS gps_geofence_radius_m INT,
+  ADD COLUMN IF NOT EXISTS audit_retention_years INT DEFAULT 7;
+
+
+-- ============================================================================
+-- 2026-04-29: platform_policies — canonical runtime-config substrate (Phase 1.5a)
+-- Replaces 20+ module-specific config tables. Policy seeds in migration
+-- 20260429000002_platform_policies_substrate.sql.
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS platform_policies (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  policy_key TEXT NOT NULL,
+  scope_type TEXT NOT NULL CHECK (scope_type IN ('global','institution','role','user')),
+  scope_id UUID,
+  value JSONB NOT NULL,
+  description TEXT,
+  data_type TEXT NOT NULL CHECK (data_type IN ('number','string','boolean','array','object','enum')),
+  enum_options JSONB,
+  validation_schema JSONB,
+  is_system BOOLEAN DEFAULT false,
+  is_active BOOLEAN DEFAULT true,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now(),
+  updated_by UUID REFERENCES profiles(id)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_platform_policies_key_scope
+  ON platform_policies (policy_key, scope_type, COALESCE(scope_id, '00000000-0000-0000-0000-000000000000'::uuid));
+
+CREATE INDEX IF NOT EXISTS idx_platform_policies_active
+  ON platform_policies (policy_key, is_active);
+
+-- =====================================================================
+-- Updated: 2026-04-29 - Wave B.1 — Notification Generator Policy substrate.
+-- Adds notification_generator_config + audit table. Per-generator policy
+-- rows (status filters, age windows, batch limits, priority thresholds,
+-- TTLs, role lists). Read via fn_get_generator_config(name, fallback).
+-- Edited via /system/attention-bar Tab 8 (planned in Wave B.3).
+-- Standing rule (memory: feedback_policy_decisions_must_be_config_rows.md):
+-- every threshold/mapping/feature-flag = row in config table + super_admin UI.
+-- =====================================================================
+CREATE TABLE IF NOT EXISTS public.notification_generator_config (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  generator_name  VARCHAR(100) UNIQUE NOT NULL,
+  description     TEXT,
+  config          JSONB NOT NULL,
+  is_active       BOOLEAN NOT NULL DEFAULT true,
+  created_by      UUID REFERENCES public.profiles(id),
+  updated_by      UUID REFERENCES public.profiles(id),
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_notif_gen_cfg_active
+  ON public.notification_generator_config (generator_name, is_active);
+COMMENT ON TABLE public.notification_generator_config IS
+  'Per-generator policy config rows. Wave B.1+. Read via fn_get_generator_config(name, fallback). Edited via /system/attention-bar Tab 8. Standing rule: every policy decision is a config-row.';
+
+CREATE TABLE IF NOT EXISTS public.notification_generator_config_audit (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  generator_name  VARCHAR(100) NOT NULL,
+  config_id       UUID REFERENCES public.notification_generator_config(id) ON DELETE SET NULL,
+  operation       VARCHAR(10) NOT NULL CHECK (operation IN ('INSERT','UPDATE','DELETE')),
+  old_config      JSONB,
+  new_config      JSONB,
+  changed_by      UUID REFERENCES public.profiles(id),
+  changed_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  reason          TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_notif_gen_cfg_audit_changed_at
+  ON public.notification_generator_config_audit (changed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_notif_gen_cfg_audit_generator
+  ON public.notification_generator_config_audit (generator_name, changed_at DESC);
+COMMENT ON TABLE public.notification_generator_config_audit IS
+  'Audit trail for notification_generator_config changes. Captures old/new config JSONB on every INSERT/UPDATE/DELETE so a misconfiguration can be reverted via the audit row.';

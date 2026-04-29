@@ -87,10 +87,16 @@ export function BottomNavItem({
           {/* Holographic shimmer overlay — animated conic gradient. Rotates 360°
               every 6s via `animate-holo-spin` keyframe (tailwind.config.ts).
               Self-clips via own rounded-2xl, no overflow-hidden needed (so the
-              chevron disclosure can still extend past the tile bounds). */}
+              chevron disclosure can still extend past the tile bounds).
+              Gated to isActive so shimmer is a focal accent (active tile only),
+              not ambient noise. motion-reduce:hidden prevents the frozen
+              mid-rotation specular smear under prefers-reduced-motion. */}
           <span
             aria-hidden="true"
-            className="pointer-events-none absolute inset-0 rounded-2xl animate-holo-spin"
+            className={cn(
+              'pointer-events-none absolute inset-0 rounded-2xl motion-reduce:hidden',
+              isActive && 'animate-holo-spin'
+            )}
             style={{
               background:
                 'conic-gradient(from 45deg at 50% 50%, rgba(255,255,255,0) 0deg, rgba(255,255,255,0.35) 60deg, rgba(255,255,255,0) 120deg, rgba(255,200,255,0.28) 180deg, rgba(255,255,255,0) 240deg, rgba(200,255,255,0.28) 300deg, rgba(255,255,255,0) 360deg)'
@@ -146,8 +152,8 @@ export function BottomNavItem({
     <motion.button
       onClick={onClick}
       className={cn(
-        'relative flex flex-col items-center justify-center px-2 py-2 min-w-[64px] flex-1 gap-1',
-        'transition-colors duration-150'
+        'relative flex flex-col items-center justify-center px-2 py-2.5 min-w-[56px] flex-1 gap-1',
+        'touch-manipulation transition-colors duration-150'
       )}
       whileTap={{ scale: 0.92 }}
       transition={tapSpring}
@@ -167,10 +173,14 @@ export function BottomNavItem({
         transition={iconSpring}
       >
         {/* Holographic shimmer — same conic-gradient + holo-spin keyframe
-            as drawer tiles, scaled to 36px. Self-clips via own rounded-xl. */}
+            as drawer tiles, scaled to 36px. Self-clips via own rounded-xl.
+            Gated to isActive; motion-reduce:hidden prevents frozen smear. */}
         <span
           aria-hidden="true"
-          className="pointer-events-none absolute inset-0 rounded-xl animate-holo-spin"
+          className={cn(
+            'pointer-events-none absolute inset-0 rounded-xl motion-reduce:hidden',
+            isActive && 'animate-holo-spin'
+          )}
           style={{
             background:
               'conic-gradient(from 45deg at 50% 50%, rgba(255,255,255,0) 0deg, rgba(255,255,255,0.32) 60deg, rgba(255,255,255,0) 120deg, rgba(255,200,255,0.26) 180deg, rgba(255,255,255,0) 240deg, rgba(200,255,255,0.26) 300deg, rgba(255,255,255,0) 360deg)'

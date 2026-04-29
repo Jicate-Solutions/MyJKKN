@@ -10,7 +10,7 @@
 import { AssignmentRulesDataTable } from '@/components/shared/assignment-rules-crud';
 
 interface RulesTabProps {
-  institutionId: string;
+  institutionId: string | undefined;
 }
 
 export function RulesTab({ institutionId }: RulesTabProps) {

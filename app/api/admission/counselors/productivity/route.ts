@@ -80,15 +80,33 @@ export async function GET(request: NextRequest) {
     activityQuery = activityQuery.gte('created_at', dayStart).lte('created_at', dayEnd);
     const { data: activities } = await activityQuery;
 
-    // 4. Get today's stage changes (conversions)
-    let stageQuery = supabase
-      .from('admission_leads')
-      .select('id, counselor_id, funnel_stage, stage_changed_at')
-      .gte('stage_changed_at', dayStart)
-      .lte('stage_changed_at', dayEnd)
-      .in('funnel_stage', ['enrolled', 'offer_accepted', 'token_paid', 'confirmed']);
-    if (institutionId) stageQuery = stageQuery.eq('institution_id', institutionId);
-    const { data: conversions } = await stageQuery;
+    // 4. Get today's conversions — authoritative signal is "lead has a row in admission_applications".
+    // Previously this filtered admission_leads.funnel_stage IN (enrolled/offer_accepted/...),
+    // but funnel_stage doesn't reliably advance to those values (the application step happens
+    // before any funnel_stage transition). The TRUE "applied" signal is admission_applications.
+    // Funnel_stage semantics elsewhere (kanban, non-converted bucketing) remain unchanged.
+    let applicationsQuery = supabase
+      .from('admission_applications')
+      .select('id, lead_id, created_at, institution_id')
+      .gte('created_at', dayStart)
+      .lte('created_at', dayEnd)
+      .not('lead_id', 'is', null);
+    if (institutionId) applicationsQuery = applicationsQuery.eq('institution_id', institutionId);
+    const { data: applicationsToday } = await applicationsQuery;
+
+    // Resolve lead_id → counselor_id (lead's assigned counselor at conversion time)
+    const conversionLeadIds = Array.from(new Set((applicationsToday || []).map((a) => a.lead_id).filter(Boolean)));
+    let conversions: { id: string; counselor_id: string | null }[] = [];
+    if (conversionLeadIds.length > 0) {
+      let convLeadsQuery = supabase
+        .from('admission_leads')
+        .select('id, counselor_id')
+        .in('id', conversionLeadIds)
+        .not('counselor_id', 'is', null);
+      if (institutionId) convLeadsQuery = convLeadsQuery.eq('institution_id', institutionId);
+      const { data: convLeads } = await convLeadsQuery;
+      conversions = convLeads || [];
+    }
 
     // 5. Get today's assigned leads for response time calculation
     let assignedQuery = supabase
@@ -151,8 +169,13 @@ export async function GET(request: NextRequest) {
       if (hour >= 9 && hour <= 19) c.hourly[hour - 9]++;
     }
 
-    // Map conversions
-    for (const conv of conversions || []) {
+    // Map conversions — count DISTINCT leads per counselor (a lead may have >1 application
+    // but counts as 1 conversion). conversionLeadIds was already deduped via Set above; we
+    // also dedupe at the per-counselor accumulator level for safety.
+    const seenConvLeads = new Set<string>();
+    for (const conv of conversions) {
+      if (!conv.counselor_id || seenConvLeads.has(conv.id)) continue;
+      seenConvLeads.add(conv.id);
       const c = counselorMap.get(conv.counselor_id);
       if (c) c.conversions++;
     }

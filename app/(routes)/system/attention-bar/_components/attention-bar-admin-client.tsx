@@ -30,8 +30,9 @@ import { TabBehavior } from './tab-behavior';
 import { TabAi } from './tab-ai';
 import { TabAudit } from './tab-audit';
 import { TabSandbox } from './tab-sandbox';
+import { TabNotificationGenerators } from './tab-notification-generators';
 
-const VALID_TABS = ['overview', 'defaults', 'rules', 'behavior', 'ai', 'audit', 'sandbox'] as const;
+const VALID_TABS = ['overview', 'defaults', 'rules', 'behavior', 'ai', 'audit', 'sandbox', 'notif-gen'] as const;
 type TabId = (typeof VALID_TABS)[number];
 
 interface TabDef {
@@ -48,7 +49,22 @@ const TAB_DEFS: TabDef[] = [
   { id: 'ai',        label: 'Layer 4 — AI',     permKey: 'attention_bar.config.manage' },
   { id: 'audit',     label: 'Audit Log',        permKey: 'attention_bar.audit.view' },
   { id: 'sandbox',   label: 'Test Sandbox',     permKey: 'attention_bar.test_sandbox.use' },
+  { id: 'notif-gen', label: 'Notification Generators', permKey: 'attention_bar.rules.manage' },
 ];
+
+// Static class lookup so Tailwind JIT can see grid-cols-N at build time.
+// Dynamic template-literal class names (e.g. `grid-cols-${n}`) are NOT scanned
+// by the JIT and silently collapse to a 1-column strip in production.
+const TAB_GRID_CLASSES: Record<number, string> = {
+  1: 'grid-cols-1 sm:grid-cols-1',
+  2: 'grid-cols-2 sm:grid-cols-2',
+  3: 'grid-cols-2 sm:grid-cols-3',
+  4: 'grid-cols-2 sm:grid-cols-4',
+  5: 'grid-cols-2 sm:grid-cols-5',
+  6: 'grid-cols-2 sm:grid-cols-6',
+  7: 'grid-cols-2 sm:grid-cols-7',
+  8: 'grid-cols-2 sm:grid-cols-4 md:grid-cols-8',
+};
 
 function isValidTab(tab: string | null): tab is TabId {
   return VALID_TABS.includes(tab as TabId);
@@ -102,6 +118,7 @@ export function AttentionBarAdminClient() {
 
     // Must have at least attention_bar.audit.view to enter the page at all
     if (!isSuperAdmin && !hasPermission('attention_bar.audit.view') && !hasPermission('attention_bar.rules.view') && !hasPermission('attention_bar.rules.manage') && !hasPermission('attention_bar.config.manage') && !hasPermission('attention_bar.test_sandbox.use')) {
+      // attention_bar.rules.manage already covers Tab 8 access — no new perm gate needed
       router.push('/unauthorized');
     }
   }, [isAuthLoading, isPermLoading, profile, isSuperAdmin, hasPermission, router]);
@@ -159,7 +176,11 @@ export function AttentionBarAdminClient() {
         </div>
 
         <Tabs value={activeTab} onValueChange={handleTabChange} className='w-full'>
-          <TabsList className={`grid w-full grid-cols-${Math.min(visibleTabs.length, 4)} sm:grid-cols-${Math.min(visibleTabs.length, 7)}`}>
+          <TabsList
+            className={`grid w-full ${
+              TAB_GRID_CLASSES[visibleTabs.length] ?? 'grid-cols-2 sm:grid-cols-7'
+            }`}
+          >
             {visibleTabs.map(tab => (
               <TabsTrigger key={tab.id} value={tab.id}>
                 {tab.label}
@@ -197,6 +218,11 @@ export function AttentionBarAdminClient() {
 
           <TabsContent value='sandbox'>
             <TabSandbox />
+          </TabsContent>
+
+          {/* TAB-8:NOTIF-GEN — Wave B.3 */}
+          <TabsContent value='notif-gen'>
+            <TabNotificationGenerators />
           </TabsContent>
         </Tabs>
       </div>
