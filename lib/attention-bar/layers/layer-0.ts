@@ -8,16 +8,18 @@
  * partial index `idx_user_notifications_unacknowledged` covers the hot path.
  *
  * Schema mapping (spec → prod):
- *   spec "severity = 'red'"            → notifications.priority = 'urgent'
- *   spec "requires_acknowledgment"     → notifications.requires_acknowledgment
+ *   spec "severity = 'red'"            → notifications.is_layer_0 (Wave B.4)
  *   spec "acknowledged_at IS NULL"     → user_notifications.acknowledged_at
  *   spec "target user matches uid"     → user_notifications.user_id (per-user fanout)
  *
- * The `notifications` table on prod uses `priority` (low/normal/high/urgent),
- * not `severity` (red/amber/green). `priority='urgent'` is the operational
- * analog of severity=red and is what every existing emitter (billing
- * overdue, escalations, rescue-card alerts) already writes. We honour the
- * spec literal by treating these as equivalent for Layer 0.
+ * Wave B.4 (2026-04-29) — added the dedicated `is_layer_0` boolean column.
+ * Previously Layer 0 queried on `(priority='urgent' AND requires_acknowledgment=TRUE)`
+ * which coupled it to the AcknowledgmentGate's blocking-modal semantics. The
+ * new column decouples those two systems: Layer 0 surfaces work items + ack
+ * announcements alike via is_layer_0=TRUE, while requires_acknowledgment=TRUE
+ * remains the gate's blocking-modal trigger (only set on true announcements).
+ * fn_create_dashboard_work_item sets is_layer_0=(priority='urgent') so cron
+ * emissions become eligible without flowing through the gate.
  *
  * Snooze + force-dismiss (spec §3 Layer 0): `snoozed_until` / `force_dismissed_at`
  * columns don't yet exist on user_notifications. For v1 we treat acknowledgment
@@ -96,7 +98,7 @@ export async function evaluateLayer0(ctx: ResolverContext): Promise<LayerResult>
           icon,
           url,
           priority,
-          requires_acknowledgment,
+          is_layer_0,
           action_type,
           action_config,
           expires_at,
@@ -106,8 +108,10 @@ export async function evaluateLayer0(ctx: ResolverContext): Promise<LayerResult>
     )
     .eq('user_id', ctx.userId)
     .is('acknowledged_at', null)
-    .eq('notification.priority', 'urgent')
-    .eq('notification.requires_acknowledgment', true)
+    // Wave B.4: query the dedicated Layer 0 column. Backed by partial index
+    // idx_notifications_layer_0 (WHERE is_layer_0 = TRUE) so this stays under
+    // the 50ms hot-path budget even as the notifications table grows.
+    .eq('notification.is_layer_0', true)
     .order('created_at', { ascending: false, referencedTable: 'notification' })
     .limit(1);
 
@@ -129,7 +133,7 @@ export async function evaluateLayer0(ctx: ResolverContext): Promise<LayerResult>
       icon: string | null;
       url: string | null;
       priority: string;
-      requires_acknowledgment: boolean | null;
+      is_layer_0: boolean | null;
       action_type: string | null;
       action_config: Record<string, unknown> | null;
       expires_at: string | null;

@@ -5210,3 +5210,32 @@ CREATE INDEX IF NOT EXISTS idx_notif_gen_cfg_audit_generator
   ON public.notification_generator_config_audit (generator_name, changed_at DESC);
 COMMENT ON TABLE public.notification_generator_config_audit IS
   'Audit trail for notification_generator_config changes. Captures old/new config JSONB on every INSERT/UPDATE/DELETE so a misconfiguration can be reverted via the audit row.';
+
+-- =====================================================================
+-- Updated: 2026-04-29 - Wave B.4 — Attention Bar Layer 0 dedicated signal.
+-- Decouples Layer 0 eligibility from the AcknowledgmentGate's blocking-modal
+-- semantics. Two systems, two columns:
+--   - requires_acknowledgment: drives the gate (forces user to acknowledge)
+--   - is_layer_0:              drives the Attention Bar Layer 0 surface
+-- fn_create_dashboard_work_item now sets is_layer_0=(priority='urgent') so
+-- cron-emitted urgent work items become Layer 0 candidates without flowing
+-- through the gate. Pre-fix the gate would block faculty/students on every
+-- urgent work item, which is why ack=FALSE was hardcoded since 2026-04-23.
+-- =====================================================================
+ALTER TABLE public.notifications
+  ADD COLUMN IF NOT EXISTS is_layer_0 BOOLEAN NOT NULL DEFAULT FALSE;
+
+CREATE INDEX IF NOT EXISTS idx_notifications_layer_0
+  ON public.notifications (id)
+  WHERE is_layer_0 = TRUE;
+
+COMMENT ON COLUMN public.notifications.is_layer_0 IS
+  'Wave B.4: TRUE when the Attention Bar Layer 0 evaluator should consider this row. Set by fn_create_dashboard_work_item to (priority=''urgent''); independent from requires_acknowledgment which drives the AcknowledgmentGate blocking modal. Two systems, two columns.';
+
+-- Backfill existing urgent + ack-required rows so the 2 Director-authored
+-- announcements (Apr 9 + Apr 18) keep firing Layer 0 without any code change.
+UPDATE public.notifications
+   SET is_layer_0 = TRUE
+ WHERE priority = 'urgent'
+   AND requires_acknowledgment = TRUE
+   AND is_layer_0 = FALSE;

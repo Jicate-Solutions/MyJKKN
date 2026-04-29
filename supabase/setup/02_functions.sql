@@ -8933,7 +8933,8 @@ BEGIN
   INSERT INTO notifications (
     id, title, body, category, kind, priority, requires_acknowledgment,
     acknowledgment_deadline_hours, action_type, action_config, idempotency_key,
-    created_by, targeting, created_at, updated_at
+    created_by, targeting, created_at, updated_at,
+    is_layer_0
   ) VALUES (
     -- 2026-04-23 decoupling: requires_acknowledgment=FALSE so work items don't
     -- trigger the Mandatory Acknowledgment blocking modal. Queue filter uses
@@ -8941,6 +8942,12 @@ BEGIN
     -- 2026-04-24 split: kind='work_item' keeps these out of /admin/notifications
     -- (which filters to kind='announcement'). Work items surface via dashboard
     -- widgets + super-admin digest instead.
+    -- Wave B.4 (2026-04-29): is_layer_0 is the new dedicated Attention Bar
+    -- Layer 0 signal. Setting it for urgent priorities makes urgent work
+    -- items eligible for the bar's split-rendering path WITHOUT coupling to
+    -- the gate's ack semantics — gate stays untouched (kind='announcement'
+    -- remains its scope), Layer 0 surfaces both work items and ack-required
+    -- announcements via the single is_layer_0 column.
     gen_random_uuid(), p_title, p_body, p_category, 'work_item', p_priority, FALSE,
     p_deadline_hours, 'open_url', p_action_config, p_idempotency_key,
     -- Updated: 2026-04-27 (Bug B) — canonical targeting shape is
@@ -8948,7 +8955,8 @@ BEGIN
     -- (singular) is still accepted by fn_notification_is_for_user
     -- for unmigrated rows. Writers should ALWAYS use the array shape.
     p_target_user, jsonb_build_object('type','user','user_ids', jsonb_build_array(p_target_user)),
-    NOW(), NOW()
+    NOW(), NOW(),
+    (p_priority = 'urgent')
   ) RETURNING id INTO v_notif_id;
   INSERT INTO user_notifications (id, notification_id, user_id, created_at)
   VALUES (gen_random_uuid(), v_notif_id, p_target_user, NOW());
