@@ -5786,3 +5786,41 @@ CREATE POLICY platform_policies_update ON platform_policies
 DROP POLICY IF EXISTS platform_policies_delete ON platform_policies;
 CREATE POLICY platform_policies_delete ON platform_policies
   FOR DELETE USING (is_super_admin() OR is_admin());
+
+
+-- ============================================================================
+-- 2026-04-29: bug-triage-agent — screenshot storage bucket
+-- Spec: specs/bug-triage-agent/PLAN.md (v2)
+--
+-- Private bucket. Reads: super_admin OR the bug reporter (folder = bug_reports.id).
+-- Writes: service_role only (the agent runs with service-role key).
+-- Files limited to 2MB, image MIME types only.
+-- ============================================================================
+INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+VALUES (
+  'bug-repro-screenshots',
+  'bug-repro-screenshots',
+  false,
+  2097152,
+  ARRAY['image/png','image/jpeg','image/webp']
+)
+ON CONFLICT (id) DO NOTHING;
+
+DROP POLICY IF EXISTS "bug_repro_screenshots_select" ON storage.objects;
+CREATE POLICY "bug_repro_screenshots_select"
+ON storage.objects FOR SELECT
+USING (
+  bucket_id = 'bug-repro-screenshots'
+  AND (
+    is_super_admin()
+    OR (storage.foldername(name))[1] IN (
+      SELECT br.id::text FROM bug_reports br WHERE br.user_id = auth.uid()
+    )
+  )
+);
+
+DROP POLICY IF EXISTS "bug_repro_screenshots_service_role_write" ON storage.objects;
+CREATE POLICY "bug_repro_screenshots_service_role_write"
+ON storage.objects FOR ALL
+USING (bucket_id = 'bug-repro-screenshots' AND auth.role() = 'service_role')
+WITH CHECK (bucket_id = 'bug-repro-screenshots' AND auth.role() = 'service_role');

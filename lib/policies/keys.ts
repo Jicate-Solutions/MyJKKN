@@ -27,6 +27,16 @@ export const POLICY_KEYS = {
   // Cross-cutting
   SUPER_ADMIN_DIGEST_FANOUT_ROLE_KEYS: 'super_admin.digest.fanout_role_keys',
   HR_DASHBOARD_DAILY_BRIEF_FANOUT_PERMISSION: 'hr.dashboard.daily_brief.fanout_via_permission_key',
+
+  // Bug Triage Agent (2026-04-29) — autonomous bug repro+fix
+  // Spec: specs/bug-triage-agent/PLAN.md, operator ref: specs/bug-triage-agent/POLICY-KEYS.md
+  BUG_TRIAGE_IS_ENABLED: 'bug_triage_agent.is_enabled',
+  BUG_TRIAGE_ALLOWLIST_TAGS: 'bug_triage_agent.allowlist_tags',
+  BUG_TRIAGE_CONFIDENCE_MIN: 'bug_triage_agent.confidence_min',
+  BUG_TRIAGE_TIMEOUT_SECONDS: 'bug_triage_agent.timeout_seconds',
+  BUG_TRIAGE_CRON_SCHEDULE: 'bug_triage_agent.cron_schedule',
+  BUG_TRIAGE_SUBMIT_URL_REGEX: 'bug_triage_agent.submit_url_regex',
+  BUG_TRIAGE_LOCK_STALE_SECS: 'bug_triage_agent.lock_stale_secs',
 } as const;
 
 export type PolicyKey = typeof POLICY_KEYS[keyof typeof POLICY_KEYS];

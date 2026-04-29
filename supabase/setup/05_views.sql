@@ -914,3 +914,37 @@ SELECT
     leave_types.duration_type
 FROM leave_types
 WHERE (leave_types.scope)::text = 'staff'::text;
+
+
+-- ============================================================================
+-- 2026-04-29 — bug-triage-agent: queue of bugs ready for autonomous repro+fix
+-- Spec: specs/bug-triage-agent/PLAN.md (v2)
+--
+-- Reads two policy keys at query time:
+--   bug_triage_agent.is_enabled    — master kill switch (returns 0 rows when false)
+--   bug_triage_agent.allowlist_tags — JSONB array of triage tags the agent processes
+--
+-- Ordering: oldest first (FIFO).
+-- agent_error rows: re-included after 1h to allow one retry per crash (R20).
+-- ============================================================================
+CREATE OR REPLACE VIEW bug_reports_ready_for_repro AS
+SELECT
+  br.*,
+  br.metadata->'triage'->>'tag' AS triage_tag,
+  br.metadata->'triage'->>'cluster_canonical_id' AS cluster_canonical
+FROM bug_reports br
+WHERE br.status IN ('new', 'seen')
+  AND br.metadata ? 'triage'
+  AND br.metadata->'triage' ? 'tag'
+  AND fn_get_policy_bool('bug_triage_agent.is_enabled', false) = true
+  AND (fn_get_policy('bug_triage_agent.allowlist_tags') @> to_jsonb(br.metadata->'triage'->>'tag'))
+  AND (
+    br.metadata->'repro_attempt' IS NULL
+    OR (
+      br.metadata->'repro_attempt'->>'outcome' = 'agent_error'
+      AND (br.metadata->'repro_attempt'->>'attempted_at')::timestamptz < now() - interval '1 hour'
+    )
+  )
+ORDER BY br.created_at ASC;
+
+GRANT SELECT ON bug_reports_ready_for_repro TO authenticated, service_role;

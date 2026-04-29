@@ -5167,3 +5167,54 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_platform_policies_key_scope
 
 CREATE INDEX IF NOT EXISTS idx_platform_policies_active
   ON platform_policies (policy_key, is_active);
+
+
+-- ============================================================================
+-- 2026-04-29: bug-triage-agent — autonomous bug repro+fix policy seeds
+-- Spec: specs/bug-triage-agent/PLAN.md (v2)
+-- Operator reference: specs/bug-triage-agent/POLICY-KEYS.md
+--
+-- All 7 keys are tunable by super_admin via /admin/policies/bug-triage (UI ships
+-- in PR after agent itself). Skill at ~/.claude/skills/bug-triage/ reads each
+-- via fn_get_policy_*() at start of every invocation — zero-deploy retuning.
+-- ============================================================================
+INSERT INTO platform_policies (policy_key, scope_type, value, data_type, description, is_system) VALUES
+  ('bug_triage_agent.is_enabled',       'global', 'true'::jsonb,
+   'boolean', 'Master kill-switch. Set false to pause autonomous bug triage; the queue view returns 0 rows immediately.', true),
+
+  ('bug_triage_agent.allowlist_tags',   'global', '["copy_change","dead_button","page_404"]'::jsonb,
+   'array', 'Lane-1 triage tags the agent will autonomously process and attempt to fix. Add tags here to expand scope (e.g. add "page_500" once accuracy is proven).', true),
+
+  ('bug_triage_agent.confidence_min',   'global', '0.7'::jsonb,
+   'number', 'Minimum localization confidence (0.0-1.0) required to autonomously open a fix PR. Below this, agent posts comment only and skips fix.', true),
+
+  ('bug_triage_agent.timeout_seconds',  'global', '300'::jsonb,
+   'number', 'Per-bug processing timeout (seconds). Beyond this, kill Chrome session and write metadata.repro_attempt.outcome=agent_timeout.', true),
+
+  ('bug_triage_agent.cron_schedule',    'global', '"*/30 * * * *"'::jsonb,
+   'string', 'Cron expression (IST) for the scheduled trigger that invokes /bug-triage. Read at trigger setup time, not at runtime — changing this requires re-creating the trigger.', true),
+
+  ('bug_triage_agent.submit_url_regex', 'global', '"/draft|/propose|/preview"'::jsonb,
+   'string', 'Regex of URL path segments where the agent is allowed to submit forms (POST/PUT). Anything not matching: navigate+click+fill only, no submit.', true),
+
+  ('bug_triage_agent.lock_stale_secs',  'global', '600'::jsonb,
+   'number', 'Cross-agent lockfile staleness threshold (seconds). After this, .claude/locks/bug-triage.lock can be force-broken by the next invocation.', true)
+ON CONFLICT (policy_key, scope_type, COALESCE(scope_id, '00000000-0000-0000-0000-000000000000'::uuid)) DO NOTHING;
+
+
+-- 2026-04-29 — bug-triage-agent writes to bug_reports.metadata.repro_attempt with shape:
+--   {
+--     attempted_at: ISO8601,
+--     agent_version: "1.0.0",
+--     logged_in_as: "test.faculty@jkkn.ac.in",
+--     page_url: "/academic/attendance",
+--     outcome: 'reproduced'|'could_not_reproduce'|'page_404'|'auth_failed'
+--              |'agent_error'|'agent_timeout'|'no_test_account',
+--     console_errors: [...],
+--     network_failures: [...],
+--     screenshot_before: "<bug_id>/before.png",  -- bug-repro-screenshots bucket
+--     screenshot_after:  "<bug_id>/after.png",
+--     suspect_files: [{path, confidence, reason}],
+--     fix_attempt: { branch, pr_url, verified_locally } | null
+--   }
+-- Status field on bug_reports is NEVER touched by the agent (per R12 decision).
