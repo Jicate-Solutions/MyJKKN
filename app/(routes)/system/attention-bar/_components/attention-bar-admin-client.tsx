@@ -50,6 +50,19 @@ const TAB_DEFS: TabDef[] = [
   { id: 'sandbox',   label: 'Test Sandbox',     permKey: 'attention_bar.test_sandbox.use' },
 ];
 
+// Static class lookup so Tailwind JIT can see grid-cols-N at build time.
+// Dynamic template-literal class names (e.g. `grid-cols-${n}`) are NOT scanned
+// by the JIT and silently collapse to a 1-column strip in production.
+const TAB_GRID_CLASSES: Record<number, string> = {
+  1: 'grid-cols-1 sm:grid-cols-1',
+  2: 'grid-cols-2 sm:grid-cols-2',
+  3: 'grid-cols-2 sm:grid-cols-3',
+  4: 'grid-cols-2 sm:grid-cols-4',
+  5: 'grid-cols-2 sm:grid-cols-5',
+  6: 'grid-cols-2 sm:grid-cols-6',
+  7: 'grid-cols-2 sm:grid-cols-7',
+};
+
 function isValidTab(tab: string | null): tab is TabId {
   return VALID_TABS.includes(tab as TabId);
 }
@@ -159,7 +172,11 @@ export function AttentionBarAdminClient() {
         </div>
 
         <Tabs value={activeTab} onValueChange={handleTabChange} className='w-full'>
-          <TabsList className={`grid w-full grid-cols-${Math.min(visibleTabs.length, 4)} sm:grid-cols-${Math.min(visibleTabs.length, 7)}`}>
+          <TabsList
+            className={`grid w-full ${
+              TAB_GRID_CLASSES[visibleTabs.length] ?? 'grid-cols-2 sm:grid-cols-7'
+            }`}
+          >
             {visibleTabs.map(tab => (
               <TabsTrigger key={tab.id} value={tab.id}>
                 {tab.label}
