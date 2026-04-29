@@ -9051,35 +9051,66 @@ BEGIN
 END $fn_ovd$;
 
 -- Generator 2: stale leads → dashboard:rescue
+-- Updated: 2026-04-29 - Wave B.2 — config-driven via fn_get_generator_config('stale_lead_rescue', fallback).
 CREATE OR REPLACE FUNCTION fn_generate_stale_lead_rescue_items()
 RETURNS INT LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $fn_lead$
 DECLARE
   v_created INT := 0; v_lead RECORD; v_key TEXT;
   v_target_user UUID; v_hours_stale INT;
+  -- Wave B.2: config-driven constants
+  v_cfg JSONB;
+  v_category TEXT;
+  v_min_age_hours INT;
+  v_max_age_days INT;
+  v_batch_limit INT;
+  v_target_roles_fallback TEXT[];
+  v_high_threshold_hours INT;
+  v_ttl_hours INT;
 BEGIN
+  v_cfg := fn_get_generator_config('stale_lead_rescue', '{
+    "category": "dashboard:rescue",
+    "min_age_hours": 24,
+    "max_age_days": 30,
+    "batch_limit": 300,
+    "target_roles_fallback": ["admission","admin","admission_staff","super_admin"],
+    "priority_thresholds_hours": {"high": 72},
+    "ttl_hours": 24
+  }'::jsonb);
+
+  v_category := COALESCE(v_cfg->>'category', 'dashboard:rescue');
+  v_min_age_hours := COALESCE((v_cfg->>'min_age_hours')::INT, 24);
+  v_max_age_days  := COALESCE((v_cfg->>'max_age_days')::INT, 30);
+  v_batch_limit   := COALESCE((v_cfg->>'batch_limit')::INT, 300);
+  v_target_roles_fallback := COALESCE(
+                              ARRAY(SELECT jsonb_array_elements_text(v_cfg->'target_roles_fallback')),
+                              ARRAY['admission','admin','admission_staff','super_admin']
+                            );
+  v_high_threshold_hours := COALESCE((v_cfg->'priority_thresholds_hours'->>'high')::INT, 72);
+  v_ttl_hours     := COALESCE((v_cfg->>'ttl_hours')::INT, 24);
+
   FOR v_lead IN
     SELECT al.id, al.institution_id, al.counselor_id,
            COALESCE(al.last_activity_at, al.created_at) AS last_touch,
            EXTRACT(EPOCH FROM (NOW() - COALESCE(al.last_activity_at, al.created_at)))/3600 AS hours_stale
     FROM admission_leads al
-    WHERE COALESCE(al.last_activity_at, al.created_at) < NOW() - INTERVAL '24 hours'
-      AND COALESCE(al.last_activity_at, al.created_at) > NOW() - INTERVAL '30 days'
-    ORDER BY last_touch ASC LIMIT 300
+    WHERE COALESCE(al.last_activity_at, al.created_at) < NOW() - make_interval(hours => v_min_age_hours)
+      AND COALESCE(al.last_activity_at, al.created_at) > NOW() - make_interval(days  => v_max_age_days)
+    ORDER BY last_touch ASC LIMIT v_batch_limit
   LOOP
     v_hours_stale := v_lead.hours_stale::INT;
     v_target_user := COALESCE(v_lead.counselor_id,
       (SELECT p.id FROM profiles p WHERE p.institution_id = v_lead.institution_id
-         AND p.role IN ('admission','admin','admission_staff','super_admin') LIMIT 1));
+         AND p.role = ANY(v_target_roles_fallback) LIMIT 1));
     IF v_target_user IS NULL THEN CONTINUE; END IF;
     v_key := 'stale_lead:' || v_lead.id::text || ':' || CURRENT_DATE::text;
     v_created := v_created + fn_create_dashboard_work_item(
-      'dashboard:rescue',
-      CASE WHEN v_hours_stale > 72 THEN 'high' ELSE 'normal' END,
+      v_category,
+      CASE WHEN v_hours_stale > v_high_threshold_hours THEN 'high' ELSE 'normal' END,
       'Lead stale for ' || v_hours_stale || 'h',
       'Lead hasn''t been touched in ' || v_hours_stale || ' hours. Call now or broadcast rescue to team.',
       jsonb_build_object('lead_id', v_lead.id, 'counselor_id', v_lead.counselor_id,
         'hours_stale', v_hours_stale, 'url', '/admission/leads/' || v_lead.id::text),
-      v_target_user, v_key, 24);
+      v_target_user, v_key, v_ttl_hours);
   END LOOP;
   RETURN v_created;
 END $fn_lead$;
