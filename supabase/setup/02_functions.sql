@@ -10090,33 +10090,72 @@ END $fn_sr$;
 -- all 221 rows with NULL assigned_to_user_id; now routes to Director.
 -- Removed the "skip if super_admin" filter for symmetry with recruit fix.
 -- Bulk untriaged backlog still surfaces to Director via daily digest below.
+-- Updated: 2026-04-29 - Wave B.2 — config-driven via fn_get_generator_config('unresolved_bug', fallback).
 CREATE OR REPLACE FUNCTION fn_generate_unresolved_bug_items()
 RETURNS INT LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $fn_bug$
 DECLARE
   v_created INT := 0; v_bug RECORD; v_key TEXT; v_target UUID;
   v_age_days INT; v_priority TEXT;
+  -- Wave B.2: config-driven constants
+  v_cfg JSONB;
+  v_category TEXT;
+  v_status_filter TEXT;
+  v_min_age_hours INT;
+  v_max_age_days INT;
+  v_batch_limit INT;
+  v_excluded_triage_tags TEXT[];
+  v_high_threshold_days INT;
+  v_ttl_hours INT;
+  v_fallback_to_director BOOLEAN;
 BEGIN
+  v_cfg := fn_get_generator_config('unresolved_bug', '{
+    "category": "dashboard:rescue",
+    "status": "new",
+    "min_age_hours": 72,
+    "max_age_days": 180,
+    "batch_limit": 100,
+    "excluded_triage_tags": ["not_a_bug","duplicate","content_only","obsolete","feature_request"],
+    "priority_thresholds_days": {"high": 14},
+    "ttl_hours": 72,
+    "fallback_to_director": true
+  }'::jsonb);
+
+  v_category             := COALESCE(v_cfg->>'category', 'dashboard:rescue');
+  v_status_filter        := COALESCE(v_cfg->>'status', 'new');
+  v_min_age_hours        := COALESCE((v_cfg->>'min_age_hours')::INT, 72);
+  v_max_age_days         := COALESCE((v_cfg->>'max_age_days')::INT, 180);
+  v_batch_limit          := COALESCE((v_cfg->>'batch_limit')::INT, 100);
+  v_excluded_triage_tags := COALESCE(
+                              ARRAY(SELECT jsonb_array_elements_text(v_cfg->'excluded_triage_tags')),
+                              ARRAY['not_a_bug','duplicate','content_only','obsolete','feature_request']
+                            );
+  v_high_threshold_days  := COALESCE((v_cfg->'priority_thresholds_days'->>'high')::INT, 14);
+  v_ttl_hours            := COALESCE((v_cfg->>'ttl_hours')::INT, 72);
+  v_fallback_to_director := COALESCE((v_cfg->>'fallback_to_director')::BOOLEAN, true);
+
   FOR v_bug IN
     SELECT id, display_id, page_url, description, priority,
            assigned_to_user_id, institution_id, module_name,
            EXTRACT(EPOCH FROM (NOW() - created_at))/3600 AS hours_old
     FROM bug_reports
-    WHERE status = 'new'
-      AND created_at < NOW() - INTERVAL '72 hours'
-      AND created_at > NOW() - INTERVAL '180 days'
-      AND COALESCE(metadata->'triage'->>'tag', '')
-        NOT IN ('not_a_bug','duplicate','content_only','obsolete','feature_request')
-    ORDER BY created_at ASC
-    LIMIT 100
+    WHERE status = v_status_filter
+      AND created_at < NOW() - make_interval(hours => v_min_age_hours)
+      AND created_at > NOW() - make_interval(days  => v_max_age_days)
+      AND COALESCE(metadata->'triage'->>'tag', '') <> ALL(v_excluded_triage_tags)
+    ORDER BY created_at ASC LIMIT v_batch_limit
   LOOP
     -- Fallback: route to Director when bug-report intake didn't set assigned_to_user_id.
-    v_target := COALESCE(v_bug.assigned_to_user_id, fn_resolve_dashboard_target(v_bug.institution_id));
-    IF v_target IS NULL THEN CONTINUE; END IF;  -- truly no super_admin exists; cannot route
+    IF v_fallback_to_director THEN
+      v_target := COALESCE(v_bug.assigned_to_user_id, fn_resolve_dashboard_target(v_bug.institution_id));
+    ELSE
+      v_target := v_bug.assigned_to_user_id;
+    END IF;
+    IF v_target IS NULL THEN CONTINUE; END IF;
     v_age_days := (v_bug.hours_old/24)::INT;
-    v_priority := CASE WHEN v_age_days > 14 THEN 'high' ELSE 'normal' END;
+    v_priority := CASE WHEN v_age_days > v_high_threshold_days THEN 'high' ELSE 'normal' END;
     v_key := 'unresolved_bug:' || v_bug.id::text || ':' || CURRENT_DATE::text;
     v_created := v_created + fn_create_dashboard_work_item(
-      'dashboard:rescue', v_priority,
+      v_category, v_priority,
       'Bug ' || COALESCE(v_bug.display_id, SUBSTR(v_bug.id::text, 1, 8)) || ' aging ' || v_age_days || 'd',
       LEFT(v_bug.description, 140) || ' | ' || COALESCE(v_bug.module_name, 'unknown module') ||
         CASE WHEN v_bug.assigned_to_user_id IS NULL THEN ' — UNASSIGNED, routed to Director' ELSE '' END,
@@ -10124,7 +10163,7 @@ BEGIN
         'module', v_bug.module_name,
         'unassigned_fallback', v_bug.assigned_to_user_id IS NULL,
         'url', '/bug-reports/' || v_bug.id::text),
-      v_target, v_key, 72);
+      v_target, v_key, v_ttl_hours);
   END LOOP;
   RETURN v_created;
 END $fn_bug$;
