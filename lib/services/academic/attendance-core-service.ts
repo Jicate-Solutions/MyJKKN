@@ -397,7 +397,7 @@ export class AttendanceCoreService {
       });
 
       if (!leaveCheck.allowed) {
-        const errorMessage = leaveCheck.reason || 'Cannot mark attendance on a holiday';
+        const errorMessage = leaveCheck.reason || 'Cannot mark on-campus attendance on an Online Learning Day';
         logger.error('academic/attendance', 'Attendance blocked by approved leave', {
           date: data.attendance_date,
           leave: leaveCheck.leave,
