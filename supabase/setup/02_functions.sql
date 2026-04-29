@@ -10190,12 +10190,62 @@ REVOKE ALL ON FUNCTION fn_generate_unresolved_bug_items() FROM PUBLIC, anon, aut
 -- Idempotency key: grievance_ticket:<id>:<CURRENT_DATE>
 -- Category: dashboard:approval (per /cnext brief).
 -- =====================================================================
+-- Updated: 2026-04-29 - Wave B.2 — config-driven via fn_get_generator_config('unresolved_grievance', fallback).
+-- The 3 trigger conditions (sla_deadline_breached / escalation_level>0 / is_emergency)
+-- remain hardcoded as the OR-clause in the WHERE — config row's `trigger_conditions`
+-- field is descriptive (documents the policy intent) rather than dynamically dispatched.
+-- Priority/TTL thresholds ARE config-tunable.
 CREATE OR REPLACE FUNCTION fn_generate_unresolved_grievance_items()
 RETURNS INT LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $fn_griev$
 DECLARE
   v_created INT := 0; v_griev RECORD; v_key TEXT; v_target UUID;
   v_priority TEXT; v_hours_past_sla INT;
+  -- Wave B.2: config-driven constants
+  v_cfg JSONB;
+  v_category TEXT;
+  v_statuses TEXT[];
+  v_max_age_days INT;
+  v_batch_limit INT;
+  v_urgent_when_emergency BOOLEAN;
+  v_urgent_when_escalation_gte INT;
+  v_high_when_escalation_eq INT;
+  v_high_when_hours_past_sla_gt INT;
+  v_ttl_urgent_hours INT;
+  v_ttl_normal_hours INT;
+  v_fallback_to_director BOOLEAN;
 BEGIN
+  v_cfg := fn_get_generator_config('unresolved_grievance', '{
+    "category": "dashboard:approval",
+    "statuses": ["open","assigned","in_progress","escalated"],
+    "max_age_days": 90,
+    "batch_limit": 50,
+    "trigger_conditions": ["sla_deadline_breached","escalation_level_gt_0","is_emergency"],
+    "filters": {"withdrawn_at_is_null": true, "resolved_at_is_null": true},
+    "priority_overrides": {
+      "urgent_when_is_emergency": true,
+      "urgent_when_escalation_gte": 2,
+      "high_when_escalation_eq": 1,
+      "high_when_hours_past_sla_gt": 24
+    },
+    "ttl_hours": {"urgent_or_escalation_gte_2": 4, "normal": 24},
+    "fallback_to_director": true
+  }'::jsonb);
+
+  v_category             := COALESCE(v_cfg->>'category', 'dashboard:approval');
+  v_statuses             := COALESCE(
+                              ARRAY(SELECT jsonb_array_elements_text(v_cfg->'statuses')),
+                              ARRAY['open','assigned','in_progress','escalated']
+                            );
+  v_max_age_days         := COALESCE((v_cfg->>'max_age_days')::INT, 90);
+  v_batch_limit          := COALESCE((v_cfg->>'batch_limit')::INT, 50);
+  v_urgent_when_emergency := COALESCE((v_cfg->'priority_overrides'->>'urgent_when_is_emergency')::BOOLEAN, true);
+  v_urgent_when_escalation_gte := COALESCE((v_cfg->'priority_overrides'->>'urgent_when_escalation_gte')::INT, 2);
+  v_high_when_escalation_eq := COALESCE((v_cfg->'priority_overrides'->>'high_when_escalation_eq')::INT, 1);
+  v_high_when_hours_past_sla_gt := COALESCE((v_cfg->'priority_overrides'->>'high_when_hours_past_sla_gt')::INT, 24);
+  v_ttl_urgent_hours     := COALESCE((v_cfg->'ttl_hours'->>'urgent_or_escalation_gte_2')::INT, 4);
+  v_ttl_normal_hours     := COALESCE((v_cfg->'ttl_hours'->>'normal')::INT, 24);
+  v_fallback_to_director := COALESCE((v_cfg->>'fallback_to_director')::BOOLEAN, true);
+
   FOR v_griev IN
     SELECT id, ticket_number, subject, description, institution_id,
            priority, status, sla_deadline, sla_status, escalation_level,
@@ -10204,27 +10254,31 @@ BEGIN
                 THEN EXTRACT(EPOCH FROM (NOW() - sla_deadline))/3600
                 ELSE 0 END AS hours_past_sla
     FROM grievance_tickets
-    WHERE status IN ('open','assigned','in_progress','escalated')
-      AND created_at > NOW() - INTERVAL '90 days'
+    WHERE status = ANY(v_statuses)
+      AND created_at > NOW() - make_interval(days => v_max_age_days)
       AND (sla_deadline < NOW() OR escalation_level > 0 OR is_emergency = TRUE)
       AND withdrawn_at IS NULL
       AND resolved_at IS NULL
     ORDER BY escalation_level DESC NULLS LAST, sla_deadline ASC NULLS LAST
-    LIMIT 50
+    LIMIT v_batch_limit
   LOOP
-    v_target := COALESCE(v_griev.assigned_to, fn_resolve_dashboard_target(v_griev.institution_id));
+    IF v_fallback_to_director THEN
+      v_target := COALESCE(v_griev.assigned_to, fn_resolve_dashboard_target(v_griev.institution_id));
+    ELSE
+      v_target := v_griev.assigned_to;
+    END IF;
     IF v_target IS NULL THEN CONTINUE; END IF;
     v_hours_past_sla := v_griev.hours_past_sla::INT;
     v_priority := CASE
-      WHEN v_griev.is_emergency THEN 'urgent'
-      WHEN v_griev.escalation_level >= 2 THEN 'urgent'
-      WHEN v_griev.escalation_level = 1 THEN 'high'
-      WHEN v_hours_past_sla > 24 THEN 'high'
+      WHEN v_urgent_when_emergency AND v_griev.is_emergency THEN 'urgent'
+      WHEN v_griev.escalation_level >= v_urgent_when_escalation_gte THEN 'urgent'
+      WHEN v_griev.escalation_level = v_high_when_escalation_eq THEN 'high'
+      WHEN v_hours_past_sla > v_high_when_hours_past_sla_gt THEN 'high'
       ELSE 'normal'
     END;
     v_key := 'grievance_ticket:' || v_griev.id::text || ':' || CURRENT_DATE::text;
     v_created := v_created + fn_create_dashboard_work_item(
-      'dashboard:approval', v_priority,
+      v_category, v_priority,
       'Grievance ' || v_griev.ticket_number || ' — ' || LEFT(v_griev.subject, 80),
       LEFT(v_griev.description, 140) ||
         CASE WHEN v_griev.escalation_level > 0 THEN ' | escalated L' || v_griev.escalation_level::text ELSE '' END ||
@@ -10240,7 +10294,11 @@ BEGIN
         'url', '/grievances/' || v_griev.id::text
       ),
       v_target, v_key,
-      CASE WHEN v_griev.is_emergency OR v_griev.escalation_level >= 2 THEN 4 ELSE 24 END
+      CASE
+        WHEN v_griev.is_emergency OR v_griev.escalation_level >= v_urgent_when_escalation_gte
+          THEN v_ttl_urgent_hours
+        ELSE v_ttl_normal_hours
+      END
     );
   END LOOP;
   RETURN v_created;
