@@ -348,7 +348,7 @@ export function AvailablePeriodsCards({
                       <Alert variant='destructive' className='mt-3'>
                         <AlertTriangle className='h-4 w-4' />
                         <AlertDescription>
-                          <strong>Holiday:</strong>{' '}
+                          <strong>Online Learning Day:</strong>{' '}
                           {leaveInfo.get(period.timetable_slot_id)?.leave_name || 'Leave Day'}
                           {leaveInfo.get(period.timetable_slot_id)?.leave_type_name && (
                             <span className='ml-1'>
