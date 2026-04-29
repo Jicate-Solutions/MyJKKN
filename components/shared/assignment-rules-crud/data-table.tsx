@@ -14,8 +14,13 @@ import { getColumns } from './columns';
 import { RuleFormDialog } from './rule-form-dialog';
 
 interface AssignmentRulesDataTableProps {
-  institutionId: string;
-  /** Show "+ New Rule" button. Default true. */
+  /**
+   * Institution to scope rules to. When undefined (super_admin / global admin),
+   * read shows rules across all institutions; create is disabled until caller
+   * scopes to a specific institution.
+   */
+  institutionId: string | undefined;
+  /** Show "+ New Rule" button. Default true. Auto-hidden when institutionId is undefined. */
   showCreateButton?: boolean;
 }
 
@@ -52,7 +57,7 @@ export function AssignmentRulesDataTable({
 
   return (
     <div className="space-y-4">
-      {showCreateButton && (
+      {showCreateButton && institutionId && (
         <div className="flex justify-end">
           <Button size="sm" onClick={() => setDialogOpen(true)}>
             <Plus className="h-4 w-4 mr-1" />
@@ -81,12 +86,14 @@ export function AssignmentRulesDataTable({
         }}
       />
 
-      <RuleFormDialog
-        open={dialogOpen}
-        onOpenChange={setDialogOpen}
-        institutionId={institutionId}
-        onSuccess={() => refetchRef.current?.()}
-      />
+      {institutionId && (
+        <RuleFormDialog
+          open={dialogOpen}
+          onOpenChange={setDialogOpen}
+          institutionId={institutionId}
+          onSuccess={() => refetchRef.current?.()}
+        />
+      )}
     </div>
   );
 }

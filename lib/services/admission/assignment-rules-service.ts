@@ -87,14 +87,22 @@ export class AssignmentRulesService {
   // ============================================================================
 
   /**
-   * Get all assignment rules for an institution
+   * Get all assignment rules. When institutionId is omitted (super_admin /
+   * global admin), returns rules across all institutions; RLS still scopes
+   * institution-bound users to their own. Passing undefined previously caused
+   * supabase-js to send `eq.undefined` → Postgres UUID parse error 22P02.
    */
-  static async getAssignmentRules(institutionId: string): Promise<AssignmentRule[]> {
-    const { data, error } = await this.supabase
+  static async getAssignmentRules(institutionId?: string): Promise<AssignmentRule[]> {
+    let query = this.supabase
       .from('admission_assignment_rules')
       .select('*')
-      .eq('institution_id', institutionId)
       .order('priority', { ascending: true });
+
+    if (institutionId) {
+      query = query.eq('institution_id', institutionId);
+    }
+
+    const { data, error } = await query;
 
     if (error) {
       console.error('[admission/assignment-rules] Failed to fetch rules:', error);
@@ -105,15 +113,20 @@ export class AssignmentRulesService {
   }
 
   /**
-   * Get active assignment rules for an institution (for processing)
+   * Get active assignment rules. Same undefined-handling as getAssignmentRules.
    */
-  static async getActiveAssignmentRules(institutionId: string): Promise<AssignmentRule[]> {
-    const { data, error } = await this.supabase
+  static async getActiveAssignmentRules(institutionId?: string): Promise<AssignmentRule[]> {
+    let query = this.supabase
       .from('admission_assignment_rules')
       .select('*')
-      .eq('institution_id', institutionId)
       .eq('is_active', true)
       .order('priority', { ascending: true });
+
+    if (institutionId) {
+      query = query.eq('institution_id', institutionId);
+    }
+
+    const { data, error } = await query;
 
     if (error) {
       console.error('[admission/assignment-rules] Failed to fetch active rules:', error);
