@@ -5138,3 +5138,32 @@ ALTER TABLE hr_organizations
   ADD COLUMN IF NOT EXISTS gps_geofence_lng NUMERIC(9, 6),
   ADD COLUMN IF NOT EXISTS gps_geofence_radius_m INT,
   ADD COLUMN IF NOT EXISTS audit_retention_years INT DEFAULT 7;
+
+
+-- ============================================================================
+-- 2026-04-29: platform_policies — canonical runtime-config substrate (Phase 1.5a)
+-- Replaces 20+ module-specific config tables. Policy seeds in migration
+-- 20260429000002_platform_policies_substrate.sql.
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS platform_policies (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  policy_key TEXT NOT NULL,
+  scope_type TEXT NOT NULL CHECK (scope_type IN ('global','institution','role','user')),
+  scope_id UUID,
+  value JSONB NOT NULL,
+  description TEXT,
+  data_type TEXT NOT NULL CHECK (data_type IN ('number','string','boolean','array','object','enum')),
+  enum_options JSONB,
+  validation_schema JSONB,
+  is_system BOOLEAN DEFAULT false,
+  is_active BOOLEAN DEFAULT true,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now(),
+  updated_by UUID REFERENCES profiles(id)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_platform_policies_key_scope
+  ON platform_policies (policy_key, scope_type, COALESCE(scope_id, '00000000-0000-0000-0000-000000000000'::uuid));
+
+CREATE INDEX IF NOT EXISTS idx_platform_policies_active
+  ON platform_policies (policy_key, is_active);

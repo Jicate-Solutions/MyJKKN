@@ -5761,3 +5761,28 @@ CREATE POLICY hr_biometric_punches_update ON hr_biometric_punches
 DROP POLICY IF EXISTS hr_biometric_punches_delete ON hr_biometric_punches;
 CREATE POLICY hr_biometric_punches_delete ON hr_biometric_punches
   FOR DELETE USING (is_super_admin());
+
+
+-- ============================================================================
+-- 2026-04-29: platform_policies RLS (Phase 1.5a)
+-- Read: any authenticated. Write: super_admin/admin only.
+-- (Policies queried at runtime via SECURITY DEFINER fn_get_policy.)
+-- ============================================================================
+ALTER TABLE platform_policies ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS platform_policies_select ON platform_policies;
+CREATE POLICY platform_policies_select ON platform_policies
+  FOR SELECT USING (auth.uid() IS NOT NULL);
+
+DROP POLICY IF EXISTS platform_policies_insert ON platform_policies;
+CREATE POLICY platform_policies_insert ON platform_policies
+  FOR INSERT WITH CHECK (is_super_admin() OR is_admin());
+
+DROP POLICY IF EXISTS platform_policies_update ON platform_policies;
+CREATE POLICY platform_policies_update ON platform_policies
+  FOR UPDATE USING (is_super_admin() OR is_admin())
+  WITH CHECK (is_super_admin() OR is_admin());
+
+DROP POLICY IF EXISTS platform_policies_delete ON platform_policies;
+CREATE POLICY platform_policies_delete ON platform_policies
+  FOR DELETE USING (is_super_admin() OR is_admin());
