@@ -17,16 +17,22 @@
  * and drawer pattern are attention-bar-specific, not shared elsewhere.
  */
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
 import {
   STATIC_DEFAULTS,
   getCoverageGaps,
   findStaticDefault,
 } from '@/lib/attention-bar/static-defaults';
 import type { ActionTemplate } from '@/lib/attention-bar/types';
+import { POLICY_KEYS } from '@/lib/policies/keys';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Switch } from '@/components/ui/switch';
+import { Label } from '@/components/ui/label';
 import {
   Sheet,
   SheetContent,
@@ -44,6 +50,7 @@ import {
   GitBranch,
   Info,
   List,
+  Sparkles,
 } from 'lucide-react';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -428,6 +435,171 @@ function Field({
   );
 }
 
+// ─── Director-tunable: Auto-fill secondary slot from catch-all ────────────────
+//
+// Standing rule (2026-04-29): every policy decision = config-table row +
+// super_admin UI. This panel is the UI for the
+// `attention_bar.layer1.return_secondary` row in `platform_policies`.
+//
+// When ON, Layer 1 returns BOTH the role-specific entry AND the catch-all as
+// two distinct hits, so the split bar renders by default on every page even
+// when no Layer 2 rule has been configured.
+//
+// When OFF (default), L1 returns a single most-specific match — current
+// behaviour unchanged from before this toggle landed.
+//
+// Server-side consumer: lib/attention-bar/layers/layer-1.ts via
+// getPolicyBool(POLICY_KEYS.ATTENTION_BAR_L1_RETURN_SECONDARY, false). That
+// reader caches for 60s, so toggle changes propagate within ~1 minute.
+
+const RETURN_SECONDARY_QUERY_KEY = [
+  'attention-bar',
+  'policy',
+  POLICY_KEYS.ATTENTION_BAR_L1_RETURN_SECONDARY,
+] as const;
+
+interface ReturnSecondaryPolicyRow {
+  id: string;
+  value: boolean;
+  updated_at: string | null;
+}
+
+async function fetchReturnSecondaryPolicy(): Promise<ReturnSecondaryPolicyRow | null> {
+  const supabase = createClientSupabaseClient();
+  const { data, error } = await supabase
+    .from('platform_policies')
+    .select('id, value, updated_at')
+    .eq('policy_key', POLICY_KEYS.ATTENTION_BAR_L1_RETURN_SECONDARY)
+    .eq('scope_type', 'global')
+    .is('scope_id', null)
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) return null;
+  // platform_policies.value is JSONB; supabase-js auto-decodes booleans.
+  const decoded = typeof data.value === 'boolean' ? data.value : data.value === 'true';
+  return { id: data.id, value: decoded, updated_at: data.updated_at };
+}
+
+async function updateReturnSecondaryPolicy(rowId: string, next: boolean): Promise<void> {
+  const supabase = createClientSupabaseClient();
+  const { error } = await supabase
+    .from('platform_policies')
+    .update({ value: next, updated_at: new Date().toISOString() })
+    .eq('id', rowId);
+  if (error) throw error;
+}
+
+function ReturnSecondaryToggleCard() {
+  const queryClient = useQueryClient();
+
+  const { data, isLoading, error } = useQuery({
+    queryKey: RETURN_SECONDARY_QUERY_KEY,
+    queryFn: fetchReturnSecondaryPolicy,
+  });
+
+  // Optimistic UI — local state mirrors server but flips immediately on click.
+  const [localValue, setLocalValue] = useState<boolean | null>(null);
+  useEffect(() => {
+    if (data) setLocalValue(data.value);
+  }, [data]);
+
+  const mutation = useMutation({
+    mutationFn: async (next: boolean) => {
+      if (!data) throw new Error('Policy row not yet loaded');
+      await updateReturnSecondaryPolicy(data.id, next);
+      return next;
+    },
+    onSuccess: (next) => {
+      toast.success(
+        next
+          ? 'Auto-fill secondary: ON — split bar will render on every page within ~60s.'
+          : 'Auto-fill secondary: OFF — split bar reverts to L2-driven only within ~60s.',
+      );
+      void queryClient.invalidateQueries({ queryKey: RETURN_SECONDARY_QUERY_KEY });
+    },
+    onError: (err) => {
+      // Roll back optimistic flip
+      if (data) setLocalValue(data.value);
+      toast.error(
+        `Could not update toggle: ${err instanceof Error ? err.message : 'unknown error'}`,
+      );
+    },
+  });
+
+  function handleToggle(next: boolean) {
+    setLocalValue(next);
+    mutation.mutate(next);
+  }
+
+  const checked = localValue ?? data?.value ?? false;
+  const disabled = isLoading || !data || mutation.isPending;
+
+  return (
+    <Card className='border-indigo-200 dark:border-indigo-800/50 bg-indigo-50/40 dark:bg-indigo-950/20'>
+      <CardContent className='p-4'>
+        <div className='flex items-start justify-between gap-4'>
+          <div className='flex items-start gap-3'>
+            <Sparkles className='h-5 w-5 text-indigo-500 mt-0.5 shrink-0' />
+            <div className='space-y-1'>
+              <Label
+                htmlFor='attention-bar-l1-return-secondary'
+                className='text-sm font-semibold cursor-pointer'
+              >
+                Auto-fill secondary slot from catch-all
+              </Label>
+              <p className='text-xs text-muted-foreground leading-relaxed max-w-xl'>
+                When ON, the split bar renders on every page by default — Layer 1
+                returns both the role-specific entry and the catch-all as two
+                distinct hits, so users always see two attention slots even when
+                no Layer 2 rule has been configured. Changes propagate within ~60s.
+              </p>
+              {error && (
+                <p className='text-xs text-red-600 dark:text-red-400 mt-1'>
+                  Failed to load policy: {error instanceof Error ? error.message : 'unknown error'}
+                </p>
+              )}
+              {!isLoading && !data && !error && (
+                <p className='text-xs text-amber-700 dark:text-amber-400 mt-1'>
+                  Policy row not yet seeded. Run migration{' '}
+                  <code className='font-mono text-[11px]'>
+                    20260429000020_attention_bar_l1_return_secondary_policy.sql
+                  </code>
+                  .
+                </p>
+              )}
+              {data?.updated_at && (
+                <p className='text-[11px] text-muted-foreground mt-1'>
+                  Last changed {new Date(data.updated_at).toLocaleString()}
+                </p>
+              )}
+            </div>
+          </div>
+          <div className='flex items-center gap-2 shrink-0'>
+            <Badge
+              variant='outline'
+              className={cn(
+                'text-[10px] uppercase tracking-wider font-mono',
+                checked
+                  ? 'border-emerald-300 text-emerald-700 dark:border-emerald-700 dark:text-emerald-300'
+                  : 'border-slate-300 text-slate-600 dark:border-slate-700 dark:text-slate-400',
+              )}
+            >
+              {isLoading ? '…' : checked ? 'ON' : 'OFF'}
+            </Badge>
+            <Switch
+              id='attention-bar-l1-return-secondary'
+              checked={checked}
+              disabled={disabled}
+              onCheckedChange={handleToggle}
+              aria-label='Auto-fill secondary slot from catch-all'
+            />
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export function TabDefaults() {
@@ -487,6 +659,9 @@ export function TabDefaults() {
 
   return (
     <div className='space-y-6 py-4'>
+
+      {/* Director-tunable toggle: auto-fill secondary from catch-all */}
+      <ReturnSecondaryToggleCard />
 
       {/* Header + stats */}
       <div className='space-y-3'>
