@@ -69,6 +69,23 @@ type SelectedUser = {
 
 type UserType = 'learner' | 'facilitator';
 
+// Counsellor role options exposed in the Add Counselor dialog. Mirrors the
+// allowlist enforced by assign_counselor_role(p_role_key) — health_counselor
+// is intentionally excluded (its confidentiality contract means it should
+// only be granted via Role Management, not a generic admin UI).
+type CounselorRoleKey =
+  | 'admission_counselor'
+  | 'expo_counselor'
+  | 'learner_counselor'
+  | 'staff_counselor';
+
+const COUNSELOR_ROLE_OPTIONS: { value: CounselorRoleKey; label: string; hint: string }[] = [
+  { value: 'admission_counselor', label: 'Admission Counsellor', hint: 'Lead follow-up, communication, conversion tracking' },
+  { value: 'expo_counselor',      label: 'Expo Counsellor',      hint: 'Expo / field event lead capture and follow-up' },
+  { value: 'learner_counselor',   label: 'Learner Counsellor',   hint: 'Enrolled-learner academic and well-being support' },
+  { value: 'staff_counselor',     label: 'Staff Counsellor',     hint: 'Employee workplace wellness and grievance support' },
+];
+
 export function AddCounselorDialog({
   open,
   onOpenChange,
@@ -78,26 +95,27 @@ export function AddCounselorDialog({
   const { institutions } = useInstitutionsWithAccess();
   const supabase = createClientSupabaseClient();
 
-  // Assigns the counselor role via the SECURITY DEFINER RPC introduced 2026-04-27
-  // (migration 20260427_add_assign_counselor_role_rpc.sql). A direct user_roles
-  // INSERT from the browser is RLS-blocked for admission/admission_staff/counselor
-  // users (the user_roles INSERT policy needs roles.create, which those roles
+  // Assigns the counsellor role via the SECURITY DEFINER RPC introduced
+  // 2026-04-27 and extended 2026-04-30 to accept a role_key. A direct user_roles
+  // INSERT from the browser is RLS-blocked for admission/admission_staff users
+  // (the user_roles INSERT policy needs roles.create, which those roles
   // intentionally lack). The RPC bypasses RLS but re-checks authorization
-  // internally — the caller must have admission.counselors.create and the target
-  // must already have an admission_counselors row.
+  // internally — the caller must have admission.counselors.create, the target
+  // must already have an admission_counselors row, and p_role_key must be one
+  // of the four allowlisted counsellor keys.
   //
-  // Two counselors created on 2026-04-27 04:37 UTC ended up with NO user_roles
+  // Two counsellors created on 2026-04-27 04:37 UTC ended up with NO user_roles
   // entry because the previous "non-blocking best-effort" implementation never
   // destructured {error} from .insert() — Supabase returns RLS denials in the
   // result, not as a thrown exception, so the catch block never fired. Returns
   // {ok, message} so the submit handler can surface failures via toast.
   const assignCounselorRole = async (
     profileId: string,
+    roleKey: CounselorRoleKey,
   ): Promise<{ ok: boolean; message?: string }> => {
-    // Cast: the generated supabase types don't include this RPC name yet, same
-    // pattern as lib/services/staff/staff-service.ts:206 for mirror_staff_role.
     const { error } = await (supabase as any).rpc('assign_counselor_role', {
       p_user_id: profileId,
+      p_role_key: roleKey,
     });
     if (error) {
       console.error('[admission/counselors] assign_counselor_role RPC failed:', error);
@@ -108,6 +126,7 @@ export function AddCounselorDialog({
 
   // ---------- State ----------
   const [userType, setUserType] = useState<UserType>('learner');
+  const [roleKey, setRoleKey] = useState<CounselorRoleKey>('admission_counselor');
 
   // Hierarchy filter state
   const [existInstitutionId, setExistInstitutionId] = useState(propInstitutionId || '');
@@ -179,6 +198,7 @@ export function AddCounselorDialog({
   useEffect(() => {
     if (!open) {
       setUserType('learner');
+      setRoleKey('admission_counselor');
       setExistInstitutionId(propInstitutionId || '');
       setDegreeId('');
       setDepartmentId('');
@@ -314,7 +334,7 @@ export function AddCounselorDialog({
           .from('profiles')
           .select('id, full_name, email, phone_number, role')
           .eq('institution_id', existInstitutionId)
-          .in('role', ['faculty', 'hod', 'staff', 'digital_coordinator', 'counselor'])
+          .in('role', ['faculty', 'hod', 'staff', 'digital_coordinator', 'admission_counselor', 'expo_counselor'])
           .not('is_pre_registered', 'is', true);
 
         if (departmentId) query = query.eq('department_id', departmentId);
@@ -468,15 +488,16 @@ export function AddCounselorDialog({
         return;
       }
 
-      // Auto-assign counselor role if user has a profile. We surface failures
-      // via toast — no longer a silent best-effort. Counselor record stays
-      // (it's a successful partial create) so the admin can retry role
-      // assignment from the Manage tab without re-entering the form.
+      // Auto-assign the chosen counsellor role if user has a profile. We
+      // surface failures via toast — no longer a silent best-effort. The
+      // counsellor record stays (it's a successful partial create) so the
+      // admin can retry role assignment from the Manage tab without re-
+      // entering the form.
       if (userId) {
-        const roleResult = await assignCounselorRole(userId);
+        const roleResult = await assignCounselorRole(userId, roleKey);
         if (!roleResult.ok) {
           toast.error(
-            `Counselor created, but role assignment failed: ${roleResult.message ?? 'unknown error'}. Ask an admin to assign the counselor role manually.`,
+            `Counselor created, but role assignment failed: ${roleResult.message ?? 'unknown error'}. Ask an admin to assign the role manually.`,
           );
           onSuccess?.();
           onOpenChange(false);
@@ -565,6 +586,28 @@ export function AddCounselorDialog({
                 Facilitator
               </Button>
             </div>
+          </div>
+
+          {/* Counsellor role selector */}
+          <div className="space-y-1.5">
+            <Label className="text-xs font-medium text-muted-foreground">
+              Counsellor Role <span className="text-red-500">*</span>
+            </Label>
+            <Select value={roleKey} onValueChange={(v) => setRoleKey(v as CounselorRoleKey)}>
+              <SelectTrigger className="w-full h-9 text-sm">
+                <SelectValue placeholder="Select counsellor role" />
+              </SelectTrigger>
+              <SelectContent>
+                {COUNSELOR_ROLE_OPTIONS.map((opt) => (
+                  <SelectItem key={opt.value} value={opt.value}>
+                    <div className="flex flex-col">
+                      <span className="text-sm">{opt.label}</span>
+                      <span className="text-[11px] text-muted-foreground">{opt.hint}</span>
+                    </div>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
           {/* Hierarchy filters */}

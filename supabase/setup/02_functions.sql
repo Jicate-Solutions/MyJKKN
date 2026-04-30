@@ -2387,12 +2387,16 @@ AS $$
     (p_institution_id IS NULL OR p.institution_id = p_institution_id)
     AND p.is_active = true
     AND (
-      p.role = 'counselor'
+      -- Updated 2026-04-30 (counselor taxonomy phase 3): the legacy 'counselor'
+      -- role_key was renamed to 'admission_counselor' and a sibling role
+      -- 'expo_counselor' was added with the same admission CRM access surface.
+      -- Both keys are accepted here so neither is silently filtered out.
+      p.role IN ('admission_counselor', 'expo_counselor')
       OR p.id IN (
         SELECT ur.user_id
         FROM user_roles ur
         JOIN custom_roles cr ON ur.role_id = cr.id
-        WHERE cr.role_key = 'counselor'
+        WHERE cr.role_key IN ('admission_counselor', 'expo_counselor')
       )
       -- Include any user explicitly added to admission_counselors (any role)
       OR p.id IN (
@@ -6583,7 +6587,11 @@ BEGIN
         (p_scope ? 'institution_ids' AND p.institution_id::text IN (SELECT jsonb_array_elements_text(p_scope -> 'institution_ids')))
         OR (NOT (p_scope ? 'staff_ids') AND NOT (p_scope ? 'institution_ids') AND p.institution_id = v_lead.institution_id)
       )
-      AND (p.role = 'admission' OR p.role = 'admission_staff' OR p.role = 'counselor')
+      -- Updated 2026-04-30 (counselor taxonomy phase 3): 'counselor' role_key
+      -- was renamed to 'admission_counselor' and 'expo_counselor' was added
+      -- with the same admission CRM access surface; both should receive
+      -- rescue broadcasts.
+      AND p.role IN ('admission', 'admission_staff', 'admission_counselor', 'expo_counselor')
   ),
   broadcast_notif AS (
     -- 2026-04-25: rescue broadcasts are operational work items (counselor must claim & call).
@@ -9590,21 +9598,40 @@ GRANT EXECUTE ON FUNCTION public.mirror_staff_role_to_user_roles(uuid, text) TO 
 -- (caller must have admission.counselors.create AND target must have an
 -- admission_counselors row, preventing drive-by role assignment).
 -- ================================================================================
+-- Updated 2026-04-30 (counselor taxonomy phase 3.1): added p_role_key parameter
+-- with allowlist validation so the Add Counselor dialog can assign expo /
+-- learner / staff counsellor variants in addition to the default
+-- admission_counselor. The 2-arg signature was DROPped to avoid overload
+-- ambiguity — every caller now resolves to this 3-arg version with p_role_key
+-- defaulting when omitted.
 CREATE OR REPLACE FUNCTION public.assign_counselor_role(
-    p_user_id uuid,
-    p_is_primary boolean DEFAULT true
+    p_user_id    uuid,
+    p_is_primary boolean DEFAULT true,
+    p_role_key   text    DEFAULT 'admission_counselor'
 ) RETURNS void
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public
 AS $$
 DECLARE
-    v_role_id uuid;
-    v_caller uuid := auth.uid();
+    v_role_id      uuid;
+    v_caller       uuid := auth.uid();
+    v_allowed_keys text[] := ARRAY[
+      'admission_counselor',
+      'expo_counselor',
+      'learner_counselor',
+      'staff_counselor'
+    ];
 BEGIN
     IF NOT (is_super_admin() OR is_admin() OR user_has_permission('admission.counselors.create')) THEN
-        RAISE EXCEPTION 'Insufficient permission to assign counselor role'
+        RAISE EXCEPTION 'Insufficient permission to assign counsellor role'
             USING ERRCODE = '42501';
+    END IF;
+
+    IF NOT (COALESCE(p_role_key, 'admission_counselor') = ANY(v_allowed_keys)) THEN
+        RAISE EXCEPTION 'role_key % is not assignable through assign_counselor_role (allowed: %)',
+            p_role_key, v_allowed_keys
+            USING ERRCODE = '22023';
     END IF;
 
     IF NOT EXISTS (
@@ -9617,10 +9644,10 @@ BEGIN
 
     SELECT id INTO v_role_id
     FROM custom_roles
-    WHERE role_key = 'counselor';
+    WHERE role_key = COALESCE(p_role_key, 'admission_counselor');
 
     IF v_role_id IS NULL THEN
-        RAISE EXCEPTION 'No custom_role found for role_key counselor'
+        RAISE EXCEPTION 'No custom_role found for role_key %', p_role_key
             USING ERRCODE = '23503';
     END IF;
 
@@ -9646,7 +9673,7 @@ BEGIN
 END;
 $$;
 
-GRANT EXECUTE ON FUNCTION public.assign_counselor_role(uuid, boolean) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.assign_counselor_role(uuid, boolean, text) TO authenticated;
 
 -- =====================================================
 -- validate_learner_admission_year_scope() — Added 2026-04-23
@@ -10693,15 +10720,18 @@ BEGIN
     FROM profiles
     WHERE is_super_admin = TRUE
        OR role IN (
+         -- Updated 2026-04-30 (counselor taxonomy phase 3): 'counselor' renamed
+         -- to 'admission_counselor'; 'expo_counselor' added with same access.
          'ceo','cao','cbo','executive_admin_officer','registrar',
-         'hr_admin','system_admin','counselor','admission_staff','accountant_assistant'
+         'hr_admin','system_admin','admission_counselor','expo_counselor',
+         'admission_staff','accountant_assistant'
        )
   LOOP
     -- Per-role category gating. super_admin = full 4 categories; oversight roles = subset.
     v_emit_escalation := v_user.is_super_admin
                       OR v_user.role IN ('ceo','cbo','accountant_assistant');
     v_emit_rescue     := v_user.is_super_admin
-                      OR v_user.role IN ('cbo','counselor','admission_staff');
+                      OR v_user.role IN ('cbo','admission_counselor','expo_counselor','admission_staff');
     v_emit_approval   := v_user.is_super_admin
                       OR v_user.role IN ('ceo','cao','executive_admin_officer','registrar','hr_admin');
     v_emit_anomaly    := v_user.is_super_admin

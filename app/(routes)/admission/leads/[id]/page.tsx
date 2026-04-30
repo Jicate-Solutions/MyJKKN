@@ -939,7 +939,7 @@ function LeadDetailPageContent() {
     }
   }, [lead?.institution_id]);
 
-  // Counselors from profiles (role='counselor') — global across all institutions
+  // Counselors from profiles (role IN admission_counselor / expo_counselor) — global across all institutions
   const { data: counselorProfiles, isLoading: counselorsLoading } = useCounselorProfiles(null);
   const counselors = counselorProfiles || [];
 

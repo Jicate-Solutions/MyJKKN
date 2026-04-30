@@ -12,7 +12,10 @@ import {
   IndianRupee,
   Search,
   Plus,
-  Trash2
+  Trash2,
+  Upload,
+  FileSpreadsheet,
+  Download
 } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation/Breadcrumbs';
@@ -61,6 +64,8 @@ import { BillingCategoryService } from '@/lib/services/billing/categories/billin
 import { useStudentsForBulkOperations } from '@/hooks/billing/use-student-search';
 import { useBulkCreateStudentBills } from '@/hooks/billing/use-student-bills';
 import { usePermissions } from '@/hooks/use-permissions';
+import { ImportBillsDialog } from './_components/import-bills-dialog';
+import toast from 'react-hot-toast';
 import type { Institution, Degree, Department, Program, Semester } from '@/types/organizations';
 import type { BillingCategory } from '@/types/billing';
 import type { StudentForBilling } from '@/types/billing-schedule';
@@ -96,6 +101,7 @@ type BulkBillFormData = z.infer<typeof bulkBillSchema>;
 
 export default function BulkCreateBillsPage() {
   const router = useRouter();
+  const [importOpen, setImportOpen] = useState(false);
   const [institutions, setInstitutions] = useState<Institution[]>([]);
   const [degrees, setDegrees] = useState<Degree[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
@@ -380,7 +386,61 @@ export default function BulkCreateBillsPage() {
           </p>
         </div>
 
+        {/* Bulk upload from Excel — alternate path that bypasses the form below.
+            Each row of the uploaded sheet becomes one bill (own student, own
+            amount, own due date, own category). The form below remains for the
+            common "same bill, many students" case. */}
+        <Card className='border-dashed bg-muted/40'>
+          <CardContent className='flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between'>
+            <div className='flex items-start gap-3'>
+              <div className='rounded-md bg-primary/10 p-2 text-primary'>
+                <FileSpreadsheet className='h-6 w-6' />
+              </div>
+              <div className='space-y-1'>
+                <p className='font-semibold leading-tight'>
+                  Have many bills with different categories or amounts?
+                </p>
+                <p className='text-sm text-muted-foreground'>
+                  Download the Excel template, fill one row per bill, then
+                  upload to create them all at once. Each row needs a roll
+                  number, billing category, due date, and amount.
+                </p>
+              </div>
+            </div>
+            <div className='flex shrink-0 gap-2'>
+              <Button variant='outline' size='sm' asChild>
+                <a
+                  href='/api/billing/schedule/bills/template'
+                  onClick={() => toast.success('Downloading template…')}
+                >
+                  <Download className='mr-2 h-4 w-4' />
+                  Download Template
+                </a>
+              </Button>
+              <Button
+                size='sm'
+                onClick={() => setImportOpen(true)}
+                disabled={!canCreateBills}
+              >
+                <Upload className='mr-2 h-4 w-4' />
+                Upload Excel
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
+        <ImportBillsDialog
+          open={importOpen}
+          onOpenChange={setImportOpen}
+          onImportComplete={() => {
+            // Stay on the page so the user can upload another batch if they
+            // want. Future: refresh a "recent imports" panel if we add one.
+            setImportOpen(false);
+          }}
+        />
+
         <Form {...form}>
+
           <form onSubmit={form.handleSubmit(onSubmit)} className='space-y-6'>
             <div className='space-y-6'>
               {/* Linear flow: Step 1 (filters & bill) → Step 2 (students) → Step 3 (amount) → Submit. */}

@@ -133,7 +133,8 @@ export const RESERVED_STAFF_ROLE_KEYS = new Set([
   'super_admin',
   'administrator',
   'admission',
-  'counselor',
+  'admission_counselor',
+  'expo_counselor',
   'guest'
 ]);
 

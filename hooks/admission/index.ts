@@ -825,16 +825,17 @@ export function useCounselorPerformance(institutionId?: string, dateRange?: any,
       const { data: allCounselors, error: counselorsError } = await counselorsQuery;
       if (counselorsError) throw new Error(counselorsError.message);
 
-      // 2. Also fetch counselor profiles (role='counselor') to include those not yet in admission_counselors
+      // 2. Also fetch counselor profiles (admission_counselor or expo_counselor)
+      //    to include those not yet in admission_counselors.
       let profilesQuery = (supabase as any)
         .from('profiles')
         .select('id, full_name, email, institution_id, designation')
-        .eq('role', 'counselor')
+        .in('role', ['admission_counselor', 'expo_counselor'])
         .eq('is_active', true);
       if (institutionId) profilesQuery = profilesQuery.eq('institution_id', institutionId);
       const { data: counselorProfiles } = await profilesQuery;
 
-      // Build a merged map: admission_counselors + profiles with role='counselor'
+      // Build a merged map: admission_counselors + counsellor profiles
       const counselorMap: Record<string, any> = {};
 
       // Add from admission_counselors first

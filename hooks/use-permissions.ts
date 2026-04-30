@@ -208,32 +208,38 @@ export function usePermissions(
       // If role has institution_scope data, use it
       if ((r as any).institution_scope === 'all') return true;
       // Legacy fallback: check role_key for known global roles
-      return r.role_key === 'admission' || r.role_key === 'counselor';
+      return r.role_key === 'admission'
+        || r.role_key === 'admission_counselor'
+        || r.role_key === 'expo_counselor';
     });
 
     if (hasGlobalScope) return true;
 
     // Also check legacy profile role
-    return userProfile?.role === 'admission' || userProfile?.role === 'counselor';
+    return userProfile?.role === 'admission'
+      || userProfile?.role === 'admission_counselor'
+      || userProfile?.role === 'expo_counselor';
   }, [isSuperAdmin, userProfile?.role, userRoles]);
 
-  // Users with the 'counselor' custom role (in ANY of their assigned roles)
-  // get access to admission module pages (call logs, leads, counselor dashboard, etc.)
-  // This handles multi-role users like faculty+counselor or student+counselor.
-  // Also grants access to any role with institution_scope = 'all' (cross-institutional roles).
+  // Users with an admission counsellor custom role (admission_counselor or
+  // expo_counselor — both share the same admission CRM access surface) get
+  // access to admission module pages (call logs, leads, counselor dashboard).
+  // This handles multi-role users like faculty + admission_counselor.
+  // Also grants access to any role with institution_scope = 'all'.
   const isCounselorUser = useMemo(() => {
     if (isSuperAdmin) return true;
 
     // Check multi-role system for counselor role or cross-institutional scope
     const hasCounselorAccess = userRoles.some((r) => {
       if ((r as any).institution_scope === 'all') return true;
-      return r.role_key === 'counselor';
+      return r.role_key === 'admission_counselor' || r.role_key === 'expo_counselor';
     });
 
     if (hasCounselorAccess) return true;
 
     // Also check legacy profile role
-    return userProfile?.role === 'counselor';
+    return userProfile?.role === 'admission_counselor'
+      || userProfile?.role === 'expo_counselor';
   }, [isSuperAdmin, userProfile?.role, userRoles]);
 
   // Overall loading state
