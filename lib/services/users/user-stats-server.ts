@@ -10,97 +10,75 @@
 
 import { createClient } from '@supabase/supabase-js';
 import type { UserStats } from '@/types/users';
+import { withRetry } from '@/lib/retry';
 // cacheLife/cacheTag disabled — requires cacheComponents in next.config.ts
 // import { cacheLife, cacheTag } from 'next/cache';
 
-/**
- * Fetch user statistics from the database (server-side only)
- *
- * Uses createClient (not createServerClient) because:
- * - Service role key bypasses RLS — no cookies needed
- * - Avoids SSR cookie layer that can cause fetch failures in 'use cache' context
- *
- * @param institutionId - Optional institution ID to filter stats
- * @returns UserStats object with counts and breakdowns
- */
 async function getUserStatsServer(institutionId?: string): Promise<UserStats> {
   try {
-    // Use service role key for stats (no cookies needed, just counting)
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!
-    );
-    const fromProfiles = supabase.from('profiles');
+    // Retries transient TLS/socket resets (ECONNRESET) from Node's keep-alive
+    // pool against Supabase REST. Each attempt re-awaits the query builders,
+    // which issues a fresh fetch on a new socket.
+    return await withRetry(async () => {
+      const supabase = createClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.SUPABASE_SERVICE_ROLE_KEY!
+      );
+      const fromProfiles = supabase.from('profiles');
 
-    // Base queries
-    let totalQuery = fromProfiles.select('*', {
-      count: 'exact',
-      head: true
-    });
-    let activeQuery = fromProfiles.select('*', {
-      count: 'exact',
-      head: true
-    });
-    let inactiveQuery = fromProfiles.select('*', {
-      count: 'exact',
-      head: true
-    });
-    let rolesQuery = fromProfiles.select('role');
+      let totalQuery = fromProfiles.select('*', { count: 'exact', head: true });
+      let activeQuery = fromProfiles.select('*', { count: 'exact', head: true });
+      let inactiveQuery = fromProfiles.select('*', { count: 'exact', head: true });
+      let rolesQuery = fromProfiles.select('role');
 
-    // Apply institution filter if provided
-    if (institutionId) {
-      totalQuery = totalQuery.eq('institution_id', institutionId);
-      activeQuery = activeQuery.eq('institution_id', institutionId);
-      inactiveQuery = inactiveQuery.eq('institution_id', institutionId);
-      rolesQuery = rolesQuery.eq('institution_id', institutionId);
-    }
-
-    // Get total users
-    const { count: total, error: totalError } = (await totalQuery) as {
-      count: number | null;
-      error: any;
-    };
-    if (totalError) throw totalError;
-
-    // Get active users
-    const { count: active, error: activeError } = (await activeQuery.eq(
-      'is_active',
-      true
-    )) as { count: number | null; error: any };
-    if (activeError) throw activeError;
-
-    // Get inactive users
-    const { count: inactive, error: inactiveError } = (await inactiveQuery.eq(
-      'is_active',
-      false
-    )) as { count: number | null; error: any };
-    if (inactiveError) throw inactiveError;
-
-    // Get all profiles with role data for counting
-    const { data: profiles, error: profilesError } = (await rolesQuery) as {
-      data: { role: string | null }[] | null;
-      error: any;
-    };
-    if (profilesError) throw profilesError;
-
-    // Count roles manually
-    const byRole: Record<string, number> = {};
-    profiles?.forEach((profile) => {
-      if (profile.role) {
-        byRole[profile.role] = (byRole[profile.role] || 0) + 1;
+      if (institutionId) {
+        totalQuery = totalQuery.eq('institution_id', institutionId);
+        activeQuery = activeQuery.eq('institution_id', institutionId);
+        inactiveQuery = inactiveQuery.eq('institution_id', institutionId);
+        rolesQuery = rolesQuery.eq('institution_id', institutionId);
       }
+
+      const { count: total, error: totalError } = (await totalQuery) as {
+        count: number | null;
+        error: any;
+      };
+      if (totalError) throw totalError;
+
+      const { count: active, error: activeError } = (await activeQuery.eq(
+        'is_active',
+        true
+      )) as { count: number | null; error: any };
+      if (activeError) throw activeError;
+
+      const { count: inactive, error: inactiveError } = (await inactiveQuery.eq(
+        'is_active',
+        false
+      )) as { count: number | null; error: any };
+      if (inactiveError) throw inactiveError;
+
+      const { data: profiles, error: profilesError } = (await rolesQuery) as {
+        data: { role: string | null }[] | null;
+        error: any;
+      };
+      if (profilesError) throw profilesError;
+
+      const byRole: Record<string, number> = {};
+      profiles?.forEach((profile) => {
+        if (profile.role) {
+          byRole[profile.role] = (byRole[profile.role] || 0) + 1;
+        }
+      });
+
+      const byInstitution: Record<string, number> = {};
+
+      return {
+        total: total || 0,
+        active: active || 0,
+        inactive: inactive || 0,
+        byRole,
+        byInstitution
+      };
     });
-
-    // Placeholder for institution breakdown (can be enhanced later)
-    const byInstitution: Record<string, number> = {};
-
-    return {
-      total: total || 0,
-      active: active || 0,
-      inactive: inactive || 0,
-      byRole,
-      byInstitution
-    };
   } catch (error) {
     console.error('[users/user-stats-server] Error fetching user stats:', error);
     throw error;
