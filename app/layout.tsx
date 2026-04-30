@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from 'next';
-import { Poppins } from 'next/font/google';
+import localFont from 'next/font/local';
 import './globals.css';
 import { PushNotificationProvider } from '@/components/notifications/push-notification-provider';
 import { PWAProvider } from '@/components/pwa/pwa-provider';
@@ -9,9 +9,15 @@ import { SpeedInsights } from '@vercel/speed-insights/next';
 import Script from 'next/script';
 import { PreviewBanner } from '@/components/layout/preview-banner';
 
-const poppins = Poppins({
-  weight: ['100', '200', '300', '400', '500', '600', '700', '800', '900'],
-  subsets: ['latin'],
+// Self-hosted to avoid build-time fetches to fonts.gstatic.com. To add a weight,
+// see docs/fixes/2026-04/2026-04-30-FIX-build-econnreset-self-host-poppins.md.
+const poppins = localFont({
+  src: [
+    { path: '../public/fonts/poppins/Poppins-Regular.woff2', weight: '400', style: 'normal' },
+    { path: '../public/fonts/poppins/Poppins-Medium.woff2', weight: '500', style: 'normal' },
+    { path: '../public/fonts/poppins/Poppins-SemiBold.woff2', weight: '600', style: 'normal' },
+    { path: '../public/fonts/poppins/Poppins-Bold.woff2', weight: '700', style: 'normal' }
+  ],
   display: 'swap',
   variable: '--font-poppins'
 });

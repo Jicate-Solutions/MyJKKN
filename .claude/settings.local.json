@@ -249,7 +249,8 @@
       "mcp__plugin_vercel_vercel__list_teams",
       "mcp__plugin_vercel_vercel__list_projects",
       "Bash(2>/dev/null)",
-      "Read(//tmp/**)"
+      "Read(//tmp/**)",
+      "Bash(kill -0 745)"
     ],
     "deny": [],
     "ask": []
