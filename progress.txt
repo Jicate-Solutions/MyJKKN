@@ -1,3 +1,4 @@
+### Session 2026-05-01 (pane 86e856ae) — System-1 thesis empirically refuted (40% vs chance baseline); 11 of 15 artifacts demoted; /lock-initiative v3 + outcome-metric-first discipline replace it; 3 new auto-load memory files (falsifiable-test-before-infra, skill-creator-first, no-predictive-claims-in-auto-load) → .claude/sessions/86e856ae.md
 ## Session: 2026-04-28 (pane 937875b3) — Counselor rules-engine spec #537 100% shipped (11 PRs, 1 deploy, 1 critical post-deploy bug surfaced)
 
 ### Accomplished

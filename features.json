@@ -1,17 +1,74 @@
 {
   "project": "MyJKKN - HR Module + Exotel",
-  "lastUpdated": "2026-04-28",
+  "lastUpdated": "2026-05-01",
+  "_schema": {
+    "version": "2.0",
+    "updated": "2026-04-30",
+    "rule": "Every new feature entry MUST include both `system_1_source` (named target — note: the predictive System-1 thesis was empirically refuted 2026-05-01; this field now means 'named target', not 'encoded reflex') AND `outcome_metric` (named measurable metric + 90-day threshold + kill criterion). The `outcome_metric` block is the active discipline replacing the demoted System-1 lens. Features missing `outcome_metric` are invalid. See `memory/feedback_outcome_metric_first.md` and `~/Vaults/JKKNKB/Strategy/Bharathiraja-Test-Verdict-2026-05-01.md`.",
+    "system_1_source_fields": {
+      "expert_role": "Named role/person whose reflex is being encoded (or 'infra' if none)",
+      "reflex_being_encoded": "One-sentence description of the tacit pattern",
+      "obvious_reading": "What 90% of people would say this expert is doing",
+      "hidden_pattern": "What the expert actually pattern-matches on unconsciously (PENDING /think-aloud if not yet captured)",
+      "pattern_classification": "A (1mm-of-squeeze) | B (key-card-coupling) | C (Juicero-risk) | hybrid_AB | infra",
+      "juicero_validation": "Answer to: if encoded perfectly and run 24/7, what changes / who notices / what metric moves?",
+      "encoding_path": "rule-engine | classifier | llm-agent | hybrid | infra"
+    },
+    "outcome_metric_fields": {
+      "metric_name": "Queryable database column / dashboard chart / Supabase function output. Single number or yes/no on verdict-date. NOT 'improve X' or 'better Y'.",
+      "baseline_value": "Current reading + timestamp of measurement",
+      "threshold_90d": "Target value at verdict-date (90 days from spec lock). Specific number.",
+      "kill_criterion": "If threshold missed by X%, module is revised or formally archived. Specific value + specific consequence.",
+      "verdict_date": "ISO date — 90 days from spec lock",
+      "verdict_status": "PENDING | HIT | MISS | REVISED"
+    },
+    "enforcement": "Specs missing `outcome_metric` block are invalid. /myjkkn-chain Q0 (Outcome Metric Lock) enforces this gate at spec-time. The four-test-discipline gate enforces it at audit-time (Juicero test = 'named metric'). At verdict_date, query the metric; if HIT or MISS-tolerance, update verdict_status; if MISS below kill_criterion, revise architecture or formally archive — do NOT defend. Cross-domain commitments also captured via /lock-initiative skill at ~/Vaults/JKKNKB/Strategy/Locked-Initiatives.md."
+  },
   "features": [
     {
       "id": "counselor-rules-engine-substrate",
       "name": "Counselor rules-engine — spec + 7-phase build (Phases 1+2 shipped)",
       "status": "in-progress",
-      "notes": "Spec PR #537 (580 LOC docs) + Phase 1 PR #538 (10-user reassignment, DB-applied) + Phase 2 PR #540 (5 new tables + 2 col adds + 10 RLS + 2 perm keys, DB-applied) all OPEN+Ready+CLEAN/MERGEABLE. 20 decisions locked from 16-Q /assumption-thrash interview. Counselor counts post-reassignment: counselor=4 (admission cell), learner_counselor=9 (student peers), staff_counselor=1 (test.faculty), health_counselor=1. Phases 3-7 pending: routing engine v2, cron+cascade, /admission/counselors/team UI, handover banner, default seeds. ~1,000 LOC remaining across 5 PRs."
+      "system_1_source": {
+        "expert_role": "Senior counselor (Bharathiraja et al.) — Inventory R-001",
+        "reflex_being_encoded": "Lead-quality intuition on first call: which lead to call first, which to deprioritize, which message tone to use",
+        "obvious_reading": "Counselors follow lead scoring rules and call top-down by score",
+        "hidden_pattern": "PENDING /think-aloud Q2 — believed signals: phone-prefix demographic inference, time-of-form-submission tier, message-length intent signal, school-name brand recognition, parent-vs-student language. Validate via case-walking with Bharathiraja before encoding.",
+        "pattern_classification": "hybrid_AB",
+        "juicero_validation": "Yes — encoding moves attribution from 5.9% to projected 15-20%, conversion lift over 12% baseline. Director and admission cell notice immediately.",
+        "encoding_path": "hybrid (rule-engine for Tier-1 countable signals + LLM-agent for Tier-2 fuzzy patterns + counselor override)"
+      },
+      "outcome_metric": {
+        "metric_name": "Counselor attribution rate: count(admission_leads WHERE counselor_id IS NOT NULL) * 100.0 / count(admission_leads created_at > spec_lock_date)",
+        "baseline_value": "5.9% (audit reading 2026-04)",
+        "threshold_90d": "12% by 2026-08-01 (~2x lift)",
+        "kill_criterion": "If <8% on 2026-08-01, revise routing engine v2 architecture before Phases 4-7 ship",
+        "verdict_date": "2026-08-01",
+        "verdict_status": "PENDING"
+      },
+      "notes": "Spec PR #537 (580 LOC docs) + Phase 1 PR #538 (10-user reassignment, DB-applied) + Phase 2 PR #540 (5 new tables + 2 col adds + 10 RLS + 2 perm keys, DB-applied) all OPEN+Ready+CLEAN/MERGEABLE. 20 decisions locked from 16-Q /assumption-thrash interview. Counselor counts post-reassignment: counselor=4 (admission cell), learner_counselor=9 (student peers), staff_counselor=1 (test.faculty), health_counselor=1. Phases 3-7 pending: routing engine v2, cron+cascade, /admission/counselors/team UI, handover banner, default seeds. ~1,000 LOC remaining across 5 PRs. Spec needs reframe per System 1 lens (2026-04-30): currently treats rules as policy decisions; should be reframed as encoding Bharathiraja's specific reflex, not generic ruleset."
     },
     {
       "id": "admission-counselors-quickwins",
       "name": "/admission/counselors quick-wins (4 ship-able fixes pre-Phase-3)",
       "status": "in-progress",
+      "system_1_source": {
+        "expert_role": "Senior counselor (general)",
+        "reflex_being_encoded": "Spotting unassigned-lead backlog and limited-attribution gaps without consciously checking dashboard stats",
+        "obvious_reading": "Show counselors stats they need to act on",
+        "hidden_pattern": "Counselors don't measure lead-list health; they call top-down. Banner-at-top exploits Pattern A — a presentation-rule change in front of System 1 user shifts behavior at scale, no new behavior required.",
+        "pattern_classification": "A",
+        "juicero_validation": "Yes — 89% unassigned drops to under 30% after backfill + banner; counselors notice immediately, attribution moves from 5.9% to 12%+.",
+        "encoding_path": "rule-engine (UI default change + SQL backfill, no ML/agent needed)"
+      },
+      "outcome_metric": {
+        "metric_name": "Unassigned-leads ratio (count(admission_leads WHERE counselor_id IS NULL) / total) %",
+        "baseline_value": "89% unassigned (audit 2026-04)",
+        "threshold_90d": "<30% by 2026-08-01",
+        "kill_criterion": "If >50% on 2026-08-01, backfill mechanism is broken — investigate before scaling banner UX to other modules",
+        "verdict_date": "2026-08-01",
+        "verdict_status": "PENDING"
+      },
       "notes": "P0 next session per user_stated_p0. Audit revealed 89% leads unassigned, 5.9% call attribution, 25% briefing adoption. Quick-wins: (B) counselor_id backfill rescope ~30 LOC SQL, (A) unassigned-leads banner ~60 LOC TS, (C) limited-attribution caveat ~25 LOC TS, (D) today's briefing status panel ~80 LOC TS. ~205 LOC across 4 disjoint PRs, ~3-4hr work. Closes Task #11 from prior session."
     },
     {
