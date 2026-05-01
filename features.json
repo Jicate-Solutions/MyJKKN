@@ -208,6 +208,24 @@
       "name": "See As User \u2014 admin impersonation with director-only write mode",
       "status": "deployed-awaiting-test",
       "notes": "PRs #166\u2192#185 merged 2026-04-15. Real session swap via admin.generateLink+verifyOtp+setSession (PR #179 architectural fix). Director-only write mode + boobalan.a@jkkn.ac.in allowlist (PR #181). Exit re-issues admin session via generateLink instead of cookie backup (PR #185 \u2014 fixes 4KB cookie size ceiling truncation). Reusable skill at ~/.claude/skills/see-as-user/. NOT yet user-verified post-#185 deploy: needs director to walk Start\u2192Exit end-to-end and confirm admin lands back on permissions-audit STILL LOGGED IN. See progress.txt 2026-04-27 entry P0 task."
+    },
+    {
+      "id": "jicate-booking-multi-tenant",
+      "name": "JICATE-Booking Multi-Tenant (Cal.com self-host as productized substrate)",
+      "status": "planned",
+      "notes": "Locked initiative jicate-booking-multi-tenant-90d (verdict 2026-07-30, ~85% MISS-kill probability pre-committed). Composite Yes/No metric: (a) MyJKKN sovereignty achieved via jicate-booking infra + tenant + first real booking + JOINable from MyJKKN Supabase, AND (b) >=1 non-JKKN organization signed written agreement (target: existing JICATE Tally-Bridge clients). 8-feature v1 spec: F1 Vercel deploy of Cal.com at booking.jicate.solutions, F2 tenant provisioning UI /admin/tenants, F3 Cal.com Org+Teams+Routing Forms isolation, F4 webhook receiver + outbox + cross-DB HTTP bridge, F5 cross-DB JOIN bridge (host + booker + parent_email/guardian_email), F6 meeting_types CRUD reusing crud-master, F7 bookings inbox at /meetings, F8 custom domain book.jkkn.ai. Build sequence: Weeks 1-2 F1+F3 \u2192 Weeks 3-6 F2+F4+F5 parallel \u2192 Weeks 7-9 F6+F7+F8 parallel \u2192 Weeks 10-12 buffer. BLOCKED before code: 4 architectural mismatches between /myjkkn-api skill (built for adding to existing MyJKKN) and this initiative (creating new codebase). Sequence next session: NEW infra setup FIRST, MCP add SECOND, MyJKKN-side via /myjkkn-api THIRD. Customer-discovery list at ~/Vaults/JKKNKB/Strategy/JICATE/JICATE-Booking-Customer-Discovery-2026-05-01.md (10 empty slots, Director-only fill).",
+      "system_1_source": {
+        "expert_role": "infra",
+        "reflex_being_encoded": "N/A \u2014 substrate work (multi-tenant booking infrastructure + cross-DB sovereignty bridge); user-facing reflex encoding deferred to v2 (Cal.com Routing Forms boundary with counselor_rules_engine TBD)"
+      },
+      "outcome_metric": {
+        "metric_name": "Composite Yes/No: (a) sovereignty achieved AND (b) >=1 non-JKKN organization signed written agreement",
+        "baseline_value": "Both NO (no infra deployed, customer-discovery list has 0 named candidates, 2026-05-01 11:05 IST)",
+        "threshold_90d": "(a)=YES AND (b)=YES on 2026-07-30 (verdict day)",
+        "kill_criterion": "BINDING pre-committed: any half NO = MISS-kill, archive multi-tenant ambition entirely, NO extension, NO scope variant, NO third lock attempt on this scope, re-lock as cal-dot-com-myjkkn-sovereignty (same-Supabase MyJKKN-only). Acceptance: ~85% probability this lock fires kill clause and that's the acceptable signal MyJKKN-only sovereignty was the right scope all along.",
+        "cross_domain_registry": "~/Vaults/JKKNKB/Strategy/Locked-Initiatives.md (Active row 1: jicate-booking-multi-tenant-90d). Predecessors in Verdicted table: cal-dot-com-myjkkn-native-90d (REVISED), cal-dot-com-myjkkn-native-120d (MISS-kill \u2014 kill clause's forward-looking accountability fired honestly).",
+        "verdict_agent": "trig_01BgAvjLm8ubYuj6RMqMZWie (fires 2026-07-30T03:30:00Z = 09:00 IST, kill consequence encoded in agent prompt \u2014 non-negotiable at verdict time)"
+      }
     }
   ]
 }
