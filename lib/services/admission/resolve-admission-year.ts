@@ -7,14 +7,15 @@
 //
 // Created 2026-04-23 as part of PR-4 of the admission-year unification plan.
 //
-// Matching rule (mirrors the PR-1 backfill):
+// Matching rule:
 //   1. institution_id == instId
 //   2. program_id == programId
-//   3. admission_years row is active (is_active=true)
-//   4. Among matches, prefer program_start_year = year (exact).
-//   5. If no exact match, fall back to the latest active cohort for that
-//      (institution, program) — matching the PR-1 "admitted rows default to
-//      latest active cohort" semantic so imports behave like backfill.
+//   3. Prefer program_start_year = year (exact) regardless of is_active flag —
+//      historical cohorts (Phase A 2026-05-02 backfill) are catalogued with
+//      is_active=false but must still match for legacy data imports.
+//   4. If no exact match, fall back to the latest is_active=true cohort for
+//      that (institution, program) — matching the PR-1 "admitted rows default
+//      to latest active cohort" semantic.
 //
 // Returns null when nothing matches — callers write null into admission_year_id,
 // the legacy integer stays populated as-is, and the row is surfaced by the
@@ -34,12 +35,13 @@ export async function resolveAdmissionYearId(
 ): Promise<string | null> {
   if (!institutionId || !programId) return null;
 
+  // Fetch ALL cohorts for the pair so we can match historical (is_active=false)
+  // years exactly while still defaulting to the latest active cohort.
   const { data, error } = await (supabase as any)
     .from('admission_years')
-    .select('id, program_start_year')
+    .select('id, program_start_year, is_active')
     .eq('institution_id', institutionId)
     .eq('program_id', programId)
-    .eq('is_active', true)
     .order('program_start_year', { ascending: false });
 
   if (error || !data || data.length === 0) return null;
@@ -49,8 +51,8 @@ export async function resolveAdmissionYearId(
     if (exact) return exact.id;
   }
 
-  // Fallback to latest active cohort.
-  return data[0].id;
+  const latestActive = data.find((row: any) => row.is_active === true);
+  return latestActive?.id ?? null;
 }
 
 /**
@@ -76,17 +78,23 @@ export async function resolveAdmissionYearIdBulk(
     }
   }
 
-  // Fetch admission_years rows for each distinct pair.
-  const pairResults = new Map<string, Array<{ id: string; program_start_year: number }>>();
+  // Fetch admission_years rows for each distinct pair (active + inactive,
+  // mirroring the single-row helper so historical cohorts match).
+  const pairResults = new Map<
+    string,
+    Array<{ id: string; program_start_year: number; is_active: boolean }>
+  >();
   for (const [key, { instId, progId }] of pairs) {
     const { data } = await (supabase as any)
       .from('admission_years')
-      .select('id, program_start_year')
+      .select('id, program_start_year, is_active')
       .eq('institution_id', instId)
       .eq('program_id', progId)
-      .eq('is_active', true)
       .order('program_start_year', { ascending: false });
-    pairResults.set(key, (data ?? []) as Array<{ id: string; program_start_year: number }>);
+    pairResults.set(
+      key,
+      (data ?? []) as Array<{ id: string; program_start_year: number; is_active: boolean }>
+    );
   }
 
   // Resolve each input row.
@@ -108,8 +116,8 @@ export async function resolveAdmissionYearIdBulk(
         continue;
       }
     }
-    // Fallback to latest
-    result.set(triple, rowsForPair[0].id);
+    const latestActive = rowsForPair.find((row) => row.is_active === true);
+    result.set(triple, latestActive?.id ?? null);
   }
 
   return result;
