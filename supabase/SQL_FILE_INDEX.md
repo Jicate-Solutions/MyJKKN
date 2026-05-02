@@ -6,6 +6,16 @@
 
 ## 📝 Recent Changes
 
+- **2026-04-29** — Wave B.4 — Attention Bar Layer 0 unblock: dedicated `is_layer_0` column on `notifications`
+  - Migration 1: `notifications_add_is_layer_0_column_v1`. Applied via Supabase MCP. ALTER TABLE adds boolean column (NOT NULL DEFAULT FALSE) + partial index `idx_notifications_layer_0` (WHERE is_layer_0=TRUE) + backfill 2 rows (existing urgent+ack announcements from Apr 9 + 18). Verified: `is_layer_0_true_count = 2` matches `expected_backfill_count`.
+  - Migration 2: `fn_create_dashboard_work_item_set_is_layer_0_v1`. Applied via Supabase MCP. Function now writes `is_layer_0 = (p_priority = 'urgent')` so cron-emitted urgent work items become Layer 0 candidates. `requires_acknowledgment` stays hardcoded FALSE so the AcknowledgmentGate's blocking-modal scope is unchanged.
+  - `01_tables.sql`: appended ALTER TABLE + partial index + backfill UPDATE + COMMENT ON COLUMN. Date-stamped.
+  - `02_functions.sql`: edited `fn_create_dashboard_work_item` body — added `is_layer_0` to INSERT column list with value `(p_priority = 'urgent')`. Comment block updated to capture the architectural rationale (decoupling Layer 0 eligibility from gate ack semantics).
+  - `lib/attention-bar/layers/layer-0.ts`: query changed from `(priority='urgent' AND requires_acknowledgment=true)` to `is_layer_0=true`. Schema mapping comments + TypeScript row type updated. Existing `acknowledged_at IS NULL`, `expires_at` future-fence, ordering-by-created_at-DESC, and !inner-join semantics preserved.
+  - **Why this column is needed**: pre-fix, flipping `requires_acknowledgment=TRUE` for urgent work items would have triggered the AcknowledgmentGate blocking modal (`get_unacknowledged_notifications` doesn't filter by `kind`) for all faculty + students on every urgent work item. The 2026-04-23 ack=FALSE hardcode existed precisely to prevent that. New column splits the two concerns: gate ack-required scope unchanged, Layer 0 gets its own signal.
+  - **Director rationale**: option 2 (new column, cleaner separation) chosen over option 1 (modify gate query to filter `kind='announcement'`) because the gate is a compliance feature with audit implications; touching its filter requires more careful review than introducing a single dedicated column for the bar.
+  - Behavior preservation: existing 2 ack-required announcements (Work Pulse + Career Build) keep firing Layer 0 thanks to the backfill UPDATE. Existing 25 urgent work items with `is_layer_0=FALSE` stay invisible to Layer 0 (intentionally — they're stale, ranged from Apr 9 and earlier, surfacing them now would create a noise cliff).
+
 - **2026-04-29** — Wave B.2 — Notification Generator Policy: refactor remaining 7 generators to config-driven (7 of 7 migrations)
   - All 7 remaining generators now read constants via `fn_get_generator_config(name, fallback)`:
     * Migration 1: `overdue_invoice_generator_config_driven_v1` — fn_generate_overdue_invoice_items (escalation, 4 roles, 3-tier days_overdue priority, 3-tier TTL)
