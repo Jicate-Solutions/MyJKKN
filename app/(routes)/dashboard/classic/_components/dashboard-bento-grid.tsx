@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { motion } from 'framer-motion';
+import { motion } from 'motion/react';
 import { BentoGrid, BentoGridItem } from '@/components/ui/bento-grid';
 import AIChip from '@/components/ui/ai-chip';
 

@@ -7,7 +7,7 @@
  */
 
 import { useState, useMemo, useEffect } from 'react';
-import { motion, AnimatePresence, PanInfo } from 'framer-motion';
+import { motion, AnimatePresence, PanInfo } from 'motion/react';
 import { StudentTimetableData, EmptyStateType } from '@/types/student-portal';
 import { DayOfWeek } from '@/types/academics';
 import { TimetableHeader } from './timetable-header';

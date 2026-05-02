@@ -12,7 +12,7 @@ import { CheckCircle2, Home, Receipt, Loader2, Download, ArrowRight, CheckCheck,
 import { Badge } from '@/components/ui/badge';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence } from 'motion/react';
 import { usePaymentStatus } from '@/hooks/billing/use-payment-gateway';
 
 // Success Animation Component
