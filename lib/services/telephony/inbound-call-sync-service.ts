@@ -3,6 +3,7 @@
 
 import { getExotelClient, isExotelConfigured, type ExotelCallRecord } from './exotel-client';
 import { TelephonyService } from './telephony-service';
+import { CallPipelineService } from './call-pipeline-service';
 import { isAdmissionCall } from './exotel-agent-map';
 import { resolveCounselorIdForCall } from './call-attribution';
 import { exotelTimeToIso } from './exotel-time';
@@ -325,7 +326,7 @@ export class InboundCallSyncService {
     );
 
     // Insert new record
-    const { error } = await supabase
+    const { data: insertedCall, error } = await supabase
       .from('admission_call_logs')
       .insert({
         call_sid: record.Sid,
@@ -352,7 +353,9 @@ export class InboundCallSyncService {
         // real-time Passthru webhook payload (persisted by the webhook path above).
         // Follow-up PR will back-match webhook rows to CDR rows via call_sid and
         // copy dial_whom_number across where it exists. See: feat/telephony-preserve-dial-whom-number.
-      });
+      })
+      .select('id')
+      .single();
 
     if (error) {
       // Handle unique constraint violation (race with webhook)
@@ -360,6 +363,39 @@ export class InboundCallSyncService {
         return { inserted: false, leadMatched: false };
       }
       throw new Error(error.message);
+    }
+
+    // Run the call pipeline (intelligence submit + auto-SMS + callback queue)
+    // on the newly-inserted row. Pre-fix, only the real-time StatusCallback
+    // webhook path triggered the pipeline — cron-path inserts skipped it
+    // entirely, leaving 475 recordings without intelligence rows over the
+    // 2026-04-11 → 2026-05-02 window. Pipeline is idempotent (early-returns
+    // if intelligence_id is already set) and non-blocking via .catch().
+    if (insertedCall?.id) {
+      const recordingUrl = record.RecordingUrl || record.PreSignedRecordingUrl || undefined;
+      const durationSec = record.Duration ? parseInt(record.Duration, 10) || 0 : 0;
+      const costAmount = record.Price ? parseFloat(record.Price) || 0 : 0;
+      const status = InboundCallSyncService.mapExotelStatus(record.Status);
+
+      CallPipelineService.runPipeline({
+        callLogId: insertedCall.id,
+        callSid: record.Sid,
+        institutionId,
+        direction: 'inbound',
+        status,
+        fromNumber: record.From || '',
+        toNumber: record.To || '',
+        durationSeconds: durationSec,
+        costAmount,
+        recordingUrl,
+        leadId: leadId ?? undefined,
+        counselorId: counselorId ?? undefined,
+      }, supabase).catch((err) =>
+        logger.warn(MODULE, 'Cron-path pipeline invocation failed', {
+          callSid: record.Sid,
+          error: err instanceof Error ? err.message : String(err),
+        })
+      );
     }
 
     return { inserted: true, leadMatched: !!leadId };

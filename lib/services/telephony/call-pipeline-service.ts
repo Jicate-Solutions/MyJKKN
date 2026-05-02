@@ -161,6 +161,20 @@ export class CallPipelineService {
     supabase: SupabaseClient
   ): Promise<string | undefined> {
     try {
+      // Idempotency: skip if call already has an intelligence row.
+      // Two writer paths exist post-2026-05-02: real-time webhook + cron CDR sync.
+      // Without this guard a single call ingested by both paths would create
+      // duplicate intel rows, double-submit to ExoVoiceAnalyze, and double-bill.
+      // Also protects backfill re-runs.
+      const { data: existing } = await supabase
+        .from('admission_call_logs')
+        .select('intelligence_id')
+        .eq('id', ctx.callLogId)
+        .single();
+      if (existing?.intelligence_id) {
+        return existing.intelligence_id;
+      }
+
       // Create intelligence record
       const { data: intel, error: insertError } = await supabase
         .from('admission_call_intelligence')
