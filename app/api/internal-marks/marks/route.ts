@@ -6,7 +6,16 @@ import {
   resolveEffectiveInstitutionId,
   resolveCoeInstitutionId,
 } from '@/lib/utils/internal-marks/internal-marks-access';
-import type { CiaMarksSyncRequest, CiaMarksSyncResponse, CiaReportResponse } from '@/types/internal-marks';
+import {
+  istToday,
+  resolveRoundDates,
+} from '@/types/internal-marks';
+import type {
+  CiaMarksSyncRequest,
+  CiaMarksSyncResponse,
+  CiaReportResponse,
+  CiaSettings,
+} from '@/types/internal-marks';
 
 export async function GET(request: NextRequest) {
   try {
@@ -90,6 +99,45 @@ export async function POST(request: NextRequest) {
     }
 
     const client = CoeRestClient.create();
+
+    // Server-side IST cutoff enforcement — INCLUSIVE deadline (today > entry_to → reject),
+    // matching getEntryWindowStatus(). Deliberately deviates from COE spec §6.1.
+    // See types/internal-marks.ts for rationale. COE's /api/v1/cia-marks/sync
+    // still uses the strict rule, so a borderline save (today === entry_to)
+    // will pass MyJKKN gates but COE may reject — coordinate with COE team.
+    if (coeId) {
+      const examSessionId = body.records[0].examination_session_id;
+      const ciaRoundNum = body.records[0].cia_round;
+      try {
+        const settings = await client.get<CiaSettings[]>('/api/v1/cia-settings', {
+          institutions_id: coeId,
+          examination_session_id: examSessionId,
+        });
+        const round = (settings ?? [])
+          .flatMap((s) => s.cia_rounds ?? [])
+          .find((r) => r.round === ciaRoundNum);
+        if (round) {
+          const { entryFrom, entryTo } = resolveRoundDates(round);
+          const today = istToday();
+          if (entryFrom && today < entryFrom) {
+            return NextResponse.json(
+              { error: `Entry window not open yet — opens ${entryFrom} (IST)` },
+              { status: 403 }
+            );
+          }
+          if (entryTo && today > entryTo) {
+            return NextResponse.json(
+              { error: `Entry window closed after ${entryTo} (IST)` },
+              { status: 403 }
+            );
+          }
+        }
+      } catch (windowErr) {
+        // Don't block submission if the settings fetch fails — COE will enforce.
+        console.warn('[internal-marks/marks] entry-window precheck skipped:', windowErr);
+      }
+    }
+
     let totalInserted = 0;
     let totalUpdated = 0;
 

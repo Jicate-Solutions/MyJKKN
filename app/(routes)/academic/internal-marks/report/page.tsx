@@ -36,13 +36,15 @@ import { useExamSessions, useCiaSettings } from '@/hooks/internal-marks/use-cia-
 import { useCourseMapping, useRegistrations } from '@/hooks/internal-marks/use-cia-marks';
 import { useMultiCiaReport } from '@/hooks/internal-marks/use-cia-report';
 import { usePrograms } from '@/hooks/organization/use-programs';
+import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import { CiaMarksService } from '@/lib/services/internal-marks/cia-marks-service';
+import { cn } from '@/lib/utils';
 import {
   generateConsolidatedReportPDF,
 } from '@/lib/utils/internal-marks/internal-marks-pdf';
+import { getInstitutionHeader } from '@/lib/utils/internal-marks/institution-header';
 import type { ConsolidatedReportData } from '@/types/internal-marks';
 import { MultiSemesterPicker } from './_components/multi-semester-picker';
-import { cn } from '@/lib/utils';
 import toast from 'react-hot-toast';
 
 /**
@@ -55,6 +57,7 @@ export const navMeta = {
 } as const;
 
 interface ReportFilterState {
+  institution_id: string;
   exam_session_id: string;
   setting_id: string;
   cia_round: number | undefined;
@@ -68,9 +71,8 @@ export default function InternalMarksReportPage() {
   const { profile } = useAuth();
   const canView = isLoadingPermissions || isSuperAdmin || canAccess('academic.internal-marks', 'view');
 
-  const institutionId = profile?.institution_id ?? undefined;
-
   const [filters, setFilters] = useState<ReportFilterState>({
+    institution_id: '',
     exam_session_id: '',
     setting_id: '',
     cia_round: undefined,
@@ -78,6 +80,27 @@ export default function InternalMarksReportPage() {
     semester_codes: [],
     course_codes: [],
   });
+
+  // Institution ID resolution mirrors /academic/internal-marks:
+  //   - Super admin → picks via filters.institution_id
+  //   - Regular user (HOD/Faculty) → auto-locked to profile.institution_id
+  const institutionId = isSuperAdmin
+    ? (filters.institution_id || undefined)
+    : (profile?.institution_id ?? undefined);
+
+  // Institutions list — fetched for everyone so we can resolve the current
+  // institution's name for per-institution PDF header (COE spec §7.1).
+  // For non-super-admin users the hook returns only their accessible
+  // institutions (always includes their own), so the lookup works either way.
+  const { institutions, loading: isLoadingInstitutions } = useInstitutionsWithAccess({
+    autoFetch: true,
+  });
+
+  // Resolve per-institution header config once institutionId is known.
+  const institutionHeader = useMemo(() => {
+    const inst = institutions.find((i) => i.id === institutionId);
+    return getInstitutionHeader(inst?.name);
+  }, [institutions, institutionId]);
   const [activeTab, setActiveTab] = useState<'course-wise' | 'consolidated'>('course-wise');
   const [isExporting, setIsExporting] = useState(false);
 
@@ -199,6 +222,14 @@ export default function InternalMarksReportPage() {
     setFilters((prev) => {
       const next = { ...prev, [key]: value };
       // Cascading resets
+      if (key === 'institution_id') {
+        next.exam_session_id = '';
+        next.setting_id = '';
+        next.cia_round = undefined;
+        next.program_code = '';
+        next.semester_codes = [];
+        next.course_codes = [];
+      }
       if (key === 'exam_session_id') {
         next.setting_id = '';
         next.cia_round = undefined;
@@ -263,13 +294,14 @@ export default function InternalMarksReportPage() {
 
   const loadLogos = useCallback(
     async () => {
+      // Right-side logo path is per-institution per COE spec §7.1.
       const [logoImage, rightLogoImage] = await Promise.all([
         toBase64('/logo.png'),
-        toBase64('/jkkncas_logo.png'),
+        toBase64(institutionHeader.rightLogoImage),
       ]);
       return { logoImage, rightLogoImage };
     },
-    []
+    [institutionHeader.rightLogoImage]
   );
 
   const semesterLabel = (code: string) => code.match(/(\d+)\s*$/)?.[1] ?? code;
@@ -323,6 +355,9 @@ export default function InternalMarksReportPage() {
         useCourseMax: selectedSetting?.use_course_max ?? false,
         courseInfoMap,
         courseSemesterMap,
+        institutionName: institutionHeader.institution_name,
+        institutionAddress: institutionHeader.institution_address,
+        institutionAccreditation: institutionHeader.institution_accreditation,
         logoImage,
         rightLogoImage,
       });
@@ -343,6 +378,7 @@ export default function InternalMarksReportPage() {
     selectedProgram,
     selectedSetting,
     courseInfoMap,
+    institutionHeader,
     loadLogos,
   ]);
 
@@ -424,7 +460,9 @@ export default function InternalMarksReportPage() {
         });
 
       const pdfData: ConsolidatedReportData = {
-        institution_name: 'J.K.K.NATARAJA COLLEGE OF ARTS & SCIENCE (AUTONOMOUS)',
+        institution_name: institutionHeader.institution_name,
+        institution_address: institutionHeader.institution_address,
+        institution_accreditation: institutionHeader.institution_accreditation,
         program_code: filters.program_code,
         program_name: selectedProgram?.program_name ?? '',
         exam_session: examSession?.session_name ?? '',
@@ -453,6 +491,7 @@ export default function InternalMarksReportPage() {
     selectedProgram,
     selectedSetting,
     courseInfoMap,
+    institutionHeader,
     loadLogos,
   ]);
 
@@ -502,7 +541,39 @@ export default function InternalMarksReportPage() {
         {/* Filters */}
         <Card>
           <CardContent className='pt-6'>
-            <div className='grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4'>
+            <div
+              className={cn(
+                'grid grid-cols-1 md:grid-cols-2 gap-4',
+                isSuperAdmin ? 'lg:grid-cols-5' : 'lg:grid-cols-4'
+              )}
+            >
+              {/* Institution — super admin only */}
+              {isSuperAdmin && (
+                <div className='space-y-1.5'>
+                  <Label className='text-xs font-medium'>
+                    Institution <span className='text-red-500'>*</span>
+                  </Label>
+                  <Select
+                    value={filters.institution_id || ''}
+                    onValueChange={(v) => updateFilter('institution_id', v)}
+                    disabled={isLoadingInstitutions}
+                  >
+                    <SelectTrigger>
+                      <SelectValue
+                        placeholder={isLoadingInstitutions ? 'Loading...' : 'Select Institution'}
+                      />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {institutions.map((inst) => (
+                        <SelectItem key={inst.id} value={inst.id}>
+                          {inst.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+
               {/* Exam Session */}
               <div className='space-y-1.5'>
                 <Label className='text-xs font-medium'>
@@ -514,7 +585,15 @@ export default function InternalMarksReportPage() {
                   disabled={!institutionId}
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder='Select Exam Session' />
+                    <SelectValue
+                      placeholder={
+                        !institutionId
+                          ? isSuperAdmin
+                            ? 'Select institution first'
+                            : 'No institution assigned'
+                          : 'Select Exam Session'
+                      }
+                    />
                   </SelectTrigger>
                   <SelectContent>
                     {(examSessions ?? []).map((s) => (
@@ -839,6 +918,10 @@ async function generateCourseWiseBatchPDF(params: {
   useCourseMax: boolean;
   courseInfoMap: Map<string, { course_name: string; internal_max_mark: number }>;
   courseSemesterMap: Map<string, string>;
+  /** Per-institution header strings (COE spec §7.1) */
+  institutionName: string;
+  institutionAddress?: string;
+  institutionAccreditation?: string;
   logoImage?: string;
   rightLogoImage?: string;
 }) {
@@ -862,16 +945,15 @@ async function generateCourseWiseBatchPDF(params: {
   const A4_H = 297;
   const MARGIN = 10;
 
-  const ones = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten',
-    'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen'];
-  const tens = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
-  const numberToWords = (n: number): string => {
-    if (n === 0) return 'Zero';
-    if (n < 0) return 'Minus ' + numberToWords(-n);
-    if (n < 20) return ones[n];
-    if (n < 100) return tens[Math.floor(n / 10)] + (n % 10 ? ' ' + ones[n % 10] : '');
-    if (n < 1000) return ones[Math.floor(n / 100)] + ' Hundred' + (n % 100 ? ' and ' + numberToWords(n % 100) : '');
-    return String(n);
+  // Digit-by-digit ALL CAPS per COE integration spec §7.5.
+  const DIGIT_WORDS = ['ZERO', 'ONE', 'TWO', 'THREE', 'FOUR', 'FIVE',
+    'SIX', 'SEVEN', 'EIGHT', 'NINE'];
+  const numberToWords = (num: number): string => {
+    const n = Math.floor(Math.abs(num));
+    if (n === 0) return num < 0 ? 'MINUS ZERO' : 'ZERO';
+    const numStr = n.toString().padStart(2, '0');
+    const words = numStr.split('').map((d) => DIGIT_WORDS[parseInt(d, 10)]).join(' ');
+    return num < 0 ? 'MINUS ' + words : words;
   };
 
   const doc = new jsPDF('portrait', 'mm', 'a4');
@@ -899,19 +981,24 @@ async function generateCourseWiseBatchPDF(params: {
       try { doc.addImage(params.logoImage, 'PNG', A4_W - MARGIN - 16, currentY, 16, 16); } catch {}
     }
 
-    // Header
+    // Per-institution header per COE spec \u00a77.1.
     doc.setFont('times', 'bold');
     doc.setFontSize(12);
     doc.setTextColor(0, 0, 0);
-    doc.text('J.K.K.NATARAJA COLLEGE OF ARTS & SCIENCE (AUTONOMOUS)', A4_W / 2, currentY + 4, { align: 'center' });
-    doc.setFont('times', 'normal');
-    doc.setFontSize(8);
-    doc.text('(Accredited by NAAC, Approved by AICTE, Recognized by UGC Under Section 2(f) & 12(B), Affiliated to Periyar University)', A4_W / 2, currentY + 9, { align: 'center' });
+    doc.text(params.institutionName, A4_W / 2, currentY + 4, { align: 'center' });
+    if (params.institutionAccreditation) {
+      doc.setFont('times', 'normal');
+      doc.setFontSize(8);
+      doc.text(params.institutionAccreditation, A4_W / 2, currentY + 9, { align: 'center' });
+    }
     currentY += 13;
+    if (params.institutionAddress) {
+      doc.setFont('times', 'bold');
+      doc.setFontSize(9);
+      doc.text(params.institutionAddress, A4_W / 2, currentY, { align: 'center' });
+      currentY += 5;
+    }
     doc.setFont('times', 'bold');
-    doc.setFontSize(9);
-    doc.text('Komarapalayam - 638 183, Namakkal District, Tamil Nadu', A4_W / 2, currentY, { align: 'center' });
-    currentY += 5;
     doc.setFontSize(11);
     doc.text(`SEMESTER EXAMINATION - ${params.examSession}`, A4_W / 2, currentY, { align: 'center' });
     currentY += 5;
@@ -935,7 +1022,9 @@ async function generateCourseWiseBatchPDF(params: {
     const courseText = `Course: ${report.courseCode} - ${info?.course_name ?? report.data.course.course_name}`;
     const courseLines = doc.splitTextToSize(courseText, tableWidth - 50);
     doc.text(courseLines, MARGIN, currentY);
-    doc.text(`Max Internal Mark: ${maxMark}`, A4_W - MARGIN, currentY, { align: 'right' });
+    // Assessment Mark per COE spec §7.2 — sum of component maxes for the round.
+    const assessmentMark = components.reduce((sum, c) => sum + (c.max_marks || 0), 0);
+    doc.text(`Assessment Mark: ${assessmentMark}`, A4_W - MARGIN, currentY, { align: 'right' });
     currentY += courseLines.length > 1 ? courseLines.length * 4 : 4.5;
     currentY += 2;
 
@@ -954,6 +1043,8 @@ async function generateCourseWiseBatchPDF(params: {
     components.forEach((c) => headRow.push(`${c.name}\n(${c.max_marks})`));
     headRow.push('Total', 'Marks in Words');
 
+    // Option B per COE spec §7.3: every learner has every component;
+    // missing component values render as 0 and totals/words always render.
     const bodyRows = report.data.learners.map((learner, i) => {
       const row: (string | number)[] = [
         i + 1,
@@ -962,10 +1053,11 @@ async function generateCourseWiseBatchPDF(params: {
       ];
       components.forEach((c) => {
         const mark = learner.marks[c.code];
-        row.push(mark != null ? mark : '-');
+        row.push(mark != null ? mark : 0);
       });
-      row.push(learner.total > 0 ? learner.total : '-');
-      row.push(learner.total > 0 ? numberToWords(learner.total) : '-');
+      const total = learner.total ?? 0;
+      row.push(total);
+      row.push(numberToWords(total));
       return row;
     });
 
@@ -1005,8 +1097,9 @@ async function generateCourseWiseBatchPDF(params: {
     let sigY = finalY + 20;
     doc.setFont('times', 'bold');
     doc.setFontSize(9);
-    const learnersWithMarks = report.data.learners.filter((l) => l.total > 0).length;
-    doc.text(`Total Learners: ${report.data.learners.length}    Marks Entered: ${learnersWithMarks}    Pending: ${report.data.learners.length - learnersWithMarks}`, MARGIN, finalY + 6);
+    // Option B per COE spec §7.4: every learner counts as entered → Pending: 0.
+    const totalLearners = report.data.learners.length;
+    doc.text(`Total Learners: ${totalLearners}    Marks Entered: ${totalLearners}    Pending: 0`, MARGIN, finalY + 6);
 
     if (sigY + 10 > A4_H - 12) sigY = A4_H - 20;
 

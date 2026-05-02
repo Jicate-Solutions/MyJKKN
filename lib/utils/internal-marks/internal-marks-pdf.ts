@@ -1,17 +1,20 @@
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 
-// ─── Number to words ───
-const ones = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten',
-	'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen']
-const tens = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety']
-function numberToWords(n: number): string {
-	if (n === 0) return 'Zero'
-	if (n < 0) return 'Minus ' + numberToWords(-n)
-	if (n < 20) return ones[n]
-	if (n < 100) return tens[Math.floor(n / 10)] + (n % 10 ? ' ' + ones[n % 10] : '')
-	if (n < 1000) return ones[Math.floor(n / 100)] + ' Hundred' + (n % 100 ? ' and ' + numberToWords(n % 100) : '')
-	return String(n)
+// ─── Number to words ──────────────────────────────────────────────────────
+// Single source of truth per COE integration spec §7.5: digit-by-digit ALL CAPS.
+//   0   → "ZERO"
+//   13  → "ONE THREE"
+//   100 → "ONE ZERO ZERO"
+// Replaces the old recursive readable form ("Twenty Eight").
+const DIGIT_WORDS = ['ZERO', 'ONE', 'TWO', 'THREE', 'FOUR', 'FIVE',
+	'SIX', 'SEVEN', 'EIGHT', 'NINE']
+function numberToWords(num: number): string {
+	const n = Math.floor(Math.abs(num))
+	if (n === 0) return num < 0 ? 'MINUS ZERO' : 'ZERO'
+	const numStr = n.toString().padStart(2, '0')
+	const words = numStr.split('').map(d => DIGIT_WORDS[parseInt(d, 10)]).join(' ')
+	return num < 0 ? 'MINUS ' + words : words
 }
 
 export interface LearnerMark {
@@ -30,6 +33,8 @@ export interface ComponentDef {
 
 export interface InternalMarksPDFData {
 	institution_name: string
+	institution_address?: string
+	institution_accreditation?: string
 	program_code: string
 	program_name: string
 	semester: number | string
@@ -75,20 +80,24 @@ export function generateInternalMarksPDF(data: InternalMarksPDFData): string {
 	doc.setFont('times', 'bold')
 	doc.setFontSize(12)
 	doc.setTextColor(0, 0, 0)
-	doc.text('J.K.K.NATARAJA COLLEGE OF ARTS & SCIENCE (AUTONOMOUS)', pageWidth / 2, currentY + 4, { align: 'center' })
+	doc.text(data.institution_name, pageWidth / 2, currentY + 4, { align: 'center' })
 
 	// Accreditation
-	doc.setFont('times', 'normal')
-	doc.setFontSize(8)
-	doc.text('(Accredited by NAAC, Approved by AICTE, Recognized by UGC Under Section 2(f) & 12(B), Affiliated to Periyar University)', pageWidth / 2, currentY + 9, { align: 'center' })
+	if (data.institution_accreditation) {
+		doc.setFont('times', 'normal')
+		doc.setFontSize(8)
+		doc.text(data.institution_accreditation, pageWidth / 2, currentY + 9, { align: 'center' })
+	}
 
 	currentY += 13
 
 	// Address
-	doc.setFont('times', 'bold')
-	doc.setFontSize(9)
-	doc.text('Komarapalayam - 638 183, Namakkal District, Tamil Nadu', pageWidth / 2, currentY, { align: 'center' })
-	currentY += 5
+	if (data.institution_address) {
+		doc.setFont('times', 'bold')
+		doc.setFontSize(9)
+		doc.text(data.institution_address, pageWidth / 2, currentY, { align: 'center' })
+		currentY += 5
+	}
 
 	// Exam session
 	doc.setFont('times', 'bold')
@@ -119,13 +128,14 @@ export function generateInternalMarksPDF(data: InternalMarksPDFData): string {
 	}
 	currentY += 4.5
 
-	// Row 2: Course & Max Mark
+	// Row 2: Course & Assessment Mark (= sum of component maxes per COE spec §7.2)
 	doc.setFont('times', 'normal')
 	doc.setFontSize(9)
 	const courseText = `Course: ${data.course_code} - ${data.course_name}`
 	const courseLines = doc.splitTextToSize(courseText, tableWidth - 50)
 	doc.text(courseLines, MARGIN, currentY)
-	doc.text(`Max Internal Mark: ${data.internal_max_mark}`, pageWidth - MARGIN, currentY, { align: 'right' })
+	const assessmentMark = data.components.reduce((sum, c) => sum + (c.max_marks || 0), 0)
+	doc.text(`Assessment Mark: ${assessmentMark}`, pageWidth - MARGIN, currentY, { align: 'right' })
 	currentY += courseLines.length > 1 ? courseLines.length * 4 : 4.5
 
 	currentY += 2
@@ -153,7 +163,8 @@ export function generateInternalMarksPDF(data: InternalMarksPDFData): string {
 	data.components.forEach(c => headRow.push(`${c.name}\n(${c.max_marks})`))
 	headRow.push('Total', 'Marks in Words')
 
-	// Build body
+	// Build body — Option B per COE spec §7.3: every learner has every component,
+	// missing component values render as 0 (not '-'), and "Marks in Words" always renders.
 	const bodyRows = data.learners.map(learner => {
 		const row: (string | number)[] = [
 			learner.serial_number,
@@ -162,10 +173,10 @@ export function generateInternalMarksPDF(data: InternalMarksPDFData): string {
 		]
 		data.components.forEach(c => {
 			const mark = learner.component_marks[c.code]
-			row.push(mark != null && mark > 0 ? mark : '-')
+			row.push(mark != null ? mark : 0)
 		})
-		row.push(learner.total > 0 ? learner.total : '-')
-		row.push(learner.total > 0 ? numberToWords(learner.total) : '-')
+		row.push(learner.total)
+		row.push(numberToWords(learner.total))
 		return row
 	})
 
@@ -232,8 +243,9 @@ export function generateInternalMarksPDF(data: InternalMarksPDFData): string {
 
 	doc.setFont('times', 'bold')
 	doc.setFontSize(9)
-	const learnersWithMarks = data.learners.filter(l => l.total > 0).length
-	doc.text(`Total Learners: ${data.learners.length}    Marks Entered: ${learnersWithMarks}    Pending: ${data.learners.length - learnersWithMarks}`, MARGIN, currentY)
+	// Option B per COE spec §7.4: every learner row counts as entered → Pending: 0 always.
+	const totalLearners = data.learners.length
+	doc.text(`Total Learners: ${totalLearners}    Marks Entered: ${totalLearners}    Pending: 0`, MARGIN, currentY)
 	currentY += 14
 
 	// ========== SIGNATURE SECTION ==========
@@ -297,29 +309,36 @@ export function generateConsolidatedReportPDF(data: ConsolidatedReportData): str
 			} catch {}
 		}
 
+		// Per-institution header per COE spec §7.1 — header strings come from
+		// the caller (resolved via getInstitutionHeader()), not hardcoded here.
 		doc.setFont('times', 'bold')
 		doc.setFontSize(13)
 		doc.setTextColor(0, 0, 0)
-		doc.text('J.K.K.NATARAJA COLLEGE OF ARTS & SCIENCE (AUTONOMOUS)', pageWidth / 2, currentY + 4, {
-			align: 'center',
-		})
-
-		doc.setFont('times', 'normal')
-		doc.setFontSize(8)
 		doc.text(
-			'(Accredited by NAAC, Approved by AICTE, Recognized by UGC Under Section 2(f) & 12(B), Affiliated to Periyar University)',
+			data.institution_name ?? '',
 			pageWidth / 2,
-			currentY + 9,
+			currentY + 4,
 			{ align: 'center' }
 		)
+
+		if (data.institution_accreditation) {
+			doc.setFont('times', 'normal')
+			doc.setFontSize(8)
+			doc.text(
+				data.institution_accreditation,
+				pageWidth / 2,
+				currentY + 9,
+				{ align: 'center' }
+			)
+		}
 		currentY += 13
 
-		doc.setFont('times', 'bold')
-		doc.setFontSize(9)
-		doc.text('Komarapalayam - 638 183, Namakkal District, Tamil Nadu', pageWidth / 2, currentY, {
-			align: 'center',
-		})
-		currentY += 5
+		if (data.institution_address) {
+			doc.setFont('times', 'bold')
+			doc.setFontSize(9)
+			doc.text(data.institution_address, pageWidth / 2, currentY, { align: 'center' })
+			currentY += 5
+		}
 
 		doc.setFontSize(11)
 		doc.text(`SEMESTER EXAMINATION - ${data.exam_session}`, pageWidth / 2, currentY, {

@@ -32,7 +32,9 @@ import type {
 } from '@/types/internal-marks';
 import {
   getEntryWindowStatus,
+  resolveRoundDates,
   COMPONENT_MARK_FIELDS,
+  STANDARD_COMPONENT_CODES,
 } from '@/types/internal-marks';
 import { MarkSummaryCard } from './mark-summary-card';
 import { generateInternalMarksPDF, type InternalMarksPDFData } from '@/lib/utils/internal-marks/internal-marks-pdf';
@@ -45,6 +47,10 @@ export interface MarkEntryPDFContext {
   internalMaxMark: number;
   examSession: string;
   assessmentName: string;
+  /** Per COE spec §7.1 — header strings resolved via getInstitutionHeader() */
+  institutionName?: string;
+  institutionAddress?: string;
+  institutionAccreditation?: string;
   logoImage?: string;
   rightLogoImage?: string;
 }
@@ -77,18 +83,17 @@ interface MarkRow {
   marks: Record<string, number | null>;
 }
 
-// Number to words converter
-const ONES = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine',
-  'Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen'];
-const TENS = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
+// Number-to-words — digit-by-digit ALL CAPS per COE integration spec §7.5.
+// Mirrors the canonical impl in lib/utils/internal-marks/internal-marks-pdf.ts.
+const DIGIT_WORDS = ['ZERO', 'ONE', 'TWO', 'THREE', 'FOUR', 'FIVE',
+  'SIX', 'SEVEN', 'EIGHT', 'NINE'];
 
 function numberToWords(num: number): string {
-  if (num === 0) return 'Zero';
-  if (num < 0) return 'Minus ' + numberToWords(-num);
-  if (num < 20) return ONES[num];
-  if (num < 100) return TENS[Math.floor(num / 10)] + (num % 10 ? ' ' + ONES[num % 10] : '');
-  if (num < 1000) return ONES[Math.floor(num / 100)] + ' Hundred' + (num % 100 ? ' ' + numberToWords(num % 100) : '');
-  return String(num);
+  const n = Math.floor(Math.abs(num));
+  if (n === 0) return num < 0 ? 'MINUS ZERO' : 'ZERO';
+  const numStr = n.toString().padStart(2, '0');
+  const words = numStr.split('').map((d) => DIGIT_WORDS[parseInt(d, 10)]).join(' ');
+  return num < 0 ? 'MINUS ' + words : words;
 }
 
 export function MarkEntryGrid({
@@ -117,8 +122,10 @@ export function MarkEntryGrid({
     );
   }, [existingMarks]);
 
-  // Read-only when: entry window closed OR marks already saved OR user lacks edit permission
-  const isReadOnly = entryStatus !== 'open' || alreadySaved || !canEdit;
+  // Read-only when: entry window expired/upcoming OR marks already saved OR user lacks edit permission.
+  // Per COE spec §6.4, 'no-dates' is treated as open (selectable, no time restriction).
+  const isWindowOpen = entryStatus === 'open' || entryStatus === 'no-dates';
+  const isReadOnly = !isWindowOpen || alreadySaved || !canEdit;
 
   // Override component max_marks with course's internal_max_mark when use_course_max is true
   const components = useMemo(
@@ -260,6 +267,12 @@ export function MarkEntryGrid({
     }
 
     const records: CiaMarkSyncRecord[] = rows.map((row) => {
+      // Build extra_marks / extra_marks_max for any custom (end-user-defined) codes.
+      // Per COE spec §4: standard codes go to dedicated columns via COMPONENT_MARK_FIELDS;
+      // custom codes (anything not in STANDARD_COMPONENT_CODES) go to JSONB.
+      const extra_marks: Record<string, number> = {};
+      const extra_marks_max: Record<string, number> = {};
+
       const record: CiaMarkSyncRecord = {
         institutions_id: institutionId,
         examination_session_id: examSessionId,
@@ -273,13 +286,24 @@ export function MarkEntryGrid({
         max_internal_marks: maxTotal,
       };
 
-      // Add component-specific mark fields
       for (const comp of components) {
-        const fieldMap = COMPONENT_MARK_FIELDS[comp.code];
-        if (fieldMap) {
-          record[fieldMap.markField] = row.marks[comp.code] ?? undefined;
+        const value = row.marks[comp.code];
+        if (STANDARD_COMPONENT_CODES.has(comp.code)) {
+          const fieldMap = COMPONENT_MARK_FIELDS[comp.code];
+          // Don't drop 0 — it is a valid recorded mark per spec §4.
+          record[fieldMap.markField] = value ?? undefined;
           record[fieldMap.maxField] = comp.max_marks;
+        } else if (value !== null && value !== undefined) {
+          extra_marks[comp.code] = value;
+          extra_marks_max[comp.code] = comp.max_marks;
         }
+      }
+
+      // Only attach the JSONB blocks when at least one custom code was emitted —
+      // keeps payloads tidy when a setting uses only standard components.
+      if (Object.keys(extra_marks).length > 0) {
+        record.extra_marks = extra_marks;
+        record.extra_marks_max = extra_marks_max;
       }
 
       return record;
@@ -305,7 +329,11 @@ export function MarkEntryGrid({
       ]);
 
       const pdfData: InternalMarksPDFData = {
-        institution_name: 'J.K.K.NATARAJA COLLEGE OF ARTS & SCIENCE (AUTONOMOUS)',
+        // Per-institution header strings come from the parent page's
+        // getInstitutionHeader() resolution — no hardcoded college name here.
+        institution_name: pdfContext.institutionName ?? '',
+        institution_address: pdfContext.institutionAddress,
+        institution_accreditation: pdfContext.institutionAccreditation,
         program_code: pdfContext.programCode,
         program_name: pdfContext.programName,
         semester: '',
@@ -365,16 +393,19 @@ export function MarkEntryGrid({
           </AlertDescription>
         </Alert>
       )}
-      {!alreadySaved && isReadOnly && (
-        <Alert variant='destructive'>
-          <AlertTriangle className='h-4 w-4' />
-          <AlertDescription>
-            {entryStatus === 'upcoming'
-              ? `Mark entry opens on ${new Date(round.entry_from).toLocaleDateString()}`
-              : `Mark entry closed on ${new Date(round.entry_to).toLocaleDateString()}`}
-          </AlertDescription>
-        </Alert>
-      )}
+      {!alreadySaved && isReadOnly && entryStatus !== 'no-dates' && (() => {
+        const { entryFrom, entryTo } = resolveRoundDates(round);
+        return (
+          <Alert variant='destructive'>
+            <AlertTriangle className='h-4 w-4' />
+            <AlertDescription>
+              {entryStatus === 'upcoming'
+                ? `Mark entry opens on ${entryFrom ?? 'a future date'} (IST)`
+                : `Mark entry deadline was ${entryTo ?? 'the deadline'} (IST) — submissions now blocked`}
+            </AlertDescription>
+          </Alert>
+        );
+      })()}
 
       {/* Summary */}
       <MarkSummaryCard
@@ -499,15 +530,29 @@ export function MarkEntryGrid({
                         mark > comp.max_marks;
 
                       const isFilled = mark !== null && mark !== undefined;
+                      // Option B per COE spec §5/§7.3: in View mode (after save),
+                      // every learner has every component — missing values render
+                      // as `0` in bold blue, not blank. In entry/edit, blank-until-typed.
                       const cellStateClass = isOverMax
                         ? 'border-red-500 bg-red-50 text-red-700 focus-visible:ring-red-500 dark:bg-red-950/40 dark:text-red-300'
+                        : alreadySaved
+                        // View mode (saved data): uniform bold-blue regardless of source
+                        ? 'border-blue-200 bg-blue-50/50 text-blue-700 font-bold dark:bg-blue-950/30 dark:text-blue-300 dark:border-blue-800'
                         : isFilled
                         ? 'border-emerald-500 bg-emerald-50 text-emerald-800 font-semibold focus-visible:ring-emerald-500 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-600'
                         : isReadOnly
-                        // Empty cell in view-only mode — neutral gray, no "pending" signal
+                        // Empty cell in non-save read-only (window closed before any save) — neutral gray
                         ? 'border-border bg-muted/30 text-muted-foreground'
-                        // Empty cell in edit mode — amber to signal "needs attention"
+                        // Empty cell in entry/edit mode — amber to signal "needs attention"
                         : 'border-amber-400 bg-amber-50 focus-visible:ring-amber-500 dark:bg-amber-950/30 dark:border-amber-600';
+                      // In View mode show `0` for missing component (Option B);
+                      // in entry/edit keep blank-until-typed.
+                      const displayValue =
+                        isFilled
+                          ? mark
+                          : alreadySaved
+                            ? 0
+                            : '';
                       return (
                         <td key={comp.code} className='px-2 py-1.5'>
                           <Input
@@ -519,9 +564,7 @@ export function MarkEntryGrid({
                             aria-invalid={!isFilled || isOverMax}
                             maxLength={3}
                             data-mark-input='true'
-                            value={
-                              mark !== null && mark !== undefined ? mark : ''
-                            }
+                            value={displayValue}
                             onChange={(e) => {
                               // Strip any non-digit characters at input time
                               const digitsOnly = e.target.value.replace(/[^0-9]/g, '');
@@ -562,9 +605,15 @@ export function MarkEntryGrid({
                       {getRowTotal(row)}/{maxTotal}
                     </td>
 
-                    {/* In Words */}
+                    {/* In Words per COE spec §5:
+                        - View mode (after save): ALWAYS render, including ZERO for total = 0
+                        - Entry/Edit mode: blank until at least one component is touched */}
                     <td className='px-3 py-1.5 text-xs text-muted-foreground'>
-                      {getRowTotal(row) > 0 ? numberToWords(getRowTotal(row)) : ''}
+                      {alreadySaved
+                        ? numberToWords(getRowTotal(row))
+                        : Object.values(row.marks).some((v) => v !== null && v !== undefined)
+                          ? numberToWords(getRowTotal(row))
+                          : ''}
                     </td>
                   </tr>
                 ))}

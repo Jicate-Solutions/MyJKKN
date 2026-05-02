@@ -11966,3 +11966,151 @@ AS $$
 $$;
 
 GRANT EXECUTE ON FUNCTION public.fn_institution_comparison(uuid[], integer) TO authenticated, service_role;
+
+-- =============================================================================
+-- FUNCTION: fn_compute_course_attendance
+-- Added: 2026-04-30 — Internal Marks attendance summary feature
+-- Purpose:
+--   Compute per-student "total periods" and "periods attended" for ONE course
+--   over a date range, used by Internal Marks (CIA) UI to show attendance %
+--   alongside mark entry. No marks are derived from this — it is informational.
+--
+-- Design:
+--   total_periods    — count of (date, slot) where the slot's course matches and
+--                      attendance was actually recorded for the student's section
+--   periods_attended — count where this student's status is Present or OnDuty
+--
+--   Holidays from institution_leaves (status='approved', scope=institution OR
+--   section-matched) are subtracted defensively from total_periods. This catches
+--   the rare case where attendance was marked on a declared holiday.
+--
+--   Department/semester-scoped holidays are NOT yet honored (v1 limitation —
+--   ~95% of leaves are institution or section scoped). v2 can extend by
+--   resolving each student's department / semester from registrations.
+--
+-- Permission gate: SECURITY DEFINER + internal user_has_permission check
+--   matches the pattern used elsewhere in 02_functions.sql.
+-- =============================================================================
+CREATE OR REPLACE FUNCTION public.fn_compute_course_attendance(
+  p_institution_id uuid,
+  p_course_id      uuid,
+  p_from_date      date,
+  p_to_date        date,
+  p_program_id     uuid DEFAULT NULL,
+  p_semester_id    uuid DEFAULT NULL
+) RETURNS TABLE (
+  student_id        uuid,
+  total_periods     int,
+  periods_attended  int,
+  attendance_pct    numeric
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  -- Permission gate: postgres / service_role (server-side API), super admins,
+  -- admins, or users with internal-marks view permission + institution scope
+  IF NOT (
+    current_user IN ('postgres', 'service_role', 'supabase_admin')
+    OR is_super_admin()
+    OR is_admin()
+    OR (user_has_permission('academic.internal-marks.view')
+        AND role_has_institution_access(p_institution_id))
+  ) THEN
+    RAISE EXCEPTION 'Insufficient permissions to compute course attendance for institution %', p_institution_id
+      USING ERRCODE = '42501';
+  END IF;
+
+  IF p_to_date < p_from_date THEN
+    RAISE EXCEPTION 'p_to_date (%) must be >= p_from_date (%)', p_to_date, p_from_date
+      USING ERRCODE = '22023';
+  END IF;
+
+  RETURN QUERY
+  WITH
+  -- 1. All approved holidays touching the date range, scope-filtered
+  --    (institution-wide always; section-scoped only when the section_ids
+  --     overlap with sections actually appearing in attendance for this course)
+  attendance_sections AS (
+    SELECT DISTINCT sa.section_id
+    FROM student_attendance sa
+    WHERE sa.institution_id = p_institution_id
+      AND sa.attendance_date BETWEEN p_from_date AND p_to_date
+      AND (p_program_id  IS NULL OR sa.program_id  = p_program_id)
+      AND (p_semester_id IS NULL OR sa.semester_id = p_semester_id)
+  ),
+  holiday_dates AS (
+    SELECT DISTINCT generate_series(
+             GREATEST(il.start_date, p_from_date),
+             LEAST(il.end_date, p_to_date),
+             interval '1 day'
+           )::date AS d
+    FROM institution_leaves il
+    WHERE il.institution_id = p_institution_id
+      AND il.status = 'approved'
+      AND il.start_date <= p_to_date
+      AND il.end_date   >= p_from_date
+      AND (
+        il.scope_level = 'institution'
+        OR (il.scope_level = 'section'
+            AND EXISTS (
+              SELECT 1 FROM attendance_sections a
+              WHERE a.section_id = ANY(il.section_ids)
+            ))
+      )
+  ),
+  -- 2. Conducted slots for this course in the range, excluding holiday dates
+  conducted_slots AS (
+    SELECT sa.id              AS attendance_row_id,
+           sa.attendance_date,
+           sa.section_id,
+           j.slot_key,
+           j.slot_value
+    FROM student_attendance sa
+    CROSS JOIN LATERAL jsonb_each(sa.attendance_data) AS j(slot_key, slot_value)
+    WHERE sa.institution_id = p_institution_id
+      AND sa.attendance_date BETWEEN p_from_date AND p_to_date
+      AND (p_program_id  IS NULL OR sa.program_id  = p_program_id)
+      AND (p_semester_id IS NULL OR sa.semester_id = p_semester_id)
+      AND NULLIF(j.slot_value->>'course_id', '')::uuid = p_course_id  -- Defensive: ~4% of slots have empty course_id
+      AND sa.attendance_date NOT IN (SELECT d FROM holiday_dates)
+  ),
+  -- 3. Section-level totals (one student belongs to one section,
+  --    so the student's denominator = their section's conducted count)
+  section_totals AS (
+    SELECT section_id,
+           COUNT(*)::int AS total_periods
+    FROM conducted_slots
+    GROUP BY section_id
+  ),
+  -- 4. Per-student attended count, with the section captured per-record
+  --    (ConsolidatedAttendanceStudent.section_id, preserves history if a
+  --     student moved sections mid-term)
+  per_student AS (
+    SELECT NULLIF(stu.value->>'student_id', '')::uuid AS student_id,
+           cs.section_id,
+           COUNT(*) FILTER (
+             WHERE stu.value->>'status' IN ('Present','OnDuty')
+           )::int AS attended,
+           COUNT(*)::int AS appearances
+    FROM conducted_slots cs
+    CROSS JOIN LATERAL jsonb_array_elements(cs.slot_value->'students') AS stu
+    WHERE NULLIF(stu.value->>'student_id', '') IS NOT NULL
+    GROUP BY NULLIF(stu.value->>'student_id', '')::uuid, cs.section_id
+  )
+  SELECT ps.student_id,
+         st.total_periods,
+         ps.attended AS periods_attended,
+         CASE WHEN st.total_periods = 0 THEN 0
+              ELSE ROUND(ps.attended * 100.0 / st.total_periods, 2)
+         END AS attendance_pct
+  FROM per_student ps
+  JOIN section_totals st ON st.section_id = ps.section_id;
+END
+$$;
+
+COMMENT ON FUNCTION public.fn_compute_course_attendance(uuid, uuid, date, date, uuid, uuid)
+  IS 'Per-student conducted-period totals for a course in a date range. Used by Internal Marks (CIA) attendance summary. Honors institution+section holiday scopes from institution_leaves.';
+
+GRANT EXECUTE ON FUNCTION public.fn_compute_course_attendance(uuid, uuid, date, date, uuid, uuid) TO authenticated, service_role;

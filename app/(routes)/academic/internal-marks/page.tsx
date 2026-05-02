@@ -16,11 +16,13 @@ import { useQuery } from '@tanstack/react-query';
 import { QUERY_CONFIG } from '@/lib/config/query-config';
 import { useExamSessions } from '@/hooks/internal-marks/use-cia-settings';
 import { usePrograms } from '@/hooks/organization/use-programs';
+import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import {
   InternalMarksFiltersComponent,
   type InternalMarksFilterState,
 } from './_components/internal-marks-filters';
 import { MarkEntryGrid } from './_components/mark-entry-grid';
+import { getInstitutionHeader } from '@/lib/utils/internal-marks/institution-header';
 import type { CiaMarkSyncRecord } from '@/types/internal-marks';
 
 export default function InternalMarksPage() {
@@ -95,6 +97,17 @@ export default function InternalMarksPage() {
     limit: 200,
   });
 
+  // Institutions list — used to resolve the current institution's name for
+  // per-institution PDF header (COE spec §7.1). For non-super-admin users the
+  // list contains only institutions they have access to (which always includes
+  // their own), so the lookup works for both branches.
+  const { institutions } = useInstitutionsWithAccess({ autoFetch: true });
+
+  const institutionHeader = useMemo(() => {
+    const inst = institutions.find((i) => i.id === institutionId);
+    return getInstitutionHeader(inst?.name);
+  }, [institutions, institutionId]);
+
   const pdfContext = useMemo(() => {
     const courseInfo = courseInfoMap?.get(filters.course_code ?? '');
     const program = programsData?.data?.find((p) => p.program_id === filters.program_code);
@@ -107,10 +120,13 @@ export default function InternalMarksPage() {
       internalMaxMark: courseMaxMark || 0,
       examSession: examSession?.session_name ?? '',
       assessmentName: selectedSetting?.setting_name ?? '',
+      institutionName: institutionHeader.institution_name,
+      institutionAddress: institutionHeader.institution_address,
+      institutionAccreditation: institutionHeader.institution_accreditation,
       logoImage: '/logo.png',
-      rightLogoImage: '/jkkncas_logo.png',
+      rightLogoImage: institutionHeader.rightLogoImage,
     };
-  }, [filters, courseInfoMap, courseMaxMark, programsData, examSessions, selectedSetting]);
+  }, [filters, courseInfoMap, courseMaxMark, programsData, examSessions, selectedSetting, institutionHeader]);
 
   const handleFiltersChange = useCallback(
     (f: Partial<InternalMarksFilterState>) => setFilters(f), []

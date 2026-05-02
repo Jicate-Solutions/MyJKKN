@@ -41,14 +41,25 @@ export interface CiaComponent {
 /**
  * A CIA round (e.g., CIA 1, CIA 2, CIA 3) with its entry window and components.
  * Multiple rounds form a CIA setting.
+ *
+ * Date fields (priority order on read):
+ *   entry_from / entry_to                 — canonical COE field names (per /api/v1/cia-settings)
+ *   entry_open_from / entry_close_on      — older field names, kept as fallback
+ *   start_date / end_date                 — legacy assessment-window fields
+ *   attendance_period_from / attendance_period_to — date range used to compute
+ *     total periods and per-student attended count for this round (NEW 2026-04-30)
  */
 export interface CiaRound {
   round: number;
   round_name: string;
+  entry_from?: string | null;
+  entry_to?: string | null;
   start_date?: string | null;
   end_date?: string | null;
   entry_open_from?: string | null;
   entry_close_on?: string | null;
+  attendance_period_from?: string | null;
+  attendance_period_to?: string | null;
   components: CiaComponent[];
 }
 
@@ -74,26 +85,64 @@ export interface CiaSettings {
 // Entry Window Status
 // ============================================================================
 
-export type EntryWindowStatus = 'open' | 'upcoming' | 'closed';
+export type EntryWindowStatus = 'open' | 'upcoming' | 'expired' | 'no-dates';
 
 /**
- * Determines whether the mark entry window is open, upcoming, or closed
- * based on the round's entry_open_from / entry_close_on dates.
- * When dates are missing, defaults to 'open' (no time restriction).
+ * Returns today's calendar date in IST as a "YYYY-MM-DD" string.
+ * Locked to Asia/Kolkata regardless of browser/server timezone — matches
+ * COE spec §6.2. 'en-CA' formatter outputs ISO-like format directly.
+ */
+export function istToday(): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Kolkata',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date());
+}
+
+/**
+ * Resolves the canonical entry_from / entry_to dates for a round, with
+ * fallbacks for older field names. Date strings are returned unchanged
+ * (expected format: "YYYY-MM-DD" so lexical compare = chronological compare).
+ */
+export function resolveRoundDates(round: CiaRound): {
+  entryFrom: string | null;
+  entryTo: string | null;
+} {
+  const entryFrom =
+    round.entry_from ?? round.entry_open_from ?? round.start_date ?? null;
+  const entryTo =
+    round.entry_to ?? round.entry_close_on ?? round.end_date ?? null;
+  return { entryFrom, entryTo };
+}
+
+/**
+ * Determines mark-entry-window status in IST using **inclusive deadline**
+ * semantics: `entry_to` is the LAST day faculty can enter marks.
+ *
+ * Deviates from COE integration spec §6.1 (which mandates strict/exclusive
+ * cutoff `today >= entry_to → expired`) by deliberate institutional choice —
+ * faculty wanted "deadline May 2" to mean "May 2 is the last open day,"
+ * matching everyday human reading.
+ *
+ * The proxy at /api/internal-marks/marks applies the same rule. NOTE: COE's
+ * /api/v1/cia-marks/sync still uses the strict rule, so a save attempt on
+ * the deadline day will pass MyJKKN gates but COE may reject — coordinate
+ * with the COE team to flip their operator too.
+ *
+ *   today < entry_from  → 'upcoming'
+ *   today > entry_to    → 'expired'   (inclusive; deadline day still open)
+ *   no entry_from set   → 'no-dates'  (treated as open by callers)
+ *   otherwise           → 'open'
  */
 export function getEntryWindowStatus(round: CiaRound): EntryWindowStatus {
-  const openFrom = round.entry_open_from || round.start_date;
-  const closeOn = round.entry_close_on || round.end_date;
+  const { entryFrom, entryTo } = resolveRoundDates(round);
+  if (!entryFrom) return 'no-dates';
 
-  if (!openFrom && !closeOn) return 'open';
-
-  const now = Date.now();
-  const openTs = openFrom ? new Date(openFrom).getTime() : -Infinity;
-  const closeTs = closeOn ? new Date(closeOn).getTime() : Infinity;
-
-  if (isNaN(openTs) && isNaN(closeTs)) return 'open';
-  if (!isNaN(openTs) && now < openTs) return 'upcoming';
-  if (!isNaN(closeTs) && now > closeTs) return 'closed';
+  const today = istToday();
+  if (today < entryFrom) return 'upcoming';
+  if (entryTo && today > entryTo) return 'expired';
   return 'open';
 }
 
@@ -102,32 +151,40 @@ export function getEntryWindowStatus(round: CiaRound): EntryWindowStatus {
 // ============================================================================
 
 /**
- * Maps a CIA component code to the COE marks table field names.
- * COE stores marks in a flat schema: test_1_marks / test_1_max,
- * assign_1_marks / assign_1_max, etc. This map is used when building
- * the sync records from component-keyed rows.
+ * Maps the 13 RESERVED CIA component codes to COE's dedicated column names
+ * on `cia_marks`. Anything outside this set is treated as a custom component
+ * and stored in `cia_marks.extra_marks` / `extra_marks_max` JSONB.
+ *
+ * Source of truth: COE integration spec (May 2026) §2 — Standard component codes.
+ * The mark-entry submit path partitions components against this map; codes
+ * present here go to flat fields, codes absent here go to JSONB.
  */
 export const COMPONENT_MARK_FIELDS: Record<
   string,
   { markField: string; maxField: string }
 > = {
-  test_1: { markField: 'test_1_marks', maxField: 'test_1_max' },
-  test_2: { markField: 'test_2_marks', maxField: 'test_2_max' },
-  test_3: { markField: 'test_3_marks', maxField: 'test_3_max' },
-  assign_1: { markField: 'assign_1_marks', maxField: 'assign_1_max' },
-  assign_2: { markField: 'assign_2_marks', maxField: 'assign_2_max' },
-  assignment_1: { markField: 'assign_1_marks', maxField: 'assign_1_max' },
-  assignment_2: { markField: 'assign_2_marks', maxField: 'assign_2_max' },
-  quiz_1: { markField: 'quiz_1_marks', maxField: 'quiz_1_max' },
-  quiz_2: { markField: 'quiz_2_marks', maxField: 'quiz_2_max' },
-  seminar: { markField: 'seminar_marks', maxField: 'seminar_max' },
+  // Tests
+  test_1: { markField: 'test_1_mark', maxField: 'test_1_max' },
+  test_2: { markField: 'test_2_mark', maxField: 'test_2_max' },
+  test_3: { markField: 'test_3_mark', maxField: 'test_3_max' },
+  // Other reserved codes — schema column convention is `<code>_marks`
+  assignment: { markField: 'assignment_marks', maxField: 'assignment_max' },
+  quiz: { markField: 'quiz_marks', maxField: 'quiz_max' },
+  mid_term: { markField: 'mid_term_marks', maxField: 'mid_term_max' },
+  presentation: { markField: 'presentation_marks', maxField: 'presentation_max' },
   attendance: { markField: 'attendance_marks', maxField: 'attendance_max' },
-  practical: { markField: 'practical_marks', maxField: 'practical_max' },
-  record: { markField: 'record_marks', maxField: 'record_max' },
-  observation: { markField: 'observation_marks', maxField: 'observation_max' },
+  lab: { markField: 'lab_marks', maxField: 'lab_max' },
+  project: { markField: 'project_marks', maxField: 'project_max' },
+  seminar: { markField: 'seminar_marks', maxField: 'seminar_max' },
   viva: { markField: 'viva_marks', maxField: 'viva_max' },
-  model_exam: { markField: 'model_exam_marks', maxField: 'model_exam_max' },
+  other: { markField: 'other_marks', maxField: 'other_max' },
 };
+
+/**
+ * The 13 reserved codes from COE spec §2. Anything not in this set must
+ * be sent under `extra_marks` / `extra_marks_max` JSONB.
+ */
+export const STANDARD_COMPONENT_CODES = new Set(Object.keys(COMPONENT_MARK_FIELDS));
 
 // ============================================================================
 // Exam Registrations & Course Mapping
@@ -195,8 +252,10 @@ export interface LearnerForMarkEntry {
 
 /**
  * A single mark record to sync to COE.
- * Component-specific mark fields (test_1_marks, etc.) are added dynamically
- * based on the COMPONENT_MARK_FIELDS map.
+ * Standard component fields (test_1_mark, assignment_marks, etc.) are added
+ * dynamically based on COMPONENT_MARK_FIELDS. Custom (end-user-defined)
+ * components go under `extra_marks` / `extra_marks_max` JSONB per COE
+ * integration spec §4.
  */
 export interface CiaMarkSyncRecord {
   institutions_id: string;
@@ -209,8 +268,12 @@ export interface CiaMarkSyncRecord {
   marks_status: 'Draft' | 'Submitted' | 'Approved' | 'Rejected' | string;
   total_internal_marks: number;
   max_internal_marks: number;
-  // Component-specific fields (dynamic keys like test_1_marks, test_1_max, etc.)
-  [key: string]: string | number | null | undefined;
+  /** Custom component scores, keyed by component code (e.g., {"ai_tools_int_mode": 16}) */
+  extra_marks?: Record<string, number>;
+  /** Custom component max marks, mirrors extra_marks keys */
+  extra_marks_max?: Record<string, number>;
+  // Component-specific fields (dynamic keys like test_1_mark, assignment_marks, etc.)
+  [key: string]: string | number | null | undefined | Record<string, number>;
   // Audit fields (set by the API route from authenticated user)
   created_by?: string;
   updated_by?: string;
@@ -293,6 +356,38 @@ export interface CiaReportResponse {
 }
 
 // ============================================================================
+// Attendance Summary (per-student period totals for a CIA round)
+// ============================================================================
+
+/**
+ * Per-student attendance summary for a single course over an attendance period.
+ * Computed by fn_compute_course_attendance() against student_attendance + institution_leaves.
+ *
+ * total_periods    — conducted classes for this student's section in the date range,
+ *                    minus any approved institution_leaves overlapping those dates
+ * periods_attended — count of Present + OnDuty statuses for this student
+ * attendance_pct   — periods_attended / total_periods × 100, rounded to 2 decimals
+ */
+export interface AttendanceSummaryRow {
+  student_id: string;
+  register_number?: string;
+  total_periods: number;
+  periods_attended: number;
+  attendance_pct: number;
+}
+
+/**
+ * Response from the attendance-summary API.
+ */
+export interface AttendanceSummaryResponse {
+  course_code: string;
+  course_id: string;
+  attendance_period_from: string;
+  attendance_period_to: string;
+  rows: AttendanceSummaryRow[];
+}
+
+// ============================================================================
 // Consolidated Report (multi-course / multi-semester PDF)
 // ============================================================================
 
@@ -327,9 +422,12 @@ export interface ConsolidatedSemester {
 
 /**
  * Full data for the consolidated (multi-semester, multi-course) PDF report.
+ * Per COE spec §7.1, header lines are per-institution.
  */
 export interface ConsolidatedReportData {
   institution_name?: string;
+  institution_address?: string;
+  institution_accreditation?: string;
   program_code: string;
   program_name: string;
   exam_session: string;

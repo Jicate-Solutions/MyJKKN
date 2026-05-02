@@ -20,6 +20,7 @@ import { usePermissions } from '@/hooks/use-permissions';
 import { useExamSessions, useCiaSettings } from '@/hooks/internal-marks/use-cia-settings';
 import { useCourseMapping, useRegistrations } from '@/hooks/internal-marks/use-cia-marks';
 import { CiaMarksService } from '@/lib/services/internal-marks/cia-marks-service';
+import { getEntryWindowStatus, resolveRoundDates } from '@/types/internal-marks';
 
 export interface InternalMarksFilterState {
   institution_id: string;
@@ -253,7 +254,7 @@ export function InternalMarksFiltersComponent({ institutionId, filters, onFilter
           </Select>
         </div>
 
-        {/* Assessment + Round (combined) */}
+        {/* Assessment + Round (combined) — entry-window status per COE spec §6.4 */}
         <div className='space-y-1.5'>
           <Label className='text-xs font-medium'>Assessment</Label>
           <Select
@@ -262,6 +263,14 @@ export function InternalMarksFiltersComponent({ institutionId, filters, onFilter
               : ''}
             onValueChange={(v) => {
               const [settingId, roundStr] = v.split('__');
+              const setting = ciaSettings?.find((s) => s.id === settingId);
+              const round = setting?.cia_rounds.find((r) => r.round === Number(roundStr));
+              // Defensive: refuse selection if the item became closed/upcoming
+              // between render and click (e.g., date crossed midnight IST).
+              if (round) {
+                const status = getEntryWindowStatus(round);
+                if (status !== 'open' && status !== 'no-dates') return;
+              }
               onFiltersChange({
                 ...filters,
                 setting_id: settingId,
@@ -275,13 +284,44 @@ export function InternalMarksFiltersComponent({ institutionId, filters, onFilter
             <SelectTrigger>
               <SelectValue placeholder={isLoadingSettings ? 'Loading...' : 'Select Assessment'} />
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent className='max-w-[450px]'>
               {(ciaSettings ?? []).flatMap((s) =>
-                s.cia_rounds.map((r) => (
-                  <SelectItem key={`${s.id}__${r.round}`} value={`${s.id}__${r.round}`}>
-                    {s.setting_name} - {r.round_name}
-                  </SelectItem>
-                ))
+                s.cia_rounds.map((r) => {
+                  const status = getEntryWindowStatus(r);
+                  const isOpen = status === 'open' || status === 'no-dates';
+                  const { entryFrom } = resolveRoundDates(r);
+                  return (
+                    <SelectItem
+                      key={`${s.id}__${r.round}`}
+                      value={`${s.id}__${r.round}`}
+                      disabled={!isOpen}
+                      className={cn(!isOpen && 'opacity-60')}
+                    >
+                      <div className='flex items-center gap-2 w-full'>
+                        <span
+                          className={cn('h-2 w-2 rounded-full shrink-0', {
+                            'bg-emerald-500': status === 'open',
+                            'bg-red-500': status === 'expired',
+                            'bg-amber-500': status === 'upcoming',
+                            'bg-gray-400': status === 'no-dates',
+                          })}
+                        />
+                        <span className={cn('flex-1', status === 'expired' && 'line-through')}>
+                          {s.setting_name} - {r.round_name}
+                        </span>
+                        {status === 'open' && (
+                          <span className='text-[10px] text-emerald-600 ml-2'>Open</span>
+                        )}
+                        {status === 'expired' && (
+                          <span className='text-[10px] text-red-500 ml-2'>Closed</span>
+                        )}
+                        {status === 'upcoming' && entryFrom && (
+                          <span className='text-[10px] text-amber-600 ml-2'>Opens {entryFrom}</span>
+                        )}
+                      </div>
+                    </SelectItem>
+                  );
+                })
               )}
             </SelectContent>
           </Select>
