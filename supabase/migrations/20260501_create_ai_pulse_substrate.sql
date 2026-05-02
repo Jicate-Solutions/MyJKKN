@@ -17,13 +17,18 @@
 --   • Policies: lovable_week_frequency REMOVED; 12 new rows ADDED — see §C
 --
 -- DRAFT STATUS — DO NOT MERGE UNTIL Wave A.0 RESOLVES:
---   1. class_rep role status (confirmed: NOT a formal role) → roles-PR before this
---   2. AI Pulse Champion identity → ✅ RESOLVED 2026-04-29: Krishnaveni
---   3. AI Pulse Co-Champion deputy → ✅ RESOLVED 2026-05-02: Ranjith
---      (DTO JKKN, Ranjith@jkkn.ac.in). Permission aiPulse:cycles.manage
---      granted to both Krishnaveni and Ranjith. host_user_id seed defaults
---      to Krishnaveni; Ranjith is fallback host.
---   4. learners table FK column name (learners.id vs learners_profiles.id)
+--   1. ✅ RESOLVED 2026-05-02: REUSE existing class_incharges table + role.
+--      Director surfaced /staff/class-incharges as production feature.
+--      No new role needed. AI-Pulse-specific permission keys
+--      (aiPulse:rotation.manage, aiPulse:attendance.mark,
+--      aiPulse:absence.escalate) add to lib/constants/permissions.ts.
+--   2. ✅ RESOLVED 2026-04-29: AI Pulse Champion = Krishnaveni
+--   3. ✅ RESOLVED 2026-05-02: Co-Champion = Ranjith (DTO JKKN,
+--      Ranjith@jkkn.ac.in). Permission aiPulse:cycles.manage granted to
+--      both Krishnaveni and Ranjith. host_user_id seed defaults to
+--      Krishnaveni; Ranjith is fallback host.
+--   4. 🔴 REMAINING: learners table FK column name
+--      (learners.id vs learners_profiles.id)
 --
 -- This migration creates the AI Pulse module substrate per spec v2 §4:
 --   A. 8 substrate tables (cycles, teams, members, attendance, engagement,
@@ -75,19 +80,19 @@ CREATE INDEX IF NOT EXISTS idx_ai_pulse_cycles_active
 CREATE TABLE IF NOT EXISTS ai_pulse_teams (
   id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   cycle_id              UUID NOT NULL REFERENCES ai_pulse_cycles(id) ON DELETE CASCADE,
-  class_id              UUID NOT NULL,  -- TODO Wave A.0: confirm classes.id vs class_groups.id
+  section_id            UUID NOT NULL REFERENCES public.sections(id) ON DELETE CASCADE,  -- aligned with class_incharges.section_id (resolved 2026-05-02)
   team_number           INT NOT NULL CHECK (team_number BETWEEN 1 AND 7),  -- Q10: was 1..5
   team_lead_learner_id  UUID,  -- TODO Wave A.0: confirm learners.id vs learners_profiles.id
   created_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
-  UNIQUE (cycle_id, class_id, team_number)
+  UNIQUE (cycle_id, section_id, team_number)
 );
 
 COMMENT ON TABLE ai_pulse_teams IS
-  '3-7 teams per class per cycle, adaptive by class size band (small=3, medium=5, large=7) per ai_pulse_policies.team_count_thresholds. Q10. Spec v2 §4.1.';
+  '3-7 teams per section per cycle, adaptive by section size band (small=3, medium=5, large=7) per ai_pulse_policies.team_count_thresholds. Q10. Section is the unit of class organization in MyJKKN — matches class_incharges.section_id pattern. Spec v2 §4.1.';
 
-CREATE INDEX IF NOT EXISTS idx_ai_pulse_teams_cycle_class
-  ON ai_pulse_teams (cycle_id, class_id);
+CREATE INDEX IF NOT EXISTS idx_ai_pulse_teams_cycle_section
+  ON ai_pulse_teams (cycle_id, section_id);
 
 -- A.3 — Team membership (junction)
 CREATE TABLE IF NOT EXISTS ai_pulse_team_members (
@@ -383,7 +388,7 @@ VALUES
   ('domain_sync_due', 'Domain-Sync due', 'Domain-Sync காலம்', 'Your team Domain-Sync due in {{hours}}h.', 'உங்கள் Domain-Sync {{hours}}மணியில் காலாவதி.', 'in_app', true, 50),
   ('lab_presentation_due', 'Lab presentation reminder', 'ஆய்வக நினைவூட்டல்', 'Lab presentation Monday at {{lab_time}}.', 'திங்கட்கிழமை {{lab_time}} மணிக்கு ஆய்வக விளக்கக்காட்சி.', 'in_app', true, 60),
   ('cycle_complete_recap', 'Cycle recap', 'சுழற்சி சுருக்கம்', 'AI Pulse cycle {{week}} complete. Gold Standards: {{gold_count}}.', 'AI Pulse சுழற்சி {{week}} முடிந்தது. தங்கத் தரங்கள்: {{gold_count}}.', 'in_app', true, 70),
-  ('escalation_t1_class_rep', 'T1: Class Rep nudge', 'T1: வகுப்பு பிரதிநிதி', '{{count}} teammates have not completed Domain-Sync.', '{{count}} உறுப்பினர்கள் Domain-Sync முடிக்கவில்லை.', 'attention_bar', true, 80),
+  ('escalation_t1_class_incharge', 'T1: Class Incharge nudge', 'T1: வகுப்பு பொறுப்பாளர்', '{{count}} learners in your section have not completed Domain-Sync.', 'உங்கள் பிரிவில் {{count}} கற்போர் Domain-Sync முடிக்கவில்லை.', 'attention_bar', true, 80),
   ('escalation_t2_dept_head', 'T2: Dept Head red flag', 'T2: துறைத் தலைவர்', 'Class {{class}} missed AI Pulse Domain-Sync.', 'வகுப்பு {{class}} AI Pulse தவறவிட்டது.', 'attention_bar', true, 90),
   ('hod_chat_intervention', 'HOD chat intervention (3 misses)', 'HOD உரையாடல்', '{{learner}} has missed {{count}} cycles. HOD/Faculty conversation recommended.', '{{learner}} {{count}} சுழற்சிகளை தவறவிட்டார்.', 'attention_bar', true, 100),
   ('academic_flag_5_miss', 'Academic flag (5 misses)', 'கல்வி குறிப்பு', '{{learner}} accumulated 5 strikes. Academic record flagged.', '{{learner}} 5 குறிகள். கல்வி பதிவு குறிக்கப்பட்டது.', 'attention_bar', true, 110)
@@ -559,7 +564,7 @@ ALTER TABLE ai_pulse_policies                 ENABLE ROW LEVEL SECURITY;
 -- Pattern reference: 20260427_counselor_routing_db_foundation.sql RLS section.
 -- Required policies:
 --   • Learner: view:self on attendance/engagement/team_members where learner_id = auth.uid()
---   • Class Rep: full RW on attendance/teams scoped to class_id
+--   • Class Incharge (existing role): full RW on attendance/teams scoped to section_id (joined via class_incharges.staff_id = auth.uid()'s staff record). Reuses staff.class_incharges.* permission keys + new aiPulse:rotation.manage / aiPulse:attendance.mark / aiPulse:absence.escalate.
 --   • Faculty: RW on lab_presentations + excuse_approved on attendance, scoped to class
 --   • Dept Head: read all tables scoped to department_id; intervene:hod_chat_log
 --   • Champion + Co-Champion: full RW on cycles + topics + featured_tools + anomaly review
