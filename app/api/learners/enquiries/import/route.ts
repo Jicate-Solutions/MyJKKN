@@ -897,9 +897,9 @@ export async function POST(request: NextRequest): Promise<NextResponse<ImportRes
       semester_id: semesterId,
       section_id: sectionId,
       academic_year_id: academicYearId,
-      admission_year: data.admission_year,
-      // 2026-04-23: new FK — populated from the bulk resolver above.
-      // null when no matching admission_years row exists for the triple.
+      // 2026-05-02 (Phase D): integer admission_year column dropped.
+      // data.admission_year (year integer from Excel) is used only via the
+      // admission_year_id resolver above; nothing else is written.
       admission_year_id: admissionYearMap.get(
         `${data.admission_year ?? ''}::${institutionId ?? ''}::${programId ?? ''}`
       ) ?? null,

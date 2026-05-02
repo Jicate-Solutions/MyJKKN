@@ -386,26 +386,23 @@ export async function POST(request: NextRequest) {
         sanitizedData.program_id = mappedData.program_id;
       }
 
-      // Admission year — keep legacy integer for back-compat AND resolve FK so
-      // dashboards can drop the OR-fallback after Phase C. Institution is fixed
-      // by the existing profile (bulk-edit cannot retarget institution).
+      // Admission year — Phase D dropped the integer column; the year value
+      // from the Excel cell is used only to resolve the admission_year_id FK.
+      // Institution is fixed by the existing profile (bulk-edit cannot retarget).
       if (mappedData.admission_year != null && mappedData.admission_year !== '') {
         const yearInt = Number(mappedData.admission_year);
-        if (Number.isFinite(yearInt)) {
-          sanitizedData.admission_year = yearInt;
-          if (sanitizedData.program_id && profile.institution_id) {
-            const { resolveAdmissionYearId } = await import(
-              '@/lib/services/admission/resolve-admission-year'
-            );
-            (sanitizedData as any).admission_year_id = await resolveAdmissionYearId(
-              supabase as any,
-              {
-                year: yearInt,
-                institutionId: profile.institution_id,
-                programId: sanitizedData.program_id,
-              }
-            );
-          }
+        if (Number.isFinite(yearInt) && sanitizedData.program_id && profile.institution_id) {
+          const { resolveAdmissionYearId } = await import(
+            '@/lib/services/admission/resolve-admission-year'
+          );
+          (sanitizedData as any).admission_year_id = await resolveAdmissionYearId(
+            supabase as any,
+            {
+              year: yearInt,
+              institutionId: profile.institution_id,
+              programId: sanitizedData.program_id,
+            }
+          );
         }
       }
 

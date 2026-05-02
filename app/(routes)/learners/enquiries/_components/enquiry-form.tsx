@@ -870,13 +870,10 @@ export function EnquiryForm({
       aadhar_number: values.aadhar_number || undefined,
       blood_group: values.blood_group || undefined,
       student_photo_url: values.student_photo_url || undefined,
-      // 2026-04-23: write BOTH admission_year_id (FK source-of-truth) and
-      // admission_year (legacy integer for B2A back-compat). The integer is
-      // not derived here — caller (course-selection.tsx) syncs it via setValue
-      // when the user picks an admission_year row, so values.admission_year
-      // is already the matching program_start_year.
+      // 2026-05-02 (Phase D): integer admission_year column dropped. Only the
+      // FK is written. course-selection.tsx still keeps the integer in form
+      // state for display/validation purposes, but it never reaches the DB.
       admission_year_id: formatUUID(values.admission_year_id),
-      admission_year: values.admission_year || undefined,
       enquiry_date: values.enquiry_date || undefined,
 
       // Family Information (NOT NULL fields) - Convert to UPPERCASE

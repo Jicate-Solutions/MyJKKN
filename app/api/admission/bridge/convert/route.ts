@@ -127,15 +127,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     degree_id: lead.degree_id || null,
     department_id: lead.department_id || null,
     program_id: lead.program_id || null,
-    // 2026-04-23: propagate the lead's admission cohort to the new learner.
-    // Before this fix the FK was silently dropped on every conversion (the
-    // very picker a user had filled in on the lead form was thrown away).
-    // We write BOTH columns:
-    //   - admission_year_id (UUID FK): the new source of truth
-    //   - admission_year (INT): legacy column kept for B2A/MCP back-compat
-    //                           (6 endpoints expose ?admission_year=N)
+    // 2026-05-02 (Phase D): write FK only. The integer column has been
+    // dropped; Phase C-8 backfilled all readers (B2A, api-management, MCP,
+    // Excel export) to derive the legacy integer from the FK in their
+    // response shape, so external consumers see no change.
     admission_year_id: resolvedAdmissionYearId,
-    admission_year: lead.admission_year?.program_start_year ?? null,
     // Parent (best-effort)
     father_name: lead.parent_name || '',
     father_mobile: lead.parent_phone || '',
