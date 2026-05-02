@@ -12500,19 +12500,21 @@ AS $$
        OR lp.admission_year_id IN (SELECT id FROM cohort_ay_ids)
        OR lp.admission_year_id IS NULL
   )
+  -- Updated 2026-05-02 (Phase C-10): 'account' added to enrolled lifecycle
+  -- set so Source tab agrees with dashboard-wide Filled definition.
   SELECT
     pls.institution_id,
     i.name::text                                                    AS institution_name,
     pls.source,
     pls.referral_type,
     COUNT(*)::int                                                   AS lead_count,
-    COUNT(*) FILTER (WHERE pls.lp_status IN ('admitted','active','graduated'))::int AS enrolled_count,
+    COUNT(*) FILTER (WHERE pls.lp_status IN ('admitted','active','graduated','account'))::int AS enrolled_count,
     CASE WHEN COUNT(*) = 0 THEN 0::numeric
          ELSE ROUND(
-           COUNT(*) FILTER (WHERE pls.lp_status IN ('admitted','active','graduated'))::numeric
+           COUNT(*) FILTER (WHERE pls.lp_status IN ('admitted','active','graduated','account'))::numeric
              / COUNT(*)::numeric * 100, 2)
     END                                                             AS conversion_rate,
-    MAX(pls.activated_at) FILTER (WHERE pls.lp_status IN ('admitted','active','graduated'))
+    MAX(pls.activated_at) FILTER (WHERE pls.lp_status IN ('admitted','active','graduated','account'))
                                                                     AS last_enrolled_at
   FROM per_lead_status pls
   JOIN institutions i ON i.id = pls.institution_id
@@ -12568,11 +12570,13 @@ AS $$
     FROM learners_profiles lp
     WHERE lp.institution_id IS NOT NULL
       AND lp.institution_id IN (SELECT id FROM eligible_institutions)
-      AND lp.lifecycle_status::text IN ('admitted','active','graduated')
+      AND lp.lifecycle_status::text IN ('admitted','active','graduated','account')
       AND lp.permanent_address_district IS NOT NULL
       AND TRIM(lp.permanent_address_district) <> ''
       AND (p_admission_year IS NULL OR lp.admission_year_id IN (SELECT id FROM cohort_ay_ids))
   )
+  -- Updated 2026-05-02 (Phase C-10): added 'account' to the lifecycle set so
+  -- the Geography tab's count matches dashboard-wide Filled = 183 for 2026.
   SELECT
     n.institution_id,
     i.name::text                       AS institution_name,
