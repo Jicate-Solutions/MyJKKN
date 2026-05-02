@@ -6,6 +6,55 @@
 
 ## 📝 Recent Changes
 
+- **2026-05-02** — IMS permission-system audit: full RLS resolution (Part 2 — bugs #1, #2, #3, #5, #6, #7, #8, #9, #10)
+  - Continuation of the morning's granular-overrides session (Part 1 below). The `rls-fixer` agent in team `ims-permission-resolve` resolved the remaining 10 RLS/scope bugs flagged by the `scope-reviewer` and `rls-reviewer` audits. All listed open follow-ups from Part 1 are now closed except the deferred UI-layer concerns.
+  - **`03_policies.sql` edit #3 (helper-call corrections)**: the `pg_temp.ims_apply_*` helpers in the main IMS RLS block assume every table has an `institution_id` column. Several tables don't — re-running the file on a fresh DB would have crashed or generated globally-permissive policies that regress live state. Replaced helper calls for 7 tables (lines ~5575, 5587-5590, 5595-5597, 5610-5612) with explicit pointers to hand-written DO blocks below + corrected ones for `ims_suppliers` (BUG #5: was global, now inst-scoped) and `ims_unit_conversions` (BUG #9: was global, now child-scoped via `ims_items.institution_id`).
+  - **`03_policies.sql` edit #4 (hand-written blocks for non-conforming tables)**: ~290 lines added between line 5638 (end of main IMS RLS) and the existing granular-overrides block. Three new DO blocks:
+    - **`ims_item_categories` (BUG #2, HIGH)**: live policies were globally readable/writable (`user_has_permission('ims.view')` with no scoping). Replaced with store-scoped variants via `EXISTS-join on ims_stores.institution_id`. Closes cross-store data exposure.
+    - **`ims_supply_shipments` + `ims_supply_shipment_items` (BUG #1 HIGH cross-tenant write + BUG #3 HIGH helper drift)**: table has NO `institution_id` (only `source_store_id`, `destination_institution_id`, `destination_store_id`). Generic helper would crash. Hand-written block creates SELECT/INSERT/UPDATE/DELETE matching live DB shape AND narrows base UPDATE/DELETE to source-side-only via `ims.transfers.dispatch`. Destination-side updates flow through the existing additive `_update_receive` policy gated on `ims.transfers.receive`. Same fix applied to the child shipment_items table.
+    - **`ims_*_number_counters` (BUG #6, MED)**: 4 counter tables (`ims_grn_number_counters`, `ims_indent_number_counters`, `ims_sale_number_counters`, `ims_batch_number_counters`) carry only `store_id`. Helper would crash on missing `institution_id`. Hand-written block iterates over 4 tables × 4 verbs in a single loop, scoping via `EXISTS-join on ims_stores`.
+  - **`03_policies.sql` edit #5 (granular overrides extended)**: the existing 2026-05-02 morning block was extended with 3 more dead-key bindings (BUGs #7, #8 from rls-reviewer):
+    - `ims.inventory.create` → additive INSERT on `ims_items`
+    - `ims.inventory.delete` → additive DELETE on `ims_items`
+    - `ims.stock.grn.receive` → additive UPDATE on `ims_goods_received_notes` when status transitions to `received`/`verified`
+  - **`03_policies.sql` edit #6 (design-intent comments)**: BUG #10 `ims.financial.write_admin_only` annotated as intentional (service-role / DEFINER-only writes; do NOT add to PERMISSION_CATEGORIES). BUG #7 scope-reviewer (`ims_activity_log.ims.view` INSERT gating) documented as deferred TODO with rationale (requires UI-layer permission key addition). BUG #5/#9 rationale captured in inline comments.
+  - **`03_policies.sql` edit #7 (bulk_import non-enforceability)**: comment block added explaining `ims.inventory.bulk_import` cannot be enforced at the RLS layer (no per-row signal distinguishing a single insert from a bulk import). Bulk-import gating must remain in service-layer code (see `lib/services/ims/items-service.ts` and the bulk-import API route).
+  - **Production migrations applied** (via `mcp__supabase__apply_migration`): 4 named migrations:
+    - `ims_rls_resolve_remaining_2026_05_02_item_categories`
+    - `ims_rls_resolve_remaining_2026_05_02_supply_shipments_narrow`
+    - `ims_rls_resolve_remaining_2026_05_02_shipment_items_narrow`
+    - `ims_rls_resolve_remaining_2026_05_02_inventory_grn_dead_keys`
+    Verified via `pg_policies`: all `ims_supply_shipments` UPDATE/DELETE quals now reference only `source_store_id` (no `destination_institution_id`); `ims_item_categories` policies all join `ims_stores`; new `ims_items_insert_create`, `ims_items_delete_specific`, and `ims_goods_received_notes_update_receive` policies live alongside the helper-generated baselines.
+  - **Live policies for `ims_suppliers`, `ims_unit_conversions`, and the 4 counter tables were already correct** (these were never regressed in production — only the source file would have regressed on re-apply). No live DB change needed for those; the fix is purely source-file hardening.
+  - **Per-bug status (final)**:
+    - BUG #1 [HIGH] cross-tenant write on `ims_supply_shipments` — **FIXED** (UPDATE/DELETE narrowed to source-side; destination-side covered by `_update_receive`)
+    - BUG #2 [HIGH] `ims_item_categories` global scope — **FIXED** (store-scoped via `ims_stores` EXISTS-join)
+    - BUG #3 [HIGH] `ims_supply_shipments` helper drift (would crash on re-apply) — **FIXED** (hand-written block replaces helper call; child table same)
+    - BUG #5 [MED] `ims_suppliers` would regress on re-apply — **FIXED** (changed `ims_apply_global_policies` → `ims_apply_inst_policies`)
+    - BUG #6 [MED] counter tables would crash on re-apply — **FIXED** (hand-written loop block)
+    - BUG #7 [MED] rls-reviewer — `ims.inventory.create/.delete` dead — **FIXED** (additive policies wired)
+    - BUG #7 [LOW] scope-reviewer — `ims_activity_log` INSERT key — **DEFERRED** (TODO comment; requires new permission key in `lib/constants/permissions.ts`)
+    - BUG #8 [MED] `ims.stock.grn.receive` dead — **FIXED** (additive policy with status-transition WITH CHECK)
+    - BUG #9 [MED] `ims_unit_conversions` would regress on re-apply — **FIXED** (changed to child-scoped via `ims_items.institution_id`)
+    - BUG #10 [MED] `ims.financial.write_admin_only` undocumented — **DOCUMENTED** (design-intent comment added)
+    - `ims.inventory.bulk_import` (rls-reviewer note) — **DOCUMENTED** (cannot be enforced at RLS layer; service-layer concern)
+  - **Open follow-ups (deferred to other agents)**:
+    - **HIGH (UI layer)**: ui-reviewer's 24 HIGH-severity findings — `app/(routes)/ims/**` pages still don't enforce `canAccess()` per-page or `Can*` per-action. Owned by `ui-fixer` (Task #2).
+    - **LOW**: add `ims.audit.write` key to `lib/constants/permissions.ts` and migrate the `ims_activity_log_insert` policy to gate on it (BUG #7 scope-reviewer). Trivial follow-up but cross-cuts UI agent's territory.
+
+- **2026-05-02 (morning)** — IMS permission-system audit: granular RLS overrides + setup-script FK fixes (Part 1)
+  - Driven by 4-agent `ims-permission-audit` team review (50 bugs surfaced across RLS/UI/scope/dashboard layers).
+  - **`03_policies.sql` edit #1 (FK column typos)**: lines 5607, 5611. Helper invocations for child tables `ims_indent_request_items` and `ims_supply_shipment_items` declared FK columns `indent_request_id` and `supply_shipment_id` — but live DB has `indent_id` and `shipment_id`. Re-running the script would have crashed on `column does not exist`. Verified via `information_schema.columns` before patching.
+  - **`03_policies.sql` edit #2 (granular permission overrides)**: appended new ~110-line block between the main IMS RLS DO-block (line 5618) and the IMS Activity Log section. Wires 5 previously-dead permission keys at the DB layer:
+    - `ims.indents.create` → INSERT on `ims_indent_requests`
+    - `ims.indents.delete` → DELETE on `ims_indent_requests`
+    - `ims.indents.approve` → UPDATE on `ims_indent_requests` when status moves to `approved`/`rejected`
+    - `ims.sales.refund` → UPDATE on `ims_sales` when status='cancelled'
+    - `ims.transfers.receive` → UPDATE on `ims_supply_shipments` & `ims_supply_shipment_items` when status moves to `received`/`received_with_variance`
+  - **Strategy: additive (soft-wire), not replacement**. Postgres ORs multiple permissive policies for the same verb — these new policies grant access alongside the existing helper-generated `_insert`/`_update`/`_delete`. Existing roles keyed on `ims.indents.edit` / `ims.sales.create` / `ims.transfers.dispatch` keep their authority.
+  - **Production migration applied** (via `mcp__supabase__apply_migration`): `ims_granular_permission_overrides_2026_05_02`. 6 new policies live: `ims_indent_requests_{insert_create, delete_specific, update_approve}`, `ims_sales_update_refund`, `ims_supply_shipments_update_receive`, `ims_supply_shipment_items_update_receive`.
+  - **Status-transition gating**: WITH CHECK clauses on the new UPDATE policies constrain `NEW.status` to the specific transitions each verb represents — so a user with only `ims.indents.approve` can flip status to approved/rejected but cannot edit other fields under that policy (general edits still require `ims.indents.edit`). Catalog verbs now match DB-enforced verbs.
+
 - **2026-04-28** — IMS production-readiness: RLS canonicalization + schema drift sweep + Phase F audit trail
   - **Phase A (RLS hardening)**: drop-and-recreate RLS for all 25 ims_* tables to canonical pattern `is_super_admin() OR is_admin(auth.uid()) OR (user_has_permission(<key>) AND role_has_institution_access(institution_id))`. Closed 5 live security holes (USING(true) on `ims_supply_shipments`, `ims_supply_shipment_items`, `ims_stock_batches`, `ims_stock_summary`, `ims_batch_number_counters`). Replaced the legacy `get_current_user_role()` raw-string pattern on 23 tables. Pre-flight: added `custom_roles.{institution_scope, is_active, institution_id}` columns + applied `role_has_institution_access(uuid)` from `02_functions.sql:6674` (was missing in prod) + UPDATE custom_roles SET institution_scope='all' WHERE role_key IN ('super_admin', 'counselor'). 100 canonical policies live, 0 holes remaining.
   - **Phase A0.5 (in-flight)**: `ims_stores` got `is_central_supply_store BOOLEAN NOT NULL DEFAULT FALSE` + `requires_local_approval BOOLEAN NOT NULL DEFAULT FALSE`. Fixed `getStores()` 42703 error blocking the store picker.

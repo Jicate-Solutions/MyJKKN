@@ -18,13 +18,24 @@ import { useImsStore } from '@/hooks/ims';
 import { usePermissions } from '@/hooks/use-permissions';
 import { INDENT_STATUS_CONFIG, INDENT_URGENCY_CONFIG } from '@/types/ims';
 import { toast } from 'sonner';
+import { ImsPageGuard } from '@/components/ims/ims-page-guard';
 
 export default function TransferDetailPage({ params }: { params: Promise<{ id: string }> }) {
+  return (
+    <ImsPageGuard module="ims.transfers" action="view">
+      <TransferDetailPageInner params={params} />
+    </ImsPageGuard>
+  );
+}
+
+function TransferDetailPageInner({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const { storeId } = useImsStoreContext();
   const { data: currentStore } = useImsStore(storeId ?? '');
   const isCentralStore = currentStore?.is_central_supply_store ?? false;
-  const { userProfile } = usePermissions();
+  const { userProfile, canAccess, isSuperAdmin } = usePermissions();
+  const canDispatch = isSuperAdmin || canAccess('ims.transfers', 'dispatch');
+  const canReceive = isSuperAdmin || canAccess('ims.transfers', 'receive');
 
   const { data: transfer, isLoading } = useImsIndent(id);
   const { data: shipments } = useImsShipmentsForRequest(id);
@@ -175,17 +186,17 @@ export default function TransferDetailPage({ params }: { params: Promise<{ id: s
 
         {/* Contextual Action Buttons */}
         <div className="flex gap-3">
-          {isCentralStore && transfer.status === 'approved' && !preparingShipment && (
+          {isCentralStore && transfer.status === 'approved' && !preparingShipment && canDispatch && (
             <Button onClick={handleCreateShipment} disabled={createShipment.isPending}>
               {createShipment.isPending ? 'Creating...' : 'Create Shipment'}
             </Button>
           )}
-          {isCentralStore && preparingShipment && (
+          {isCentralStore && preparingShipment && canDispatch && (
             <Button onClick={handleDispatch} disabled={dispatch.isPending}>
               {dispatch.isPending ? 'Dispatching...' : 'Mark Dispatched'}
             </Button>
           )}
-          {!isCentralStore && dispatchedShipment && (
+          {!isCentralStore && dispatchedShipment && canReceive && (
             <Button onClick={handleConfirmReceipt} disabled={confirmReceipt.isPending}>
               {confirmReceipt.isPending ? 'Confirming...' : 'Confirm Receipt'}
             </Button>

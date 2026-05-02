@@ -22,6 +22,7 @@ import { summariseGstLines } from '@/lib/utils/ims-gst-calculator';
 import type { GstLineBreakdown } from '@/lib/utils/ims-gst-calculator';
 import { GRN_STATUS_CONFIG } from '@/types/ims';
 import type { ImsGRNItem } from '@/types/ims';
+import { ImsPageGuard } from '@/components/ims/ims-page-guard';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -60,6 +61,18 @@ function itemToBreakdown(item: ImsGRNItem): GstLineBreakdown {
 // ─── Page ────────────────────────────────────────────────────────────────────
 
 export default function GRNDetailPage({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
+  return (
+    <ImsPageGuard module="ims.stock.grn" action="view">
+      <GRNDetailPageInner params={params} />
+    </ImsPageGuard>
+  );
+}
+
+function GRNDetailPageInner({
   params,
 }: {
   params: Promise<{ id: string }>;

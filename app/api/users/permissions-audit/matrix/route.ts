@@ -4,6 +4,7 @@ import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { NextResponse, connection } from 'next/server';
 import type { NextRequest } from 'next/server';
+import { PERMISSION_CATEGORIES } from '@/lib/constants/permissions';
 
 export async function GET(request: NextRequest) {
   await connection();
@@ -116,14 +117,20 @@ export async function GET(request: NextRequest) {
       roleUserCounts[roleKey] = userSet.size;
     }
 
-    // 3. Collect all unique permission keys and build role list + meta
+    // 3. Collect all unique permission keys and build role list + meta.
+    // Seed with the canonical permission catalog so modules declared in
+    // PERMISSION_CATEGORIES (e.g. ims.*) appear in the matrix even before
+    // any role has set those keys in JSONB. Then merge in any extra keys
+    // observed in custom_roles.permissions to preserve legacy/orphan keys.
     const roles: string[] = [];
     const roleMeta: Record<string, {
       name: string;
       userCount: number;
       isSystem: boolean;
     }> = {};
-    const allPermissionKeys = new Set<string>();
+    const allPermissionKeys = new Set<string>(
+      PERMISSION_CATEGORIES.flatMap((cat) => cat.permissions.map((p) => p.key))
+    );
 
     for (const role of customRoles) {
       roles.push(role.role_key);

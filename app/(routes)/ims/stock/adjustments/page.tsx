@@ -47,6 +47,8 @@ import { useImsStoreContext } from '@/hooks/ims/use-ims-store-context';
 import { useImsItemsForSelect } from '@/hooks/ims/use-ims-inventory';
 import { useImsAdjustments, useCreateImsAdjustment } from '@/hooks/ims';
 import type { ImsFinancialTransaction, ImsAdjustmentType } from '@/types/ims';
+import { ImsPageGuard } from '@/components/ims/ims-page-guard';
+import { usePermissions } from '@/hooks/use-permissions';
 
 // Adjustment types categorised as increase or decrease
 const INCREASE_TYPES: ImsAdjustmentType[] = [
@@ -107,9 +109,19 @@ function extractReason(description: string | undefined): string {
 }
 
 export default function StockAdjustmentsPage() {
+  return (
+    <ImsPageGuard module="ims.stock" action="adjust">
+      <StockAdjustmentsPageInner />
+    </ImsPageGuard>
+  );
+}
+
+function StockAdjustmentsPageInner() {
   const { profile } = useAuth();
   const { storeId, institutionId } = useImsStoreContext();
   const userId = profile?.id ?? '';
+  const { canAccess, isSuperAdmin } = usePermissions();
+  const canCreateAdjustment = isSuperAdmin || canAccess('ims.stock', 'adjust');
 
   // -- State
   const [search, setSearch] = useState('');
@@ -230,12 +242,14 @@ export default function StockAdjustmentsPage() {
             setDialogOpen(open);
             if (!open) resetForm();
           }}>
-            <DialogTrigger asChild>
-              <Button>
-                <Plus className="mr-2 h-4 w-4" />
-                New Adjustment
-              </Button>
-            </DialogTrigger>
+            {canCreateAdjustment && (
+              <DialogTrigger asChild>
+                <Button>
+                  <Plus className="mr-2 h-4 w-4" />
+                  New Adjustment
+                </Button>
+              </DialogTrigger>
+            )}
             <DialogContent className="sm:max-w-[480px]">
               <DialogHeader>
                 <DialogTitle>New Stock Adjustment</DialogTitle>

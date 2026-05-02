@@ -6,6 +6,7 @@ import { cookies } from 'next/headers';
 import { NextResponse, connection } from 'next/server';
 import type { NextRequest } from 'next/server';
 import * as XLSX from 'xlsx';
+import { PERMISSION_CATEGORIES } from '@/lib/constants/permissions';
 
 export async function GET(request: NextRequest) {
   await connection();
@@ -92,8 +93,14 @@ export async function GET(request: NextRequest) {
       with_check: string | null;
     }>;
 
-    // Collect all unique permission keys across all roles, sorted
-    const allPermissionKeys = new Set<string>();
+    // Collect all unique permission keys across all roles, sorted.
+    // Seed with the canonical permission catalog so modules declared in
+    // PERMISSION_CATEGORIES (e.g. ims.*) appear in exports even before
+    // any role has set those keys in JSONB. Then merge in any extra keys
+    // observed in custom_roles.permissions to preserve legacy/orphan keys.
+    const allPermissionKeys = new Set<string>(
+      PERMISSION_CATEGORIES.flatMap((cat) => cat.permissions.map((p) => p.key))
+    );
     for (const role of roles) {
       const perms = role.permissions as Record<string, any> | null;
       if (perms && typeof perms === 'object') {

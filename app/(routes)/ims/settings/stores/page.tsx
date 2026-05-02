@@ -61,6 +61,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { usePermissions } from '@/hooks/use-permissions';
+import { ImsPageGuard } from '@/components/ims/ims-page-guard';
 import { useJkknInstitutions } from '@/hooks/use-jkkn-institutions';
 import {
   useImsStores,
@@ -109,8 +110,17 @@ const emptyFormData: StoreFormData = {
 };
 
 export default function StoresPage() {
+  return (
+    <ImsPageGuard module="ims.settings.stores" action="manage">
+      <StoresPageInner />
+    </ImsPageGuard>
+  );
+}
+
+function StoresPageInner() {
   const router = useRouter();
-  const { isSuperAdmin, userProfile } = usePermissions();
+  const { isSuperAdmin, userProfile, canAccess } = usePermissions();
+  const canManageStores = isSuperAdmin || canAccess('ims.settings.stores', 'manage');
   const { data: jkknInstitutionData, isLoading: institutionsLoading } = useJkknInstitutions({ limit: 100 });
   const institutions = jkknInstitutionData?.data ?? [];
 

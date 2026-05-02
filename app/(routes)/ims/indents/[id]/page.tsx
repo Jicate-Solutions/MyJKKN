@@ -53,12 +53,26 @@ import {
 } from 'lucide-react';
 import { BeatLoader } from 'react-spinners';
 import { toast } from 'sonner';
+import { ImsPageGuard } from '@/components/ims/ims-page-guard';
+import { usePermissions } from '@/hooks/use-permissions';
 
 export default function IndentDetailPage() {
+  return (
+    <ImsPageGuard module="ims.indents" action="view">
+      <IndentDetailPageInner />
+    </ImsPageGuard>
+  );
+}
+
+function IndentDetailPageInner() {
   const params = useParams();
   const router = useRouter();
   const { profile } = useAuth();
   const id = params.id as string;
+  const { canAccess, isSuperAdmin } = usePermissions();
+  const canApprove = isSuperAdmin || canAccess('ims.indents', 'approve');
+  const canDispatch = isSuperAdmin || canAccess('ims.transfers', 'dispatch');
+  const canReceive = isSuperAdmin || canAccess('ims.transfers', 'receive');
 
   const [issueQuantities, setIssueQuantities] = useState<Record<string, number>>({});
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
@@ -103,7 +117,7 @@ export default function IndentDetailPage() {
   const isApproved = indent.status === 'approved' || indent.status === 'pending_issue' || indent.status === 'partially_issued';
   const isPendingApproval = indent.status === 'pending_approval';
   const isRequester = indent.requested_by === profile?.id;
-  const canConfirmDelivery = indent.status === 'issued' && isRequester;
+  const canConfirmDelivery = indent.status === 'issued' && isRequester && canReceive;
 
   const allItemsIssued =
     indent.items &&
@@ -195,7 +209,7 @@ export default function IndentDetailPage() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            {isPendingApproval && (
+            {isPendingApproval && canApprove && (
               <>
                 <Button
                   className="bg-green-600 hover:bg-green-700"
@@ -214,7 +228,7 @@ export default function IndentDetailPage() {
                 </Button>
               </>
             )}
-            {isApproved && allItemsIssued && (
+            {isApproved && allItemsIssued && canDispatch && (
               <Button onClick={handleMarkAllIssued} disabled={markIssued.isPending}>
                 <Package className="mr-2 h-4 w-4" />
                 Mark All Issued
@@ -386,7 +400,7 @@ export default function IndentDetailPage() {
                         </TableCell>
                         {isApproved && (
                           <TableCell>
-                            {!isFullyIssued && (
+                            {!isFullyIssued && canDispatch && (
                               <div className="flex items-center gap-2">
                                 <Input
                                   type="number"

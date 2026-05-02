@@ -873,6 +873,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/ims/indents/pending': 'ims.indents.approve',
   '/ims/indents/[id]': 'ims.indents.view',
   // Inventory
+  '/ims/inventory': 'ims.inventory.view',
   '/ims/inventory/items': 'ims.inventory.view',
   '/ims/inventory/categories': 'ims.inventory.categories.manage',
   // Reports — single .view key gates all sub-reports (consumption/sales/stock/indents/upi)
@@ -888,6 +889,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/ims/sales/[id]': 'ims.sales.view',
   '/ims/sales/[id]/receipt': 'ims.sales.view',
   // Settings (master data — each sub-page maps to its specific manage key)
+  '/ims/settings': 'ims.settings.view',
   '/ims/settings/stores': 'ims.settings.stores.manage',
   '/ims/settings/suppliers': 'ims.settings.suppliers.manage',
   '/ims/settings/units': 'ims.settings.units.manage',

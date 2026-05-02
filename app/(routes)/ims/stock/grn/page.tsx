@@ -55,6 +55,8 @@ import { useAuth } from '@/hooks/use-auth';
 import { useImsStoreContext } from '@/hooks/ims/use-ims-store-context';
 import { GRN_STATUS_CONFIG } from '@/types/ims/grn';
 import type { ImsGoodsReceivedNote, ImsGRNStatus } from '@/types/ims';
+import { ImsPageGuard } from '@/components/ims/ims-page-guard';
+import { usePermissions } from '@/hooks/use-permissions';
 
 const GRN_STATUSES: ImsGRNStatus[] = [
   'draft',
@@ -65,9 +67,21 @@ const GRN_STATUSES: ImsGRNStatus[] = [
 ];
 
 export default function GRNListPage() {
+  return (
+    <ImsPageGuard module="ims.stock.grn" action="view">
+      <GRNListPageInner />
+    </ImsPageGuard>
+  );
+}
+
+function GRNListPageInner() {
   const { profile } = useAuth();
   const { storeId, institutionId } = useImsStoreContext();
   const userId = profile?.id ?? '';
+  const { canAccess, isSuperAdmin } = usePermissions();
+  const canCreate = isSuperAdmin || canAccess('ims.stock.grn', 'create');
+  const canReceive = isSuperAdmin || canAccess('ims.stock.grn', 'receive');
+  const canEditGRN = isSuperAdmin || canAccess('ims.stock.grn', 'edit');
 
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
@@ -132,12 +146,14 @@ export default function GRNListPage() {
               Track and manage goods received from suppliers
             </p>
           </div>
-          <Button asChild>
-            <Link href="/ims/stock/grn/new">
-              <Plus className="mr-2 h-4 w-4" />
-              New GRN
-            </Link>
-          </Button>
+          {canCreate && (
+            <Button asChild>
+              <Link href="/ims/stock/grn/new">
+                <Plus className="mr-2 h-4 w-4" />
+                New GRN
+              </Link>
+            </Button>
+          )}
         </div>
 
         {/* Filters */}
@@ -249,7 +265,7 @@ export default function GRNListPage() {
                             </Button>
 
                             {(grn.status === 'draft' ||
-                              grn.status === 'pending_verification') && (
+                              grn.status === 'pending_verification') && canReceive && (
                               <Button
                                 variant="ghost"
                                 size="icon"
@@ -261,7 +277,7 @@ export default function GRNListPage() {
                               </Button>
                             )}
 
-                            {grn.status === 'verified' && (
+                            {grn.status === 'verified' && canReceive && (
                               <Button
                                 variant="ghost"
                                 size="icon"
@@ -274,7 +290,7 @@ export default function GRNListPage() {
                             )}
 
                             {grn.status !== 'approved' &&
-                              grn.status !== 'cancelled' && (
+                              grn.status !== 'cancelled' && canEditGRN && (
                                 <AlertDialog>
                                   <AlertDialogTrigger asChild>
                                     <Button

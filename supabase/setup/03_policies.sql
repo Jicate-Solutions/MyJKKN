@@ -5571,30 +5571,51 @@ BEGIN
   PERFORM pg_temp.ims_apply_inst_policies('ims_department_consumption',  'ims.stock.view',          'ims.stock.adjust');
   PERFORM pg_temp.ims_apply_inst_policies('ims_goods_received_notes',    'ims.stock.grn.view',      'ims.stock.grn.create');
   PERFORM pg_temp.ims_apply_inst_policies('ims_indent_requests',         'ims.indents.view',        'ims.indents.edit');
-  -- Closes the USING(true) hole flagged in schema doc §8:
-  PERFORM pg_temp.ims_apply_inst_policies('ims_supply_shipments',        'ims.transfers.view',      'ims.transfers.dispatch');
+  -- ims_supply_shipments: handled in dedicated DO block below (no institution_id column;
+  -- scope is via source_store.institution_id and destination_institution_id).
+  -- Helper would crash on missing column. See "ims_supply_shipments hand-written" block.
   PERFORM pg_temp.ims_apply_inst_policies('ims_sales',                   'ims.sales.view',          'ims.sales.create');
   PERFORM pg_temp.ims_apply_inst_policies('ims_shifts',                  'ims.sales.view',          'ims.sales.create');
   PERFORM pg_temp.ims_apply_inst_policies('ims_upi_qr_payments',         'ims.sales.view',          'ims.sales.create');
   -- Financial transactions: read-only at user level. Writes happen via DB
   -- triggers as side-effects of sales/grn posting. Gate the write path behind
   -- a synthetic key no role grants — only super_admin / is_admin can mutate.
+  --
+  -- DESIGN NOTE (rls-reviewer BUG #10, 2026-05-02): 'ims.financial.write_admin_only'
+  -- is intentionally NOT in lib/constants/permissions.ts and intentionally
+  -- not grantable to any role. The only legitimate write paths are:
+  --   1) SECURITY DEFINER trigger/RPC functions (which run as table owner
+  --      and bypass RLS by design), and
+  --   2) service_role connections (also bypass RLS).
+  -- A normal user cannot mutate this table — by design. Do NOT add this key
+  -- to PERMISSION_CATEGORIES; that would defeat the safety net.
   PERFORM pg_temp.ims_apply_inst_policies('ims_financial_transactions',  'ims.financial.view',      'ims.financial.write_admin_only');
 
   -- ── Apply: institution-scoped counter tables (4) ─────────────────────────────
-  -- Counters are bumped atomically by service code that already holds the
-  -- relevant create permission; align write gate to that key.
-  PERFORM pg_temp.ims_apply_inst_policies('ims_grn_number_counters',     'ims.stock.grn.view',      'ims.stock.grn.create');
-  PERFORM pg_temp.ims_apply_inst_policies('ims_indent_number_counters',  'ims.indents.view',        'ims.indents.create');
-  PERFORM pg_temp.ims_apply_inst_policies('ims_sale_number_counters',    'ims.sales.view',          'ims.sales.create');
-  PERFORM pg_temp.ims_apply_inst_policies('ims_batch_number_counters',   'ims.stock.view',          'ims.stock.adjust');
+  -- Counters carry store_id only (no institution_id column). Live policies scope
+  -- via EXISTS-join through ims_stores. Helper ims_apply_inst_policies would
+  -- reference a non-existent column and crash, so these are handled in a
+  -- hand-written DO block below ("counter tables hand-written").
 
-  -- ── Apply: global reference tables (4) ───────────────────────────────────────
-  -- Shared across institutions; read for any IMS user, write gated per area.
+  -- ── Apply: global reference tables (2) ───────────────────────────────────────
+  -- Truly global tables with NO scoping column: ims_units only.
+  -- (ims_unit_conversions, ims_item_categories, ims_suppliers are scoped — see
+  -- their hand-written blocks below.)
   PERFORM pg_temp.ims_apply_global_policies('ims_units',             'ims.settings.units.manage');
-  PERFORM pg_temp.ims_apply_global_policies('ims_unit_conversions',  'ims.settings.units.manage');
-  PERFORM pg_temp.ims_apply_global_policies('ims_item_categories',   'ims.inventory.categories.manage');
-  PERFORM pg_temp.ims_apply_global_policies('ims_suppliers',         'ims.settings.suppliers.manage');
+
+  -- ── ims_unit_conversions: child of ims_items (scoped via item.institution_id) ─
+  -- Live DB scopes via EXISTS-join on ims_items. Setup script previously declared
+  -- it as a global table — re-applying would loosen scope. Use child helper.
+  PERFORM pg_temp.ims_apply_child_policies(
+    'ims_unit_conversions',  'item_id',
+    'ims_items',             'ims.view',  'ims.settings.units.manage');
+
+  -- ── ims_suppliers: institution-scoped (has institution_id column) ─────────────
+  -- Setup script previously declared it as global — re-applying would loosen scope.
+  PERFORM pg_temp.ims_apply_inst_policies('ims_suppliers', 'ims.view', 'ims.settings.suppliers.manage');
+
+  -- ims_item_categories: handled in dedicated DO block below
+  -- (has store_id but NO institution_id; scope must be via ims_stores EXISTS-join).
 
   -- ── Apply: child / junction tables (4) — RLS via parent EXISTS ───────────────
   -- FK column names follow the convention <parent_singular>_id. If a child
@@ -5604,17 +5625,542 @@ BEGIN
     'ims_grn_items',             'grn_id',
     'ims_goods_received_notes',  'ims.stock.grn.view',  'ims.stock.grn.create');
   PERFORM pg_temp.ims_apply_child_policies(
-    'ims_indent_request_items',  'indent_request_id',
+    'ims_indent_request_items',  'indent_id',
     'ims_indent_requests',       'ims.indents.view',    'ims.indents.edit');
-  -- Closes the USING(true) hole flagged in schema doc §8:
-  PERFORM pg_temp.ims_apply_child_policies(
-    'ims_supply_shipment_items', 'supply_shipment_id',
-    'ims_supply_shipments',      'ims.transfers.view',  'ims.transfers.dispatch');
+  -- ims_supply_shipment_items: parent (ims_supply_shipments) has NO institution_id.
+  -- Generic child helper joins parent.institution_id and would crash. Hand-written
+  -- block below ("ims_supply_shipment_items hand-written") joins parent then
+  -- nests an EXISTS on ims_stores for source-side institution access.
   PERFORM pg_temp.ims_apply_child_policies(
     'ims_sale_items',            'sale_id',
     'ims_sales',                 'ims.sales.view',      'ims.sales.create');
 
   RAISE NOTICE '[ims-rls] Applied canonical role-based RLS to 25 ims_* tables.';
+END $$;
+
+-- =====================================================================
+-- IMS Hand-Written RLS — tables that don't fit the helper template
+-- (added 2026-05-02 by rls-fixer; resolves scope-reviewer BUGs #2, #3, #6)
+-- =====================================================================
+-- Some IMS tables do NOT carry an institution_id column directly. Routing
+-- them through the generic `ims_apply_inst_policies` helper would either
+-- crash (column missing) or, worse, generate policies with no institution
+-- scope (helper #2). These hand-written blocks match the live DB shape:
+--
+--   ims_item_categories        — store_id only, scope via ims_stores join
+--   ims_supply_shipments       — source_store_id + destination_institution_id
+--   ims_supply_shipment_items  — child of ims_supply_shipments
+--   ims_*_number_counters (4)  — store_id only, scope via ims_stores join
+--
+-- These run AFTER the helper-driven block, so DROP POLICY IF EXISTS clears
+-- any helper-generated artifacts before re-creating with the correct shape.
+-- =====================================================================
+
+-- ── ims_item_categories: store-scoped (no institution_id) ───────────────────
+-- BUG #2 FIX (HIGH): live policies were globally readable/writable across
+-- stores. Now reads any user with ims.view scoped to their store's institution;
+-- writes any user with ims.inventory.categories.manage on the row's store.
+DO $$
+BEGIN
+  IF to_regclass('public.ims_item_categories') IS NULL THEN
+    RAISE NOTICE '[ims-rls/item-categories] Skipped: table not present.';
+    RETURN;
+  END IF;
+
+  ALTER TABLE public.ims_item_categories ENABLE ROW LEVEL SECURITY;
+
+  DROP POLICY IF EXISTS ims_item_categories_select ON public.ims_item_categories;
+  CREATE POLICY ims_item_categories_select ON public.ims_item_categories
+    FOR SELECT TO authenticated USING (
+      is_super_admin() OR is_admin(auth.uid())
+      OR EXISTS (
+        SELECT 1 FROM public.ims_stores s
+        WHERE s.id = ims_item_categories.store_id
+          AND user_has_permission('ims.view')
+          AND role_has_institution_access(s.institution_id))
+    );
+
+  DROP POLICY IF EXISTS ims_item_categories_insert ON public.ims_item_categories;
+  CREATE POLICY ims_item_categories_insert ON public.ims_item_categories
+    FOR INSERT TO authenticated WITH CHECK (
+      is_super_admin() OR is_admin(auth.uid())
+      OR EXISTS (
+        SELECT 1 FROM public.ims_stores s
+        WHERE s.id = ims_item_categories.store_id
+          AND user_has_permission('ims.inventory.categories.manage')
+          AND role_has_institution_access(s.institution_id))
+    );
+
+  DROP POLICY IF EXISTS ims_item_categories_update ON public.ims_item_categories;
+  CREATE POLICY ims_item_categories_update ON public.ims_item_categories
+    FOR UPDATE TO authenticated
+    USING (
+      is_super_admin() OR is_admin(auth.uid())
+      OR EXISTS (
+        SELECT 1 FROM public.ims_stores s
+        WHERE s.id = ims_item_categories.store_id
+          AND user_has_permission('ims.inventory.categories.manage')
+          AND role_has_institution_access(s.institution_id))
+    )
+    WITH CHECK (
+      is_super_admin() OR is_admin(auth.uid())
+      OR EXISTS (
+        SELECT 1 FROM public.ims_stores s
+        WHERE s.id = ims_item_categories.store_id
+          AND user_has_permission('ims.inventory.categories.manage')
+          AND role_has_institution_access(s.institution_id))
+    );
+
+  DROP POLICY IF EXISTS ims_item_categories_delete ON public.ims_item_categories;
+  CREATE POLICY ims_item_categories_delete ON public.ims_item_categories
+    FOR DELETE TO authenticated USING (
+      is_super_admin() OR is_admin(auth.uid())
+      OR EXISTS (
+        SELECT 1 FROM public.ims_stores s
+        WHERE s.id = ims_item_categories.store_id
+          AND user_has_permission('ims.inventory.categories.manage')
+          AND role_has_institution_access(s.institution_id))
+    );
+
+  RAISE NOTICE '[ims-rls/item-categories] Store-scoped policies applied (BUG #2 fix).';
+END $$;
+
+-- ── ims_supply_shipments: dual-side scoping (no institution_id) ──────────────
+-- BUG #3 FIX (HIGH): table has source_store_id + destination_institution_id.
+-- BUG #1 FIX (HIGH): UPDATE/DELETE narrowed to source-side only via
+-- ims.transfers.dispatch. Receive-side updates are handled by the additive
+-- ims_supply_shipments_update_receive policy (in granular overrides block).
+-- INSERT only by source store's institution; SELECT visible to either side.
+DO $$
+BEGIN
+  IF to_regclass('public.ims_supply_shipments') IS NULL THEN
+    RAISE NOTICE '[ims-rls/supply-shipments] Skipped: table not present.';
+    RETURN;
+  END IF;
+
+  ALTER TABLE public.ims_supply_shipments ENABLE ROW LEVEL SECURITY;
+
+  DROP POLICY IF EXISTS ims_supply_shipments_select ON public.ims_supply_shipments;
+  CREATE POLICY ims_supply_shipments_select ON public.ims_supply_shipments
+    FOR SELECT TO authenticated USING (
+      is_super_admin() OR is_admin(auth.uid())
+      OR (user_has_permission('ims.transfers.view')
+          AND (
+            role_has_institution_access(destination_institution_id)
+            OR EXISTS (
+              SELECT 1 FROM public.ims_stores s
+              WHERE s.id = ims_supply_shipments.source_store_id
+                AND role_has_institution_access(s.institution_id))
+          ))
+    );
+
+  DROP POLICY IF EXISTS ims_supply_shipments_insert ON public.ims_supply_shipments;
+  CREATE POLICY ims_supply_shipments_insert ON public.ims_supply_shipments
+    FOR INSERT TO authenticated WITH CHECK (
+      is_super_admin() OR is_admin(auth.uid())
+      OR (user_has_permission('ims.transfers.dispatch')
+          AND EXISTS (
+            SELECT 1 FROM public.ims_stores s
+            WHERE s.id = ims_supply_shipments.source_store_id
+              AND role_has_institution_access(s.institution_id)))
+    );
+
+  -- BUG #1 cross-tenant fix: UPDATE narrowed to source-side. Destination side
+  -- updates flow through ims_supply_shipments_update_receive (additive policy
+  -- gated on ims.transfers.receive in the granular-overrides block below).
+  DROP POLICY IF EXISTS ims_supply_shipments_update ON public.ims_supply_shipments;
+  CREATE POLICY ims_supply_shipments_update ON public.ims_supply_shipments
+    FOR UPDATE TO authenticated
+    USING (
+      is_super_admin() OR is_admin(auth.uid())
+      OR (user_has_permission('ims.transfers.dispatch')
+          AND EXISTS (
+            SELECT 1 FROM public.ims_stores s
+            WHERE s.id = ims_supply_shipments.source_store_id
+              AND role_has_institution_access(s.institution_id)))
+    )
+    WITH CHECK (
+      is_super_admin() OR is_admin(auth.uid())
+      OR (user_has_permission('ims.transfers.dispatch')
+          AND EXISTS (
+            SELECT 1 FROM public.ims_stores s
+            WHERE s.id = ims_supply_shipments.source_store_id
+              AND role_has_institution_access(s.institution_id)))
+    );
+
+  -- DELETE: source-side only (matches narrowed UPDATE).
+  DROP POLICY IF EXISTS ims_supply_shipments_delete ON public.ims_supply_shipments;
+  CREATE POLICY ims_supply_shipments_delete ON public.ims_supply_shipments
+    FOR DELETE TO authenticated USING (
+      is_super_admin() OR is_admin(auth.uid())
+      OR (user_has_permission('ims.transfers.dispatch')
+          AND EXISTS (
+            SELECT 1 FROM public.ims_stores s
+            WHERE s.id = ims_supply_shipments.source_store_id
+              AND role_has_institution_access(s.institution_id)))
+    );
+
+  RAISE NOTICE '[ims-rls/supply-shipments] Source/destination-scoped policies applied (BUG #1 + #3 fix).';
+END $$;
+
+-- ── ims_supply_shipment_items: child of ims_supply_shipments ─────────────────
+-- BUG #3 FIX (HIGH): generic child helper would join parent.institution_id
+-- (does not exist on parent). Hand-written: SELECT visible to either side;
+-- INSERT only by source-side (dispatch); UPDATE/DELETE narrowed to source-side
+-- (BUG #1 alignment — receive-side covered by additive _update_receive policy).
+DO $$
+BEGIN
+  IF to_regclass('public.ims_supply_shipment_items') IS NULL THEN
+    RAISE NOTICE '[ims-rls/supply-shipment-items] Skipped: table not present.';
+    RETURN;
+  END IF;
+
+  ALTER TABLE public.ims_supply_shipment_items ENABLE ROW LEVEL SECURITY;
+
+  DROP POLICY IF EXISTS ims_supply_shipment_items_select ON public.ims_supply_shipment_items;
+  CREATE POLICY ims_supply_shipment_items_select ON public.ims_supply_shipment_items
+    FOR SELECT TO authenticated USING (
+      is_super_admin() OR is_admin(auth.uid())
+      OR EXISTS (
+        SELECT 1 FROM public.ims_supply_shipments ss
+        WHERE ss.id = ims_supply_shipment_items.shipment_id
+          AND user_has_permission('ims.transfers.view')
+          AND (
+            role_has_institution_access(ss.destination_institution_id)
+            OR EXISTS (
+              SELECT 1 FROM public.ims_stores s
+              WHERE s.id = ss.source_store_id
+                AND role_has_institution_access(s.institution_id))
+          ))
+    );
+
+  DROP POLICY IF EXISTS ims_supply_shipment_items_insert ON public.ims_supply_shipment_items;
+  CREATE POLICY ims_supply_shipment_items_insert ON public.ims_supply_shipment_items
+    FOR INSERT TO authenticated WITH CHECK (
+      is_super_admin() OR is_admin(auth.uid())
+      OR EXISTS (
+        SELECT 1 FROM public.ims_supply_shipments ss
+        WHERE ss.id = ims_supply_shipment_items.shipment_id
+          AND user_has_permission('ims.transfers.dispatch')
+          AND EXISTS (
+            SELECT 1 FROM public.ims_stores s
+            WHERE s.id = ss.source_store_id
+              AND role_has_institution_access(s.institution_id)))
+    );
+
+  -- BUG #1 cross-tenant alignment: UPDATE narrowed to source-side.
+  -- Destination-side handled by ims_supply_shipment_items_update_receive (additive).
+  DROP POLICY IF EXISTS ims_supply_shipment_items_update ON public.ims_supply_shipment_items;
+  CREATE POLICY ims_supply_shipment_items_update ON public.ims_supply_shipment_items
+    FOR UPDATE TO authenticated
+    USING (
+      is_super_admin() OR is_admin(auth.uid())
+      OR EXISTS (
+        SELECT 1 FROM public.ims_supply_shipments ss
+        WHERE ss.id = ims_supply_shipment_items.shipment_id
+          AND user_has_permission('ims.transfers.dispatch')
+          AND EXISTS (
+            SELECT 1 FROM public.ims_stores s
+            WHERE s.id = ss.source_store_id
+              AND role_has_institution_access(s.institution_id)))
+    )
+    WITH CHECK (
+      is_super_admin() OR is_admin(auth.uid())
+      OR EXISTS (
+        SELECT 1 FROM public.ims_supply_shipments ss
+        WHERE ss.id = ims_supply_shipment_items.shipment_id
+          AND user_has_permission('ims.transfers.dispatch')
+          AND EXISTS (
+            SELECT 1 FROM public.ims_stores s
+            WHERE s.id = ss.source_store_id
+              AND role_has_institution_access(s.institution_id)))
+    );
+
+  DROP POLICY IF EXISTS ims_supply_shipment_items_delete ON public.ims_supply_shipment_items;
+  CREATE POLICY ims_supply_shipment_items_delete ON public.ims_supply_shipment_items
+    FOR DELETE TO authenticated USING (
+      is_super_admin() OR is_admin(auth.uid())
+      OR EXISTS (
+        SELECT 1 FROM public.ims_supply_shipments ss
+        WHERE ss.id = ims_supply_shipment_items.shipment_id
+          AND user_has_permission('ims.transfers.dispatch')
+          AND EXISTS (
+            SELECT 1 FROM public.ims_stores s
+            WHERE s.id = ss.source_store_id
+              AND role_has_institution_access(s.institution_id)))
+    );
+
+  RAISE NOTICE '[ims-rls/supply-shipment-items] Parent-joined source/destination policies applied (BUG #1 + #3 fix).';
+END $$;
+
+-- ── ims_*_number_counters: store-scoped via ims_stores join ─────────────────
+-- BUG #6 FIX (MED): counter tables carry only store_id (no institution_id).
+-- Helper would crash. Hand-written block creates 4 policies × 4 tables.
+DO $$
+DECLARE
+  v_counter RECORD;
+BEGIN
+  FOR v_counter IN
+    SELECT t.table_name, t.view_perm, t.write_perm
+    FROM (VALUES
+      ('ims_grn_number_counters',    'ims.stock.grn.view', 'ims.stock.grn.create'),
+      ('ims_indent_number_counters', 'ims.indents.view',   'ims.indents.create'),
+      ('ims_sale_number_counters',   'ims.sales.view',     'ims.sales.create'),
+      ('ims_batch_number_counters',  'ims.stock.view',     'ims.stock.adjust')
+    ) AS t(table_name, view_perm, write_perm)
+  LOOP
+    IF to_regclass('public.' || v_counter.table_name) IS NULL THEN
+      CONTINUE;
+    END IF;
+
+    EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY', v_counter.table_name);
+    EXECUTE format('DROP POLICY IF EXISTS %I ON public.%I', v_counter.table_name || '_select', v_counter.table_name);
+    EXECUTE format('DROP POLICY IF EXISTS %I ON public.%I', v_counter.table_name || '_insert', v_counter.table_name);
+    EXECUTE format('DROP POLICY IF EXISTS %I ON public.%I', v_counter.table_name || '_update', v_counter.table_name);
+    EXECUTE format('DROP POLICY IF EXISTS %I ON public.%I', v_counter.table_name || '_delete', v_counter.table_name);
+
+    EXECUTE format(
+      'CREATE POLICY %I ON public.%I FOR SELECT TO authenticated USING ('
+      'is_super_admin() OR is_admin(auth.uid()) OR EXISTS ('
+      '  SELECT 1 FROM public.ims_stores s '
+      '  WHERE s.id = %I.store_id '
+      '  AND user_has_permission(%L) '
+      '  AND role_has_institution_access(s.institution_id)))',
+      v_counter.table_name || '_select', v_counter.table_name, v_counter.table_name, v_counter.view_perm);
+
+    EXECUTE format(
+      'CREATE POLICY %I ON public.%I FOR INSERT TO authenticated WITH CHECK ('
+      'is_super_admin() OR is_admin(auth.uid()) OR EXISTS ('
+      '  SELECT 1 FROM public.ims_stores s '
+      '  WHERE s.id = %I.store_id '
+      '  AND user_has_permission(%L) '
+      '  AND role_has_institution_access(s.institution_id)))',
+      v_counter.table_name || '_insert', v_counter.table_name, v_counter.table_name, v_counter.write_perm);
+
+    EXECUTE format(
+      'CREATE POLICY %I ON public.%I FOR UPDATE TO authenticated '
+      'USING (is_super_admin() OR is_admin(auth.uid()) OR EXISTS ('
+      '  SELECT 1 FROM public.ims_stores s '
+      '  WHERE s.id = %I.store_id '
+      '  AND user_has_permission(%L) '
+      '  AND role_has_institution_access(s.institution_id))) '
+      'WITH CHECK (is_super_admin() OR is_admin(auth.uid()) OR EXISTS ('
+      '  SELECT 1 FROM public.ims_stores s '
+      '  WHERE s.id = %I.store_id '
+      '  AND user_has_permission(%L) '
+      '  AND role_has_institution_access(s.institution_id)))',
+      v_counter.table_name || '_update', v_counter.table_name,
+      v_counter.table_name, v_counter.write_perm,
+      v_counter.table_name, v_counter.write_perm);
+
+    EXECUTE format(
+      'CREATE POLICY %I ON public.%I FOR DELETE TO authenticated USING ('
+      'is_super_admin() OR is_admin(auth.uid()) OR EXISTS ('
+      '  SELECT 1 FROM public.ims_stores s '
+      '  WHERE s.id = %I.store_id '
+      '  AND user_has_permission(%L) '
+      '  AND role_has_institution_access(s.institution_id)))',
+      v_counter.table_name || '_delete', v_counter.table_name, v_counter.table_name, v_counter.write_perm);
+  END LOOP;
+
+  RAISE NOTICE '[ims-rls/counters] Store-scoped policies applied to 4 counter tables (BUG #6 fix).';
+END $$;
+
+-- =====================================================================
+-- IMS Granular Permission Overrides — wires previously-dead keys
+-- (added 2026-05-02 by ims-permission-audit team review;
+--  extended 2026-05-02 by rls-fixer for BUGs #7/#8)
+-- =====================================================================
+-- Seven permission keys declared in lib/constants/permissions.ts had NO DB
+-- enforcement: the canonical helper above maps a single write key to
+-- INSERT/UPDATE/DELETE per table, so granular keys never gated the verbs
+-- they advertised. This block adds *additive* permissive policies so each
+-- key starts working without narrowing existing role authority:
+--
+--   ims.indents.create        → INSERT on ims_indent_requests
+--   ims.indents.delete        → DELETE on ims_indent_requests
+--   ims.indents.approve       → UPDATE on ims_indent_requests when status
+--                               transitions to 'approved'/'rejected'
+--   ims.sales.refund          → UPDATE on ims_sales when status='cancelled'
+--   ims.transfers.receive     → UPDATE on ims_supply_shipments &
+--                               ims_supply_shipment_items when status
+--                               transitions to 'received' or
+--                               'received_with_variance'
+--   ims.inventory.create      → INSERT on ims_items
+--   ims.inventory.delete      → DELETE on ims_items
+--   ims.stock.grn.receive     → UPDATE on ims_goods_received_notes when
+--                               status transitions to 'received'/'verified'
+--
+-- NOT wired here (intentional):
+--   ims.inventory.bulk_import → no per-row RLS signal; service-layer concern
+--   ims.audit.write           → deferred (requires new permission key in
+--                               lib/constants/permissions.ts; UI-layer task)
+--
+-- Postgres ORs multiple permissive policies for the same verb. Existing
+-- roles relying on ims.indents.edit / ims.sales.create / ims.inventory.edit
+-- keep their access. A follow-up hardening pass (audit who actually has
+-- *.edit-only and migrate them to granular grants) is recommended once
+-- role configs are reviewed via the Permissions Audit dashboard.
+--
+-- Note: ims_supply_shipments has NO institution_id column — scope is via
+-- destination_institution_id (receive side) and source_store.institution_id
+-- (dispatch side, EXISTS-join through ims_stores). The base UPDATE/DELETE
+-- policies on this table were narrowed to source-side-only in the preceding
+-- hand-written block (BUG #1 cross-tenant fix).
+-- =====================================================================
+
+DO $$
+BEGIN
+  IF to_regclass('public.ims_indent_requests') IS NOT NULL THEN
+    DROP POLICY IF EXISTS ims_indent_requests_insert_create ON public.ims_indent_requests;
+    CREATE POLICY ims_indent_requests_insert_create ON public.ims_indent_requests
+      FOR INSERT TO authenticated WITH CHECK (
+        is_super_admin() OR is_admin(auth.uid())
+        OR (user_has_permission('ims.indents.create')
+            AND role_has_institution_access(institution_id))
+      );
+
+    DROP POLICY IF EXISTS ims_indent_requests_delete_specific ON public.ims_indent_requests;
+    CREATE POLICY ims_indent_requests_delete_specific ON public.ims_indent_requests
+      FOR DELETE TO authenticated USING (
+        is_super_admin() OR is_admin(auth.uid())
+        OR (user_has_permission('ims.indents.delete')
+            AND role_has_institution_access(institution_id))
+      );
+
+    DROP POLICY IF EXISTS ims_indent_requests_update_approve ON public.ims_indent_requests;
+    CREATE POLICY ims_indent_requests_update_approve ON public.ims_indent_requests
+      FOR UPDATE TO authenticated
+      USING (
+        is_super_admin() OR is_admin(auth.uid())
+        OR (user_has_permission('ims.indents.approve')
+            AND role_has_institution_access(institution_id))
+      )
+      WITH CHECK (
+        is_super_admin() OR is_admin(auth.uid())
+        OR (user_has_permission('ims.indents.approve')
+            AND role_has_institution_access(institution_id)
+            AND status IN ('approved', 'rejected'))
+      );
+  END IF;
+
+  IF to_regclass('public.ims_sales') IS NOT NULL THEN
+    DROP POLICY IF EXISTS ims_sales_update_refund ON public.ims_sales;
+    CREATE POLICY ims_sales_update_refund ON public.ims_sales
+      FOR UPDATE TO authenticated
+      USING (
+        is_super_admin() OR is_admin(auth.uid())
+        OR (user_has_permission('ims.sales.refund')
+            AND role_has_institution_access(institution_id))
+      )
+      WITH CHECK (
+        is_super_admin() OR is_admin(auth.uid())
+        OR (user_has_permission('ims.sales.refund')
+            AND role_has_institution_access(institution_id)
+            AND status = 'cancelled')
+      );
+  END IF;
+
+  IF to_regclass('public.ims_supply_shipments') IS NOT NULL THEN
+    DROP POLICY IF EXISTS ims_supply_shipments_update_receive ON public.ims_supply_shipments;
+    CREATE POLICY ims_supply_shipments_update_receive ON public.ims_supply_shipments
+      FOR UPDATE TO authenticated
+      USING (
+        is_super_admin() OR is_admin(auth.uid())
+        OR (user_has_permission('ims.transfers.receive')
+            AND role_has_institution_access(destination_institution_id))
+      )
+      WITH CHECK (
+        is_super_admin() OR is_admin(auth.uid())
+        OR (user_has_permission('ims.transfers.receive')
+            AND role_has_institution_access(destination_institution_id)
+            AND status IN ('received', 'received_with_variance'))
+      );
+  END IF;
+
+  IF to_regclass('public.ims_supply_shipment_items') IS NOT NULL THEN
+    DROP POLICY IF EXISTS ims_supply_shipment_items_update_receive ON public.ims_supply_shipment_items;
+    CREATE POLICY ims_supply_shipment_items_update_receive ON public.ims_supply_shipment_items
+      FOR UPDATE TO authenticated
+      USING (
+        is_super_admin() OR is_admin(auth.uid())
+        OR EXISTS (
+          SELECT 1 FROM public.ims_supply_shipments p
+          WHERE p.id = ims_supply_shipment_items.shipment_id
+            AND user_has_permission('ims.transfers.receive')
+            AND role_has_institution_access(p.destination_institution_id))
+      )
+      WITH CHECK (
+        is_super_admin() OR is_admin(auth.uid())
+        OR EXISTS (
+          SELECT 1 FROM public.ims_supply_shipments p
+          WHERE p.id = ims_supply_shipment_items.shipment_id
+            AND user_has_permission('ims.transfers.receive')
+            AND role_has_institution_access(p.destination_institution_id))
+      );
+  END IF;
+
+  -- ── BUG #7 (rls-reviewer, MED): ims.inventory.create / .delete dead keys ──
+  -- Helper-generated ims_items_* policies use ims.inventory.edit for all writes,
+  -- so granular .create / .delete keys never gated anything. Add additive
+  -- permissive policies. Note: ims.inventory.bulk_import has NO per-row signal
+  -- expressible at the RLS layer (the row inserted by a bulk import is
+  -- indistinguishable from a single-row insert) — bulk_import gating must be
+  -- enforced at the service layer (see lib/services/ims/items-service.ts and
+  -- the bulk-import API route). This policy block intentionally does NOT
+  -- include a bulk_import policy; document upstream if anything tries to
+  -- enforce that key here.
+  IF to_regclass('public.ims_items') IS NOT NULL THEN
+    DROP POLICY IF EXISTS ims_items_insert_create ON public.ims_items;
+    CREATE POLICY ims_items_insert_create ON public.ims_items
+      FOR INSERT TO authenticated WITH CHECK (
+        is_super_admin() OR is_admin(auth.uid())
+        OR (user_has_permission('ims.inventory.create')
+            AND role_has_institution_access(institution_id))
+      );
+
+    DROP POLICY IF EXISTS ims_items_delete_specific ON public.ims_items;
+    CREATE POLICY ims_items_delete_specific ON public.ims_items
+      FOR DELETE TO authenticated USING (
+        is_super_admin() OR is_admin(auth.uid())
+        OR (user_has_permission('ims.inventory.delete')
+            AND role_has_institution_access(institution_id))
+      );
+  END IF;
+
+  -- ── BUG #8 (rls-reviewer, MED): ims.stock.grn.receive dead key ──────────
+  -- Helper uses ims.stock.grn.create for INSERT/UPDATE/DELETE. .edit is the
+  -- general write key (already covered by .create-gated policy; no new policy
+  -- needed — the key is documented as a synonym at the constants layer).
+  -- .receive gates UPDATE when status transitions to 'received'/'verified'.
+  -- Verified live: status column is text; service code transitions it through
+  -- 'received' → 'verified' → 'approved' (see reports-service.ts, grn-service.ts).
+  IF to_regclass('public.ims_goods_received_notes') IS NOT NULL THEN
+    DROP POLICY IF EXISTS ims_goods_received_notes_update_receive ON public.ims_goods_received_notes;
+    CREATE POLICY ims_goods_received_notes_update_receive ON public.ims_goods_received_notes
+      FOR UPDATE TO authenticated
+      USING (
+        is_super_admin() OR is_admin(auth.uid())
+        OR (user_has_permission('ims.stock.grn.receive')
+            AND role_has_institution_access(institution_id))
+      )
+      WITH CHECK (
+        is_super_admin() OR is_admin(auth.uid())
+        OR (user_has_permission('ims.stock.grn.receive')
+            AND role_has_institution_access(institution_id)
+            AND status IN ('received', 'verified'))
+      );
+  END IF;
+
+  -- ── BUG #7 (scope-reviewer, LOW, DEFERRED): ims_activity_log INSERT key ──
+  -- TODO(2026-05-02): The append-only INSERT policy at the bottom of this file
+  -- gates on 'ims.view' (any IMS user can write audit rows). Reviewer recommends
+  -- a dedicated 'ims.audit.write' permission. Deferred because adding that key
+  -- requires updating lib/constants/permissions.ts (UI-layer concern owned by
+  -- a different agent in this team). When that key lands, change the
+  -- ims_activity_log_insert policy below to gate on 'ims.audit.write'.
+
+  RAISE NOTICE '[ims-rls] Granular permission overrides applied: 7 keys wired (indents.create/delete/approve, sales.refund, transfers.receive, inventory.create/delete, stock.grn.receive)';
 END $$;
 
 -- =====================================================================

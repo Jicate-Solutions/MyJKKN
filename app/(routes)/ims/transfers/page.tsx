@@ -6,8 +6,17 @@ import { useImsStore, useImsStores } from '@/hooks/ims';
 import { TransferModeBadge } from './_components/TransferModeBadge';
 import { CollegeRequestView } from './_components/CollegeRequestView';
 import { CentralDispatchView } from './_components/CentralDispatchView';
+import { ImsPageGuard } from '@/components/ims/ims-page-guard';
 
 export default function TransfersPage() {
+  return (
+    <ImsPageGuard module="ims.transfers" action="view">
+      <TransfersPageInner />
+    </ImsPageGuard>
+  );
+}
+
+function TransfersPageInner() {
   const { storeId, institutionId, isStoreSelected, isResolving } = useImsStoreContext();
 
   // Get current store metadata to determine mode

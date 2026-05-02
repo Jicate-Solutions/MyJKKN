@@ -34,6 +34,7 @@ import {
 import { ArrowLeft, Plus, Trash2 } from 'lucide-react';
 import { BeatLoader } from 'react-spinners';
 import { toast } from 'sonner';
+import { ImsPageGuard } from '@/components/ims/ims-page-guard';
 
 interface IndentItemRow {
   item_id: string;
@@ -43,6 +44,14 @@ interface IndentItemRow {
 }
 
 export default function NewIndentPage() {
+  return (
+    <ImsPageGuard module="ims.indents" action="create">
+      <NewIndentPageInner />
+    </ImsPageGuard>
+  );
+}
+
+function NewIndentPageInner() {
   const router = useRouter();
   const { profile } = useAuth();
   const { storeId, institutionId } = useImsStoreContext();
