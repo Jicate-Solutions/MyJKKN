@@ -54,7 +54,7 @@
 | **Faculty (Class Adviser)** | Existing | class | `score:lab_presentation`, `select:gold_standard`, `excuse:absence`, `intervene:hod_chat_log` | Extend faculty role |
 | **Department Head** | Existing | department | `view:dept_heatmap`, `escalate:dept`, `report:dept`, `intervene:academic_flag` | Extend |
 | **AI Pulse Champion** | 🆕 New role — Krishnaveni | global | `manage:cycles`, `manage:topics`, `cancel:session`, `broadcast:announce`, `author:quiz`, `select:featured_tool`, `review:anomalies` | **New role** in `custom_roles` |
-| **Co-Champion (Deputy)** | 🆕 New role — TBD (Q9 nominated, name pending) | global | Same as Champion (full delegation when Krishnaveni absent) | **New role** in `custom_roles` — name to be locked in Wave A.0 |
+| **Co-Champion (Deputy)** | 🆕 New role — **Ranjith (DTO JKKN, Ranjith@jkkn.ac.in)** locked 2026-05-02 | global | Same as Champion (full delegation when Krishnaveni absent) | **New role** in `custom_roles` |
 | **External Judge (Quarterly)** | 🆕 New role | session-scoped | `score:gold_standard_quarterly`, `view:cycle_artifacts` | **New role** + onboarding workflow (Wave A.0+) |
 | **IQAC Coordinator** | Existing | read-only global | `read:naac_evidence`, `export:naac_csv` | Extend |
 | **Director / MD** | Existing | global | `view:digest`, `view:all`, `intervene:academic_flag` | Already has via Director-digest pattern |
@@ -209,7 +209,7 @@ After Wave B: pre-spawn `pr-preflight` against the union of B.1–B.9 file sets 
 |---|---|---|
 | PR #630 (`notifications.is_layer_0`) | OPEN | Wave B.3 escalation cascade can't render |
 | Class Rep formal role | 🔴 NOT a role today (audit confirmed) | A.1 substrate can't merge until roles-PR lands |
-| Co-Champion deputy name | 🔴 Pending | A.0 closure blocked |
+| Co-Champion deputy name | ✅ Resolved 2026-05-02: Ranjith (DTO JKKN, Ranjith@jkkn.ac.in) | — |
 | Meet API tier (webhook attendance) | Unknown | B.2 falls back to "Join Now" button-only attendance |
 | AI Pulse Champion identity | ✅ Krishnaveni (locked 2026-04-29) | — |
 
@@ -256,7 +256,7 @@ After Wave B: pre-spawn `pr-preflight` against the union of B.1–B.9 file sets 
 ## 10. Open Questions
 
 1. **Accessibility strategy for visual/hearing impairment** — Director feedback (Q14): multilingual auto-transcripts at JKKN don't come out well, so caption-based accessibility is unreliable. Need a Phase 2 design pass on alternatives (human-transcribed captions, sign-language interpreter, slide-deck textual fallback). Current spec doesn't promise auto-captions.
-2. **Co-Champion deputy name** — Q9 model locked (single named deputy); name TBD. Wave A.0 blocker.
+2. **Co-Champion deputy name** — ✅ Resolved 2026-05-02: **Ranjith (DTO JKKN, Ranjith@jkkn.ac.in)**. Permission `aiPulse:cycles.manage` granted to both Krishnaveni and Ranjith.
 3. **Meet API tier** — does JKKN's Google Workspace tier support webhook-based attendance? Confirms B.2 architecture.
 4. **Recording storage operationalization** — Q8 chose Google Drive; need to confirm Workspace storage quota + IQAC sharing permission setup.
 5. **Holiday week handling** — when Thursday falls on a holiday, auto-cancel or auto-reschedule? Suggest add policy `holiday_handling_mode` if needed.
