@@ -116,13 +116,17 @@ export default function GroupDashboardPage() {
             </div>
           </div>
 
-          {/* Admission funnel summary — always visible, scoped to selected admission year */}
+          {/* Admission funnel summary — always visible, scoped to selected admission year.
+            * 2026-05-02: replaced "Enrolled" with "Filled" so the top card matches the
+            * Seat Analytics > Summary tab. Filled = admitted+active+graduated+account
+            * (committed seats); Enrolled (active-only) is still surfaced in the
+            * institution table below. */}
           {!isLoading && data?.totals && (
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
               {[
                 { label: 'Total Leads', value: data.totals.total_leads },
                 { label: 'Applied', value: data.totals.total_applied },
-                { label: 'Enrolled', value: data.totals.total_enrolled },
+                { label: 'Filled', value: data.totals.total_filled },
                 { label: 'Rejected', value: data.totals.total_rejected },
                 { label: 'Total Seats', value: data.totals.total_seats || '—' },
                 {

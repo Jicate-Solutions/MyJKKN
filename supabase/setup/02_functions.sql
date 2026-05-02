@@ -12152,6 +12152,13 @@ AS $$
              AND ay.is_active = true)
           )
   ),
+  -- Updated 2026-05-02 (Phase C-9): restored EXTRACT(year FROM al.created_at)
+  -- fallback for leads only. 15,195 of 15,628 admission_leads rows have NULL
+  -- admission_year_id (early-stage CRM entries with no program_id yet) and
+  -- can't be backfilled. Keeping the fallback preserves the historical
+  -- "pipeline volume" semantics for the top-of-page Total Leads card while
+  -- learner_counts stays strictly FK-scoped (Phase A backfilled all linkable
+  -- learners).
   lead_counts AS (
     SELECT
       al.institution_id,
@@ -12164,7 +12171,9 @@ AS $$
             (p_admission_year_id IS NOT NULL
              AND al.admission_year_id = p_admission_year_id)
          OR (p_admission_year_id IS NULL AND p_program_start_year IS NOT NULL
-             AND al.admission_year_id IN (SELECT id FROM ay_scope))
+             AND ( al.admission_year_id IN (SELECT id FROM ay_scope)
+                OR (al.admission_year_id IS NULL
+                    AND EXTRACT(year FROM al.created_at)::int = p_program_start_year) ))
          OR (p_admission_year_id IS NULL AND p_program_start_year IS NULL)
           )
     GROUP BY al.institution_id

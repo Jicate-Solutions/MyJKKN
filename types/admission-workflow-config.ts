@@ -112,6 +112,12 @@ export interface GroupDashboardData {
     total_enrolled: number;
     total_rejected: number;
     total_seats: number;
+    /**
+     * Sum of filled_seats across institutions — counts learners with
+     * lifecycle_status IN ('admitted','active','graduated','account').
+     * Use this for Fill Rate, not total_enrolled (which is just 'active').
+     */
+    total_filled: number;
     overall_fill_percentage: number;
   };
 }

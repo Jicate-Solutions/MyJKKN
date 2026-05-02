@@ -103,6 +103,9 @@ export class GroupDashboardService {
 
     rows.sort((a, b) => b.enrolled - a.enrolled);
 
+    // 2026-05-02: Fill Rate uses total_filled (admitted+active+graduated+account)
+    // not total_enrolled (active only) — otherwise top card disagrees with the
+    // Seat Analytics > Summary tab which shares the same definition.
     const totals = rows.reduce(
       (acc, s) => ({
         total_leads: acc.total_leads + s.total_leads,
@@ -110,13 +113,18 @@ export class GroupDashboardService {
         total_enrolled: acc.total_enrolled + s.enrolled,
         total_rejected: acc.total_rejected + s.rejected,
         total_seats: acc.total_seats + s.total_seats,
+        total_filled: acc.total_filled + s.filled_seats,
         overall_fill_percentage: 0,
       }),
-      { total_leads: 0, total_applied: 0, total_enrolled: 0, total_rejected: 0, total_seats: 0, overall_fill_percentage: 0 }
+      {
+        total_leads: 0, total_applied: 0, total_enrolled: 0,
+        total_rejected: 0, total_seats: 0, total_filled: 0,
+        overall_fill_percentage: 0,
+      }
     );
     totals.overall_fill_percentage =
       totals.total_seats > 0
-        ? Math.round((totals.total_enrolled / totals.total_seats) * 100)
+        ? Math.round((totals.total_filled / totals.total_seats) * 100)
         : 0;
 
     return { institutions: rows, totals };
