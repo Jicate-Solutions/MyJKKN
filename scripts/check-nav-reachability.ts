@@ -122,9 +122,7 @@ const NAV_EXCLUDE = new Set<string>([
   '/audit/cycles/new',
 
   // Billing /new forms
-  '/billing/categories/item-categories/new',
-  '/billing/categories/parent-categories/new',
-  '/billing/categories/sub-categories/new',
+  '/billing/categories/new',
   '/billing/discounts/new',
   '/billing/refunds/new',
 

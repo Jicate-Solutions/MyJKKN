@@ -348,9 +348,9 @@ export class BillingReceiptService {
             *,
             bill:billing_student_bills (
               *,
-              category:billing_item_categories(
+              category:billing_categories(
                 id,
-                item_category_name,
+                category_name,
                 amount,
                 frequency
               )
@@ -803,9 +803,9 @@ export class BillingReceiptService {
         .select(
           `
           *,
-          category:billing_item_categories (
+          category:billing_categories (
             id,
-            item_category_name,
+            category_name,
             amount,
             frequency
           ),

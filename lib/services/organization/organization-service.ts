@@ -292,12 +292,9 @@ export class OrganizationService {
         this.supabase.from('bug_reports').delete().eq('institution_id', id)
       ]);
 
-      // Delete billing related data (3-tier categories)
+      // Delete institution-scoped billing data (categories are now global — no cascade)
       await Promise.all([
-        this.supabase.from('billing_student_bills').delete().eq('institution_id', id),
-        this.supabase.from('billing_item_categories').delete().eq('institution_id', id),
-        this.supabase.from('billing_sub_categories').delete().eq('institution_id', id),
-        this.supabase.from('billing_parent_categories').delete().eq('institution_id', id)
+        this.supabase.from('billing_student_bills').delete().eq('institution_id', id)
       ]);
 
       // Delete academic structure

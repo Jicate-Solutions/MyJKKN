@@ -1,4 +1,5 @@
 import { createServiceRoleClient } from '@/lib/supabase/server';
+import { getPolicyInt } from '@/lib/policies/get-policy-client';
 import type {
   EngagementMetrics,
   StudentEngagement,
@@ -14,6 +15,28 @@ import type {
   SessionHistory,
   UserSession
 } from '@/types/analytics';
+
+/**
+ * Runtime read of the student-row fetch cap used by EngagementService.
+ *
+ * Backs 3 call sites that previously hardcoded `const STUDENT_QUERY_LIMIT = 10000`
+ * / `AT_RISK_QUERY_LIMIT = 10000`:
+ *   - getEngagementMetrics()
+ *   - getStudentEngagement()
+ *   - getAtRiskStudents()
+ *
+ * Tweakable via super_admin policy UI — no deploy needed (Director's standing
+ * rule: "Every policy decision = config-table row + super_admin UI").
+ *
+ * NOTE: SECTION_COMPARISON_LIMIT (line ~543) is a DIFFERENT semantic value
+ * (section-row cap, not student-row cap) and is NOT covered by this key. It
+ * will be migrated in a follow-up PR with its own seeded policy key.
+ *
+ * The `as any` cast is intentional pending keys.ts consolidation (follow-up).
+ */
+async function getStudentQueryLimit(): Promise<number> {
+  return getPolicyInt('analytics.engagement.query_limit' as any, 10000);
+}
 
 /**
  * Service for handling engagement analytics queries and business logic
@@ -199,7 +222,8 @@ export class EngagementService {
       // Query student_engagement_scores for actual engagement level counts and students list
       // NOTE: Supabase default limit is 1000 rows. We set explicit limit to handle large institutions.
       // For institutions with >10,000 students, consider implementing pagination.
-      const STUDENT_QUERY_LIMIT = 10000;
+      // Runtime read from platform_policies → 'analytics.engagement.query_limit' (default 10000).
+      const STUDENT_QUERY_LIMIT = await getStudentQueryLimit();
 
       let studentsQuery = supabase
         .from('student_engagement_scores')
@@ -366,7 +390,8 @@ export class EngagementService {
       }
 
       // NOTE: Supabase default limit is 1000. Set explicit limit for large sections.
-      const STUDENT_QUERY_LIMIT = 10000;
+      // Runtime read from platform_policies → 'analytics.engagement.query_limit' (default 10000).
+      const STUDENT_QUERY_LIMIT = await getStudentQueryLimit();
 
       const { data: scores, error, count } = await supabase
         .from('student_engagement_scores')
@@ -444,7 +469,9 @@ export class EngagementService {
       }
 
       // NOTE: Supabase default limit is 1000. Set explicit limit for at-risk students.
-      const AT_RISK_QUERY_LIMIT = 10000;
+      // Runtime read from platform_policies → 'analytics.engagement.query_limit' (default 10000).
+      // Same semantic as STUDENT_QUERY_LIMIT — student-row fetch cap.
+      const AT_RISK_QUERY_LIMIT = await getStudentQueryLimit();
 
       let query = supabase
         .from('student_engagement_scores')
@@ -540,6 +567,10 @@ export class EngagementService {
       }
 
       // NOTE: Limit for section comparison. Most semesters have < 100 sections.
+      // TODO(policy-as-config): Migrate to platform_policies under a separate
+      // key (e.g. 'analytics.engagement.section_comparison_limit') in a
+      // follow-up PR. Different semantic from STUDENT_QUERY_LIMIT — this caps
+      // section rows, not student rows. Needs its own seeded policy value.
       const SECTION_COMPARISON_LIMIT = 500;
 
       const { data: overview, error, count } = await supabase

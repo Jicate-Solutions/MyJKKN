@@ -79,11 +79,21 @@ export async function GET(request: Request) {
     enabledLayers: parseLayers(layersOverride),
   });
 
-  const resolved = await resolve(ctx);
+  // Resolver returns `{ primary, secondary, resolved }`. We surface all three
+  // on the wire:
+  //   - `primary`/`secondary` are the new fields the 2-half split bar reads.
+  //   - `resolved` is a backcompat alias for `primary`. The Test Sandbox
+  //     (`app/(routes)/system/attention-bar/_components/tab-sandbox.tsx`)
+  //     defines its own local `ResolveResponse` that reads `resolved`, so
+  //     keeping the alias avoids touching that consumer in this PR.
+  const { primary, secondary, resolved } = await resolve(ctx);
 
   return NextResponse.json({
     page,
     role,
+    primary,
+    secondary,
+    /** @deprecated alias for `primary` — kept for backcompat with existing consumers */
     resolved,
   });
 }

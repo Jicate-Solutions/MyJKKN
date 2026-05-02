@@ -58,7 +58,7 @@ import {
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import { OrganizationService } from '@/lib/services/organization/organization-service';
-import { BillingItemCategoryService } from '@/lib/services/billing/categories/billing-item-category-service';
+import { BillingCategoryService } from '@/lib/services/billing/categories/billing-category-service';
 import {
   useSearchStudentsByQuery,
   useStudentForBilling
@@ -68,7 +68,7 @@ import {
   useUpdateStudentBill
 } from '@/hooks/billing/use-student-bills';
 import type { Institution } from '@/types/organizations';
-import type { BillingItemCategory } from '@/types/billing';
+import type { BillingCategory } from '@/types/billing';
 import type {
   StudentBill,
   CreateStudentBillDto,
@@ -112,7 +112,7 @@ export function StudentBillForm({
 }: StudentBillFormProps) {
   const router = useRouter();
   const [institutions, setInstitutions] = useState<Institution[]>([]);
-  const [itemCategories, setItemCategories] = useState<BillingItemCategory[]>(
+  const [itemCategories, setItemCategories] = useState<BillingCategory[]>(
     []
   );
   const [studentSearchQuery, setStudentSearchQuery] = useState('');
@@ -322,17 +322,15 @@ export function StudentBillForm({
     }
   };
 
-  const loadItemCategories = async (institutionId: string) => {
+  const loadItemCategories = async (_institutionId: string) => {
     try {
       setIsLoadingItemCategories(true);
+      // 2026-04-28: Categories are now global; institution arg ignored.
       const categories =
-        await BillingItemCategoryService.getBillingItemCategoriesByInstitution(
-          institutionId,
-          true
-        );
+        await BillingCategoryService.getActiveBillingCategories();
       setItemCategories(categories);
     } catch (error) {
-      console.error('Error loading item categories:', error);
+      console.error('Error loading billing categories:', error);
     } finally {
       setIsLoadingItemCategories(false);
     }
@@ -356,7 +354,7 @@ export function StudentBillForm({
     const selectedCategory = itemCategories.find(
       (cat) => cat.id === item.item_category_id
     );
-    const defaultDescription = selectedCategory?.item_category_name || 'Billing Item';
+    const defaultDescription = selectedCategory?.category_name || 'Billing Item';
     const taxAmount = item.tax_amount || 0;
 
     return {
@@ -799,7 +797,7 @@ export function StudentBillForm({
                         name={`billing_items.${index}.item_category_id`}
                         render={({ field }) => (
                           <FormItem>
-                            <FormLabel>Item Category *</FormLabel>
+                            <FormLabel>Billing Category *</FormLabel>
                             <Select
                               onValueChange={field.onChange}
                               value={field.value}
@@ -819,7 +817,7 @@ export function StudentBillForm({
                                     key={category.id}
                                     value={category.id}
                                   >
-                                    {category.item_category_name}
+                                    {category.category_name}
                                   </SelectItem>
                                 ))}
                               </SelectContent>
@@ -829,63 +827,33 @@ export function StudentBillForm({
                         )}
                       />
 
-                      <div className='grid grid-cols-1 md:grid-cols-2 gap-4'>
-                        <FormField
-                          control={form.control}
-                          name={`billing_items.${index}.unit_amount`}
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>Base Amount (₹) *</FormLabel>
-                              <FormControl>
-                                <Input
-                                  type='number'
-                                  min='0'
-                                  step='0.01'
-                                  placeholder='0.00'
-                                  {...field}
-                                  value={field.value?.toString() || ''}
-                                  onChange={(e) =>
-                                    field.onChange(
-                                      parseFloat(e.target.value) || 0
-                                    )
-                                  }
-                                  onWheel={(e) => e.currentTarget.blur()}
-                                  className='[appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none'
-                                />
-                              </FormControl>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-
-                        <FormField
-                          control={form.control}
-                          name={`billing_items.${index}.tax_amount`}
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>Tax Amount (₹)</FormLabel>
-                              <FormControl>
-                                <Input
-                                  type='number'
-                                  min='0'
-                                  step='0.01'
-                                  placeholder='0.00'
-                                  {...field}
-                                  value={field.value?.toString() || ''}
-                                  onChange={(e) =>
-                                    field.onChange(
-                                      parseFloat(e.target.value) || 0
-                                    )
-                                  }
-                                  onWheel={(e) => e.currentTarget.blur()}
-                                  className='[appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none'
-                                />
-                              </FormControl>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-                      </div>
+                      <FormField
+                        control={form.control}
+                        name={`billing_items.${index}.unit_amount`}
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Billing Amount (₹) *</FormLabel>
+                            <FormControl>
+                              <Input
+                                type='number'
+                                min='0'
+                                step='0.01'
+                                placeholder='0.00'
+                                {...field}
+                                value={field.value?.toString() || ''}
+                                onChange={(e) =>
+                                  field.onChange(
+                                    parseFloat(e.target.value) || 0
+                                  )
+                                }
+                                onWheel={(e) => e.currentTarget.blur()}
+                                className='[appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none'
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
 
                       {/* Item Total Display */}
                       <div className='p-3 bg-gray-50 dark:bg-gray-800 rounded-lg'>
@@ -894,8 +862,7 @@ export function StudentBillForm({
                           <span className='font-medium'>
                             ₹
                             {(
-                              (watchedValues.billing_items?.[index]?.unit_amount || 0) +
-                              (watchedValues.billing_items?.[index]?.tax_amount || 0)
+                              watchedValues.billing_items?.[index]?.unit_amount || 0
                             ).toFixed(2)}
                           </span>
                         </div>
@@ -918,12 +885,6 @@ export function StudentBillForm({
                         <span>Subtotal:</span>
                         <span className='font-medium'>
                           ₹{subtotal.toFixed(2)}
-                        </span>
-                      </div>
-                      <div className='flex justify-between text-sm'>
-                        <span>Total Tax:</span>
-                        <span className='font-medium'>
-                          ₹{totalTax.toFixed(2)}
                         </span>
                       </div>
                       <Separator />

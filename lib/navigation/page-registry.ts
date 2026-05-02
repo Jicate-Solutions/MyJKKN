@@ -268,17 +268,9 @@ const PAGE_ENRICHMENTS: Record<string, { keywords: string[]; description: string
     description: 'Review student profile change requests'
   },
   // Billing / Accounts
-  '/billing/categories/parent-categories': {
-    keywords: ['fee category', 'billing category', 'fee head'],
-    description: 'Manage parent fee categories'
-  },
-  '/billing/categories/sub-categories': {
-    keywords: ['sub category', 'fee sub-type', 'billing sub-category'],
-    description: 'Manage fee sub-categories'
-  },
-  '/billing/categories/item-categories': {
-    keywords: ['item category', 'fee item', 'line item'],
-    description: 'Manage fee item categories'
+  '/billing/categories': {
+    keywords: ['billing category', 'fee category', 'fee head', 'fee item', 'fee type'],
+    description: 'Manage billing categories (common across all institutions)'
   },
   '/billing/schedule': {
     keywords: ['fee structure', 'fee plan', 'billing plan', 'fee schedule', 'charges'],

@@ -81,7 +81,7 @@ export default async function BillingRefundsPage({
       <PageBreadcrumb
         items={[
           { label: 'Home', href: '/' },
-          { label: 'Billing', href: '/billing/schedule' },
+          { label: 'Billing', href: '/billing' },
           { label: 'Refunds', href: '/billing/refunds' }
         ]}
       />

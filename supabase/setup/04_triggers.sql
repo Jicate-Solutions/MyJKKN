@@ -954,3 +954,35 @@ DROP TRIGGER IF EXISTS trg_director_decisions_updated_at ON director_decisions;
 CREATE TRIGGER trg_director_decisions_updated_at
   BEFORE UPDATE ON director_decisions
   FOR EACH ROW EXECUTE FUNCTION fn_director_decisions_set_updated_at();
+
+-- ================================================================================
+-- 2026-04-29: HR Sprint 5 Attendance — recompute triggers
+-- (per specs/hrapp-sprint-5-attendance-spec.md, Round 3.2 + 3.3)
+-- ================================================================================
+
+DROP TRIGGER IF EXISTS tr_recompute_attendance_on_holiday_change ON institution_leaves;
+CREATE TRIGGER tr_recompute_attendance_on_holiday_change
+  AFTER INSERT OR UPDATE OR DELETE ON institution_leaves
+  FOR EACH ROW
+  EXECUTE FUNCTION fn_recompute_attendance_on_holiday_change();
+
+DROP TRIGGER IF EXISTS tr_recompute_attendance_on_leave_approval ON hr_leave_applications;
+CREATE TRIGGER tr_recompute_attendance_on_leave_approval
+  AFTER UPDATE OF status ON hr_leave_applications
+  FOR EACH ROW
+  EXECUTE FUNCTION fn_recompute_attendance_on_leave_approval();
+
+-- =====================================================================
+-- Updated: 2026-04-29 - Wave B.1 — Notification Generator Policy triggers.
+-- BEFORE UPDATE: touch updated_at via fn_notif_gen_cfg_set_updated_at.
+-- AFTER INSERT/UPDATE/DELETE: log to audit table via fn_log_notif_gen_cfg_change.
+-- =====================================================================
+DROP TRIGGER IF EXISTS trg_notif_gen_cfg_updated_at ON public.notification_generator_config;
+CREATE TRIGGER trg_notif_gen_cfg_updated_at
+BEFORE UPDATE ON public.notification_generator_config
+FOR EACH ROW EXECUTE FUNCTION public.fn_notif_gen_cfg_set_updated_at();
+
+DROP TRIGGER IF EXISTS trg_notif_gen_cfg_audit ON public.notification_generator_config;
+CREATE TRIGGER trg_notif_gen_cfg_audit
+AFTER INSERT OR UPDATE OR DELETE ON public.notification_generator_config
+FOR EACH ROW EXECUTE FUNCTION public.fn_log_notif_gen_cfg_change();

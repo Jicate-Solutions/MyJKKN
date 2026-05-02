@@ -70,12 +70,33 @@ interface GuardrailDialogState {
   counselor: CounselorRecord | null;
 }
 
+// Updated 2026-04-30 (counselor taxonomy phase 3): the legacy 'counselor' key
+// was renamed to 'admission_counselor' and three sibling keys were introduced.
+// Each gets a distinct hue so admins can tell variants apart at a glance.
 const ROLE_COLORS: Record<string, string> = {
-  student: 'bg-emerald-100 text-emerald-700 border-emerald-200',
-  faculty: 'bg-blue-100 text-blue-700 border-blue-200',
-  counselor: 'bg-purple-100 text-purple-700 border-purple-200',
-  accounts: 'bg-amber-100 text-amber-700 border-amber-200',
-  guest: 'bg-gray-100 text-gray-600 border-gray-200',
+  student:             'bg-emerald-100 text-emerald-700 border-emerald-200',
+  faculty:             'bg-blue-100 text-blue-700 border-blue-200',
+  admission_counselor: 'bg-purple-100 text-purple-700 border-purple-200',
+  expo_counselor:      'bg-fuchsia-100 text-fuchsia-700 border-fuchsia-200',
+  learner_counselor:   'bg-teal-100 text-teal-700 border-teal-200',
+  staff_counselor:     'bg-indigo-100 text-indigo-700 border-indigo-200',
+  health_counselor:    'bg-rose-100 text-rose-700 border-rose-200',
+  accounts:            'bg-amber-100 text-amber-700 border-amber-200',
+  guest:               'bg-gray-100 text-gray-600 border-gray-200',
+};
+
+// Human-readable labels keyed by the canonical role_key. Falls back to a
+// title-cased rendering for any role not in this map.
+const ROLE_LABELS: Record<string, string> = {
+  student:             'Student',
+  faculty:             'Faculty',
+  admission_counselor: 'Admission Counsellor',
+  expo_counselor:      'Expo Counsellor',
+  learner_counselor:   'Learner Counsellor',
+  staff_counselor:     'Staff Counsellor',
+  health_counselor:    'Health Counsellor',
+  accounts:            'Accounts',
+  guest:               'Guest',
 };
 
 function getRoleBadgeClass(role: string | null | undefined): string {
@@ -85,7 +106,15 @@ function getRoleBadgeClass(role: string | null | undefined): string {
 
 function getRoleLabel(role: string | null | undefined): string {
   if (!role) return 'No Profile';
-  return role.charAt(0).toUpperCase() + role.slice(1);
+  const key = role.toLowerCase();
+  if (ROLE_LABELS[key]) return ROLE_LABELS[key];
+  // Fallback: title-case each underscore-separated segment so unknown keys
+  // like 'admission_staff' render as 'Admission Staff' instead of
+  // 'Admission_staff'.
+  return key
+    .split('_')
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
 }
 
 export function CounselorList({ onRefresh, institutionId, isGlobalUser }: CounselorListProps) {
@@ -137,20 +166,22 @@ export function CounselorList({ onRefresh, institutionId, isGlobalUser }: Counse
 
       const records = (data || []) as unknown as CounselorRecord[];
 
-      // 2. Fetch users with counselor role who may NOT be in admission_counselors table
-      // Step A: Get the counselor role ID
-      const { data: counselorRoleData } = await supabase
+      // 2. Fetch users with an admission counsellor role (admission_counselor
+      //    or expo_counselor — both share the same CRM access surface) who
+      //    may NOT be in admission_counselors table.
+      // Step A: Get both counselor role IDs
+      const { data: counselorRoles } = await supabase
         .from('custom_roles')
         .select('id')
-        .eq('role_key', 'counselor')
-        .single();
+        .in('role_key', ['admission_counselor', 'expo_counselor']);
 
-      if (counselorRoleData) {
-        // Step B: Get all user_ids with counselor role
+      if (counselorRoles && counselorRoles.length > 0) {
+        const counselorRoleIds = counselorRoles.map((r: any) => r.id);
+        // Step B: Get all user_ids with any counselor role
         const { data: roleAssignments } = await supabase
           .from('user_roles')
           .select('user_id')
-          .eq('role_id', counselorRoleData.id);
+          .in('role_id', counselorRoleIds);
 
         const roleUserIds = (roleAssignments || []).map((r: any) => r.user_id);
 
@@ -371,30 +402,31 @@ export function CounselorList({ onRefresh, institutionId, isGlobalUser }: Counse
         }
       }
 
-      // 2. Remove counselor role from user_roles
+      // 2. Remove admission counsellor roles (admission_counselor + expo_counselor)
+      //    from user_roles — both share the same CRM access surface.
       if (counselor.user_id) {
-        const { data: counselorRole } = await supabase
+        const { data: counselorRoles } = await supabase
           .from('custom_roles')
           .select('id')
-          .eq('role_key', 'counselor')
-          .single();
+          .in('role_key', ['admission_counselor', 'expo_counselor']);
 
-        if (counselorRole) {
+        if (counselorRoles && counselorRoles.length > 0) {
           await supabase
             .from('user_roles')
             .delete()
             .eq('user_id', counselor.user_id)
-            .eq('role_id', counselorRole.id);
+            .in('role_id', counselorRoles.map((r: any) => r.id));
         }
 
-        // 3. Update profiles.role if it's set to 'counselor' (legacy sync)
+        // 3. Update profiles.role if it's still pointing at a counsellor key
+        //    (legacy sync — trigger usually handles this on user_roles delete).
         const { data: profile } = await supabase
           .from('profiles')
           .select('id, role')
           .eq('id', counselor.user_id)
           .single();
 
-        if (profile?.role === 'counselor') {
+        if (profile?.role === 'admission_counselor' || profile?.role === 'expo_counselor') {
           const { data: remainingRoles } = await supabase
             .from('user_roles')
             .select('custom_roles!inner(role_key)')

@@ -51,17 +51,11 @@ export class StudentBillService {
             name,
             counselling_code
           ),
-          item_category:billing_item_categories(
+          item_category:billing_categories(
             id,
-            item_category_name,
-            parent_category:billing_parent_categories(
-              id,
-              parent_category_name
-            ),
-            sub_category:billing_sub_categories(
-              id,
-              sub_category_name
-            )
+            category_name,
+            amount,
+            frequency
           )
         `
         )
@@ -191,17 +185,11 @@ export class StudentBillService {
             name,
             counselling_code
           ),
-          item_category:billing_item_categories(
+          item_category:billing_categories(
             id,
-            item_category_name,
-            parent_category:billing_parent_categories(
-              id,
-              parent_category_name
-            ),
-            sub_category:billing_sub_categories(
-              id,
-              sub_category_name
-            )
+            category_name,
+            amount,
+            frequency
           )
         `
         )
@@ -310,9 +298,11 @@ export class StudentBillService {
               id,
               name
             ),
-            item_category:billing_item_categories(
+            item_category:billing_categories(
               id,
-              item_category_name
+              category_name,
+              amount,
+              frequency
             )
           `,
           { count: 'exact' }
@@ -354,9 +344,11 @@ export class StudentBillService {
               id,
               name
             ),
-            item_category:billing_item_categories(
+            item_category:billing_categories(
               id,
-              item_category_name
+              category_name,
+              amount,
+              frequency
             )
           `,
           { count: 'exact' }
@@ -538,7 +530,7 @@ export class StudentBillService {
           },
           item_category: {
             id: bill.item_category_id,
-            item_category_name: itemCategoryData?.item_category_name || ''
+            category_name: itemCategoryData?.category_name || ''
           }
         };
       });
@@ -581,17 +573,11 @@ export class StudentBillService {
             name,
             counselling_code
           ),
-          item_category:billing_item_categories(
+          item_category:billing_categories(
             id,
-            item_category_name,
-            parent_category:billing_parent_categories(
-              id,
-              parent_category_name
-            ),
-            sub_category:billing_sub_categories(
-              id,
-              sub_category_name
-            )
+            category_name,
+            amount,
+            frequency
           ),
           discounts:billing_discounts(
             *,
@@ -633,17 +619,11 @@ export class StudentBillService {
         .select(
           `
           *,
-          item_category:billing_item_categories(
+          item_category:billing_categories(
             id,
-            item_category_name,
-            parent_category:billing_parent_categories(
-              id,
-              parent_category_name
-            ),
-            sub_category:billing_sub_categories(
-              id,
-              sub_category_name
-            )
+            category_name,
+            amount,
+            frequency
           ),
           discounts:billing_discounts(*),
           receipt_items:billing_receipt_items(
@@ -794,17 +774,11 @@ export class StudentBillService {
         .select(
           `
           *,
-          item_category:billing_item_categories(
+          item_category:billing_categories(
             id,
-            item_category_name,
-            parent_category:billing_parent_categories(
-              id,
-              parent_category_name
-            ),
-            sub_category:billing_sub_categories(
-              id,
-              sub_category_name
-            )
+            category_name,
+            amount,
+            frequency
           )
         `
         )

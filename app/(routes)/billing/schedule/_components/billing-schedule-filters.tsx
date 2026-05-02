@@ -13,7 +13,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { RotateCcw } from 'lucide-react';
 import { OrganizationService } from '@/lib/services/organization/organization-service';
-import { BillingItemCategoryService } from '@/lib/services/billing/categories/billing-item-category-service';
+import { BillingCategoryService } from '@/lib/services/billing/categories/billing-category-service';
 import { AcademicYearService } from '@/lib/services/academic/academic-year-service';
 import { DegreeService } from '@/lib/services/organization/degree-service';
 import { DepartmentService } from '@/lib/services/organization/department-service';
@@ -40,7 +40,7 @@ export function BillingScheduleFilters({
     Array<{ id: string; name: string }>
   >([]);
   const [categories, setCategories] = useState<
-    Array<{ id: string; item_category_name: string }>
+    Array<{ id: string; category_name: string }>
   >([]);
   const [academicYears, setAcademicYears] = useState<
     Array<{ id: string; academic_year_name: string }>
@@ -81,7 +81,7 @@ export function BillingScheduleFilters({
   useEffect(() => {
     async function loadCategories() {
       try {
-        const data = await BillingItemCategoryService.getBillingItemCategories();
+        const data = await BillingCategoryService.getBillingCategories();
         setCategories(data.data); // Note: service returns { data, metadata }
       } catch (error) {
         console.error('Error loading categories:', error);
@@ -475,7 +475,7 @@ export function BillingScheduleFilters({
             <SelectItem value='all'>All Categories</SelectItem>
             {categories.map((category) => (
               <SelectItem key={category.id} value={category.id}>
-                {category.item_category_name}
+                {category.category_name}
               </SelectItem>
             ))}
           </SelectContent>

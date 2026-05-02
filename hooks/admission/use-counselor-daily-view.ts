@@ -211,11 +211,13 @@ export function useMyCounselorId(institutionId: string | null | undefined) {
 }
 
 // ============================================================================
-// COUNSELOR PROFILES HOOK (sourced from user profiles, role='counselor')
+// COUNSELOR PROFILES HOOK (sourced from user profiles whose role is one of the
+// admission counsellor keys: 'admission_counselor' or 'expo_counselor')
 // ============================================================================
 
 /**
- * Fetch counselors sourced from profiles (role='counselor') for a given institution.
+ * Fetch counselors sourced from profiles whose `role` is an admission counsellor
+ * key ('admission_counselor' or 'expo_counselor') for a given institution.
  * Use this for all counselor picker dropdowns — no admission_counselors management UI needed.
  *
  * institutionId semantics:

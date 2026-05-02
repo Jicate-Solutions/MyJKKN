@@ -359,7 +359,7 @@ export function StudentBillsTable({
                       {bill.bill_description}
                     </h3>
                     <p className='text-xs text-muted-foreground mt-1'>
-                      {bill.item_category?.item_category_name}
+                      {bill.item_category?.category_name}
                     </p>
                   </div>
                 </div>
@@ -460,8 +460,7 @@ export function StudentBillsTable({
                 <div>
                   <p className='text-xs text-muted-foreground'>Category</p>
                   <p className='text-xs text-gray-600 dark:text-gray-400 mt-1 truncate'>
-                    {bill.item_category?.parent_category?.parent_category_name}{' '}
-                    → {bill.item_category?.sub_category?.sub_category_name}
+                    {bill.item_category?.category_name || '—'}
                   </p>
                 </div>
               </div>
@@ -551,15 +550,13 @@ export function StudentBillsTable({
                 <TableCell className='max-w-xs'>
                   <div className='space-y-1'>
                     <div className='text-sm font-medium text-gray-900 dark:text-gray-100'>
-                      {bill.item_category?.item_category_name}
+                      {bill.item_category?.category_name}
                     </div>
-                    <div className='text-xs text-muted-foreground truncate'>
-                      {
-                        bill.item_category?.parent_category
-                          ?.parent_category_name
-                      }{' '}
-                      → {bill.item_category?.sub_category?.sub_category_name}
-                    </div>
+                    {bill.item_category?.frequency && (
+                      <div className='text-xs text-muted-foreground capitalize'>
+                        {bill.item_category.frequency}
+                      </div>
+                    )}
                   </div>
                 </TableCell>
                 <TableCell>

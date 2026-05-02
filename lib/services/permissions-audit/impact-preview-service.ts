@@ -15,6 +15,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { MENU_PERMISSIONS } from '@/lib/sidebarMenuLink';
+import { getPolicyInt } from '@/lib/policies/get-policy-client';
 
 export interface ImpactPreviewData {
   role: {
@@ -53,7 +54,10 @@ export interface ImpactPreviewData {
   };
 }
 
-const AFFECTED_USERS_LIMIT = 50;
+// AFFECTED_USERS_LIMIT now lives in platform_policies (Phase 1.5a, 2026-04-29).
+// Tunable from super_admin UI without redeploy. Default preserves the
+// historical hardcoded value (50) on missing rows.
+// Migration: supabase/migrations/20260429000014_permissions_audit_limits_policy.sql
 
 /**
  * Normalise a permission payload to a flat {key: boolean} dictionary.
@@ -89,6 +93,12 @@ export async function getImpactPreviewData(
   roleId: string,
   proposedPermissions: Record<string, boolean>,
 ): Promise<ImpactPreviewData> {
+  // Resolve list limit from platform_policies (default preserves historical 50).
+  const AFFECTED_USERS_LIMIT = await getPolicyInt(
+    'permissions_audit.impact_preview_affected_users_limit' as any,
+    50,
+  );
+
   // ── 1. Fetch role + current permissions ──────────────────────────────────
   const { data: role, error: roleErr } = await serviceClient
     .from('custom_roles')

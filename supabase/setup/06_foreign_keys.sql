@@ -403,10 +403,11 @@ ALTER TABLE billing_student_bills
     REFERENCES institutions(id)
     ON DELETE CASCADE;
 
--- Updated: 2026-04-15 - Renamed item_category_id -> category_id; now references flat billing_categories.
+-- Updated: 2026-04-15 - Collapsed parent/sub/item FKs into a single flat billing_categories FK.
+-- Updated: 2026-04-28 - Kept column name item_category_id (per D10); FK now points at global billing_categories.
 ALTER TABLE billing_student_bills
-    ADD CONSTRAINT fk_bills_category
-    FOREIGN KEY (category_id)
+    ADD CONSTRAINT fk_bills_item_category
+    FOREIGN KEY (item_category_id)
     REFERENCES billing_categories(id)
     ON DELETE SET NULL;
 
@@ -506,14 +507,9 @@ ALTER TABLE billing_refunds
     REFERENCES profiles(id)
     ON DELETE SET NULL;
 
--- BILLING CATEGORIES (flat)
+-- BILLING CATEGORIES (flat, global)
 -- Updated: 2026-04-15 - Collapsed parent/sub/item FKs into a single flat billing_categories FK.
-ALTER TABLE billing_categories
-    ADD CONSTRAINT fk_billing_categories_institution
-    FOREIGN KEY (institution_id)
-    REFERENCES institutions(id)
-    ON DELETE CASCADE;
-
+-- Updated: 2026-04-28 - Removed fk_billing_categories_institution; categories are global.
 ALTER TABLE billing_categories
     ADD CONSTRAINT fk_billing_categories_created_by
     FOREIGN KEY (created_by)

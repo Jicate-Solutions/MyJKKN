@@ -224,14 +224,7 @@ export function BillingScheduleDataTable({
       <div className='flex items-center gap-2'>
         {canCreateBills && (
           <>
-            <Button
-              onClick={() => router.push('/billing/schedule/new')}
-              size='sm'
-              className='h-8'
-            >
-              <Plus className='mr-2 h-4 w-4' />
-              Create Bill
-            </Button>
+           
             <Button
               onClick={() => router.push('/billing/schedule/bulk-create')}
               variant='outline'
@@ -293,7 +286,7 @@ export function BillingScheduleDataTable({
             student_name: 'Student',
             'institution.name': 'Institution',
             department_semester: 'Department / Semester',
-            'item_category.item_category_name': 'Category',
+            'item_category.category_name': 'Category',
             due_date: 'Due Date',
             final_amount: 'Amount',
             status: 'Status',

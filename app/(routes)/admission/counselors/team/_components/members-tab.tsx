@@ -123,6 +123,7 @@ export function MembersTab({ institutionId, isAdmin }: MembersTabProps) {
           <TableRow>
             <TableHead>Counselor</TableHead>
             <TableHead>Category</TableHead>
+            <TableHead>Designation</TableHead>
             <TableHead className="text-center">Open Leads</TableHead>
             <TableHead className="text-center">Max Leads</TableHead>
             <TableHead className="text-center">Active</TableHead>
@@ -154,6 +155,10 @@ export function MembersTab({ institutionId, isAdmin }: MembersTabProps) {
                 ) : (
                   <span className="text-xs text-muted-foreground">General</span>
                 )}
+              </TableCell>
+
+              <TableCell className="text-sm text-muted-foreground">
+                {m.designation ?? '—'}
               </TableCell>
 
               <TableCell className="text-center">
