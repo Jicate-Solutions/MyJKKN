@@ -82,6 +82,10 @@
     {
       "path": "/api/cron/prospect-reminders?secret=${CRON_SECRET}",
       "schedule": "23 8 * * *"
+    },
+    {
+      "path": "/api/cron/jicate-booking-reconcile",
+      "schedule": "17 2 * * *"
     }
   ]
 }
