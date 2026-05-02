@@ -144,6 +144,7 @@ export const ROUTE_PREFIX_TO_MODULE: ReadonlyArray<readonly [string, string]> = 
   ['/users', 'Users'],
   ['/system', 'System'],
   ['/learn', 'PDE Learning'],
+  ['/meetings', 'System'], // jicate-booking inbox; Overview-group sidebar entry per PR #655
   ['/profile', 'Users'],
   ['/okr', 'Work Pulse'],
   ['/vac', 'VAC'],
