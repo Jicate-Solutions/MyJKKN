@@ -86,13 +86,18 @@ export function SeatPivotGrid({
   // Per-row filtered totals: when a filter is active, recompute filled/balance/%
   // from the visible date columns only. When no filter, fall back to the
   // RPC-precomputed values for stable rendering.
+  // Key by (institution_id, program_id): two institutions can share a program_id
+  // when the RPC's program_resolution -SH merge produces the same base for both.
+  // Keying by program_id alone caused one row to overwrite the other in the map
+  // and the grand total to undercount.
+  const rowKey = (r: SeatPivotRow) => `${r.institution_id}::${r.program_id}`;
   const perRowTotals = useMemo(() => {
     const map = new Map<string, { filled: number; balance: number; pct: number }>();
     for (const r of rows) {
       const filled = isFiltered ? sumWithinRange(r.daily_counts, dateFrom, dateTo) : r.filled;
       const balance = Math.max(r.intake - filled, 0);
       const pct = r.intake === 0 ? 0 : Math.round((filled / r.intake) * 10000) / 100;
-      map.set(r.program_id, { filled, balance, pct });
+      map.set(rowKey(r), { filled, balance, pct });
     }
     return map;
   }, [rows, dateFrom, dateTo, isFiltered]);
@@ -122,7 +127,7 @@ export function SeatPivotGrid({
     return groups.map((g) => {
       const intake = g.rows.reduce((s, r) => s + r.intake, 0);
       const filled = g.rows.reduce(
-        (s, r) => s + (perRowTotals.get(r.program_id)?.filled ?? 0),
+        (s, r) => s + (perRowTotals.get(rowKey(r))?.filled ?? 0),
         0
       );
       const dailyTotals: Record<string, number> = {};
@@ -146,7 +151,7 @@ export function SeatPivotGrid({
   const grandTotal = useMemo(() => {
     const intake = rows.reduce((s, r) => s + r.intake, 0);
     const filled = rows.reduce(
-      (s, r) => s + (perRowTotals.get(r.program_id)?.filled ?? 0),
+      (s, r) => s + (perRowTotals.get(rowKey(r))?.filled ?? 0),
       0
     );
     const dailyTotals: Record<string, number> = {};
@@ -233,13 +238,13 @@ export function SeatPivotGrid({
                 {/* Program rows */}
                 {g.rows.map((r) => {
                   serialCounter += 1;
-                  const rowTotals = perRowTotals.get(r.program_id) ?? {
+                  const rowTotals = perRowTotals.get(rowKey(r)) ?? {
                     filled: r.filled,
                     balance: r.balance,
                     pct: r.fill_percentage,
                   };
                   return (
-                    <tr key={r.program_id} className="hover:bg-muted/40">
+                    <tr key={rowKey(r)} className="hover:bg-muted/40">
                       <td className={`sticky left-0 z-10 ${stickyCellBg} border-b border-r px-2 py-1 text-center text-muted-foreground`}>
                         {serialCounter}
                       </td>
