@@ -8129,7 +8129,7 @@ AS $$
   JOIN institutions i   ON i.id    = ay.institution_id
   LEFT JOIN learners_profiles lp
     ON  lp.admission_year_id = ay.id
-    AND lp.lifecycle_status IN ('admitted', 'active', 'graduated')
+    AND lp.lifecycle_status IN ('admitted', 'active', 'graduated', 'account')
   WHERE
     (
       (p_program_start_year IS NULL     AND ay.is_active = true)
