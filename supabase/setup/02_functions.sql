@@ -12290,15 +12290,27 @@ AS $$
      AND base.program_id NOT LIKE '%-SH'
      AND base.id <> p.id
   ),
+  -- Updated 2026-05-02 (Phase C-3):
+  --   * Switched lp.admission_year integer match to admission_year_id FK (Phase A
+  --     backfill ensures every linkable learner has FK populated).
+  --   * Added 'account' to filled lifecycle set so Daily Pivot agrees with
+  --     Summary tab and the product directive.
+  --   * Dropped ay.is_active = true so historical cohorts (catalogued by Phase A
+  --     as inactive) remain queryable when a year is supplied.
+  target_ays AS (
+    SELECT
+      ay.id, ay.institution_id, ay.program_id,
+      ay.program_start_year, ay.program_end_year, ay.sanctioned_intake
+    FROM admission_years ay
+    WHERE ay.program_start_year = p_admission_year
+      AND ay.institution_id IN (SELECT id FROM eligible_institutions)
+  ),
   ay_anchor AS (
     SELECT DISTINCT ay.institution_id, pr.resolved_id AS program_id
-    FROM admission_years ay
+    FROM target_ays ay
     JOIN programs p           ON p.id = ay.program_id
     JOIN program_resolution pr ON pr.original_id = ay.program_id
-    WHERE ay.is_active = true
-      AND ay.institution_id IN (SELECT id FROM eligible_institutions)
-      AND ay.program_start_year = p_admission_year
-      AND COALESCE(p.is_active, true) = true
+    WHERE COALESCE(p.is_active, true) = true
   ),
   lp_anchor AS (
     SELECT DISTINCT lp.institution_id, pr.resolved_id AS program_id
@@ -12306,8 +12318,8 @@ AS $$
     JOIN programs p           ON p.id = lp.program_id
     JOIN program_resolution pr ON pr.original_id = lp.program_id
     WHERE lp.institution_id IN (SELECT id FROM eligible_institutions)
-      AND lp.admission_year = p_admission_year
-      AND lp.lifecycle_status::text IN ('admitted','active','graduated')
+      AND lp.admission_year_id IN (SELECT id FROM target_ays)
+      AND lp.lifecycle_status::text IN ('admitted','active','graduated','account')
       AND COALESCE(p.is_active, true) = true
   ),
   anchor AS (
@@ -12324,11 +12336,9 @@ AS $$
           < COALESCE(p.program_duration_yrs::int, 4)
       ) AS has_lateral_row,
       SUM(ay.sanctioned_intake)::int AS intake_total
-    FROM admission_years ay
+    FROM target_ays ay
     JOIN programs p           ON p.id = ay.program_id
     JOIN program_resolution pr ON pr.original_id = ay.program_id
-    WHERE ay.is_active = true
-      AND ay.program_start_year = p_admission_year
     GROUP BY ay.institution_id, pr.resolved_id
   ),
   filled_per_day AS (
@@ -12340,8 +12350,8 @@ AS $$
     FROM learners_profiles lp
     JOIN program_resolution pr ON pr.original_id = lp.program_id
     WHERE lp.institution_id IN (SELECT id FROM eligible_institutions)
-      AND lp.admission_year = p_admission_year
-      AND lp.lifecycle_status::text IN ('admitted','active','graduated')
+      AND lp.admission_year_id IN (SELECT id FROM target_ays)
+      AND lp.lifecycle_status::text IN ('admitted','active','graduated','account')
       AND (NOT p_exclude_bulk_migrated OR lp.migrated_at IS NULL)
     GROUP BY lp.institution_id, pr.resolved_id,
              (COALESCE(lp.activated_at, lp.created_at) AT TIME ZONE 'Asia/Kolkata')::date
