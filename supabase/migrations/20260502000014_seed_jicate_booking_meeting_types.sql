@@ -1,0 +1,53 @@
+-- =============================================================================
+-- jicate-booking integration — seed migration for jicate_booking_meeting_types
+-- Migration: seed_jicate_booking_meeting_types
+-- Companion to: 20260502000005_create_jicate_booking_meeting_types.sql
+-- Spec: specs/jicate-booking-integration-f4-f7-spec.md §3.1
+-- Initiative: jicate-booking-multi-tenant-90d (verdict 2026-07-30)
+-- =============================================================================
+--
+-- THIS FILE IS A TEMPLATE / PLACEHOLDER.
+--
+-- It is intentionally a no-op. The migration applies cleanly but inserts
+-- zero rows. To populate it with real data:
+--
+--   1. Obtain the jicate-booking-prod Supabase DB password from 1Password
+--      ("jicate-booking Supabase") or Supabase Dashboard → Settings → Database.
+--
+--   2. Run the inspection script from the MyJKKN project root:
+--
+--        JICATE_BOOKING_DB_URL="postgresql://postgres.fkihmsuwruohdgsqvnxg:<password>@aws-1-ap-south-1.pooler.supabase.com:5432/postgres" \
+--          npx tsx scripts/jicate-booking/list-event-types.ts
+--
+--   3. Capture stdout. Review each "-- PROPOSAL" comment. Edit internal_kind
+--      and meeting_for values where the heuristic guess is wrong.
+--
+--   4. Replace the "TODO: paste INSERT statements here" block below with the
+--      reviewed output. Remove this header comment block if desired.
+--
+--   5. Commit and open a PR. Do NOT merge with the placeholder body.
+--
+-- Do NOT invent fake EventType IDs or slugs. This migration must reflect
+-- real rows from jicate-booking-prod — otherwise the inbox and AI Pulse
+-- reports will silently categorise bookings as 'other'.
+--
+-- =============================================================================
+
+-- TODO: Run scripts/jicate-booking/list-event-types.ts and paste output here
+-- before merging. The INSERT statements will look like:
+--
+--   INSERT INTO public.jicate_booking_meeting_types
+--     (cal_event_type_id, cal_event_type_slug, internal_kind, meeting_for, display_name, is_active)
+--   VALUES
+--     (1, 'engg-counseling', 'admission_call', 'counselor', 'Engineering Counseling', true)
+--   ON CONFLICT (cal_event_type_id) DO UPDATE SET
+--     cal_event_type_slug = EXCLUDED.cal_event_type_slug,
+--     display_name        = EXCLUDED.display_name,
+--     is_active           = EXCLUDED.is_active,
+--     updated_at          = now();
+--
+-- (The script handles ON CONFLICT so re-running this migration is idempotent.)
+
+-- No-op statement — migration applies cleanly with zero side effects until
+-- the INSERT block above is populated.
+SELECT 1;
