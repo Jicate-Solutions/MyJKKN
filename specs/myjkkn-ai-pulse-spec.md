@@ -50,8 +50,8 @@
 | Persona | Source | Scope | Permissions (`aiPulse:*`) | Action required |
 |---|---|---|---|---|
 | **Learner** | Existing role | self | `view:self`, `submit:domain_sync`, `submit:quiz`, `submit:publication`, `opt_out:leaderboard_individual` | Extend learner role |
-| **Class Rep** | 🔴 NOT a formal role today (Wave A.0 audit confirmed) | class | `mark:attendance`, `manage:team_rotation`, `escalate:absence` | **New role** in `custom_roles` — separate roles-PR before Wave A.1 |
-| **Faculty (Class Adviser)** | Existing | class | `score:lab_presentation`, `select:gold_standard`, `excuse:absence`, `intervene:hod_chat_log` | Extend faculty role |
+| **Class Incharge** (faculty assigned to a section) | ✅ EXISTS — production `class_incharges` table + `/staff/class-incharges` UI (discovered 2026-05-02) | section | `staff.class_incharges.view` + `staff.class_incharges.create` (existing) + `aiPulse:rotation.manage`, `aiPulse:attendance.mark`, `aiPulse:absence.escalate` (new) | Reuse existing role; add AI-Pulse-specific permission keys to `lib/constants/permissions.ts` |
+| **Faculty (Lab Judge)** | Existing | section | `score:lab_presentation`, `select:gold_standard`, `excuse:absence`, `intervene:hod_chat_log` | Extend faculty role. May be same person as Class Incharge or distinct judge per cycle. |
 | **Department Head** | Existing | department | `view:dept_heatmap`, `escalate:dept`, `report:dept`, `intervene:academic_flag` | Extend |
 | **AI Pulse Champion** | 🆕 New role — Krishnaveni | global | `manage:cycles`, `manage:topics`, `cancel:session`, `broadcast:announce`, `author:quiz`, `select:featured_tool`, `review:anomalies` | **New role** in `custom_roles` |
 | **Co-Champion (Deputy)** | 🆕 New role — **Ranjith (DTO JKKN, Ranjith@jkkn.ac.in)** locked 2026-05-02 | global | Same as Champion (full delegation when Krishnaveni absent) | **New role** in `custom_roles` |
@@ -61,10 +61,11 @@
 | **Super Admin** | Existing | global | `manage:policies`, `manage:value_lists`, `audit:all` | Extend |
 | **IT Admin** | Existing | global config only | `configure:meet_api`, `configure:storage` | Extend |
 
-**Wave A.0 prereqs (3 items remaining):**
-1. ✅ Champion = Krishnaveni (locked)
-2. 🔴 Class Rep formal role — separate roles-PR
-3. 🔴 Co-Champion deputy — name nomination pending
+**Wave A.0 prereqs (1 item remaining):**
+1. ✅ Champion = Krishnaveni (locked 2026-04-29)
+2. ✅ Co-Champion = Ranjith (locked 2026-05-02)
+3. ✅ Class Incharge role — REUSE existing `class_incharges` table; no new role needed (resolved 2026-05-02)
+4. 🔴 `learners` table FK column pin (`learners.id` vs `learners_profiles.id`)
 
 ---
 
@@ -75,7 +76,7 @@
 | Table | Cardinality | Purpose |
 |---|---|---|
 | `ai_pulse_cycles` | 1 / week × institutions | Master cycle. `week_start_date, briefing_topic_id, featured_tool_id (FK), host_user_id (Champion or Deputy), meet_url, recording_url, status` |
-| `ai_pulse_teams` | **3–7** / class / cycle (scaled by class size band) | Rotational team. `cycle_id, class_id, team_number CHECK (1..7), team_lead_learner_id` |
+| `ai_pulse_teams` | **3–7** / section / cycle (scaled by section size band) | Rotational team. `cycle_id, section_id REFERENCES sections(id), team_number CHECK (1..7), team_lead_learner_id`. Section is the unit of class organization in MyJKKN — matches existing `class_incharges.section_id` pattern. |
 | `ai_pulse_team_members` | N / team | Junction. `team_id, learner_id, role_in_team` |
 | `ai_pulse_attendance` | 1 / learner / cycle | Live + async attendance with derived `miss_state` ENUM(`ENGAGED`, `EXCUSED`, `MISSED`). Only `MISSED` increments strike counter (Q5). |
 | `ai_pulse_engagement` | N / learner / cycle | 4-AND-gate signals. `attendance_id, signal_type_id, value, recorded_at` |
@@ -93,7 +94,7 @@ Each follows the `public.leave_types` pattern. **All tables include `label_en` +
 | `ai_pulse_excuse_reasons` | `medical`, `family_emergency`, `exam_clash`, `technical_failure`, `bandwidth`, `other` |
 | `ai_pulse_gold_tiers` | `gold_standard` (rank 1; admin can add `silver`, `bronze`) |
 | `ai_pulse_topic_categories` | `llm_basics`, `agent_design`, `image_generation`, `code_assistants`, `automation_workflow`, `data_analysis`, `ethics_safety` |
-| `ai_pulse_notification_keys` | `tminus_24h`, `tminus_2h`, `tminus_15min`, `late_no_show`, `domain_sync_due`, `lab_presentation_due`, `cycle_complete_recap`, `escalation_t1_class_rep`, `escalation_t2_dept_head` |
+| `ai_pulse_notification_keys` | `tminus_24h`, `tminus_2h`, `tminus_15min`, `late_no_show`, `domain_sync_due`, `lab_presentation_due`, `cycle_complete_recap`, `escalation_t1_class_incharge`, `escalation_t2_dept_head`, `hod_chat_intervention`, `academic_flag_5_miss` |
 | **`ai_pulse_featured_tools`** 🆕 (Q15) | `lovable`, `cursor`, `github_copilot`, `gemini`, `chatgpt`, `sora`, `n8n`, `perplexity`, `claude` (Champion can add/disable per institution) |
 
 ### 4.3 Policy table (Q3 = Yes, 22 super-admin-tunable rows)
@@ -140,8 +141,8 @@ Every change writes an audit row with `changed_by`, `changed_at`, `change_reason
 |---|---|---|---|
 | **My Pulse** | Learner | `/ai-pulse` | own attendance, team, streak, badges |
 | **Live Session** | Learner / Champion | `/ai-pulse/sessions/[cycle]/live` | meet URL, polls, quiz |
-| **Class Rotation** | Class Rep | `/ai-pulse/rotation/[class_id]` | mark attendance, escalate |
-| **Lab Scoring** | Faculty | `/ai-pulse/scoring/[cycle]/[class_id]` | scores, gold flag, excuse approval |
+| **Section Rotation** | Class Incharge | `/ai-pulse/rotation/[section_id]` | mark attendance, escalate |
+| **Lab Scoring** | Faculty | `/ai-pulse/scoring/[cycle]/[section_id]` | scores, gold flag, excuse approval |
 | **Dept Heatmap** | Dept Head | `/ai-pulse/department/[dept_id]` | heatmap + intervene:hod_chat_log |
 | **Champion Console** | Champion / Deputy | `/ai-pulse/admin/cycles` | create cycle, set topic, pick featured tool, broadcast |
 | **Quiz Authoring Console** 🆕 | Champion / Deputy | `/ai-pulse/admin/quiz/[cycle]` | bilingual quiz editor; AI-suggested questions from transcript; preview learner experience; schedule publication T-2h | Critical for Q7 + Q16 — must minimize Krishnaveni's quiz-auth time to <8 min/cycle/language |
@@ -171,7 +172,7 @@ Every change writes an audit row with `changed_by`, `changed_at`, `change_reason
 
 | Sub-wave | Deliverable | Validation |
 |---|---|---|
-| **A.0** | (1) Class Rep role added to `custom_roles`; (2) Co-Champion deputy role added; (3) deputy name locked; (4) `learners` FK column pinned | Roles in DB; Champion + Deputy named; FK confirmed |
+| **A.0** | (1) ✅ Reuse existing `class_incharges` (no new role); (2) ✅ Co-Champion role + name (Ranjith) locked; (3) `aiPulse:rotation.manage`, `aiPulse:attendance.mark`, `aiPulse:absence.escalate` permission keys added to `lib/constants/permissions.ts`; (4) `learners` FK column pinned | Permission keys in catalog; FK confirmed |
 | **A.1** | 8 substrate + 6 master + 1 policy = 15 tables; RLS; seeded defaults; bilingual `label_en`/`label_ta` columns | `\dt ai_pulse_*` returns 15; verify-rls.sh passes |
 | **A.2** | `fn_run_pulse_cycle_tick()` — implements miss-state derivation (Q5), consequence-tier escalation (Q2), team-count adaptation (Q10), bilingual notification routing (Q16) | Tick runs <2 sec; correct notifications by stage + language |
 | **A.3** | Director-digest emitter `fn_generate_ai_pulse_director_digest()` (mirrors PR #394 pattern) + multi-tier list rendering | First Tuesday 8:33 AM dry-run produces correct bilingual HTML |
@@ -182,8 +183,8 @@ Every change writes an audit row with `changed_by`, `changed_at`, `change_reason
 |---|---|---|
 | **B.1 Learner My Pulse** | `app/(routes)/ai-pulse/page.tsx` + `_components/learner-*.tsx` | ~600 LOC. Bilingual UI required. |
 | **B.2 Live Session** | `app/(routes)/ai-pulse/sessions/[cycle]/live/*` + Meet API webhook | ~900 LOC. Highest complexity. |
-| **B.3 Class Rep Rotation** | `app/(routes)/ai-pulse/rotation/[class_id]/*` | ~500 LOC. **Blocked on PR #630 merge.** |
-| **B.4 Faculty Lab Scoring** | `app/(routes)/ai-pulse/scoring/[cycle]/[class_id]/*` | ~600 LOC. |
+| **B.3 Class Incharge Section Rotation** | `app/(routes)/ai-pulse/rotation/[section_id]/*` (reuse `attendance-roster.tsx` shape from `academic/attendance/`; reuse `assign-incharge-dialog.tsx` patterns from `staff/class-incharges/`) | ~500 LOC. **Blocked on PR #630 merge.** Class Incharge marks attendance for their assigned section. |
+| **B.4 Faculty Lab Scoring** | `app/(routes)/ai-pulse/scoring/[cycle]/[section_id]/*` | ~600 LOC. |
 | **B.5 Dept Head Heatmap** | `app/(routes)/ai-pulse/department/[dept_id]/*` | ~400 LOC. |
 | **B.6 Champion Console** | `app/(routes)/ai-pulse/admin/cycles/*` | ~500 LOC. |
 | **B.7 Quiz Authoring Console** 🆕 | `app/(routes)/ai-pulse/admin/quiz/*` + AI-suggest API in `app/api/ai-pulse/quiz/suggest/` | ~600 LOC. **Critical for Q7 + Q16 sustainability.** Bilingual templates + transcript-driven question suggestions. |
@@ -208,7 +209,7 @@ After Wave B: pre-spawn `pr-preflight` against the union of B.1–B.9 file sets 
 | Dependency | Status | Risk if not resolved |
 |---|---|---|
 | PR #630 (`notifications.is_layer_0`) | OPEN | Wave B.3 escalation cascade can't render |
-| Class Rep formal role | 🔴 NOT a role today (audit confirmed) | A.1 substrate can't merge until roles-PR lands |
+| Class Incharge role | ✅ EXISTS — `class_incharges` table + UI live (discovered 2026-05-02). No new role needed; AI-Pulse-specific permission keys add to existing catalog. |
 | Co-Champion deputy name | ✅ Resolved 2026-05-02: Ranjith (DTO JKKN, Ranjith@jkkn.ac.in) | — |
 | Meet API tier (webhook attendance) | Unknown | B.2 falls back to "Join Now" button-only attendance |
 | AI Pulse Champion identity | ✅ Krishnaveni (locked 2026-04-29) | — |
@@ -302,4 +303,4 @@ Every non-default substrate / policy / scope choice traces back here.
 
 ---
 
-*Spec authored via `/myjkkn-chain /sdd` + `/interview` 4-round pipeline on 2026-04-29. Next single move: Wave A.0 — lock Co-Champion deputy name, draft Class Rep roles-PR, pin `learners` FK column.*
+*Spec authored via `/myjkkn-chain /sdd` + `/interview` 4-round pipeline on 2026-04-29. Updated 2026-05-02: reuse existing `class_incharges` (Class Rep role NOT needed) + section_id substrate alignment. Next single move: pin `learners` FK column (10-min audit) — final Wave A.0 blocker.*
