@@ -1,3 +1,4 @@
+### Session 2026-05-02 (pane 25751d1a) — Cal.com self-host LIVE on Vercel jicate-booking.vercel.app; F1+F3 GREEN; env contamination caught+recovered; 5 lessons captured → .claude/sessions/25751d1a.md
 ## Session: 2026-04-28 (pane 937875b3) — Counselor rules-engine spec #537 100% shipped (11 PRs, 1 deploy, 1 critical post-deploy bug surfaced)
 
 ### Accomplished

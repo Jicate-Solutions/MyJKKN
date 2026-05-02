@@ -4,13 +4,13 @@
   "_schema": {
     "version": "2.0",
     "updated": "2026-05-02",
-    "rule": "Every new feature entry MUST include `outcome_metric` (named queryable metric + 90-day threshold + kill criterion). Features missing `outcome_metric` are invalid. The locked source of truth for outcome metrics is `~/Vaults/JKKNKB/Strategy/Locked-Initiatives.md` — features.json mirrors but does not override. See memory `feedback_outcome_metric_first.md` and `feedback_kill_criterion_forward_clauses_must_fire.md`.",
+    "rule": "Every new feature entry MUST include `outcome_metric` (named queryable metric + 90-day threshold + kill criterion). Features missing `outcome_metric` are invalid. The locked source of truth for outcome metrics is `~/Vaults/JKKNKB/Strategy/Locked-Initiatives.md` \u2014 features.json mirrors but does not override. See memory `feedback_outcome_metric_first.md` and `feedback_kill_criterion_forward_clauses_must_fire.md`.",
     "outcome_metric_fields": {
       "metric_name": "Queryable database column / dashboard chart / Supabase function output. Single number or yes/no on verdict-date. NOT 'improve X' or 'better Y'.",
       "baseline_value": "Current reading + timestamp of measurement",
       "threshold_90d": "Target value at verdict-date. Specific number.",
       "kill_criterion": "If threshold missed by X%, module is revised or formally archived.",
-      "verdict_date": "ISO date — verdict-date from Locked-Initiatives.md (registry is canonical)",
+      "verdict_date": "ISO date \u2014 verdict-date from Locked-Initiatives.md (registry is canonical)",
       "verdict_status": "PENDING | HIT | MISS-TOLERANCE | MISS-KILL | REVISED"
     },
     "enforcement": "Specs missing `outcome_metric` block are invalid. /myjkkn-chain Q0 enforces this gate at spec-time. Cross-domain commitments mirrored to ~/Vaults/JKKNKB/Strategy/Locked-Initiatives.md via /lock-initiative skill."
@@ -18,31 +18,31 @@
   "features": [
     {
       "id": "counselor-rules-engine-substrate",
-      "name": "Counselor rules-engine — Phases 1-8a shipped (verdict 2026-06-30)",
+      "name": "Counselor rules-engine \u2014 Phases 1-8a shipped (verdict 2026-06-30)",
       "status": "self-verified",
       "outcome_metric": {
         "metric_name": "Counselor attribution rate: count(admission_leads WHERE counselor_id IS NOT NULL) * 100 / count(admission_leads created_at > spec_lock_date 2026-04-27)",
         "baseline_value": "5.9% (audit reading 2026-04)",
-        "threshold_90d": "≥12% by 2026-06-30 (60-day verdict per LOCKED registry entry counselor-rules-engine-attribution-lock)",
+        "threshold_90d": "\u226512% by 2026-06-30 (60-day verdict per LOCKED registry entry counselor-rules-engine-attribution-lock)",
         "kill_criterion": "If <8% on 2026-06-30, revise routing engine v2 architecture before Phases 4-7 ship",
         "verdict_date": "2026-06-30",
-        "verdict_status": "PENDING (mid-window probe 2026-05-02 day 5/60: 31.47% — 4,568/14,514 — already 2.6× threshold, on track to HIT)"
+        "verdict_status": "PENDING (mid-window probe 2026-05-02 day 5/60: 31.47% \u2014 4,568/14,514 \u2014 already 2.6\u00d7 threshold, on track to HIT)"
       },
-      "notes": "Phases 1-8a all merged on jicate/main. PR list: #537 spec + #538 Phase 1 reassignment + #540 Phase 2 substrate (5 tables + 10 RLS + 2 perm keys) + Phase 3 routing engine v2 (20260428_routing_engine_v2_phase3.sql — fn_is_counselor_on_duty, fn_auto_assign_counselor_v2, fn_cascade_off_duty_counselors, fn_flush_queued_leads) + Phase 4 cron (app/api/cron/counselor-shift-flip/route.ts, 198 LOC) + Phase 5 Team UI 5 tabs (#567 Members + #568 Rules + activity/allocation/roster pages) + Phase 6 handover banner (#553) + Phase 7 seeds (20260428_phase7_counselor_seeds_and_source_alignment.sql) + Phase 8 duty log (#spec/counselor-phase8-duty-log) + Phase 8a rules-engine consumption (#569) + #570 dashboard staffing alert + #592 staffing thresholds → config + #629 routing-config rules. 20 decisions locked from 16-Q /assumption-thrash interview. Counselor counts post-reassignment: counselor=4 (admission cell), learner_counselor=9 (student peers), staff_counselor=1, health_counselor=1. Verdict pending 2026-06-30 (LOCKED in registry; do NOT drift verdict-date)."
+      "notes": "Phases 1-8a all merged on jicate/main. PR list: #537 spec + #538 Phase 1 reassignment + #540 Phase 2 substrate (5 tables + 10 RLS + 2 perm keys) + Phase 3 routing engine v2 (20260428_routing_engine_v2_phase3.sql \u2014 fn_is_counselor_on_duty, fn_auto_assign_counselor_v2, fn_cascade_off_duty_counselors, fn_flush_queued_leads) + Phase 4 cron (app/api/cron/counselor-shift-flip/route.ts, 198 LOC) + Phase 5 Team UI 5 tabs (#567 Members + #568 Rules + activity/allocation/roster pages) + Phase 6 handover banner (#553) + Phase 7 seeds (20260428_phase7_counselor_seeds_and_source_alignment.sql) + Phase 8 duty log (#spec/counselor-phase8-duty-log) + Phase 8a rules-engine consumption (#569) + #570 dashboard staffing alert + #592 staffing thresholds \u2192 config + #629 routing-config rules. 20 decisions locked from 16-Q /assumption-thrash interview. Counselor counts post-reassignment: counselor=4 (admission cell), learner_counselor=9 (student peers), staff_counselor=1, health_counselor=1. Verdict pending 2026-06-30 (LOCKED in registry; do NOT drift verdict-date)."
     },
     {
       "id": "admission-counselors-quickwins",
-      "name": "/admission/counselors quick-wins — 4 fixes shipped 2026-04-28 (verdict 2026-08-01)",
+      "name": "/admission/counselors quick-wins \u2014 4 fixes shipped 2026-04-28 (verdict 2026-08-01)",
       "status": "self-verified",
       "outcome_metric": {
         "metric_name": "Unassigned-leads ratio: count(admission_leads WHERE counselor_id IS NULL) * 100 / count(admission_leads) %",
         "baseline_value": "89% unassigned (audit reading 2026-04)",
         "threshold_90d": "<30% by 2026-08-01 (90-day verdict per LOCKED registry entry admission-counselors-quickwins)",
-        "kill_criterion": "If >50% on 2026-08-01, backfill mechanism is broken — investigate before scaling banner UX to other modules. Successor lock should change the mechanism, not extend the timeline.",
+        "kill_criterion": "If >50% on 2026-08-01, backfill mechanism is broken \u2014 investigate before scaling banner UX to other modules. Successor lock should change the mechanism, not extend the timeline.",
         "verdict_date": "2026-08-01",
-        "verdict_status": "PENDING (mid-window probe 2026-05-02 day 5/91: 65.46% — 10,224/15,618 — improved 24pts from baseline but still in MISS-KILL territory; backfill needs to drop another 35.5 percentage points to clear threshold)"
+        "verdict_status": "PENDING (mid-window probe 2026-05-02 day 5/91: 65.46% \u2014 10,224/15,618 \u2014 improved 24pts from baseline but still in MISS-KILL territory; backfill needs to drop another 35.5 percentage points to clear threshold)"
       },
-      "notes": "All 4 quick-wins merged 2026-04-28: (A) unassigned-leads banner #544, (B) counselor_id backfill 20260427_backfill_counselor_id_via_lead_assignment.sql, (C) limited-attribution caveat #547, (D) today's briefing status panel #546. Plus #570 counselor staffing alert widget on /dashboard. Audit 2026-04 revealed 89% leads unassigned, 5.9% call attribution, 25% briefing adoption — quick-wins designed to drive unassigned ratio toward <30% threshold. Day-5 probe: 65.46% (improved 24pts but trajectory needs to continue 35.5pts more in 86 days to HIT). Verdict pending 2026-08-01."
+      "notes": "All 4 quick-wins merged 2026-04-28: (A) unassigned-leads banner #544, (B) counselor_id backfill 20260427_backfill_counselor_id_via_lead_assignment.sql, (C) limited-attribution caveat #547, (D) today's briefing status panel #546. Plus #570 counselor staffing alert widget on /dashboard. Audit 2026-04 revealed 89% leads unassigned, 5.9% call attribution, 25% briefing adoption \u2014 quick-wins designed to drive unassigned ratio toward <30% threshold. Day-5 probe: 65.46% (improved 24pts but trajectory needs to continue 35.5pts more in 86 days to HIT). Verdict pending 2026-08-01."
     },
     {
       "id": "hr-sprint-1-foundation",
