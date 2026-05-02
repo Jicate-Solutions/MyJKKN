@@ -78,6 +78,10 @@
     {
       "path": "/api/cron/duty-log-retention?secret=${CRON_SECRET}",
       "schedule": "0 3 * * 0"
+    },
+    {
+      "path": "/api/cron/prospect-reminders?secret=${CRON_SECRET}",
+      "schedule": "23 8 * * *"
     }
   ]
 }
