@@ -68,11 +68,11 @@ export default async function MeetingsInboxPage({ searchParams }: InboxPageProps
 
   const supabase = await createClient();
 
+  // Use select('*') so Supabase returns the fully typed Row.
+  // Long select strings degrade to GenericStringError on the typed client.
   let query = supabase
     .from('jicate_booking_mirror')
-    .select(
-      'id, cal_booking_uid, status, start_time, end_time, timezone, attendee_email, attendee_name, host_email, host_name, webhook_event',
-    )
+    .select('*')
     .order('start_time', { ascending: filterKey === 'upcoming' });
 
   if (filter.match) {

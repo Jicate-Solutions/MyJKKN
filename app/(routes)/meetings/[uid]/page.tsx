@@ -65,13 +65,11 @@ export default async function MeetingDetailPage({ params }: DetailPageProps) {
   const { uid } = await params;
   const supabase = await createClient();
 
+  // Use select('*') so Supabase returns the fully typed Row.
+  // Long select strings degrade to GenericStringError on the typed client.
   const { data: booking, error } = await supabase
     .from('jicate_booking_mirror')
-    .select(
-      'id, cal_booking_uid, cal_booking_id, status, start_time, end_time, timezone, ' +
-        'host_email, host_name, attendee_email, attendee_name, attendee_phone, ' +
-        'cancellation_reason, reschedule_uid, webhook_event, webhook_received_at, created_at',
-    )
+    .select('*')
     .eq('cal_booking_uid', uid)
     .maybeSingle();
 
