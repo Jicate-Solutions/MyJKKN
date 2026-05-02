@@ -145,6 +145,13 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // Profile
   '/profile': 'view_profile', // All users should be able to view their own profile
 
+  // My Meetings (jicate-booking host inbox)
+  // Page does NO role gating — RLS at row level filters by host_user_id.
+  // Use view_profile (universal authenticated key) so any logged-in user
+  // sees the chip; users with zero mirror rows simply hit the empty state.
+  // Replaces the temporary NAV_EXCLUDE bypass added in PR #654.
+  '/meetings/inbox': 'view_profile',
+
   // Bug Reports (Student Self-Service)
   '/my-bug-reports': 'learners.bug_reports.view',
   '/bug-leaderboard': 'learners.bug_reports.view',
@@ -915,6 +922,19 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'AI Assistant',
           active: pathname === '/ai-query',
           icon: Sparkles,
+          submenus: []
+        },
+        {
+          // jicate-booking host inbox — replaces temporary NAV_EXCLUDE bypass
+          // from PR #654. Permission: view_profile (universal authenticated
+          // key). Page-level access is RLS-gated by host_user_id, so any
+          // logged-in user can see the chip; users with no mirror rows hit
+          // the empty state. Source-of-truth for bookings remains Cal.com /
+          // jicate-booking; this is a read-only mirror inbox.
+          href: '/meetings/inbox',
+          label: 'My Meetings',
+          active: pathname === '/meetings/inbox' || pathname.startsWith('/meetings/'),
+          icon: CalendarClock,
           submenus: []
         }
       ]

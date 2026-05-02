@@ -87,10 +87,6 @@ const NAV_EXCLUDE = new Set<string>([
   '/startup-studio',
   '/okr/admin',
 
-  // jicate-booking host inbox — reached via notification email deep-links
-  // until proper sidebar wiring lands in a follow-up jicate-booking PR.
-  '/meetings/inbox',
-
   // ────────────────────────────────────────────────────────────
   // Form pages invoked from list-page "+ New" / "Add" / "Create"
   // buttons. Not tier-strip destinations — the user clicks a row
