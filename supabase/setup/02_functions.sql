@@ -12134,16 +12134,22 @@ STABLE
 SECURITY DEFINER
 SET search_path = public
 AS $$
+  -- Updated 2026-05-02 (Phase C-6):
+  --   * 'account' added to filled bucket (matches Summary + Daily Pivot tabs).
+  --   * lp.admission_year integer OR-fallback dropped (Phase A backfilled FK).
+  --   * ay.is_active filter only applies in all-time mode; explicit cohort year
+  --     queries return historical (now-inactive) cohorts too.
+  --   * role_has_institution_access(i.id) now filters the outer SELECT.
   WITH ay_scope AS (
-    SELECT id, ay.institution_id, program_id, program_start_year, sanctioned_intake
+    SELECT ay.id, ay.institution_id, ay.program_id, ay.program_start_year, ay.sanctioned_intake
     FROM admission_years ay
-    WHERE ay.is_active = true
-      AND ay.institution_id = ANY(p_institution_ids)
+    WHERE ay.institution_id = ANY(p_institution_ids)
       AND (
             (p_admission_year_id IS NOT NULL AND ay.id = p_admission_year_id)
          OR (p_admission_year_id IS NULL AND p_program_start_year IS NOT NULL
              AND ay.program_start_year = p_program_start_year)
-         OR (p_admission_year_id IS NULL AND p_program_start_year IS NULL)
+         OR (p_admission_year_id IS NULL AND p_program_start_year IS NULL
+             AND ay.is_active = true)
           )
   ),
   lead_counts AS (
@@ -12158,9 +12164,7 @@ AS $$
             (p_admission_year_id IS NOT NULL
              AND al.admission_year_id = p_admission_year_id)
          OR (p_admission_year_id IS NULL AND p_program_start_year IS NOT NULL
-             AND ( al.admission_year_id IN (SELECT id FROM ay_scope)
-                OR (al.admission_year_id IS NULL
-                    AND EXTRACT(year FROM al.created_at)::int = p_program_start_year) ))
+             AND al.admission_year_id IN (SELECT id FROM ay_scope))
          OR (p_admission_year_id IS NULL AND p_program_start_year IS NULL)
           )
     GROUP BY al.institution_id
@@ -12171,7 +12175,7 @@ AS $$
       COUNT(*) FILTER (WHERE lp.lifecycle_status::text IN ('admitted','pending','approved','account','waitlisted')) AS applied,
       COUNT(*) FILTER (WHERE lp.lifecycle_status::text = 'active')   AS active,
       COUNT(*) FILTER (WHERE lp.lifecycle_status::text = 'rejected') AS rejected,
-      COUNT(*) FILTER (WHERE lp.lifecycle_status::text IN ('admitted','active','graduated')) AS filled
+      COUNT(*) FILTER (WHERE lp.lifecycle_status::text IN ('admitted','active','graduated','account')) AS filled
     FROM learners_profiles lp
     WHERE lp.institution_id IS NOT NULL
       AND lp.institution_id = ANY(p_institution_ids)
@@ -12179,9 +12183,7 @@ AS $$
             (p_admission_year_id IS NOT NULL
              AND lp.admission_year_id = p_admission_year_id)
          OR (p_admission_year_id IS NULL AND p_program_start_year IS NOT NULL
-             AND ( lp.admission_year_id IN (SELECT id FROM ay_scope)
-                OR (lp.admission_year_id IS NULL
-                    AND lp.admission_year = p_program_start_year) ))
+             AND lp.admission_year_id IN (SELECT id FROM ay_scope))
          OR (p_admission_year_id IS NULL AND p_program_start_year IS NULL)
           )
     GROUP BY lp.institution_id
@@ -12210,6 +12212,7 @@ AS $$
   LEFT JOIN learner_counts lpc ON lpc.institution_id = i.id
   LEFT JOIN seat_totals    st  ON st.institution_id  = i.id
   WHERE i.id = ANY(p_institution_ids)
+    AND role_has_institution_access(i.id)
   ORDER BY i.name;
 $$;
 
