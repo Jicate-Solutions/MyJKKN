@@ -161,7 +161,15 @@ function exportPivotToXlsx(
 }
 
 export function SeatAnalyticsDashboard({ institutionIds, programStartYear }: SeatAnalyticsDashboardProps) {
-  const { data: rows = [], isLoading, isError } = useSeatAnalytics(undefined);
+  // 2026-05-02: Summary cards now scope by selected admission year, matching
+  // the Daily Pivot tab. Previously useSeatAnalytics(undefined) aggregated all
+  // active cohorts, causing year-mismatched counts when multiple years are
+  // active. Single-institution scoping still resolved server-side via RLS.
+  const singleInstitutionId = institutionIds?.length === 1 ? institutionIds[0] : undefined;
+  const { data: rows = [], isLoading, isError } = useSeatAnalytics(
+    singleInstitutionId,
+    programStartYear
+  );
   const {
     data: pivotRows = [],
     isLoading: pivotLoading,

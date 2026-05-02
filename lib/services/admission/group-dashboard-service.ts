@@ -122,11 +122,19 @@ export class GroupDashboardService {
     return { institutions: rows, totals };
   }
 
+  /**
+   * Seat fill stats per cohort. Backed by get_seat_analytics RPC.
+   *
+   * @param institutionId    optional institution filter; null = all-accessible
+   * @param programStartYear optional cohort year (e.g. 2026); null = active cohorts only
+   */
   static async getSeatAnalytics(
-    institutionId?: string
+    institutionId?: string,
+    programStartYear?: number | null
   ): Promise<SeatAnalyticsRow[]> {
     const { data, error } = await (this.supabase as any).rpc('get_seat_analytics', {
       p_institution_id: institutionId ?? null,
+      p_program_start_year: programStartYear ?? null,
     });
     if (error) {
       console.error('[admission/group] get_seat_analytics failed:', error);

@@ -8063,14 +8063,18 @@ GRANT EXECUTE ON FUNCTION public.transfer_learner_enquiry(
 -- ============================================================================
 
 -- RPC A: Seat fill stats per institution → degree → department → program → admission year
--- Updated: 2026-04-24 - Switched from academic_years to admission_years (per-institution-per-program
---   cohort table). Filled count now includes 'admitted', 'active', and 'graduated' statuses.
---   Dual-join strategy: prefers admission_year_id FK; falls back to integer year match for
---   learners where admission_year_id is still NULL (pre-backfill rows).
+-- Updated 2026-05-02 (Phase C): Added p_program_start_year param so the Group
+--   Dashboard's Summary cards can scope by selected admission year. Dropped
+--   the OR-fallback on lp.admission_year integer — Phase A 2026-05-02 backfill
+--   ensured every linkable learner has admission_year_id populated, so the FK
+--   alone is sufficient. When p_program_start_year is set, the is_active=true
+--   filter is bypassed so historical (now-inactive) cohorts remain queryable.
+DROP FUNCTION IF EXISTS public.get_seat_analytics(uuid);
 DROP FUNCTION IF EXISTS public.get_seat_analytics(uuid, uuid);
 
 CREATE OR REPLACE FUNCTION public.get_seat_analytics(
-  p_institution_id uuid DEFAULT NULL
+  p_institution_id     uuid    DEFAULT NULL,
+  p_program_start_year integer DEFAULT NULL
 )
 RETURNS TABLE (
   institution_id      uuid,
@@ -8124,17 +8128,13 @@ AS $$
   JOIN degrees d        ON d.id    = p.degree_id
   JOIN institutions i   ON i.id    = ay.institution_id
   LEFT JOIN learners_profiles lp
-    ON (
-      lp.admission_year_id = ay.id
-      OR (
-        lp.admission_year_id IS NULL
-        AND lp.program_id     = ay.program_id
-        AND lp.institution_id = ay.institution_id
-        AND lp.admission_year = ay.program_start_year
-      )
-    )
+    ON  lp.admission_year_id = ay.id
     AND lp.lifecycle_status IN ('admitted', 'active', 'graduated')
-  WHERE ay.is_active = true
+  WHERE
+    (
+      (p_program_start_year IS NULL     AND ay.is_active = true)
+      OR (p_program_start_year IS NOT NULL AND ay.program_start_year = p_program_start_year)
+    )
     AND (p_institution_id IS NULL OR ay.institution_id = p_institution_id)
   GROUP BY
     i.id, i.name,
@@ -8145,7 +8145,7 @@ AS $$
   ORDER BY i.name, d.degree_name, dept.department_name, p.program_name, ay.program_start_year DESC;
 $$;
 
-GRANT EXECUTE ON FUNCTION public.get_seat_analytics(uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.get_seat_analytics(uuid, integer) TO authenticated;
 
 -- RPC B: Source/referral breakdown (consultant/direct/student/faculty) by institution
 CREATE OR REPLACE FUNCTION public.get_source_analytics(

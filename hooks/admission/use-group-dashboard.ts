@@ -15,8 +15,13 @@ export const groupDashboardKeys = {
       admissionYearId ?? 'no-ay',
       programStartYear ?? 'no-year',
     ] as const,
-  seatAnalytics: (institutionId?: string) =>
-    [...groupDashboardKeys.all, 'seats', institutionId ?? 'all'] as const,
+  seatAnalytics: (institutionId?: string, programStartYear?: number | null) =>
+    [
+      ...groupDashboardKeys.all,
+      'seats',
+      institutionId ?? 'all',
+      programStartYear ?? 'no-year',
+    ] as const,
   seatDailyPivot: (institutionIds?: string[], admissionYear?: number, excludeBulkMigrated?: boolean) =>
     [
       ...groupDashboardKeys.all,
@@ -91,13 +96,21 @@ export function useGroupDashboard(
   });
 }
 
-export function useSeatAnalytics(institutionId?: string) {
+export function useSeatAnalytics(
+  institutionId?: string,
+  programStartYear?: number | null
+) {
   useSeatsRealtimeInvalidation();
   return useQuery({
-    queryKey: groupDashboardKeys.seatAnalytics(institutionId),
-    queryFn: () => GroupDashboardService.getSeatAnalytics(institutionId),
+    queryKey: groupDashboardKeys.seatAnalytics(institutionId, programStartYear),
+    queryFn: () => GroupDashboardService.getSeatAnalytics(institutionId, programStartYear),
     staleTime: 30_000,
     refetchOnWindowFocus: false,
+    // Wait until a year is selected if it's expected to be set; allow null/undefined
+    // for the "active-only default" path.
+    enabled: programStartYear === undefined || programStartYear === null
+      ? true
+      : Number.isFinite(programStartYear),
   });
 }
 
