@@ -12455,6 +12455,10 @@ STABLE
 SECURITY DEFINER
 SET search_path = public
 AS $$
+  -- Updated 2026-05-02 (Phase C-7): drop OR-fallback on lp.admission_year
+  -- integer and on EXTRACT(year FROM al.created_at). Phase A backfilled the
+  -- FK on both admission_leads and learners_profiles. Drop is_active=true
+  -- from cohort_ay_ids so historical cohorts are queryable.
   WITH eligible_institutions AS (
     SELECT id FROM institutions
     WHERE id = ANY(p_institution_ids) AND role_has_institution_access(id)
@@ -12463,7 +12467,6 @@ AS $$
     SELECT id FROM admission_years
     WHERE p_admission_year IS NOT NULL
       AND program_start_year = p_admission_year
-      AND is_active = true
   ),
   scoped_leads AS (
     SELECT
@@ -12474,12 +12477,7 @@ AS $$
       al.learner_profile_id
     FROM admission_leads al
     WHERE al.institution_id IN (SELECT id FROM eligible_institutions)
-      AND (
-        p_admission_year IS NULL
-        OR al.admission_year_id IN (SELECT id FROM cohort_ay_ids)
-        OR (al.admission_year_id IS NULL
-            AND EXTRACT(year FROM al.created_at)::int = p_admission_year)
-      )
+      AND (p_admission_year IS NULL OR al.admission_year_id IN (SELECT id FROM cohort_ay_ids))
   ),
   per_lead_status AS (
     SELECT
@@ -12490,8 +12488,8 @@ AS $$
     LEFT JOIN learners_profiles lp ON lp.id = sl.learner_profile_id
     WHERE sl.learner_profile_id IS NULL
        OR p_admission_year IS NULL
-       OR lp.admission_year = p_admission_year
-       OR lp.admission_year IS NULL
+       OR lp.admission_year_id IN (SELECT id FROM cohort_ay_ids)
+       OR lp.admission_year_id IS NULL
   )
   SELECT
     pls.institution_id,
@@ -12540,9 +12538,16 @@ STABLE
 SECURITY DEFINER
 SET search_path = public
 AS $$
+  -- Updated 2026-05-02 (Phase C-7): switched lp.admission_year integer match
+  -- to admission_year_id FK; allows historical cohorts (Phase A is_active=false)
+  -- to be queried by explicit year.
   WITH eligible_institutions AS (
     SELECT id FROM institutions
     WHERE id = ANY(p_institution_ids) AND role_has_institution_access(id)
+  ),
+  cohort_ay_ids AS (
+    SELECT id FROM admission_years
+    WHERE p_admission_year IS NOT NULL AND program_start_year = p_admission_year
   ),
   normalized AS (
     SELECT
@@ -12557,7 +12562,7 @@ AS $$
       AND lp.lifecycle_status::text IN ('admitted','active','graduated')
       AND lp.permanent_address_district IS NOT NULL
       AND TRIM(lp.permanent_address_district) <> ''
-      AND (p_admission_year IS NULL OR lp.admission_year = p_admission_year)
+      AND (p_admission_year IS NULL OR lp.admission_year_id IN (SELECT id FROM cohort_ay_ids))
   )
   SELECT
     n.institution_id,
@@ -12606,6 +12611,12 @@ STABLE
 SECURITY DEFINER
 SET search_path = public
 AS $$
+  -- Updated 2026-05-02 (Phase C-7):
+  --   * Drop is_active=true from cohort_ay_ids and seat_totals so historical
+  --     cohorts (Phase A is_active=false) are queryable by explicit year.
+  --   * Drop OR-fallback on lp.admission_year integer and on EXTRACT(year FROM
+  --     al.created_at) — Phase A backfilled the FK.
+  --   * Add 'account' to the filled bucket (matches Summary tab); active stays.
   WITH eligible_institutions AS (
     SELECT id FROM institutions
     WHERE id = ANY(p_institution_ids) AND role_has_institution_access(id)
@@ -12614,37 +12625,33 @@ AS $$
     SELECT id FROM admission_years
     WHERE p_admission_year IS NOT NULL
       AND program_start_year = p_admission_year
-      AND is_active = true
   ),
   seat_totals AS (
     SELECT ay.institution_id, SUM(ay.sanctioned_intake)::int AS total_seats
     FROM admission_years ay
-    WHERE ay.is_active = true
-      AND ay.institution_id IN (SELECT id FROM eligible_institutions)
-      AND (p_admission_year IS NULL OR ay.program_start_year = p_admission_year)
+    WHERE ay.institution_id IN (SELECT id FROM eligible_institutions)
+      AND (
+        (p_admission_year IS NULL AND ay.is_active = true)
+        OR (p_admission_year IS NOT NULL AND ay.program_start_year = p_admission_year)
+      )
     GROUP BY ay.institution_id
   ),
   learner_aggs AS (
     SELECT
       lp.institution_id,
-      COUNT(*) FILTER (WHERE lp.lifecycle_status::text IN ('admitted','active','graduated'))::int AS filled,
+      COUNT(*) FILTER (WHERE lp.lifecycle_status::text IN ('admitted','active','graduated','account'))::int AS filled,
       COUNT(*) FILTER (WHERE lp.lifecycle_status::text = 'active')::int AS active
     FROM learners_profiles lp
     WHERE lp.institution_id IS NOT NULL
       AND lp.institution_id IN (SELECT id FROM eligible_institutions)
-      AND (p_admission_year IS NULL OR lp.admission_year = p_admission_year)
+      AND (p_admission_year IS NULL OR lp.admission_year_id IN (SELECT id FROM cohort_ay_ids))
     GROUP BY lp.institution_id
   ),
   lead_aggs AS (
     SELECT al.institution_id, COUNT(*)::int AS total
     FROM admission_leads al
     WHERE al.institution_id IN (SELECT id FROM eligible_institutions)
-      AND (
-        p_admission_year IS NULL
-        OR al.admission_year_id IN (SELECT id FROM cohort_ay_ids)
-        OR (al.admission_year_id IS NULL
-            AND EXTRACT(year FROM al.created_at)::int = p_admission_year)
-      )
+      AND (p_admission_year IS NULL OR al.admission_year_id IN (SELECT id FROM cohort_ay_ids))
     GROUP BY al.institution_id
   ),
   source_ranks AS (
@@ -12654,12 +12661,7 @@ AS $$
     FROM admission_leads al
     WHERE al.institution_id IN (SELECT id FROM eligible_institutions)
       AND al.source IS NOT NULL
-      AND (
-        p_admission_year IS NULL
-        OR al.admission_year_id IN (SELECT id FROM cohort_ay_ids)
-        OR (al.admission_year_id IS NULL
-            AND EXTRACT(year FROM al.created_at)::int = p_admission_year)
-      )
+      AND (p_admission_year IS NULL OR al.admission_year_id IN (SELECT id FROM cohort_ay_ids))
     GROUP BY al.institution_id, al.source
   ),
   district_ranks AS (
@@ -12672,10 +12674,10 @@ AS $$
     FROM learners_profiles lp
     WHERE lp.institution_id IS NOT NULL
       AND lp.institution_id IN (SELECT id FROM eligible_institutions)
-      AND lp.lifecycle_status::text IN ('admitted','active','graduated')
+      AND lp.lifecycle_status::text IN ('admitted','active','graduated','account')
       AND lp.permanent_address_district IS NOT NULL
       AND TRIM(lp.permanent_address_district) <> ''
-      AND (p_admission_year IS NULL OR lp.admission_year = p_admission_year)
+      AND (p_admission_year IS NULL OR lp.admission_year_id IN (SELECT id FROM cohort_ay_ids))
     GROUP BY lp.institution_id, INITCAP(TRIM(REGEXP_REPLACE(lp.permanent_address_district, '\s+', ' ', 'g')))
   )
   SELECT
