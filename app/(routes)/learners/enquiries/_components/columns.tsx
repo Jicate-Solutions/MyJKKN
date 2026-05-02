@@ -129,11 +129,12 @@ export const enquiryColumns: ColumnDef<LearnerProfile>[] = [
     size: 180,
   },
   {
-    // Added 2026-04-23 — admission cohort column. Renders rich label via
-    // formatAdmissionYear helper (FK→name+year range) with fallback to the
-    // legacy integer. Sortable on admission_year integer; filterable by FK id.
+    // Admission cohort column. Renders rich label via formatAdmissionYear
+    // helper. Sort uses program_start_year from the FK join so the column stays
+    // meaningful after Phase D drops the legacy admission_year integer column.
     id: 'admission_year',
-    accessorFn: (row) => row.admission_year_id ?? row.admission_year ?? null,
+    accessorFn: (row) =>
+      (row as any).admission_year_obj?.program_start_year ?? row.admission_year ?? null,
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Admission Year" />
     ),
