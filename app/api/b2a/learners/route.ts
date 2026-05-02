@@ -40,6 +40,7 @@ type LearnerRow = {
   student_email: string;
   is_profile_complete: boolean;
   admission_year: number | null;
+  admission_year_id: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -106,7 +107,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         'id, application_id, lifecycle_status, first_name, last_name, gender, ' +
         'institution_id, degree_id, department_id, program_id, semester_id, section_id, ' +
         'academic_year_id, batch_id, roll_number, register_number, college_email, ' +
-        'student_email, is_profile_complete, admission_year, created_at, updated_at',
+        'student_email, is_profile_complete, admission_year_id, ' +
+        'admission_year_obj:admission_years!admission_year_id(program_start_year), ' +
+        'created_at, updated_at',
         { count: 'exact' }
       );
 
@@ -139,7 +142,17 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         { status: 500 }
       );
     } else {
-      items = (data ?? []) as unknown as LearnerRow[]; // required: Supabase infers GenericStringError[] with multiple chained .eq() calls
+      // Derive legacy admission_year integer from FK join for back-compat.
+      // External consumers still expect this field on the response shape.
+      items = ((data ?? []) as unknown as Array<Record<string, any>>).map((row) => ({
+        ...row,
+        admission_year:
+          row.admission_year_obj?.program_start_year ?? null,
+      })) as LearnerRow[];
+      // Strip the join helper from the response shape.
+      for (const r of items as Array<Record<string, any>>) {
+        delete r.admission_year_obj;
+      }
       total = count ?? 0;
     }
   } catch {

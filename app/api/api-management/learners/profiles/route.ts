@@ -84,7 +84,10 @@ export async function GET(request: NextRequest) {
     const quota = url.searchParams.get('quota');
     const expand = url.searchParams.get('expand');
 
-    // Build query - select all fields except migration fields
+    // Build query - select all fields except migration fields.
+    // 2026-05-02 (Phase C-8): replaced legacy admission_year integer with the
+    // FK + program_start_year join. Response derives the integer at serialize
+    // time so external consumers see no shape change.
     const selectFields = `
       id, application_id, lifecycle_status, first_name, last_name, date_of_birth,
       gender, religion, community, caste, father_name, father_occupation, father_mobile,
@@ -98,7 +101,9 @@ export async function GET(request: NextRequest) {
       institution_id, degree_id, department_id, program_id, semester_id, section_id,
       academic_year_id, regulation_id, batch_id, roll_number, register_number,
       college_email, student_photo_url, is_profile_complete, created_at, updated_at,
-      created_by, updated_by, aadhar_number, enquiry_date, blood_group, admission_year
+      created_by, updated_by, aadhar_number, enquiry_date, blood_group,
+      admission_year_id,
+      admission_year_obj:admission_years!admission_year_id(program_start_year)
     `.trim();
 
     let query = (supabase as any).from('learners_profiles').select(
@@ -128,7 +133,20 @@ export async function GET(request: NextRequest) {
     }
 
     if (admissionYear) {
-      query = query.eq('admission_year', parseInt(admissionYear));
+      // 2026-05-02 (Phase C-8): translate ?admission_year=INT into FK filter.
+      // Resolve the year to admission_years.id values then filter learners by FK.
+      const yearInt = parseInt(admissionYear);
+      const { data: ayRows } = await (supabase as any)
+        .from('admission_years')
+        .select('id')
+        .eq('program_start_year', yearInt);
+      const ayIds = (ayRows ?? []).map((r: any) => r.id);
+      if (ayIds.length === 0) {
+        // No admission_years rows for that year — short-circuit to empty result.
+        query = query.eq('admission_year_id', '00000000-0000-0000-0000-000000000000');
+      } else {
+        query = query.in('admission_year_id', ayIds);
+      }
     }
 
     if (gender) {
@@ -145,9 +163,20 @@ export async function GET(request: NextRequest) {
     query = query.range(from, to).order('created_at', { ascending: false });
 
     // Execute query
-    const { data: learners, error, count } = await query;
+    const { data: learnersRaw, error, count } = await query;
 
     if (error) throw error;
+
+    // 2026-05-02 (Phase C-8): Derive legacy admission_year integer from the FK
+    // join for back-compat. Strip the join helper from the response shape.
+    const learners = (learnersRaw ?? []).map((row: any) => {
+      const ayObj = row.admission_year_obj as { program_start_year?: number } | null;
+      const { admission_year_obj: _, ...rest } = row;
+      return {
+        ...rest,
+        admission_year: ayObj?.program_start_year ?? null,
+      };
+    });
 
     // Expand related data if requested
     let expandedData = learners;

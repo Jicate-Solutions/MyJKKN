@@ -441,6 +441,9 @@ export class BulkLearnerEditService {
     });
 
     // Build base query
+    // 2026-05-02 (Phase C-8): added admission_year_obj join so the Excel
+    // export can derive the legacy integer from the FK once Phase D drops the
+    // admission_year column.
     const buildQuery = () => {
       let query = supabaseAdmin
         .from('learners_profiles')
@@ -454,7 +457,8 @@ export class BulkLearnerEditService {
           section:sections(id, section_name),
           academic_year:academic_years(id, academic_year_name),
           regulation:regulations(id, regulation_year, regulation_code),
-          batch:batches(id, batch_name)
+          batch:batches(id, batch_name),
+          admission_year_obj:admission_years!admission_year_id(program_start_year)
         `)
         .eq('lifecycle_status', 'active');
 

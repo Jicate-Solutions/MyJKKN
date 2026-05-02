@@ -92,21 +92,31 @@ export async function GET(
       institution_id, degree_id, department_id, program_id, semester_id, section_id,
       academic_year_id, regulation_id, batch_id, roll_number, register_number,
       college_email, student_photo_url, is_profile_complete, created_at, updated_at,
-      created_by, updated_by, aadhar_number, enquiry_date, blood_group, admission_year
+      created_by, updated_by, aadhar_number, enquiry_date, blood_group,
+      admission_year_id,
+      admission_year_obj:admission_years!admission_year_id(program_start_year)
     `.trim();
 
-    const { data: learner, error } = await supabase
+    const { data: learnerRaw, error } = await supabase
       .from('learners_profiles')
       .select(selectFields)
       .eq('id', id)
       .single();
 
-    if (error || !learner) {
+    if (error || !learnerRaw) {
       return NextResponse.json(
         { error: 'Learner profile not found' },
         { status: 404, headers: corsHeaders }
       );
     }
+
+    // 2026-05-02 (Phase C-8): Derive legacy admission_year integer from FK join.
+    const ayObj = (learnerRaw as any).admission_year_obj as { program_start_year?: number } | null;
+    const { admission_year_obj: _ay, ...learnerRest } = learnerRaw as any;
+    const learner = {
+      ...learnerRest,
+      admission_year: ayObj?.program_start_year ?? null,
+    };
 
     // Expand related data if requested
     let expandedData: any = learner;
