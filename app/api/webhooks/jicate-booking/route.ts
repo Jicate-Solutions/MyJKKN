@@ -139,7 +139,11 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const payload: CalWebhookPayload = parsed.data;
+  // Zod ^3.25 infers some optional()/nullable() shapes that don't structurally
+  // match our hand-written CalWebhookPayload interface verbatim — but the
+  // service treats undefined/missing fields the same as nullable, so a typed
+  // cast at this validated boundary is safe.
+  const payload = parsed.data as CalWebhookPayload;
 
   // 5. Ingest.
   try {
