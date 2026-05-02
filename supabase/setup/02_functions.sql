@@ -8136,6 +8136,7 @@ AS $$
       OR (p_program_start_year IS NOT NULL AND ay.program_start_year = p_program_start_year)
     )
     AND (p_institution_id IS NULL OR ay.institution_id = p_institution_id)
+    AND role_has_institution_access(ay.institution_id)
   GROUP BY
     i.id, i.name,
     d.id, d.degree_name,
