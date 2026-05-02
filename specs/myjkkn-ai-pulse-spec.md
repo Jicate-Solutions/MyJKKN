@@ -25,7 +25,7 @@ Verdict-date: 90 days post Wave A.1 merge. Director runs the verdict; if missed,
 | Field | Value |
 |---|---|
 | Brand | **AI Pulse** (institutional brand) |
-| Implementation | **Recurring weekly events with `event_type='ai_pulse'`** — extends existing events module, not a parallel substrate |
+| Implementation | **Recurring weekly rows in `startup_events` with `config.kind='ai_pulse'`** discriminator — extends existing events module, not a parallel substrate. Locked 2026-05-02 (OQ-1 resolution). |
 | User-facing route prefix | `/ai-pulse/*` (composes existing event components with AI-Pulse filter) |
 | Permission namespace | `aiPulse:*` (NEW keys only — most behaviors inherit from existing event permissions) |
 
@@ -37,7 +37,7 @@ Verdict-date: 90 days post Wave A.1 merge. Director runs the verdict; if missed,
 
 **In scope (Wave A–B, 3 weeks vs prior 5 weeks):**
 
-- Live unified Thursday session (6:55–7:30 PM IST) modeled as `event_type='ai_pulse'` + `events.config` JSONB.
+- Live unified Thursday session (6:55–7:30 PM IST) modeled as a `startup_events` row with `config.kind='ai_pulse'` discriminator + per-cycle settings in same JSONB.
 - 5-phase Pulse-to-Practice cycle reuses existing event lifecycle (`draft → planning → execution → live → post_event → archived`).
 - Class Incharge attendance marking via existing `event_team_attendance` (extend `day_type` enum to include `'live_session'`).
 - Lab Presentation Monday → existing `event_demo_slots`.
@@ -98,13 +98,16 @@ Verdict-date: 90 days post Wave A.1 merge. Director runs the verdict; if missed,
 | `ai_pulse_anomaly_flags` | Algorithmic flag log (Q11) | Generalized anomaly-detection pattern doesn't exist in events module. Genuinely new. |
 | `ai_pulse_featured_tools` | Vendor-agnostic tool master (Q15) | Could be JSONB on `events.config` but a master table allows institution-scoped CRUD per Q1 rule. |
 
-### 4.3 Column / constraint changes (~3 changes total)
+### 4.3 Column / constraint changes (audit-corrected 2026-05-02)
+
+**Schema audit finding:** `startup_events` does NOT have an `event_type` column (verified 2026-05-02 via `awk` on `01_tables.sql`). Use `config.kind = 'ai_pulse'` JSONB discriminator instead — zero schema change to `startup_events`.
 
 ```sql
--- Add 'ai_pulse' to allowed event types
-ALTER TABLE startup_events DROP CONSTRAINT IF EXISTS startup_events_event_type_check;
-ALTER TABLE startup_events ADD CONSTRAINT startup_events_event_type_check
-  CHECK (event_type IN ('marathon', 'cultural_fest', 'seminar', 'workshop', 'sports_day', 'conference', 'ai_pulse'));
+-- NO ALTER on startup_events. Discriminator lives in config JSONB:
+--   INSERT INTO startup_events (name, config, ...) VALUES (
+--     'AI Pulse Cycle 2026-05-08', '{"kind":"ai_pulse", ...}'::jsonb, ...
+--   );
+-- Service-layer query: WHERE config->>'kind' = 'ai_pulse'
 
 -- Extend attendance day_type to support live sessions + async make-up
 ALTER TABLE event_team_attendance DROP CONSTRAINT IF EXISTS event_team_attendance_day_type_check;
@@ -116,7 +119,7 @@ ALTER TABLE event_team_attendance ADD COLUMN IF NOT EXISTS engagement_signals JS
 -- Shape: {joined_within_5min: true, polls_responded: 4, stayed_until: '19:28', quiz_score: 65}
 ```
 
-That's the entire schema delta: **3 new tables + 1 new column + 2 ENUM extensions**. v2 proposed 15 new tables.
+That's the entire schema delta: **3 new tables + 1 new column + 1 ENUM extension** (audit corrected — no `startup_events` schema change needed). v2 proposed 15 new tables.
 
 ### 4.4 `events.config` JSONB usage for AI Pulse cycles
 
@@ -147,7 +150,7 @@ Mirrors existing pattern where `events.config` already holds event-type-specific
 
 | Surface | Implementation | Existing reuse |
 |---|---|---|
-| **My Pulse** (Learner) | `/ai-pulse/page.tsx` | New thin component over registrations filtered to `event_type='ai_pulse'` |
+| **My Pulse** (Learner) | `/ai-pulse/page.tsx` | New thin component over registrations filtered to `startup_events.config->>'kind' = 'ai_pulse'` |
 | **Live Session** | `/ai-pulse/live/[cycle]/page.tsx` | New (Meet wrapper); writes to `event_team_attendance` |
 | **Section Rotation** (Class Incharge) | `/ai-pulse/rotation/[section_id]/page.tsx` | Reuse `attendance-roster.tsx` from `academic/attendance/_components/` |
 | **Lab Scoring** | redirect → `/startup-studio/events/[id]/evaluate` | Reuse |
@@ -223,7 +226,7 @@ Surfaces composing existing event components are thin wrappers (~50 LOC each).
 | Risk | Mitigation |
 |---|---|
 | events vs startup_events schema split | OQ-1 below — must resolve before Wave A.1 |
-| `event_type` constraint may be enforced via lookup table not CHECK | Confirm during Wave A.1 audit |
+| ~~`event_type` constraint~~ | ✅ Resolved 2026-05-02 audit: `startup_events` has no `event_type` column. Using `config.kind` JSONB discriminator — no schema risk. |
 | Krishnaveni quiz-authoring × 2 languages | Quiz Authoring Console (B.2) with AI-suggest |
 | Recurring weekly cycle generation | Cron pattern reused from `/api/cron/sunday-wrap` |
 
@@ -242,7 +245,7 @@ Surfaces composing existing event components are thin wrappers (~50 LOC each).
 
 ## 10. Open Questions (4 — must resolve before Wave A.1)
 
-1. **events vs startup_events** — which table owns AI Pulse cycles? `event_team_attendance`/`event_demo_slots`/`event_submissions` reference `startup_events(id)`. `events` table has cleaner JSONB config but the rich infrastructure is on the older table. **Recommendation: use `startup_events` for pragmatic reuse.**
+1. ✅ **events vs startup_events — RESOLVED 2026-05-02:** Use `startup_events` with `config.kind='ai_pulse'` JSONB discriminator. All team/attendance/submission/demo-slot infrastructure already references `startup_events(id)`. Zero schema change to that table; AI Pulse cycles inserted as new rows with config kind set.
 2. **Accessibility for visual/hearing impairment** — Q14 noted multilingual auto-transcripts unreliable. Phase 2 design pass needed.
 3. **`learners` FK column** — `learners.id` vs `learners_profiles.id` — outstanding from v2. Likely irrelevant in v3 if all learner tracking flows through `event_registrations`.
 4. **External judge recruitment workflow** — quarterly cadence locked; sourcing/honorarium/format TBD.
