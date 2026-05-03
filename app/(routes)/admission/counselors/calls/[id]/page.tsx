@@ -54,6 +54,11 @@ import {
   MapPin,
   Route,
   AlertCircle,
+  Sparkles,
+  MessageSquare,
+  Smile,
+  Frown,
+  Meh,
 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -89,6 +94,31 @@ interface CallDetail {
   caller_journey_context: string | null;
   caller_location: string | null;
   caller_attempt_number: number | null;
+}
+
+// Shape returned by GET /api/admission/calls/[id]/intelligence
+// (matches admission_call_intelligence row + null when no row exists).
+interface CallIntelligence {
+  id: string;
+  call_log_id: string;
+  call_sid: string | null;
+  analyze_job_id: string | null;
+  analyze_status: 'submitted' | 'processing' | 'completed' | 'failed' | string;
+  analyze_submitted_at: string | null;
+  analyze_completed_at: string | null;
+  transcription: string | null;
+  transcription_language: string | null;
+  sentiment: string | null;
+  sentiment_score: number | null;
+  summary: string | null;
+  categories: string[] | null;
+  extracted_name: string | null;
+  extracted_location: string | null;
+  extracted_course: string | null;
+  enrichment_applied: boolean | null;
+  enrichment_applied_at: string | null;
+  created_at: string;
+  updated_at: string | null;
 }
 
 const DISPOSITION_OPTIONS: { value: CallDisposition; label: string }[] = [
@@ -215,6 +245,247 @@ function InfoRow({ icon: Icon, label, value, mono }: {
         <p className={`text-sm font-medium ${mono ? 'font-mono' : ''}`}>{value || '-'}</p>
       </div>
     </div>
+  );
+}
+
+// ============================================================================
+// AI INTELLIGENCE CARD
+// ============================================================================
+// Renders the AI-extracted transcription / sentiment / summary / categories
+// from /api/admission/calls/[id]/intelligence.
+//
+// Per probe-compliance-2026-05-03.md (J2): the intel API route already
+// existed but the call-detail page never consumed it — even when intel
+// rows had data, counselors saw nothing. This card closes that gap.
+//
+// State machine (from analyze_status column):
+//   submitted | processing → "Analyzing call recording…"
+//   completed              → render transcript, sentiment, summary, categories
+//   failed | <no row>      → "No analysis available"
+
+function SentimentBadge({ sentiment, score }: { sentiment: string | null; score: number | null }) {
+  if (!sentiment) return null;
+  const lower = sentiment.toLowerCase();
+  const config: { Icon: React.ElementType; className: string } =
+    lower === 'positive'
+      ? { Icon: Smile, className: 'bg-green-50 text-green-700 border-green-200' }
+      : lower === 'negative'
+      ? { Icon: Frown, className: 'bg-red-50 text-red-700 border-red-200' }
+      : { Icon: Meh, className: 'bg-gray-50 text-gray-700 border-gray-200' };
+  return (
+    <Badge variant="outline" className={`${config.className} gap-1`}>
+      <config.Icon className="h-3.5 w-3.5" />
+      <span className="capitalize">{sentiment}</span>
+      {typeof score === 'number' && (
+        <span className="ml-0.5 text-[10px] font-mono opacity-75">
+          ({score.toFixed(2)})
+        </span>
+      )}
+    </Badge>
+  );
+}
+
+function IntelligenceCard({ callId }: { callId: string }) {
+  const { data, isLoading, isError } = useQuery<{ intelligence: CallIntelligence | null }>({
+    queryKey: ['call-intelligence', callId],
+    queryFn: async () => {
+      const res = await fetch(`/api/admission/calls/${callId}/intelligence`, { cache: 'no-store' });
+      if (!res.ok) throw new Error('Failed to load intelligence');
+      return res.json();
+    },
+    enabled: !!callId,
+    staleTime: 30000,
+    refetchOnWindowFocus: false,
+  });
+
+  if (isLoading) {
+    return (
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Sparkles className="h-4 w-4" />
+            AI Intelligence
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <Skeleton className="h-32 w-full" />
+        </CardContent>
+      </Card>
+    );
+  }
+
+  // No intel row at all OR API error → "No analysis available" empty state.
+  const intel = data?.intelligence ?? null;
+  if (isError || !intel || intel.analyze_status === 'failed') {
+    return (
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Sparkles className="h-4 w-4" />
+            AI Intelligence
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
+            <AlertCircle className="h-4 w-4" />
+            <span>
+              {intel?.analyze_status === 'failed'
+                ? 'Analysis failed for this recording.'
+                : 'No analysis available for this call.'}
+            </span>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  // submitted / processing → in-flight banner.
+  if (intel.analyze_status === 'submitted' || intel.analyze_status === 'processing') {
+    const submittedAt = intel.analyze_submitted_at
+      ? new Date(intel.analyze_submitted_at).toLocaleString('en-IN', {
+          day: '2-digit',
+          month: 'short',
+          year: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+          timeZone: 'Asia/Kolkata',
+        })
+      : null;
+    return (
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Sparkles className="h-4 w-4" />
+            AI Intelligence
+            <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200 ml-1 text-xs">
+              {intel.analyze_status === 'submitted' ? 'Queued' : 'Processing'}
+            </Badge>
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-start gap-3 p-3 rounded-lg bg-blue-50/50 border border-blue-100">
+            <Loader2 className="h-4 w-4 text-blue-600 animate-spin mt-0.5 shrink-0" />
+            <div className="text-sm">
+              <p className="font-medium text-blue-900">Analyzing call recording…</p>
+              {submittedAt && (
+                <p className="text-xs text-blue-700/80 mt-0.5">
+                  Submitted {submittedAt}
+                </p>
+              )}
+              <p className="text-xs text-muted-foreground mt-1">
+                Transcription, sentiment, and summary will appear here once Exotel
+                ExoVoice completes processing.
+              </p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  // analyze_status === 'completed' → full render.
+  const completedAt = intel.analyze_completed_at
+    ? new Date(intel.analyze_completed_at).toLocaleString('en-IN', {
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        timeZone: 'Asia/Kolkata',
+      })
+    : null;
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base flex items-center gap-2">
+          <Sparkles className="h-4 w-4" />
+          AI Intelligence
+          <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200 ml-1 text-xs">
+            Completed
+          </Badge>
+          {intel.sentiment && (
+            <span className="ml-auto">
+              <SentimentBadge sentiment={intel.sentiment} score={intel.sentiment_score} />
+            </span>
+          )}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {/* Summary */}
+        {intel.summary && (
+          <div>
+            <p className="text-xs text-muted-foreground mb-1.5 flex items-center gap-1">
+              <FileText className="h-3.5 w-3.5" />
+              Summary
+            </p>
+            <p className="text-sm leading-relaxed">{intel.summary}</p>
+          </div>
+        )}
+
+        {/* Categories */}
+        {intel.categories && intel.categories.length > 0 && (
+          <div>
+            <p className="text-xs text-muted-foreground mb-1.5">Categories</p>
+            <div className="flex flex-wrap gap-1.5">
+              {intel.categories.map((cat, i) => (
+                <Badge key={`${cat}-${i}`} variant="secondary" className="text-xs">
+                  {cat}
+                </Badge>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Extracted entities (if any) */}
+        {(intel.extracted_name || intel.extracted_location || intel.extracted_course) && (
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-3 border-t">
+            {intel.extracted_name && (
+              <div>
+                <p className="text-xs text-muted-foreground">Name (AI)</p>
+                <p className="text-sm font-medium">{intel.extracted_name}</p>
+              </div>
+            )}
+            {intel.extracted_location && (
+              <div>
+                <p className="text-xs text-muted-foreground">Location (AI)</p>
+                <p className="text-sm font-medium">{intel.extracted_location}</p>
+              </div>
+            )}
+            {intel.extracted_course && (
+              <div>
+                <p className="text-xs text-muted-foreground">Course (AI)</p>
+                <p className="text-sm font-medium">{intel.extracted_course}</p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Transcription (collapsible-ish: rendered with max-height + scroll) */}
+        {intel.transcription && (
+          <div className="pt-3 border-t">
+            <p className="text-xs text-muted-foreground mb-1.5 flex items-center gap-1">
+              <MessageSquare className="h-3.5 w-3.5" />
+              Transcript
+              {intel.transcription_language && (
+                <Badge variant="outline" className="text-[10px] ml-1 px-1.5 py-0">
+                  {intel.transcription_language}
+                </Badge>
+              )}
+            </p>
+            <div className="max-h-64 overflow-y-auto rounded-md border bg-muted/30 p-3">
+              <p className="text-sm leading-relaxed whitespace-pre-wrap">{intel.transcription}</p>
+            </div>
+          </div>
+        )}
+
+        {completedAt && (
+          <p className="text-[10px] text-muted-foreground/70 pt-1">
+            Analysis completed {completedAt}
+          </p>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -578,6 +849,11 @@ function CallDetailContent() {
                   )}
                 </CardContent>
               </Card>
+
+              {/* AI Intelligence — transcription, sentiment, summary, categories.
+                  Renders all three states (in-flight / completed / no-data) so
+                  counselors get correct feedback regardless of pipeline status. */}
+              <IntelligenceCard callId={id} />
             </div>
 
             {/* Right Column (1/3) */}
