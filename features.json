@@ -181,6 +181,20 @@
       "name": "See As User \u2014 admin impersonation with director-only write mode",
       "status": "deployed-awaiting-test",
       "notes": "PRs #166\u2192#185 merged 2026-04-15. Real session swap via admin.generateLink+verifyOtp+setSession (PR #179 architectural fix). Director-only write mode + boobalan.a@jkkn.ac.in allowlist (PR #181). Exit re-issues admin session via generateLink instead of cookie backup (PR #185 \u2014 fixes 4KB cookie size ceiling truncation). Reusable skill at ~/.claude/skills/see-as-user/. NOT yet user-verified post-#185 deploy: needs director to walk Start\u2192Exit end-to-end and confirm admin lands back on permissions-audit STILL LOGGED IN. See progress.txt 2026-04-27 entry P0 task."
+    },
+    {
+      "id": "counselor-funnel-progression-enablement",
+      "name": "Counselor funnel-progression enablement \u2014 close the 0%-conversion process gap",
+      "status": "planned",
+      "notes": "Filed 2026-05-03 as P0-2 outcome of session brief: v_dashboard_conversion_monthly correctly reports 0% across all 35 leaderboard rows because admission_leads has ZERO leads in any success state (enrolled/offer_accepted/token_paid/confirmed) ALL-TIME. admission_lead_stage_history shows zero success transitions in 30 days. admission_applications table is empty. Director verdict: process gap, not data bug \u2014 counselors are tracking offers/enrollments offline (paper/Excel/external) instead of in MyJKKN. NEXT: interview counselors to identify the friction (workflow steps, UI gaps, mobile vs web, training), then design + ship a friction-removal in MyJKKN. Outcome will be measured by the existing matview \u2014 once counselors record offers in MyJKKN, conversion_pct will become non-zero on the leaderboard.",
+      "outcome_metric": {
+        "metric_name": "v_dashboard_conversion_monthly: count of rows where converted_count > 0",
+        "baseline_value": "0 of 35 rows have any conversions (measured 2026-05-03 14:01 IST)",
+        "threshold_90d": "At least 10 of 35 rows show converted_count >= 1 by 2026-08-01",
+        "kill_criterion": "If 0 rows show conversions by 2026-08-01, the friction-removal hypothesis is wrong \u2014 escalate to organizational change-management vs MyJKKN feature work",
+        "verdict_date": "2026-08-01",
+        "verdict_status": "PENDING"
+      }
     }
   ]
 }
