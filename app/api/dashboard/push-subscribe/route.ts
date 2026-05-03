@@ -39,12 +39,14 @@ export async function POST(req: NextRequest) {
     }
 
     // Upsert: one active subscription per (user_id, endpoint)
+    // Note: `endpoint` is a GENERATED ALWAYS column derived from
+    // subscription->>'endpoint' — do NOT write to it directly. Postgres
+    // rejects non-DEFAULT writes to generated columns.
     const { data, error } = await supabase
       .from('push_subscriptions')
       .upsert(
         {
           user_id: user.id,
-          endpoint: sub.endpoint,
           subscription: sub,
           is_active: true,
           failure_count: 0,
