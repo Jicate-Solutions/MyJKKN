@@ -5829,13 +5829,16 @@ FOR SELECT USING (
 -- =====================================================================
 -- staff_import_unmatched RLS
 -- =====================================================================
--- Service role inserts during import runs; super-admins with the
+-- Service role inserts during import runs; users with the
 -- staff.manage_imports permission read/update for manual reconciliation.
+-- (super_admin role and is_super_admin = true users get bypass at the
+--  user_has_permission() function level.)
 
 ALTER TABLE public.staff_import_unmatched ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "super_admin_full_access" ON public.staff_import_unmatched;
-CREATE POLICY "super_admin_full_access"
+DROP POLICY IF EXISTS "staff_imports_manage_access" ON public.staff_import_unmatched;
+CREATE POLICY "staff_imports_manage_access"
   ON public.staff_import_unmatched
   FOR ALL
   TO authenticated
@@ -5849,3 +5852,11 @@ CREATE POLICY "service_role_bypass"
   TO service_role
   USING (true)
   WITH CHECK (true);
+
+-- Seed: grant staff.manage_imports to administrator role so the policy is
+-- not dead. Mirrors migration 20260503100004_staff_import_unmatched_amendments.sql.
+UPDATE custom_roles
+SET permissions = permissions || '{"staff.manage_imports": true}'::jsonb,
+    updated_at = now()
+WHERE role_key = 'administrator'
+  AND COALESCE((permissions->>'staff.manage_imports')::boolean, false) = false;

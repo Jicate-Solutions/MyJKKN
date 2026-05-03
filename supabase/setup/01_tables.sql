@@ -5280,7 +5280,7 @@ UPDATE public.notifications
 -- =====================================================================
 -- Holds website faculty rows the import script could not auto-match to a
 -- MyJKKN staff record. Reviewed manually after each import run. RLS gated by
--- the staff.manage_imports permission.
+-- the staff.manage_imports permission (policy: staff_imports_manage_access).
 
 CREATE TABLE IF NOT EXISTS public.staff_import_unmatched (
   id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -5288,7 +5288,7 @@ CREATE TABLE IF NOT EXISTS public.staff_import_unmatched (
   source_row  jsonb NOT NULL,
   reason      text NOT NULL,
   resolved    boolean NOT NULL DEFAULT false,
-  resolved_by uuid NULL REFERENCES auth.users(id),
+  resolved_by uuid NULL REFERENCES auth.users(id) ON DELETE SET NULL,
   resolved_at timestamptz NULL,
   created_at  timestamptz NOT NULL DEFAULT now()
 );
