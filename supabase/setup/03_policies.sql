@@ -5825,3 +5825,27 @@ CREATE POLICY notif_gen_cfg_audit_select ON public.notification_generator_config
 FOR SELECT USING (
   is_super_admin() OR is_admin() OR user_has_permission('attention_bar.rules.manage')
 );
+
+-- =====================================================================
+-- staff_import_unmatched RLS
+-- =====================================================================
+-- Service role inserts during import runs; super-admins with the
+-- staff.manage_imports permission read/update for manual reconciliation.
+
+ALTER TABLE public.staff_import_unmatched ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "super_admin_full_access" ON public.staff_import_unmatched;
+CREATE POLICY "super_admin_full_access"
+  ON public.staff_import_unmatched
+  FOR ALL
+  TO authenticated
+  USING (user_has_permission('staff.manage_imports'))
+  WITH CHECK (user_has_permission('staff.manage_imports'));
+
+DROP POLICY IF EXISTS "service_role_bypass" ON public.staff_import_unmatched;
+CREATE POLICY "service_role_bypass"
+  ON public.staff_import_unmatched
+  FOR ALL
+  TO service_role
+  USING (true)
+  WITH CHECK (true);

@@ -5274,3 +5274,25 @@ UPDATE public.notifications
  WHERE priority = 'urgent'
    AND requires_acknowledgment = TRUE
    AND is_layer_0 = FALSE;
+
+-- =====================================================================
+-- staff_import_unmatched
+-- =====================================================================
+-- Holds website faculty rows the import script could not auto-match to a
+-- MyJKKN staff record. Reviewed manually after each import run. RLS gated by
+-- the staff.manage_imports permission.
+
+CREATE TABLE IF NOT EXISTS public.staff_import_unmatched (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  source_table text NOT NULL,
+  source_row  jsonb NOT NULL,
+  reason      text NOT NULL,
+  resolved    boolean NOT NULL DEFAULT false,
+  resolved_by uuid NULL REFERENCES auth.users(id),
+  resolved_at timestamptz NULL,
+  created_at  timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_staff_import_unmatched_unresolved
+  ON public.staff_import_unmatched (created_at DESC)
+  WHERE resolved = false;
