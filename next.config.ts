@@ -144,6 +144,44 @@ const nextConfig: NextConfig = {
     if (!dev) {
       config.cache = false;
     }
+
+    // 2026-05-03 — silence "Critical dependency: the request of a dependency
+    // is an expression" warnings emitted by @opentelemetry/instrumentation.
+    // OpenTelemetry uses dynamic require() to load instrumentation plugins at
+    // runtime; webpack can't statically analyze that, so it flags every
+    // import path that reaches this code. The warning is purely informational
+    // — runtime behavior is fine. The chain that surfaces it on every build:
+    //   @sentry/nextjs/build/cjs/index.server.js
+    //     → @sentry/node tracing integrations
+    //       → @prisma/instrumentation, @fastify/otel, etc.
+    //         → nested @opentelemetry/instrumentation copies
+    // This codebase doesn't use Prisma/Fastify directly; the chain is dead
+    // code from Sentry's auto-detected integrations but webpack still walks
+    // it during compile.
+    //
+    // We do NOT externalize these packages via serverExternalPackages because
+    // Sentry's pre-bundled index.server.js bakes in module-id references to
+    // its inner deps — externalizing them at the top-level desyncs the
+    // module-factory map and breaks prerender at runtime (verified 2026-05-03
+    // on 3 pages with `Cannot read properties of undefined (reading 'call')`
+    // at webpack-runtime.js). ignoreWarnings only suppresses the diagnostic;
+    // bundling is unchanged, runtime is unchanged.
+    config.ignoreWarnings = [
+      ...(config.ignoreWarnings ?? []),
+      {
+        module: /node_modules[\\/]@opentelemetry[\\/]instrumentation/,
+        message: /Critical dependency: the request of a dependency is an expression/,
+      },
+      {
+        module: /node_modules[\\/]@prisma[\\/]instrumentation/,
+        message: /Critical dependency: the request of a dependency is an expression/,
+      },
+      {
+        module: /node_modules[\\/]@fastify[\\/]otel/,
+        message: /Critical dependency: the request of a dependency is an expression/,
+      },
+    ];
+
     return config;
   },
 
