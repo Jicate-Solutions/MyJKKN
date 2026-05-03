@@ -41,7 +41,24 @@ const nextConfig: NextConfig = {
   // these packages during compile regardless of dynamic-import usage. The
   // existing jspdf pattern in this array was the right answer — extending
   // it to the other three libs is the systemic fix.
-  serverExternalPackages: ['jspdf', 'jspdf-autotable', 'fflate', 'docx', 'exceljs', 'xlsx'],
+  // 2026-05-03 — IMS module port. The IMS merge added enough bundle weight to
+  // tip Vercel's 8 GB build container into OOM during the webpack pass. The
+  // fix: externalize the heavy SSR-imported libs that were already present on
+  // main (samlify, web-push, @react-pdf/renderer) and the new IMS-introduced
+  // qrcode (used by lib/services/ims/payment-service.ts for UPI QR generation).
+  // jszip, html2canvas, @tiptap/*, react-pdf are client-only — not added.
+  serverExternalPackages: [
+    'jspdf',
+    'jspdf-autotable',
+    'fflate',
+    'docx',
+    'exceljs',
+    'xlsx',
+    'qrcode',
+    'samlify',
+    'web-push',
+    '@react-pdf/renderer',
+  ],
 
   // Turbopack is the default bundler in Next.js 16. The @serwist/next plugin
   // injects a webpack config for SW compilation (production only). This empty

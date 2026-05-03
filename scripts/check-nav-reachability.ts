@@ -79,6 +79,7 @@ const NAV_EXCLUDE = new Set<string>([
   '/events',
   '/faculty',
   '/health',
+  '/ims', // IMS root — redirects to /ims/dashboard
   '/learn',
   '/learners',
   '/organizations',
@@ -149,6 +150,9 @@ const NAV_EXCLUDE = new Set<string>([
 
   // HR /new forms
   '/hr/employees/new',
+
+  // IMS /new forms (invoked from list-page "+ New" buttons)
+  '/ims/stock/grn/new',
 
   // OKR /new + /create wizard forms
   '/okr/elective/new',
