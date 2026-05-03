@@ -10,16 +10,20 @@
  */
 
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Switch } from '@/components/ui/switch';
+import { useToast } from '@/hooks/use-toast';
 import {
   Activity,
+  AlertTriangle,
   BarChart3,
   Brain,
   DollarSign,
   Layers,
+  Power,
   RefreshCw,
   TrendingUp,
   Users,
@@ -75,6 +79,11 @@ export function TabOverview() {
 
   return (
     <div className='space-y-6 py-4'>
+      {/* Layer kill switches — system state at-a-glance. Director can disable
+          any layer here without a deploy. Resolver picks up flips within 60s
+          (cache TTL); same-instance PATCH path invalidates immediately. */}
+      <LayerKillSwitchPanel />
+
       {/* Range selector */}
       <div className='flex items-center justify-between'>
         <h3 className='text-lg font-semibold flex items-center gap-2'>
@@ -287,5 +296,177 @@ export function TabOverview() {
         </>
       )}
     </div>
+  );
+}
+
+// ============================================================================
+// LayerKillSwitchPanel — 5 toggles for layer_N.enabled config keys.
+// Reads/writes /api/attention-bar/admin/config (PATCH allowlists these keys).
+// Resolver entry point picks up flips via getEnabledLayersFromConfig() — see
+// lib/attention-bar/layer-enabled-config.ts. Same-Lambda PATCH invalidates
+// the cache immediately; cross-Lambda picks up within 60s TTL.
+// ============================================================================
+
+interface ConfigRow {
+  key: string;
+  value: unknown;
+  updated_at?: string;
+}
+
+const LAYER_TOGGLES: { key: string; layer: number; label: string; description: string }[] = [
+  {
+    key: 'layer_0.enabled',
+    layer: 0,
+    label: 'Layer 0 — Urgent',
+    description: 'Real-time urgent notifications (Realtime listener + is_layer_0 query).',
+  },
+  {
+    key: 'layer_1.enabled',
+    layer: 1,
+    label: 'Layer 1 — Defaults',
+    description: 'Per-page × role static defaults — the safe-set fallback.',
+  },
+  {
+    key: 'layer_2.enabled',
+    layer: 2,
+    label: 'Layer 2 — Rules',
+    description: 'State-aware admin rules engine (Tab 3).',
+  },
+  {
+    key: 'layer_3.enabled',
+    layer: 3,
+    label: 'Layer 3 — Behavior',
+    description: 'Behavioral learning + DPDPA-gated personalization.',
+  },
+  {
+    key: 'layer_4.enabled',
+    layer: 4,
+    label: 'Layer 4 — AI',
+    description: 'LLM fallback when nothing else matches (rare in practice).',
+  },
+];
+
+const LAYER_BG: Record<number, string> = {
+  0: 'bg-red-500',
+  1: 'bg-blue-500',
+  2: 'bg-amber-500',
+  3: 'bg-teal-500',
+  4: 'bg-purple-500',
+};
+
+async function fetchConfig(): Promise<ConfigRow[]> {
+  const res = await fetch('/api/attention-bar/admin/config');
+  if (!res.ok) throw new Error('Failed to fetch config');
+  const j = await res.json();
+  return (j?.config ?? []) as ConfigRow[];
+}
+
+async function patchConfig(key: string, value: unknown): Promise<void> {
+  const res = await fetch('/api/attention-bar/admin/config', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ key, value }),
+  });
+  if (!res.ok) {
+    const j = await res.json().catch(() => ({}));
+    throw new Error(j?.error ?? `Save failed: HTTP ${res.status}`);
+  }
+}
+
+function isEnabledFromValue(v: unknown): boolean {
+  // Default-ON when absent (matches resolver fallback). Accept boolean or "true" text.
+  if (v === undefined || v === null) return true;
+  if (v === true || v === 'true') return true;
+  if (v === false || v === 'false') return false;
+  return true;
+}
+
+function LayerKillSwitchPanel() {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+
+  const { data: rows, isLoading } = useQuery({
+    queryKey: ['attention-bar-config'],
+    queryFn: fetchConfig,
+    staleTime: 30_000,
+  });
+
+  const mutation = useMutation({
+    mutationFn: ({ key, value }: { key: string; value: boolean }) => patchConfig(key, value),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['attention-bar-config'] });
+      // Also invalidate the bar's resolver cache so the user sees the flip on
+      // their own session (otherwise their browser keeps the resolved action
+      // until staleTime expires).
+      queryClient.invalidateQueries({ queryKey: ['attention-bar'] });
+    },
+    onError: (err: Error) =>
+      toast({
+        title: 'Save failed',
+        description: err.message,
+        variant: 'destructive',
+      }),
+  });
+
+  const valueByKey = new Map<string, unknown>();
+  for (const r of rows ?? []) valueByKey.set(r.key, r.value);
+
+  const enabledCount = LAYER_TOGGLES.filter((t) => isEnabledFromValue(valueByKey.get(t.key))).length;
+
+  return (
+    <Card>
+      <CardHeader className='pb-3'>
+        <div className='flex items-center justify-between'>
+          <CardTitle className='text-base flex items-center gap-2'>
+            <Power className='h-5 w-5 text-indigo-500' />
+            Layer Kill Switches
+          </CardTitle>
+          <Badge variant={enabledCount === 5 ? 'outline' : 'destructive'} className='text-xs'>
+            {enabledCount}/5 enabled
+          </Badge>
+        </div>
+        <p className='text-xs text-muted-foreground pt-1'>
+          Disable any layer to take it out of the cascade without a deploy. Resolver picks up changes within ~60 seconds.
+        </p>
+      </CardHeader>
+      <CardContent>
+        <div className='grid grid-cols-1 sm:grid-cols-2 gap-3'>
+          {LAYER_TOGGLES.map((toggle) => {
+            const isEnabled = isEnabledFromValue(valueByKey.get(toggle.key));
+            const isPending =
+              mutation.isPending && (mutation.variables as { key?: string } | undefined)?.key === toggle.key;
+            return (
+              <div
+                key={toggle.key}
+                className={`flex items-start justify-between gap-3 rounded-lg border px-3 py-2.5 ${
+                  !isEnabled && !isLoading ? 'border-destructive/40 bg-destructive/5' : ''
+                }`}
+              >
+                <div className='flex items-start gap-2 min-w-0'>
+                  <div className={`mt-1 h-2 w-2 rounded-full ${LAYER_BG[toggle.layer]} shrink-0`} />
+                  <div className='min-w-0'>
+                    <div className='text-sm font-medium flex items-center gap-1.5'>
+                      {toggle.label}
+                      {!isEnabled && !isLoading && (
+                        <AlertTriangle className='h-3 w-3 text-destructive' aria-label='disabled' />
+                      )}
+                    </div>
+                    <p className='text-xs text-muted-foreground line-clamp-2'>{toggle.description}</p>
+                  </div>
+                </div>
+                <Switch
+                  checked={isEnabled}
+                  disabled={isLoading || isPending}
+                  onCheckedChange={(checked) =>
+                    mutation.mutate({ key: toggle.key, value: checked })
+                  }
+                  aria-label={`Toggle ${toggle.label}`}
+                />
+              </div>
+            );
+          })}
+        </div>
+      </CardContent>
+    </Card>
   );
 }
