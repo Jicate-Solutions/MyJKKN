@@ -35,6 +35,7 @@ interface InstitutionCallSettings {
   auto_sms_enabled: boolean;
   auto_sms_template: string;
   auto_sms_sender_id: string | null;
+  auto_sms_cooldown_hours: number;
   dlt_entity_id: string | null;
   dlt_template_id: string | null;
   auto_whatsapp_enabled: boolean;
@@ -232,7 +233,9 @@ export class CallPipelineService {
 
   /**
    * Send auto-SMS to missed caller.
-   * FIX 3: One SMS per caller per 24 hours — prevents spamming repeat callers.
+   * FIX 3: One SMS per caller per cooldown window — prevents spamming repeat
+   * callers. Cooldown is configurable per-institution via
+   * institution_call_settings.auto_sms_cooldown_hours (default 24, range 1..168).
    */
   private static async sendMissedCallSms(
     ctx: PipelineContext,
@@ -245,25 +248,30 @@ export class CallPipelineService {
         return false;
       }
 
-      // FIX 3: Check if we already sent SMS to this number in the last 24 hours
-      const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+      // FIX 3: Check if we already sent SMS to this number within the
+      // institution-configured cooldown window. Falls back to 24h if the
+      // setting is missing/invalid (defensive — column is NOT NULL DEFAULT 24).
+      const cooldownHours = Number.isFinite(settings.auto_sms_cooldown_hours) && settings.auto_sms_cooldown_hours > 0
+        ? settings.auto_sms_cooldown_hours
+        : 24;
+      const cooldownCutoffIso = new Date(Date.now() - cooldownHours * 60 * 60 * 1000).toISOString();
       const { data: recentSms } = await supabase
         .from('admission_call_logs')
         .select('id')
         .eq('from_number', ctx.fromNumber)
         .eq('direction', 'inbound')
         .eq('auto_sms_sent', true)
-        .gte('created_at', twentyFourHoursAgo)
+        .gte('created_at', cooldownCutoffIso)
         .limit(1)
         .maybeSingle();
 
       if (recentSms) {
-        // Already sent SMS to this caller in the last 24h — skip
+        // Already sent SMS to this caller within the cooldown window — skip
         await supabase
           .from('admission_call_logs')
-          .update({ auto_sms_skipped_reason: 'already_sent_24h' })
+          .update({ auto_sms_skipped_reason: `already_sent_${cooldownHours}h` })
           .eq('id', ctx.callLogId);
-        console.info('[CallPipeline] SMS skipped — already sent to', ctx.fromNumber.slice(-4), 'in last 24h');
+        console.info('[CallPipeline] SMS skipped — already sent to', ctx.fromNumber.slice(-4), `in last ${cooldownHours}h`);
         return false;
       }
 
@@ -605,6 +613,7 @@ export class CallPipelineService {
       auto_sms_enabled: true,
       auto_sms_template: 'Thank you for calling JKKN. A counselor will call you back shortly.',
       auto_sms_sender_id: null,
+      auto_sms_cooldown_hours: 24,
       dlt_entity_id: null,
       dlt_template_id: null,
       auto_whatsapp_enabled: false,
