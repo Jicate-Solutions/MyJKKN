@@ -47,7 +47,7 @@ import { getFirstErrorField } from '@/lib/utils/form-errors';
 import { RoleService } from '@/lib/services/roles/role-service';
 import { usePermissions } from '@/hooks/use-permissions';
 import type { CustomRole } from '@/types/auth';
-import { fullStaffSchema, type StaffFormValues } from './staff-form-schema';
+import { fullStaffSchema, extendedStaffSchema, type StaffFormValues } from './staff-form-schema';
 import { TabbedFormShell, type TabSpec } from '@/components/forms';
 import { BasicTab } from './staff-form-tabs/basic-tab';
 import { AcademicTab } from './staff-form-tabs/academic-tab';
@@ -154,6 +154,21 @@ const staffFieldOrder: Array<keyof FormValues> = [
   'is_active'
 ];
 
+function mapFieldToTab(field: string): string | null {
+  const map: Record<string, string> = {
+    qualifications: 'academic', specialisations: 'academic', qualification_summary: 'academic',
+    experience_years: 'experience', experience_entries: 'experience', professional_summary: 'experience',
+    research_papers: 'research', publications: 'research', research_focus_areas: 'research',
+    funded_projects: 'research', google_scholar_url: 'research', researchgate_url: 'research', orcid_url: 'research',
+    awards_won: 'achievements', badges: 'achievements', awards: 'achievements',
+    certifications: 'achievements', memberships: 'achievements', achievements: 'achievements',
+    mentoring_description: 'mentoring', phd_scholars: 'mentoring', pg_dissertations_guided: 'mentoring',
+    ug_projects_guided: 'mentoring', phd_scholars_list: 'mentoring',
+    faqs: 'faqs',
+  };
+  return map[field] ?? null;
+}
+
 export function StaffForm({ staff, isEditing }: StaffFormProps) {
   const router = useRouter();
   const { profile } = useAuth();
@@ -191,7 +206,7 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
     Array<{ id: string; name: string }>
   >([]);
   const [categories, setCategories] = useState<
-    Array<{ id: string; category_name: string; is_teaching: boolean }>
+    Array<{ id: string; category_name: string; is_teaching: boolean; shows_extended_profile?: boolean }>
   >([]);
   const [roles, setRoles] = useState<CustomRole[]>([]);
 
@@ -216,6 +231,18 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
     [categories, watchedCategoryId]
   );
   const isTeachingCategory = selectedCategory?.is_teaching ?? false;
+  // Task 23 (P4.23) — drive the "Extended Faculty Profile" toggle visibility
+  // off the selected category's shows_extended_profile flag (replaces the
+  // previously hardcoded `true` passed to <BasicTab>).
+  const canEnableExtended = !!selectedCategory?.shows_extended_profile;
+
+  // When category changes to one with shows_extended_profile=true and the
+  // staff has no value yet, default the toggle to true (only on create, not edit).
+  useEffect(() => {
+    if (canEnableExtended && form.getValues('has_extended_profile') === false && !staff?.id) {
+      form.setValue('has_extended_profile', true);
+    }
+  }, [canEnableExtended, form, staff?.id]);
 
   // Reset form when staff data changes (for edit mode)
   useEffect(() => {
@@ -371,8 +398,31 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
     });
   };
 
-  const onSubmit = async (values: FormValues) => {
+  const onSubmit = async (values: FormValues, opts: { strict: boolean } = { strict: true }) => {
     try {
+      // Task 23 (P4.23) — When `strict` (Save & Publish), validate the extended
+      // schema explicitly so partial faculty profiles can't be published.
+      // Save Draft passes { strict: false } to skip this check.
+      if (opts.strict && values.has_extended_profile) {
+        const result = extendedStaffSchema.safeParse(values);
+        if (!result.success) {
+          result.error.issues.forEach((issue) => {
+            form.setError(issue.path.join('.') as any, { message: issue.message });
+          });
+          // Switch to the first tab that has an error.
+          const firstField = result.error.issues[0]?.path[0] as string | undefined;
+          if (firstField) {
+            const tabId = mapFieldToTab(firstField);
+            if (tabId) {
+              const params = new URLSearchParams(window.location.search);
+              params.set('tab', tabId);
+              window.history.replaceState(null, '', `?${params.toString()}`);
+            }
+          }
+          return;
+        }
+      }
+
       // Conditional department enforcement (mirrors DB trigger).
       const cat = categories.find((c) => c.id === values.category_id);
       if (cat?.is_teaching && !values.department_id) {
@@ -1020,8 +1070,8 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
         'designation','category_id','role_key','institution_id','department_id',
         'is_active','slug','status','display_order','has_extended_profile'
       ]),
-      // canEnableExtended is hardcoded to true here — Task 23 (P4.23) replaces
-      // it with the category-driven check (only teaching categories can enable).
+      // canEnableExtended is now driven by category.shows_extended_profile
+      // (Task 23, P4.23) — replaced the hardcoded `true`.
       content: (
         <BasicTab
           form={form}
@@ -1030,7 +1080,7 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
           additionalSection={additionalSection}
           employmentSection={employmentSection}
           statusSection={statusSection}
-          canEnableExtended={true}
+          canEnableExtended={canEnableExtended}
         />
       )
     },
@@ -1097,27 +1147,41 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
 
         <TabbedFormShell tabs={tabs} defaultTab='basic' />
 
-        {/* Form Actions — Task 23 (P4.23) will replace this with the
-            Save Draft / Save & Publish split. Keep the existing single
-            Submit button for now so the form is still usable. */}
-        <div className='flex justify-end gap-4 pt-4 border-t'>
+        {/* Form Actions — Task 23 (P4.23). Cancel / Save Draft / Save & Publish.
+            Save Draft skips the extended-schema check; Save & Publish runs it.
+            Save & Publish only appears when has_extended_profile is on. */}
+        <div className='flex items-center justify-end gap-2 pt-4 border-t'>
           <Button
             type='button'
-            variant='outline'
+            variant='ghost'
             onClick={() => router.back()}
             disabled={isSubmitting}
           >
             Cancel
           </Button>
-          <Button type='submit' disabled={isSubmitting}>
-            {isSubmitting
-              ? isEditing
-                ? 'Saving...'
-                : 'Creating...'
-              : isEditing
-              ? 'Save Changes'
-              : 'Create Staff'}
+          <Button
+            type='button'
+            variant='outline'
+            onClick={form.handleSubmit(
+              (values) => onSubmit({ ...values, status: 'draft' }, { strict: false }),
+              onInvalid
+            )}
+            disabled={isSubmitting}
+          >
+            Save Draft
           </Button>
+          {hasExtended && (
+            <Button
+              type='button'
+              onClick={form.handleSubmit(
+                (values) => onSubmit({ ...values, status: 'published' }, { strict: true }),
+                onInvalid
+              )}
+              disabled={isSubmitting}
+            >
+              Save & Publish
+            </Button>
+          )}
         </div>
       </form>
     </Form>
