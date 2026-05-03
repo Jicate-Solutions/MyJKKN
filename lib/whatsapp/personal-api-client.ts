@@ -1,7 +1,19 @@
 // lib/whatsapp/personal-api-client.ts
 // HTTP client for the BYOW WhatsApp Railway service
 // Communicates with the Express service running whatsapp-web.js
+//
+// Server-only by convention. All current consumers are API routes / server
+// actions / cron-triggered services. Do NOT import from a client component —
+// the policy gate uses the server-side fn_get_policy reader (next/headers).
 
+import * as Sentry from '@sentry/nextjs';
+// Use the CLIENT variant of get-policy: this module is reachable from
+// client-bundled lead-service.ts via wa-event-dispatcher → auto-trigger-service.
+// Server variant imports next/headers and would break the client bundle
+// (memory: feedback_shared_lib_must_ship_server_and_client_variants.md, PR #626).
+// Global policy resolution works fine via SECURITY DEFINER RPC from any context.
+import { getPolicyBool } from '@/lib/policies/get-policy-client';
+import { POLICY_KEYS } from '@/lib/policies/keys';
 import type {
   PersonalWhatsAppStatus,
   PersonalConnectResponse,
@@ -9,6 +21,18 @@ import type {
   PersonalBulkSendResponse,
   PersonalRecipient,
 } from '@/types/whatsapp-personal';
+
+/**
+ * Thrown when wa_byow.is_enabled is false (auto-disabled by health-check cron
+ * after N consecutive Railway failures, OR manually disabled by super_admin).
+ * Routes can catch this and return 503 with a clear message.
+ */
+export class ByowDisabledError extends Error {
+  constructor(message = 'BYOW WhatsApp is disabled. Check /admin/policies for wa_byow.is_enabled.') {
+    super(message);
+    this.name = 'ByowDisabledError';
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Core HTTP client
@@ -23,6 +47,17 @@ async function apiRequest<T>(
   options: RequestInit = {},
   serviceConfig?: { serviceUrl: string; apiKey: string }
 ): Promise<T> {
+  // Kill-switch gate (v4 spec). Reads wa_byow.is_enabled from platform_policies.
+  // Default true so first-deploy works; cron flips false after N consecutive
+  // health failures. Skip the gate for /health probes themselves to avoid
+  // chicken-and-egg (cron calls /health to decide whether to disable).
+  if (endpoint !== '/health') {
+    const enabled = await getPolicyBool(POLICY_KEYS.WA_BYOW_IS_ENABLED, true);
+    if (!enabled) {
+      throw new ByowDisabledError();
+    }
+  }
+
   const serviceUrl = serviceConfig?.serviceUrl || process.env.WHATSAPP_PERSONAL_SERVICE_URL;
   const apiKey = serviceConfig?.apiKey || process.env.WHATSAPP_PERSONAL_API_KEY;
 
@@ -35,21 +70,26 @@ async function apiRequest<T>(
 
   const url = `${serviceUrl}${endpoint}`;
 
-  const response = await fetch(url, {
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      'X-API-Key': apiKey,
-      ...options.headers,
-    },
-  });
+  return Sentry.startSpan(
+    { op: 'whatsapp.byow', name: endpoint },
+    async () => {
+      const response = await fetch(url, {
+        ...options,
+        headers: {
+          'Content-Type': 'application/json',
+          'X-API-Key': apiKey,
+          ...options.headers,
+        },
+      });
 
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: 'Unknown error' }));
-    throw new Error(error.error || `BYOW API error: ${response.status}`);
-  }
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({ error: 'Unknown error' }));
+        throw new Error(error.error || `BYOW API error: ${response.status}`);
+      }
 
-  return response.json();
+      return response.json();
+    }
+  );
 }
 
 // ---------------------------------------------------------------------------
