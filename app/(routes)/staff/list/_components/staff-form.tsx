@@ -66,6 +66,69 @@ interface StaffFormProps {
   isEditing?: boolean;
 }
 
+function buildDefaults(staff?: Staff) {
+  return {
+    first_name: staff?.first_name || '',
+    last_name: staff?.last_name || '',
+    gender: staff?.gender || 'male',
+    date_of_birth: staff?.date_of_birth
+      ? new Date(staff.date_of_birth)
+      : undefined,
+    marital_status: staff?.marital_status || 'single',
+    blood_group: staff?.blood_group,
+    email: staff?.email || '',
+    institution_email: staff?.institution_email || '',
+    phone: staff?.phone || '',
+    staff_id: staff?.staff_id || '',
+    profile_picture: staff?.profile_picture || '',
+    address: staff?.address || '',
+    state: staff?.state || '',
+    district: staff?.district || '',
+    pincode: staff?.pincode || '',
+    date_of_joining: staff?.date_of_joining
+      ? new Date(staff.date_of_joining)
+      : undefined,
+    designation: staff?.designation || '',
+    category_id: staff?.category_id || '',
+    role_key: (staff as any)?.role_key || '',
+    institution_id: staff?.institution_id || '',
+    department_id: staff?.department_id || '',
+    is_active: staff?.is_active ?? true,
+    // Extended-profile defaults — keep RHF from seeing `undefined` for any of
+    // these fields (which would silently fail Zod required-checks once the
+    // user toggles `has_extended_profile=true`).
+    has_extended_profile: staff?.has_extended_profile ?? false,
+    slug: staff?.slug ?? null,
+    status: staff?.status ?? 'draft',
+    display_order: staff?.display_order ?? 0,
+    experience_years: staff?.experience_years ?? 0,
+    research_papers: staff?.research_papers ?? 0,
+    phd_scholars: staff?.phd_scholars ?? 0,
+    awards_won: staff?.awards_won ?? 0,
+    pg_dissertations_guided: staff?.pg_dissertations_guided ?? 0,
+    ug_projects_guided: staff?.ug_projects_guided ?? 0,
+    qualification_summary: staff?.qualification_summary ?? null,
+    professional_summary: staff?.professional_summary ?? null,
+    mentoring_description: staff?.mentoring_description ?? null,
+    google_scholar_url: staff?.google_scholar_url ?? null,
+    researchgate_url: staff?.researchgate_url ?? null,
+    orcid_url: staff?.orcid_url ?? null,
+    badges: staff?.badges ?? [],
+    qualifications: staff?.qualifications ?? [],
+    specialisations: staff?.specialisations ?? [],
+    experience_entries: staff?.experience_entries ?? [],
+    research_focus_areas: staff?.research_focus_areas ?? [],
+    publications: staff?.publications ?? [],
+    funded_projects: staff?.funded_projects ?? [],
+    certifications: staff?.certifications ?? [],
+    awards: staff?.awards ?? [],
+    memberships: staff?.memberships ?? [],
+    phd_scholars_list: staff?.phd_scholars_list ?? [],
+    faqs: staff?.faqs ?? [],
+    achievements: staff?.achievements ?? []
+  };
+}
+
 const staffFieldOrder: Array<keyof FormValues> = [
   'first_name',
   'last_name',
@@ -141,66 +204,7 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
 
   const form = useForm<FormValues>({
     resolver: zodResolver(fullStaffSchema),
-    defaultValues: {
-      first_name: staff?.first_name || '',
-      last_name: staff?.last_name || '',
-      gender: staff?.gender || 'male',
-      date_of_birth: staff?.date_of_birth
-        ? new Date(staff.date_of_birth)
-        : undefined,
-      marital_status: staff?.marital_status || 'single',
-      blood_group: staff?.blood_group,
-      email: staff?.email || '',
-      institution_email: staff?.institution_email || '',
-      phone: staff?.phone || '',
-      staff_id: staff?.staff_id || '',
-      profile_picture: staff?.profile_picture || '',
-      address: staff?.address || '',
-      state: staff?.state || '',
-      district: staff?.district || '',
-      pincode: staff?.pincode || '',
-      date_of_joining: staff?.date_of_joining
-        ? new Date(staff.date_of_joining)
-        : undefined,
-      designation: staff?.designation || '',
-      category_id: staff?.category_id || '',
-      role_key: (staff as any)?.role_key || '',
-      institution_id: staff?.institution_id || '',
-      department_id: staff?.department_id || '',
-      is_active: staff?.is_active ?? true,
-      // Extended-profile defaults — keep RHF from seeing `undefined` for any of
-      // these fields (which would silently fail Zod required-checks once the
-      // user toggles `has_extended_profile=true`).
-      has_extended_profile: staff?.has_extended_profile ?? false,
-      slug: staff?.slug ?? null,
-      status: staff?.status ?? 'draft',
-      display_order: staff?.display_order ?? 0,
-      experience_years: staff?.experience_years ?? 0,
-      research_papers: staff?.research_papers ?? 0,
-      phd_scholars: staff?.phd_scholars ?? 0,
-      awards_won: staff?.awards_won ?? 0,
-      pg_dissertations_guided: staff?.pg_dissertations_guided ?? 0,
-      ug_projects_guided: staff?.ug_projects_guided ?? 0,
-      qualification_summary: staff?.qualification_summary ?? null,
-      professional_summary: staff?.professional_summary ?? null,
-      mentoring_description: staff?.mentoring_description ?? null,
-      google_scholar_url: staff?.google_scholar_url ?? null,
-      researchgate_url: staff?.researchgate_url ?? null,
-      orcid_url: staff?.orcid_url ?? null,
-      badges: staff?.badges ?? [],
-      qualifications: staff?.qualifications ?? [],
-      specialisations: staff?.specialisations ?? [],
-      experience_entries: staff?.experience_entries ?? [],
-      research_focus_areas: staff?.research_focus_areas ?? [],
-      publications: staff?.publications ?? [],
-      funded_projects: staff?.funded_projects ?? [],
-      certifications: staff?.certifications ?? [],
-      awards: staff?.awards ?? [],
-      memberships: staff?.memberships ?? [],
-      phd_scholars_list: staff?.phd_scholars_list ?? [],
-      faqs: staff?.faqs ?? [],
-      achievements: staff?.achievements ?? []
-    }
+    defaultValues: buildDefaults(staff)
   });
 
   // Watch institution_id for departments loading
@@ -217,34 +221,7 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
   useEffect(() => {
     if (isEditing && staff) {
       console.log('Resetting form with staff data:', staff);
-      form.reset({
-        first_name: staff.first_name || '',
-        last_name: staff.last_name || '',
-        gender: staff.gender || 'male',
-        date_of_birth: staff.date_of_birth
-          ? new Date(staff.date_of_birth)
-          : undefined,
-        marital_status: staff.marital_status || 'single',
-        blood_group: staff.blood_group,
-        email: staff.email || '',
-        institution_email: staff.institution_email || '',
-        phone: staff.phone || '',
-        staff_id: staff.staff_id || '',
-        profile_picture: staff.profile_picture || '',
-        address: staff.address || '',
-        state: staff.state || '',
-        district: staff.district || '',
-        pincode: staff.pincode || '',
-        date_of_joining: staff.date_of_joining
-          ? new Date(staff.date_of_joining)
-          : undefined,
-        designation: staff.designation || '',
-        category_id: staff.category_id || '',
-        role_key: (staff as any).role_key || '',
-        institution_id: staff.institution_id || '',
-        department_id: staff.department_id || '',
-        is_active: staff.is_active ?? true
-      });
+      form.reset(buildDefaults(staff));
     }
   }, [staff, isEditing, form]);
 
