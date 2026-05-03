@@ -62,6 +62,8 @@ export const POLICY_KEYS = {
   WA_BYOW_HEALTH_PROBE_TIMEOUT_SECONDS: 'wa_byow.health_probe_timeout_seconds',
   WA_BYOW_ALERT_CHANNELS: 'wa_byow.alert_channels',
   WA_BYOW_HEALTH_LOG_RETENTION_DAYS: 'wa_byow.health_log_retention_days',
+  WA_BYOW_TENANCY_SPLIT_THRESHOLD_CONNECTIONS: 'wa_byow.tenancy_split_threshold_connections',
+  WA_BYOW_CONNECTOR_ROLE_REQUIRED: 'wa_byow.connector_role_required',
 } as const;
 
 export type PolicyKey = typeof POLICY_KEYS[keyof typeof POLICY_KEYS];
