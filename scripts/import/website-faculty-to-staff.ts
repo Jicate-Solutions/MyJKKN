@@ -89,7 +89,59 @@ async function main() {
   log(`[summary] matched=${matched} unmatched=${unmatched} skipped=${skipped}`);
   log(`[summary] log written to ${logPath}`);
 
-  // TODO(p7.29): faculty_achievements second pass goes here
+  // SECOND PASS: faculty_achievements → staff.achievements jsonb
+  const { data: achievements, error: achErr } = await ws.from('faculty_achievements').select('*');
+  if (achErr) {
+    log(`[warn] failed to fetch faculty_achievements (table may not exist): ${achErr.message}`);
+  } else if (achievements?.length) {
+    // Group by faculty_name
+    const byName = new Map<string, any[]>();
+    for (const a of achievements) {
+      const name = (a.faculty_name ?? '').trim();
+      if (!name) continue;
+      if (!byName.has(name)) byName.set(name, []);
+      byName.get(name)!.push({
+        title: a.title,
+        description: a.description,
+        date: a.achievement_date,
+        featured: !!a.is_featured,
+        category: null,
+      });
+    }
+
+    for (const [name, items] of byName) {
+      const ws_index = name.indexOf(' ');
+      const first_name = ws_index === -1 ? name : name.slice(0, ws_index);
+      const last_name = ws_index === -1 ? '' : name.slice(ws_index + 1).trim();
+
+      const { data: staffRow } = await my
+        .from('staff')
+        .select('id, achievements')
+        .eq('first_name', first_name)
+        .eq('last_name', last_name)
+        .maybeSingle();
+
+      if (!staffRow) {
+        log(`[unmatched-ach] no staff found for "${name}" — ${items.length} achievements`);
+        if (!DRY_RUN) {
+          const { error: insErr } = await my.from('staff_import_unmatched').insert({
+            source_table: 'faculty_achievements',
+            source_row: { faculty_name: name, items },
+            reason: 'no staff found by full_name split',
+          });
+          if (insErr) log(`[error] failed to record unmatched achievement group: ${insErr.message}`);
+        }
+        continue;
+      }
+
+      const merged = [...(staffRow.achievements ?? []), ...items];
+      log(`[match-ach] ${name} → staff.id=${staffRow.id} (+${items.length} achievements)`);
+      if (!DRY_RUN) {
+        const { error: updErr } = await my.from('staff').update({ achievements: merged }).eq('id', staffRow.id);
+        if (updErr) log(`[error] achievement update failed for ${name}: ${updErr.message}`);
+      }
+    }
+  }
 
   console.log('[import] Done');
 }
