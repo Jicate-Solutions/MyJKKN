@@ -5,7 +5,6 @@ import { useRouter } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import type { FieldErrors } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import * as z from 'zod';
 import { toast } from 'react-hot-toast';
 import { CalendarIcon } from 'lucide-react';
 import { format } from 'date-fns';
@@ -48,49 +47,11 @@ import { getFirstErrorField } from '@/lib/utils/form-errors';
 import { RoleService } from '@/lib/services/roles/role-service';
 import { usePermissions } from '@/hooks/use-permissions';
 import type { CustomRole } from '@/types/auth';
+import { fullStaffSchema, type StaffFormValues } from './staff-form-schema';
 
 const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
 
-const staffSchema = z.object({
-  first_name: z.string().min(2, 'First name must be at least 2 characters'),
-  last_name: z.string().min(1, 'Last name must be at least one characters'),
-  gender: z.enum(['male', 'female', 'bigender']),
-  date_of_birth: z.date({
-    required_error: 'Date of birth is required'
-  }),
-  marital_status: z.enum(['single', 'married', 'divorced', 'widow']),
-  blood_group: z
-    .enum(['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-', 'A1+', 'A1B'])
-    .optional(),
-  email: z.string().email('Invalid email format'),
-  institution_email: z
-    .string()
-    .email('Invalid email format')
-    .refine(
-      (val) => val.toLowerCase().endsWith('@jkkn.ac.in'),
-      'Institution email must use @jkkn.ac.in domain (e.g., staff@jkkn.ac.in)'
-    )
-    .optional(),
-  phone: z.string().min(10, 'Phone number must be at least 10 characters'),
-  staff_id: z.string().optional(),
-  profile_picture: z.string().optional(),
-  address: z.string().optional(),
-  state: z.string().optional(),
-  district: z.string().optional(),
-  pincode: z.string().optional(),
-  date_of_joining: z.date({
-    required_error: 'Date of joining is required'
-  }),
-  designation: z.string().min(2, 'Designation is required'),
-  category_id: z.string().min(1, 'Category is required'),
-  role_key: z.string().min(1, 'Role is required'),
-  institution_id: z.string().min(1, 'Institution is required'),
-  // Department is now conditionally required based on category.is_teaching (see superRefine below)
-  department_id: z.string().optional().nullable(),
-  is_active: z.boolean().default(true)
-});
-
-type FormValues = z.infer<typeof staffSchema>;
+type FormValues = StaffFormValues;
 
 interface StaffFormProps {
   staff?: Staff;
@@ -171,7 +132,7 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
   const [isInitialLoad, setIsInitialLoad] = useState(true);
 
   const form = useForm<FormValues>({
-    resolver: zodResolver(staffSchema),
+    resolver: zodResolver(fullStaffSchema),
     defaultValues: {
       first_name: staff?.first_name || '',
       last_name: staff?.last_name || '',
