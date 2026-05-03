@@ -86,6 +86,10 @@
     {
       "path": "/api/cron/jicate-booking-reconcile",
       "schedule": "17 2 * * *"
+    },
+    {
+      "path": "/api/cron/whatsapp-byow-health",
+      "schedule": "*/15 * * * *"
     }
   ]
 }
