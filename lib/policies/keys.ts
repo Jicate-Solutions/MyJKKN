@@ -46,6 +46,12 @@ export const POLICY_KEYS = {
   // pipeline runs in API routes / cron, never client). Director can edit via
   // /admin/telephony-policies — no deploy needed.
   TELEPHONY_EXOVOICE_CONFIG: 'telephony.exovoice.config',
+
+  // Telephony — CDR sync windowing (object: {default_lookback_days, chunk_max_days})
+  // Consumed by lib/services/telephony/inbound-call-sync-service.ts at sync start.
+  // Defaults: 7-day first-sync lookback, 30-day chunks (Exotel max is 31).
+  // Director-tweakable via platform_policies admin UI — no deploy needed.
+  TELEPHONY_CDR_SYNC_CONFIG: 'telephony.cdr_sync.config',
 } as const;
 
 export type PolicyKey = typeof POLICY_KEYS[keyof typeof POLICY_KEYS];

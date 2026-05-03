@@ -8,8 +8,41 @@ import { isAdmissionCall } from './exotel-agent-map';
 import { resolveCounselorIdForCall } from './call-attribution';
 import { exotelTimeToIso } from './exotel-time';
 import { logger } from '@/lib/utils/enhanced-logger';
+import { getPolicy } from '@/lib/policies/get-policy';
+import { POLICY_KEYS } from '@/lib/policies/keys';
 
 const MODULE = 'telephony/inbound-sync';
+
+// Hardcoded fallbacks if the policy row is missing or malformed. Match the
+// pre-policy production values so behavior is unchanged at deploy time.
+const CDR_SYNC_DEFAULT_LOOKBACK_DAYS = 7;
+const CDR_SYNC_CHUNK_MAX_DAYS = 30; // Exotel CDR max is 31 days
+
+interface CdrSyncConfig {
+  default_lookback_days: number;
+  chunk_max_days: number;
+}
+
+/**
+ * Resolve the CDR sync windowing config from platform_policies, with
+ * defensive fallbacks. Reads `telephony.cdr_sync.config` (object) once per
+ * sync invocation. Director-tweakable via admin UI — no deploy needed.
+ */
+async function resolveCdrSyncConfig(): Promise<CdrSyncConfig> {
+  const raw = await getPolicy<Partial<CdrSyncConfig>>(
+    POLICY_KEYS.TELEPHONY_CDR_SYNC_CONFIG,
+    null
+  );
+  const lookback =
+    raw && typeof raw.default_lookback_days === 'number' && raw.default_lookback_days > 0
+      ? raw.default_lookback_days
+      : CDR_SYNC_DEFAULT_LOOKBACK_DAYS;
+  const chunk =
+    raw && typeof raw.chunk_max_days === 'number' && raw.chunk_max_days > 0 && raw.chunk_max_days <= 31
+      ? raw.chunk_max_days
+      : CDR_SYNC_CHUNK_MAX_DAYS;
+  return { default_lookback_days: lookback, chunk_max_days: chunk };
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // TYPES
@@ -63,11 +96,18 @@ export class InboundCallSyncService {
         error_message: null,
       });
 
+      // Read CDR sync windowing once per invocation (Director-tunable via
+      // platform_policies row `telephony.cdr_sync.config`). Falls back to the
+      // pre-policy hardcoded defaults (7-day lookback, 30-day chunks) if the
+      // row is missing or malformed.
+      const cdrConfig = await resolveCdrSyncConfig();
+
       // Determine date range
       const { fromDate, toDate } = await InboundCallSyncService.resolveDateRange(
         institutionId,
         supabase,
-        options
+        options,
+        cdrConfig.default_lookback_days
       );
 
       logger.info(MODULE, 'Starting inbound CDR sync', {
@@ -75,10 +115,12 @@ export class InboundCallSyncService {
         fromDate,
         toDate,
         fullSync: options.fullSync || false,
+        defaultLookbackDays: cdrConfig.default_lookback_days,
+        chunkMaxDays: cdrConfig.chunk_max_days,
       });
 
-      // Chunk into 30-day windows (Exotel max is 31 days)
-      const chunks = InboundCallSyncService.dateChunks(fromDate, toDate, 30);
+      // Chunk into N-day windows (Exotel max is 31 days). Default 30 from policy.
+      const chunks = InboundCallSyncService.dateChunks(fromDate, toDate, cdrConfig.chunk_max_days);
       let latestCallDate: string | null = null;
 
       for (const [chunkFrom, chunkTo] of chunks) {
@@ -423,11 +465,15 @@ export class InboundCallSyncService {
 
   /**
    * Resolve the sync date range based on options and last sync state.
+   * The default-lookback window (used when no last_synced_call_date cursor
+   * exists) is supplied by the caller from the `telephony.cdr_sync.config`
+   * platform_policies row, with a hardcoded fallback of 7 days at the call site.
    */
   private static async resolveDateRange(
     institutionId: string,
     supabase: any,
-    options: SyncOptions
+    options: SyncOptions,
+    defaultLookbackDays: number = CDR_SYNC_DEFAULT_LOOKBACK_DAYS
   ): Promise<{ fromDate: string; toDate: string }> {
     const toDate = options.toDate || new Date().toISOString().substring(0, 10);
 
@@ -452,9 +498,9 @@ export class InboundCallSyncService {
       }
     }
 
-    // Default: last 7 days for first sync
+    // Default: lookback window (policy-driven, default 7 days) for first sync
     const defaultFrom = new Date();
-    defaultFrom.setDate(defaultFrom.getDate() - 7);
+    defaultFrom.setDate(defaultFrom.getDate() - defaultLookbackDays);
     return { fromDate: defaultFrom.toISOString().substring(0, 10), toDate };
   }
 
