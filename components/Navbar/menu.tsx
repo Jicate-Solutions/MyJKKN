@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { Ellipsis, LogOut, Download, ChevronDown } from 'lucide-react';
+import { Ellipsis, LogOut, Download, ChevronDown, ChevronRight } from 'lucide-react';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -12,11 +12,18 @@ import {
   TooltipContent,
   TooltipProvider
 } from '@/components/ui/tooltip';
+import { motion, AnimatePresence } from 'motion/react';
 import { GetRoleBasedPages, RolePermissionData } from '@/lib/sidebarMenuLink';
 import { getModulesBySection } from '@/lib/navigation/modules';
+import { getPagesByModule } from '@/lib/navigation/page-registry';
+import { filterByPermissions } from '@/lib/navigation/permission-filter';
 import { AuthService } from '@/lib/auth/auth-service';
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import { usePermissions } from '@/hooks/use-permissions';
+import {
+  useExpandedSidebarModule,
+  useExpandedSidebarModuleHydration,
+} from '@/hooks/use-expanded-sidebar-module';
 import { useUserExpoTeamStatus } from '@/hooks/admission/use-expo-capture';
 import { useCommitteeMembership } from '@/hooks/events/marathon/use-committee-membership';
 import { useCommandPalette } from '@/components/CommandPalette/CommandPaletteProvider';
@@ -45,6 +52,26 @@ export function Menu({ isOpen }: MenuProps) {
   // under `myjkkn.sidebar.collapsed-sections` (spec D5 + R4).
   const { isCollapsed: isSectionCollapsed, toggle: toggleSection, hydrated: collapseHydrated } =
     useSidebarCollapsedSections();
+
+  // Single-expand accordion state for sidebar modules (Phase 2).
+  const expandedModule = useExpandedSidebarModule((s) => s.expandedModule);
+  const toggleModule = useExpandedSidebarModule((s) => s.toggleModule);
+  const setExpandedModule = useExpandedSidebarModule((s) => s.setExpandedModule);
+  const hydrated = useExpandedSidebarModuleHydration();
+
+  // Auto-expand the module matching the current URL on mount / route change,
+  // but only if no module is currently expanded (respect user's manual close).
+  useEffect(() => {
+    if (!hydrated) return;
+    const slug = pathname.split('/').filter(Boolean)[0] || null;
+    if (!slug) return;
+    // Read current state imperatively to avoid putting `expandedModule` in deps
+    // (we only want to auto-set when nothing is expanded — staleness is by design).
+    const current = useExpandedSidebarModule.getState().expandedModule;
+    if (current === null) {
+      setExpandedModule(slug);
+    }
+  }, [pathname, hydrated, setExpandedModule]);
 
   // Check if user is an expo team member (for dynamic sidebar visibility)
   const { data: isExpoTeamMember } = useUserExpoTeamStatus();
@@ -247,61 +274,135 @@ export function Menu({ isOpen }: MenuProps) {
                 ) : (
                   <p className='pb-2'></p>
                 )}
-                {/*
-                  Wave 2b PR-S2: flat rendering only. We always render each
-                  module row as a simple <Link> — submenus[] stays on the data
-                  for PR-S3 (<SidebarFlyout>) to consume but is no longer
-                  expanded inline. Collapse state hides entire sections.
-                */}
                 <div id={`sidebar-section-${index}`} hidden={collapsed}>
-                {menus.map(
-                  ({ href, label, icon: Icon, active }, index) => {
-                    const iconName = (Icon as { displayName?: string }).displayName || 'Folder';
-                    const moduleName = groupLabel || 'General';
+                {menus.map(({ href, label, icon: Icon, active }) => {
+                  const iconName = (Icon as { displayName?: string }).displayName || 'Folder';
+                  const moduleName = groupLabel || 'General';
 
-                    return (
-                      <div className='w-full group/row flex items-center' key={index}>
+                  // Derive the module slug from the href: '/admission' → 'admission'.
+                  // Skip Dashboard ('/') — it has no sub-pages and stays a plain link.
+                  const moduleSlug = href === '/' ? null : href.replace(/^\//, '').split('/')[0]!;
+
+                  // Look up sub-pages for this module from the route manifest.
+                  const allSubPages = moduleSlug ? getPagesByModule(moduleSlug) : [];
+                  const accessibleSubPages = filterByPermissions(
+                    allSubPages,
+                    permissions,
+                    isSuperAdmin,
+                    userProfile?.role || ''
+                  );
+
+                  // Only direct children (depth = 2 segments, e.g. /admission/leads).
+                  // Exclude the module root itself.
+                  const directChildren = accessibleSubPages.filter((p) => {
+                    const segs = p.path.split('/').filter(Boolean);
+                    return segs.length === 2 && segs[0] === moduleSlug && p.path !== href;
+                  });
+
+                  // Decide rendering mode:
+                  // - Sidebar collapsed (icon-only, isOpen===false) → always plain link
+                  // - No accessible direct children → plain link
+                  // - Otherwise → accordion
+                  const useAccordion = isOpen !== false && directChildren.length > 0;
+                  const isExpanded = useAccordion && expandedModule === moduleSlug;
+
+                  return (
+                    <div className='w-full group/row' key={href}>
+                      <div className='flex items-center'>
                         <TooltipProvider disableHoverableContent>
                           <Tooltip delayDuration={100}>
                             <TooltipTrigger asChild>
-                              <Button
-                                variant={active ? 'secondary' : 'ghost'}
-                                className={cn('flex-1 justify-start h-10 mb-1', !active && 'dark:text-gray-400')}
-                                asChild
-                              >
-                                <Link href={href}>
-                                  <span
-                                    className={cn(
-                                      isOpen === false ? '' : 'mr-4'
-                                    )}
-                                  >
-                                    <Icon size={18} />
-                                  </span>
-                                  <p
-                                    className={cn(
-                                      'max-w-[170px] truncate flex-1',
-                                      isOpen === false
-                                        ? '-translate-x-96 opacity-0'
-                                        : 'translate-x-0 opacity-100'
-                                    )}
-                                  >
-                                    {label}
-                                  </p>
-                                  {isOpen !== false && (() => {
-                                    const shortcut = getShortcutForPath(href);
-                                    return shortcut ? (
-                                      <kbd className='hidden lg:inline-flex h-4 select-none items-center rounded border px-1 font-mono text-[9px] font-medium text-muted-foreground dark:text-gray-400 dark:border-gray-600 dark:bg-gray-800/50 bg-muted/80 border-border/60'>
-                                        {shortcut}
-                                      </kbd>
-                                    ) : null;
-                                  })()}
-                                </Link>
-                              </Button>
+                              {useAccordion ? (
+                                <Button
+                                  variant={active ? 'secondary' : 'ghost'}
+                                  className={cn(
+                                    'flex-1 justify-start h-10 mb-1',
+                                    !active && 'dark:text-gray-400'
+                                  )}
+                                  onClick={(e) => {
+                                    if (active) {
+                                      // Already on a page in this module — pure toggle, no nav.
+                                      e.preventDefault();
+                                      toggleModule(moduleSlug!);
+                                    } else {
+                                      // Navigating to the module root — open the accordion.
+                                      setExpandedModule(moduleSlug!);
+                                      // Let the Link navigation proceed.
+                                    }
+                                  }}
+                                  aria-expanded={isExpanded}
+                                  aria-controls={isExpanded ? `sidebar-submenu-${moduleSlug}` : undefined}
+                                  asChild
+                                >
+                                  <Link href={href}>
+                                    <span className={cn(isOpen === false ? '' : 'mr-4')}>
+                                      <Icon size={18} />
+                                    </span>
+                                    <p
+                                      className={cn(
+                                        'max-w-[170px] truncate flex-1 text-left',
+                                        isOpen === false
+                                          ? '-translate-x-96 opacity-0'
+                                          : 'translate-x-0 opacity-100'
+                                      )}
+                                    >
+                                      {label}
+                                    </p>
+                                    {isOpen !== false && (() => {
+                                      const shortcut = getShortcutForPath(href);
+                                      return shortcut ? (
+                                        <kbd className='hidden lg:inline-flex h-4 select-none items-center rounded border px-1 font-mono text-[9px] font-medium text-muted-foreground dark:text-gray-400 dark:border-gray-600 dark:bg-gray-800/50 bg-muted/80 border-border/60 mr-1'>
+                                          {shortcut}
+                                        </kbd>
+                                      ) : null;
+                                    })()}
+                                    <ChevronRight
+                                      size={16}
+                                      className={cn(
+                                        'transition-transform duration-200',
+                                        isExpanded && 'rotate-90'
+                                      )}
+                                      aria-hidden='true'
+                                    />
+                                  </Link>
+                                </Button>
+                              ) : (
+                                <Button
+                                  variant={active ? 'secondary' : 'ghost'}
+                                  className={cn(
+                                    'flex-1 justify-start h-10 mb-1',
+                                    !active && 'dark:text-gray-400'
+                                  )}
+                                  asChild
+                                >
+                                  <Link href={href}>
+                                    <span className={cn(isOpen === false ? '' : 'mr-4')}>
+                                      <Icon size={18} />
+                                    </span>
+                                    <p
+                                      className={cn(
+                                        'max-w-[170px] truncate flex-1',
+                                        isOpen === false
+                                          ? '-translate-x-96 opacity-0'
+                                          : 'translate-x-0 opacity-100'
+                                      )}
+                                    >
+                                      {label}
+                                    </p>
+                                    {isOpen !== false && (() => {
+                                      const shortcut = getShortcutForPath(href);
+                                      return shortcut ? (
+                                        <kbd className='hidden lg:inline-flex h-4 select-none items-center rounded border px-1 font-mono text-[9px] font-medium text-muted-foreground dark:text-gray-400 dark:border-gray-600 dark:bg-gray-800/50 bg-muted/80 border-border/60'>
+                                          {shortcut}
+                                        </kbd>
+                                      ) : null;
+                                    })()}
+                                  </Link>
+                                </Button>
+                              )}
                             </TooltipTrigger>
                             {isOpen === false && (
-                              <TooltipContent side='right'>
-                                {label}
-                              </TooltipContent>
+                              <TooltipContent side='right'>{label}</TooltipContent>
                             )}
                           </Tooltip>
                         </TooltipProvider>
@@ -316,9 +417,49 @@ export function Menu({ isOpen }: MenuProps) {
                           />
                         )}
                       </div>
-                    );
-                  }
-                )}
+
+                      {/* Accordion sub-page list */}
+                      {useAccordion && (
+                        <AnimatePresence initial={false}>
+                          {isExpanded && (
+                            <motion.ul
+                              id={`sidebar-submenu-${moduleSlug}`}
+                              initial={{ height: 0, opacity: 0 }}
+                              animate={{ height: 'auto', opacity: 1 }}
+                              exit={{ height: 0, opacity: 0 }}
+                              transition={{ duration: 0.2, ease: 'easeOut' }}
+                              className='overflow-hidden ml-2 border-l border-border/50'
+                            >
+                              {directChildren.map((sub) => {
+                                const SubIcon = sub.icon;
+                                const isActive = pathname === sub.path;
+                                return (
+                                  <li key={sub.path}>
+                                    <Button
+                                      variant={isActive ? 'secondary' : 'ghost'}
+                                      className={cn(
+                                        'w-full justify-start h-9 mb-0.5 pl-6 text-sm font-normal',
+                                        !isActive && 'dark:text-gray-400'
+                                      )}
+                                      asChild
+                                    >
+                                      <Link href={sub.path}>
+                                        <span className='mr-2'>
+                                          <SubIcon size={14} />
+                                        </span>
+                                        <span className='truncate'>{sub.title}</span>
+                                      </Link>
+                                    </Button>
+                                  </li>
+                                );
+                              })}
+                            </motion.ul>
+                          )}
+                        </AnimatePresence>
+                      )}
+                    </div>
+                  );
+                })}
                 </div>
               </li>
               );
