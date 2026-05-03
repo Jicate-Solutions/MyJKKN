@@ -327,15 +327,12 @@ export function Menu({ isOpen }: MenuProps) {
                                     !active && 'dark:text-gray-400'
                                   )}
                                   onClick={(e) => {
-                                    if (active) {
-                                      // Already on a page in this module — pure toggle, no nav.
-                                      e.preventDefault();
-                                      toggleModule(moduleSlug!);
-                                    } else {
-                                      // Navigating to the module root — open the accordion.
-                                      setExpandedModule(moduleSlug!);
-                                      // Let the Link navigation proceed.
-                                    }
+                                    // Pure toggle: clicking the parent only opens/closes
+                                    // the accordion. The module root page is reachable
+                                    // via the module's /dashboard sub-page (auto-discovered),
+                                    // Ctrl+K, or direct URL.
+                                    e.preventDefault();
+                                    toggleModule(moduleSlug!);
                                   }}
                                   aria-expanded={isExpanded}
                                   aria-controls={isExpanded ? `sidebar-submenu-${moduleSlug}` : undefined}
