@@ -7,7 +7,12 @@
 // the policy gate uses the server-side fn_get_policy reader (next/headers).
 
 import * as Sentry from '@sentry/nextjs';
-import { getPolicyBool } from '@/lib/policies/get-policy';
+// Use the CLIENT variant of get-policy: this module is reachable from
+// client-bundled lead-service.ts via wa-event-dispatcher → auto-trigger-service.
+// Server variant imports next/headers and would break the client bundle
+// (memory: feedback_shared_lib_must_ship_server_and_client_variants.md, PR #626).
+// Global policy resolution works fine via SECURITY DEFINER RPC from any context.
+import { getPolicyBool } from '@/lib/policies/get-policy-client';
 import { POLICY_KEYS } from '@/lib/policies/keys';
 import type {
   PersonalWhatsAppStatus,
