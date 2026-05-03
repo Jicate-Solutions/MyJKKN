@@ -11,6 +11,10 @@ import { hashEmail, hashPhone } from '@/lib/utils/hash';
 
 export const dynamic = 'force-dynamic';
 
+// Public-form clients only emit the user-facing events. The sentinel
+// 'abandon_recovery_triggered' is written by the recovery cron via
+// service-role insert and is intentionally NOT in this list — clients
+// must not be able to spoof it.
 const VALID_EVENTS = [
   'form_viewed',
   'form_started',
