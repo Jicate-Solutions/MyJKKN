@@ -236,13 +236,16 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
   // previously hardcoded `true` passed to <BasicTab>).
   const canEnableExtended = !!selectedCategory?.shows_extended_profile;
 
-  // When category changes to one with shows_extended_profile=true and the
-  // staff has no value yet, default the toggle to true (only on create, not edit).
+  // When category supports extended profile and the toggle is currently off,
+  // auto-flip it on. Applies to BOTH create and edit modes so existing staff
+  // under a newly-extended-enabled category get the 6 extra tabs surfaced
+  // without requiring a manual toggle click. Users can still toggle off
+  // per-record in the Profile Settings sub-section if they don't want it.
   useEffect(() => {
-    if (canEnableExtended && form.getValues('has_extended_profile') === false && !staff?.id) {
+    if (canEnableExtended && form.getValues('has_extended_profile') === false) {
       form.setValue('has_extended_profile', true);
     }
-  }, [canEnableExtended, form, staff?.id]);
+  }, [canEnableExtended, form]);
 
   // Reset form when staff data changes (for edit mode)
   useEffect(() => {
