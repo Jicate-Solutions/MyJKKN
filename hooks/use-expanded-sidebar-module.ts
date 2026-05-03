@@ -12,13 +12,15 @@ interface ExpandedSidebarModuleStore {
 
 export const useExpandedSidebarModule = create<ExpandedSidebarModuleStore>()(
   persist(
-    (set, get) => ({
+    (set) => ({
       expandedModule: null,
       _hasHydrated: false,
       setHasHydrated: (state) => set({ _hasHydrated: state }),
       setExpandedModule: (slug) => set({ expandedModule: slug }),
       toggleModule: (slug) =>
-        set({ expandedModule: get().expandedModule === slug ? null : slug }),
+        set((state) => ({
+          expandedModule: state.expandedModule === slug ? null : slug,
+        })),
     }),
     {
       name: 'myjkkn.sidebar.expanded-module',
