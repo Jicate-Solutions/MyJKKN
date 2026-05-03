@@ -169,17 +169,39 @@ function evaluateCondition(
 
 // ─── Analytics tracking helper ──────────────────────────────────────────────
 
+// Identity-bearing field keys whose RAW value is forwarded to the server so the
+// server can SHA-256 hash and write only the digest into metadata. The client
+// never persists raw PII to the events table — the server route enforces this.
+// Keep in sync with IDENTITY_PHONE_KEYS / IDENTITY_EMAIL_KEYS in
+// app/api/public/forms/events/route.ts.
+const IDENTITY_FIELD_KEYS = new Set([
+  'phone',
+  'parent_phone',
+  'mobile',
+  'whatsapp_number',
+  'email',
+  'parent_email',
+]);
+
 function trackEvent(
   formId: string,
   eventType: string,
   sessionId: string,
   fieldKey: string | null = null,
-  metadata: Record<string, unknown> = {}
+  metadata: Record<string, unknown> = {},
+  fieldValue?: string
 ) {
   fetch('/api/public/forms/events', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ formId, eventType, fieldKey, sessionId, metadata }),
+    body: JSON.stringify({
+      formId,
+      eventType,
+      fieldKey,
+      sessionId,
+      metadata,
+      ...(fieldValue !== undefined ? { fieldValue } : {}),
+    }),
   }).catch(() => {
     // Silent fail — analytics shouldn't break the form
   });
@@ -259,7 +281,20 @@ export default function PublicFormClient({
   const handleFieldBlur = (fieldKey: string, value: any) => {
     if (previewMode) return;
     if (value !== undefined && value !== null && value !== '') {
-      trackEvent(form.id, 'field_completed', sessionIdRef.current, fieldKey);
+      // For identity-bearing fields (phone/email), forward the raw string value
+      // to the server; the server SHA-256 hashes it before insert. Raw PII never
+      // lands in admission_form_events.metadata. Non-identity fields send no
+      // fieldValue at all (server ignores).
+      const stringValue =
+        IDENTITY_FIELD_KEYS.has(fieldKey) && typeof value === 'string' ? value : undefined;
+      trackEvent(
+        form.id,
+        'field_completed',
+        sessionIdRef.current,
+        fieldKey,
+        {},
+        stringValue
+      );
     }
   };
 
