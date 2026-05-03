@@ -200,6 +200,10 @@ export default async function MeetingDetailPage({ params }: DetailPageProps) {
         </CardContent>
       </Card>
 
+      {/* TODO(Option-4 follow-up): Replace external reschedule/cancel/open-booking-page
+          links below with internal embed routes (e.g. /meetings/[uid]/edit) once Agent A's
+          embed wrapper is live. For now, keeping them as external deep-links to Cal.com —
+          destructive mutations benefit from full-page context, not iframe. Track as separate PR. */}
       {!isCancelled && !isPast ? (
         <Card>
           <CardHeader className="pb-3">
@@ -245,7 +249,7 @@ export default async function MeetingDetailPage({ params }: DetailPageProps) {
 
       <p className="text-center text-xs text-muted-foreground">
         Booking last synced {new Date(booking.webhook_received_at).toLocaleString('en-IN')} ·{' '}
-        Source of truth: jicate-booking
+        Source of truth: Cal.com (embedded inside MyJKKN)
       </p>
     </div>
   );
