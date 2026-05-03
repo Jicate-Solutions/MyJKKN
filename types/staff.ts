@@ -20,6 +20,7 @@ export interface EmploymentCategory {
   category_name: string;
   description?: string | null;
   is_teaching: boolean;
+  shows_extended_profile: boolean;
   is_active: boolean;
   created_at: string;
   updated_at: string;
@@ -31,6 +32,7 @@ export interface CreateEmploymentCategoryDto {
   category_name: string;
   description?: string;
   is_teaching?: boolean;
+  shows_extended_profile?: boolean;
   is_active?: boolean;
 }
 
