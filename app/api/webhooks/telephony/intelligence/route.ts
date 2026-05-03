@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { ExoVoiceAnalyzeWebhookPayload } from '@/lib/services/telephony/exotel-client';
 import { CallEnrichmentService } from '@/lib/services/telephony/call-enrichment-service';
+import { capturePipelineErrorAsync } from '@/lib/services/telephony/error-capture';
 import crypto from 'crypto';
 
 // Intelligence callback parses Exotel insights and runs CallEnrichmentService
@@ -141,6 +142,23 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     console.error('[Intelligence Webhook] Error:', error);
+    capturePipelineErrorAsync('intelligence_callback', error, {
+      // call_sid is the only correlation we have at the catch site — payload
+      // may have failed to parse. Best-effort extraction.
+      callSid: tryExtractCallSid(error),
+    });
     return NextResponse.json({ received: true, processed: false, error: String(error) });
   }
+}
+
+/**
+ * Best-effort call_sid extraction for top-level catch — the webhook may have
+ * thrown before payload parse, in which case we have no correlation. Return
+ * null silently rather than throw a second error inside the catch.
+ */
+function tryExtractCallSid(_error: unknown): null {
+  // Today the catch site has no payload reference in scope; widening would
+  // require restructuring. We intentionally return null — pipeline_errors
+  // accepts NULL call_sid (it's an INDEX'd partial column).
+  return null;
 }

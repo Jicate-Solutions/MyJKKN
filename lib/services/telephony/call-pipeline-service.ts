@@ -5,6 +5,7 @@ import { sendTextMessage as waSendText, isWhatsAppConfigured } from '@/lib/servi
 import { WAEventDispatcher } from '@/lib/services/whatsapp/wa-event-dispatcher';
 import { getPolicy } from '@/lib/policies/get-policy';
 import { POLICY_KEYS } from '@/lib/policies/keys';
+import { capturePipelineErrorAsync } from './error-capture';
 
 const PIPELINE_STAGES = ['captured', 'classified', 'matched', 'intelligence', 'enriched', 'responded', 'complete'] as const;
 type PipelineStage = typeof PIPELINE_STAGES[number];
@@ -181,6 +182,11 @@ export class CallPipelineService {
       return { stage: finalStage, intelligenceId, callbackQueueId, autoSmsSent, autoWhatsAppSent };
     } catch (error) {
       console.error('[CallPipeline] Error:', error);
+      capturePipelineErrorAsync('pipeline', error, {
+        callSid: ctx.callSid,
+        callLogId: ctx.callLogId,
+        institutionId: ctx.institutionId,
+      });
       return { stage: 'intelligence', error: String(error) };
     }
   }
@@ -270,6 +276,26 @@ export class CallPipelineService {
       return intel.id;
     } catch (error) {
       console.error('[CallPipeline] ExoVoiceAnalyze submit failed:', error);
+      // This is THE error site that the 27-day silent-failure history hid.
+      // Every analyzeCall returning HTTP 400 was swallowed here. Capture
+      // surface='pipeline' (the submit is initiated from the pipeline,
+      // not from the intelligence callback). Extra carries the Exotel
+      // status code if the error was an ExotelApiError.
+      const extra: Record<string, unknown> = {
+        site: 'submitForAnalysis',
+      };
+      if (error && typeof error === 'object') {
+        const e = error as { status?: number; exotelCode?: string; body?: string };
+        if (e.status !== undefined) extra.status = e.status;
+        if (e.exotelCode !== undefined) extra.exotel_code = e.exotelCode;
+        if (e.body !== undefined) extra.exotel_body = e.body;
+      }
+      capturePipelineErrorAsync('pipeline', error, {
+        callSid: ctx.callSid,
+        callLogId: ctx.callLogId,
+        institutionId: ctx.institutionId,
+        extra,
+      });
       return undefined;
     }
   }
