@@ -15220,6 +15220,7 @@ export type Database = {
           id: string
           is_active: boolean | null
           is_teaching: boolean
+          shows_extended_profile: boolean
           updated_at: string
           updated_by: string | null
         }
@@ -15231,6 +15232,7 @@ export type Database = {
           id?: string
           is_active?: boolean | null
           is_teaching?: boolean
+          shows_extended_profile?: boolean
           updated_at?: string
           updated_by?: string | null
         }
@@ -15242,6 +15244,7 @@ export type Database = {
           id?: string
           is_active?: boolean | null
           is_teaching?: boolean
+          shows_extended_profile?: boolean
           updated_at?: string
           updated_by?: string | null
         }
@@ -32217,6 +32220,7 @@ export type Database = {
       institution_call_settings: {
         Row: {
           auto_enrich_leads: boolean | null
+          auto_sms_cooldown_hours: number
           auto_sms_enabled: boolean | null
           auto_sms_sender_id: string | null
           auto_sms_template: string | null
@@ -32236,6 +32240,7 @@ export type Database = {
         }
         Insert: {
           auto_enrich_leads?: boolean | null
+          auto_sms_cooldown_hours?: number
           auto_sms_enabled?: boolean | null
           auto_sms_sender_id?: string | null
           auto_sms_template?: string | null
@@ -32255,6 +32260,7 @@ export type Database = {
         }
         Update: {
           auto_enrich_leads?: boolean | null
+          auto_sms_cooldown_hours?: number
           auto_sms_enabled?: boolean | null
           auto_sms_sender_id?: string | null
           auto_sms_template?: string | null
@@ -47183,6 +47189,8 @@ export type Database = {
           accreditation_default_college_id: string | null
           avatar_url: string | null
           bio: string | null
+          cal_api_key_encrypted: string | null
+          cal_user_id: number | null
           created_at: string
           department_id: string | null
           designation: string | null
@@ -47206,6 +47214,8 @@ export type Database = {
           accreditation_default_college_id?: string | null
           avatar_url?: string | null
           bio?: string | null
+          cal_api_key_encrypted?: string | null
+          cal_user_id?: number | null
           created_at?: string
           department_id?: string | null
           designation?: string | null
@@ -47229,6 +47239,8 @@ export type Database = {
           accreditation_default_college_id?: string | null
           avatar_url?: string | null
           bio?: string | null
+          cal_api_key_encrypted?: string | null
+          cal_user_id?: number | null
           created_at?: string
           department_id?: string | null
           designation?: string | null
@@ -63327,101 +63339,188 @@ export type Database = {
       }
       staff: {
         Row: {
+          achievements: Json
           address: string | null
+          awards: Json
+          awards_won: number
+          badges: Json
           blood_group: string | null
           category_id: string
+          certifications: Json
           created_at: string
           created_by: string | null
           date_of_birth: string
           date_of_joining: string
           department_id: string | null
           designation: string
+          display_order: number
           district: string | null
           email: string
+          experience_entries: Json
+          experience_years: number
           facilitator_certification: Json | null
+          faqs: Json
           first_name: string
+          funded_projects: Json
           gender: string
+          google_scholar_url: string | null
+          has_extended_profile: boolean
           id: string
           institution_email: string
           institution_id: string
           is_active: boolean | null
           last_name: string
           marital_status: string
+          memberships: Json
+          mentoring_description: string | null
+          orcid_url: string | null
           outcome_metrics: Json | null
+          pg_dissertations_guided: number
+          phd_scholars: number
+          phd_scholars_list: Json
           phone: string
           pincode: string | null
+          professional_summary: string | null
           profile_id: string | null
           profile_picture: string | null
+          publications: Json
+          qualification_summary: string | null
+          qualifications: Json
+          research_focus_areas: Json
+          research_papers: number
+          researchgate_url: string | null
           role_key: string
           role_type: string | null
+          slug: string | null
+          specialisations: Json
           staff_id: string | null
           state: string | null
+          status: string
+          ug_projects_guided: number
           updated_at: string
           updated_by: string | null
         }
         Insert: {
+          achievements?: Json
           address?: string | null
+          awards?: Json
+          awards_won?: number
+          badges?: Json
           blood_group?: string | null
           category_id: string
+          certifications?: Json
           created_at?: string
           created_by?: string | null
           date_of_birth: string
           date_of_joining: string
           department_id?: string | null
           designation: string
+          display_order?: number
           district?: string | null
           email: string
+          experience_entries?: Json
+          experience_years?: number
           facilitator_certification?: Json | null
+          faqs?: Json
           first_name: string
+          funded_projects?: Json
           gender: string
+          google_scholar_url?: string | null
+          has_extended_profile?: boolean
           id?: string
           institution_email: string
           institution_id: string
           is_active?: boolean | null
           last_name: string
           marital_status: string
+          memberships?: Json
+          mentoring_description?: string | null
+          orcid_url?: string | null
           outcome_metrics?: Json | null
+          pg_dissertations_guided?: number
+          phd_scholars?: number
+          phd_scholars_list?: Json
           phone: string
           pincode?: string | null
+          professional_summary?: string | null
           profile_id?: string | null
           profile_picture?: string | null
+          publications?: Json
+          qualification_summary?: string | null
+          qualifications?: Json
+          research_focus_areas?: Json
+          research_papers?: number
+          researchgate_url?: string | null
           role_key?: string
           role_type?: string | null
+          slug?: string | null
+          specialisations?: Json
           staff_id?: string | null
           state?: string | null
+          status?: string
+          ug_projects_guided?: number
           updated_at?: string
           updated_by?: string | null
         }
         Update: {
+          achievements?: Json
           address?: string | null
+          awards?: Json
+          awards_won?: number
+          badges?: Json
           blood_group?: string | null
           category_id?: string
+          certifications?: Json
           created_at?: string
           created_by?: string | null
           date_of_birth?: string
           date_of_joining?: string
           department_id?: string | null
           designation?: string
+          display_order?: number
           district?: string | null
           email?: string
+          experience_entries?: Json
+          experience_years?: number
           facilitator_certification?: Json | null
+          faqs?: Json
           first_name?: string
+          funded_projects?: Json
           gender?: string
+          google_scholar_url?: string | null
+          has_extended_profile?: boolean
           id?: string
           institution_email?: string
           institution_id?: string
           is_active?: boolean | null
           last_name?: string
           marital_status?: string
+          memberships?: Json
+          mentoring_description?: string | null
+          orcid_url?: string | null
           outcome_metrics?: Json | null
+          pg_dissertations_guided?: number
+          phd_scholars?: number
+          phd_scholars_list?: Json
           phone?: string
           pincode?: string | null
+          professional_summary?: string | null
           profile_id?: string | null
           profile_picture?: string | null
+          publications?: Json
+          qualification_summary?: string | null
+          qualifications?: Json
+          research_focus_areas?: Json
+          research_papers?: number
+          researchgate_url?: string | null
           role_key?: string
           role_type?: string | null
+          slug?: string | null
+          specialisations?: Json
           staff_id?: string | null
           state?: string | null
+          status?: string
+          ug_projects_guided?: number
           updated_at?: string
           updated_by?: string | null
         }
@@ -63511,6 +63610,39 @@ export type Database = {
             referencedColumns: ["role_key"]
           },
         ]
+      }
+      staff_import_unmatched: {
+        Row: {
+          created_at: string
+          id: string
+          reason: string
+          resolved: boolean
+          resolved_at: string | null
+          resolved_by: string | null
+          source_row: Json
+          source_table: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          reason: string
+          resolved?: boolean
+          resolved_at?: string | null
+          resolved_by?: string | null
+          source_row: Json
+          source_table: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          reason?: string
+          resolved?: boolean
+          resolved_at?: string | null
+          resolved_by?: string | null
+          source_row?: Json
+          source_table?: string
+        }
+        Relationships: []
       }
       staff_plan_courses: {
         Row: {
@@ -66593,6 +66725,39 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      wa_byow_health_log: {
+        Row: {
+          error_message: string | null
+          http_code: number | null
+          id: string
+          recorded_at: string
+          response_time_ms: number | null
+          service_url: string | null
+          status: string
+          triggered_disable: boolean
+        }
+        Insert: {
+          error_message?: string | null
+          http_code?: number | null
+          id?: string
+          recorded_at?: string
+          response_time_ms?: number | null
+          service_url?: string | null
+          status: string
+          triggered_disable?: boolean
+        }
+        Update: {
+          error_message?: string | null
+          http_code?: number | null
+          id?: string
+          recorded_at?: string
+          response_time_ms?: number | null
+          service_url?: string | null
+          status?: string
+          triggered_disable?: boolean
+        }
+        Relationships: []
       }
       wa_consent_log: {
         Row: {
@@ -72012,6 +72177,8 @@ export type Database = {
           accreditation_default_college_id: string | null
           avatar_url: string | null
           bio: string | null
+          cal_api_key_encrypted: string | null
+          cal_user_id: number | null
           created_at: string
           department_id: string | null
           designation: string | null
@@ -72244,6 +72411,7 @@ export type Database = {
           target_user_id_out: string
         }[]
       }
+      fn_clear_cal_api_key: { Args: { p_user_id: string }; Returns: undefined }
       fn_cluster_rank_hods_public: { Args: never; Returns: Json }
       fn_cluster_rank_private: { Args: { p_role?: string }; Returns: Json }
       fn_cluster_rank_public: { Args: { p_role?: string }; Returns: Json }
@@ -72376,6 +72544,13 @@ export type Database = {
           href: string
           icon: string
           label: string
+        }[]
+      }
+      fn_get_cal_api_key: {
+        Args: { p_master_secret: string; p_user_id: string }
+        Returns: {
+          cal_api_key: string
+          cal_user_id: number
         }[]
       }
       fn_get_generator_config: {
@@ -72564,6 +72739,15 @@ export type Database = {
           stream: string
           study_year: string
         }[]
+      }
+      fn_set_cal_api_key: {
+        Args: {
+          p_api_key: string
+          p_cal_user_id: number
+          p_master_secret: string
+          p_user_id: string
+        }
+        Returns: undefined
       }
       fn_set_referral_eligibility: {
         Args: {
@@ -72888,6 +73072,8 @@ export type Database = {
           accreditation_default_college_id: string | null
           avatar_url: string | null
           bio: string | null
+          cal_api_key_encrypted: string | null
+          cal_user_id: number | null
           created_at: string
           department_id: string | null
           designation: string | null
@@ -73387,6 +73573,8 @@ export type Database = {
           accreditation_default_college_id: string | null
           avatar_url: string | null
           bio: string | null
+          cal_api_key_encrypted: string | null
+          cal_user_id: number | null
           created_at: string
           department_id: string | null
           designation: string | null
@@ -76672,4 +76860,3 @@ export const Constants = {
     },
   },
 } as const
-
