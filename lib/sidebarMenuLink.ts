@@ -35,6 +35,7 @@ import {
   Building,
   Boxes,
   CalendarClock,
+  CalendarCog,
   UserSearch,
   Flame,
   FolderTree,
@@ -145,12 +146,14 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // Profile
   '/profile': 'view_profile', // All users should be able to view their own profile
 
-  // My Meetings (jicate-booking host inbox)
-  // Page does NO role gating — RLS at row level filters by host_user_id.
+  // My Meetings (jicate-booking host inbox + management pages)
+  // Pages do NO role gating — RLS at row level filters by host_user_id.
   // Use view_profile (universal authenticated key) so any logged-in user
-  // sees the chip; users with zero mirror rows simply hit the empty state.
+  // sees the chips; users with zero mirror rows hit the empty state.
   // Replaces the temporary NAV_EXCLUDE bypass added in PR #654.
   '/meetings/inbox': 'view_profile',
+  '/meetings/manage': 'view_profile',
+  '/meetings/availability': 'view_profile',
 
   // Bug Reports (Student Self-Service)
   '/my-bug-reports': 'learners.bug_reports.view',
@@ -925,17 +928,35 @@ export function GetPages(pathname: string): MenuGroup[] {
           submenus: []
         },
         {
-          // jicate-booking host inbox — replaces temporary NAV_EXCLUDE bypass
+          // jicate-booking host pages — replaces temporary NAV_EXCLUDE bypass
           // from PR #654. Permission: view_profile (universal authenticated
           // key). Page-level access is RLS-gated by host_user_id, so any
-          // logged-in user can see the chip; users with no mirror rows hit
+          // logged-in user can see the chips; users with no mirror rows hit
           // the empty state. Source-of-truth for bookings remains Cal.com /
-          // jicate-booking; this is a read-only mirror inbox.
+          // jicate-booking; these are embed-backed pages.
           href: '/meetings/inbox',
           label: 'My Meetings',
           active: pathname === '/meetings/inbox' || pathname.startsWith('/meetings/'),
           icon: CalendarClock,
-          submenus: []
+          submenus: [
+            {
+              href: '/meetings/inbox',
+              label: 'Inbox',
+              active: pathname === '/meetings/inbox',
+            },
+            {
+              href: '/meetings/manage',
+              label: 'Manage Event Types',
+              active: pathname === '/meetings/manage',
+              icon: CalendarCog,
+            },
+            {
+              href: '/meetings/availability',
+              label: 'My Availability',
+              active: pathname === '/meetings/availability',
+              icon: Clock,
+            },
+          ]
         }
       ]
     },
