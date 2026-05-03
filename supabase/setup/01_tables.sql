@@ -689,6 +689,7 @@ CREATE TABLE IF NOT EXISTS public.employment_categories (
     category_name TEXT NOT NULL UNIQUE,
     description TEXT,
     is_teaching BOOLEAN NOT NULL DEFAULT false,
+    shows_extended_profile BOOLEAN NOT NULL DEFAULT false,
     is_active BOOLEAN DEFAULT true,
     created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
