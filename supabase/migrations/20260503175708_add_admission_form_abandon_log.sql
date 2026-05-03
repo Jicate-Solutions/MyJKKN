@@ -209,7 +209,7 @@ RETURNS TABLE (
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
-SET search_path = public, pg_temp
+SET search_path = public, extensions, pg_temp
 AS $$
   SELECT
     l.id,
@@ -224,12 +224,12 @@ AS $$
       (
         p_phone_hash IS NOT NULL
         AND l.phone IS NOT NULL
-        AND encode(digest(lower(trim(l.phone)), 'sha256'), 'hex') = p_phone_hash
+        AND encode(extensions.digest(lower(trim(l.phone)), 'sha256'), 'hex') = p_phone_hash
       )
       OR (
         p_email_hash IS NOT NULL
         AND l.email IS NOT NULL
-        AND encode(digest(lower(trim(l.email)), 'sha256'), 'hex') = p_email_hash
+        AND encode(extensions.digest(lower(trim(l.email)), 'sha256'), 'hex') = p_email_hash
       )
     )
   ORDER BY l.last_activity_at DESC NULLS LAST, l.created_at DESC
