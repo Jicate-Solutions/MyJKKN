@@ -1,16 +1,11 @@
 /**
- * PATCH /api/attention-bar/admin/config
+ * GET/PATCH /api/attention-bar/admin/config
  *
- * Tab 5 — Layer 4 kill-switch + budget + config edits.
- * Body: { key: string, value: unknown }
+ * Tab 1 — Per-layer kill switches (5 toggles). Tab 5 — Layer 4 budget edits.
+ * Body for PATCH: { key: string, value: unknown }
  *
- * Allowed keys (allowlist — cannot write arbitrary config):
- *   - layer_4.enabled
- *   - layer_4.daily_budget_usd
- *   - layer_4.per_user_daily_calls
- *   - layer_3.min_impressions
- *   - layer_3.confidence_threshold
- *   - layer_4.cache_ttl_minutes
+ * Allowed keys (allowlist — cannot write arbitrary config). See
+ * lib/attention-bar/layer-enabled-config.ts for the resolver-side reader.
  *
  * Auth: super_admin OR attention_bar.config.manage
  */
@@ -18,17 +13,30 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { getEnhancedUserProfile } from '@/lib/supabase/server';
+import { invalidateLayerEnabledCache } from '@/lib/attention-bar/layer-enabled-config';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-const ALLOWED_CONFIG_KEYS = new Set([
+const LAYER_ENABLED_KEYS = new Set([
+  'layer_0.enabled',
+  'layer_1.enabled',
+  'layer_2.enabled',
+  'layer_3.enabled',
   'layer_4.enabled',
+]);
+
+const ALLOWED_CONFIG_KEYS = new Set([
+  // Per-layer kill switches (Tab 1 panel)
+  ...LAYER_ENABLED_KEYS,
+  // Layer 4 AI-specific (Tab 5 panel)
   'layer_4.daily_budget_usd',
   'layer_4.per_user_daily_calls',
+  'layer_4.cache_ttl_minutes',
+  // Layer 3 behavioral-learning thresholds
   'layer_3.min_impressions',
   'layer_3.confidence_threshold',
-  'layer_4.cache_ttl_minutes',
+  // Layer 0 misc
   'layer_0.queue_pip_visible_at',
 ]);
 
@@ -105,6 +113,13 @@ export async function PATCH(request: Request) {
       .single();
 
     if (error) throw error;
+
+    // Layer kill-switch flips: invalidate the cached enabled-layers map so
+    // the next /resolve call picks up the new value immediately (without
+    // waiting 60s for the TTL to expire on the same Lambda instance).
+    if (LAYER_ENABLED_KEYS.has(key)) {
+      invalidateLayerEnabledCache();
+    }
 
     return NextResponse.json({ config: data });
   } catch (err) {
