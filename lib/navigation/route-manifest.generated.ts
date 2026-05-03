@@ -2222,6 +2222,188 @@ export const ROUTE_MANIFEST: RouteNode[] = [
     ]
   },
   {
+    "path": "/ims",
+    "label": "Ims",
+    "iconName": "FileText",
+    "children": [
+      {
+        "path": "/ims/dashboard",
+        "label": "Dashboard",
+        "iconName": "LayoutGrid",
+        "children": []
+      },
+      {
+        "path": "/ims/financial",
+        "label": "Financial",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
+        "path": "/ims/indents",
+        "label": "Indents",
+        "iconName": "FileText",
+        "children": [
+          {
+            "path": "/ims/indents/new",
+            "label": "New",
+            "iconName": "Plus",
+            "children": []
+          },
+          {
+            "path": "/ims/indents/pending",
+            "label": "Pending",
+            "iconName": "FileText",
+            "children": []
+          }
+        ]
+      },
+      {
+        "path": "/ims/inventory",
+        "label": "Inventory",
+        "iconName": "FileText",
+        "children": [
+          {
+            "path": "/ims/inventory/categories",
+            "label": "Categories",
+            "iconName": "Tags",
+            "children": []
+          },
+          {
+            "path": "/ims/inventory/items",
+            "label": "Items",
+            "iconName": "FileText",
+            "children": []
+          }
+        ]
+      },
+      {
+        "path": "/ims/reports",
+        "label": "Reports",
+        "iconName": "FileBarChart",
+        "children": [
+          {
+            "path": "/ims/reports/consumption",
+            "label": "Consumption",
+            "iconName": "FileBarChart",
+            "children": []
+          },
+          {
+            "path": "/ims/reports/indents",
+            "label": "Indents",
+            "iconName": "FileBarChart",
+            "children": []
+          },
+          {
+            "path": "/ims/reports/sales",
+            "label": "Sales",
+            "iconName": "FileBarChart",
+            "children": []
+          },
+          {
+            "path": "/ims/reports/stock",
+            "label": "Stock",
+            "iconName": "FileBarChart",
+            "children": []
+          },
+          {
+            "path": "/ims/reports/upi",
+            "label": "Upi",
+            "iconName": "FileBarChart",
+            "children": []
+          }
+        ]
+      },
+      {
+        "path": "/ims/sales",
+        "label": "Sales",
+        "iconName": "FileText",
+        "children": [
+          {
+            "path": "/ims/sales/history",
+            "label": "History",
+            "iconName": "FileText",
+            "children": []
+          }
+        ]
+      },
+      {
+        "path": "/ims/settings",
+        "label": "Settings",
+        "iconName": "Settings",
+        "children": [
+          {
+            "path": "/ims/settings/stores",
+            "label": "Stores",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/ims/settings/suppliers",
+            "label": "Suppliers",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/ims/settings/unit-conversions",
+            "label": "Unit Conversions",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/ims/settings/units",
+            "label": "Units",
+            "iconName": "FileText",
+            "children": []
+          }
+        ]
+      },
+      {
+        "path": "/ims/stock",
+        "label": "Stock",
+        "iconName": "FileText",
+        "children": [
+          {
+            "path": "/ims/stock/adjustments",
+            "label": "Adjustments",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/ims/stock/batches",
+            "label": "Batches",
+            "iconName": "Boxes",
+            "children": []
+          },
+          {
+            "path": "/ims/stock/department",
+            "label": "Department",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/ims/stock/grn",
+            "label": "Grn",
+            "iconName": "FileText",
+            "children": [
+              {
+                "path": "/ims/stock/grn/new",
+                "label": "New",
+                "iconName": "Plus",
+                "children": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "path": "/ims/transfers",
+        "label": "Transfers",
+        "iconName": "FileText",
+        "children": []
+      }
+    ]
+  },
+  {
     "path": "/learn",
     "label": "Learn",
     "iconName": "FileText",
