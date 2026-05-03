@@ -21,7 +21,7 @@ async function fetchTemplates(
   const params = new URLSearchParams({ institution_id: institutionId });
   if (category) params.set('category', category);
 
-  const res = await fetch(`/api/admission/whatsapp-personal/templates?${params}`);
+  const res = await fetch(`/api/whatsapp-personal/templates?${params}`);
   if (!res.ok) throw new Error('Failed to fetch templates');
   const data = await res.json();
   return data.templates || [];
@@ -46,7 +46,7 @@ export function usePersonalWATemplateMutations(institutionId: string) {
 
   const createTemplate = useMutation({
     mutationFn: async (input: CreatePersonalTemplateInput) => {
-      const res = await fetch('/api/admission/whatsapp-personal/templates', {
+      const res = await fetch('/api/whatsapp-personal/templates', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(input),
@@ -66,7 +66,7 @@ export function usePersonalWATemplateMutations(institutionId: string) {
 
   const updateTemplate = useMutation({
     mutationFn: async ({ id, ...input }: UpdatePersonalTemplateInput & { id: string }) => {
-      const res = await fetch(`/api/admission/whatsapp-personal/templates?id=${id}`, {
+      const res = await fetch(`/api/whatsapp-personal/templates?id=${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(input),
@@ -86,7 +86,7 @@ export function usePersonalWATemplateMutations(institutionId: string) {
 
   const deleteTemplate = useMutation({
     mutationFn: async (id: string) => {
-      const res = await fetch(`/api/admission/whatsapp-personal/templates?id=${id}`, {
+      const res = await fetch(`/api/whatsapp-personal/templates?id=${id}`, {
         method: 'DELETE',
       });
       if (!res.ok) throw new Error('Failed to delete template');
