@@ -21,7 +21,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 
-type PushState = 'checking' | 'unsupported' | 'denied' | 'idle' | 'subscribed' | 'working';
+type PushState = 'checking' | 'unsupported' | 'denied' | 'idle' | 'subscribed' | 'working' | 'error';
 
 // Convert VAPID public key from base64url to Uint8Array (required by pushManager.subscribe)
 function urlBase64ToUint8Array(base64String: string): Uint8Array {
@@ -39,6 +39,7 @@ export function PushSubscribeButton({
   vapidPublicKey?: string;
 }) {
   const [state, setState] = useState<PushState>('checking');
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   // Bootstrap: register service worker and detect current state
   useEffect(() => {
@@ -84,9 +85,11 @@ export function PushSubscribeButton({
   const handleEnable = useCallback(async () => {
     if (!vapidPublicKey) {
       console.warn('[push] VAPID public key not configured');
-      alert('Push alerts require VAPID keys to be configured. Contact your admin.');
+      setErrorMessage('VAPID keys not configured. Contact your admin.');
+      setState('error');
       return;
     }
+    setErrorMessage(null);
     setState('working');
     try {
       if (Notification.permission !== 'granted') {
@@ -113,12 +116,10 @@ export function PushSubscribeButton({
       setState('subscribed');
     } catch (err) {
       console.error('[push] enable error', err);
-      setState('idle');
-      alert(
-        err instanceof Error
-          ? `Could not enable push: ${err.message}`
-          : 'Could not enable push alerts.'
+      setErrorMessage(
+        err instanceof Error ? err.message : 'Could not enable push alerts.'
       );
+      setState('error');
     }
   }, [vapidPublicKey]);
 
@@ -147,6 +148,26 @@ export function PushSubscribeButton({
   }, []);
 
   if (state === 'checking' || state === 'unsupported') return null;
+
+  if (state === 'error') {
+    return (
+      <div className='inline-flex items-center gap-2 px-3 py-1.5 text-xs rounded-lg border border-rose-300 bg-rose-50 text-rose-900 dark:bg-rose-950/30 dark:text-rose-200 dark:border-rose-800'>
+        <span>⚠️</span>
+        <span>Push alerts unavailable{errorMessage ? `: ${errorMessage}` : '.'}</span>
+        <button
+          type='button'
+          onClick={() => {
+            setErrorMessage(null);
+            setState('idle');
+          }}
+          className='underline ml-1 hover:no-underline'
+          aria-label='Dismiss push error and retry'
+        >
+          Retry
+        </button>
+      </div>
+    );
+  }
 
   if (state === 'denied') {
     return (
