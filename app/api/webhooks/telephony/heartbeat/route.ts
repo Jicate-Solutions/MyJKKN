@@ -2,6 +2,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import crypto from 'crypto';
 
+// Heartbeat is a fast-path INSERT; 30s is generous headroom against the
+// Vercel 10s default. Future CRITICAL-event branching (notification dispatch,
+// Director WA alert) will benefit from this cushion.
+export const maxDuration = 30;
+
 export async function POST(request: NextRequest) {
   // Auth
   const token = request.nextUrl.searchParams.get('token')
