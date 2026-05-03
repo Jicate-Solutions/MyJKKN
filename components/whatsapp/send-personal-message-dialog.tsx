@@ -57,7 +57,7 @@ export function SendPersonalMessageDialog({
     setSending(true);
 
     try {
-      const res = await fetch('/api/admission/whatsapp-personal/send', {
+      const res = await fetch('/api/whatsapp-personal/send', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
