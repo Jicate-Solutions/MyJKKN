@@ -1052,11 +1052,13 @@ export class StaffService {
     supabase: ReturnType<typeof createClientSupabaseClient>
   ): Promise<StaffOverviewStats> {
     // Tightened from select('*') to an explicit column list so the dashboard
-    // does NOT pull the 12 new JSONB blobs (publications, qualifications,
-    // awards, research_projects, etc.) or the long-form markdown text fields
-    // (professional_summary, biography, vision_statement, ...) added in the
-    // staff-extended-faculty-fields work. The columns enumerated below are
-    // the union of every property accessed downstream in this function:
+    // does NOT pull the 13 new JSONB array columns (badges, qualifications,
+    // specialisations, experience_entries, research_focus_areas, publications,
+    // funded_projects, certifications, awards, memberships, phd_scholars_list,
+    // faqs, achievements) or the markdown text fields (qualification_summary,
+    // professional_summary, mentoring_description) added in the staff-extended-
+    // faculty-fields work. The columns enumerated below are the union of every
+    // property accessed downstream in this function:
     //   - is_active                                            (active/inactive count)
     //   - date_of_joining                                      (newHires + averageTenure)
     //   - institution_email                                    (staffWithProfiles)
