@@ -19,6 +19,8 @@
 
 import Link from 'next/link';
 import { ArrowUpRight, Calendar, Clock, User } from 'lucide-react';
+import { ContentLayout } from '@/components/layout/content-layout';
+import { PageBreadcrumb } from '@/components/navigation';
 import { PageHeader } from '@/components/page-header';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -82,11 +84,19 @@ export default async function MeetingsInboxPage({ searchParams }: InboxPageProps
   const { data: rows, error } = await query.limit(50);
 
   return (
-    <div className="space-y-4">
-      <PageHeader
-        title="My Meetings"
-        description="Bookings hosted by you on jicate-booking. Source of truth lives on Cal.com — actions open the booking page there."
+    <ContentLayout title="My Meetings">
+      <PageBreadcrumb
+        items={[
+          { label: 'Home', href: '/' },
+          { label: 'Meetings', href: '/meetings/inbox' },
+          { label: 'Inbox' },
+        ]}
       />
+      <div className="space-y-4 mt-4">
+        <PageHeader
+          title="My Meetings"
+          description="Bookings hosted by you on jicate-booking. Source of truth lives on Cal.com — actions open the booking page there."
+        />
 
       <div className="flex flex-wrap gap-2">
         {STATUS_FILTERS.map((f) => (
@@ -179,6 +189,7 @@ export default async function MeetingsInboxPage({ searchParams }: InboxPageProps
           </div>
         </CardContent>
       </Card>
-    </div>
+      </div>
+    </ContentLayout>
   );
 }

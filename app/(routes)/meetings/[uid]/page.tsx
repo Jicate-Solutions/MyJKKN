@@ -25,11 +25,19 @@ import {
   User,
   AlertTriangle,
 } from 'lucide-react';
+import { ContentLayout } from '@/components/layout/content-layout';
+import { PageBreadcrumb } from '@/components/navigation';
 import { PageHeader } from '@/components/page-header';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { createClient } from '@/lib/supabase/server';
+
+const BREADCRUMB_ITEMS = [
+  { label: 'Home', href: '/' },
+  { label: 'Meetings', href: '/meetings/inbox' },
+  { label: 'Booking' },
+] as const;
 
 interface DetailPageProps {
   params: Promise<{ uid: string }>;
@@ -75,15 +83,18 @@ export default async function MeetingDetailPage({ params }: DetailPageProps) {
 
   if (error) {
     return (
-      <div className="space-y-4">
-        <PageHeader title="Meeting" description="Failed to load booking." />
-        <Card>
-          <CardContent className="py-8 text-center text-sm text-muted-foreground">
-            <AlertTriangle className="mx-auto mb-2 h-8 w-8 text-destructive" aria-hidden />
-            {error.message}
-          </CardContent>
-        </Card>
-      </div>
+      <ContentLayout title="Meeting">
+        <PageBreadcrumb items={[...BREADCRUMB_ITEMS]} />
+        <div className="space-y-4 mt-4">
+          <PageHeader title="Meeting" description="Failed to load booking." />
+          <Card>
+            <CardContent className="py-8 text-center text-sm text-muted-foreground">
+              <AlertTriangle className="mx-auto mb-2 h-8 w-8 text-destructive" aria-hidden />
+              {error.message}
+            </CardContent>
+          </Card>
+        </div>
+      </ContentLayout>
     );
   }
 
@@ -99,18 +110,20 @@ export default async function MeetingDetailPage({ params }: DetailPageProps) {
   const isPast = booking.status === 'completed' || booking.status === 'no_show';
 
   return (
-    <div className="space-y-4">
-      <Link href="/meetings/inbox" className="inline-flex">
-        <Button variant="ghost" size="sm">
-          <ArrowLeft className="mr-1.5 h-4 w-4" aria-hidden />
-          Back to inbox
-        </Button>
-      </Link>
+    <ContentLayout title={`Meeting with ${booking.attendee_name || booking.attendee_email}`}>
+      <PageBreadcrumb items={[...BREADCRUMB_ITEMS]} />
+      <div className="space-y-4 mt-4">
+        <Link href="/meetings/inbox" className="inline-flex">
+          <Button variant="ghost" size="sm">
+            <ArrowLeft className="mr-1.5 h-4 w-4" aria-hidden />
+            Back to inbox
+          </Button>
+        </Link>
 
-      <PageHeader
-        title={`Meeting with ${booking.attendee_name || booking.attendee_email}`}
-        description={`Booking ${booking.cal_booking_uid}`}
-      />
+        <PageHeader
+          title={`Meeting with ${booking.attendee_name || booking.attendee_email}`}
+          description={`Booking ${booking.cal_booking_uid}`}
+        />
 
       <Card>
         <CardHeader className="pb-3">
@@ -247,10 +260,11 @@ export default async function MeetingDetailPage({ params }: DetailPageProps) {
         </Card>
       ) : null}
 
-      <p className="text-center text-xs text-muted-foreground">
-        Booking last synced {new Date(booking.webhook_received_at).toLocaleString('en-IN')} ·{' '}
-        Source of truth: Cal.com (embedded inside MyJKKN)
-      </p>
-    </div>
+        <p className="text-center text-xs text-muted-foreground">
+          Booking last synced {new Date(booking.webhook_received_at).toLocaleString('en-IN')} ·{' '}
+          Source of truth: Cal.com (embedded inside MyJKKN)
+        </p>
+      </div>
+    </ContentLayout>
   );
 }
