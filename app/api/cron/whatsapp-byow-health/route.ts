@@ -13,6 +13,7 @@ import {
   getPolicyInt,
   getPolicyArray,
 } from '@/lib/policies/get-policy';
+import { POLICY_KEYS } from '@/lib/policies/keys';
 
 function getServiceClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -37,9 +38,9 @@ export async function GET(request: Request) {
   }
 
   const supabase = getServiceClient();
-  const timeoutSec = await getPolicyInt('wa_byow.health_probe_timeout_seconds', { default: 10 });
-  const threshold = await getPolicyInt('wa_byow.health_failure_threshold', { default: 3 });
-  const alertChannels = await getPolicyArray<string>('wa_byow.alert_channels', { default: ['sentry'] });
+  const timeoutSec = await getPolicyInt(POLICY_KEYS.WA_BYOW_HEALTH_PROBE_TIMEOUT_SECONDS, 10);
+  const threshold = await getPolicyInt(POLICY_KEYS.WA_BYOW_HEALTH_FAILURE_THRESHOLD, 3);
+  const alertChannels = await getPolicyArray<string>(POLICY_KEYS.WA_BYOW_ALERT_CHANNELS, ['sentry']);
 
   // 1. Probe Railway /health
   const start = Date.now();
@@ -93,7 +94,7 @@ export async function GET(request: Request) {
     await supabase
       .from('platform_policies')
       .update({ value: false })
-      .eq('policy_key', 'wa_byow.is_enabled')
+      .eq('policy_key', POLICY_KEYS.WA_BYOW_IS_ENABLED)
       .eq('scope_type', 'global');
 
     if (alertChannels.includes('sentry')) {

@@ -52,6 +52,16 @@ export const POLICY_KEYS = {
   // Defaults: 7-day first-sync lookback, 30-day chunks (Exotel max is 31).
   // Director-tweakable via platform_policies admin UI — no deploy needed.
   TELEPHONY_CDR_SYNC_CONFIG: 'telephony.cdr_sync.config',
+
+  // BYOW WhatsApp (Bring Your Own WhatsApp via Railway whatsapp-web.js service).
+  // Spec: /Users/omm/PROJECTS/MyJKKN/specs/byow-whatsapp-revival.md (v4, 2026-05-03)
+  // Consumed by app/api/cron/whatsapp-byow-health/route.ts and the parent server
+  // component of /admission/settings/whatsapp-numbers (UI gate).
+  WA_BYOW_IS_ENABLED: 'wa_byow.is_enabled',
+  WA_BYOW_HEALTH_FAILURE_THRESHOLD: 'wa_byow.health_failure_threshold',
+  WA_BYOW_HEALTH_PROBE_TIMEOUT_SECONDS: 'wa_byow.health_probe_timeout_seconds',
+  WA_BYOW_ALERT_CHANNELS: 'wa_byow.alert_channels',
+  WA_BYOW_HEALTH_LOG_RETENTION_DAYS: 'wa_byow.health_log_retention_days',
 } as const;
 
 export type PolicyKey = typeof POLICY_KEYS[keyof typeof POLICY_KEYS];
