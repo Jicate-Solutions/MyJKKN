@@ -1,12 +1,20 @@
 'use client';
 
-import { useEffect } from 'react';
-import Cal, { getCalApi } from '@calcom/embed-react';
-
 // SSO posture (v1): first-visit users see Cal.com login inside the iframe. Acceptable for v1.
 // v2 path (recommended): subdomain cookie sharing + custom NextAuth provider on jicate-booking.
 // See specs/cal-com-embed-sso.md (PR #668, merged 2026-05-03) for the full evaluation —
 // rejected $299-$2499/mo Cal.com Platform; recommended ~1d implementation, zero recurring spend.
+
+// Why a plain <iframe> instead of @calcom/embed-react:
+// - @calcom/embed-react's getCalApi() loader defaults to fetching embed.js from app.cal.com,
+//   not our self-hosted jicate-booking origin. That cross-script handshake fails:
+//   "iframe doesn't exist. createIframe must be called before doInIframe" (caught 2026-05-03 in
+//   prod via console inspection of /meetings/manage). Setting calOrigin on <Cal> is necessary
+//   but not sufficient — embedJsUrl must also override, and even then the SDK's race conditions
+//   are flaky for full-page embeds.
+// - We don't need any SDK features: no floating widget, no postMessage UI customization, no
+//   programmatic open/close. Just render the page in an iframe.
+// - Plain <iframe> is bulletproof, smaller bundle, no cross-origin script-loader dependency.
 
 const CALCOM_ORIGIN = 'https://jicate-booking.vercel.app';
 
@@ -47,20 +55,18 @@ export function JicateBookingEmbed({
   eventTypeSlug,
   orgSlug,
 }: JicateBookingEmbedProps) {
-  // Compute the calLink (path relative to origin) based on mode.
-  // getCalApi() preloads the embed JS so it's ready before the <Cal> component renders.
-  let calLink: string;
+  let path: string;
 
   if (mode === 'event-types') {
-    calLink = 'event-types';
+    path = '/event-types';
   } else if (mode === 'availability') {
-    calLink = 'availability';
+    path = '/availability';
   } else {
     // mode === 'booking'
     if (uid) {
-      calLink = `booking/${uid}`;
+      path = `/booking/${uid}`;
     } else if (orgSlug && eventTypeSlug) {
-      calLink = `${orgSlug}/${eventTypeSlug}`;
+      path = `/${orgSlug}/${eventTypeSlug}`;
     } else {
       throw new Error(
         '[JicateBookingEmbed] mode="booking" requires either `uid` or both `orgSlug` + `eventTypeSlug`.'
@@ -68,27 +74,24 @@ export function JicateBookingEmbed({
     }
   }
 
-  useEffect(() => {
-    (async () => {
-      const cal = await getCalApi();
-      cal('ui', {
-        styles: { branding: { brandColor: '#1e40af' } },
-        hideEventTypeDetails: false,
-        layout: 'month_view',
-      });
-    })();
-  }, []);
+  const src = `${CALCOM_ORIGIN}${path}`;
 
   return (
-    <Cal
-      calLink={calLink}
-      calOrigin={CALCOM_ORIGIN}
+    <iframe
+      src={src}
+      title={`jicate-booking — ${mode}`}
       style={{
         width: '100%',
         height: `${height}px`,
         border: 0,
         borderRadius: '0.5rem',
+        display: 'block',
       }}
+      // Allow features Cal.com may need (camera/mic for video bookings, clipboard for copy-link).
+      allow="clipboard-write; clipboard-read; camera; microphone; fullscreen"
+      // referrerpolicy: send origin so jicate-booking knows MyJKKN is the parent (useful for
+      // future SSO bridging per specs/cal-com-embed-sso.md).
+      referrerPolicy="origin"
     />
   );
 }
