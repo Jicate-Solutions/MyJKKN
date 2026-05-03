@@ -3,9 +3,10 @@
 import { useEffect } from 'react';
 import Cal, { getCalApi } from '@calcom/embed-react';
 
-// TODO(SSO): Agent F is researching whether MyJKKN session can mint a Cal.com session token
-// to skip the in-iframe Cal.com login. Until then, first-visit users see Cal.com login inside
-// the iframe (acceptable for v1).
+// SSO posture (v1): first-visit users see Cal.com login inside the iframe. Acceptable for v1.
+// v2 path (recommended): subdomain cookie sharing + custom NextAuth provider on jicate-booking.
+// See specs/cal-com-embed-sso.md (PR #668, merged 2026-05-03) for the full evaluation —
+// rejected $299-$2499/mo Cal.com Platform; recommended ~1d implementation, zero recurring spend.
 
 const CALCOM_ORIGIN = 'https://jicate-booking.vercel.app';
 
