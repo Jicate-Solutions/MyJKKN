@@ -4,6 +4,11 @@ import { ExoVoiceAnalyzeWebhookPayload } from '@/lib/services/telephony/exotel-c
 import { CallEnrichmentService } from '@/lib/services/telephony/call-enrichment-service';
 import crypto from 'crypto';
 
+// Intelligence callback parses Exotel insights and runs CallEnrichmentService
+// (lead lookup + applyToLead writes). Vercel default 10s leaves no headroom
+// for cold-start + DB writes. Bump to 30s.
+export const maxDuration = 30;
+
 export async function POST(request: NextRequest) {
   // Auth: token param or header (same pattern as main webhook)
   const token = request.nextUrl.searchParams.get('token')
