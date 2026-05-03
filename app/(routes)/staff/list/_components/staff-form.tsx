@@ -231,10 +231,20 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
     [categories, watchedCategoryId]
   );
   const isTeachingCategory = selectedCategory?.is_teaching ?? false;
-  // Task 23 (P4.23) — drive the "Extended Faculty Profile" toggle visibility
-  // off the selected category's shows_extended_profile flag (replaces the
-  // previously hardcoded `true` passed to <BasicTab>).
-  const canEnableExtended = !!selectedCategory?.shows_extended_profile;
+  // Drive the "Extended Faculty Profile" toggle visibility off the selected
+  // category's shows_extended_profile flag.
+  //
+  // Resilience layer: also surface the toggle when the staff record itself
+  // already has has_extended_profile = true. This handles the case where the
+  // categories list (loaded via CategoryService.getCategories — RLS-scoped
+  // per the user's role) returns a different subset than super_admin sees,
+  // OR is still loading. Without this fallback, non-super-admin admins
+  // editing an existing extended-profile staff would see the 3 admin fields
+  // (slug/status/display_order) but the toggle (and the 6 extra tabs) would
+  // silently vanish, making the form unusable for managing existing data.
+  const canEnableExtended =
+    !!selectedCategory?.shows_extended_profile ||
+    staff?.has_extended_profile === true;
 
   // When category supports extended profile and the toggle is currently off,
   // auto-flip it on. Applies to BOTH create and edit modes so existing staff
