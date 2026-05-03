@@ -245,7 +245,15 @@ export class CallPipelineService {
       const exovoiceCfg = await getExoVoiceConfig();
       const response = await ExotelClient.analyzeCall({
         callSid: ctx.callSid,
-        tasks: exovoiceCfg.tasks,
+        // Exotel echoes task_id back in the webhook payload; we use the
+        // call_log UUID so the intelligence webhook can correlate the result
+        // back to the exact admission_call_logs row that triggered the submit.
+        taskId: ctx.callLogId,
+        // Director-tunable values are typed `string[]` in ExoVoiceConfig
+        // (reflects the JSON shape of the platform_policies row). Cast to
+        // the API's enum union — `getExoVoiceConfig()` only returns the
+        // 4 valid task tokens by virtue of the seeded row.
+        tasks: exovoiceCfg.tasks as ('transcript' | 'summarization' | 'sentiment' | 'categorise')[],
         callbackUrl,
         categories: exovoiceCfg.categories,
       });
