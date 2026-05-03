@@ -414,9 +414,7 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
           if (firstField) {
             const tabId = mapFieldToTab(firstField);
             if (tabId) {
-              const params = new URLSearchParams(window.location.search);
-              params.set('tab', tabId);
-              window.history.replaceState(null, '', `?${params.toString()}`);
+              router.replace(`?tab=${tabId}`, { scroll: false });
             }
           }
           return;
