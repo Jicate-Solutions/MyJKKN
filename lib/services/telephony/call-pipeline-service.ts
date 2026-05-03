@@ -3,9 +3,41 @@ import { ExotelClient } from './exotel-client';
 import { PhoneNumberIntelligence } from './phone-number-intelligence';
 import { sendTextMessage as waSendText, isWhatsAppConfigured } from '@/lib/services/whatsapp/whatsapp-api-client';
 import { WAEventDispatcher } from '@/lib/services/whatsapp/wa-event-dispatcher';
+import { getPolicy } from '@/lib/policies/get-policy';
+import { POLICY_KEYS } from '@/lib/policies/keys';
 
 const PIPELINE_STAGES = ['captured', 'classified', 'matched', 'intelligence', 'enriched', 'responded', 'complete'] as const;
 type PipelineStage = typeof PIPELINE_STAGES[number];
+
+/**
+ * Director-tunable ExoVoiceAnalyze submission config.
+ * Read from `platform_policies` row keyed `telephony.exovoice.config` (global scope).
+ * Hardcoded fallbacks below preserve historical behaviour when the row is missing
+ * or the RPC fails. Director edits via /admin/telephony-policies — no deploy needed.
+ */
+interface ExoVoiceConfig {
+  tasks: string[];
+  categories: string[];
+}
+
+const EXOVOICE_CONFIG_DEFAULT: ExoVoiceConfig = {
+  tasks: ['transcript', 'summarization', 'sentiment', 'categorise'],
+  categories: [
+    'admission_inquiry', 'fee_inquiry', 'course_inquiry',
+    'placement_inquiry', 'complaint', 'follow_up', 'other',
+  ],
+};
+
+async function getExoVoiceConfig(): Promise<ExoVoiceConfig> {
+  const v = await getPolicy<Partial<ExoVoiceConfig>>(POLICY_KEYS.TELEPHONY_EXOVOICE_CONFIG, null);
+  const tasks = Array.isArray(v?.tasks) && v!.tasks.length > 0
+    ? v!.tasks!
+    : EXOVOICE_CONFIG_DEFAULT.tasks;
+  const categories = Array.isArray(v?.categories) && v!.categories.length > 0
+    ? v!.categories!
+    : EXOVOICE_CONFIG_DEFAULT.categories;
+  return { tasks, categories };
+}
 
 interface PipelineContext {
   callLogId: string;
@@ -204,15 +236,18 @@ export class CallPipelineService {
       const webhookToken = process.env.EXOTEL_API_TOKEN;
       const callbackUrl = `${baseUrl}/api/webhooks/telephony/intelligence?token=${webhookToken}`;
 
-      // Submit to ExoVoiceAnalyze
+      // Submit to ExoVoiceAnalyze.
+      // Tasks + categories sourced from platform_policies
+      // (telephony.exovoice.config, global scope). Director-tunable via
+      // /admin/telephony-policies — no deploy needed. Hardcoded fallbacks
+      // inside getExoVoiceConfig() preserve historical behaviour when the
+      // row is missing or the RPC fails.
+      const exovoiceCfg = await getExoVoiceConfig();
       const response = await ExotelClient.analyzeCall({
         callSid: ctx.callSid,
-        tasks: ['transcript', 'summarization', 'sentiment', 'categorise'],
+        tasks: exovoiceCfg.tasks,
         callbackUrl,
-        categories: [
-          'admission_inquiry', 'fee_inquiry', 'course_inquiry',
-          'placement_inquiry', 'complaint', 'follow_up', 'other'
-        ],
+        categories: exovoiceCfg.categories,
       });
 
       // Update with job ID

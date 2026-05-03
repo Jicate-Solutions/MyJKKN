@@ -39,6 +39,13 @@ export const POLICY_KEYS = {
   // Default 5 hot leads first-touched today / 10 leads in 30d.
   DASHBOARD_LEADERBOARD_SLA_MIN_LEADS: 'dashboard.leaderboard.sla_min_leads',
   DASHBOARD_LEADERBOARD_CONVERSION_MIN_LEADS: 'dashboard.leaderboard.conversion_min_leads',
+
+  // Telephony — ExoVoiceAnalyze submission tasks + categories.
+  // Object policy: { tasks: string[], categories: string[] }.
+  // Consumed by lib/services/telephony/call-pipeline-service.ts (server-only,
+  // pipeline runs in API routes / cron, never client). Director can edit via
+  // /admin/telephony-policies — no deploy needed.
+  TELEPHONY_EXOVOICE_CONFIG: 'telephony.exovoice.config',
 } as const;
 
 export type PolicyKey = typeof POLICY_KEYS[keyof typeof POLICY_KEYS];
