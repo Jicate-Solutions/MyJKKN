@@ -346,6 +346,9 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // Write RLS still super_admin only per Director's directive; admission/admin can view but cannot save.
   '/admin/counselors/routing-config': 'admission.counselors.team.view',
   '/admin/counselors/alert-thresholds': 'admission.counselors.team.view',
+  // ExoPhone → institution mapping (M-1, 2026-05-03 — brand-integrity recovery).
+  // super_admin only — directly drives per-institution call attribution.
+  '/admin/exophone-mapping': 'super_admin',
 
   // System Management
   // Work Pulse
@@ -1316,6 +1319,8 @@ export function GetPages(pathname: string): MenuGroup[] {
             // Counselor routing (config-as-row, 2026-04-29)
             { href: '/admin/counselors/routing-config', label: 'Counselors · Routing Config', active: pathname.startsWith('/admin/counselors/routing-config') },
             { href: '/admin/counselors/alert-thresholds', label: 'Counselors · Alert Thresholds', active: pathname.startsWith('/admin/counselors/alert-thresholds') },
+            // Telephony (config-as-row, 2026-05-03 — M-1 brand-integrity recovery)
+            { href: '/admin/exophone-mapping', label: 'Telephony · ExoPhone Mapping', active: pathname.startsWith('/admin/exophone-mapping') },
             // LTI
             { href: '/admin/lti', label: 'LTI · Dashboard', active: pathname === '/admin/lti' },
             { href: '/admin/lti/analytics', label: 'LTI · Analytics', active: pathname === '/admin/lti/analytics' },
