@@ -18,7 +18,7 @@
 // Lock: jicate-booking-multi-tenant-90d clause A4 (verdict 2026-07-30)
 
 import Link from 'next/link';
-import { ArrowUpRight, Calendar, ExternalLink, User } from 'lucide-react';
+import { ArrowUpRight, Calendar, Clock, User } from 'lucide-react';
 import { PageHeader } from '@/components/page-header';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -159,21 +159,24 @@ export default async function MeetingsInboxPage({ searchParams }: InboxPageProps
       )}
 
       <Card className="border-dashed">
-        <CardContent className="flex items-center justify-between gap-4 p-4">
+        <CardContent className="flex flex-wrap items-center justify-between gap-4 p-4">
           <div className="text-xs text-muted-foreground">
-            To create or modify your availability, manage event types on jicate-booking directly.
+            Set up your bookable event types and availability — both live inside MyJKKN now.
           </div>
-          <a
-            href="https://jicate-booking.vercel.app/event-types"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex"
-          >
-            <Button variant="outline" size="sm">
-              <ExternalLink className="mr-1.5 h-3.5 w-3.5" aria-hidden />
-              Manage on jicate-booking
-            </Button>
-          </a>
+          <div className="flex flex-wrap gap-2">
+            <Link href="/meetings/manage" className="inline-flex">
+              <Button variant="outline" size="sm">
+                <Calendar className="mr-1.5 h-3.5 w-3.5" aria-hidden />
+                Manage event types
+              </Button>
+            </Link>
+            <Link href="/meetings/availability" className="inline-flex">
+              <Button variant="outline" size="sm">
+                <Clock className="mr-1.5 h-3.5 w-3.5" aria-hidden />
+                Set availability
+              </Button>
+            </Link>
+          </div>
         </CardContent>
       </Card>
     </div>
