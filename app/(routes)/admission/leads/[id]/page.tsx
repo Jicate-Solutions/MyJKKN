@@ -46,6 +46,7 @@ import { useDepartments } from '@/hooks/organization/use-departments';
 import { usePrograms } from '@/hooks/organization/use-programs';
 import { ConsultantAttributionCard } from './_components/consultant-attribution-card';
 import { SourcesCapturedCard } from './_components/sources-captured-card';
+import { CallHistoryCard } from './_components/call-history-card';
 import { LogCallDialog } from '@/components/admission/log-call-dialog';
 import { QuickActionsBar } from '@/components/admission/quick-actions-bar';
 import { useExpoEvent } from '@/hooks/admission/use-expos';
@@ -1679,6 +1680,7 @@ function LeadDetailPageContent() {
               <Tabs defaultValue="activity" className="w-full">
                 <TabsList>
                   <TabsTrigger value="activity">Activity</TabsTrigger>
+                  <TabsTrigger value="calls">Calls</TabsTrigger>
                   <TabsTrigger value="communication">Communication</TabsTrigger>
                   <TabsTrigger value="details">Details</TabsTrigger>
                 </TabsList>
@@ -1710,6 +1712,13 @@ function LeadDetailPageContent() {
                       )}
                     </CardContent>
                   </Card>
+                </TabsContent>
+
+                <TabsContent value="calls" className="mt-4">
+                  <CallHistoryCard
+                    leadId={lead.id}
+                    institutionId={lead.institution_id || userInstitutionId || ''}
+                  />
                 </TabsContent>
 
                 <TabsContent value="communication" className="mt-4">
