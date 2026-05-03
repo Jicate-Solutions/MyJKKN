@@ -648,7 +648,38 @@ CREATE TABLE IF NOT EXISTS public.staff (
     updated_by UUID,
     institution_email TEXT NOT NULL,
     -- Updated: 2026-04-14 - role_key FK to custom_roles.role_key; drives dynamic role assignment on profile sync.
-    role_key VARCHAR(50) NOT NULL DEFAULT 'faculty' REFERENCES public.custom_roles(role_key) ON UPDATE CASCADE
+    role_key VARCHAR(50) NOT NULL DEFAULT 'faculty' REFERENCES public.custom_roles(role_key) ON UPDATE CASCADE,
+    -- Added: 2026-05-03 - Extended faculty profile fields powering the public website. See migration 20260503100001.
+    has_extended_profile    boolean       NOT NULL DEFAULT false,
+    slug                    text          NULL,
+    status                  text          NOT NULL DEFAULT 'draft',
+    display_order           integer       NOT NULL DEFAULT 0,
+    experience_years        integer       NOT NULL DEFAULT 0,
+    research_papers         integer       NOT NULL DEFAULT 0,
+    phd_scholars            integer       NOT NULL DEFAULT 0,
+    awards_won              integer       NOT NULL DEFAULT 0,
+    pg_dissertations_guided integer       NOT NULL DEFAULT 0,
+    ug_projects_guided      integer       NOT NULL DEFAULT 0,
+    qualification_summary   text          NULL,
+    professional_summary    text          NULL,
+    mentoring_description   text          NULL,
+    google_scholar_url      text          NULL,
+    researchgate_url        text          NULL,
+    orcid_url               text          NULL,
+    badges                  jsonb         NOT NULL DEFAULT '[]'::jsonb,
+    qualifications          jsonb         NOT NULL DEFAULT '[]'::jsonb,
+    specialisations         jsonb         NOT NULL DEFAULT '[]'::jsonb,
+    experience_entries      jsonb         NOT NULL DEFAULT '[]'::jsonb,
+    research_focus_areas    jsonb         NOT NULL DEFAULT '[]'::jsonb,
+    publications            jsonb         NOT NULL DEFAULT '[]'::jsonb,
+    funded_projects         jsonb         NOT NULL DEFAULT '[]'::jsonb,
+    certifications          jsonb         NOT NULL DEFAULT '[]'::jsonb,
+    awards                  jsonb         NOT NULL DEFAULT '[]'::jsonb,
+    memberships             jsonb         NOT NULL DEFAULT '[]'::jsonb,
+    phd_scholars_list       jsonb         NOT NULL DEFAULT '[]'::jsonb,
+    faqs                    jsonb         NOT NULL DEFAULT '[]'::jsonb,
+    achievements            jsonb         NOT NULL DEFAULT '[]'::jsonb,
+    CONSTRAINT staff_status_check CHECK (status IN ('draft', 'published'))
 );
 
 -- Employment Categories
