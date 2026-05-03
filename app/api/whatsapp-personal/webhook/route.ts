@@ -14,7 +14,7 @@ function getServiceClient() {
 }
 
 /**
- * POST /api/admission/whatsapp-personal/webhook
+ * POST /api/whatsapp-personal/webhook
  * Receives incoming messages from Railway WhatsApp service.
  * Authenticated via X-API-Key header (same key as Railway).
  */
