@@ -15,7 +15,7 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { GetRoleBasedPages, RolePermissionData } from '@/lib/sidebarMenuLink';
 import { getModulesBySection } from '@/lib/navigation/modules';
-import { getPagesByModule } from '@/lib/navigation/page-registry';
+import { getPageRegistry } from '@/lib/navigation/page-registry';
 import { filterByPermissions } from '@/lib/navigation/permission-filter';
 import { AuthService } from '@/lib/auth/auth-service';
 import { useEffect, useMemo } from 'react';
@@ -283,21 +283,28 @@ export function Menu({ isOpen }: MenuProps) {
                   // Skip Dashboard ('/') — it has no sub-pages and stays a plain link.
                   const moduleSlug = href === '/' ? null : href.replace(/^\//, '').split('/')[0]!;
 
-                  // Look up sub-pages for this module from the route manifest.
-                  const allSubPages = moduleSlug ? getPagesByModule(moduleSlug) : [];
-                  const accessibleSubPages = filterByPermissions(
-                    allSubPages,
+                  // Filter the route manifest by URL path prefix to get this
+                  // module's direct children (depth = 2 segments, e.g.
+                  // /admission/leads). Path-based filtering avoids the
+                  // module-name fuzzy match in getPagesByModule(), which fails
+                  // for hyphenated slugs like 'campus-living' (the manifest
+                  // stores those as humanized 'Campus Living').
+                  const moduleSubPages = moduleSlug
+                    ? getPageRegistry().filter((p) => {
+                        const segs = p.path.split('/').filter(Boolean);
+                        return (
+                          segs.length === 2 &&
+                          segs[0] === moduleSlug &&
+                          p.path !== href
+                        );
+                      })
+                    : [];
+                  const directChildren = filterByPermissions(
+                    moduleSubPages,
                     permissions,
                     isSuperAdmin,
                     userProfile?.role || ''
                   );
-
-                  // Only direct children (depth = 2 segments, e.g. /admission/leads).
-                  // Exclude the module root itself.
-                  const directChildren = accessibleSubPages.filter((p) => {
-                    const segs = p.path.split('/').filter(Boolean);
-                    return segs.length === 2 && segs[0] === moduleSlug && p.path !== href;
-                  });
 
                   // Decide rendering mode:
                   // - Sidebar collapsed (icon-only, isOpen===false) → always plain link
@@ -438,16 +445,16 @@ export function Menu({ isOpen }: MenuProps) {
                                     <Button
                                       variant={isActive ? 'secondary' : 'ghost'}
                                       className={cn(
-                                        'w-full justify-start h-9 mb-0.5 pl-6 text-sm font-normal',
+                                        'w-full justify-start h-10 mb-1 pl-6',
                                         !isActive && 'dark:text-gray-400'
                                       )}
                                       asChild
                                     >
                                       <Link href={sub.path}>
-                                        <span className='mr-2'>
-                                          <SubIcon size={14} />
+                                        <span className='mr-4'>
+                                          <SubIcon size={18} />
                                         </span>
-                                        <span className='truncate'>{sub.title}</span>
+                                        <span className='max-w-[160px] truncate'>{sub.title}</span>
                                       </Link>
                                     </Button>
                                   </li>

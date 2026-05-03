@@ -25,17 +25,17 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       {
         "path": "/academic/attendance",
         "label": "Attendance",
-        "iconName": "FileText",
+        "iconName": "CheckSquare",
         "children": [
           {
             "path": "/academic/attendance/consolidation",
             "label": "Consolidation",
-            "iconName": "FileText",
+            "iconName": "CheckSquare",
             "children": [
               {
                 "path": "/academic/attendance/consolidation/facilitators",
                 "label": "Facilitators",
-                "iconName": "FileText",
+                "iconName": "CheckSquare",
                 "children": []
               }
             ]
@@ -49,13 +49,13 @@ export const ROUTE_MANIFEST: RouteNode[] = [
           {
             "path": "/academic/attendance/mark",
             "label": "Mark",
-            "iconName": "FileText",
+            "iconName": "CheckSquare",
             "children": []
           },
           {
             "path": "/academic/attendance/pending",
             "label": "Pending",
-            "iconName": "FileText",
+            "iconName": "CheckSquare",
             "children": []
           },
           {
@@ -69,7 +69,7 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       {
         "path": "/academic/batches",
         "label": "Batches",
-        "iconName": "FileText",
+        "iconName": "Boxes",
         "children": [
           {
             "path": "/academic/batches/new",
@@ -88,12 +88,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       {
         "path": "/academic/internal-marks",
         "label": "Internal Marks",
-        "iconName": "FileText",
+        "iconName": "Star",
         "children": [
           {
             "path": "/academic/internal-marks/report",
             "label": "Report",
-            "iconName": "FileText",
+            "iconName": "Star",
             "children": []
           }
         ]
@@ -101,18 +101,18 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       {
         "path": "/academic/leave-calendar",
         "label": "Leave Calendar",
-        "iconName": "FileText",
+        "iconName": "CalendarOff",
         "children": []
       },
       {
         "path": "/academic/leave-onduty",
         "label": "Leave Onduty",
-        "iconName": "FileText",
+        "iconName": "CalendarOff",
         "children": [
           {
             "path": "/academic/leave-onduty/approvals",
             "label": "Approvals",
-            "iconName": "FileText",
+            "iconName": "CalendarOff",
             "children": []
           },
           {
@@ -132,7 +132,7 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       {
         "path": "/academic/leaves",
         "label": "Leaves",
-        "iconName": "FileText",
+        "iconName": "CalendarOff",
         "children": [
           {
             "path": "/academic/leaves/new",
@@ -148,13 +148,13 @@ export const ROUTE_MANIFEST: RouteNode[] = [
               {
                 "path": "/academic/leaves/settings/types",
                 "label": "Types",
-                "iconName": "FileText",
+                "iconName": "CalendarOff",
                 "children": []
               },
               {
                 "path": "/academic/leaves/settings/workflows",
                 "label": "Workflows",
-                "iconName": "FileText",
+                "iconName": "CalendarOff",
                 "children": []
               }
             ]
@@ -164,7 +164,7 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       {
         "path": "/academic/periods",
         "label": "Periods",
-        "iconName": "FileText",
+        "iconName": "Clock",
         "children": [
           {
             "path": "/academic/periods/new",
@@ -177,17 +177,17 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       {
         "path": "/academic/privileges",
         "label": "Privileges",
-        "iconName": "FileText",
+        "iconName": "KeyRound",
         "children": [
           {
             "path": "/academic/privileges/my",
             "label": "My",
-            "iconName": "FileText",
+            "iconName": "KeyRound",
             "children": [
               {
                 "path": "/academic/privileges/my/report",
                 "label": "Report",
-                "iconName": "FileText",
+                "iconName": "KeyRound",
                 "children": []
               }
             ]
@@ -201,7 +201,7 @@ export const ROUTE_MANIFEST: RouteNode[] = [
           {
             "path": "/academic/privileges/templates",
             "label": "Templates",
-            "iconName": "FileText",
+            "iconName": "KeyRound",
             "children": []
           }
         ]
@@ -209,7 +209,7 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       {
         "path": "/academic/regulations",
         "label": "Regulations",
-        "iconName": "FileText",
+        "iconName": "Scale",
         "children": [
           {
             "path": "/academic/regulations/new",
@@ -222,7 +222,7 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       {
         "path": "/academic/staff-planning",
         "label": "Staff Planning",
-        "iconName": "FileText",
+        "iconName": "Users",
         "children": [
           {
             "path": "/academic/staff-planning/new",
@@ -235,23 +235,23 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       {
         "path": "/academic/timetables",
         "label": "Timetables",
-        "iconName": "FileText",
+        "iconName": "CalendarClock",
         "children": [
           {
             "path": "/academic/timetables/conflicts",
             "label": "Conflicts",
-            "iconName": "FileText",
+            "iconName": "CalendarClock",
             "children": []
           },
           {
             "path": "/academic/timetables/faculty-calendar",
             "label": "Faculty Calendar",
-            "iconName": "FileText",
+            "iconName": "CalendarClock",
             "children": [
               {
                 "path": "/academic/timetables/faculty-calendar/admin",
                 "label": "Admin",
-                "iconName": "FileText",
+                "iconName": "CalendarClock",
                 "children": []
               }
             ]
@@ -265,7 +265,7 @@ export const ROUTE_MANIFEST: RouteNode[] = [
           {
             "path": "/academic/timetables/templates",
             "label": "Templates",
-            "iconName": "FileText",
+            "iconName": "CalendarClock",
             "children": [
               {
                 "path": "/academic/timetables/templates/analytics",
@@ -280,7 +280,7 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       {
         "path": "/academic/years",
         "label": "Years",
-        "iconName": "FileText",
+        "iconName": "CalendarRange",
         "children": [
           {
             "path": "/academic/years/new",
@@ -324,7 +324,7 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       {
         "path": "/accreditation/manage",
         "label": "Manage",
-        "iconName": "FileText",
+        "iconName": "Settings",
         "children": [
           {
             "path": "/accreditation/manage/grievance-categories",
@@ -447,6 +447,37 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "children": []
       },
       {
+        "path": "/admin/counselors",
+        "label": "Counselors",
+        "iconName": "Users",
+        "children": [
+          {
+            "path": "/admin/counselors/alert-thresholds",
+            "label": "Alert Thresholds",
+            "iconName": "Users",
+            "children": []
+          },
+          {
+            "path": "/admin/counselors/routing-config",
+            "label": "Routing Config",
+            "iconName": "Users",
+            "children": []
+          }
+        ]
+      },
+      {
+        "path": "/admin/exophone-mapping",
+        "label": "Exophone Mapping",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
+        "path": "/admin/landing-pages",
+        "label": "Landing Pages",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
         "path": "/admin/lifecycle",
         "label": "Lifecycle",
         "iconName": "FileText",
@@ -455,7 +486,7 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       {
         "path": "/admin/lti",
         "label": "Lti",
-        "iconName": "FileText",
+        "iconName": "PlugZap",
         "children": [
           {
             "path": "/admin/lti/analytics",
@@ -466,26 +497,32 @@ export const ROUTE_MANIFEST: RouteNode[] = [
           {
             "path": "/admin/lti/grade-sync",
             "label": "Grade Sync",
-            "iconName": "FileText",
+            "iconName": "PlugZap",
             "children": []
           },
           {
             "path": "/admin/lti/launches",
             "label": "Launches",
-            "iconName": "FileText",
+            "iconName": "PlugZap",
             "children": []
           }
         ]
       },
       {
+        "path": "/admin/nav-config",
+        "label": "Nav Config",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
         "path": "/admin/notifications",
         "label": "Notifications",
-        "iconName": "FileText",
+        "iconName": "Bell",
         "children": [
           {
             "path": "/admin/notifications/audiences",
             "label": "Audiences",
-            "iconName": "FileText",
+            "iconName": "Bell",
             "children": [
               {
                 "path": "/admin/notifications/audiences/new",
@@ -498,13 +535,19 @@ export const ROUTE_MANIFEST: RouteNode[] = [
           {
             "path": "/admin/notifications/compliance",
             "label": "Compliance",
-            "iconName": "FileText",
+            "iconName": "Bell",
             "children": []
           },
           {
             "path": "/admin/notifications/new",
             "label": "New",
             "iconName": "Plus",
+            "children": []
+          },
+          {
+            "path": "/admin/notifications/recipients",
+            "label": "Recipients",
+            "iconName": "Bell",
             "children": []
           }
         ]
@@ -523,7 +566,7 @@ export const ROUTE_MANIFEST: RouteNode[] = [
           {
             "path": "/admin/pde/assessments",
             "label": "Assessments",
-            "iconName": "FileText",
+            "iconName": "ClipboardCheck",
             "children": [
               {
                 "path": "/admin/pde/assessments/create",
@@ -542,7 +585,7 @@ export const ROUTE_MANIFEST: RouteNode[] = [
           {
             "path": "/admin/pde/capabilities",
             "label": "Capabilities",
-            "iconName": "FileText",
+            "iconName": "Cpu",
             "children": []
           },
           {
@@ -554,13 +597,13 @@ export const ROUTE_MANIFEST: RouteNode[] = [
           {
             "path": "/admin/pde/lti",
             "label": "Lti",
-            "iconName": "FileText",
+            "iconName": "PlugZap",
             "children": []
           },
           {
             "path": "/admin/pde/quests",
             "label": "Quests",
-            "iconName": "FileText",
+            "iconName": "Trophy",
             "children": [
               {
                 "path": "/admin/pde/quests/create",
@@ -579,8 +622,26 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "children": []
       },
       {
+        "path": "/admin/retention-policies",
+        "label": "Retention Policies",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
         "path": "/admin/saml",
         "label": "Saml",
+        "iconName": "KeyRound",
+        "children": []
+      },
+      {
+        "path": "/admin/telephony-policies",
+        "label": "Telephony Policies",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
+        "path": "/admin/whatsapp-limits",
+        "label": "Whatsapp Limits",
         "iconName": "FileText",
         "children": []
       }
@@ -589,7 +650,7 @@ export const ROUTE_MANIFEST: RouteNode[] = [
   {
     "path": "/admission",
     "label": "Admission",
-    "iconName": "FileText",
+    "iconName": "GraduationCap",
     "children": [
       {
         "path": "/admission/analytics",
@@ -600,13 +661,13 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       {
         "path": "/admission/applications",
         "label": "Applications",
-        "iconName": "FileText",
+        "iconName": "ClipboardList",
         "children": []
       },
       {
         "path": "/admission/consultants",
         "label": "Consultants",
-        "iconName": "FileText",
+        "iconName": "Users",
         "children": [
           {
             "path": "/admission/consultants/analytics",
@@ -617,7 +678,7 @@ export const ROUTE_MANIFEST: RouteNode[] = [
           {
             "path": "/admission/consultants/commissions",
             "label": "Commissions",
-            "iconName": "FileText",
+            "iconName": "Users",
             "children": []
           },
           {
@@ -629,13 +690,13 @@ export const ROUTE_MANIFEST: RouteNode[] = [
           {
             "path": "/admission/consultants/referrals",
             "label": "Referrals",
-            "iconName": "FileText",
+            "iconName": "Users",
             "children": []
           },
           {
             "path": "/admission/consultants/rewards",
             "label": "Rewards",
-            "iconName": "FileText",
+            "iconName": "Users",
             "children": []
           }
         ]
@@ -643,71 +704,71 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       {
         "path": "/admission/counselors",
         "label": "Counselors",
-        "iconName": "FileText",
+        "iconName": "Users",
         "children": [
           {
             "path": "/admission/counselors/alerts",
             "label": "Alerts",
-            "iconName": "FileText",
+            "iconName": "Users",
             "children": []
           },
           {
             "path": "/admission/counselors/briefing",
             "label": "Briefing",
-            "iconName": "FileText",
+            "iconName": "Users",
             "children": []
           },
           {
             "path": "/admission/counselors/calls",
             "label": "Calls",
-            "iconName": "FileText",
+            "iconName": "Users",
             "children": []
           },
           {
             "path": "/admission/counselors/daily-view",
             "label": "Daily View",
-            "iconName": "FileText",
+            "iconName": "Users",
             "children": []
           },
           {
             "path": "/admission/counselors/productivity",
             "label": "Productivity",
-            "iconName": "FileText",
+            "iconName": "Users",
             "children": []
           },
           {
             "path": "/admission/counselors/reminders",
             "label": "Reminders",
-            "iconName": "FileText",
+            "iconName": "Users",
             "children": []
           },
           {
             "path": "/admission/counselors/team",
             "label": "Team",
-            "iconName": "FileText",
+            "iconName": "Users",
             "children": [
               {
                 "path": "/admission/counselors/team/activity",
                 "label": "Activity",
-                "iconName": "FileText",
+                "iconName": "History",
                 "children": []
               },
               {
                 "path": "/admission/counselors/team/allocation",
                 "label": "Allocation",
-                "iconName": "FileText",
+                "iconName": "Users",
                 "children": []
               },
               {
                 "path": "/admission/counselors/team/roster",
                 "label": "Roster",
-                "iconName": "FileText",
+                "iconName": "Users",
                 "children": []
               },
               {
                 "path": "/admission/counselors/team/rules",
                 "label": "Rules",
-                "iconName": "FileText",
+                "iconName": "Users",
                 "children": []
               }
             ]
@@ -723,24 +784,24 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       {
         "path": "/admission/data-quality",
         "label": "Data Quality",
-        "iconName": "FileText",
+        "iconName": "CheckCircle2",
         "children": [
           {
             "path": "/admission/data-quality/data-profiling",
             "label": "Data Profiling",
-            "iconName": "FileText",
+            "iconName": "CheckCircle2",
             "children": []
           },
           {
             "path": "/admission/data-quality/deduplication",
             "label": "Deduplication",
-            "iconName": "FileText",
+            "iconName": "CheckCircle2",
             "children": []
           },
           {
             "path": "/admission/data-quality/phone-validation",
             "label": "Phone Validation",
-            "iconName": "FileText",
+            "iconName": "CheckCircle2",
             "children": []
           }
         ]
@@ -748,7 +809,7 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       {
         "path": "/admission/gd-pi",
         "label": "Gd Pi",
-        "iconName": "FileText",
+        "iconName": "MessagesSquare",
         "children": [
           {
             "path": "/admission/gd-pi/new",
@@ -761,18 +822,18 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       {
         "path": "/admission/group-dashboard",
         "label": "Group Dashboard",
-        "iconName": "FileText",
+        "iconName": "LayoutGrid",
         "children": []
       },
       {
         "path": "/admission/insights",
         "label": "Insights",
-        "iconName": "FileText",
+        "iconName": "Lightbulb",
         "children": [
           {
             "path": "/admission/insights/status",
             "label": "Status",
-            "iconName": "FileText",
+            "iconName": "GraduationCap",
             "children": []
           }
         ]
@@ -780,7 +841,7 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       {
         "path": "/admission/leads",
         "label": "Leads",
-        "iconName": "FileText",
+        "iconName": "UserPlus",
         "children": [
           {
             "path": "/admission/leads/new",
@@ -791,7 +852,7 @@ export const ROUTE_MANIFEST: RouteNode[] = [
           {
             "path": "/admission/leads/work",
             "label": "Work",
-            "iconName": "FileText",
+            "iconName": "UserPlus",
             "children": []
           }
         ]
@@ -799,29 +860,29 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       {
         "path": "/admission/marketing",
         "label": "Marketing",
-        "iconName": "FileText",
+        "iconName": "Megaphone",
         "children": [
           {
             "path": "/admission/marketing/campaigns",
             "label": "Campaigns",
-            "iconName": "FileText",
+            "iconName": "Megaphone",
             "children": [
               {
                 "path": "/admission/marketing/campaigns/monitoring",
                 "label": "Monitoring",
-                "iconName": "FileText",
+                "iconName": "Megaphone",
                 "children": []
               },
               {
                 "path": "/admission/marketing/campaigns/roi",
                 "label": "Roi",
-                "iconName": "FileText",
+                "iconName": "Megaphone",
                 "children": []
               },
               {
                 "path": "/admission/marketing/campaigns/segments",
                 "label": "Segments",
-                "iconName": "FileText",
+                "iconName": "Megaphone",
                 "children": []
               }
             ]
@@ -867,13 +928,13 @@ export const ROUTE_MANIFEST: RouteNode[] = [
           {
             "path": "/admission/marketing/database",
             "label": "Database",
-            "iconName": "FileText",
+            "iconName": "Megaphone",
             "children": []
           },
           {
             "path": "/admission/marketing/expos",
             "label": "Expos",
-            "iconName": "FileText",
+            "iconName": "Megaphone",
             "children": [
               {
                 "path": "/admission/marketing/expos/analytics",
@@ -884,7 +945,7 @@ export const ROUTE_MANIFEST: RouteNode[] = [
               {
                 "path": "/admission/marketing/expos/masters",
                 "label": "Masters",
-                "iconName": "FileText",
+                "iconName": "Megaphone",
                 "children": []
               },
               {
@@ -898,43 +959,43 @@ export const ROUTE_MANIFEST: RouteNode[] = [
           {
             "path": "/admission/marketing/parent-communication",
             "label": "Parent Communication",
-            "iconName": "FileText",
+            "iconName": "Megaphone",
             "children": []
           },
           {
             "path": "/admission/marketing/publishers",
             "label": "Publishers",
-            "iconName": "FileText",
+            "iconName": "Megaphone",
             "children": []
           },
           {
             "path": "/admission/marketing/re-engagement",
             "label": "Re Engagement",
-            "iconName": "FileText",
+            "iconName": "Megaphone",
             "children": []
           },
           {
             "path": "/admission/marketing/remarketing",
             "label": "Remarketing",
-            "iconName": "FileText",
+            "iconName": "Megaphone",
             "children": []
           },
           {
             "path": "/admission/marketing/voice-agents",
             "label": "Voice Agents",
-            "iconName": "FileText",
+            "iconName": "Megaphone",
             "children": []
           },
           {
             "path": "/admission/marketing/voice-broadcast",
             "label": "Voice Broadcast",
-            "iconName": "FileText",
+            "iconName": "Megaphone",
             "children": []
           },
           {
             "path": "/admission/marketing/whatsapp-broadcast",
             "label": "Whatsapp Broadcast",
-            "iconName": "FileText",
+            "iconName": "Megaphone",
             "children": []
           }
         ]
@@ -947,31 +1008,31 @@ export const ROUTE_MANIFEST: RouteNode[] = [
           {
             "path": "/admission/settings/assignment-rules",
             "label": "Assignment Rules",
-            "iconName": "FileText",
+            "iconName": "GraduationCap",
             "children": []
           },
           {
             "path": "/admission/settings/forms",
             "label": "Forms",
-            "iconName": "FileText",
+            "iconName": "GraduationCap",
             "children": []
           },
           {
             "path": "/admission/settings/seat-config",
             "label": "Seat Config",
-            "iconName": "FileText",
+            "iconName": "GraduationCap",
             "children": []
           },
           {
             "path": "/admission/settings/sources",
             "label": "Sources",
-            "iconName": "FileText",
+            "iconName": "GraduationCap",
             "children": []
           },
           {
             "path": "/admission/settings/templates",
             "label": "Templates",
-            "iconName": "FileText",
+            "iconName": "GraduationCap",
             "children": [
               {
                 "path": "/admission/settings/templates/analytics",
@@ -982,13 +1043,13 @@ export const ROUTE_MANIFEST: RouteNode[] = [
               {
                 "path": "/admission/settings/templates/documents",
                 "label": "Documents",
-                "iconName": "FileText",
+                "iconName": "GraduationCap",
                 "children": []
               },
               {
                 "path": "/admission/settings/templates/email-builder",
                 "label": "Email Builder",
-                "iconName": "FileText",
+                "iconName": "GraduationCap",
                 "children": []
               }
             ]
@@ -996,25 +1057,25 @@ export const ROUTE_MANIFEST: RouteNode[] = [
           {
             "path": "/admission/settings/whatsapp-numbers",
             "label": "Whatsapp Numbers",
-            "iconName": "FileText",
+            "iconName": "GraduationCap",
             "children": []
           },
           {
             "path": "/admission/settings/workflow-config",
             "label": "Workflow Config",
-            "iconName": "FileText",
+            "iconName": "GraduationCap",
             "children": []
           },
           {
             "path": "/admission/settings/workflows",
             "label": "Workflows",
-            "iconName": "FileText",
+            "iconName": "GraduationCap",
             "children": []
           },
           {
             "path": "/admission/settings/years",
             "label": "Years",
-            "iconName": "FileText",
+            "iconName": "CalendarRange",
             "children": [
               {
                 "path": "/admission/settings/years/new",
@@ -1042,24 +1103,24 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       {
         "path": "/application-hub/api-guidelines",
         "label": "Api Guidelines",
-        "iconName": "FileText",
+        "iconName": "Code2",
         "children": [
           {
             "path": "/application-hub/api-guidelines/b2a",
             "label": "B2a",
-            "iconName": "FileText",
+            "iconName": "Code2",
             "children": []
           },
           {
             "path": "/application-hub/api-guidelines/endpoints",
             "label": "Endpoints",
-            "iconName": "FileText",
+            "iconName": "Code2",
             "children": []
           },
           {
             "path": "/application-hub/api-guidelines/mcp",
             "label": "Mcp",
-            "iconName": "FileText",
+            "iconName": "Code2",
             "children": []
           }
         ]
@@ -1069,12 +1130,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
   {
     "path": "/applications",
     "label": "Applications",
-    "iconName": "FileText",
+    "iconName": "ClipboardList",
     "children": [
       {
         "path": "/applications/categories",
         "label": "Categories",
-        "iconName": "FileText",
+        "iconName": "ClipboardList",
         "children": []
       },
       {
@@ -1088,12 +1149,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
   {
     "path": "/audit",
     "label": "Audit",
-    "iconName": "FileText",
+    "iconName": "ClipboardCheck",
     "children": [
       {
         "path": "/audit/cycles",
         "label": "Cycles",
-        "iconName": "FileText",
+        "iconName": "RotateCw",
         "children": [
           {
             "path": "/audit/cycles/new",
@@ -1112,13 +1173,13 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       {
         "path": "/audit/external-auditors",
         "label": "External Auditors",
-        "iconName": "FileText",
+        "iconName": "ClipboardCheck",
         "children": []
       },
       {
         "path": "/audit/finding-types",
         "label": "Finding Types",
-        "iconName": "FileText",
+        "iconName": "ClipboardCheck",
         "children": [
           {
             "path": "/audit/finding-types/settings",
@@ -1131,19 +1192,19 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       {
         "path": "/audit/findings",
         "label": "Findings",
-        "iconName": "FileText",
+        "iconName": "Search",
         "children": []
       },
       {
         "path": "/audit/my-findings",
         "label": "My Findings",
-        "iconName": "FileText",
+        "iconName": "ClipboardCheck",
         "children": []
       },
       {
         "path": "/audit/parameters",
         "label": "Parameters",
-        "iconName": "FileText",
+        "iconName": "Sliders",
         "children": [
           {
             "path": "/audit/parameters/settings",
@@ -1158,7 +1219,7 @@ export const ROUTE_MANIFEST: RouteNode[] = [
   {
     "path": "/audit-trail",
     "label": "Audit Trail",
-    "iconName": "FileText",
+    "iconName": "History",
     "children": []
   },
   {
@@ -1172,43 +1233,10 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "iconName": "Wallet",
         "children": [
           {
-            "path": "/billing/categories/item-categories",
-            "label": "Item Categories",
-            "iconName": "Wallet",
-            "children": [
-              {
-                "path": "/billing/categories/item-categories/new",
-                "label": "New",
-                "iconName": "Plus",
-                "children": []
-              }
-            ]
-          },
-          {
-            "path": "/billing/categories/parent-categories",
-            "label": "Parent Categories",
-            "iconName": "Wallet",
-            "children": [
-              {
-                "path": "/billing/categories/parent-categories/new",
-                "label": "New",
-                "iconName": "Plus",
-                "children": []
-              }
-            ]
-          },
-          {
-            "path": "/billing/categories/sub-categories",
-            "label": "Sub Categories",
-            "iconName": "Wallet",
-            "children": [
-              {
-                "path": "/billing/categories/sub-categories/new",
-                "label": "New",
-                "iconName": "Plus",
-                "children": []
-              }
-            ]
+            "path": "/billing/categories/new",
+            "label": "New",
+            "iconName": "Plus",
+            "children": []
           }
         ]
       },
@@ -1234,7 +1262,7 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       {
         "path": "/billing/onboarding",
         "label": "Onboarding",
-        "iconName": "Wallet",
+        "iconName": "UserPlus",
         "children": []
       },
       {
@@ -1297,12 +1325,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       {
         "path": "/billing/schedule",
         "label": "Schedule",
-        "iconName": "Wallet",
+        "iconName": "CalendarClock",
         "children": [
           {
             "path": "/billing/schedule/bulk-create",
             "label": "Bulk Create",
-            "iconName": "Wallet",
+            "iconName": "CalendarClock",
             "children": []
           },
           {
@@ -1314,7 +1342,7 @@ export const ROUTE_MANIFEST: RouteNode[] = [
           {
             "path": "/billing/schedule/students",
             "label": "Students",
-            "iconName": "Wallet",
+            "iconName": "CalendarClock",
             "children": []
           }
         ]
@@ -1329,7 +1357,7 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       {
         "path": "/bos/compositions",
         "label": "Compositions",
-        "iconName": "FileText",
+        "iconName": "Layers",
         "children": [
           {
             "path": "/bos/compositions/new",
@@ -1342,7 +1370,7 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       {
         "path": "/bos/experts",
         "label": "Experts",
-        "iconName": "FileText",
+        "iconName": "UserCheck",
         "children": [
           {
             "path": "/bos/experts/new",
@@ -1374,7 +1402,7 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       {
         "path": "/bos/ta-da",
         "label": "Ta Da",
-        "iconName": "FileText",
+        "iconName": "DollarSign",
         "children": []
       }
     ]
@@ -1393,13 +1421,13 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       {
         "path": "/campus-living/activity",
         "label": "Activity",
-        "iconName": "FileText",
+        "iconName": "History",
         "children": []
       },
       {
         "path": "/campus-living/allocations",
         "label": "Allocations",
-        "iconName": "FileText",
+        "iconName": "PackageCheck",
         "children": [
           {
             "path": "/campus-living/allocations/new",
@@ -1410,12 +1438,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
           {
             "path": "/campus-living/allocations/onboarding",
             "label": "Onboarding",
-            "iconName": "FileText",
+            "iconName": "UserPlus",
             "children": [
               {
                 "path": "/campus-living/allocations/onboarding/templates",
                 "label": "Templates",
-                "iconName": "FileText",
+                "iconName": "UserPlus",
                 "children": []
               }
             ]
@@ -1423,13 +1451,13 @@ export const ROUTE_MANIFEST: RouteNode[] = [
           {
             "path": "/campus-living/allocations/roommate-matching",
             "label": "Roommate Matching",
-            "iconName": "FileText",
+            "iconName": "PackageCheck",
             "children": []
           },
           {
             "path": "/campus-living/allocations/waitlist",
             "label": "Waitlist",
-            "iconName": "FileText",
+            "iconName": "PackageCheck",
             "children": []
           }
         ]
@@ -1454,7 +1482,7 @@ export const ROUTE_MANIFEST: RouteNode[] = [
           {
             "path": "/campus-living/analytics/attendance",
             "label": "Attendance",
-            "iconName": "FileText",
+            "iconName": "CheckSquare",
             "children": []
           },
           {
@@ -1472,13 +1500,13 @@ export const ROUTE_MANIFEST: RouteNode[] = [
           {
             "path": "/campus-living/analytics/maintenance",
             "label": "Maintenance",
-            "iconName": "FileText",
+            "iconName": "Wrench",
             "children": []
           },
           {
             "path": "/campus-living/analytics/mess",
             "label": "Mess",
-            "iconName": "FileText",
+            "iconName": "Utensils",
             "children": []
           },
           {
@@ -1490,7 +1518,7 @@ export const ROUTE_MANIFEST: RouteNode[] = [
           {
             "path": "/campus-living/analytics/safety",
             "label": "Safety",
-            "iconName": "FileText",
+            "iconName": "ShieldAlert",
             "children": []
           }
         ]
@@ -1498,24 +1526,24 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       {
         "path": "/campus-living/attendance",
         "label": "Attendance",
-        "iconName": "FileText",
+        "iconName": "CheckSquare",
         "children": [
           {
             "path": "/campus-living/attendance/absentees",
             "label": "Absentees",
-            "iconName": "FileText",
+            "iconName": "CheckSquare",
             "children": []
           },
           {
             "path": "/campus-living/attendance/history",
             "label": "History",
-            "iconName": "FileText",
+            "iconName": "CheckSquare",
             "children": []
           },
           {
             "path": "/campus-living/attendance/mark",
             "label": "Mark",
-            "iconName": "FileText",
+            "iconName": "CheckSquare",
             "children": []
           }
         ]
@@ -1523,7 +1551,7 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       {
         "path": "/campus-living/blocks",
         "label": "Blocks",
-        "iconName": "FileText",
+        "iconName": "Building",
         "children": [
           {
             "path": "/campus-living/blocks/new",
@@ -1542,7 +1570,7 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       {
         "path": "/campus-living/community",
         "label": "Community",
-        "iconName": "FileText",
+        "iconName": "Users2",
         "children": [
           {
             "path": "/campus-living/community/settings",
@@ -1561,30 +1589,30 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       {
         "path": "/campus-living/gate-passes",
         "label": "Gate Passes",
-        "iconName": "FileText",
+        "iconName": "Ticket",
         "children": []
       },
       {
         "path": "/campus-living/health",
         "label": "Health",
-        "iconName": "FileText",
+        "iconName": "Heart",
         "children": []
       },
       {
         "path": "/campus-living/housekeeping",
         "label": "Housekeeping",
-        "iconName": "FileText",
+        "iconName": "SprayCan",
         "children": [
           {
             "path": "/campus-living/housekeeping/schedules",
             "label": "Schedules",
-            "iconName": "FileText",
+            "iconName": "CalendarClock",
             "children": []
           },
           {
             "path": "/campus-living/housekeeping/tasks",
             "label": "Tasks",
-            "iconName": "FileText",
+            "iconName": "SprayCan",
             "children": []
           }
         ]
@@ -1592,18 +1620,18 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       {
         "path": "/campus-living/laundry",
         "label": "Laundry",
-        "iconName": "FileText",
+        "iconName": "Shirt",
         "children": [
           {
             "path": "/campus-living/laundry/orders",
             "label": "Orders",
-            "iconName": "FileText",
+            "iconName": "Shirt",
             "children": []
           },
           {
             "path": "/campus-living/laundry/schedule",
             "label": "Schedule",
-            "iconName": "FileText",
+            "iconName": "CalendarClock",
             "children": []
           },
           {
@@ -1617,7 +1645,7 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       {
         "path": "/campus-living/leave",
         "label": "Leave",
-        "iconName": "FileText",
+        "iconName": "CalendarOff",
         "children": [
           {
             "path": "/campus-living/leave/new",
@@ -1630,12 +1658,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       {
         "path": "/campus-living/maintenance",
         "label": "Maintenance",
-        "iconName": "FileText",
+        "iconName": "Wrench",
         "children": [
           {
             "path": "/campus-living/maintenance/contracts",
             "label": "Contracts",
-            "iconName": "FileText",
+            "iconName": "Wrench",
             "children": []
           },
           {
@@ -1647,12 +1675,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
           {
             "path": "/campus-living/maintenance/preventive",
             "label": "Preventive",
-            "iconName": "FileText",
+            "iconName": "Wrench",
             "children": [
               {
                 "path": "/campus-living/maintenance/preventive/tasks",
                 "label": "Tasks",
-                "iconName": "FileText",
+                "iconName": "Wrench",
                 "children": []
               }
             ]
@@ -1662,7 +1690,7 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       {
         "path": "/campus-living/mess",
         "label": "Mess",
-        "iconName": "FileText",
+        "iconName": "Utensils",
         "children": [
           {
             "path": "/campus-living/mess/billing",
@@ -1673,13 +1701,13 @@ export const ROUTE_MANIFEST: RouteNode[] = [
           {
             "path": "/campus-living/mess/bookings",
             "label": "Bookings",
-            "iconName": "FileText",
+            "iconName": "Utensils",
             "children": []
           },
           {
             "path": "/campus-living/mess/caterers",
             "label": "Caterers",
-            "iconName": "FileText",
+            "iconName": "Utensils",
             "children": [
               {
                 "path": "/campus-living/mess/caterers/new",
@@ -1692,18 +1720,18 @@ export const ROUTE_MANIFEST: RouteNode[] = [
           {
             "path": "/campus-living/mess/feedback",
             "label": "Feedback",
-            "iconName": "FileText",
+            "iconName": "MessageCircle",
             "children": []
           },
           {
             "path": "/campus-living/mess/meals",
             "label": "Meals",
-            "iconName": "FileText",
+            "iconName": "Utensils",
             "children": [
               {
                 "path": "/campus-living/mess/meals/scan",
                 "label": "Scan",
-                "iconName": "FileText",
+                "iconName": "Utensils",
                 "children": []
               }
             ]
@@ -1711,13 +1739,13 @@ export const ROUTE_MANIFEST: RouteNode[] = [
           {
             "path": "/campus-living/mess/menu",
             "label": "Menu",
-            "iconName": "FileText",
+            "iconName": "Utensils",
             "children": []
           },
           {
             "path": "/campus-living/mess/waste",
             "label": "Waste",
-            "iconName": "FileText",
+            "iconName": "Utensils",
             "children": []
           }
         ]
@@ -1730,7 +1758,7 @@ export const ROUTE_MANIFEST: RouteNode[] = [
           {
             "path": "/campus-living/my-hostel/vacate-request",
             "label": "Vacate Request",
-            "iconName": "FileText",
+            "iconName": "LogOut",
             "children": []
           }
         ]
@@ -1781,42 +1809,42 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       {
         "path": "/campus-living/residents",
         "label": "Residents",
-        "iconName": "FileText",
+        "iconName": "BedDouble",
         "children": []
       },
       {
         "path": "/campus-living/safety",
         "label": "Safety",
-        "iconName": "FileText",
+        "iconName": "ShieldAlert",
         "children": [
           {
             "path": "/campus-living/safety/access-log",
             "label": "Access Log",
-            "iconName": "FileText",
+            "iconName": "ShieldAlert",
             "children": []
           },
           {
             "path": "/campus-living/safety/anti-ragging",
             "label": "Anti Ragging",
-            "iconName": "FileText",
+            "iconName": "ShieldAlert",
             "children": []
           },
           {
             "path": "/campus-living/safety/curfew-exceptions",
             "label": "Curfew Exceptions",
-            "iconName": "FileText",
+            "iconName": "ShieldAlert",
             "children": []
           },
           {
             "path": "/campus-living/safety/emergency-contacts",
             "label": "Emergency Contacts",
-            "iconName": "FileText",
+            "iconName": "ShieldAlert",
             "children": []
           },
           {
             "path": "/campus-living/safety/incidents",
             "label": "Incidents",
-            "iconName": "FileText",
+            "iconName": "ShieldAlert",
             "children": [
               {
                 "path": "/campus-living/safety/incidents/new",
@@ -1829,7 +1857,7 @@ export const ROUTE_MANIFEST: RouteNode[] = [
           {
             "path": "/campus-living/safety/inspections",
             "label": "Inspections",
-            "iconName": "FileText",
+            "iconName": "ShieldAlert",
             "children": [
               {
                 "path": "/campus-living/safety/inspections/new",
@@ -1867,13 +1895,13 @@ export const ROUTE_MANIFEST: RouteNode[] = [
           {
             "path": "/campus-living/settings/leave-types",
             "label": "Leave Types",
-            "iconName": "FileText",
+            "iconName": "CalendarOff",
             "children": []
           },
           {
             "path": "/campus-living/settings/maintenance-sla",
             "label": "Maintenance Sla",
-            "iconName": "FileText",
+            "iconName": "Wrench",
             "children": []
           },
           {
@@ -1887,24 +1915,24 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       {
         "path": "/campus-living/vacate-requests",
         "label": "Vacate Requests",
-        "iconName": "FileText",
+        "iconName": "LogOut",
         "children": []
       },
       {
         "path": "/campus-living/visitors",
         "label": "Visitors",
-        "iconName": "FileText",
+        "iconName": "UserCog",
         "children": [
           {
             "path": "/campus-living/visitors/known",
             "label": "Known",
-            "iconName": "FileText",
+            "iconName": "UserCog",
             "children": []
           },
           {
             "path": "/campus-living/visitors/register",
             "label": "Register",
-            "iconName": "FileText",
+            "iconName": "UserCog",
             "children": []
           }
         ]
@@ -1912,12 +1940,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       {
         "path": "/campus-living/wellness",
         "label": "Wellness",
-        "iconName": "FileText",
+        "iconName": "HeartPulse",
         "children": [
           {
             "path": "/campus-living/wellness/surveys",
             "label": "Surveys",
-            "iconName": "FileText",
+            "iconName": "HeartPulse",
             "children": []
           }
         ]
@@ -1940,12 +1968,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
   {
     "path": "/events",
     "label": "Events",
-    "iconName": "FileText",
+    "iconName": "CalendarHeart",
     "children": [
       {
         "path": "/events/marathon",
         "label": "Marathon",
-        "iconName": "FileText",
+        "iconName": "CalendarHeart",
         "children": [
           {
             "path": "/events/marathon/new",
@@ -1958,7 +1986,7 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       {
         "path": "/events/propose",
         "label": "Propose",
-        "iconName": "FileText",
+        "iconName": "CalendarHeart",
         "children": []
       }
     ]
@@ -1971,30 +1999,30 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       {
         "path": "/faculty/innovation",
         "label": "Innovation",
-        "iconName": "FileText",
+        "iconName": "Lightbulb",
         "children": [
           {
             "path": "/faculty/innovation/approval-queue",
             "label": "Approval Queue",
-            "iconName": "FileText",
+            "iconName": "Lightbulb",
             "children": []
           },
           {
             "path": "/faculty/innovation/collab-request",
             "label": "Collab Request",
-            "iconName": "FileText",
+            "iconName": "Lightbulb",
             "children": []
           },
           {
             "path": "/faculty/innovation/portfolio",
             "label": "Portfolio",
-            "iconName": "FileText",
+            "iconName": "Lightbulb",
             "children": []
           },
           {
             "path": "/faculty/innovation/submit",
             "label": "Submit",
-            "iconName": "FileText",
+            "iconName": "Lightbulb",
             "children": []
           }
         ]
@@ -2013,7 +2041,7 @@ export const ROUTE_MANIFEST: RouteNode[] = [
           {
             "path": "/faculty/pde/assessments",
             "label": "Assessments",
-            "iconName": "FileText",
+            "iconName": "ClipboardCheck",
             "children": []
           },
           {
@@ -2031,7 +2059,7 @@ export const ROUTE_MANIFEST: RouteNode[] = [
           {
             "path": "/faculty/pde/quests",
             "label": "Quests",
-            "iconName": "FileText",
+            "iconName": "Trophy",
             "children": []
           }
         ]
@@ -2041,24 +2069,24 @@ export const ROUTE_MANIFEST: RouteNode[] = [
   {
     "path": "/health",
     "label": "Health",
-    "iconName": "FileText",
+    "iconName": "Heart",
     "children": [
       {
         "path": "/health/achievements",
         "label": "Achievements",
-        "iconName": "FileText",
+        "iconName": "Heart",
         "children": []
       },
       {
         "path": "/health/assessments",
         "label": "Assessments",
-        "iconName": "FileText",
+        "iconName": "Heart",
         "children": []
       },
       {
         "path": "/health/counselor",
         "label": "Counselor",
-        "iconName": "FileText",
+        "iconName": "Heart",
         "children": []
       },
       {
@@ -2070,13 +2098,13 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       {
         "path": "/health/fitness",
         "label": "Fitness",
-        "iconName": "FileText",
+        "iconName": "Heart",
         "children": []
       },
       {
         "path": "/health/leaderboard",
         "label": "Leaderboard",
-        "iconName": "FileText",
+        "iconName": "Trophy",
         "children": []
       },
       {
@@ -2088,13 +2116,13 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       {
         "path": "/health/sports",
         "label": "Sports",
-        "iconName": "FileText",
+        "iconName": "Heart",
         "children": []
       },
       {
         "path": "/health/training",
         "label": "Training",
-        "iconName": "FileText",
+        "iconName": "Heart",
         "children": []
       }
     ]
@@ -2107,7 +2135,7 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       {
         "path": "/hr/employees",
         "label": "Employees",
-        "iconName": "FileText",
+        "iconName": "Users",
         "children": [
           {
             "path": "/hr/employees/new",
@@ -2120,24 +2148,24 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       {
         "path": "/hr/leave",
         "label": "Leave",
-        "iconName": "FileText",
+        "iconName": "CalendarOff",
         "children": [
           {
             "path": "/hr/leave/apply",
             "label": "Apply",
-            "iconName": "FileText",
+            "iconName": "CalendarOff",
             "children": []
           },
           {
             "path": "/hr/leave/approve",
             "label": "Approve",
-            "iconName": "FileText",
+            "iconName": "CalendarOff",
             "children": []
           },
           {
             "path": "/hr/leave/balance",
             "label": "Balance",
-            "iconName": "FileText",
+            "iconName": "CalendarOff",
             "children": []
           },
           {
@@ -2149,13 +2177,13 @@ export const ROUTE_MANIFEST: RouteNode[] = [
           {
             "path": "/hr/leave/encashment",
             "label": "Encashment",
-            "iconName": "FileText",
+            "iconName": "CalendarOff",
             "children": []
           },
           {
             "path": "/hr/leave/my-applications",
             "label": "My Applications",
-            "iconName": "FileText",
+            "iconName": "CalendarOff",
             "children": []
           }
         ]
@@ -2163,30 +2191,30 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       {
         "path": "/hr/policies",
         "label": "Policies",
-        "iconName": "FileText",
+        "iconName": "BookText",
         "children": []
       },
       {
         "path": "/hr/recruitment",
         "label": "Recruitment",
-        "iconName": "FileText",
+        "iconName": "UserSearch",
         "children": [
           {
             "path": "/hr/recruitment/approvals",
             "label": "Approvals",
-            "iconName": "FileText",
+            "iconName": "UserSearch",
             "children": []
           },
           {
             "path": "/hr/recruitment/my",
             "label": "My",
-            "iconName": "FileText",
+            "iconName": "UserSearch",
             "children": []
           },
           {
             "path": "/hr/recruitment/submit",
             "label": "Submit",
-            "iconName": "FileText",
+            "iconName": "UserSearch",
             "children": []
           }
         ]
@@ -2201,25 +2229,25 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       {
         "path": "/learn/build",
         "label": "Build",
-        "iconName": "FileText",
+        "iconName": "Hammer",
         "children": []
       },
       {
         "path": "/learn/capabilities",
         "label": "Capabilities",
-        "iconName": "FileText",
+        "iconName": "Cpu",
         "children": []
       },
       {
         "path": "/learn/channels",
         "label": "Channels",
-        "iconName": "FileText",
+        "iconName": "Tv",
         "children": []
       },
       {
         "path": "/learn/leaderboard",
         "label": "Leaderboard",
-        "iconName": "FileText",
+        "iconName": "Trophy",
         "children": []
       },
       {
@@ -2230,7 +2258,7 @@ export const ROUTE_MANIFEST: RouteNode[] = [
           {
             "path": "/learn/profile/activity",
             "label": "Activity",
-            "iconName": "UserCircle",
+            "iconName": "History",
             "children": []
           },
           {
@@ -2244,7 +2272,7 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       {
         "path": "/learn/quests",
         "label": "Quests",
-        "iconName": "FileText",
+        "iconName": "Trophy",
         "children": []
       }
     ]
@@ -2252,12 +2280,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
   {
     "path": "/learners",
     "label": "Learners",
-    "iconName": "FileText",
+    "iconName": "GraduationCap",
     "children": [
       {
         "path": "/learners/alumni",
         "label": "Alumni",
-        "iconName": "FileText",
+        "iconName": "GraduationCap",
         "children": []
       },
       {
@@ -2269,13 +2297,13 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       {
         "path": "/learners/change-requests",
         "label": "Change Requests",
-        "iconName": "FileText",
+        "iconName": "GraduationCap",
         "children": []
       },
       {
         "path": "/learners/enquiries",
         "label": "Enquiries",
-        "iconName": "FileText",
+        "iconName": "GraduationCap",
         "children": [
           {
             "path": "/learners/enquiries/new",
@@ -2288,18 +2316,18 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       {
         "path": "/learners/leave-onduty",
         "label": "Leave Onduty",
-        "iconName": "FileText",
+        "iconName": "GraduationCap",
         "children": [
           {
             "path": "/learners/leave-onduty/apply",
             "label": "Apply",
-            "iconName": "FileText",
+            "iconName": "GraduationCap",
             "children": []
           },
           {
             "path": "/learners/leave-onduty/my-applications",
             "label": "My Applications",
-            "iconName": "FileText",
+            "iconName": "GraduationCap",
             "children": []
           }
         ]
@@ -2307,18 +2335,18 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       {
         "path": "/learners/my-attendance",
         "label": "My Attendance",
-        "iconName": "FileText",
+        "iconName": "GraduationCap",
         "children": []
       },
       {
         "path": "/learners/my-profile",
         "label": "My Profile",
-        "iconName": "FileText",
+        "iconName": "GraduationCap",
         "children": [
           {
             "path": "/learners/my-profile/status",
             "label": "Status",
-            "iconName": "FileText",
+            "iconName": "GraduationCap",
             "children": []
           }
         ]
@@ -2326,18 +2354,18 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       {
         "path": "/learners/my-timetable",
         "label": "My Timetable",
-        "iconName": "FileText",
+        "iconName": "GraduationCap",
         "children": []
       },
       {
         "path": "/learners/profiles",
         "label": "Profiles",
-        "iconName": "UserCircle",
+        "iconName": "GraduationCap",
         "children": [
           {
             "path": "/learners/profiles/promotion",
             "label": "Promotion",
-            "iconName": "UserCircle",
+            "iconName": "GraduationCap",
             "children": []
           }
         ]
@@ -2347,29 +2375,29 @@ export const ROUTE_MANIFEST: RouteNode[] = [
   {
     "path": "/learners-council",
     "label": "Learners Council",
-    "iconName": "FileText",
+    "iconName": "GraduationCap",
     "children": [
       {
         "path": "/learners-council/communication",
         "label": "Communication",
-        "iconName": "FileText",
+        "iconName": "GraduationCap",
         "children": [
           {
             "path": "/learners-council/communication/chat",
             "label": "Chat",
-            "iconName": "MessageSquare",
+            "iconName": "GraduationCap",
             "children": []
           },
           {
             "path": "/learners-council/communication/forums",
             "label": "Forums",
-            "iconName": "FileText",
+            "iconName": "GraduationCap",
             "children": []
           },
           {
             "path": "/learners-council/communication/polls",
             "label": "Polls",
-            "iconName": "FileText",
+            "iconName": "GraduationCap",
             "children": []
           }
         ]
@@ -2377,7 +2405,7 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       {
         "path": "/learners-council/events",
         "label": "Events",
-        "iconName": "FileText",
+        "iconName": "GraduationCap",
         "children": [
           {
             "path": "/learners-council/events/calendar",
@@ -2388,7 +2416,7 @@ export const ROUTE_MANIFEST: RouteNode[] = [
           {
             "path": "/learners-council/events/proposals",
             "label": "Proposals",
-            "iconName": "FileText",
+            "iconName": "GraduationCap",
             "children": []
           }
         ]
@@ -2396,24 +2424,24 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       {
         "path": "/learners-council/issues",
         "label": "Issues",
-        "iconName": "FileText",
+        "iconName": "GraduationCap",
         "children": []
       },
       {
         "path": "/learners-council/od",
         "label": "Od",
-        "iconName": "FileText",
+        "iconName": "GraduationCap",
         "children": [
           {
             "path": "/learners-council/od/approvals",
             "label": "Approvals",
-            "iconName": "FileText",
+            "iconName": "GraduationCap",
             "children": []
           },
           {
             "path": "/learners-council/od/chains",
             "label": "Chains",
-            "iconName": "FileText",
+            "iconName": "GraduationCap",
             "children": []
           }
         ]
@@ -2421,24 +2449,24 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       {
         "path": "/learners-council/selection",
         "label": "Selection",
-        "iconName": "FileText",
+        "iconName": "GraduationCap",
         "children": [
           {
             "path": "/learners-council/selection/elections",
             "label": "Elections",
-            "iconName": "FileText",
+            "iconName": "GraduationCap",
             "children": []
           },
           {
             "path": "/learners-council/selection/interviews",
             "label": "Interviews",
-            "iconName": "FileText",
+            "iconName": "GraduationCap",
             "children": []
           },
           {
             "path": "/learners-council/selection/nominations",
             "label": "Nominations",
-            "iconName": "FileText",
+            "iconName": "GraduationCap",
             "children": []
           }
         ]
@@ -2452,36 +2480,36 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       {
         "path": "/learners-council/structure",
         "label": "Structure",
-        "iconName": "FileText",
+        "iconName": "GraduationCap",
         "children": [
           {
             "path": "/learners-council/structure/committees",
             "label": "Committees",
-            "iconName": "FileText",
+            "iconName": "GraduationCap",
             "children": []
           },
           {
             "path": "/learners-council/structure/members",
             "label": "Members",
-            "iconName": "Users",
+            "iconName": "GraduationCap",
             "children": []
           },
           {
             "path": "/learners-council/structure/positions",
             "label": "Positions",
-            "iconName": "FileText",
+            "iconName": "GraduationCap",
             "children": []
           },
           {
             "path": "/learners-council/structure/terms",
             "label": "Terms",
-            "iconName": "FileText",
+            "iconName": "GraduationCap",
             "children": []
           },
           {
             "path": "/learners-council/structure/verticals",
             "label": "Verticals",
-            "iconName": "FileText",
+            "iconName": "GraduationCap",
             "children": []
           }
         ]
@@ -2489,15 +2517,40 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       {
         "path": "/learners-council/yuva",
         "label": "Yuva",
-        "iconName": "FileText",
+        "iconName": "GraduationCap",
         "children": [
           {
             "path": "/learners-council/yuva/members",
             "label": "Members",
-            "iconName": "Users",
+            "iconName": "GraduationCap",
             "children": []
           }
         ]
+      }
+    ]
+  },
+  {
+    "path": "/meetings",
+    "label": "Meetings",
+    "iconName": "FileText",
+    "children": [
+      {
+        "path": "/meetings/availability",
+        "label": "Availability",
+        "iconName": "CalendarCheck",
+        "children": []
+      },
+      {
+        "path": "/meetings/inbox",
+        "label": "Inbox",
+        "iconName": "Inbox",
+        "children": []
+      },
+      {
+        "path": "/meetings/manage",
+        "label": "Manage",
+        "iconName": "Settings",
+        "children": []
       }
     ]
   },
@@ -2510,7 +2563,7 @@ export const ROUTE_MANIFEST: RouteNode[] = [
   {
     "path": "/notifications",
     "label": "Notifications",
-    "iconName": "FileText",
+    "iconName": "Bell",
     "children": [
       {
         "path": "/notifications/settings",
@@ -2553,13 +2606,13 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       {
         "path": "/okr/cascade",
         "label": "Cascade",
-        "iconName": "FileText",
+        "iconName": "Network",
         "children": []
       },
       {
         "path": "/okr/check-in",
         "label": "Check In",
-        "iconName": "FileText",
+        "iconName": "CheckCircle",
         "children": []
       },
       {
@@ -2584,13 +2637,13 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       {
         "path": "/okr/manage",
         "label": "Manage",
-        "iconName": "FileText",
+        "iconName": "Settings",
         "children": []
       },
       {
         "path": "/okr/objectives",
         "label": "Objectives",
-        "iconName": "FileText",
+        "iconName": "Target",
         "children": [
           {
             "path": "/okr/objectives/create",
@@ -2628,13 +2681,13 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       {
         "path": "/okr/organization",
         "label": "Organization",
-        "iconName": "FileText",
+        "iconName": "Building2",
         "children": []
       },
       {
         "path": "/okr/team",
         "label": "Team",
-        "iconName": "FileText",
+        "iconName": "Users",
         "children": []
       }
     ]
@@ -2642,17 +2695,17 @@ export const ROUTE_MANIFEST: RouteNode[] = [
   {
     "path": "/organizations",
     "label": "Organizations",
-    "iconName": "FileText",
+    "iconName": "Building2",
     "children": [
       {
         "path": "/organizations/courses",
         "label": "Courses",
-        "iconName": "FileText",
+        "iconName": "BookOpen",
         "children": [
           {
             "path": "/organizations/courses/mappings",
             "label": "Mappings",
-            "iconName": "FileText",
+            "iconName": "BookOpen",
             "children": [
               {
                 "path": "/organizations/courses/mappings/new",
@@ -2679,7 +2732,7 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       {
         "path": "/organizations/degrees",
         "label": "Degrees",
-        "iconName": "FileText",
+        "iconName": "GraduationCap",
         "children": [
           {
             "path": "/organizations/degrees/new",
@@ -2692,7 +2745,7 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       {
         "path": "/organizations/departments",
         "label": "Departments",
-        "iconName": "FileText",
+        "iconName": "Building2",
         "children": [
           {
             "path": "/organizations/departments/new",
@@ -2705,7 +2758,7 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       {
         "path": "/organizations/institutions",
         "label": "Institutions",
-        "iconName": "FileText",
+        "iconName": "Building",
         "children": [
           {
             "path": "/organizations/institutions/new",
@@ -2718,7 +2771,7 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       {
         "path": "/organizations/programs",
         "label": "Programs",
-        "iconName": "FileText",
+        "iconName": "BookOpen",
         "children": [
           {
             "path": "/organizations/programs/new",
@@ -2731,7 +2784,7 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       {
         "path": "/organizations/sections",
         "label": "Sections",
-        "iconName": "FileText",
+        "iconName": "LayoutGrid",
         "children": [
           {
             "path": "/organizations/sections/new",
@@ -2744,7 +2797,7 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       {
         "path": "/organizations/semesters",
         "label": "Semesters",
-        "iconName": "FileText",
+        "iconName": "CalendarDays",
         "children": [
           {
             "path": "/organizations/semesters/new",
@@ -2770,13 +2823,13 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       {
         "path": "/resource-management/analytics-dashboard",
         "label": "Analytics Dashboard",
-        "iconName": "FileText",
+        "iconName": "BarChart",
         "children": []
       },
       {
         "path": "/resource-management/categories",
         "label": "Categories",
-        "iconName": "FileText",
+        "iconName": "Tags",
         "children": [
           {
             "path": "/resource-management/categories/new",
@@ -2787,7 +2840,7 @@ export const ROUTE_MANIFEST: RouteNode[] = [
           {
             "path": "/resource-management/categories/sub-categories",
             "label": "Sub Categories",
-            "iconName": "FileText",
+            "iconName": "Tags",
             "children": [
               {
                 "path": "/resource-management/categories/sub-categories/new",
@@ -2802,7 +2855,7 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       {
         "path": "/resource-management/maintenance",
         "label": "Maintenance",
-        "iconName": "FileText",
+        "iconName": "Wrench",
         "children": [
           {
             "path": "/resource-management/maintenance/new",
@@ -2815,18 +2868,18 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       {
         "path": "/resource-management/reservations",
         "label": "Reservations",
-        "iconName": "FileText",
+        "iconName": "Boxes",
         "children": [
           {
             "path": "/resource-management/reservations/approvals",
             "label": "Approvals",
-            "iconName": "FileText",
+            "iconName": "Boxes",
             "children": []
           },
           {
             "path": "/resource-management/reservations/my-reservations",
             "label": "My Reservations",
-            "iconName": "FileText",
+            "iconName": "Boxes",
             "children": []
           },
           {
@@ -2840,7 +2893,7 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       {
         "path": "/resource-management/resources",
         "label": "Resources",
-        "iconName": "FileText",
+        "iconName": "Boxes",
         "children": [
           {
             "path": "/resource-management/resources/new",
@@ -2916,7 +2969,7 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       {
         "path": "/solutions/builders",
         "label": "Builders",
-        "iconName": "FileText",
+        "iconName": "Hammer",
         "children": [
           {
             "path": "/solutions/builders/new",
@@ -2980,7 +3033,7 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       {
         "path": "/solutions/discovery",
         "label": "Discovery",
-        "iconName": "FileText",
+        "iconName": "Search",
         "children": [
           {
             "path": "/solutions/discovery/new",
@@ -2993,7 +3046,7 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       {
         "path": "/solutions/earnings",
         "label": "Earnings",
-        "iconName": "FileText",
+        "iconName": "DollarSign",
         "children": []
       },
       {
@@ -3022,7 +3075,7 @@ export const ROUTE_MANIFEST: RouteNode[] = [
           {
             "path": "/solutions/paradigm-shift/leaderboard",
             "label": "Leaderboard",
-            "iconName": "FileText",
+            "iconName": "Trophy",
             "children": []
           }
         ]
@@ -3118,7 +3171,7 @@ export const ROUTE_MANIFEST: RouteNode[] = [
           {
             "path": "/solutions/software/builders",
             "label": "Builders",
-            "iconName": "FileText",
+            "iconName": "Hammer",
             "children": [
               {
                 "path": "/solutions/software/builders/new",
@@ -3139,12 +3192,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       {
         "path": "/solutions/training",
         "label": "Training",
-        "iconName": "FileText",
+        "iconName": "Dumbbell",
         "children": [
           {
             "path": "/solutions/training/cohort",
             "label": "Cohort",
-            "iconName": "FileText",
+            "iconName": "Dumbbell",
             "children": [
               {
                 "path": "/solutions/training/cohort/new",
@@ -3157,13 +3210,13 @@ export const ROUTE_MANIFEST: RouteNode[] = [
           {
             "path": "/solutions/training/programs",
             "label": "Programs",
-            "iconName": "FileText",
+            "iconName": "BookOpen",
             "children": []
           },
           {
             "path": "/solutions/training/sessions",
             "label": "Sessions",
-            "iconName": "FileText",
+            "iconName": "Dumbbell",
             "children": []
           }
         ]
@@ -3173,12 +3226,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
   {
     "path": "/staff",
     "label": "Staff",
-    "iconName": "FileText",
+    "iconName": "Users",
     "children": [
       {
         "path": "/staff/category",
         "label": "Category",
-        "iconName": "FileText",
+        "iconName": "Users",
         "children": [
           {
             "path": "/staff/category/new",
@@ -3191,7 +3244,7 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       {
         "path": "/staff/class-incharges",
         "label": "Class Incharges",
-        "iconName": "FileText",
+        "iconName": "Users",
         "children": []
       },
       {
@@ -3223,7 +3276,7 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       {
         "path": "/startup-studio/alumni",
         "label": "Alumni",
-        "iconName": "FileText",
+        "iconName": "GraduationCap",
         "children": []
       },
       {
@@ -3235,7 +3288,7 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       {
         "path": "/startup-studio/cycles",
         "label": "Cycles",
-        "iconName": "FileText",
+        "iconName": "RotateCw",
         "children": [
           {
             "path": "/startup-studio/cycles/new",
@@ -3248,19 +3301,19 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       {
         "path": "/startup-studio/events",
         "label": "Events",
-        "iconName": "FileText",
+        "iconName": "CalendarHeart",
         "children": []
       },
       {
         "path": "/startup-studio/finance",
         "label": "Finance",
-        "iconName": "FileText",
+        "iconName": "DollarSign",
         "children": []
       },
       {
         "path": "/startup-studio/governance",
         "label": "Governance",
-        "iconName": "FileText",
+        "iconName": "Building",
         "children": []
       },
       {
@@ -3279,13 +3332,13 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       {
         "path": "/startup-studio/marketing",
         "label": "Marketing",
-        "iconName": "FileText",
+        "iconName": "Megaphone",
         "children": []
       },
       {
         "path": "/startup-studio/mentors",
         "label": "Mentors",
-        "iconName": "FileText",
+        "iconName": "UserCheck",
         "children": []
       },
       {
@@ -3297,7 +3350,7 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       {
         "path": "/startup-studio/portfolio",
         "label": "Portfolio",
-        "iconName": "FileText",
+        "iconName": "Briefcase",
         "children": []
       },
       {
@@ -3346,7 +3399,7 @@ export const ROUTE_MANIFEST: RouteNode[] = [
           {
             "path": "/startup-studio/solve-for-100/leaderboard",
             "label": "Leaderboard",
-            "iconName": "FileText",
+            "iconName": "Trophy",
             "children": []
           },
           {
@@ -3358,7 +3411,7 @@ export const ROUTE_MANIFEST: RouteNode[] = [
           {
             "path": "/startup-studio/solve-for-100/programs",
             "label": "Programs",
-            "iconName": "FileText",
+            "iconName": "BookOpen",
             "children": []
           }
         ]
@@ -3379,7 +3432,7 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       {
         "path": "/system/api-management",
         "label": "Api Management",
-        "iconName": "FileText",
+        "iconName": "Code2",
         "children": []
       },
       {
@@ -3391,7 +3444,7 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       {
         "path": "/system/lti-tools",
         "label": "Lti Tools",
-        "iconName": "FileText",
+        "iconName": "PlugZap",
         "children": []
       }
     ]
@@ -3404,7 +3457,7 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       {
         "path": "/users/activity",
         "label": "Activity",
-        "iconName": "Users",
+        "iconName": "History",
         "children": []
       },
       {
@@ -3463,7 +3516,7 @@ export const ROUTE_MANIFEST: RouteNode[] = [
               {
                 "path": "/vac/admin/case/batches",
                 "label": "Batches",
-                "iconName": "FileText",
+                "iconName": "Boxes",
                 "children": []
               },
               {
@@ -3483,7 +3536,7 @@ export const ROUTE_MANIFEST: RouteNode[] = [
           {
             "path": "/vac/admin/courses",
             "label": "Courses",
-            "iconName": "FileText",
+            "iconName": "BookOpen",
             "children": [
               {
                 "path": "/vac/admin/courses/new",
