@@ -11,6 +11,7 @@ import type {
   EntityType
 } from '@/types/organizations';
 import { StorageService } from '@/lib/storage/storage-service';
+import { logger, serializeError } from '@/lib/utils/enhanced-logger';
 import type { Database } from '@/types/database.types';
 
 export class OrganizationService {
@@ -451,11 +452,20 @@ export class OrganizationService {
         }
       };
     } catch (error) {
-      console.error('Error in getInstitutions:', error);
-      toast.error(
-        error instanceof Error ? error.message : 'Failed to fetch institutions'
+      const serialized = serializeError(error);
+      logger.error(
+        'organization/institutions',
+        'getInstitutions failed',
+        serialized
       );
-      throw error;
+      const message =
+        error instanceof Error
+          ? error.message
+          : (typeof serialized.message === 'string' && serialized.message) ||
+            (typeof serialized.code === 'string' && serialized.code) ||
+            'Failed to fetch institutions';
+      toast.error(message);
+      throw error instanceof Error ? error : new Error(message);
     }
   }
 
@@ -586,8 +596,18 @@ export class OrganizationService {
 
       return data || [];
     } catch (error) {
-      console.error('Error fetching institution names:', error);
-      throw error;
+      const serialized = serializeError(error);
+      logger.error(
+        'organization/institutions',
+        'getInstitutionNames failed',
+        serialized
+      );
+      if (error instanceof Error) throw error;
+      const message =
+        (typeof serialized.message === 'string' && serialized.message) ||
+        (typeof serialized.code === 'string' && serialized.code) ||
+        'Unknown Supabase error fetching institution names';
+      throw new Error(message);
     }
   }
 

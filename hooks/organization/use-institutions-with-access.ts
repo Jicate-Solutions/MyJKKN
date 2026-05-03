@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useAuth } from '@/hooks/use-auth';
 import { usePermissions } from '@/hooks/use-permissions';
 import { OrganizationService } from '@/lib/services/organization/organization-service';
+import { logger, serializeError } from '@/lib/utils/enhanced-logger';
 import type { EntityType } from '@/types/organizations';
 
 interface UseInstitutionsWithAccessOptions {
@@ -56,10 +57,19 @@ export function useInstitutionsWithAccess(
 
       setInstitutions(institutionNames);
     } catch (err) {
-      console.error('Error fetching institutions:', err);
-      setError(
-        err instanceof Error ? err.message : 'Failed to fetch institutions'
+      const serialized = serializeError(err);
+      logger.error(
+        'organization/institutions',
+        'useInstitutionsWithAccess fetch failed',
+        serialized
       );
+      const message =
+        err instanceof Error
+          ? err.message
+          : (typeof serialized.message === 'string' && serialized.message) ||
+            (typeof serialized.code === 'string' && serialized.code) ||
+            'Failed to fetch institutions';
+      setError(message);
       setInstitutions([]);
     } finally {
       setLoading(false);

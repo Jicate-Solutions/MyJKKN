@@ -350,6 +350,55 @@ export function getLogManager(): LogManager {
 }
 
 /**
+ * Convert any thrown value into a plain enumerable object suitable for
+ * `console.error` / structured logs. Browsers (V8) render Supabase
+ * `PostgrestError` and supabase-js auth errors as `{}` because their
+ * fields land on the prototype or get non-enumerable across boundaries —
+ * spreading into a fresh literal sidesteps that formatter.
+ */
+export function serializeError(err: unknown): Record<string, unknown> {
+  if (err == null) return { raw: err };
+
+  if (err instanceof Error) {
+    const out: Record<string, unknown> = {
+      name: err.name,
+      message: err.message,
+      stack: err.stack
+    };
+    const e = err as Error &
+      Partial<Record<'code' | 'status' | 'details' | 'hint', unknown>>;
+    if (e.code !== undefined) out.code = e.code;
+    if (e.status !== undefined) out.status = e.status;
+    if (e.details !== undefined) out.details = e.details;
+    if (e.hint !== undefined) out.hint = e.hint;
+    return out;
+  }
+
+  if (typeof err === 'object') {
+    const source = err as Record<string, unknown>;
+    const out: Record<string, unknown> = { ...source };
+    for (const k of [
+      'code',
+      'status',
+      'message',
+      'details',
+      'hint',
+      'name'
+    ] as const) {
+      const v = source[k];
+      if (v !== undefined && !(k in out)) out[k] = v;
+    }
+    if (Object.keys(out).length === 0) {
+      out.raw =
+        '<empty error object — likely failed fetch, blocked request, or stale auth refresh>';
+    }
+    return out;
+  }
+
+  return { raw: String(err) };
+}
+
+/**
  * Enhanced Logger API for manual logging
  */
 export const logger = {
