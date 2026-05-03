@@ -33,6 +33,12 @@ export const POLICY_KEYS = {
   // two distinct hits — so the split bar renders by default on every page even
   // when no Layer 2 rule has been configured. Default false → unchanged behaviour.
   ATTENTION_BAR_L1_RETURN_SECONDARY: 'attention_bar.layer1.return_secondary',
+
+  // Dashboard leaderboards — min-volume thresholds for inclusion
+  // (matview HAVING clauses read these; refresh-time snapshot)
+  // Default 5 hot leads first-touched today / 10 leads in 30d.
+  DASHBOARD_LEADERBOARD_SLA_MIN_LEADS: 'dashboard.leaderboard.sla_min_leads',
+  DASHBOARD_LEADERBOARD_CONVERSION_MIN_LEADS: 'dashboard.leaderboard.conversion_min_leads',
 } as const;
 
 export type PolicyKey = typeof POLICY_KEYS[keyof typeof POLICY_KEYS];
