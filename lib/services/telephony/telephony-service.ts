@@ -15,6 +15,9 @@ import { exotelTimeToIso } from './exotel-time';
 import { normalizePhone, phoneLastDigits } from '@/lib/utils/phone';
 import { logger } from '@/lib/utils/enhanced-logger';
 import { WAEventDispatcher } from '@/lib/services/whatsapp/wa-event-dispatcher';
+// M-1 (2026-05-03): DB-driven ExoPhone → institution resolution. Replaces the
+// inline 5-entry EXOPHONE_MAP that mis-attributed 22-of-27 active DIDs.
+import { resolveInstitutionForExoPhone } from '@/lib/services/admin/exophone-institution-map-service';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // TYPES
@@ -1293,32 +1296,22 @@ export class TelephonyService {
 
   /**
    * Map an ExoPhone number to an institution_id.
-   * Uses a simple mapping table — extend as needed.
+   *
+   * As of 2026-05-03 (M-1, brand-integrity recovery), this reads from the
+   * `exophone_institution_map` DB table via `resolveInstitutionForExoPhone()`.
+   * That helper has a 60s in-memory cache and falls back to a 5-entry hardcoded
+   * map if the DB read fails — zero regression risk relative to the previous
+   * inline EXOPHONE_MAP. Director adds/edits DIDs via /admin/exophone-mapping.
+   *
+   * Per probe-capture-2026-05-03.md (D1): 22 of 27 active inbound DIDs were
+   * silently defaulting to JKKN Pharmacy before this — 8+ institutions
+   * mis-attributed in dashboards.
    */
   private static async getInstitutionForExoPhone(
     exoPhone: string,
-    _supabase: any
+    supabase: any
   ): Promise<string | null> {
-    // ExoPhone → institution mapping
-    // All JKKN ExoPhones map to the primary JKKN institution
-    // This could be moved to a DB config table in the future
-    // Use JKKN College of Pharmacy as default (most admission calls go here)
-    // Production has separate institutions per college — the agent mapping + lead matching
-    // determines the correct institution. This is just the fallback.
-    const DEFAULT_INSTITUTION = process.env.EXOTEL_DEFAULT_INSTITUTION_ID
-      || '5736d86f-5dab-4b7f-9aa1-b3bb1a2dd334'; // JKKN College of Pharmacy (production)
-
-    const EXOPHONE_MAP: Record<string, string> = {
-      '04446313503': DEFAULT_INSTITUTION, // 1-JKKN-COLLEGES (main IVR)
-      '04446313545': DEFAULT_INSTITUTION, // JKKN secondary
-      '04446313596': DEFAULT_INSTITUTION, // JKKN tertiary
-      '04448134434': DEFAULT_INSTITUTION, // JKKN main
-      '04446310202': DEFAULT_INSTITUTION, // Dharmapuri
-    };
-
-    // Strip any prefix and try matching
-    const cleanPhone = exoPhone.replace(/^\+91/, '').replace(/^91/, '');
-    return EXOPHONE_MAP[cleanPhone] || EXOPHONE_MAP[exoPhone] || null;
+    return resolveInstitutionForExoPhone(exoPhone, supabase);
   }
 
   // ═══════════════════════════════════════════════════════════════════════

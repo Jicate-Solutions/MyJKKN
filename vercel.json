@@ -90,6 +90,10 @@
     {
       "path": "/api/cron/whatsapp-byow-health",
       "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/cron/callback-queue-expire?secret=${CRON_SECRET}",
+      "schedule": "13 * * * *"
     }
   ]
 }
