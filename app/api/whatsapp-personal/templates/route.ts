@@ -1,6 +1,6 @@
 export const dynamic = 'force-dynamic';
 
-// app/api/admission/whatsapp-personal/templates/route.ts
+// app/api/whatsapp-personal/templates/route.ts
 // CRUD API for personal WhatsApp message templates
 
 import { NextRequest, NextResponse, connection } from 'next/server';

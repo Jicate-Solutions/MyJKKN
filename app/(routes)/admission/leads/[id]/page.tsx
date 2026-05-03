@@ -599,7 +599,7 @@ function LeadDetailPageContent() {
       const deptId = personalWaDepartmentId || profile?.department_id || 'any';
 
       if (templateAttachment?.url) {
-        const mediaRes = await fetch('/api/admission/whatsapp-personal/send-media', {
+        const mediaRes = await fetch('/api/whatsapp-personal/send-media', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -618,7 +618,7 @@ function LeadDetailPageContent() {
           return;
         }
       } else {
-        const res = await fetch('/api/admission/whatsapp-personal/send', {
+        const res = await fetch('/api/whatsapp-personal/send', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -668,7 +668,7 @@ function LeadDetailPageContent() {
 
         // Send media attachment first (if template has one)
         if (templateAttachment?.url) {
-          const mediaRes = await fetch('/api/admission/whatsapp-personal/send-media', {
+          const mediaRes = await fetch('/api/whatsapp-personal/send-media', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -688,7 +688,7 @@ function LeadDetailPageContent() {
           }
         } else {
           // Text only
-          const res = await fetch('/api/admission/whatsapp-personal/send', {
+          const res = await fetch('/api/whatsapp-personal/send', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({

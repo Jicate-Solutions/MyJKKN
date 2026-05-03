@@ -1,6 +1,6 @@
 export const dynamic = 'force-dynamic';
 
-// app/api/admission/whatsapp-personal/queue/route.ts
+// app/api/whatsapp-personal/queue/route.ts
 // Processes the personal WhatsApp message queue.
 // POST: Process queue (cron or admin triggered)
 // GET: Get queue stats
