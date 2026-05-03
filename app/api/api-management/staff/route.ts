@@ -110,6 +110,7 @@ export async function GET(request: NextRequest) {
     const departmentId = url.searchParams.get('department_id');
     const categoryId = url.searchParams.get('category_id');
     const isActive = url.searchParams.get('is_active');
+    const hasExtendedProfile = url.searchParams.get('has_extended_profile');
 
     // Build query
     let query = (supabase as any).from('staff').select(
@@ -148,6 +149,10 @@ export async function GET(request: NextRequest) {
 
     if (isActive !== null) {
       query = query.eq('is_active', isActive === 'true');
+    }
+
+    if (hasExtendedProfile !== null) {
+      query = query.eq('has_extended_profile', hasExtendedProfile === 'true');
     }
 
     // Apply pagination only if not fetching all records
