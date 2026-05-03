@@ -27,3 +27,6 @@ jobs:
         run: npx tsc --noEmit
         env:
           NODE_OPTIONS: '--max-old-space-size=8192'
+
+      - name: Check admission-counselor membership contract
+        run: npm run check:admission-counselor-membership
