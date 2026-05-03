@@ -27,7 +27,9 @@
     "check:attention-bar-layer2": "tsx scripts/check-attention-bar-layer2-rules.ts",
     "check:attention-bar-layer3": "tsx scripts/check-attention-bar-layer3-rails.ts",
     "check:attention-bar-layer4": "tsx scripts/check-attention-bar-layer4-rails.ts",
-    "check:attention-bar-all": "npm run check:attention-bar && npm run check:attention-bar-layer2 && npm run check:attention-bar-layer3 && npm run check:attention-bar-layer4"
+    "check:attention-bar-all": "npm run check:attention-bar && npm run check:attention-bar-layer2 && npm run check:attention-bar-layer3 && npm run check:attention-bar-layer4",
+    "import:website-faculty": "tsx --env-file=.env.local scripts/import/website-faculty-to-staff.ts",
+    "import:website-faculty:dry": "tsx --env-file=.env.local scripts/import/website-faculty-to-staff.ts --dry-run"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.68.0",

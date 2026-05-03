@@ -648,7 +648,38 @@ CREATE TABLE IF NOT EXISTS public.staff (
     updated_by UUID,
     institution_email TEXT NOT NULL,
     -- Updated: 2026-04-14 - role_key FK to custom_roles.role_key; drives dynamic role assignment on profile sync.
-    role_key VARCHAR(50) NOT NULL DEFAULT 'faculty' REFERENCES public.custom_roles(role_key) ON UPDATE CASCADE
+    role_key VARCHAR(50) NOT NULL DEFAULT 'faculty' REFERENCES public.custom_roles(role_key) ON UPDATE CASCADE,
+    -- Added: 2026-05-03 - Extended faculty profile fields powering the public website. See migration 20260503100001.
+    has_extended_profile    boolean       NOT NULL DEFAULT false,
+    slug                    text          NULL,
+    status                  text          NOT NULL DEFAULT 'draft',
+    display_order           integer       NOT NULL DEFAULT 0,
+    experience_years        integer       NOT NULL DEFAULT 0,
+    research_papers         integer       NOT NULL DEFAULT 0,
+    phd_scholars            integer       NOT NULL DEFAULT 0,
+    awards_won              integer       NOT NULL DEFAULT 0,
+    pg_dissertations_guided integer       NOT NULL DEFAULT 0,
+    ug_projects_guided      integer       NOT NULL DEFAULT 0,
+    qualification_summary   text          NULL,
+    professional_summary    text          NULL,
+    mentoring_description   text          NULL,
+    google_scholar_url      text          NULL,
+    researchgate_url        text          NULL,
+    orcid_url               text          NULL,
+    badges                  jsonb         NOT NULL DEFAULT '[]'::jsonb,
+    qualifications          jsonb         NOT NULL DEFAULT '[]'::jsonb,
+    specialisations         jsonb         NOT NULL DEFAULT '[]'::jsonb,
+    experience_entries      jsonb         NOT NULL DEFAULT '[]'::jsonb,
+    research_focus_areas    jsonb         NOT NULL DEFAULT '[]'::jsonb,
+    publications            jsonb         NOT NULL DEFAULT '[]'::jsonb,
+    funded_projects         jsonb         NOT NULL DEFAULT '[]'::jsonb,
+    certifications          jsonb         NOT NULL DEFAULT '[]'::jsonb,
+    awards                  jsonb         NOT NULL DEFAULT '[]'::jsonb,
+    memberships             jsonb         NOT NULL DEFAULT '[]'::jsonb,
+    phd_scholars_list       jsonb         NOT NULL DEFAULT '[]'::jsonb,
+    faqs                    jsonb         NOT NULL DEFAULT '[]'::jsonb,
+    achievements            jsonb         NOT NULL DEFAULT '[]'::jsonb,
+    CONSTRAINT staff_status_check CHECK (status IN ('draft', 'published'))
 );
 
 -- Employment Categories
@@ -658,6 +689,7 @@ CREATE TABLE IF NOT EXISTS public.employment_categories (
     category_name TEXT NOT NULL UNIQUE,
     description TEXT,
     is_teaching BOOLEAN NOT NULL DEFAULT false,
+    shows_extended_profile BOOLEAN NOT NULL DEFAULT false,
     is_active BOOLEAN DEFAULT true,
     created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
@@ -5242,3 +5274,25 @@ UPDATE public.notifications
  WHERE priority = 'urgent'
    AND requires_acknowledgment = TRUE
    AND is_layer_0 = FALSE;
+
+-- =====================================================================
+-- staff_import_unmatched
+-- =====================================================================
+-- Holds website faculty rows the import script could not auto-match to a
+-- MyJKKN staff record. Reviewed manually after each import run. RLS gated by
+-- the staff.manage_imports permission (policy: staff_imports_manage_access).
+
+CREATE TABLE IF NOT EXISTS public.staff_import_unmatched (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  source_table text NOT NULL,
+  source_row  jsonb NOT NULL,
+  reason      text NOT NULL,
+  resolved    boolean NOT NULL DEFAULT false,
+  resolved_by uuid NULL REFERENCES auth.users(id) ON DELETE SET NULL,
+  resolved_at timestamptz NULL,
+  created_at  timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_staff_import_unmatched_unresolved
+  ON public.staff_import_unmatched (created_at DESC)
+  WHERE resolved = false;

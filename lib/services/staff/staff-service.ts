@@ -1051,7 +1051,40 @@ export class StaffService {
     filters: StaffDashboardFilters,
     supabase: ReturnType<typeof createClientSupabaseClient>
   ): Promise<StaffOverviewStats> {
-    let query = (supabase as any).from('staff').select('*');
+    // Tightened from select('*') to an explicit column list so the dashboard
+    // does NOT pull the 13 new JSONB array columns (badges, qualifications,
+    // specialisations, experience_entries, research_focus_areas, publications,
+    // funded_projects, certifications, awards, memberships, phd_scholars_list,
+    // faqs, achievements) or the markdown text fields (qualification_summary,
+    // professional_summary, mentoring_description) added in the staff-extended-
+    // faculty-fields work. The columns enumerated below are the union of every
+    // property accessed downstream in this function:
+    //   - is_active                                            (active/inactive count)
+    //   - date_of_joining                                      (newHires + averageTenure)
+    //   - institution_email                                    (staffWithProfiles)
+    //   - requiredFields:  first_name, last_name, email, phone,
+    //                      designation, date_of_birth, date_of_joining
+    //   - optionalFields:  staff_id, profile_picture, address, state,
+    //                      district, pincode, institution_email
+    let query = (supabase as any).from('staff').select(
+      [
+        'is_active',
+        'date_of_joining',
+        'first_name',
+        'last_name',
+        'email',
+        'phone',
+        'designation',
+        'date_of_birth',
+        'staff_id',
+        'profile_picture',
+        'address',
+        'state',
+        'district',
+        'pincode',
+        'institution_email'
+      ].join(', ')
+    );
 
     // Apply filters
     if (filters.institutionId) {
