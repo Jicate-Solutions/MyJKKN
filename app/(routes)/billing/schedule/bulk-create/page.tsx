@@ -89,7 +89,13 @@ const bulkBillSchema = z.object({
   bill_description: z.string().optional(),
   due_date: z.date({ required_error: 'Due date is required' }),
   quantity: z.number().min(1, 'Quantity must be at least 1').default(1),
-  unit_amount: z.number().min(0, 'Unit amount must be positive'),
+  unit_amount: z
+    .number({
+      required_error: 'Billing amount is required',
+      invalid_type_error: 'Billing amount is required',
+    })
+    .int('Billing amount must be a whole number (no decimals)')
+    .positive('Billing amount must be greater than zero'),
   tax_amount: z.number().min(0, 'Tax amount must be positive').default(0),
   remarks: z.string().optional(),
   is_recurring: z.boolean().default(false),
@@ -129,7 +135,10 @@ export default function BulkCreateBillsPage() {
     resolver: zodResolver(bulkBillSchema),
     defaultValues: {
       quantity: 1,
-      unit_amount: 0,
+      // unit_amount intentionally has no default — leaving it undefined makes
+      // the field render empty and forces the user to enter a real value.
+      // Defaulting to 0 silently passed validation when the user submitted
+      // without touching the input.
       tax_amount: 0,
       is_recurring: false
     }
@@ -345,8 +354,22 @@ export default function BulkCreateBillsPage() {
     }
 
     try {
+      // Strip cohort filters — degree_id / department_id / program_id /
+      // semester_id are used to scope the student list, NOT columns on
+      // billing_student_bills. Spreading `...data` straight into the insert
+      // leaked them and tripped PGRST204 ("Could not find the 'degree_id'
+      // column…"). Whitelist-style destructure keeps this honest: any new
+      // filter field added to the schema must also be listed here.
+      const {
+        degree_id: _degreeFilter,
+        department_id: _departmentFilter,
+        program_id: _programFilter,
+        semester_id: _semesterFilter,
+        ...billFields
+      } = data;
+
       const billData = {
-        ...data,
+        ...billFields,
         due_date: format(data.due_date, 'yyyy-MM-dd'),
         total_amount: totalAmount,
         final_amount: finalAmount
@@ -354,7 +377,7 @@ export default function BulkCreateBillsPage() {
 
       await bulkCreateBills.mutateAsync({
         student_ids: selectedStudents,
-        bills: [billData as any]
+        bills: [billData]
       });
 
       router.push('/billing/schedule');
@@ -896,18 +919,39 @@ export default function BulkCreateBillsPage() {
                     name='unit_amount'
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Billing Amount (₹)</FormLabel>
+                        <FormLabel>
+                          Billing Amount (₹) <span className='text-destructive'>*</span>
+                        </FormLabel>
                         <FormControl>
                           <Input
                             type='number'
-                            min='0'
-                            step='0.01'
-                            placeholder='0.00'
+                            min='1'
+                            step='1'
+                            inputMode='numeric'
+                            placeholder='0'
                             {...field}
-                            value={field.value?.toString() || ''}
-                            onChange={(e) =>
-                              field.onChange(parseFloat(e.target.value) || 0)
-                            }
+                            value={field.value?.toString() ?? ''}
+                            onChange={(e) => {
+                              // Empty input → undefined so zod fires its
+                              // required_error path. parseInt(..., 10) drops
+                              // any decimal a user pastes (e.g. "100.99" → 100)
+                              // so the displayed value matches what gets saved.
+                              const raw = e.target.value;
+                              if (raw === '') {
+                                field.onChange(undefined);
+                                return;
+                              }
+                              const parsed = parseInt(raw, 10);
+                              field.onChange(Number.isNaN(parsed) ? undefined : parsed);
+                            }}
+                            onKeyDown={(e) => {
+                              // Block the user from typing a decimal point /
+                              // exponent in the first place — keeps the UI in
+                              // sync with the integer-only schema.
+                              if (['.', 'e', 'E', '+', '-'].includes(e.key)) {
+                                e.preventDefault();
+                              }
+                            }}
                           />
                         </FormControl>
                         <FormMessage />
