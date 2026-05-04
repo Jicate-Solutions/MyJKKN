@@ -28,7 +28,7 @@ import {
 import {
   METRIC_LABELS,
   type DrilldownMetric,
-} from './drilldown-defaults';
+} from '@/lib/policies/dashboard-drilldown-ui';
 import {
   useResetDrilldownMetric,
   type ResolvedDrilldownRow,

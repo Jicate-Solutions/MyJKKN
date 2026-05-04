@@ -7,7 +7,7 @@
  * direct PostgREST table writes gated by the existing super_admin RLS on
  * `platform_policies` — no new admin RPC needed.
  *
- * The merge of (DB override) → (code default from drilldown-defaults.ts)
+ * The merge of (DB override) → (code default from dashboard-drilldown-ui)
  * is done at read time in the table component. DB row absent ⇒ default
  * applies. DB row present ⇒ that field overrides only the field it sets.
  *
@@ -38,7 +38,7 @@ import {
   type DrilldownMetric,
   type DrilldownPolicy,
   type DrilldownRole,
-} from './drilldown-defaults';
+} from '@/lib/policies/dashboard-drilldown-ui';
 
 // ---------------------------------------------------------------------------
 // Types

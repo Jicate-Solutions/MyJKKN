@@ -16,11 +16,11 @@
 // Permission: super_admin only writes; admins can view (matches the
 // nav-config / telephony-policies / retention-policies pages exactly).
 //
-// ⚠️ B.3 RUNTIME DEPENDENCY: this page uses local stub
-// `_components/drilldown-defaults.ts` until B.1 lands. After B.1 merges,
-// swap every import of `./drilldown-defaults` for
-// `@/lib/policies/dashboard-drilldown-keys` (one mechanical search +
-// replace). See PR body for the swap checklist.
+// Imports from `@/lib/policies/dashboard-drilldown-ui` — a UI adapter over
+// the canonical FLAT defaults in `@/lib/policies/dashboard-drilldown-keys`
+// (PR #705). The adapter derives the nested per-metric shape this page
+// consumes, plus UI-only labels and helpers, so canonical and UI cannot
+// drift. The local stub `_components/drilldown-defaults.ts` was removed.
 // =====================================================================
 
 import { useEffect, useState } from 'react';
@@ -59,10 +59,10 @@ import { DrilldownPolicyTable } from './_components/drilldown-policy-table';
 import { DrilldownPolicyEditor } from './_components/drilldown-policy-editor';
 import {
   DEFAULT_PERFORMANCE_BUDGET_MS,
-  type DrilldownMetric,
-} from './_components/drilldown-defaults';
-import {
   PERFORMANCE_BUDGET_KEY,
+  type DrilldownMetric,
+} from '@/lib/policies/dashboard-drilldown-ui';
+import {
   useDrilldownPolicies,
   useResetDrilldownField,
   useUpsertDrilldownField,
