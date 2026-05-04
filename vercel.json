@@ -92,6 +92,10 @@
       "schedule": "*/15 * * * *"
     },
     {
+      "path": "/api/cron/whatsapp-byow-connection-pulse",
+      "schedule": "*/5 * * * *"
+    },
+    {
       "path": "/api/cron/callback-queue-expire?secret=${CRON_SECRET}",
       "schedule": "13 * * * *"
     },
