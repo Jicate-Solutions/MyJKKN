@@ -263,7 +263,7 @@ export class TelephonyService {
     if (filters.admission_only) query = query.eq('is_admission_call', true);
 
     query = query
-      .order(filters.sort_by || 'started_at', { ascending: filters.sort_order === 'asc' })
+      .order(filters.sort_by || 'started_at', { ascending: filters.sort_order === 'asc', nullsFirst: false })
       .range(offset, offset + limit - 1);
 
     const { data, count, error } = await query;
