@@ -17,6 +17,10 @@ export function useOnboardingLearners(filters: OnboardingFilters = {}) {
     queryKey: onboardingKeys.list(filters),
     queryFn: () => OnboardingService.getOnboardingLearners(filters),
     staleTime: 2 * 60 * 1000, // 2 minutes
+    // Keep previous page's data visible while next page is fetching, so
+    // pagination feels instant instead of flashing skeletons. Standard
+    // pattern across the repo (see hooks/staff/use-staff.ts).
+    placeholderData: (prev) => prev,
   });
 }
 

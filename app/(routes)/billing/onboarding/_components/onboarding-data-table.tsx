@@ -88,9 +88,15 @@ export function OnboardingDataTable() {
     [selectedIds, toggleSelected, toggleAllOnPage, pageRowIds, generatingIds]
   );
 
+  // IMPORTANT: only reset page when the search term ACTUALLY changes.
+  // The DataTable's debounce fires onSearch(globalFilter) on mount even when
+  // globalFilter is unchanged — without this guard, that spurious mount-time
+  // call resets the user's page navigation back to 1.
   const handleSearch = useCallback((query: string) => {
-    setSearch(query);
-    setPage(1);
+    setSearch((prev) => {
+      if (prev !== query) setPage(1);
+      return query;
+    });
   }, []);
 
   const handleTabChange = useCallback((value: string) => {

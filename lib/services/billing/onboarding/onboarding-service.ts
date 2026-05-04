@@ -181,11 +181,19 @@ export class OnboardingService {
       // Sorting
       query = query.order(sortBy as string, { ascending: sortDirection === 'asc' });
 
+      // DB-level pagination — only when payment_status is NOT set.
+      // payment_status is a computed field derived from joined bill rows, so
+      // it must be filtered post-fetch; that path paginates in memory below.
+      const offset = (page - 1) * limit;
+      if (!payment_status) {
+        query = query.range(offset, offset + limit - 1);
+      }
+
       const { data: rawData, error, count } = await query;
 
       if (error) throw error;
 
-      // Map rows → OnboardingLearner; apply payment_status post-filter
+      // Map rows → OnboardingLearner; compute totals from joined bills.
       const mapped: OnboardingLearner[] = (rawData ?? []).map((row: any) => {
         const bills: OnboardingBillSummary[] = (row.bills ?? []).map((b: any) => ({
           id: b.id,
@@ -210,32 +218,34 @@ export class OnboardingService {
         };
       });
 
-      // Post-filter by payment_status
-      const filtered = payment_status
-        ? mapped.filter(
-            (l) =>
-              computePaymentStatus(l.total_fees, l.total_balance) === payment_status
-          )
-        : mapped;
+      if (payment_status) {
+        // Post-filter on computed payment_status, then paginate in memory.
+        // `count` from Supabase reflects pre-filter total, so it's unusable here.
+        const filtered = mapped.filter(
+          (l) =>
+            computePaymentStatus(l.total_fees, l.total_balance) === payment_status
+        );
+        const total = filtered.length;
+        return {
+          data: filtered.slice(offset, offset + limit),
+          metadata: {
+            total,
+            page,
+            limit,
+            total_pages: Math.max(1, Math.ceil(total / limit)),
+          },
+        };
+      }
 
-      // Paginate post-filter results
-      const total = payment_status ? filtered.length : (count ?? 0);
-      const offset = (page - 1) * limit;
-      const paginated = payment_status
-        ? filtered.slice(offset, offset + limit)
-        : filtered; // DB-level pagination already applied via range below
-
-      // For non-payment_status queries apply DB-level pagination
-      // (we re-run or slice — for simplicity we slice the already-fetched page)
-      const finalData = payment_status ? paginated : filtered.slice(0, limit);
-
+      // No payment_status filter — DB-level pagination already applied.
+      const total = count ?? 0;
       return {
-        data: finalData,
+        data: mapped,
         metadata: {
           total,
           page,
           limit,
-          total_pages: Math.ceil(total / limit),
+          total_pages: Math.max(1, Math.ceil(total / limit)),
         },
       };
     } catch (error) {
