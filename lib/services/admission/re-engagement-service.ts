@@ -87,6 +87,7 @@ export class ReEngagementService {
       .or(
         `is_dormant.eq.true,last_contact_at.lt.${cutoffDate},last_contact_at.is.null`
       )
+      .or('is_duplicate.is.null,is_duplicate.eq.false') // canonical-only (skip is_duplicate=true)
       .order('last_contact_at', { ascending: true, nullsFirst: true });
 
     if (filters.search) {
@@ -169,7 +170,8 @@ export class ReEngagementService {
           .eq('is_active', true)
           .or(
             `is_dormant.eq.true,last_contact_at.lt.${fourteenDaysAgo},last_contact_at.is.null`
-          ),
+          )
+          .or('is_duplicate.is.null,is_duplicate.eq.false'),
         // Very cold (60+ days)
         (this.supabase as any)
           .from('admission_leads')
@@ -178,13 +180,15 @@ export class ReEngagementService {
           .eq('is_active', true)
           .or(
             `last_contact_at.lt.${sixtyDaysAgo},last_contact_at.is.null`
-          ),
+          )
+          .or('is_duplicate.is.null,is_duplicate.eq.false'),
         // Dormant leads
         (this.supabase as any)
           .from('admission_leads')
           .select('id', { count: 'exact' })
           .eq('institution_id', institutionId)
-          .eq('is_dormant', true),
+          .eq('is_dormant', true)
+          .or('is_duplicate.is.null,is_duplicate.eq.false'),
         // Active campaigns
         (this.supabase as any)
           .from('admission_drip_sequences')
