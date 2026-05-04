@@ -108,5 +108,17 @@ export async function POST(request: NextRequest) {
 
   console.log(`[webhook] Incoming message stored: ${msg.id} from ${from} (lead: ${leadId || 'unknown'})`);
 
+  // Spec 3 H3.1: increment recovery_inbound_count IF connection is in active
+  // 24h post-reconnect window. RPC handles the window check internally —
+  // a connection not in recovery is a no-op. Failure here must NOT fail the
+  // webhook (the message persisted successfully), so we ignore RPC errors.
+  try {
+    await supabase.rpc('fn_byow_increment_recovery_count', {
+      p_connection_id: connection.id,
+    });
+  } catch (rpcErr) {
+    console.warn('[webhook] fn_byow_increment_recovery_count failed:', rpcErr);
+  }
+
   return NextResponse.json({ success: true, message_id: msg.id, lead_id: leadId });
 }
