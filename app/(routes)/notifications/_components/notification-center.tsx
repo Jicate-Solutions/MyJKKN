@@ -118,26 +118,6 @@ export function NotificationCenter() {
     }
   });
 
-  // Infinite scroll
-  useEffect(() => {
-    if (observerRef.current) observerRef.current.disconnect();
-
-    observerRef.current = new IntersectionObserver(
-      (entries) => {
-        if (entries[0].isIntersecting && hasMore && !isLoading) {
-          loadMore();
-        }
-      },
-      { threshold: 0.5 }
-    );
-
-    if (loadMoreRef.current) {
-      observerRef.current.observe(loadMoreRef.current);
-    }
-
-    return () => observerRef.current?.disconnect();
-  }, [hasMore, isLoading, loadMore]);
-
   // Filter notifications
   const filtered = (notifications || []).filter((n: any) => {
     const notif = n.notification || n;
@@ -165,6 +145,43 @@ export function NotificationCenter() {
 
   // Group by date
   const grouped = groupByDate(filtered);
+
+  // Infinite scroll
+  // Guard against the "death loop" pattern: when the active filter excludes
+  // every notification in the loaded data set, `filtered.length === 0` causes
+  // the loadMoreRef to occupy the viewport, which fires the observer, which
+  // calls loadMore(), which fetches another page of data that ALSO doesn't
+  // match the filter — infinite loop until has_more is false. Skip loadMore
+  // when we have data but the current filter discards all of it; the user
+  // sees the "No matching notifications" empty state instead. Bug found
+  // 2026-05-04: 5/6 tabs (Announcements, Reminders, etc.) stuck on
+  // "Loading more..." because tab values didn't match dashboard:* category data.
+  const filterExcludesEverything =
+    notifications.length > 0 && filtered.length === 0;
+
+  useEffect(() => {
+    if (observerRef.current) observerRef.current.disconnect();
+
+    observerRef.current = new IntersectionObserver(
+      (entries) => {
+        if (
+          entries[0].isIntersecting &&
+          hasMore &&
+          !isLoading &&
+          !filterExcludesEverything
+        ) {
+          loadMore();
+        }
+      },
+      { threshold: 0.5 }
+    );
+
+    if (loadMoreRef.current) {
+      observerRef.current.observe(loadMoreRef.current);
+    }
+
+    return () => observerRef.current?.disconnect();
+  }, [hasMore, isLoading, loadMore, filterExcludesEverything]);
 
   const handleCardClick = useCallback((item: any) => {
     const id = item.id || item.notification_id;
