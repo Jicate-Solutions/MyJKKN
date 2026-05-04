@@ -100,6 +100,14 @@
       "schedule": "0 9 * * 1"
     },
     {
+      "path": "/api/cron/whatsapp-byow-monthly-audit",
+      "schedule": "0 4 1 * *"
+    },
+    {
+      "path": "/api/cron/whatsapp-byow-synthetic-audit",
+      "schedule": "0 * * * *"
+    },
+    {
       "path": "/api/cron/callback-queue-expire?secret=${CRON_SECRET}",
       "schedule": "13 * * * *"
     },

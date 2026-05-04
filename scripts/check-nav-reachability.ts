@@ -68,6 +68,7 @@ const NAV_EXCLUDE = new Set<string>([
   // SSO / admin-only one-shots
   '/admin/saml',
   '/admin/reset-driver-passwords',
+  '/admin/whatsapp-byow/secret-rotation',
   '/system',
 
   // Module root landings — redirect-to-first-child pages
