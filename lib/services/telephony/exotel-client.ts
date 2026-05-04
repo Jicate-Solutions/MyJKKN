@@ -491,7 +491,12 @@ export class ExotelClient {
     if (params.customField) body.CustomField = params.customField;
     if (params.priority) body.Priority = params.priority;
 
-    return this.request<ExotelSmsResponse>('POST', '/Sms/send', body);
+    // Exotel defaults to XML; appending `.json` selects the JSON variant
+    // (same convention as /Calls.json, /Calls/{sid}.json elsewhere in this
+    // client). Without this, the response is `<TwilioResponse>...</TwilioResponse>`,
+    // request() throws "Exotel API returned non-JSON" even though the SMS
+    // is delivered successfully — pipeline mistakenly logs the call as failed.
+    return this.request<ExotelSmsResponse>('POST', '/Sms/send.json', body);
   }
 
   /**
