@@ -1,6 +1,8 @@
 'use client';
 
 import { AlertCircle, Building2, RefreshCw } from 'lucide-react';
+import Link from 'next/link';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -23,7 +25,11 @@ import {
 } from '@/components/ui/breadcrumb';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
-import { useMemo, useState } from 'react';
+import { usePermissions } from '@/hooks/use-permissions';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { getDashboardDrilldownDestination } from '@/lib/policies/get-policy-client';
+import type { DrilldownMetric, DrilldownRole } from '@/lib/policies/dashboard-drilldown-keys';
+import { appendDashboardScope } from '@/lib/dashboard/drilldown-scope';
 
 
 /**
@@ -36,20 +42,107 @@ export const navMeta = {
   invokedFrom: '/admission/analytics',
 } as const;
 
+const VALID_TABS = ['overview', 'seats', 'sources', 'geography', 'comparison'] as const;
+type DashboardTab = (typeof VALID_TABS)[number];
+
+/**
+ * Map app-level role flags → DrilldownRole for the policy reader.
+ * Director (super-admin / cross-institutional admission) gets the read-only
+ * surface. Counselor gets call/whatsapp/update_status action buttons on the
+ * destination list. Principal is the institution-scoped fallback.
+ */
+function resolveDrilldownRole(
+  isSuperAdmin: boolean,
+  isAdmissionGlobalUser: boolean,
+  isCounselorUser: boolean
+): DrilldownRole {
+  if (isSuperAdmin || isAdmissionGlobalUser) return 'director';
+  if (isCounselorUser) return 'counselor';
+  return 'principal';
+}
+
+/**
+ * Cards on the top stat row — paired in label-emit order with their
+ * DrilldownMetric. Kept here so adding/reordering cards is one-touch.
+ */
+const TOP_CARDS: ReadonlyArray<{ label: string; metric: DrilldownMetric }> = [
+  { label: 'Total Leads', metric: 'total_leads' },
+  { label: 'Applied', metric: 'applied' },
+  { label: 'Filled', metric: 'filled' },
+  { label: 'Rejected', metric: 'rejected' },
+  { label: 'Total Seats', metric: 'total_seats' },
+  { label: 'Fill Rate', metric: 'fill_rate' },
+];
+
 export default function GroupDashboardPage() {
   const queryClient = useQueryClient();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const { institutions: accessibleInstitutions, canAccessAllInstitutions } =
     useUserInstitutionAccess();
+  const { isSuperAdmin, isAdmissionGlobalUser, isCounselorUser } = usePermissions();
 
   const scopedInstitutionIds = useMemo(() => {
     if (canAccessAllInstitutions) return undefined;
     return accessibleInstitutions.map((i) => i.institution_id);
   }, [canAccessAllInstitutions, accessibleInstitutions]);
 
-  // Selected admission year cohort (program_start_year). Null until the
-  // GroupAdmissionYearSelect resolves the latest active cohort, then it
-  // auto-selects and the dashboard query unblocks.
-  const [selectedYear, setSelectedYear] = useState<number | null>(null);
+  const drilldownRole = useMemo(
+    () => resolveDrilldownRole(isSuperAdmin, isAdmissionGlobalUser, isCounselorUser),
+    [isSuperAdmin, isAdmissionGlobalUser, isCounselorUser]
+  );
+
+  // ── URL state (year + tab) ────────────────────────────────────────────────
+  // Year + tab live in the URL so middle-click → new tab restores the same
+  // view, and browser back from a drill-down lands on the same tab+year.
+  // See spec §3.4 + §4.3.
+  const yearFromUrl = (() => {
+    const raw = searchParams.get('ay');
+    if (!raw) return null;
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : null;
+  })();
+  const tabFromUrl: DashboardTab = (() => {
+    const raw = searchParams.get('tab');
+    return (VALID_TABS as readonly string[]).includes(raw ?? '')
+      ? (raw as DashboardTab)
+      : 'overview';
+  })();
+
+  const [selectedYear, setSelectedYearState] = useState<number | null>(yearFromUrl);
+  const [activeTab, setActiveTabState] = useState<DashboardTab>(tabFromUrl);
+
+  // Sync state → URL (replace, not push, so the dashboard doesn't pollute history).
+  const syncUrl = useCallback(
+    (year: number | null, tab: DashboardTab) => {
+      const sp = new URLSearchParams(searchParams.toString());
+      if (year !== null) sp.set('ay', String(year));
+      else sp.delete('ay');
+      sp.set('tab', tab);
+      const qs = sp.toString();
+      router.replace(`/admission/group-dashboard${qs ? `?${qs}` : ''}`, { scroll: false });
+    },
+    [router, searchParams]
+  );
+
+  const handleYearChange = useCallback(
+    (year: number | null) => {
+      setSelectedYearState(year);
+      syncUrl(year, activeTab);
+    },
+    [activeTab, syncUrl]
+  );
+
+  const handleTabChange = useCallback(
+    (tab: string) => {
+      const next = (VALID_TABS as readonly string[]).includes(tab)
+        ? (tab as DashboardTab)
+        : 'overview';
+      setActiveTabState(next);
+      syncUrl(selectedYear, next);
+    },
+    [selectedYear, syncUrl]
+  );
 
   const { data, isLoading, isFetching, isError, error } = useGroupDashboard(
     scopedInstitutionIds,
@@ -61,6 +154,46 @@ export default function GroupDashboardPage() {
     queryClient.invalidateQueries({ queryKey: groupDashboardKeys.all });
     queryClient.invalidateQueries({ queryKey: admissionAccreditationKeys.all });
   };
+
+  // ── Resolve drill-down destinations ──────────────────────────────────────
+  // One state slot per metric in TOP_CARDS. Resolves async via the
+  // platform_policies reader (60s in-memory cache inside the helper means
+  // re-renders don't re-fetch). Fallbacks to the code default if the RPC fails.
+  const [destinations, setDestinations] = useState<Record<DrilldownMetric, string | null>>({
+    total_leads: null,
+    applied: null,
+    filled: null,
+    rejected: null,
+    total_seats: null,
+    fill_rate: null,
+    seat_balance: null,
+    chart_bar: null,
+    comparison_row: null,
+  });
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const results = await Promise.all(
+        TOP_CARDS.map(async (c) => {
+          const url = await getDashboardDrilldownDestination(c.metric);
+          return [c.metric, url] as const;
+        })
+      );
+      if (cancelled) return;
+      setDestinations((prev) => {
+        const next = { ...prev };
+        for (const [m, u] of results) next[m] = u;
+        return next;
+      });
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // drilldownRole is intentionally NOT a dep — destinations are role-agnostic.
+    // The role only affects action_buttons on the destination, which the
+    // destination page itself reads.
+  }, []);
 
   if (isError) {
     return (
@@ -108,7 +241,7 @@ export default function GroupDashboardPage() {
               <GroupAdmissionYearSelect
                 institutionIds={scopedInstitutionIds}
                 value={selectedYear}
-                onChange={setSelectedYear}
+                onChange={handleYearChange}
               />
               <Button size="sm" variant="ghost" onClick={handleRefresh} disabled={isFetching}>
                 <RefreshCw className={`h-4 w-4 ${isFetching ? 'animate-spin' : ''}`} />
@@ -117,35 +250,69 @@ export default function GroupDashboardPage() {
           </div>
 
           {/* Admission funnel summary — always visible, scoped to selected admission year.
-            * 2026-05-02: replaced "Enrolled" with "Filled" so the top card matches the
-            * Seat Analytics > Summary tab. Filled = admitted+active+graduated+account
-            * (committed seats); Enrolled (active-only) is still surfaced in the
-            * institution table below. */}
+            * Cards are clickable per spec §3.1 — destinations resolved from
+            * platform_policies (`dashboard.drilldown.<metric>.destination`).
+            * Click → drill-down list with year + institution scope appended.
+            * Cards with value 0 or '—' remain clickable; the destination shows
+            * an empty list with the metric-specific empty-state copy. */}
           {!isLoading && data?.totals && (
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-              {[
-                { label: 'Total Leads', value: data.totals.total_leads },
-                { label: 'Applied', value: data.totals.total_applied },
-                { label: 'Filled', value: data.totals.total_filled },
-                { label: 'Rejected', value: data.totals.total_rejected },
-                { label: 'Total Seats', value: data.totals.total_seats || '—' },
-                {
-                  label: 'Fill Rate',
-                  value: data.totals.total_seats > 0 ? `${data.totals.overall_fill_percentage}%` : '—',
-                },
-              ].map((stat) => (
-                <Card key={stat.label}>
-                  <CardContent className="p-3 text-center">
-                    <p className="text-xs text-muted-foreground">{stat.label}</p>
-                    <p className="text-lg font-bold">{stat.value}</p>
-                  </CardContent>
-                </Card>
-              ))}
+              {(() => {
+                const valueByMetric: Record<DrilldownMetric, string | number> = {
+                  total_leads: data.totals.total_leads,
+                  applied: data.totals.total_applied,
+                  filled: data.totals.total_filled,
+                  rejected: data.totals.total_rejected,
+                  total_seats: data.totals.total_seats || '—',
+                  fill_rate:
+                    data.totals.total_seats > 0
+                      ? `${data.totals.overall_fill_percentage}%`
+                      : '—',
+                  // unused on top row but typed-record needs values
+                  seat_balance: '',
+                  chart_bar: '',
+                  comparison_row: '',
+                };
+                return TOP_CARDS.map((card) => {
+                  const resolved = destinations[card.metric];
+                  // Pre-resolution: render the card non-clickable (resolves in
+                  // <100ms typically; cached on subsequent loads). Avoids
+                  // dead-click race where Link has empty href.
+                  const href = resolved
+                    ? appendDashboardScope(resolved, selectedYear, scopedInstitutionIds)
+                    : null;
+                  const cardInner = (
+                    <CardContent className="p-3 text-center">
+                      <p className="text-xs text-muted-foreground">{card.label}</p>
+                      <p className="text-lg font-bold">{valueByMetric[card.metric]}</p>
+                    </CardContent>
+                  );
+                  if (!href) {
+                    return (
+                      <Card key={card.label} aria-busy="true">
+                        {cardInner}
+                      </Card>
+                    );
+                  }
+                  return (
+                    <Link
+                      key={card.label}
+                      href={href}
+                      aria-label={`Drill down to ${card.label} (role: ${drilldownRole})`}
+                      className="rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                    >
+                      <Card className="cursor-pointer transition hover:ring-1 hover:ring-primary/20 hover:shadow-sm">
+                        {cardInner}
+                      </Card>
+                    </Link>
+                  );
+                });
+              })()}
             </div>
           )}
 
           {/* Main tabs */}
-          <Tabs defaultValue="overview" className="space-y-4">
+          <Tabs value={activeTab} onValueChange={handleTabChange} className="space-y-4">
             <TabsList className="h-9 flex-wrap">
               <TabsTrigger value="overview" className="text-xs">Overview</TabsTrigger>
               <TabsTrigger value="seats" className="text-xs">Seat Analytics</TabsTrigger>

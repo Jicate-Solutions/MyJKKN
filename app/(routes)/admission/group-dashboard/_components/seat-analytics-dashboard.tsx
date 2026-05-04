@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import * as XLSX from 'xlsx';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -17,6 +17,9 @@ import { useSeatAnalytics, useSeatDailyPivot } from '@/hooks/admission/use-group
 import type { SeatAnalyticsRow, SeatPivotRow } from '@/types/admission-workflow-config';
 import { SeatDetailsTable } from './seat-details-table';
 import { SeatPivotGrid } from './seat-pivot-grid';
+import { getDashboardDrilldownDestination } from '@/lib/policies/get-policy-client';
+import type { DrilldownMetric } from '@/lib/policies/dashboard-drilldown-keys';
+import { appendDashboardScope } from '@/lib/dashboard/drilldown-scope';
 
 interface SeatAnalyticsDashboardProps {
   /** Institution scope passed from the page; undefined means RLS-resolved (super-admin all-access). */
@@ -160,6 +163,15 @@ function exportPivotToXlsx(
   XLSX.writeFile(wb, `admission-daily-pivot-${yearLabel}.xlsx`);
 }
 
+/** Inner Seat Analytics cards paired with their drill-down policy metric.
+ *  Mirrors spec §3.1 (Seat Analytics tab block). */
+const SEAT_INNER_CARDS = [
+  { label: 'Total Seats', metric: 'total_seats' as DrilldownMetric },
+  { label: 'Filled', metric: 'filled' as DrilldownMetric },
+  { label: 'Balance', metric: 'seat_balance' as DrilldownMetric },
+  { label: 'Fill Rate', metric: 'fill_rate' as DrilldownMetric },
+] as const;
+
 export function SeatAnalyticsDashboard({ institutionIds, programStartYear }: SeatAnalyticsDashboardProps) {
   // 2026-05-02: Summary cards now scope by selected admission year, matching
   // the Daily Pivot tab. Previously useSeatAnalytics(undefined) aggregated all
@@ -181,6 +193,44 @@ export function SeatAnalyticsDashboard({ institutionIds, programStartYear }: Sea
   const [dateFrom, setDateFrom] = useState<string | null>(null);
   const [dateTo, setDateTo] = useState<string | null>(null);
   const filterActive = !!dateFrom || !!dateTo;
+
+  // ── Drill-down destinations (resolved from platform_policies) ─────────────
+  // Populates after first render; cards render non-clickable until ready
+  // (typically <100ms; cached on subsequent loads).
+  const [destinations, setDestinations] = useState<Record<string, string | null>>({
+    total_seats: null,
+    filled: null,
+    seat_balance: null,
+    fill_rate: null,
+  });
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const results = await Promise.all(
+        SEAT_INNER_CARDS.map(async (c) => {
+          const url = await getDashboardDrilldownDestination(c.metric);
+          return [c.metric, url] as const;
+        })
+      );
+      if (cancelled) return;
+      setDestinations((prev) => {
+        const next = { ...prev };
+        for (const [m, u] of results) next[m] = u;
+        return next;
+      });
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // ── Group Fill Progress bar → smooth-scroll to "Seat Fill by Institution" ─
+  // Per spec §3.1: clicking the progress bar stays on tab and scrolls to the
+  // institution chart below.
+  const seatFillByInstitutionRef = useRef<HTMLDivElement | null>(null);
+  const scrollToSeatFillChart = () => {
+    seatFillByInstitutionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
 
   if (isLoading) {
     return (
@@ -234,22 +284,63 @@ export function SeatAnalyticsDashboard({ institutionIds, programStartYear }: Sea
         {/* Summary — existing dashboard */}
         <TabsContent value="summary" className="space-y-4">
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            {[
-              { label: 'Total Seats', value: totalSeats.toLocaleString() },
-              { label: 'Filled', value: totalFilled.toLocaleString() },
-              { label: 'Balance', value: totalBalance.toLocaleString() },
-              { label: 'Fill Rate', value: `${overallPct}%` },
-            ].map((s) => (
-              <Card key={s.label}>
+            {SEAT_INNER_CARDS.map((c) => {
+              const value =
+                c.metric === 'total_seats'
+                  ? totalSeats.toLocaleString()
+                  : c.metric === 'filled'
+                  ? totalFilled.toLocaleString()
+                  : c.metric === 'seat_balance'
+                  ? totalBalance.toLocaleString()
+                  : `${overallPct}%`;
+              const resolved = destinations[c.metric];
+              const href = resolved
+                ? appendDashboardScope(resolved, programStartYear, institutionIds)
+                : null;
+              const inner = (
                 <CardContent className="p-3 text-center">
-                  <p className="text-xs text-muted-foreground">{s.label}</p>
-                  <p className="text-lg font-bold">{s.value}</p>
+                  <p className="text-xs text-muted-foreground">{c.label}</p>
+                  <p className="text-lg font-bold">{value}</p>
                 </CardContent>
-              </Card>
-            ))}
+              );
+              if (!href) {
+                return (
+                  <Card key={c.label} aria-busy="true">
+                    {inner}
+                  </Card>
+                );
+              }
+              return (
+                <Link
+                  key={c.label}
+                  href={href}
+                  aria-label={`Drill down to ${c.label}`}
+                  className="rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                >
+                  <Card className="cursor-pointer transition hover:ring-1 hover:ring-primary/20 hover:shadow-sm">
+                    {inner}
+                  </Card>
+                </Link>
+              );
+            })}
           </div>
 
-          <Card>
+          {/* Group Fill Progress — click scrolls to "Seat Fill by Institution"
+            * chart below (spec §3.1, last row of inventory table). Stays on
+            * tab — no navigation. */}
+          <Card
+            role="button"
+            tabIndex={0}
+            onClick={scrollToSeatFillChart}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                scrollToSeatFillChart();
+              }
+            }}
+            aria-label="Scroll to Seat Fill by Institution chart"
+            className="cursor-pointer transition hover:ring-1 hover:ring-primary/20 hover:shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+          >
             <CardContent className="pt-4 pb-3 px-4 space-y-1">
               <div className="flex justify-between text-sm">
                 <span className="font-medium">Group Fill Progress</span>
@@ -260,11 +351,16 @@ export function SeatAnalyticsDashboard({ institutionIds, programStartYear }: Sea
           </Card>
 
           {chartData.length > 0 && (
-            <Card>
+            <Card ref={seatFillByInstitutionRef}>
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm font-medium">Seat Fill by Institution</CardTitle>
               </CardHeader>
               <CardContent>
+                {/* TODO: B.2 follow-up — wire chart-bar onClick to per-institution dashboard.
+                  * Blocked on: /admission/dashboard?institution_id=X param support
+                  * OR new /admission/institutions/[id] route. See spec §6.2 for
+                  * the defer rationale. Today the bars render with cursor-help
+                  * to signal "click coming soon" without dead-clicking. */}
                 <ResponsiveContainer width="100%" height={200}>
                   <BarChart data={chartData} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
                     <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
@@ -279,6 +375,9 @@ export function SeatAnalyticsDashboard({ institutionIds, programStartYear }: Sea
                     <Bar dataKey="balance" stackId="a" name="balance" fill="#e5e7eb" radius={[4, 4, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
+                <p className="text-[10px] text-muted-foreground italic mt-1 text-center">
+                  Per-institution drill-down coming soon.
+                </p>
               </CardContent>
             </Card>
           )}
