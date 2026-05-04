@@ -29,6 +29,7 @@ export interface PulseResult {
   inbound_count_24h: number;
   outbound_count_24h: number;
   newly_stale: boolean;
+  newly_recovered: boolean;
 }
 
 export interface PulseSummary {
@@ -36,6 +37,7 @@ export interface PulseSummary {
   ok: number;
   errored: number;
   newly_stale_count: number;
+  newly_recovered_count: number;
   results: PulseResult[];
 }
 
@@ -65,6 +67,7 @@ export async function runConnectionPulse(supabase: SupabaseClient): Promise<Puls
     ok: 0,
     errored: 0,
     newly_stale_count: 0,
+    newly_recovered_count: 0,
     results: [],
   };
 
@@ -80,6 +83,7 @@ export async function runConnectionPulse(supabase: SupabaseClient): Promise<Puls
     if (result.pulse_status === 'ok') summary.ok++;
     else summary.errored++;
     if (result.newly_stale) summary.newly_stale_count++;
+    if (result.newly_recovered) summary.newly_recovered_count++;
   }
 
   return summary;
@@ -145,18 +149,24 @@ async function pulseOneConnection(
 
   const isStale = hoursSinceLastActivity > staleThresholdHours;
 
-  // Step 4: Read prior health row to detect newly-stale transition (H1.4 guard).
+  // Step 4: Read prior health row to detect newly-stale transition (H1.4 guard)
+  // and stale→ready recovery transition (H3.1).
   const { data: priorHealth } = await supabase
     .from('wa_byow_connection_health')
-    .select('stale_detected_at, consecutive_pulse_failures')
+    .select('stale_detected_at, consecutive_pulse_failures, recovery_window_started_at')
     .eq('connection_id', conn.id)
     .maybeSingle();
 
   const wasStale = !!priorHealth?.stale_detected_at;
   const newlyStale = isStale && !wasStale;
+  const newlyRecovered = !isStale && wasStale; // H3.1: stale → ready transition
   const priorFails = priorHealth?.consecutive_pulse_failures ?? 0;
 
+  const nowIso = new Date().toISOString();
+
   // Step 5: Upsert health row with all rolling metrics.
+  // H3.1: on stale→ready transition, start a fresh 24h recovery window
+  // (reset count to 0). On any other state, preserve the prior window.
   const { error: upsertErr } = await supabase
     .from('wa_byow_connection_health')
     .upsert(
@@ -164,15 +174,19 @@ async function pulseOneConnection(
         connection_id: conn.id,
         last_inbound_at: lastInbAt,
         last_outbound_at: lastOutAt,
-        last_pulse_at: new Date().toISOString(),
+        last_pulse_at: nowIso,
         inbound_count_24h: inb24Count,
         outbound_count_24h: out24Count,
         consecutive_pulse_failures: pulseStatus === 'ok' ? 0 : priorFails + 1,
         last_pulse_status: pulseStatus,
         stale_detected_at: isStale
-          ? priorHealth?.stale_detected_at ?? new Date().toISOString()
+          ? priorHealth?.stale_detected_at ?? nowIso
           : null,
-        updated_at: new Date().toISOString(),
+        recovery_window_started_at: newlyRecovered
+          ? nowIso
+          : priorHealth?.recovery_window_started_at ?? null,
+        ...(newlyRecovered ? { recovery_inbound_count: 0 } : {}),
+        updated_at: nowIso,
       },
       { onConflict: 'connection_id' }
     );
@@ -205,6 +219,7 @@ async function pulseOneConnection(
     inbound_count_24h: inb24Count,
     outbound_count_24h: out24Count,
     newly_stale: newlyStale,
+    newly_recovered: newlyRecovered,
   };
 }
 
