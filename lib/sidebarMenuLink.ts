@@ -775,7 +775,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // Billing — Payment chip (originally patched by PR #511, included here so
   // this PR's gate exits 0 regardless of merge order between the two PRs.
   // Trivial conflict-resolve if both land: identical entry on either side.)
-  '/billing/payment': 'billing.payment.view',
+  
 
   // Tier-2 chip-leak sweep (2026-04-27, PR follow-up to #511).
   // The audit `comm -23 <find-pages> <sidebar-keys>` surfaced 23 routes that
@@ -1243,65 +1243,21 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'Billing',
           active: pathname === '/billing' || pathname.startsWith('/billing/'),
           icon: Wallet,
+          // Flat 9-item layout — no sub-tier nesting. Order is intentional;
+          // see project memory / requirement note from accounts team (2026-05-04).
+          // NOTE: Discount and Scholarship currently point to the same page
+          //       (/billing/discounts). If consolidating to one entry, keep the
+          //       label your team uses in conversation.
           submenus: [
-            // Tier 1: Setup — master data and one-time configuration
-            {
-              href: '/billing/categories',
-              label: 'Billing Categories',
-              icon: FolderTree,
-              active:
-                pathname.startsWith('/billing/categories') ||
-                pathname.startsWith('/billing/onboarding'),
-              submenus: [
-                {
-                  href: '/billing/categories',
-                  label: 'Categories',
-                  icon: Tags,
-                  active: pathname.startsWith('/billing/categories'),
-                },
-                { href: '/billing/onboarding', label: 'Learner Onboarding', icon: UserCheck, active: pathname.startsWith('/billing/onboarding') },
-              ],
-            },
-
-            // Tier 1: Operations — day-to-day billing actions
-            {
-              href: '/billing/schedule',
-              label: 'Learners Bill',
-              icon: Activity,
-              active:
-                pathname.startsWith('/billing/schedule') ||
-                pathname.startsWith('/billing/invoices') ||
-                pathname.startsWith('/billing/receipts') ||
-                pathname.startsWith('/billing/discounts') ||
-                pathname.startsWith('/billing/refunds'),
-              submenus: [
-                {
-                  href: '/billing/schedule',
-                  label: 'Bill Schedule',
-                  icon: CalendarClock,
-                  active: pathname.startsWith('/billing/schedule'),
-                  submenus: [
-                    { href: '/billing/schedule', label: 'All Bills', active: pathname === '/billing/schedule' },
-                    { href: '/billing/schedule/students', label: 'Student Search', active: pathname.startsWith('/billing/schedule/students') },
-                  ],
-                },
-                { href: '/billing/invoices', label: 'Invoices', icon: FileText, active: pathname.startsWith('/billing/invoices') },
-                { href: '/billing/receipts', label: 'Receipts', icon: FileCheck, active: pathname.startsWith('/billing/receipts') },
-                { href: '/billing/discounts', label: 'Scholarships', icon: Award, active: pathname.startsWith('/billing/discounts') },
-                { href: '/billing/refunds', label: 'Refunds', icon: RefreshCw, active: pathname.startsWith('/billing/refunds') },
-              ],
-            },
-
-            // Tier 1: Analytics — reporting and insights
-            {
-              href: '/billing/reports',
-              label: 'Analytics',
-              icon: BarChart3,
-              active: pathname.startsWith('/billing/reports'),
-              submenus: [
-                { href: '/billing/reports', label: 'Reports', icon: PieChart, active: pathname.startsWith('/billing/reports') },
-              ],
-            },
+            { href: '/billing/reports', label: 'Analytics', icon: BarChart3, active: pathname.startsWith('/billing/reports') },
+            { href: '/billing/categories', label: 'Categories', icon: FolderTree, active: pathname.startsWith('/billing/categories') },
+            { href: '/billing/onboarding', label: 'Onboarding', icon: UserCheck, active: pathname.startsWith('/billing/onboarding') },
+            { href: '/billing/schedule/students', label: 'Learner Search', icon: UserSearch, active: pathname.startsWith('/billing/schedule/students') },
+            { href: '/billing/receipts', label: 'Receipts', icon: FileCheck, active: pathname.startsWith('/billing/receipts') },
+            { href: '/billing/invoices', label: 'Invoice', icon: FileText, active: pathname.startsWith('/billing/invoices') },
+            { href: '/billing/discounts', label: 'Discount', icon: Tags, active: pathname.startsWith('/billing/discounts') },
+            { href: '/billing/discounts', label: 'Scholarship', icon: Award, active: pathname.startsWith('/billing/discounts') },
+            { href: '/billing/refunds', label: 'Refund', icon: RefreshCw, active: pathname.startsWith('/billing/refunds') },
           ],
         },
       ],

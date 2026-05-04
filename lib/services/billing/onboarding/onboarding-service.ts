@@ -36,6 +36,7 @@ export interface OnboardingLearner extends LearnerProfile {
 }
 
 export type PaymentStatus = 'unpaid' | 'partially_paid' | 'fully_paid';
+export type BillStatus = 'generated' | 'not_generated';
 
 export interface OnboardingFilters {
   search?: string;           // matches name, email, phone, application_id
@@ -43,7 +44,14 @@ export interface OnboardingFilters {
   degree_id?: string;
   department_id?: string;
   program_id?: string;
+  // NOTE: semester/section filters intentionally absent — onboarding cohort is
+  // by design first-semester-only (newly admitted learners), so filtering by
+  // them is meaningless. If multi-semester onboarding is ever introduced,
+  // re-add semester_id/section_id here and the corresponding .eq() clauses.
   payment_status?: PaymentStatus;
+  // Computed from joined bills — 'generated' = bills.length > 0, 'not_generated' = bills.length === 0.
+  // Filtered post-fetch (same path as payment_status).
+  bill_status?: BillStatus;
   page?: number;             // 1-based, default 1
   limit?: number;            // default 20
   sortBy?: keyof LearnerProfile;
@@ -127,6 +135,7 @@ export class OnboardingService {
       department_id,
       program_id,
       payment_status,
+      bill_status,
       page = 1,
       limit = 20,
       sortBy = 'updated_at',
@@ -158,7 +167,8 @@ export class OnboardingService {
         )
         .eq('lifecycle_status', 'account');
 
-      // Academic filters
+      // Academic filters (Institution → Degree → Department → Programme).
+      // Onboarding cohort is first-semester-only, so semester/section omitted.
       if (institution_id) query = query.eq('institution_id', institution_id);
       if (degree_id) query = query.eq('degree_id', degree_id);
       if (department_id) query = query.eq('department_id', department_id);
@@ -181,11 +191,12 @@ export class OnboardingService {
       // Sorting
       query = query.order(sortBy as string, { ascending: sortDirection === 'asc' });
 
-      // DB-level pagination — only when payment_status is NOT set.
-      // payment_status is a computed field derived from joined bill rows, so
-      // it must be filtered post-fetch; that path paginates in memory below.
+      // DB-level pagination — only when no computed filter is set.
+      // payment_status and bill_status are both derived from joined bill rows,
+      // so they must be filtered post-fetch; that path paginates in memory below.
       const offset = (page - 1) * limit;
-      if (!payment_status) {
+      const requiresPostFilter = !!(payment_status || bill_status);
+      if (!requiresPostFilter) {
         query = query.range(offset, offset + limit - 1);
       }
 
@@ -218,13 +229,21 @@ export class OnboardingService {
         };
       });
 
-      if (payment_status) {
-        // Post-filter on computed payment_status, then paginate in memory.
+      if (requiresPostFilter) {
+        // Post-filter on computed fields, then paginate in memory.
         // `count` from Supabase reflects pre-filter total, so it's unusable here.
-        const filtered = mapped.filter(
-          (l) =>
-            computePaymentStatus(l.total_fees, l.total_balance) === payment_status
-        );
+        let filtered = mapped;
+        if (payment_status) {
+          filtered = filtered.filter(
+            (l) =>
+              computePaymentStatus(l.total_fees, l.total_balance) === payment_status
+          );
+        }
+        if (bill_status) {
+          filtered = filtered.filter((l) =>
+            bill_status === 'generated' ? l.bills.length > 0 : l.bills.length === 0
+          );
+        }
         const total = filtered.length;
         return {
           data: filtered.slice(offset, offset + limit),
@@ -237,7 +256,7 @@ export class OnboardingService {
         };
       }
 
-      // No payment_status filter — DB-level pagination already applied.
+      // No computed filter — DB-level pagination already applied.
       const total = count ?? 0;
       return {
         data: mapped,
