@@ -245,12 +245,20 @@ export function useBulkDeleteStudentBills() {
 }
 
 // Hook to bulk create student bills
+//
+// Accepts an optional `onProgress(done, total)` callback so callers can render
+// a live progress bar. The underlying service runs a sequential per-student
+// loop, so progress updates are real (not animated guesses).
 export function useBulkCreateStudentBills() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (bulkData: BulkBillScheduleDto) =>
-      StudentBillService.bulkCreateStudentBills(bulkData),
+    mutationFn: ({
+      onProgress,
+      ...bulkData
+    }: BulkBillScheduleDto & {
+      onProgress?: (done: number, total: number) => void;
+    }) => StudentBillService.bulkCreateStudentBills(bulkData, onProgress),
     onSuccess: (result) => {
       // Invalidate and refetch relevant queries
       queryClient.invalidateQueries({ queryKey: studentBillKeys.lists() });

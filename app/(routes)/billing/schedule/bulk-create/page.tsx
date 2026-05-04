@@ -53,6 +53,7 @@ import {
   CardTitle
 } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Progress } from '@/components/ui/progress';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import { OrganizationService } from '@/lib/services/organization/organization-service';
@@ -121,6 +122,12 @@ export default function BulkCreateBillsPage() {
   const [isLoadingPrograms, setIsLoadingPrograms] = useState(false);
   const [isLoadingSemesters, setIsLoadingSemesters] = useState(false);
   const [isLoadingItemCategories, setIsLoadingItemCategories] = useState(false);
+  // `progress.total === 0` is our "not currently submitting" sentinel — keeps
+  // the progress block out of the DOM until a submit actually starts.
+  const [progress, setProgress] = useState<{ done: number; total: number }>({
+    done: 0,
+    total: 0
+  });
 
   const bulkCreateBills = useBulkCreateStudentBills();
   const {
@@ -375,14 +382,24 @@ export default function BulkCreateBillsPage() {
         final_amount: finalAmount
       };
 
+      // Seed the progress block immediately so the bar renders at 0/N as soon
+      // as the user clicks submit — without this, the UI sits silent until the
+      // first bill round-trip resolves.
+      setProgress({ done: 0, total: selectedStudents.length });
+
       await bulkCreateBills.mutateAsync({
         student_ids: selectedStudents,
-        bills: [billData]
+        bills: [billData],
+        onProgress: (done, total) => setProgress({ done, total })
       });
 
       router.push('/billing/schedule');
     } catch (error) {
       console.error('Error creating bulk bills:', error);
+    } finally {
+      // Clear progress on both success (before redirect navigates away) and
+      // failure (so a retry starts from a clean bar).
+      setProgress({ done: 0, total: 0 });
     }
   };
 
@@ -464,7 +481,23 @@ export default function BulkCreateBillsPage() {
 
         <Form {...form}>
 
-          <form onSubmit={form.handleSubmit(onSubmit)} className='space-y-6'>
+          {/*
+            flex-col + min-h fills the available viewport area so empty space
+            never accumulates below the footer. The trailing <div flex-1 />
+            spacer (placed between Step 3 and the action bar) absorbs any
+            leftover height when the form's natural content is shorter than
+            the available area — so the action bar lands flush above the
+            footer instead of mid-page.
+
+            Safe to re-introduce flex-col here even though it broke the
+            student list previously: Step 2's scroll container now uses a
+            FIXED `h-[clamp(...)]` (not max-h), which is honoured regardless
+            of whether the ancestor passes down a bounded height context.
+          */}
+          <form
+            onSubmit={form.handleSubmit(onSubmit)}
+            className='flex flex-col space-y-6 min-h-[calc(100vh-220px)]'
+          >
             <div className='space-y-6'>
               {/* Linear flow: Step 1 (filters & bill) → Step 2 (students) → Step 3 (amount) → Submit. */}
 
@@ -860,32 +893,49 @@ export default function BulkCreateBillsPage() {
                         </Badge>
                       </div>
 
-                      <div className='max-h-96 overflow-y-auto space-y-2'>
-                        {studentsData.data.map((student) => (
-                          <div
-                            key={student.id}
-                            className='flex items-center space-x-3 p-3 border rounded-lg hover:bg-muted'
-                          >
-                            <Checkbox
-                              checked={selectedStudents.includes(student.id)}
-                              onCheckedChange={(checked) =>
-                                handleSelectStudent(
-                                  student.id,
-                                  checked as boolean
-                                )
-                              }
-                            />
-                            <div className='flex-1'>
-                              <div className='font-medium'>
-                                {`${student.first_name} ${student.last_name}`}
-                              </div>
-                              <div className='text-sm text-muted-foreground'>
-                                {student.roll_number} • Outstanding: ₹
-                                {student.outstanding_amount}
+                      {/*
+                        FIXED height (not max-h) + overflow-y-auto guarantees
+                        the scrollbar engages no matter how many students the
+                        filter returns. `max-h` was getting ignored in some
+                        ancestor flex contexts, letting the list overflow the
+                        card and stretch the entire page. The wrapping
+                        `border rounded-md` makes the scroll boundary visible
+                        so the user understands the list is its own
+                        scrollable region.
+
+                        h-[clamp(...)] = 320px floor on small screens, grows
+                        with viewport (55vh) up to a 600px ceiling on large
+                        monitors. Inner padding lives on the inner space-y-2
+                        wrapper so the scrollbar hugs the card edge.
+                      */}
+                      <div className='h-[clamp(320px,55vh,600px)] overflow-y-auto rounded-md border bg-background'>
+                        <div className='space-y-2 p-2'>
+                          {studentsData.data.map((student) => (
+                            <div
+                              key={student.id}
+                              className='flex items-center space-x-3 p-3 border rounded-lg hover:bg-muted'
+                            >
+                              <Checkbox
+                                checked={selectedStudents.includes(student.id)}
+                                onCheckedChange={(checked) =>
+                                  handleSelectStudent(
+                                    student.id,
+                                    checked as boolean
+                                  )
+                                }
+                              />
+                              <div className='flex-1'>
+                                <div className='font-medium'>
+                                  {`${student.first_name} ${student.last_name}`}
+                                </div>
+                                <div className='text-sm text-muted-foreground'>
+                                  {student.roll_number} • Outstanding: ₹
+                                  {student.outstanding_amount}
+                                </div>
                               </div>
                             </div>
-                          </div>
-                        ))}
+                          ))}
+                        </div>
                       </div>
                     </>
                   ) : (
@@ -980,24 +1030,66 @@ export default function BulkCreateBillsPage() {
               </Card>
             </div>
 
-            {/* Form Actions */}
-            <div className='flex justify-end gap-4'>
-              <Button
-                type='button'
-                variant='outline'
-                onClick={() => router.back()}
-                disabled={isLoading}
-              >
-                Cancel
-              </Button>
-              <Button
-                type='submit'
-                disabled={isLoading || selectedStudents.length === 0}
-              >
-                {isLoading
-                  ? 'Creating Bills...'
-                  : `Create Bills for ${selectedStudents.length} Students`}
-              </Button>
+            {/*
+              Invisible spacer — soaks up any leftover vertical space when
+              the form is shorter than its min-h. With flex-col on the form,
+              `flex-1` here grows to fill the gap so the action bar pins to
+              the bottom of the available area. When the form is naturally
+              tall (e.g. many students rendered), this spacer collapses to
+              0px and the action bar follows Step 3 normally.
+            */}
+            <div aria-hidden='true' className='flex-1' />
+
+            {/* Form Actions — flow naturally after Step 3 (or pinned by the
+                spacer above when the page is short). */}
+            <div className='space-y-3 pt-4'>
+              {/*
+                Live progress while the bulk mutation is running. The service
+                fires onProgress after every per-student round-trip, so the
+                bar moves at the actual rate Supabase commits rows — no fake
+                animation. Hidden when total === 0 (idle).
+              */}
+              {isLoading && progress.total > 0 && (
+                <div className='space-y-2 rounded-md border bg-muted/40 p-4'>
+                  <div className='flex items-center justify-between text-sm'>
+                    <span className='font-medium'>
+                      Creating bills…
+                    </span>
+                    <span className='tabular-nums text-muted-foreground'>
+                      {progress.done} of {progress.total}
+                      {' • '}
+                      {Math.round((progress.done / progress.total) * 100)}%
+                    </span>
+                  </div>
+                  <Progress
+                    value={(progress.done / progress.total) * 100}
+                    className='h-2'
+                  />
+                  <p className='text-xs text-muted-foreground'>
+                    Please don&apos;t close this tab — the page will redirect
+                    to the schedule list when all bills are created.
+                  </p>
+                </div>
+              )}
+
+              <div className='flex justify-end gap-4'>
+                <Button
+                  type='button'
+                  variant='outline'
+                  onClick={() => router.back()}
+                  disabled={isLoading}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type='submit'
+                  disabled={isLoading || selectedStudents.length === 0}
+                >
+                  {isLoading
+                    ? `Creating ${progress.done}/${progress.total || selectedStudents.length}…`
+                    : `Create Bills for ${selectedStudents.length} Students`}
+                </Button>
+              </div>
             </div>
           </form>
         </Form>
