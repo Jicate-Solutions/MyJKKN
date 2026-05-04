@@ -338,3 +338,48 @@ Per /interviewcodebase + chain protocol:
 ---
 
 *Spec produced 2026-05-04 via /interviewcodebase 4-round interview · 16 questions answered · 2 false-overlap discoveries surfaced (grievance_tickets confirmed real overlap; service_requests confirmed false overlap, distinct concept)*
+
+---
+
+## Final Interview Locks (2026-05-04 15:48 IST) — Director resolutions
+
+All 6 open Director questions from the original spec resolved via final interview. **One lock changes the metric** (universe expanded from 8 colleges to 10 institutions, threshold revised ≥6→≥7), the other 5 confirm what was documented.
+
+| # | Question | Resolution |
+|---|---|---|
+| **Q1** | Metric universe (8 vs 9 vs 10 institutions) | **10 institutions (8 colleges + 2 schools), threshold ≥7/10 by 2026-08-04** ⚠️ REVISED |
+| **Q2** | class_rep / student_council triage | **Filer-only** — no special peer-triage powers in v1 (existing RLS default) |
+| **Q3** | Parents filing Requirements | **Allowed** for transport / hostel / cafeteria / safety / fee-policy categories only |
+| **Q4** | Subdomain ownership / DB-export | **Confirmed** — Boobalan has full DB access |
+| **Q5** | NAAC reporting continuity | **Ship without separate NAAC review** — agent analysis confirms redirect-safe (trigger-driven `quality_evidence_mappings`, not URL-driven) |
+| **Q6** | MCP external consumers | **No external consumers** — clean swap, no deprecated alias |
+
+### Updated metric query (replaces the simpler version in original spec)
+
+Universe filter expanded to include schools, threshold bumped:
+
+```sql
+SELECT count(*) FILTER (WHERE n>=5) AS hit_count
+FROM (
+  SELECT gt.institution_id, count(*) AS n
+  FROM public.grievance_tickets gt
+  JOIN public.institutions inst ON inst.id = gt.institution_id
+  WHERE gt.created_at >= '2026-05-04'
+    AND inst.entity_type = 'institution'
+    AND inst.category IN ('ug_pg', 'pg', 'ug')   -- 8 colleges + 2 schools
+    AND inst.name <> 'JKKN Testing Institution'  -- exclude test row
+    AND COALESCE(inst.is_active, true) = true
+  GROUP BY gt.institution_id
+) sub;
+-- HIT condition: hit_count >= 7
+```
+
+Per memory `feedback_implementation_pivot_vs_verdict_semantics.md` — this is a metric/threshold change, requires REVISED entry in Locked-Initiatives.md (NOT a silent edit). Verdict-date 2026-08-04 unchanged.
+
+### B.2 implications
+
+- `/issues/requirements/new` form must enforce parent-category whitelist (Q3): only allow `parents` audience to file in transport/hostel/cafeteria/safety/fee-policy categories. Whitelist itself = `platform_policies` row `issues.requirement.parent_allowed_categories` (Pattern A).
+- Super-admin UI at `/admin/issues/parent-allowed-categories` writes the row (B.3 work).
+- All 3 substrate PRs (#697 SQL / #698 TS / #699 MCP) unchanged — these locks don't require DDL or service-layer amendments.
+
+*Final lockset 2026-05-04 15:48 IST · all 6 Director questions resolved · B.2 wave unblocked, B.1 PR stack ready for merge.*

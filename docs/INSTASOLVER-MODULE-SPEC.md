@@ -364,3 +364,73 @@ WHERE generator_name = 'unresolved_grievance';
 *Generated 2026-05-04 via /myjkkn-chain · Q0 → /assumption-thrash → Q1/Q2/Q3 → persona matrix → DDL plan*
 *Updated 2026-05-04 via /interviewcodebase · 4-round interview → companion spec at specs/instasolver-core-module-spec.md*
 *Recovered 2026-05-04 from session context after branch-drift loss*
+
+---
+
+## Final Interview Locks (2026-05-04 15:48 IST)
+
+All 6 open Director questions resolved via final interview round. **Three locks change vs the original spec; three confirm what was already documented.**
+
+### Q1 — Metric universe REVISED ⚠️
+
+**Original lock (06:33 IST):** 8 colleges, threshold ≥6/8 by 2026-08-04.
+
+**Revised lock (15:48 IST):** 10 institutions (8 colleges + 2 schools), threshold **≥7/10** by 2026-08-04.
+
+Director redirected to live `/organizations/institutions` as source of truth. DB query revealed 13 active rows; the right scope is `entity_type='institution' AND category IN ('ug_pg','pg','ug')` filtered to exclude `JKKN Testing Institution` (test row), `JKKN Main Office` (`entity_type='admin_office'`), and `Jicate Solutions` (`entity_type='company'`). Result: **10 student-serving institutions** — the 8 colleges + JKKN Matric Higher Secondary School + Nattraja Vidhyalya CBSE.
+
+**Updated metric query:**
+```sql
+SELECT count(*) FILTER (WHERE n>=5) AS hit_count
+FROM (
+  SELECT gt.institution_id, count(*) AS n
+  FROM public.grievance_tickets gt
+  JOIN public.institutions inst ON inst.id = gt.institution_id
+  WHERE gt.created_at >= '2026-05-04'
+    AND inst.entity_type = 'institution'
+    AND inst.category IN ('ug_pg', 'pg', 'ug')
+    AND inst.name <> 'JKKN Testing Institution'
+    AND COALESCE(inst.is_active, true) = true
+  GROUP BY gt.institution_id
+) sub;
+```
+
+Per memory `feedback_implementation_pivot_vs_verdict_semantics.md` — this IS a metric/threshold change, requires REVISED entry in `~/Vaults/JKKNKB/Strategy/Locked-Initiatives.md` Verdicted table + new Active row. NOT a silent edit.
+
+**Verdict-date unchanged:** 2026-08-04.
+
+### Q2 — class_rep / student_council triage authority
+
+**Locked: Filer-only.** No special triage powers in v1. Class reps file like other learners; triage is staff/faculty/HOD/super_admin only. Existing RLS default — no schema change needed. Re-evaluate at 90-day verdict if HODs request peer-triage delegation.
+
+### Q3 — Parents filing Requirements
+
+**Locked: Allowed for transport / hostel / cafeteria / safety / fee-policy categories only.** Parents can file Requirements that affect their child's daily experience. NOT allowed for academic/curriculum (faculty domain) or faculty-recruitment (admin domain). Enforced at the UI/service layer (B.2 work) via category-level whitelist; no DDL change. The category whitelist itself lives as a config row (Pattern A) at `platform_policies` key `issues.requirement.parent_allowed_categories`.
+
+### Q4 — Subdomain ownership / DB-export
+
+**Confirmed: Boobalan (boobalan.a@jkkn.ac.in / 8760083627) has full DB access.** M1 migration step assignee unchanged. Spec stays as written.
+
+### Q5 — NAAC reporting continuity
+
+**Confirmed: Ship without separate NAAC review.** Agent analysis confirmed `/accreditation/naac/grievance` redirect is safe — `default_naac_metric_code` flows to `quality_evidence_mappings` via DB trigger on resolution, not via URL/page-route. Document the analysis in PR #696 body so NAAC team can audit later if they ask. No feature flag needed.
+
+### Q6 — MCP tool external consumers
+
+**Confirmed: No external consumers.** Clean swap, no deprecated alias needed. PR #699 ships as-is.
+
+---
+
+## What's NOT impacted by these locks
+
+- **PR #697 (SQL substrate)** — DDL stays. Metric query is read-only on day-90, not embedded in schema.
+- **PR #698 (TS services)** — Q2 (class_rep filer-only) is the existing RLS default; no service-layer change.
+- **PR #699 (MCP fix)** — Q6 (clean swap) is exactly what #699 ships.
+
+## What's impacted
+
+- **This file (docs/INSTASOLVER-MODULE-SPEC.md)** — Q0 metric block at top is now stale; this Final Locks section is the canonical reading.
+- **`~/Vaults/JKKNKB/Strategy/Locked-Initiatives.md`** — REVISED row in Verdicted + new Active row (per /lock-initiative discipline).
+- **B.2 wave** — `/issues/requirements/new` form needs the parent-category whitelist enforcement; super_admin UI at `/admin/issues/parent-allowed-categories` writes the `platform_policies` row.
+
+*Final lockset captured 2026-05-04 15:48 IST · all 6 Director questions resolved · B.2 wave unblocked.*
