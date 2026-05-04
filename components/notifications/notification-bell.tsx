@@ -45,9 +45,12 @@ export function NotificationBell() {
     actionUrl?: string
   ) => {
     await markAsRead.mutateAsync(notificationId);
-    if (actionUrl) {
-      router.push(actionUrl);
-    }
+    // Always navigate so a click never silently no-ops. Most notifications
+    // carry an action_url; dashboard:* digests have historically shipped with
+    // url=null, so the click would mark-as-read but go nowhere, making the
+    // dropdown feel broken. Fallback to /notifications (the full list) so the
+    // user always lands somewhere — never on a 404.
+    router.push(actionUrl || '/notifications');
   };
 
   const handleMarkAllRead = () => {
