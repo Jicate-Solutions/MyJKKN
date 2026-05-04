@@ -38,6 +38,7 @@ export async function getNotifications(
         title,
         body,
         url,
+        action_config,
         icon,
         category,
         priority,
@@ -101,7 +102,12 @@ export async function getNotifications(
         is_read: !!row.read_at,
         is_archived: false,
         read_at: row.read_at,
-        action_url: n.url,
+        // Dashboard work-item digests (cron-generated) write the destination
+        // URL into action_config.url, NOT notifications.url. Read both so
+        // every notification with any kind of routing target reaches the UI.
+        // Bug found 2026-05-04: dashboard:* digests had url=null on every
+        // row; clicks marked-as-read but never navigated.
+        action_url: n.url || n.action_config?.url || undefined,
         metadata: n.metadata,
         channels: ['in_app'],
         created_at: row.created_at,
@@ -125,6 +131,7 @@ export async function getNotification(
         title,
         body,
         url,
+        action_config,
         icon,
         category,
         priority,
@@ -155,7 +162,9 @@ export async function getNotification(
     is_read: !!row.read_at,
     is_archived: false,
     read_at: row.read_at,
-    action_url: n.url,
+    // Same fallback as getNotifications — read URL from action_config when
+    // notifications.url is null (cron-generated dashboard digests).
+    action_url: n.url || n.action_config?.url || undefined,
     metadata: n.metadata,
     channels: ['in_app'],
     created_at: row.created_at,
