@@ -124,6 +124,7 @@ import type { FunnelStage } from '@/types/admission';
 import { ALLOWED_STAGE_TRANSITIONS } from '@/lib/services/admission/lead-service';
 import { SendPersonalMessageDialog } from '@/components/whatsapp/send-personal-message-dialog';
 import { LeadInlineConnectionIndicator } from '@/components/whatsapp/lead-inline-connection-indicator';
+import { showSendErrorToast } from '@/lib/whatsapp/show-send-error-toast';
 import { usePersonalWhatsAppStatus } from '@/hooks/admission/use-whatsapp-personal';
 import { HandoverBanner } from '@/components/admission/leads/handover-banner';
 import { useLeadCascadeHistory } from '@/hooks/admission/use-lead-cascade-history';
@@ -616,7 +617,11 @@ function LeadDetailPageContent() {
         });
         const mediaResult = await mediaRes.json();
         if (!mediaResult.success) {
-          toast.error(mediaResult.error || 'Failed to send media');
+          showSendErrorToast({
+            httpStatus: mediaRes.status,
+            errorMsg: mediaResult.error,
+            fallbackMsg: 'Failed to send media',
+          });
           return;
         }
       } else {
@@ -633,7 +638,11 @@ function LeadDetailPageContent() {
         });
         const result = await res.json();
         if (!result.success) {
-          toast.error(result.error || 'Failed to send message');
+          showSendErrorToast({
+            httpStatus: res.status,
+            errorMsg: result.error,
+            fallbackMsg: 'Failed to send message',
+          });
           return;
         }
       }
