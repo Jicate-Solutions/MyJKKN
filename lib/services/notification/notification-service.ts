@@ -42,7 +42,7 @@ export async function getNotifications(
     .select(
       `
       *,
-      notification:notifications!user_notifications_notification_id_fkey(
+      notification:notifications!user_notifications_notification_id_fkey!inner(
         id,
         title,
         body,
@@ -77,6 +77,30 @@ export async function getNotifications(
 
   if (filters.to_date) {
     query = query.lte('created_at', filters.to_date);
+  }
+
+  // Filters on the embedded notifications table (the join).
+  // The `!inner` annotation in the select string makes these exclusionary —
+  // user_notifications without a matching notification row are dropped.
+  // Bug found 2026-05-04: the route accepted these params but the service
+  // ignored them, so /notifications tabs (Announcements, Reminders, Events,
+  // Alerts, General) ran client-side filters that produced 0 matches against
+  // dashboard:* category data, then triggered an infinite loadMore() loop.
+  if (filters.category) {
+    query = query.eq('notification.category', filters.category);
+  }
+
+  if (filters.priority) {
+    query = query.eq('notification.priority', filters.priority);
+  }
+
+  if (filters.search) {
+    // Search title or body. Embedded-table search uses foreignTable option.
+    const term = filters.search.replace(/[%_]/g, '\\$&');
+    query = query.or(
+      `title.ilike.%${term}%,body.ilike.%${term}%`,
+      { foreignTable: 'notification' }
+    );
   }
 
   // Use range() for pagination — it handles both offset and limit in one call.
@@ -135,7 +159,7 @@ export async function getNotification(
     .select(
       `
       *,
-      notification:notifications!user_notifications_notification_id_fkey(
+      notification:notifications!user_notifications_notification_id_fkey!inner(
         id,
         title,
         body,
