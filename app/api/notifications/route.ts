@@ -49,7 +49,11 @@ export async function GET(request: NextRequest) {
         : undefined
     };
 
-    const notifications = await getNotifications(filters);
+    // Pass the route's cookie-scoped server client so the query runs as
+    // `authenticated`. The service's module-level fallback is anon-keyed and
+    // would trigger 500 "permission denied for function fn_notification_is_for_user"
+    // when an RLS policy on user_notifications invokes that function.
+    const notifications = await getNotifications(filters, supabase);
 
     return NextResponse.json({
       data: notifications,
