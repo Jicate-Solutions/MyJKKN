@@ -33,6 +33,12 @@ export function InstitutionComparisonTable({
     );
   }
 
+  /* TODO: B.2 follow-up — wire row onClick to per-institution dashboard.
+   * Blocked on: /admission/dashboard?institution_id=X param support OR new
+   * /admission/institutions/[id] route. See spec §6.2 for the defer rationale.
+   * Today rows render with cursor-help to signal "click coming soon" without
+   * dead-clicking. Destinations live in policy
+   * `dashboard.drilldown.comparison_row.destination`. */
   return (
     <div className="border rounded-md overflow-auto">
       <Table>
@@ -49,7 +55,11 @@ export function InstitutionComparisonTable({
         </TableHeader>
         <TableBody>
           {institutions.map((inst) => (
-            <TableRow key={inst.institution_id}>
+            <TableRow
+              key={inst.institution_id}
+              title="Per-institution drill-down coming soon."
+              className="cursor-help"
+            >
               <TableCell className="font-medium text-sm">
                 {inst.institution_name}
               </TableCell>
