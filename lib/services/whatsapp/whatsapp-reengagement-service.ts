@@ -87,6 +87,7 @@ export class WhatsAppReengagementService {
       .not('funnel_stage', 'in', '("enrolled","lost")')
       .eq('wa_opt_in', true)
       .lt('last_contact_at', cutoffDate.toISOString())
+      .or('is_duplicate.is.null,is_duplicate.eq.false') // canonical-only (skip is_duplicate=true)
       .order('last_contact_at', { ascending: true });
 
     if (limit) {
@@ -330,7 +331,8 @@ export class WhatsAppReengagementService {
       .eq('institution_id', institutionId)
       .not('funnel_stage', 'in', '("enrolled","lost")')
       .eq('wa_opt_in', true)
-      .lt('last_contact_at', cutoff14.toISOString());
+      .lt('last_contact_at', cutoff14.toISOString())
+      .or('is_duplicate.is.null,is_duplicate.eq.false');
 
     // Count active re-engagement sequences
     const { count: activeSequences } = await supabase
