@@ -76,9 +76,11 @@ export function LeadsDataTable() {
   // Attribution map: leadId -> primary consultant name (populated after each page load)
   const [attributionsMap, setAttributionsMap] = useState<Map<string, string>>(new Map());
 
-  // Stage filter from URL (extra filter beyond DataTable's built-in search)
+  // Stage filter from URL (extra filter beyond DataTable's built-in search).
+  // Accepts either ?funnel_stage= (internal contract) or ?status= (public
+  // contract — used by group-dashboard drill-down cards). Both must work.
   const [stageFilter, setStageFilter] = useState<string>(
-    searchParams.get('funnel_stage') || '_all'
+    searchParams.get('funnel_stage') || searchParams.get('status') || '_all'
   );
   // Priority filter from URL
   const [priorityFilter, setPriorityFilter] = useState<string>(
@@ -104,9 +106,21 @@ export function LeadsDataTable() {
   // institution. Non-global users typically have a single institution, so
   // the College dropdown becomes a no-op for them (BUG-003181 asked for this
   // to be visible across roles, not just global admission users).
-  const [collegeFilter, setCollegeFilter] = useState<string | null>(
-    searchParams.get('institution_id') || null
-  );
+  const [collegeFilter, setCollegeFilter] = useState<string | null>(() => {
+    // Singular ?institution_id= is the internal contract.
+    const singular = searchParams.get('institution_id');
+    if (singular) return singular;
+    // Plural ?institution_ids=A,B,C is the public contract from group-dashboard
+    // drill-downs (see lib/dashboard/drilldown-scope.ts:appendDashboardScope).
+    // collegeFilter is single-select today — use the FIRST id; multi-select is
+    // a follow-up if the dashboard ever passes >1 institution.
+    const plural = searchParams.get('institution_ids');
+    if (plural) {
+      const first = plural.split(',')[0]?.trim();
+      return first || null;
+    }
+    return null;
+  });
   // Stale filter — driven by ?stale_min_days=N (e.g. dashboard:rescue daily
   // digest deep-link sends 30). When set, only leads with no contact in N+
   // days are shown. User clears with the X button on the badge.
@@ -142,6 +156,46 @@ export function LeadsDataTable() {
   // institution in focus. For global users without a college selected, tabs
   // hide entirely.
   const tabsInstitutionId = institutionId || null;
+
+  // Programs list for the main-row Programs Select (promoted from the
+  // secondary ProgramTabs strip on 2026-05-04 to make the dimension a
+  // discoverable filter chip alongside Stage / College / Source). Mirrors
+  // the data ProgramTabs already fetches; both components hit the same
+  // /api/admission/leads/program-counts endpoint, so the browser cache
+  // absorbs the duplicate request and there is no observable extra cost.
+  const [programOptions, setProgramOptions] = useState<
+    { id: string; name: string; count: number }[]
+  >([]);
+  useEffect(() => {
+    if (!institutionId) {
+      setProgramOptions([]);
+      return;
+    }
+    let cancelled = false;
+    const ctrl = new AbortController();
+    fetch(
+      `/api/admission/leads/program-counts?institution_id=${encodeURIComponent(institutionId)}`,
+      { signal: ctrl.signal }
+    )
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => {
+        if (cancelled || !j?.data) return;
+        setProgramOptions(
+          j.data.map((p: any) => ({
+            id: p.program_id,
+            name: p.program_name,
+            count: p.count,
+          }))
+        );
+      })
+      .catch(() => {
+        // ProgramTabs surfaces fetch errors; no need to double-surface.
+      });
+    return () => {
+      cancelled = true;
+      ctrl.abort();
+    };
+  }, [institutionId, refetchKey]);
 
   // Auto-detect counselor ID for non-manager counselors (they only see assigned leads)
   const [myCounselorId, setMyCounselorId] = useState<string | null>(null);
@@ -317,10 +371,14 @@ export function LeadsDataTable() {
     }
   };
 
-  // Count active advanced filters for badge
-  const activeAdvancedCount = [sourceFilter, counselorFilter, expoFilter]
-    .filter((f) => f !== '_all').length
-    + (collegeFilter ? 1 : 0);
+  // "More" badge counts ONLY filters still hidden inside the advanced
+  // drawer. College + Programs were promoted to the primary filter row
+  // on 2026-05-04 to surface the institutional dimension; they no longer
+  // need to count toward this badge. Source has always been in the
+  // primary row — counting it here was a pre-existing bug we fix in
+  // passing.
+  const activeAdvancedCount = [counselorFilter, expoFilter]
+    .filter((f) => f !== '_all').length;
 
   const clearAllFilters = useCallback(() => {
     setStageFilter('_all');
@@ -410,6 +468,55 @@ export function LeadsDataTable() {
               {FUNNEL_STAGES.map((stage) => (
                 <SelectItem key={stage.value} value={stage.value}>
                   {stage.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          {/* College / Institution chip — promoted 2026-05-04 from the
+              "More" advanced drawer to a primary filter so the dimension
+              is discoverable to all roles. Single-institution users see a
+              one-option dropdown — harmless, keeps the affordance visible. */}
+          {accessibleInstitutions.length >= 1 && (
+            <Select
+              value={collegeFilter ?? '_all'}
+              onValueChange={handleCollegeSelect}
+            >
+              <SelectTrigger className="w-[140px] sm:w-[200px] h-8 text-xs shrink-0">
+                <SelectValue placeholder="All Colleges" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="_all">All Colleges</SelectItem>
+                {accessibleInstitutions.map((inst: any) => (
+                  <SelectItem key={inst.id} value={inst.id}>
+                    {inst.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+
+          {/* Programs / Interested Courses chip — also promoted 2026-05-04.
+              Disabled until an institution is in focus (programs are
+              institution-scoped). The horizontal ProgramTabs strip below
+              this row remains as a secondary quick-nav. */}
+          <Select
+            value={programFilter ?? '_all'}
+            onValueChange={(value) =>
+              handleProgramSelect(value === '_all' ? null : value)
+            }
+            disabled={!institutionId}
+          >
+            <SelectTrigger className="w-[140px] sm:w-[180px] h-8 text-xs shrink-0">
+              <SelectValue
+                placeholder={institutionId ? 'All Programs' : 'Pick college'}
+              />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="_all">All Programs</SelectItem>
+              {programOptions.map((p) => (
+                <SelectItem key={p.id} value={p.id}>
+                  {p.name} ({p.count})
                 </SelectItem>
               ))}
             </SelectContent>
@@ -550,31 +657,10 @@ export function LeadsDataTable() {
         <div className="flex flex-col sm:flex-row sm:items-center gap-2 p-2 bg-muted/30 rounded-md border border-dashed">
           <span className="text-xs text-muted-foreground font-medium shrink-0">Advanced:</span>
           <div className="flex items-center gap-2 flex-wrap">
-            {/* College / Institution filter — visible to all users with
-                access to at least one institution. Super-admin / global
-                users must pick a college here before ProgramTabs can
-                render (ProgramTabs is institution-scoped). Non-global
-                users with one institution see a single-option dropdown,
-                which is harmless and keeps the feature discoverable. */}
-            {accessibleInstitutions.length >= 1 && (
-              <Select
-                value={collegeFilter ?? '_all'}
-                onValueChange={handleCollegeSelect}
-              >
-                <SelectTrigger className="w-full sm:w-[200px] h-8 text-xs">
-                  <SelectValue placeholder="All Colleges" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="_all">All Colleges</SelectItem>
-                  {accessibleInstitutions.map((inst) => (
-                    <SelectItem key={inst.id} value={inst.id}>
-                      {inst.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            )}
-
+            {/* College + Programs filters were promoted to the primary
+                filter row on 2026-05-04 — the advanced drawer now holds
+                only Counselor + Expo, the two narrower dimensions that
+                most users don't need by default. */}
             <Select
               value={counselorFilter}
               onValueChange={(value) => {
