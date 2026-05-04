@@ -1,6 +1,7 @@
 // lib/services/notification/notification-service.ts
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import type { SupabaseClient } from '@supabase/supabase-js';
 
 const supabase = createClientSupabaseClient();
 import type {
@@ -26,9 +27,17 @@ import {
 // ==================== NOTIFICATION CRUD ====================
 
 export async function getNotifications(
-  filters: NotificationFilters = {}
+  filters: NotificationFilters = {},
+  client?: SupabaseClient
 ): Promise<Notification[]> {
-  let query = supabase
+  // When called from a Next.js API route, the route passes its cookie-scoped
+  // server client so the query runs as `authenticated` (RLS policies invoke
+  // fn_notification_is_for_user, which `anon` lacks EXECUTE on).
+  // When called from a browser-side React Query hook, the module-level singleton
+  // is correct because the browser attaches the user's session cookie.
+  const db = client ?? supabase;
+
+  let query = db
     .from('user_notifications')
     .select(
       `
