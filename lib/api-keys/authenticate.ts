@@ -15,6 +15,8 @@ export const VALID_MODULES = [
   'vac', 'maturity-assessment', 'process-excellence', 'notifications',
   'resource-management', 'bug-reports', 'stakeholder-nps', 'audit-trail',
   'morning-brief',
+  // ── Instasolver substrate (B.1) — service_request split from grievance + new requirement
+  'service_request', 'requirement',
 ] as const;
 
 export type ApiModule = typeof VALID_MODULES[number];
