@@ -1247,7 +1247,7 @@ export function GetPages(pathname: string): MenuGroup[] {
             // Tier 1: Setup — master data and one-time configuration
             {
               href: '/billing/categories',
-              label: 'Setup',
+              label: 'Billing Categories',
               icon: FolderTree,
               active:
                 pathname.startsWith('/billing/categories') ||
@@ -1266,7 +1266,7 @@ export function GetPages(pathname: string): MenuGroup[] {
             // Tier 1: Operations — day-to-day billing actions
             {
               href: '/billing/schedule',
-              label: 'Operations',
+              label: 'Learners Bill',
               icon: Activity,
               active:
                 pathname.startsWith('/billing/schedule') ||
