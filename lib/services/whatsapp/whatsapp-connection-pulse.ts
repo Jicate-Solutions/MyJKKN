@@ -13,12 +13,14 @@ import { SupabaseClient } from '@supabase/supabase-js';
 import * as Sentry from '@sentry/nextjs';
 import { getPolicyInt } from '@/lib/policies/get-policy';
 import { POLICY_KEYS } from '@/lib/policies/keys';
+import { dispatchByowStaleNotification } from '@/lib/services/notification/byow-notification-service';
 
 interface ConnectionRow {
   id: string;
   department_id: string;
   service_url: string | null;
   client_id: string | null;
+  phone_number: string | null;
 }
 
 export interface PulseResult {
@@ -54,7 +56,7 @@ export async function runConnectionPulse(supabase: SupabaseClient): Promise<Puls
   // Filter unprocessable rows BEFORE limit per CLAUDE.md cap-policy rule.
   const { data: connections, error: fetchErr } = await supabase
     .from('wa_personal_connections')
-    .select('id, department_id, service_url, client_id')
+    .select('id, department_id, service_url, client_id, phone_number')
     .eq('status', 'ready')
     .not('service_url', 'is', null)
     .not('client_id', 'is', null)
@@ -209,6 +211,40 @@ async function pulseOneConnection(
         },
       }
     );
+
+    // Step 6b: H4 — dispatch in-app notifications to senior_learner_advisor +
+    // hod within the dept's institution. Look up dept name + institution_id,
+    // then fan out via byow-notification-service. Wrapped defensively — a
+    // notification failure must NOT abort pulse processing for sibling
+    // connections. Per-recipient errors are captured inside the dispatcher.
+    try {
+      const { data: dept, error: deptErr } = await supabase
+        .from('departments')
+        .select('id, name, institution_id')
+        .eq('id', conn.department_id)
+        .maybeSingle();
+
+      if (deptErr) {
+        Sentry.captureException(deptErr, {
+          tags: { feature: 'byow_whatsapp', subtype: 'department_lookup_failure' },
+          extra: { connection_id: conn.id, department_id: conn.department_id },
+        });
+      } else if (dept?.institution_id) {
+        await dispatchByowStaleNotification({
+          supabase,
+          institutionId: dept.institution_id as string,
+          departmentId: dept.id as string,
+          departmentName: (dept.name as string) ?? 'department',
+          phoneNumber: conn.phone_number,
+          hoursSinceInbound: hoursSinceLastActivity,
+        });
+      }
+    } catch (e) {
+      Sentry.captureException(e, {
+        tags: { feature: 'byow_whatsapp', subtype: 'stale_notification_dispatch_failure' },
+        extra: { connection_id: conn.id, department_id: conn.department_id },
+      });
+    }
   }
 
   return {
