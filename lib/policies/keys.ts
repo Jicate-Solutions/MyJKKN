@@ -64,6 +64,15 @@ export const POLICY_KEYS = {
   WA_BYOW_HEALTH_LOG_RETENTION_DAYS: 'wa_byow.health_log_retention_days',
   WA_BYOW_TENANCY_SPLIT_THRESHOLD_CONNECTIONS: 'wa_byow.tenancy_split_threshold_connections',
   WA_BYOW_CONNECTOR_ROLE_REQUIRED: 'wa_byow.connector_role_required',
+
+  // BYOW Spec 3 — Reliability infra + Senior Learner UI (verdict 2026-08-03).
+  // Consumed by: connection-pulse cron, header connection badge, dashboard card,
+  // bypass-detector cron, secret rotation UI.
+  WA_BYOW_DISCONNECT_NOTIFY_ROLES: 'wa_byow.disconnect_notify_roles',
+  WA_BYOW_CONNECTION_STALE_THRESHOLD_HOURS: 'wa_byow.connection_stale_threshold_hours',
+  WA_BYOW_CONNECTION_FORCE_DISCONNECT_AFTER_HOURS: 'wa_byow.connection_force_disconnect_after_hours',
+  WA_BYOW_INBOUND_ATTRIBUTION_CASCADE: 'wa_byow.inbound_attribution_cascade',
+  WA_BYOW_WEBHOOK_SECRET_ROTATION_DAYS: 'wa_byow.webhook_secret_rotation_days',
 } as const;
 
 export type PolicyKey = typeof POLICY_KEYS[keyof typeof POLICY_KEYS];
