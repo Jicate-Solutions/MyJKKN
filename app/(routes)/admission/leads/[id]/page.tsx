@@ -123,6 +123,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import type { FunnelStage } from '@/types/admission';
 import { ALLOWED_STAGE_TRANSITIONS } from '@/lib/services/admission/lead-service';
 import { SendPersonalMessageDialog } from '@/components/whatsapp/send-personal-message-dialog';
+import { LeadInlineConnectionIndicator } from '@/components/whatsapp/lead-inline-connection-indicator';
 import { usePersonalWhatsAppStatus } from '@/hooks/admission/use-whatsapp-personal';
 import { HandoverBanner } from '@/components/admission/leads/handover-banner';
 import { useLeadCascadeHistory } from '@/hooks/admission/use-lead-cascade-history';
@@ -1422,6 +1423,7 @@ function LeadDetailPageContent() {
                       {lead.phone}
                     </span>
                   )}
+                  <LeadInlineConnectionIndicator departmentId={lead.department_id} />
                 </div>
               </div>
             </div>
