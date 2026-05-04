@@ -33,6 +33,7 @@ import { RichTextDisplay, stripHtml } from '@/components/ui/rich-text-editor';
 import { formatDistanceToNow, format, isToday, isYesterday } from 'date-fns';
 import toast from 'react-hot-toast';
 import Link from 'next/link';
+import { NotificationBriefing } from '@/components/notifications/notification-briefing';
 
 // ─── Category config ────────────────────────────────────────
 const CATEGORIES = [
@@ -177,7 +178,19 @@ export function NotificationCenter() {
   }, [markAsRead]);
 
   return (
-    <div className="max-w-2xl mx-auto pb-24">
+    <div className="pb-24">
+      {/* ─── Director's Briefing (above the fold) ──────────────
+          Editorial × Bloomberg trajectory cards. Replaces 5+ duplicate
+          "Daily digest" cards with one trajectory card per category.
+          Hides itself on error or when no digest data exists. */}
+      <div className="max-w-4xl mx-auto">
+        <NotificationBriefing />
+      </div>
+
+      {/* ─── Chronological log (below the fold) ───────────────
+          Full notification history in standard inbox layout.
+          The briefing is curation; this is comprehensiveness. */}
+      <div className="max-w-2xl mx-auto">
       {/* ─── Header ──────────────────────────── */}
       <div className="flex items-center justify-between mb-4">
         <div>
@@ -507,6 +520,7 @@ export function NotificationCenter() {
             You&apos;re all caught up
           </p>
         )}
+      </div>
       </div>
     </div>
   );
