@@ -47,12 +47,12 @@ import {
   DRILLDOWN_DEFAULTS,
   DRILLDOWN_ROLES,
   METRIC_LABELS,
+  buildPolicyKey,
   type ActionButtonValue,
   type DrilldownMetric,
   type DrilldownRole,
-} from './drilldown-defaults';
+} from '@/lib/policies/dashboard-drilldown-ui';
 import {
-  buildPolicyKey,
   useResetDrilldownField,
   useResetDrilldownMetric,
   useUpsertDrilldownField,

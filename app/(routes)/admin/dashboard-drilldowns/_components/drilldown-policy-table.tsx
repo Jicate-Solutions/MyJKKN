@@ -8,7 +8,8 @@
  * chart_bar, comparison_row). Columns: Metric | Default destination |
  * Current destination | Override badges | Edit.
  *
- * Read pattern: server defaults from drilldown-defaults.ts merged with
+ * Read pattern: server defaults from dashboard-drilldown-ui (derived from
+ * the canonical FLAT defaults in dashboard-drilldown-keys) merged with
  * platform_policies rows by drilldown-policy-service.ts. Rows that exist
  * in the DB show an "override" badge per field.
  *
@@ -31,7 +32,7 @@ import { Badge } from '@/components/ui/badge';
 import {
   METRIC_LABELS,
   type DrilldownMetric,
-} from './drilldown-defaults';
+} from '@/lib/policies/dashboard-drilldown-ui';
 import {
   type ResolvedDrilldownRow,
 } from './drilldown-policy-service';
