@@ -96,6 +96,10 @@
       "schedule": "*/5 * * * *"
     },
     {
+      "path": "/api/cron/whatsapp-byow-bypass-detect",
+      "schedule": "0 9 * * 1"
+    },
+    {
       "path": "/api/cron/callback-queue-expire?secret=${CRON_SECRET}",
       "schedule": "13 * * * *"
     },
