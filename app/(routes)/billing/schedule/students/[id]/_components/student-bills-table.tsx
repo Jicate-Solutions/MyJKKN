@@ -58,6 +58,8 @@ import {
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu';
 import { usePermissions } from '@/hooks/use-permissions';
+import { toast } from 'react-hot-toast';
+import { StudentBillService } from '@/lib/services/billing/schedule/student-bill-service';
 import type { StudentBill } from '@/types/billing-schedule';
 import { Card } from '@/components/ui/card';
 
@@ -185,11 +187,19 @@ export function StudentBillsTable({
   const handleDeleteBill = async (billId: string) => {
     try {
       setDeletingBillId(billId);
-      // TODO: Implement delete bill functionality
-      console.log('Deleting bill:', billId);
+      // Was previously a TODO stub that only console.log'd the id and called
+      // onRefresh, which made the UI behave as if the delete succeeded while
+      // leaving the row in the database. Now actually issues the delete.
+      // FK cascades (billing_receipt_items, billing_discounts,
+      // payment_transaction_items) clean up child rows automatically.
+      await StudentBillService.deleteStudentBill(billId);
+      toast.success('Bill deleted');
       onRefresh();
     } catch (error) {
       console.error('Error deleting bill:', error);
+      toast.error(
+        error instanceof Error ? error.message : 'Failed to delete bill'
+      );
     } finally {
       setDeletingBillId(null);
     }
