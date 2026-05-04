@@ -73,6 +73,12 @@ export const POLICY_KEYS = {
   WA_BYOW_CONNECTION_FORCE_DISCONNECT_AFTER_HOURS: 'wa_byow.connection_force_disconnect_after_hours',
   WA_BYOW_INBOUND_ATTRIBUTION_CASCADE: 'wa_byow.inbound_attribution_cascade',
   WA_BYOW_WEBHOOK_SECRET_ROTATION_DAYS: 'wa_byow.webhook_secret_rotation_days',
+
+  // BYOW Spec 3 Phase 2 — Synthetic audit cron (Task 17). DISABLED by default.
+  // When true, hourly cron sends a synthetic msg via each ready connection so
+  // we can detect silent inbound-webhook drops. Director flips after dry-run.
+  // Consumed by app/api/cron/whatsapp-byow-synthetic-audit/route.ts.
+  WA_BYOW_SYNTHETIC_AUDIT_ENABLED: 'wa_byow.synthetic_audit_enabled',
 } as const;
 
 export type PolicyKey = typeof POLICY_KEYS[keyof typeof POLICY_KEYS];
