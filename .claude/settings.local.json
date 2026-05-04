@@ -249,7 +249,10 @@
       "mcp__plugin_vercel_vercel__list_teams",
       "mcp__plugin_vercel_vercel__list_projects",
       "Bash(2>/dev/null)",
-      "Bash([ -s \"C:\\\\\\\\Users\\\\\\\\Admin\\\\\\\\AppData\\\\\\\\Local\\\\\\\\Temp\\\\\\\\claude\\\\\\\\D--Projects-MyJKKN\\\\\\\\58d2f4a6-0fcd-4fa5-b009-cd255cbcf3b6\\\\\\\\tasks\\\\\\\\bmby5z7ua.output\" ])"
+      "Bash([ -s \"C:\\\\\\\\Users\\\\\\\\Admin\\\\\\\\AppData\\\\\\\\Local\\\\\\\\Temp\\\\\\\\claude\\\\\\\\D--Projects-MyJKKN\\\\\\\\58d2f4a6-0fcd-4fa5-b009-cd255cbcf3b6\\\\\\\\tasks\\\\\\\\bmby5z7ua.output\" ])",
+      "Bash(rm -f .git/COMMIT_EDITMSG_TMP)",
+      "Bash(\"/c/Program Files/Git/cmd/git\" status)",
+      "Bash(\"/c/Program Files/Git/cmd/git\" log --oneline -3)"
     ],
     "deny": [],
     "ask": []
