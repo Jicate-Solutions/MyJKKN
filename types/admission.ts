@@ -1441,3 +1441,89 @@ export interface UpdateExpoStallInput {
   notes?: string | null;
 }
 
+// ============================================================================
+// Admission Fee Structure module — Foundation types
+// ============================================================================
+// Spec: docs/superpowers/specs/2026-05-05-admission-fee-structure-automation-design.md §6.1, §6.6
+// Plan: docs/superpowers/plans/2026-05-05-admission-fees-plan-01-foundation.md Task 7
+//
+// NOTE: Names are prefixed with `AdmissionFee` because `Quota` and
+// `AccommodationType` are already exported from
+// `lib/constants/learner-dropdown-values.ts` (TEXT-union legacy values).
+// Tasks 8 and 9 must reference these prefixed names accordingly.
+
+export interface AdmissionFeeQuota {
+  id: string;
+  code: string;
+  name: string;
+  sort_order: number;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+  created_by: string | null;
+  updated_by: string | null;
+}
+
+export type CreateAdmissionFeeQuotaInput = Pick<AdmissionFeeQuota, 'code' | 'name'> & Partial<Pick<AdmissionFeeQuota, 'sort_order' | 'is_active'>>;
+export type UpdateAdmissionFeeQuotaInput = Partial<Pick<AdmissionFeeQuota, 'code' | 'name' | 'sort_order' | 'is_active'>>;
+
+export interface AdmissionFeeCommunityCategory {
+  id: string;
+  code: string;
+  name: string;
+  sort_order: number;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+  created_by: string | null;
+  updated_by: string | null;
+}
+
+export type CreateAdmissionFeeCommunityCategoryInput = Pick<AdmissionFeeCommunityCategory, 'code' | 'name'> &
+  Partial<Pick<AdmissionFeeCommunityCategory, 'sort_order' | 'is_active'>>;
+export type UpdateAdmissionFeeCommunityCategoryInput = Partial<Pick<AdmissionFeeCommunityCategory, 'code' | 'name' | 'sort_order' | 'is_active'>>;
+
+export interface AdmissionFeeAccommodationType {
+  id: string;
+  institution_id: string;
+  code: string;
+  name: string;
+  sort_order: number;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+  created_by: string | null;
+  updated_by: string | null;
+}
+
+export type CreateAdmissionFeeAccommodationTypeInput = Pick<AdmissionFeeAccommodationType, 'institution_id' | 'code' | 'name'> &
+  Partial<Pick<AdmissionFeeAccommodationType, 'sort_order' | 'is_active'>>;
+export type UpdateAdmissionFeeAccommodationTypeInput = Partial<
+  Pick<AdmissionFeeAccommodationType, 'code' | 'name' | 'sort_order' | 'is_active'>
+>;
+
+export interface AdmissionFeeAdmissionSettingsPerInstitution {
+  id: string;
+  institution_id: string;
+  use_fee_structures: boolean;
+  required_documents_for_account_transition: string[];
+  pre_submit_dialog_enabled: boolean;
+  status_change_dialog_enabled: boolean;
+  created_at: string;
+  updated_at: string;
+  created_by: string | null;
+  updated_by: string | null;
+}
+
+export type UpsertAdmissionFeeAdmissionSettingsInput = Partial<
+  Pick<
+    AdmissionFeeAdmissionSettingsPerInstitution,
+    | 'use_fee_structures'
+    | 'required_documents_for_account_transition'
+    | 'pre_submit_dialog_enabled'
+    | 'status_change_dialog_enabled'
+  >
+> & {
+  institution_id: string;
+};
+
