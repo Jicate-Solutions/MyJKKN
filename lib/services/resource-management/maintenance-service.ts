@@ -1,5 +1,9 @@
 // lib/services/resource-management/maintenance-service.ts
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import {
+  logActivityForCurrentUser,
+  ResourceManagementActivityTemplates,
+} from '@/lib/utils/activity-logger-client';
 import type {
   MaintenanceLog,
   MaintenanceSchedule,
@@ -15,6 +19,24 @@ import type {
 
 class MaintenanceService {
   private supabase = createClientSupabaseClient();
+
+  /**
+   * Helper: fetch a resource's name by id for activity logging.
+   * Falls back to empty string if not found / on error.
+   */
+  private async getResourceName(resourceId?: string | null): Promise<string> {
+    if (!resourceId) return '';
+    try {
+      const { data } = await this.supabase
+        .from('resources')
+        .select('name')
+        .eq('id', resourceId)
+        .maybeSingle();
+      return (data as any)?.name ?? '';
+    } catch {
+      return '';
+    }
+  }
 
   // ==================== MAINTENANCE LOGS ====================
 
@@ -130,7 +152,25 @@ class MaintenanceService {
       console.error('[MaintenanceService] Error creating log:', error);
       throw error;
     }
-    return data as MaintenanceLog;
+    const log = data as MaintenanceLog;
+    const resourceName = await this.getResourceName((log as any).resource_id);
+    const tpl = ResourceManagementActivityTemplates.maintenanceLogCreated(
+      resourceName,
+      (log as any).maintenance_type ?? 'general'
+    );
+    await logActivityForCurrentUser({
+      actionType: tpl.actionType,
+      resourceType: tpl.resourceType,
+      resourceId: (log as any).id,
+      resourceName,
+      description: tpl.description,
+      metadata: {
+        sub_type: tpl.sub_type,
+        maintenance_log_id: (log as any).id,
+        resource_id: (log as any).resource_id,
+      },
+    });
+    return log;
   }
 
   /**
@@ -153,7 +193,22 @@ class MaintenanceService {
       console.error('[MaintenanceService] Error updating log:', error);
       throw error;
     }
-    return data as MaintenanceLog;
+    const log = data as MaintenanceLog;
+    const resourceName = await this.getResourceName((log as any).resource_id);
+    const tpl = ResourceManagementActivityTemplates.maintenanceLogUpdated(resourceName);
+    await logActivityForCurrentUser({
+      actionType: tpl.actionType,
+      resourceType: tpl.resourceType,
+      resourceId: (log as any).id,
+      resourceName,
+      description: tpl.description,
+      metadata: {
+        sub_type: tpl.sub_type,
+        maintenance_log_id: (log as any).id,
+        resource_id: (log as any).resource_id,
+      },
+    });
+    return log;
   }
 
   /**
@@ -183,7 +238,22 @@ class MaintenanceService {
       console.error('[MaintenanceService] Error completing log:', error);
       throw error;
     }
-    return data as MaintenanceLog;
+    const log = data as MaintenanceLog;
+    const resourceName = await this.getResourceName((log as any).resource_id);
+    const tpl = ResourceManagementActivityTemplates.maintenanceLogCompleted(resourceName);
+    await logActivityForCurrentUser({
+      actionType: tpl.actionType,
+      resourceType: tpl.resourceType,
+      resourceId: (log as any).id,
+      resourceName,
+      description: tpl.description,
+      metadata: {
+        sub_type: tpl.sub_type,
+        maintenance_log_id: (log as any).id,
+        resource_id: (log as any).resource_id,
+      },
+    });
+    return log;
   }
 
   /**
@@ -209,13 +279,37 @@ class MaintenanceService {
       console.error('[MaintenanceService] Error cancelling log:', error);
       throw error;
     }
-    return data as MaintenanceLog;
+    const log = data as MaintenanceLog;
+    const resourceName = await this.getResourceName((log as any).resource_id);
+    const tpl = ResourceManagementActivityTemplates.maintenanceLogCancelled(resourceName);
+    await logActivityForCurrentUser({
+      actionType: tpl.actionType,
+      resourceType: tpl.resourceType,
+      resourceId: (log as any).id,
+      resourceName,
+      description: tpl.description,
+      metadata: {
+        sub_type: tpl.sub_type,
+        maintenance_log_id: (log as any).id,
+        resource_id: (log as any).resource_id,
+      },
+    });
+    return log;
   }
 
   /**
    * Delete a maintenance log
    */
   async deleteMaintenanceLog(id: string): Promise<void> {
+    // Fetch the log first to capture resource info for logging
+    const { data: existing } = await this.supabase
+      .from('resource_maintenance_logs')
+      .select('id, resource_id')
+      .eq('id', id)
+      .maybeSingle();
+    const resourceId = (existing as any)?.resource_id;
+    const resourceName = await this.getResourceName(resourceId);
+
     const { error } = await this.supabase
       .from('resource_maintenance_logs')
       .delete()
@@ -225,6 +319,19 @@ class MaintenanceService {
       console.error('[MaintenanceService] Error deleting log:', error);
       throw error;
     }
+    const tpl = ResourceManagementActivityTemplates.maintenanceLogDeleted(resourceName);
+    await logActivityForCurrentUser({
+      actionType: tpl.actionType,
+      resourceType: tpl.resourceType,
+      resourceId: id,
+      resourceName,
+      description: tpl.description,
+      metadata: {
+        sub_type: tpl.sub_type,
+        maintenance_log_id: id,
+        resource_id: resourceId,
+      },
+    });
   }
 
   // ==================== MAINTENANCE SCHEDULES ====================
@@ -314,7 +421,25 @@ class MaintenanceService {
       console.error('[MaintenanceService] Error creating schedule:', error);
       throw error;
     }
-    return data as MaintenanceSchedule;
+    const schedule = data as MaintenanceSchedule;
+    const resourceName = await this.getResourceName((schedule as any).resource_id);
+    const tpl = ResourceManagementActivityTemplates.maintenanceScheduleCreated(
+      resourceName,
+      (schedule as any).frequency ?? 'periodic'
+    );
+    await logActivityForCurrentUser({
+      actionType: tpl.actionType,
+      resourceType: tpl.resourceType,
+      resourceId: (schedule as any).id,
+      resourceName,
+      description: tpl.description,
+      metadata: {
+        sub_type: tpl.sub_type,
+        maintenance_schedule_id: (schedule as any).id,
+        resource_id: (schedule as any).resource_id,
+      },
+    });
+    return schedule;
   }
 
   /**
@@ -337,13 +462,37 @@ class MaintenanceService {
       console.error('[MaintenanceService] Error updating schedule:', error);
       throw error;
     }
-    return data as MaintenanceSchedule;
+    const schedule = data as MaintenanceSchedule;
+    const resourceName = await this.getResourceName((schedule as any).resource_id);
+    const tpl = ResourceManagementActivityTemplates.maintenanceScheduleUpdated(resourceName);
+    await logActivityForCurrentUser({
+      actionType: tpl.actionType,
+      resourceType: tpl.resourceType,
+      resourceId: (schedule as any).id,
+      resourceName,
+      description: tpl.description,
+      metadata: {
+        sub_type: tpl.sub_type,
+        maintenance_schedule_id: (schedule as any).id,
+        resource_id: (schedule as any).resource_id,
+      },
+    });
+    return schedule;
   }
 
   /**
    * Delete a maintenance schedule
    */
   async deleteMaintenanceSchedule(id: string): Promise<void> {
+    // Fetch the schedule first to capture resource info for logging
+    const { data: existing } = await this.supabase
+      .from('resource_maintenance_schedules')
+      .select('id, resource_id')
+      .eq('id', id)
+      .maybeSingle();
+    const resourceId = (existing as any)?.resource_id;
+    const resourceName = await this.getResourceName(resourceId);
+
     const { error } = await this.supabase
       .from('resource_maintenance_schedules')
       .delete()
@@ -353,6 +502,19 @@ class MaintenanceService {
       console.error('[MaintenanceService] Error deleting schedule:', error);
       throw error;
     }
+    const tpl = ResourceManagementActivityTemplates.maintenanceScheduleDeleted(resourceName);
+    await logActivityForCurrentUser({
+      actionType: tpl.actionType,
+      resourceType: tpl.resourceType,
+      resourceId: id,
+      resourceName,
+      description: tpl.description,
+      metadata: {
+        sub_type: tpl.sub_type,
+        maintenance_schedule_id: id,
+        resource_id: resourceId,
+      },
+    });
   }
 
   // ==================== ANALYTICS ====================

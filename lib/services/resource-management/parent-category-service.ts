@@ -2,6 +2,10 @@
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { StorageService } from '@/lib/storage/storage-service';
+import {
+  logActivityForCurrentUser,
+  ResourceManagementActivityTemplates,
+} from '@/lib/utils/activity-logger-client';
 import type {
   ParentCategory,
   CreateParentCategoryDto,
@@ -228,6 +232,18 @@ export class ParentCategoryService {
 
       if (error) throw error;
 
+      const tpl = ResourceManagementActivityTemplates.parentCategoryCreated(
+        category.name
+      );
+      await logActivityForCurrentUser({
+        actionType: tpl.actionType,
+        resourceType: tpl.resourceType,
+        resourceId: category.id,
+        resourceName: category.name,
+        description: tpl.description,
+        metadata: { sub_type: tpl.sub_type },
+      });
+
       return category;
     } catch (error) {
       console.error('Error creating parent category:', error);
@@ -303,6 +319,18 @@ export class ParentCategoryService {
         .single();
 
       if (error) throw error;
+
+      const tpl = ResourceManagementActivityTemplates.parentCategoryUpdated(
+        category.name
+      );
+      await logActivityForCurrentUser({
+        actionType: tpl.actionType,
+        resourceType: tpl.resourceType,
+        resourceId: category.id,
+        resourceName: category.name,
+        description: tpl.description,
+        metadata: { sub_type: tpl.sub_type },
+      });
 
       return category;
     } catch (error) {
@@ -382,6 +410,18 @@ export class ParentCategoryService {
         }
       }
 
+      const tpl = ResourceManagementActivityTemplates.parentCategoryDeleted(
+        category.name
+      );
+      await logActivityForCurrentUser({
+        actionType: tpl.actionType,
+        resourceType: tpl.resourceType,
+        resourceId: id,
+        resourceName: category.name,
+        description: tpl.description,
+        metadata: { sub_type: tpl.sub_type },
+      });
+
       return true;
     } catch (error) {
       console.error('Error deleting parent category:', error);
@@ -435,6 +475,18 @@ export class ParentCategoryService {
     console.log(
       `Bulk delete completed: ${result.processedCount}/${ids.length} categories processed`
     );
+
+    const tpl =
+      ResourceManagementActivityTemplates.parentCategoriesBulkDeleted(
+        ids.length
+      );
+    await logActivityForCurrentUser({
+      actionType: tpl.actionType,
+      resourceType: tpl.resourceType,
+      description: tpl.description,
+      metadata: { sub_type: tpl.sub_type, ids },
+    });
+
     return result;
   }
 
@@ -482,6 +534,17 @@ export class ParentCategoryService {
       );
 
       await Promise.all(updates);
+
+      const tpl = ResourceManagementActivityTemplates.parentCategoryReordered(
+        categoryOrders.length
+      );
+      await logActivityForCurrentUser({
+        actionType: tpl.actionType,
+        resourceType: tpl.resourceType,
+        description: tpl.description,
+        metadata: { sub_type: tpl.sub_type, updates: categoryOrders },
+      });
+
       return true;
     } catch (error) {
       console.error('Error updating display order:', error);

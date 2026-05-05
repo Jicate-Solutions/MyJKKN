@@ -2,6 +2,10 @@
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { StorageService } from '@/lib/storage/storage-service';
+import {
+  logActivityForCurrentUser,
+  ResourceManagementActivityTemplates,
+} from '@/lib/utils/activity-logger-client';
 import type {
   Resource,
   CreateResourceDto,
@@ -331,6 +335,17 @@ export class ResourceService {
         throw error;
       }
 
+      const tpl = ResourceManagementActivityTemplates.resourceCreated(resource.name);
+      await logActivityForCurrentUser({
+        actionType: tpl.actionType,
+        resourceType: tpl.resourceType,
+        resourceId: resource.id,
+        resourceName: resource.name,
+        description: tpl.description,
+        metadata: { sub_type: tpl.sub_type },
+        institutionId: resource.institution_id,
+      });
+
       return resource;
     } catch (error) {
       console.error('Error creating resource:', error);
@@ -421,6 +436,17 @@ export class ResourceService {
 
       if (error) throw error;
 
+      const tpl = ResourceManagementActivityTemplates.resourceUpdated(resource.name);
+      await logActivityForCurrentUser({
+        actionType: tpl.actionType,
+        resourceType: tpl.resourceType,
+        resourceId: resource.id,
+        resourceName: resource.name,
+        description: tpl.description,
+        metadata: { sub_type: tpl.sub_type },
+        institutionId: resource.institution_id,
+      });
+
       return resource;
     } catch (error) {
       console.error('Error updating resource:', error);
@@ -473,6 +499,17 @@ export class ResourceService {
         `Successfully deleted resource "${resource.name}" and all related data (reservations, usage logs, approvals)`
       );
 
+      const tpl = ResourceManagementActivityTemplates.resourceDeleted(resource.name);
+      await logActivityForCurrentUser({
+        actionType: tpl.actionType,
+        resourceType: tpl.resourceType,
+        resourceId: id,
+        resourceName: resource.name,
+        description: tpl.description,
+        metadata: { sub_type: tpl.sub_type },
+        institutionId: resource.institution_id,
+      });
+
       return true;
     } catch (error) {
       console.error('Error deleting resource:', error);
@@ -514,6 +551,18 @@ export class ResourceService {
     console.log(
       `Bulk delete completed: ${result.processedCount}/${ids.length} resources processed`
     );
+
+    const tpl = ResourceManagementActivityTemplates.resourcesBulkDeleted(
+      ids.length,
+      result.processedCount
+    );
+    await logActivityForCurrentUser({
+      actionType: tpl.actionType,
+      resourceType: tpl.resourceType,
+      description: tpl.description,
+      metadata: { sub_type: tpl.sub_type, ids },
+    });
+
     return result;
   }
 
@@ -542,6 +591,20 @@ export class ResourceService {
         .single();
 
       if (error) throw error;
+
+      const tpl = ResourceManagementActivityTemplates.resourceStockUpdated(
+        resource.name,
+        quantity
+      );
+      await logActivityForCurrentUser({
+        actionType: tpl.actionType,
+        resourceType: tpl.resourceType,
+        resourceId: id,
+        resourceName: resource.name,
+        description: tpl.description,
+        metadata: { sub_type: tpl.sub_type, new_quantity: quantity },
+        institutionId: resource.institution_id,
+      });
 
       return resource;
     } catch (error) {

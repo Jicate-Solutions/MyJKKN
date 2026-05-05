@@ -1,6 +1,10 @@
 // lib/services/resource-management/sub-category-service.ts
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import {
+  logActivityForCurrentUser,
+  ResourceManagementActivityTemplates,
+} from '@/lib/utils/activity-logger-client';
 import type {
   SubCategory,
   CreateSubCategoryDto,
@@ -210,6 +214,19 @@ export class SubCategoryService {
       // DEPRECATED: attribute_definitions removed - custom attributes now managed per-resource
       // Legacy code removed - no longer creating attribute definitions at subcategory level
 
+      // Activity log
+      const tpl = ResourceManagementActivityTemplates.subCategoryCreated(
+        (category as any).name
+      );
+      await logActivityForCurrentUser({
+        actionType: tpl.actionType,
+        resourceType: tpl.resourceType,
+        resourceId: (category as any).id,
+        resourceName: (category as any).name,
+        description: tpl.description,
+        metadata: { sub_type: tpl.sub_type },
+      });
+
       return category;
     } catch (error) {
       console.error('Error creating sub category:', error);
@@ -273,7 +290,22 @@ export class SubCategoryService {
       // Custom attributes are now managed at the resource level in resources.custom_attributes
 
       // Return the updated category with fresh data
-      return await this.getSubCategory(id);
+      const updatedCategory = await this.getSubCategory(id);
+
+      // Activity log
+      const tpl = ResourceManagementActivityTemplates.subCategoryUpdated(
+        (updatedCategory as any).name
+      );
+      await logActivityForCurrentUser({
+        actionType: tpl.actionType,
+        resourceType: tpl.resourceType,
+        resourceId: (updatedCategory as any).id,
+        resourceName: (updatedCategory as any).name,
+        description: tpl.description,
+        metadata: { sub_type: tpl.sub_type },
+      });
+
+      return updatedCategory;
     } catch (error) {
       console.error('Error updating sub category:', error);
       throw new Error(
@@ -363,6 +395,19 @@ export class SubCategoryService {
         }
       }
 
+      // Activity log
+      const tpl = ResourceManagementActivityTemplates.subCategoryDeleted(
+        categoryData.name
+      );
+      await logActivityForCurrentUser({
+        actionType: tpl.actionType,
+        resourceType: tpl.resourceType,
+        resourceId: id,
+        resourceName: categoryData.name,
+        description: tpl.description,
+        metadata: { sub_type: tpl.sub_type },
+      });
+
       return true;
     } catch (error) {
       console.error('Error deleting sub category:', error);
@@ -396,6 +441,17 @@ export class SubCategoryService {
         });
       }
     }
+
+    // Activity log
+    const tpl = ResourceManagementActivityTemplates.subCategoriesBulkDeleted(
+      ids.length
+    );
+    await logActivityForCurrentUser({
+      actionType: tpl.actionType,
+      resourceType: tpl.resourceType,
+      description: tpl.description,
+      metadata: { sub_type: tpl.sub_type, ids },
+    });
 
     return result;
   }
@@ -513,6 +569,23 @@ export class SubCategoryService {
 
       if (error) throw error;
 
+      // Activity log
+      const tpl = ResourceManagementActivityTemplates.attributeDefinitionsCreated(
+        '',
+        attributeDefinitions.length
+      );
+      await logActivityForCurrentUser({
+        actionType: tpl.actionType,
+        resourceType: tpl.resourceType,
+        resourceId: subcategoryId,
+        description: tpl.description,
+        metadata: {
+          sub_type: tpl.sub_type,
+          sub_category_id: subcategoryId,
+          attribute_count: attributeDefinitions.length,
+        },
+      });
+
       return attributes || [];
     } catch (error) {
       console.error('Error creating attribute definitions:', error);
@@ -581,6 +654,21 @@ export class SubCategoryService {
 
       if (error) throw error;
 
+      // Activity log
+      const attrName =
+        (attribute as any)?.attribute_key || (attribute as any)?.name || '';
+      const tpl = ResourceManagementActivityTemplates.attributeDefinitionUpdated(
+        attrName
+      );
+      await logActivityForCurrentUser({
+        actionType: tpl.actionType,
+        resourceType: tpl.resourceType,
+        resourceId: id,
+        resourceName: attrName,
+        description: tpl.description,
+        metadata: { sub_type: tpl.sub_type },
+      });
+
       return attribute;
     } catch (error) {
       console.error('Error updating attribute definition:', error);
@@ -598,12 +686,33 @@ export class SubCategoryService {
    */
   static async deleteAttributeDefinition(id: string): Promise<boolean> {
     try {
+      // Fetch first so we have the name available for the activity log
+      const { data: existing } = await this.supabase
+        .from('resource_attribute_definitions')
+        .select('id, attribute_key')
+        .eq('id', id)
+        .maybeSingle();
+
       const { error } = await this.supabase
         .from('resource_attribute_definitions')
         .delete()
         .eq('id', id);
 
       if (error) throw error;
+
+      // Activity log
+      const attrName = (existing as any)?.attribute_key || '';
+      const tpl = ResourceManagementActivityTemplates.attributeDefinitionDeleted(
+        attrName
+      );
+      await logActivityForCurrentUser({
+        actionType: tpl.actionType,
+        resourceType: tpl.resourceType,
+        resourceId: id,
+        resourceName: attrName,
+        description: tpl.description,
+        metadata: { sub_type: tpl.sub_type },
+      });
 
       return true;
     } catch (error) {
@@ -636,6 +745,18 @@ export class SubCategoryService {
       });
 
       await Promise.all(updates);
+
+      // Activity log
+      const tpl = ResourceManagementActivityTemplates.attributeDefinitionsReordered(
+        attributeOrders.length
+      );
+      await logActivityForCurrentUser({
+        actionType: tpl.actionType,
+        resourceType: tpl.resourceType,
+        description: tpl.description,
+        metadata: { sub_type: tpl.sub_type, updates: attributeOrders },
+      });
+
       return true;
     } catch (error) {
       console.error('Error updating attribute display order:', error);

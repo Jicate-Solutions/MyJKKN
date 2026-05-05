@@ -37,6 +37,25 @@ export async function logActivityClient(params: LogActivityClientParams): Promis
 }
 
 /**
+ * Same as logActivityClient but auto-fetches the current user's id from the
+ * Supabase session — service methods that don't already accept a userId
+ * parameter can call this without changing their signatures. Silent no-op if
+ * the user is not authenticated.
+ */
+export async function logActivityForCurrentUser(
+  params: Omit<LogActivityClientParams, 'userId'>
+): Promise<void> {
+  try {
+    const supabase = createClientSupabaseClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user?.id) return;
+    await logActivityClient({ ...params, userId: user.id });
+  } catch (error) {
+    console.error('[activity-logger-client] Failed to log activity (current user):', error);
+  }
+}
+
+/**
  * Learner-specific activity templates for consistent logging.
  * All templates use RESOURCE_TYPES.LEARNER with metadata.sub_type for categorization.
  */
@@ -398,5 +417,231 @@ export const AcademicActivityTemplates = {
     resourceType: RESOURCE_TYPES.LEAVE,
     description: `Rejected on-duty application for ${applicantName}`,
     sub_type: 'onduty_approval' as const,
+  }),
+};
+
+/**
+ * Resource Management module activity templates.
+ * Covers: resources, parent_categories, sub_categories, attribute_definitions,
+ * reservations, maintenance_logs, maintenance_schedules. Sub-types in metadata
+ * let the audit dashboard filter by sub-domain without exploding RESOURCE_TYPES.
+ */
+export const ResourceManagementActivityTemplates = {
+  // ── RESOURCES ─────────────────────────────────────────────────────
+  resourceCreated: (resourceName: string) => ({
+    actionType: ACTIVITY_TYPES.CREATE,
+    resourceType: RESOURCE_TYPES.RESOURCE,
+    description: `Created resource "${resourceName}"`,
+    sub_type: 'resource' as const,
+  }),
+  resourceUpdated: (resourceName: string, changes?: string[]) => ({
+    actionType: ACTIVITY_TYPES.UPDATE,
+    resourceType: RESOURCE_TYPES.RESOURCE,
+    description: `Updated resource "${resourceName}"${changes?.length ? ` (${changes.join(', ')})` : ''}`,
+    sub_type: 'resource' as const,
+  }),
+  resourceDeleted: (resourceName: string) => ({
+    actionType: ACTIVITY_TYPES.DELETE,
+    resourceType: RESOURCE_TYPES.RESOURCE,
+    description: `Deleted resource "${resourceName}"`,
+    sub_type: 'resource' as const,
+  }),
+  resourcesBulkDeleted: (count: number, processed: number) => ({
+    actionType: ACTIVITY_TYPES.DELETE,
+    resourceType: RESOURCE_TYPES.RESOURCE,
+    description: `Bulk deleted ${processed}/${count} resources`,
+    sub_type: 'resource_bulk_delete' as const,
+  }),
+  resourceStockUpdated: (resourceName: string, newQuantity: number) => ({
+    actionType: ACTIVITY_TYPES.UPDATE,
+    resourceType: RESOURCE_TYPES.RESOURCE,
+    description: `Updated stock quantity for "${resourceName}" to ${newQuantity}`,
+    sub_type: 'resource_stock' as const,
+  }),
+
+  // ── PARENT CATEGORIES ─────────────────────────────────────────────
+  parentCategoryCreated: (categoryName: string) => ({
+    actionType: ACTIVITY_TYPES.CREATE,
+    resourceType: RESOURCE_TYPES.CATEGORY,
+    description: `Created resource parent category "${categoryName}"`,
+    sub_type: 'parent_category' as const,
+  }),
+  parentCategoryUpdated: (categoryName: string, changes?: string[]) => ({
+    actionType: ACTIVITY_TYPES.UPDATE,
+    resourceType: RESOURCE_TYPES.CATEGORY,
+    description: `Updated resource parent category "${categoryName}"${changes?.length ? ` (${changes.join(', ')})` : ''}`,
+    sub_type: 'parent_category' as const,
+  }),
+  parentCategoryDeleted: (categoryName: string) => ({
+    actionType: ACTIVITY_TYPES.DELETE,
+    resourceType: RESOURCE_TYPES.CATEGORY,
+    description: `Deleted resource parent category "${categoryName}"`,
+    sub_type: 'parent_category' as const,
+  }),
+  parentCategoriesBulkDeleted: (count: number) => ({
+    actionType: ACTIVITY_TYPES.DELETE,
+    resourceType: RESOURCE_TYPES.CATEGORY,
+    description: `Bulk deleted ${count} resource parent categories`,
+    sub_type: 'parent_category_bulk_delete' as const,
+  }),
+  parentCategoryReordered: (count: number) => ({
+    actionType: ACTIVITY_TYPES.UPDATE,
+    resourceType: RESOURCE_TYPES.CATEGORY,
+    description: `Reordered ${count} resource parent categories`,
+    sub_type: 'parent_category_reorder' as const,
+  }),
+
+  // ── SUB-CATEGORIES ────────────────────────────────────────────────
+  subCategoryCreated: (subCategoryName: string) => ({
+    actionType: ACTIVITY_TYPES.CREATE,
+    resourceType: RESOURCE_TYPES.CATEGORY,
+    description: `Created resource sub-category "${subCategoryName}"`,
+    sub_type: 'sub_category' as const,
+  }),
+  subCategoryUpdated: (subCategoryName: string, changes?: string[]) => ({
+    actionType: ACTIVITY_TYPES.UPDATE,
+    resourceType: RESOURCE_TYPES.CATEGORY,
+    description: `Updated resource sub-category "${subCategoryName}"${changes?.length ? ` (${changes.join(', ')})` : ''}`,
+    sub_type: 'sub_category' as const,
+  }),
+  subCategoryDeleted: (subCategoryName: string) => ({
+    actionType: ACTIVITY_TYPES.DELETE,
+    resourceType: RESOURCE_TYPES.CATEGORY,
+    description: `Deleted resource sub-category "${subCategoryName}"`,
+    sub_type: 'sub_category' as const,
+  }),
+  subCategoriesBulkDeleted: (count: number) => ({
+    actionType: ACTIVITY_TYPES.DELETE,
+    resourceType: RESOURCE_TYPES.CATEGORY,
+    description: `Bulk deleted ${count} resource sub-categories`,
+    sub_type: 'sub_category_bulk_delete' as const,
+  }),
+
+  // ── ATTRIBUTE DEFINITIONS ─────────────────────────────────────────
+  attributeDefinitionsCreated: (subCategoryName: string, count: number) => ({
+    actionType: ACTIVITY_TYPES.CREATE,
+    resourceType: RESOURCE_TYPES.CATEGORY,
+    description: `Added ${count} attribute definitions to "${subCategoryName}"`,
+    sub_type: 'attribute_definition' as const,
+  }),
+  attributeDefinitionUpdated: (attributeName: string, changes?: string[]) => ({
+    actionType: ACTIVITY_TYPES.UPDATE,
+    resourceType: RESOURCE_TYPES.CATEGORY,
+    description: `Updated attribute "${attributeName}"${changes?.length ? ` (${changes.join(', ')})` : ''}`,
+    sub_type: 'attribute_definition' as const,
+  }),
+  attributeDefinitionDeleted: (attributeName: string) => ({
+    actionType: ACTIVITY_TYPES.DELETE,
+    resourceType: RESOURCE_TYPES.CATEGORY,
+    description: `Deleted attribute "${attributeName}"`,
+    sub_type: 'attribute_definition' as const,
+  }),
+  attributeDefinitionsReordered: (count: number) => ({
+    actionType: ACTIVITY_TYPES.UPDATE,
+    resourceType: RESOURCE_TYPES.CATEGORY,
+    description: `Reordered ${count} attribute definitions`,
+    sub_type: 'attribute_definition_reorder' as const,
+  }),
+
+  // ── RESERVATIONS ──────────────────────────────────────────────────
+  reservationCreated: (resourceName: string, startTime: string) => ({
+    actionType: ACTIVITY_TYPES.CREATE,
+    resourceType: RESOURCE_TYPES.RESERVATION,
+    description: `Reserved "${resourceName}" starting ${startTime}`,
+    sub_type: 'reservation' as const,
+  }),
+  reservationUpdated: (resourceName: string, changes?: string[]) => ({
+    actionType: ACTIVITY_TYPES.UPDATE,
+    resourceType: RESOURCE_TYPES.RESERVATION,
+    description: `Updated reservation for "${resourceName}"${changes?.length ? ` (${changes.join(', ')})` : ''}`,
+    sub_type: 'reservation' as const,
+  }),
+  reservationDeleted: (resourceName: string) => ({
+    actionType: ACTIVITY_TYPES.DELETE,
+    resourceType: RESOURCE_TYPES.RESERVATION,
+    description: `Deleted reservation for "${resourceName}"`,
+    sub_type: 'reservation' as const,
+  }),
+  reservationApproved: (resourceName: string) => ({
+    actionType: ACTIVITY_TYPES.APPROVE,
+    resourceType: RESOURCE_TYPES.RESERVATION,
+    description: `Approved reservation for "${resourceName}"`,
+    sub_type: 'reservation_approval' as const,
+  }),
+  reservationRejected: (resourceName: string, reason?: string) => ({
+    actionType: ACTIVITY_TYPES.REJECT,
+    resourceType: RESOURCE_TYPES.RESERVATION,
+    description: `Rejected reservation for "${resourceName}"${reason ? ` (${reason})` : ''}`,
+    sub_type: 'reservation_approval' as const,
+  }),
+  reservationCancelled: (resourceName: string) => ({
+    actionType: ACTIVITY_TYPES.UPDATE,
+    resourceType: RESOURCE_TYPES.RESERVATION,
+    description: `Cancelled reservation for "${resourceName}"`,
+    sub_type: 'reservation_cancel' as const,
+  }),
+  reservationCheckedIn: (resourceName: string) => ({
+    actionType: ACTIVITY_TYPES.UPDATE,
+    resourceType: RESOURCE_TYPES.RESERVATION,
+    description: `Checked in to "${resourceName}"`,
+    sub_type: 'reservation_checkin' as const,
+  }),
+  reservationCheckedOut: (resourceName: string) => ({
+    actionType: ACTIVITY_TYPES.UPDATE,
+    resourceType: RESOURCE_TYPES.RESERVATION,
+    description: `Checked out from "${resourceName}"`,
+    sub_type: 'reservation_checkout' as const,
+  }),
+
+  // ── MAINTENANCE LOGS ──────────────────────────────────────────────
+  maintenanceLogCreated: (resourceName: string, maintenanceType: string) => ({
+    actionType: ACTIVITY_TYPES.CREATE,
+    resourceType: RESOURCE_TYPES.RESOURCE,
+    description: `Created ${maintenanceType} maintenance log for "${resourceName}"`,
+    sub_type: 'maintenance_log' as const,
+  }),
+  maintenanceLogUpdated: (resourceName: string, changes?: string[]) => ({
+    actionType: ACTIVITY_TYPES.UPDATE,
+    resourceType: RESOURCE_TYPES.RESOURCE,
+    description: `Updated maintenance log for "${resourceName}"${changes?.length ? ` (${changes.join(', ')})` : ''}`,
+    sub_type: 'maintenance_log' as const,
+  }),
+  maintenanceLogCompleted: (resourceName: string) => ({
+    actionType: ACTIVITY_TYPES.UPDATE,
+    resourceType: RESOURCE_TYPES.RESOURCE,
+    description: `Completed maintenance for "${resourceName}"`,
+    sub_type: 'maintenance_complete' as const,
+  }),
+  maintenanceLogCancelled: (resourceName: string) => ({
+    actionType: ACTIVITY_TYPES.UPDATE,
+    resourceType: RESOURCE_TYPES.RESOURCE,
+    description: `Cancelled maintenance for "${resourceName}"`,
+    sub_type: 'maintenance_cancel' as const,
+  }),
+  maintenanceLogDeleted: (resourceName: string) => ({
+    actionType: ACTIVITY_TYPES.DELETE,
+    resourceType: RESOURCE_TYPES.RESOURCE,
+    description: `Deleted maintenance log for "${resourceName}"`,
+    sub_type: 'maintenance_log' as const,
+  }),
+
+  // ── MAINTENANCE SCHEDULES ─────────────────────────────────────────
+  maintenanceScheduleCreated: (resourceName: string, frequency: string) => ({
+    actionType: ACTIVITY_TYPES.CREATE,
+    resourceType: RESOURCE_TYPES.RESOURCE,
+    description: `Created ${frequency} maintenance schedule for "${resourceName}"`,
+    sub_type: 'maintenance_schedule' as const,
+  }),
+  maintenanceScheduleUpdated: (resourceName: string, changes?: string[]) => ({
+    actionType: ACTIVITY_TYPES.UPDATE,
+    resourceType: RESOURCE_TYPES.RESOURCE,
+    description: `Updated maintenance schedule for "${resourceName}"${changes?.length ? ` (${changes.join(', ')})` : ''}`,
+    sub_type: 'maintenance_schedule' as const,
+  }),
+  maintenanceScheduleDeleted: (resourceName: string) => ({
+    actionType: ACTIVITY_TYPES.DELETE,
+    resourceType: RESOURCE_TYPES.RESOURCE,
+    description: `Deleted maintenance schedule for "${resourceName}"`,
+    sub_type: 'maintenance_schedule' as const,
   }),
 };
