@@ -30,3 +30,11 @@ jobs:
 
       - name: Check admission-counselor membership contract
         run: npm run check:admission-counselor-membership
+
+      - name: Check bug-module classifier parity
+        # Verifies bug_reports.module_name CASE in supabase/setup/01_tables.sql
+        # covers every slug in MODULES (lib/navigation/modules.ts). Without this,
+        # adding a new top-level module silently misclassifies its bugs as 'other'.
+        # See scripts/check-bug-module-classifier.mjs header for the full diagnostic
+        # and the 2026-05-05 audit that surfaced 22 missing slugs / 1,201 mis-tagged bugs.
+        run: node scripts/check-bug-module-classifier.mjs
