@@ -333,6 +333,18 @@ const config: ModuleNavConfig = {
           matchPaths: ['/admission/settings/assignment-rules'],
         },
         {
+          label: 'Lookups',
+          icon: 'Tag',
+          href: '/admission/settings/lookups',
+          matchPaths: [
+            '/admission/settings/lookups',
+            '/admission/settings/lookups/quotas',
+            '/admission/settings/lookups/community-categories',
+            '/admission/settings/lookups/accommodation-types',
+            '/admission/settings/lookups/data-quality',
+          ],
+        },
+        {
           label: 'Form Builder',
           icon: 'FormInput',
           href: '/admission/settings/forms',
