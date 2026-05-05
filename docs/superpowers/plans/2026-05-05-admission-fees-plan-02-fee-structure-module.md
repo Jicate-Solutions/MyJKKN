@@ -174,7 +174,7 @@ SELECT
     WHERE schemaname='public' AND tablename IN ('admission_fee_structures','admission_fee_structure_items'))
     AS index_count;
 ```
-Expected: `structure_cols=15`, `item_cols=6`, `index_count >= 4` (PK indexes + the named ones).
+Expected: `structure_cols=16`, `item_cols=6`, `index_count >= 4` (PK indexes + the named ones). _Correction applied 2026-05-05: original plan miscounted as 15._
 
 - [ ] **Step 5: Commit**
 ```bash
@@ -318,62 +318,47 @@ SELECT * FROM <permissions_table_name> WHERE key LIKE 'admission%' LIMIT 5;
 
 If a permissions catalogue table does NOT exist (some projects use a JSONB column on the `roles` table instead), check `roles` table structure for a `permissions` JSONB column. Adapt the migration accordingly.
 
-- [ ] **Step 2: Write the migration file** based on what Step 1 revealed. **Below is the most common shape** — adjust column names to match the project. If your project uses a JSONB-on-roles model, replace the INSERTs with `UPDATE roles SET permissions = permissions || '["admission_fees.read"]'::jsonb WHERE role_key IN (...)`.
+- [ ] **Step 2: Write the migration file** based on what Step 1 revealed.
+
+**This project uses the JSONB-on-`custom_roles` shape — confirmed during Plan 2 execution 2026-05-05.** Permissions live in `public.custom_roles.permissions` (jsonb, boolean-keyed). Resolver: `public.user_has_permission(text)` reads `cr.permissions->>permission_name`. NO separate `permissions` or `role_permissions` tables exist. Use the JSONB `UPDATE` form below; the older "separate tables" template that previously appeared here was wrong for this project and has been removed.
 
 ```sql
 -- ============================================================================
 -- 20260506100003 — Register admission_fees.{read,manage} permission keys
 -- ============================================================================
--- Adjust the INSERT shape to match your project's permissions catalogue:
--- - If you have a `permissions(key, name, module, ...)` table:
---     INSERT INTO permissions (key, name, module, description) VALUES (...)
--- - If you have a `role_permissions(role_id, permission_key)` join table:
---     INSERT INTO role_permissions (role_id, permission_key)
---     SELECT id, 'admission_fees.read' FROM roles
---      WHERE role_key IN ('counsellor','admission_counselor','expo_counselor','admin','super_admin')
--- - If you have a `roles.permissions` JSONB column:
---     UPDATE roles SET permissions = permissions || '["admission_fees.read"]'::jsonb
---      WHERE role_key IN (...)
+-- This project stores permissions as a JSONB column on public.custom_roles:
+--   custom_roles(id, role_key, role_name, permissions jsonb, ...)
+-- Resolver: public.user_has_permission(text) reads cr.permissions->>permission_name
 -- ============================================================================
 
--- Example assuming the catalogue is `permissions(key, name, module, description)`:
-INSERT INTO public.permissions (key, name, module, description) VALUES
-  ('admission_fees.read',    'View Admission Fee Structures',
-   'admission', 'Read access to fee structure definitions and resolved fee_items on enquiries'),
-  ('admission_fees.manage',  'Manage Admission Fee Structures',
-   'admission', 'CRUD access to fee structures, items, and lookup tables (quotas, communities, accommodations)')
-ON CONFLICT (key) DO NOTHING;
+-- Grant admission_fees.read to counselling-tier and admin-tier roles
+UPDATE public.custom_roles
+   SET permissions = permissions || '{"admission_fees.read": true}'::jsonb,
+       updated_at  = now()
+ WHERE role_key IN ('admission_counselor','expo_counselor','administrator','super_admin')
+   AND COALESCE(permissions->>'admission_fees.read','false') <> 'true';
 
--- Grant defaults (adjust role_key list to match your project's seed roles):
-INSERT INTO public.role_permissions (role_id, permission_key)
-SELECT r.id, p.key
-  FROM public.roles r
- CROSS JOIN (VALUES ('admission_fees.read')) p(key)
- WHERE r.role_key IN ('counsellor','admission_counselor','expo_counselor','admin','super_admin')
-ON CONFLICT DO NOTHING;
-
-INSERT INTO public.role_permissions (role_id, permission_key)
-SELECT r.id, p.key
-  FROM public.roles r
- CROSS JOIN (VALUES ('admission_fees.manage')) p(key)
- WHERE r.role_key IN ('admin','super_admin')
-ON CONFLICT DO NOTHING;
+-- Grant admission_fees.manage to admin-tier only
+UPDATE public.custom_roles
+   SET permissions = permissions || '{"admission_fees.manage": true}'::jsonb,
+       updated_at  = now()
+ WHERE role_key IN ('administrator','super_admin')
+   AND COALESCE(permissions->>'admission_fees.manage','false') <> 'true';
 ```
+
+_Note 2026-05-05: original plan listed `counsellor` and `admin` role_keys; neither exists in this project. Substituted `administrator` for `admin` and dropped `counsellor` (no exact equivalent — `learner_counselor` is a different domain). Final grants: 4 read, 2 manage._
 
 - [ ] **Step 3: Apply migration**.
 
 - [ ] **Step 4: Verify**
 ```sql
-SELECT key FROM public.permissions WHERE key LIKE 'admission_fees.%';
--- Expected: 2 rows.
-
-SELECT r.role_key, p.key
-  FROM public.role_permissions rp
-  JOIN public.roles r ON r.id = rp.role_id
-  JOIN public.permissions p ON p.key = rp.permission_key
- WHERE p.key LIKE 'admission_fees.%'
- ORDER BY 1, 2;
--- Expected: read granted to 5 roles, manage granted to 2 roles.
+SELECT role_key,
+       (permissions ? 'admission_fees.read')   AS has_read,
+       (permissions ? 'admission_fees.manage') AS has_manage
+  FROM public.custom_roles
+ WHERE role_key IN ('admission_counselor','expo_counselor','administrator','super_admin')
+ ORDER BY role_key;
+-- Expected: 4 rows. read=true on all 4; manage=true on administrator + super_admin only.
 ```
 
 - [ ] **Step 5: Commit**

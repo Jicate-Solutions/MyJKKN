@@ -39,7 +39,7 @@ This roadmap decomposes the spec into six sequential, module-wise plans. Each pl
 | # | Plan | Status | File | Depends On |
 |---|---|---|---|---|
 | 1 | Foundation — lookup tables + shadow-FK + settings scaffolding | ✅ Completed (2026-05-05) | [`2026-05-05-admission-fees-plan-01-foundation.md`](./2026-05-05-admission-fees-plan-01-foundation.md) | — |
-| 2 | Fee Structure module — matrix CRUD + builder UI + lookup admin UI | ⬜ Not started | _to be written after Plan 1_ | Plan 1 |
+| 2 | Fee Structure module — matrix CRUD + builder UI + lookup admin UI | ✅ Completed (2026-05-05) | [`2026-05-05-admission-fees-plan-02-fee-structure-module.md`](./2026-05-05-admission-fees-plan-02-fee-structure-module.md) | Plan 1 |
 | 3 | Resolution Engine + Finance Tab automation | ⬜ Not started | _to be written after Plan 2_ | Plans 1, 2 |
 | 4 | Atomic Account Transition + documents-checklist | ⬜ Not started | _to be written after Plan 3_ | Plans 1, 2, 3 |
 | 5 | Fee-Change Reconciliation + supersede + reallocate | ⬜ Not started | _to be written after Plan 4_ | Plans 1, 2, 3, 4 |
@@ -161,8 +161,41 @@ Foundation landed with 9 commits across 6 migrations, 1 type-extensions append, 
 - Lookup admin UI should expose a "Map unresolved values" surface that reads `data_quality_review` rows and lets admin map them to canonical lookup IDs (e.g. map `GQ` → quota.code='government'). This converts the 17 outstanding mapping decisions into actionable work.
 - Consider seeding additional canonical aliases (`GQ`, `MQ`, `GOVT`) directly in a follow-up migration to reduce the mapping queue.
 
-### Plan 2 retrospective
-_Not yet started._
+### Plan 2 retrospective (completed 2026-05-05)
+
+Plan 2 landed with 16 commits across 4 migrations, 1 service file, 1 activity-templates file, and 14 UI files (3 lookup admin pages + DQR mapper + landing + fee-structure builder with tree-rail + form + clone-dialog). Total: ~3,500 lines of new TypeScript code.
+
+**Permissions catalogue shape discovered** — project uses **JSONB on `public.custom_roles.permissions`**, NOT separate `permissions`/`role_permissions` tables. Resolver: `public.user_has_permission(text)` reads `cr.permissions->>permission_name` via active `user_roles` join. Plans 3-5 must use the same JSONB shape: `UPDATE custom_roles SET permissions = permissions || '{"admission_documents.manage": true}'::jsonb WHERE role_key IN (...)`.
+
+**Role-key naming corrections** — project has `admission_counselor`, `expo_counselor`, `administrator`, `super_admin`, `learner_counselor`. NO `counsellor` or `admin` keys. Plan 2 Task 3 substituted `administrator` for `admin`; future plans should reference the actual role_keys.
+
+**Canonical aliases reduced DQR queue from 17 → 10 pending rows.** quota unmatched dropped 1930 → 1393 (537 resolved by GQ/MQ/GOVT/7.5%/etc.); community unmatched dropped 395 → 240 (155 resolved by SC(A) variants). Remaining 10 pending values (LAPSE, FG, NOT SPECIFIED, COUNSELLING, PMSS, DNC, BC-CC, blanks) intentionally left for admin DQR review.
+
+**Service method substitutions discovered** (durable for Plans 3-5):
+- Degrees: `DegreeService.getDegreesByInstitution(institutionId)`
+- Departments: `DepartmentService.getDepartmentsByInstitutionAndDegree(institutionId, degreeId)`
+- Programs: `ProgramService.getProgramsByDepartment(departmentId)`
+- Admission years: `AdmissionYearService.getAdmissionYearsByInstitution(institutionId)`
+- Institution selector: `useInstitutionsWithAccess` hook driving shadcn `<Select>` directly (no wrapper)
+
+**Form pattern** — `react-hook-form` + `zod` + `@/components/ui/form` (FormField, FormItem, FormLabel, FormControl, FormDescription, FormMessage). Pattern: `app/(routes)/admission/settings/years/_components/admission-year-form.tsx`.
+
+**DataTable** — `@/components/data-table/data-table` exists but is heavyweight (URL state, sort, pagination, export). For simple list+actions pages (lookup admin), the manual `@/components/ui/table` is half the code with same UX. Use the heavyweight DataTable only when search/sort/URL state is needed.
+
+**Tree-rail came in larger than estimated** (989 lines vs 150). Reason: 8 heterogeneous dimensions = 8 typed `*Node` components rather than one generic recursive `<Branch>`. Coverage caching uses a `Map<"institutionId|yearId", Map<leafKey, item_count>>` owned by `InstitutionNode` so descendant leaves derive badges from a single `getCoverageReport` call per (institution, year). v1.5 could normalize this with a generic component.
+
+**v1.5 deferrals documented for Plan 6 / polish:**
+- Edit-with-warning on amount changes (currently static text; could query lead count for that fee structure)
+- Per-structure Clone button on individual rows (currently only the global Clone dialog)
+- `upsertItems` delta computation — local-only item removal needs to call `removeItem` at save time
+- Coverage cache invalidation could be per-(institution, year) instead of clearing all
+- `MapRowDialog` accommodation-type institution context — DQR rows don't carry institution; need parent-table lookup for v1.5
+
+**For Plan 3 to be aware of:**
+- Resolution engine RPC consumes `FeeStructureService.findByDimensions` — verified end-to-end during smoke
+- `admission_fee_adjustments` table doesn't exist yet (deferred to Plan 3)
+- Finance tab refactor in `learners/enquiries/_components/form-sections/finance-details.tsx` is the integration point
+- Permission keys still needed: `admission_fees.manage_adjustments`, `admission_fees.override`
 
 ### Plan 3 retrospective
 _Not yet started._
