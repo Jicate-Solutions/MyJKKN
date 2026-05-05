@@ -38,7 +38,7 @@ This roadmap decomposes the spec into six sequential, module-wise plans. Each pl
 
 | # | Plan | Status | File | Depends On |
 |---|---|---|---|---|
-| 1 | Foundation — lookup tables + shadow-FK + settings scaffolding | ⬜ Not started | [`2026-05-05-admission-fees-plan-01-foundation.md`](./2026-05-05-admission-fees-plan-01-foundation.md) | — |
+| 1 | Foundation — lookup tables + shadow-FK + settings scaffolding | ✅ Completed (2026-05-05) | [`2026-05-05-admission-fees-plan-01-foundation.md`](./2026-05-05-admission-fees-plan-01-foundation.md) | — |
 | 2 | Fee Structure module — matrix CRUD + builder UI + lookup admin UI | ⬜ Not started | _to be written after Plan 1_ | Plan 1 |
 | 3 | Resolution Engine + Finance Tab automation | ⬜ Not started | _to be written after Plan 2_ | Plans 1, 2 |
 | 4 | Atomic Account Transition + documents-checklist | ⬜ Not started | _to be written after Plan 3_ | Plans 1, 2, 3 |
@@ -149,8 +149,17 @@ When a plan is **blocked**:
 
 _(To be filled in after each plan completes.)_
 
-### Plan 1 retrospective
-_Not yet started._
+### Plan 1 retrospective (completed 2026-05-05)
+
+Foundation landed with 9 commits across 6 migrations, 1 type-extensions append, and 2 service files. All 4 lookup/settings tables exist with RLS active; 7 shadow-FK columns populated on learners_profiles + admission_leads; backfill matched 49% of quota / 92% of community / 85% of accommodation_type values from observed TEXT — 17 unmatched values surfaced in `data_quality_review` for admin to map (largest buckets are empty strings, plus abbreviation aliases like `GQ`/`MQ`/`GOVT` and the literal `NOT SPECIFIED`).
+
+**Two adjustments made during execution:**
+1. **`admission_leads` backfill removed from Task 5** — the plan assumed `admission_leads` mirrored `learners_profiles` and had legacy TEXT columns to migrate, but `admission_leads` is the CRM-stage table and never carried those fields as TEXT. The new shadow-FK columns will populate forward-only as new leads come in via the enquiry form. Plan file patched inline; six SQL statements removed from the Task 5 migration.
+2. **Type names prefixed with `AdmissionFee`** — `Quota` and `AccommodationType` already exist in `lib/constants/learner-dropdown-values.ts` as legacy TEXT-union types. The new types (Task 7) were renamed to `AdmissionFeeQuota`, `AdmissionFeeCommunityCategory`, `AdmissionFeeAccommodationType`, `AdmissionFeeAdmissionSettingsPerInstitution` to avoid collision. Tasks 8 and 9 plan content updated to match.
+
+**For Plan 2 to be aware of:**
+- Lookup admin UI should expose a "Map unresolved values" surface that reads `data_quality_review` rows and lets admin map them to canonical lookup IDs (e.g. map `GQ` → quota.code='government'). This converts the 17 outstanding mapping decisions into actionable work.
+- Consider seeding additional canonical aliases (`GQ`, `MQ`, `GOVT`) directly in a follow-up migration to reduce the mapping queue.
 
 ### Plan 2 retrospective
 _Not yet started._

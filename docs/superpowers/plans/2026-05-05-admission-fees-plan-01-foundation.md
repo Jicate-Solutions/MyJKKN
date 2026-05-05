@@ -181,7 +181,7 @@ WHERE EXISTS (
 );
 ```
 
-Expected output: 3 rows, with `column_count` of 9 for `quotas` and `community_categories` and 11 for `accommodation_types` (the institution-scoped one has institution_id + the unique index uses 2 cols). If any row missing, fix migration and re-apply.
+Expected output: 3 rows, with `column_count` of 9 for `quotas` and `community_categories` and 10 for `accommodation_types` (the institution-scoped one adds `institution_id` to the standard 9). If any row missing, fix migration and re-apply.
 
 - [ ] **Step 5: Commit**
 
@@ -539,39 +539,11 @@ UPDATE public.learners_profiles lp
     OR lower(trim(lp.accommodation_type)) = lower(a.name)
    );
 
--- ---------- 5. Repeat 2–4 for admission_leads ----------
-UPDATE public.admission_leads al
-   SET quota_id = q.id
-  FROM public.quotas q
- WHERE al.quota IS NOT NULL
-   AND al.quota_id IS NULL
-   AND (
-       lower(trim(al.quota)) = lower(q.code)
-    OR lower(trim(al.quota)) = lower(q.name)
-   );
+-- NOTE: admission_leads has no legacy TEXT columns for quota/community/accommodation_type.
+-- The shadow-FK columns added in Task 2 will be populated forward-only as new leads
+-- come in via the enquiry form. No backfill needed for admission_leads.
 
-UPDATE public.admission_leads al
-   SET community_category_id = c.id
-  FROM public.community_categories c
- WHERE al.community IS NOT NULL
-   AND al.community_category_id IS NULL
-   AND (
-       lower(trim(al.community)) = lower(c.code)
-    OR lower(trim(al.community)) = lower(c.name)
-   );
-
-UPDATE public.admission_leads al
-   SET accommodation_type_id = a.id
-  FROM public.accommodation_types a
- WHERE al.accommodation_type IS NOT NULL
-   AND al.accommodation_type_id IS NULL
-   AND a.institution_id = al.institution_id
-   AND (
-       lower(trim(al.accommodation_type)) = lower(a.code)
-    OR lower(trim(al.accommodation_type)) = lower(a.name)
-   );
-
--- ---------- 6. Surface unmatched values to data_quality_review ----------
+-- ---------- 5. Surface unmatched values to data_quality_review (learners_profiles only) ----------
 INSERT INTO public.data_quality_review (table_name, column_name, observed_value, occurrence_count)
 SELECT 'learners_profiles', 'quota', lp.quota, count(*)
   FROM public.learners_profiles lp
@@ -596,30 +568,6 @@ SELECT 'learners_profiles', 'accommodation_type', lp.accommodation_type, count(*
 ON CONFLICT (table_name, column_name, observed_value) DO UPDATE
    SET occurrence_count = EXCLUDED.occurrence_count, updated_at = now();
 
--- ---------- 7. data_quality_review for admission_leads ----------
-INSERT INTO public.data_quality_review (table_name, column_name, observed_value, occurrence_count)
-SELECT 'admission_leads', 'quota', al.quota, count(*)
-  FROM public.admission_leads al
- WHERE al.quota IS NOT NULL AND al.quota_id IS NULL
- GROUP BY al.quota
-ON CONFLICT (table_name, column_name, observed_value) DO UPDATE
-   SET occurrence_count = EXCLUDED.occurrence_count, updated_at = now();
-
-INSERT INTO public.data_quality_review (table_name, column_name, observed_value, occurrence_count)
-SELECT 'admission_leads', 'community', al.community, count(*)
-  FROM public.admission_leads al
- WHERE al.community IS NOT NULL AND al.community_category_id IS NULL
- GROUP BY al.community
-ON CONFLICT (table_name, column_name, observed_value) DO UPDATE
-   SET occurrence_count = EXCLUDED.occurrence_count, updated_at = now();
-
-INSERT INTO public.data_quality_review (table_name, column_name, observed_value, occurrence_count)
-SELECT 'admission_leads', 'accommodation_type', al.accommodation_type, count(*)
-  FROM public.admission_leads al
- WHERE al.accommodation_type IS NOT NULL AND al.accommodation_type_id IS NULL
- GROUP BY al.accommodation_type
-ON CONFLICT (table_name, column_name, observed_value) DO UPDATE
-   SET occurrence_count = EXCLUDED.occurrence_count, updated_at = now();
 ```
 
 - [ ] **Step 3: Apply migration**
@@ -951,15 +899,15 @@ Create `lib/services/admission/lookup-service.ts` with the following content. Fo
 ```typescript
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import type {
-  Quota,
-  CreateQuotaInput,
-  UpdateQuotaInput,
-  CommunityCategory,
-  CreateCommunityCategoryInput,
-  UpdateCommunityCategoryInput,
-  AccommodationType,
-  CreateAccommodationTypeInput,
-  UpdateAccommodationTypeInput,
+  AdmissionFeeQuota,
+  CreateAdmissionFeeQuotaInput,
+  UpdateAdmissionFeeQuotaInput,
+  AdmissionFeeCommunityCategory,
+  CreateAdmissionFeeCommunityCategoryInput,
+  UpdateAdmissionFeeCommunityCategoryInput,
+  AdmissionFeeAccommodationType,
+  CreateAdmissionFeeAccommodationTypeInput,
+  UpdateAdmissionFeeAccommodationTypeInput,
 } from '@/types/admission';
 
 /**
@@ -972,7 +920,7 @@ import type {
 export class LookupService {
   // ---------------- quotas (global) ----------------
 
-  static async listQuotas(activeOnly = true): Promise<Quota[]> {
+  static async listQuotas(activeOnly = true): Promise<AdmissionFeeQuota[]> {
     const supabase = createClientSupabaseClient();
     const query = supabase
       .from('quotas')
@@ -985,14 +933,14 @@ export class LookupService {
     return data ?? [];
   }
 
-  static async getQuota(id: string): Promise<Quota | null> {
+  static async getQuota(id: string): Promise<AdmissionFeeQuota | null> {
     const supabase = createClientSupabaseClient();
     const { data, error } = await supabase.from('quotas').select('*').eq('id', id).maybeSingle();
     if (error) throw error;
     return data;
   }
 
-  static async createQuota(input: CreateQuotaInput): Promise<Quota> {
+  static async createQuota(input: CreateAdmissionFeeQuotaInput): Promise<AdmissionFeeQuota> {
     const supabase = createClientSupabaseClient();
     const { data, error } = await supabase
       .from('quotas')
@@ -1003,7 +951,7 @@ export class LookupService {
     return data;
   }
 
-  static async updateQuota(id: string, input: UpdateQuotaInput): Promise<Quota> {
+  static async updateQuota(id: string, input: UpdateAdmissionFeeQuotaInput): Promise<AdmissionFeeQuota> {
     const supabase = createClientSupabaseClient();
     const { data, error } = await supabase
       .from('quotas')
@@ -1023,7 +971,7 @@ export class LookupService {
 
   // ---------------- community_categories (global) ----------------
 
-  static async listCommunityCategories(activeOnly = true): Promise<CommunityCategory[]> {
+  static async listCommunityCategories(activeOnly = true): Promise<AdmissionFeeCommunityCategory[]> {
     const supabase = createClientSupabaseClient();
     const query = supabase
       .from('community_categories')
@@ -1036,7 +984,7 @@ export class LookupService {
     return data ?? [];
   }
 
-  static async getCommunityCategory(id: string): Promise<CommunityCategory | null> {
+  static async getCommunityCategory(id: string): Promise<AdmissionFeeCommunityCategory | null> {
     const supabase = createClientSupabaseClient();
     const { data, error } = await supabase
       .from('community_categories')
@@ -1047,7 +995,7 @@ export class LookupService {
     return data;
   }
 
-  static async createCommunityCategory(input: CreateCommunityCategoryInput): Promise<CommunityCategory> {
+  static async createCommunityCategory(input: CreateAdmissionFeeCommunityCategoryInput): Promise<AdmissionFeeCommunityCategory> {
     const supabase = createClientSupabaseClient();
     const { data, error } = await supabase
       .from('community_categories')
@@ -1060,8 +1008,8 @@ export class LookupService {
 
   static async updateCommunityCategory(
     id: string,
-    input: UpdateCommunityCategoryInput,
-  ): Promise<CommunityCategory> {
+    input: UpdateAdmissionFeeCommunityCategoryInput,
+  ): Promise<AdmissionFeeCommunityCategory> {
     const supabase = createClientSupabaseClient();
     const { data, error } = await supabase
       .from('community_categories')
@@ -1087,7 +1035,7 @@ export class LookupService {
   static async listAccommodationTypes(
     institutionId: string,
     activeOnly = true,
-  ): Promise<AccommodationType[]> {
+  ): Promise<AdmissionFeeAccommodationType[]> {
     const supabase = createClientSupabaseClient();
     const query = supabase
       .from('accommodation_types')
@@ -1101,7 +1049,7 @@ export class LookupService {
     return data ?? [];
   }
 
-  static async getAccommodationType(id: string): Promise<AccommodationType | null> {
+  static async getAccommodationType(id: string): Promise<AdmissionFeeAccommodationType | null> {
     const supabase = createClientSupabaseClient();
     const { data, error } = await supabase
       .from('accommodation_types')
@@ -1112,7 +1060,7 @@ export class LookupService {
     return data;
   }
 
-  static async createAccommodationType(input: CreateAccommodationTypeInput): Promise<AccommodationType> {
+  static async createAccommodationType(input: CreateAdmissionFeeAccommodationTypeInput): Promise<AdmissionFeeAccommodationType> {
     const supabase = createClientSupabaseClient();
     const { data, error } = await supabase
       .from('accommodation_types')
@@ -1125,8 +1073,8 @@ export class LookupService {
 
   static async updateAccommodationType(
     id: string,
-    input: UpdateAccommodationTypeInput,
-  ): Promise<AccommodationType> {
+    input: UpdateAdmissionFeeAccommodationTypeInput,
+  ): Promise<AdmissionFeeAccommodationType> {
     const supabase = createClientSupabaseClient();
     const { data, error } = await supabase
       .from('accommodation_types')
@@ -1198,8 +1146,8 @@ Create `lib/services/admission/admission-settings-service.ts`:
 ```typescript
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import type {
-  AdmissionSettingsPerInstitution,
-  UpsertAdmissionSettingsInput,
+  AdmissionFeeAdmissionSettingsPerInstitution,
+  UpsertAdmissionFeeAdmissionSettingsInput,
 } from '@/types/admission';
 
 /**
@@ -1213,7 +1161,7 @@ import type {
 export class AdmissionSettingsService {
   static async getByInstitution(
     institutionId: string,
-  ): Promise<AdmissionSettingsPerInstitution | null> {
+  ): Promise<AdmissionFeeAdmissionSettingsPerInstitution | null> {
     const supabase = createClientSupabaseClient();
     const { data, error } = await supabase
       .from('admission_settings_per_institution')
@@ -1225,8 +1173,8 @@ export class AdmissionSettingsService {
   }
 
   static async upsert(
-    input: UpsertAdmissionSettingsInput,
-  ): Promise<AdmissionSettingsPerInstitution> {
+    input: UpsertAdmissionFeeAdmissionSettingsInput,
+  ): Promise<AdmissionFeeAdmissionSettingsPerInstitution> {
     const supabase = createClientSupabaseClient();
     const { data, error } = await supabase
       .from('admission_settings_per_institution')
