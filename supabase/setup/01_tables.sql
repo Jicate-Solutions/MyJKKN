@@ -2195,6 +2195,30 @@ CREATE TRIGGER trg_accommodation_types_touch
     BEFORE UPDATE ON public.accommodation_types
     FOR EACH ROW EXECUTE FUNCTION public._touch_updated_at();
 
+-- Shadow-FK columns on learners_profiles + admission_leads (added 2026-05-05)
+-- Migration: supabase/migrations/20260505100002_add_shadow_fk_columns_learners_admission_leads.sql
+-- Spec: §6.1 — gradual cutover per the admission_year_id precedent
+ALTER TABLE public.learners_profiles
+    ADD COLUMN IF NOT EXISTS quota_id              uuid REFERENCES public.quotas(id),
+    ADD COLUMN IF NOT EXISTS community_category_id uuid REFERENCES public.community_categories(id),
+    ADD COLUMN IF NOT EXISTS accommodation_type_id uuid REFERENCES public.accommodation_types(id),
+    ADD COLUMN IF NOT EXISTS legacy_fee_mode       boolean NOT NULL DEFAULT true;
+
+ALTER TABLE public.admission_leads
+    ADD COLUMN IF NOT EXISTS quota_id              uuid REFERENCES public.quotas(id),
+    ADD COLUMN IF NOT EXISTS community_category_id uuid REFERENCES public.community_categories(id),
+    ADD COLUMN IF NOT EXISTS accommodation_type_id uuid REFERENCES public.accommodation_types(id);
+
+CREATE INDEX IF NOT EXISTS ix_learners_profiles_matrix_full
+    ON public.learners_profiles
+       (institution_id, degree_id, department_id, program_id,
+        quota_id, community_category_id, accommodation_type_id, admission_year_id)
+    WHERE legacy_fee_mode = false;
+
+CREATE INDEX IF NOT EXISTS ix_admission_leads_shadow_fks
+    ON public.admission_leads
+       (quota_id, community_category_id, accommodation_type_id);
+
 -- =====================================================
 -- SECTION: STARTUP STUDIO MODULE
 -- Created: 2026-03-05 - Startup Studio events platform
