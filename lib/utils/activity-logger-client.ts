@@ -645,3 +645,11 @@ export const ResourceManagementActivityTemplates = {
     sub_type: 'maintenance_schedule' as const,
   }),
 };
+
+/**
+ * Admission Fees module activity templates (Plan 2).
+ * Re-exported from lib/utils/admission-fees-activity-templates.ts so
+ * consumers have a single import surface (matches precedent from
+ * AcademicActivityTemplates/ResourceManagementActivityTemplates).
+ */
+export { AdmissionFeesActivityTemplates } from './admission-fees-activity-templates';

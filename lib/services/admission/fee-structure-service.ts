@@ -1,4 +1,6 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { logActivityForCurrentUser } from '@/lib/utils/activity-logger-client';
+import { AdmissionFeesActivityTemplates } from '@/lib/utils/admission-fees-activity-templates';
 import type {
   AdmissionFeeStructure,
   AdmissionFeeStructureItem,
@@ -85,6 +87,16 @@ export class FeeStructureService {
 
     const fullRow = await this.getWithItems(created.id);
     if (!fullRow) throw new Error('fee_structure_create_failed_to_read_back');
+
+    void logActivityForCurrentUser({
+      actionType: 'create',
+      resourceType: 'admission_fee_structure',
+      resourceId: fullRow.id,
+      resourceName: fullRow.name,
+      description: AdmissionFeesActivityTemplates.fee_structure.created(fullRow.name),
+      institutionId: fullRow.institution_id,
+    });
+
     return fullRow;
   }
 
@@ -97,6 +109,27 @@ export class FeeStructureService {
       .select('*')
       .single();
     if (error) throw error;
+
+    // Choose template based on the status transition or generic update.
+    const template =
+      input.status === 'archived' ? AdmissionFeesActivityTemplates.fee_structure.archived(data.name)
+      : input.status === 'active'   ? AdmissionFeesActivityTemplates.fee_structure.activated(data.name)
+      :                               AdmissionFeesActivityTemplates.fee_structure.updated(data.name);
+
+    const actionType =
+      input.status === 'archived' ? 'archive'
+      : input.status === 'active'   ? 'activate'
+      :                               'update';
+
+    void logActivityForCurrentUser({
+      actionType,
+      resourceType: 'admission_fee_structure',
+      resourceId: data.id,
+      resourceName: data.name,
+      description: template,
+      institutionId: data.institution_id,
+    });
+
     return data;
   }
 
