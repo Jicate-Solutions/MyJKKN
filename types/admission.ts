@@ -1527,3 +1527,89 @@ export type UpsertAdmissionFeeAdmissionSettingsInput = Partial<
   institution_id: string;
 };
 
+
+// ============================================================================
+// Admission Fee Structure module — Plan 2 types
+// ============================================================================
+// Spec: §6.2
+// Plan: docs/superpowers/plans/2026-05-05-admission-fees-plan-02-fee-structure-module.md Task 5
+
+export type AdmissionFeeStructureStatus = 'draft' | 'active' | 'archived';
+
+export interface AdmissionFeeStructure {
+  id: string;
+  institution_id: string;
+  degree_id: string;
+  department_id: string;
+  programme_id: string;
+  quota_id: string;
+  community_category_id: string;
+  accommodation_type_id: string;
+  admission_year_id: string;
+  name: string;
+  status: AdmissionFeeStructureStatus;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+  created_by: string | null;
+  updated_by: string | null;
+}
+
+export interface AdmissionFeeStructureItem {
+  id: string;
+  fee_structure_id: string;
+  billing_category_id: string;
+  amount: number;
+  is_optional: boolean;
+  sort_order: number;
+}
+
+export interface AdmissionFeeStructureWithItems extends AdmissionFeeStructure {
+  items: AdmissionFeeStructureItem[];
+}
+
+export type CreateAdmissionFeeStructureInput =
+  Pick<
+    AdmissionFeeStructure,
+    | 'institution_id'
+    | 'degree_id'
+    | 'department_id'
+    | 'programme_id'
+    | 'quota_id'
+    | 'community_category_id'
+    | 'accommodation_type_id'
+    | 'admission_year_id'
+    | 'name'
+  > &
+  Partial<Pick<AdmissionFeeStructure, 'status' | 'notes'>> & {
+    items: Array<Pick<AdmissionFeeStructureItem, 'billing_category_id' | 'amount'> &
+      Partial<Pick<AdmissionFeeStructureItem, 'is_optional' | 'sort_order'>>>;
+  };
+
+export type UpdateAdmissionFeeStructureInput =
+  Partial<Pick<AdmissionFeeStructure, 'name' | 'status' | 'notes'>>;
+
+export interface FeeStructureMatrixDimensions {
+  institution_id: string;
+  degree_id: string;
+  department_id: string;
+  programme_id: string;
+  quota_id: string;
+  community_category_id: string;
+  accommodation_type_id: string;
+  admission_year_id: string;
+}
+
+/** Coverage report row — one per (institution, academic_year) leaf in the tree */
+export interface FeeStructureCoverageReportRow {
+  institution_id: string;
+  degree_id: string;
+  department_id: string;
+  programme_id: string;
+  quota_id: string;
+  community_category_id: string;
+  accommodation_type_id: string;
+  admission_year_id: string;
+  has_structure: boolean;
+  item_count: number;
+}
