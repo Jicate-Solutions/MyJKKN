@@ -2219,6 +2219,29 @@ CREATE INDEX IF NOT EXISTS ix_admission_leads_shadow_fks
     ON public.admission_leads
        (quota_id, community_category_id, accommodation_type_id);
 
+-- admission_settings_per_institution — feature-flag + per-institution config home
+-- Migration: supabase/migrations/20260505100003_create_admission_settings_per_institution.sql
+-- Spec: §6.6
+-- One row per institution; the seeding INSERT ... ON CONFLICT ran via the
+-- migration above. Do NOT re-run that seed from this setup file.
+CREATE TABLE IF NOT EXISTS public.admission_settings_per_institution (
+    id                                          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    institution_id                              uuid NOT NULL UNIQUE REFERENCES public.institutions(id) ON DELETE CASCADE,
+    use_fee_structures                          boolean NOT NULL DEFAULT false,
+    required_documents_for_account_transition   jsonb   NOT NULL DEFAULT '["pan","aadhaar","parent_id","agreement_form"]'::jsonb,
+    pre_submit_dialog_enabled                   boolean NOT NULL DEFAULT true,
+    status_change_dialog_enabled                boolean NOT NULL DEFAULT true,
+    created_at                                  timestamptz NOT NULL DEFAULT now(),
+    updated_at                                  timestamptz NOT NULL DEFAULT now(),
+    created_by                                  uuid REFERENCES public.profiles(id) ON DELETE SET NULL,
+    updated_by                                  uuid REFERENCES public.profiles(id) ON DELETE SET NULL
+);
+
+DROP TRIGGER IF EXISTS trg_admission_settings_touch ON public.admission_settings_per_institution;
+CREATE TRIGGER trg_admission_settings_touch
+    BEFORE UPDATE ON public.admission_settings_per_institution
+    FOR EACH ROW EXECUTE FUNCTION public._touch_updated_at();
+
 -- =====================================================
 -- SECTION: STARTUP STUDIO MODULE
 -- Created: 2026-03-05 - Startup Studio events platform
