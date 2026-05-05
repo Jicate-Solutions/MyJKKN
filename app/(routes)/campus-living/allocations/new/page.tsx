@@ -14,6 +14,7 @@ import { useCreateHostelAllocation } from '@/hooks/campus-living/use-hostel-allo
 import { useHostelBlocks } from '@/hooks/campus-living/use-hostel-blocks';
 import { useRoomsByBlock } from '@/hooks/campus-living/use-hostel-rooms';
 import { useBedsByRoom } from '@/hooks/campus-living/use-hostel-beds';
+import { useSearchStudentsByQuery } from '@/hooks/billing/use-student-search';
 import {
   ArrowLeft,
   Save,
@@ -63,6 +64,10 @@ export default function NewAllocationPage() {
   const blocks = blocksResult?.data;
   const { data: rooms } = useRoomsByBlock(formData.block_id);
   const { data: beds } = useBedsByRoom(formData.room_id);
+
+  // Real student search — replaces previous hardcoded placeholder list (BUG-003865)
+  const { data: searchResults, isLoading: studentsLoading } =
+    useSearchStudentsByQuery(studentSearch, profile?.institution_id, 10);
 
   const handleChange = (field: string, value: string) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
@@ -166,47 +171,57 @@ export default function NewAllocationPage() {
                   />
                 </div>
 
-                {/* Search Results (Placeholder) */}
+                {/* Search Results — wired to real learner-search (BUG-003865) */}
                 <div className="space-y-2">
-                  {[
-                    { id: 'l1', name: 'Amit Kumar', roll: 'CS2025001', dept: 'Computer Science', semester: '2nd Sem' },
-                    { id: 'l2', name: 'Sneha Gupta', roll: 'EC2025010', dept: 'Electronics', semester: '2nd Sem' },
-                    { id: 'l3', name: 'Rohan Das', roll: 'ME2025008', dept: 'Mechanical', semester: '2nd Sem' },
-                  ].filter((s) =>
-                    studentSearch.length > 0 &&
-                    (s.name.toLowerCase().includes(studentSearch.toLowerCase()) ||
-                     s.roll.toLowerCase().includes(studentSearch.toLowerCase()))
-                  ).map((student) => (
-                    <div
-                      key={student.id}
-                      onClick={() => {
-                        handleChange('learner_id', student.id);
-                        handleChange('student_name', student.name);
-                      }}
-                      className={`flex items-center justify-between p-3 border rounded-lg cursor-pointer transition-colors ${
-                        formData.learner_id === student.id ? 'border-primary bg-primary/5' : 'hover:bg-muted/50'
-                      }`}
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className="h-10 w-10 rounded-full bg-muted flex items-center justify-center">
-                          <User className="h-5 w-5 text-muted-foreground" />
+                  {studentsLoading && studentSearch.length >= 2 && (
+                    <p className="text-sm text-muted-foreground text-center py-4">
+                      Searching…
+                    </p>
+                  )}
+                  {searchResults?.map((student) => {
+                    const fullName = `${student.first_name ?? ''} ${student.last_name ?? ''}`.trim() || '—';
+                    const subline = [student.roll_number, student.mobile_number]
+                      .filter(Boolean)
+                      .join(' · ') || '—';
+                    return (
+                      <div
+                        key={student.id}
+                        onClick={() => {
+                          handleChange('learner_id', student.id);
+                          handleChange('student_name', fullName);
+                        }}
+                        className={`flex items-center justify-between p-3 border rounded-lg cursor-pointer transition-colors ${
+                          formData.learner_id === student.id ? 'border-primary bg-primary/5' : 'hover:bg-muted/50'
+                        }`}
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="h-10 w-10 rounded-full bg-muted flex items-center justify-center">
+                            <User className="h-5 w-5 text-muted-foreground" />
+                          </div>
+                          <div>
+                            <p className="font-medium">{fullName}</p>
+                            <p className="text-sm text-muted-foreground">{subline}</p>
+                          </div>
                         </div>
-                        <div>
-                          <p className="font-medium">{student.name}</p>
-                          <p className="text-sm text-muted-foreground">{student.roll} &middot; {student.dept} &middot; {student.semester}</p>
-                        </div>
+                        {formData.learner_id === student.id && (
+                          <div className="h-5 w-5 rounded-full bg-primary flex items-center justify-center">
+                            <svg className="h-3 w-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                            </svg>
+                          </div>
+                        )}
                       </div>
-                      {formData.learner_id === student.id && (
-                        <div className="h-5 w-5 rounded-full bg-primary flex items-center justify-center">
-                          <svg className="h-3 w-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                          </svg>
-                        </div>
-                      )}
-                    </div>
-                  ))}
+                    );
+                  })}
                   {studentSearch.length > 0 && studentSearch.length < 2 && (
-                    <p className="text-sm text-muted-foreground text-center py-4">Type at least 2 characters to search</p>
+                    <p className="text-sm text-muted-foreground text-center py-4">
+                      Type at least 2 characters to search
+                    </p>
+                  )}
+                  {studentSearch.length >= 2 && !studentsLoading && (searchResults?.length ?? 0) === 0 && (
+                    <p className="text-sm text-muted-foreground text-center py-4">
+                      No students found matching &quot;{studentSearch}&quot;
+                    </p>
                   )}
                 </div>
 
