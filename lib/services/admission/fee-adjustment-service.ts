@@ -43,11 +43,13 @@ export class FeeAdjustmentService {
     await this.resolveAndPersist(input.learner_id);
 
     // Log activity
-    await logActivityForCurrentUser(
-      'fee_adjustment.added',
-      AdmissionFeesActivityTemplates.fee_adjustment.added(input.reason_code, input.delta_amount),
-      { learner_id: input.learner_id, adjustment_id: data.id },
-    );
+    await logActivityForCurrentUser({
+      actionType: 'fee_adjustment.added',
+      resourceType: 'learner',
+      resourceId: input.learner_id,
+      description: AdmissionFeesActivityTemplates.fee_adjustment.added(input.reason_code, input.delta_amount),
+      metadata: { learner_id: input.learner_id, adjustment_id: data.id },
+    });
     return data;
   }
 
@@ -62,11 +64,13 @@ export class FeeAdjustmentService {
     if (error) throw error;
 
     await this.resolveAndPersist(data.learner_id);
-    await logActivityForCurrentUser(
-      'fee_adjustment.updated',
-      AdmissionFeesActivityTemplates.fee_adjustment.updated(data.reason_code, data.delta_amount),
-      { learner_id: data.learner_id, adjustment_id: id },
-    );
+    await logActivityForCurrentUser({
+      actionType: 'fee_adjustment.updated',
+      resourceType: 'learner',
+      resourceId: data.learner_id,
+      description: AdmissionFeesActivityTemplates.fee_adjustment.updated(data.reason_code, data.delta_amount),
+      metadata: { learner_id: data.learner_id, adjustment_id: id },
+    });
     return data;
   }
 
@@ -87,11 +91,13 @@ export class FeeAdjustmentService {
     if (deleteError) throw deleteError;
 
     await this.resolveAndPersist(row.learner_id);
-    await logActivityForCurrentUser(
-      'fee_adjustment.removed',
-      AdmissionFeesActivityTemplates.fee_adjustment.removed(row.reason_code),
-      { learner_id: row.learner_id, adjustment_id: id },
-    );
+    await logActivityForCurrentUser({
+      actionType: 'fee_adjustment.removed',
+      resourceType: 'learner',
+      resourceId: row.learner_id,
+      description: AdmissionFeesActivityTemplates.fee_adjustment.removed(row.reason_code),
+      metadata: { learner_id: row.learner_id, adjustment_id: id },
+    });
   }
 
   /** Soft-revert: status='reversed' instead of delete (keeps audit trail). */

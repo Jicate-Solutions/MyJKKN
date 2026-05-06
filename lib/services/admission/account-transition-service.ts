@@ -27,24 +27,30 @@ export class AccountTransitionService {
 
     // Activity logs — written from caller's session for honest audit
     await Promise.all([
-      logActivityForCurrentUser(
-        'lifecycle.account_transition',
-        AdmissionFeesActivityTemplates.lifecycle.account_transition(result.bills_generated),
-        { learner_id: payload.learner_id, bills_generated: result.bills_generated },
-      ),
+      logActivityForCurrentUser({
+        actionType: 'lifecycle.account_transition',
+        resourceType: 'learner',
+        resourceId: payload.learner_id,
+        description: AdmissionFeesActivityTemplates.lifecycle.account_transition(result.bills_generated),
+        metadata: { learner_id: payload.learner_id, bills_generated: result.bills_generated },
+      }),
       ...payload.received_documents.map((d) =>
-        logActivityForCurrentUser(
-          'documents.received',
-          AdmissionFeesActivityTemplates.documents.received(d.doc_type, d.received_via),
-          { learner_id: payload.learner_id, doc_type: d.doc_type },
-        ),
+        logActivityForCurrentUser({
+          actionType: 'documents.received',
+          resourceType: 'learner',
+          resourceId: payload.learner_id,
+          description: AdmissionFeesActivityTemplates.documents.received(d.doc_type, d.received_via),
+          metadata: { learner_id: payload.learner_id, doc_type: d.doc_type },
+        }),
       ),
       result.bills_generated > 0
-        ? logActivityForCurrentUser(
-            'bill.auto_generated',
-            AdmissionFeesActivityTemplates.bill.auto_generated(result.bills_generated),
-            { learner_id: payload.learner_id, count: result.bills_generated },
-          )
+        ? logActivityForCurrentUser({
+            actionType: 'bill.auto_generated',
+            resourceType: 'learner',
+            resourceId: payload.learner_id,
+            description: AdmissionFeesActivityTemplates.bill.auto_generated(result.bills_generated),
+            metadata: { learner_id: payload.learner_id, count: result.bills_generated },
+          })
         : Promise.resolve(),
     ]);
 
