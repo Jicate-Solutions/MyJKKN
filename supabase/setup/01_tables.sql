@@ -5685,3 +5685,38 @@ DROP TRIGGER IF EXISTS trg_student_credit_balances_touch ON public.student_credi
 CREATE TRIGGER trg_student_credit_balances_touch
     BEFORE UPDATE ON public.student_credit_balances
     FOR EACH ROW EXECUTE FUNCTION public._touch_updated_at();
+
+-- ============================================================================
+-- Plan 5 — Extend billing for supersede + reallocation (Spec §6.5)
+-- ============================================================================
+
+ALTER TABLE public.billing_student_bills
+    ADD COLUMN IF NOT EXISTS superseded_by_bill_id uuid REFERENCES public.billing_student_bills(id);
+
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.table_constraints
+         WHERE table_schema='public' AND table_name='billing_student_bills'
+           AND constraint_type='CHECK'
+           AND constraint_name LIKE '%status%'
+    ) THEN
+        EXECUTE (
+            SELECT format('ALTER TABLE public.billing_student_bills DROP CONSTRAINT %I', constraint_name)
+              FROM information_schema.table_constraints
+             WHERE table_schema='public' AND table_name='billing_student_bills'
+               AND constraint_type='CHECK'
+               AND constraint_name LIKE '%status%'
+             LIMIT 1
+        );
+    END IF;
+END$$;
+
+ALTER TABLE public.billing_student_bills
+    ADD CONSTRAINT billing_student_bills_status_check
+    CHECK (status IN ('unpaid','partially_paid','paid','superseded'));
+
+ALTER TABLE public.billing_receipt_items
+    ADD COLUMN IF NOT EXISTS allocation_reason text NOT NULL DEFAULT 'original_payment'
+        CHECK (allocation_reason IN
+            ('original_payment','fee_structure_change_reallocation','manual_reallocation'));
