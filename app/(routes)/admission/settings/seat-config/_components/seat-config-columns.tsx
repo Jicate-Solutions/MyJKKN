@@ -5,7 +5,7 @@ import { DataTableColumnHeader } from '@/components/data-table/column-header';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { CheckCircle, Save, Loader2, Pencil } from 'lucide-react';
+import { CheckCircle, Save, Loader2, Pencil, SlidersHorizontal } from 'lucide-react';
 
 // One row = one admission year record (per-program-per-cohort).
 // Seat count lives directly on admission_years.sanctioned_intake.
@@ -27,6 +27,7 @@ interface ColumnFactoryOptions {
   onUpdate: (admissionYearId: string, value: number) => void;
   onSave: (row: AdmissionYearRow) => void;
   onEdit: (row: AdmissionYearRow) => void;
+  onConfigureQuotas: (row: AdmissionYearRow) => void;
 }
 
 function StatusBadge({ row }: { row: AdmissionYearRow }) {
@@ -55,7 +56,8 @@ function StatusBadge({ row }: { row: AdmissionYearRow }) {
 export function createSeatConfigColumns({
   onUpdate,
   onSave,
-  onEdit
+  onEdit,
+  onConfigureQuotas
 }: ColumnFactoryOptions): ColumnDef<AdmissionYearRow>[] {
   return [
     {
@@ -152,15 +154,26 @@ export function createSeatConfigColumns({
       id: 'actions',
       header: () => <span className='sr-only'>Actions</span>,
       cell: ({ row }) => (
-        <Button
-          size='sm'
-          variant='ghost'
-          className='h-7 w-7 p-0'
-          onClick={() => onEdit(row.original)}
-          title='Edit seats'
-        >
-          <Pencil className='h-3.5 w-3.5' />
-        </Button>
+        <div className='flex items-center gap-1 justify-end'>
+          <Button
+            size='sm'
+            variant='ghost'
+            className='h-7 w-7 p-0'
+            onClick={() => onConfigureQuotas(row.original)}
+            title='Configure quota allocations'
+          >
+            <SlidersHorizontal className='h-3.5 w-3.5' />
+          </Button>
+          <Button
+            size='sm'
+            variant='ghost'
+            className='h-7 w-7 p-0'
+            onClick={() => onEdit(row.original)}
+            title='Edit seats'
+          >
+            <Pencil className='h-3.5 w-3.5' />
+          </Button>
+        </div>
       )
     }
   ];

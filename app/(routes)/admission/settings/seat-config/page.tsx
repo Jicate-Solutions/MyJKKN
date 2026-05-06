@@ -33,6 +33,7 @@ import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import { createSeatConfigColumns } from './_components/seat-config-columns';
 import { EditSeatDialog } from './_components/edit-seat-dialog';
+import { QuotaSeatsDialog } from './_components/quota-seats-dialog';
 import type { AdmissionYearRow } from './_components/seat-config-columns';
 import toast from 'react-hot-toast';
 
@@ -103,6 +104,7 @@ export default function SeatConfigPage() {
   const [loadingData, setLoadingData] = useState(false);
   const [savingAll, setSavingAll] = useState(false);
   const [editRow, setEditRow] = useState<AdmissionYearRow | null>(null);
+  const [quotaDialogRow, setQuotaDialogRow] = useState<AdmissionYearRow | null>(null);
 
   // Auto-pick first institution once list loads
   useEffect(() => {
@@ -200,7 +202,8 @@ export default function SeatConfigPage() {
       createSeatConfigColumns({
         onUpdate: updateRow,
         onSave: saveRow,
-        onEdit: setEditRow
+        onEdit: setEditRow,
+        onConfigureQuotas: setQuotaDialogRow
       }),
     [updateRow, saveRow]
   );
@@ -369,6 +372,15 @@ export default function SeatConfigPage() {
               if (!open) setEditRow(null);
             }}
             onSave={handleEditSave}
+          />
+
+          <QuotaSeatsDialog
+            row={quotaDialogRow}
+            open={quotaDialogRow !== null}
+            onOpenChange={(open) => {
+              if (!open) setQuotaDialogRow(null);
+            }}
+            onSaved={loadData}
           />
         </div>
       </ContentLayout>
