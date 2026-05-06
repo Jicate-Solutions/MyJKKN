@@ -100,11 +100,30 @@ export function FeeStructureReadonlyPanel({ dims, onMatchChange }: Props) {
   }, [JSON.stringify(dims)]);
 
   if (!isFullDims(dims)) {
+    // Build a specific list of which dims are missing so the counsellor
+    // knows exactly what to fill. Each entry includes the friendly label
+    // and the form tab where the field lives — saves digging.
+    const missing: string[] = [];
+    if (!dims.institution_id) missing.push('Institution (Academic Information)');
+    if (!dims.degree_id) missing.push('Degree (Academic Information)');
+    if (!dims.department_id) missing.push('Department (Academic Information)');
+    if (!dims.programme_id) missing.push('Programme (Course Selection)');
+    if (!dims.quota_id) missing.push('Quota (Course Selection)');
+    if (!dims.community_category_id) missing.push('Community (Basic Details)');
+    if (!dims.accommodation_type_id) missing.push('Accommodation (Accommodation Preferences)');
+    if (!dims.admission_year_id) missing.push('Admission Year (Course Selection)');
+
     return (
-      <p className="text-sm text-muted-foreground">
-        Select institution, degree, department, programme, quota, community,
-        accommodation, and admission year to load the fee structure.
-      </p>
+      <div className="rounded border border-amber-200 bg-amber-50 p-3 text-sm dark:border-amber-900/40 dark:bg-amber-950/30">
+        <p className="font-medium text-amber-900 dark:text-amber-200 mb-1">
+          {missing.length} field{missing.length !== 1 ? 's' : ''} required to load the fee structure
+        </p>
+        <ul className="text-xs text-amber-800 dark:text-amber-300 space-y-0.5 ml-4 list-disc">
+          {missing.map((m) => (
+            <li key={m}>{m}</li>
+          ))}
+        </ul>
+      </div>
     );
   }
   if (loading) {
