@@ -12,7 +12,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useAuth } from '@/hooks/use-auth';
-import { useAttendanceByDate, useMarkAttendance } from '@/hooks/campus-living/use-hostel-attendance';
+import { useMarkAttendance } from '@/hooks/campus-living/use-hostel-attendance';
+import { useHostelResidents } from '@/hooks/campus-living/use-hostel-residents';
 import { useHostelBlocks } from '@/hooks/campus-living/use-hostel-blocks';
 import type { HostelAttendanceStatus } from '@/types/campus-living';
 import {
@@ -50,8 +51,16 @@ export default function MarkAttendancePage() {
 
   const { data: blocksData } = useHostelBlocks(profile?.institution_id ?? '');
   const blocks = blocksData as any;
-  const { data: rawStudents, isLoading } = useAttendanceByDate(profile?.institution_id ?? '', attendanceDate);
-  const students = rawStudents as any[] | undefined;
+  // BUG-003327 fix: was useAttendanceByDate which returns *existing* attendance
+  // rows — empty if nothing is marked yet, so the marking UI never appeared.
+  // Now sources the residents that NEED marking. Block-level filter is a
+  // follow-up (ResidentFilters has no block_id; that join lives on
+  // hostel_allocations).
+  const { data: residentsResp, isLoading } = useHostelResidents(
+    profile?.institution_id ?? '',
+    { is_active: true }
+  );
+  const students = (residentsResp as any)?.data as any[] | undefined;
   const markAttendance = useMarkAttendance();
 
   const [attendance, setAttendance] = useState<Record<string, AttendanceStatus>>({});
@@ -66,11 +75,8 @@ export default function MarkAttendancePage() {
   const handleMarkAllPresent = useCallback(() => {
     const allPresent: Record<string, AttendanceStatus> = {};
     students?.forEach((s) => {
-      if (s.evening_status !== 'on_leave') {
-        allPresent[s.id] = 'present';
-      } else {
-        allPresent[s.id] = 'on_leave';
-      }
+      // Residents don't carry prior-day status — default to present.
+      allPresent[s.id] = 'present';
     });
     setAttendance(allPresent);
   }, [students]);
@@ -80,9 +86,13 @@ export default function MarkAttendancePage() {
     try {
       const records = Object.entries(attendance)
         .filter(([, status]) => !!status)
-        .map(([learnerId, status]) => ({
+        .map(([residentId, status]) => {
+          // residentId is hostel_residents.id; the attendance record needs the
+          // underlying learner_id (== profile_id on the resident row).
+          const resident = students?.find((s) => s.id === residentId);
+          return {
           institution_id: profile?.institution_id ?? '',
-          learner_id: learnerId,
+          learner_id: resident?.profile_id ?? residentId,
           block_id: selectedBlock,
           date: attendanceDate,
           check_in_time: null,
@@ -94,7 +104,8 @@ export default function MarkAttendancePage() {
           is_curfew_violation: false,
           late_minutes: status === 'late_entry' ? 0 : null,
           remarks: null,
-        }));
+          };
+        });
       await markAttendance.mutateAsync(records);
     } catch (error) {
       // Error is handled by the mutation hook's onError
@@ -104,8 +115,9 @@ export default function MarkAttendancePage() {
   };
 
   const filteredStudents = students?.filter((s) =>
-    (s.learner?.full_name ?? '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-    (s.learner_id ?? '').toLowerCase().includes(searchQuery.toLowerCase())
+    (s.profile?.full_name ?? '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+    (s.profile?.email ?? '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+    (s.id_proof_number ?? '').toLowerCase().includes(searchQuery.toLowerCase())
   ) ?? [];
 
   const markedCount = Object.values(attendance).filter(Boolean).length;
@@ -211,7 +223,7 @@ export default function MarkAttendancePage() {
         ) : (
           <div className="space-y-2">
             {filteredStudents.map((student) => {
-              const status = attendance[student.id] ?? student.evening_status;
+              const status = attendance[student.id];
               return (
                 <Card key={student.id} className={status ? 'border-l-4' : ''} style={{
                   borderLeftColor: status === 'present' ? '#16a34a' : status === 'absent' ? '#dc2626' : status === 'on_leave' ? '#d97706' : status === 'late_entry' ? '#ea580c' : status === 'medical' ? '#9333ea' : undefined,
@@ -223,16 +235,11 @@ export default function MarkAttendancePage() {
                           <Users className="h-5 w-5 text-muted-foreground" />
                         </div>
                         <div>
-                          <p className="font-medium">{student.learner?.full_name ?? 'Unknown'}</p>
+                          <p className="font-medium">{student.profile?.full_name ?? 'Unknown'}</p>
                           <p className="text-sm text-muted-foreground">
-                            {student.learner_id?.slice(0, 8)} &middot; Block {student.block_id?.slice(0, 8)}
+                            {student.id_proof_number ?? student.profile?.email ?? student.id.slice(0, 8)}
                           </p>
                         </div>
-                        {student.evening_status === 'on_leave' && (
-                          <Badge variant="outline" className="text-amber-600 bg-amber-50">
-                            On Approved Leave
-                          </Badge>
-                        )}
                       </div>
                       <div className="flex gap-1.5 flex-wrap">
                         {statusOptions.map((opt) => (
