@@ -560,6 +560,19 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/admission/settings/years/[id]': 'admission.settings.years.view',
   '/admission/settings/years/[id]/edit': 'admission.settings.years.edit',
 
+  // AI Pulse (events-extension v3, spec: specs/myjkkn-ai-pulse-spec.md)
+  // Learner-facing landing + per-cycle thin redirect routes. The /[cycle]
+  // pages are server-component redirects to /startup-studio/events/[id]/...
+  // so the auth/RLS check there governs the actual surface; the routes
+  // below only need the learner gate to be reachable from the sidebar.
+  '/ai-pulse': 'aiPulse:view.self',
+  '/ai-pulse/scoring/[cycle]': 'aiPulse:view.self',
+  '/ai-pulse/leaderboard/[cycle]': 'aiPulse:view.self',
+  '/ai-pulse/declare/[cycle]': 'aiPulse:view.self',
+  '/ai-pulse/demo-day/[cycle]': 'aiPulse:view.self',
+  // AI Pulse super-admin policy editor (config-as-row pattern, Q3 spec)
+  '/admin/config/ai-pulse': 'super_admin',
+
   // PDE (Principal Development Engine) — Learning
   '/learn/quests': 'pde.quests.view',
   '/learn/capabilities': 'pde.capabilities.view',
