@@ -34,29 +34,49 @@ export class FeeStructureService {
   }
 
   /**
-   * List structures with joined display names — for the main admin list page.
-   * RLS scopes to institutions the caller has access to. Filters are optional.
+   * Paginated list with joined display names — for the main admin list page's
+   * heavyweight DataTable. RLS scopes to institutions the caller has access to.
+   * Returns { data, metadata: { total, totalPages, page, limit } } for the
+   * project-standard DataTable shape.
    */
-  static async listAll(filters?: {
+  static async listAllPaginated(params: {
+    page: number;
+    limit: number;
+    search?: string;
+    sortBy?: string;
+    sortOrder?: 'asc' | 'desc';
     institution_id?: string;
     admission_year_id?: string;
     status?: 'draft' | 'active' | 'archived';
-    search?: string;
-  }): Promise<Array<AdmissionFeeStructure & {
-    institution_name: string | null;
-    degree_name: string | null;
-    department_name: string | null;
-    programme_name: string | null;
-    quota_name: string | null;
-    community_name: string | null;
-    accommodation_name: string | null;
-    admission_year_name: string | null;
-    item_count: number;
-  }>> {
+  }): Promise<{
+    data: Array<
+      AdmissionFeeStructure & {
+        institution_name: string | null;
+        degree_name: string | null;
+        department_name: string | null;
+        programme_name: string | null;
+        quota_name: string | null;
+        community_name: string | null;
+        accommodation_name: string | null;
+        admission_year_name: string | null;
+        item_count: number;
+      }
+    >;
+    metadata: { total: number; totalPages: number; page: number; limit: number };
+  }> {
     const supabase = createClientSupabaseClient();
+
+    const page = Math.max(1, params.page);
+    const limit = Math.max(1, Math.min(200, params.limit));
+    const from = (page - 1) * limit;
+    const to = from + limit - 1;
+    const sortColumn = params.sortBy && params.sortBy.length > 0 ? params.sortBy : 'updated_at';
+    const ascending = params.sortOrder === 'asc';
+
     let query = supabase
       .from('admission_fee_structures')
-      .select(`
+      .select(
+        `
         *,
         institution:institutions(id, name),
         degree:degrees(id, degree_name),
@@ -67,15 +87,18 @@ export class FeeStructureService {
         accommodation:accommodation_types(id, name),
         admission_year:admission_years(id, admission_year_name),
         items:admission_fee_structure_items(id)
-      `)
-      .order('updated_at', { ascending: false });
+      `,
+        { count: 'exact' },
+      )
+      .order(sortColumn, { ascending })
+      .range(from, to);
 
-    if (filters?.institution_id) query = query.eq('institution_id', filters.institution_id);
-    if (filters?.admission_year_id) query = query.eq('admission_year_id', filters.admission_year_id);
-    if (filters?.status) query = query.eq('status', filters.status);
-    if (filters?.search) query = query.ilike('name', `%${filters.search}%`);
+    if (params.institution_id) query = query.eq('institution_id', params.institution_id);
+    if (params.admission_year_id) query = query.eq('admission_year_id', params.admission_year_id);
+    if (params.status) query = query.eq('status', params.status);
+    if (params.search && params.search.trim()) query = query.ilike('name', `%${params.search.trim()}%`);
 
-    const { data, error } = await query;
+    const { data, error, count } = await query;
     if (error) throw error;
 
     interface Joined {
@@ -90,7 +113,7 @@ export class FeeStructureService {
       items: Array<{ id: string }>;
     }
 
-    return (data ?? []).map((row) => {
+    const rows = (data ?? []).map((row) => {
       const joined = row as unknown as AdmissionFeeStructure & Joined;
       return {
         ...joined,
@@ -105,6 +128,14 @@ export class FeeStructureService {
         item_count: joined.items?.length ?? 0,
       };
     });
+
+    const total = count ?? rows.length;
+    const totalPages = Math.max(1, Math.ceil(total / limit));
+
+    return {
+      data: rows,
+      metadata: { total, totalPages, page, limit },
+    };
   }
 
   static async getWithItems(id: string): Promise<AdmissionFeeStructureWithItems | null> {
