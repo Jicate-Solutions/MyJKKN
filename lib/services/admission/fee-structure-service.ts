@@ -33,6 +33,80 @@ export class FeeStructureService {
     return data ?? [];
   }
 
+  /**
+   * List structures with joined display names — for the main admin list page.
+   * RLS scopes to institutions the caller has access to. Filters are optional.
+   */
+  static async listAll(filters?: {
+    institution_id?: string;
+    admission_year_id?: string;
+    status?: 'draft' | 'active' | 'archived';
+    search?: string;
+  }): Promise<Array<AdmissionFeeStructure & {
+    institution_name: string | null;
+    degree_name: string | null;
+    department_name: string | null;
+    programme_name: string | null;
+    quota_name: string | null;
+    community_name: string | null;
+    accommodation_name: string | null;
+    admission_year_name: string | null;
+    item_count: number;
+  }>> {
+    const supabase = createClientSupabaseClient();
+    let query = supabase
+      .from('admission_fee_structures')
+      .select(`
+        *,
+        institution:institutions(id, name),
+        degree:degrees(id, degree_name),
+        department:departments(id, department_name),
+        programme:programs(id, program_name),
+        quota:quotas(id, name),
+        community:community_categories(id, name),
+        accommodation:accommodation_types(id, name),
+        admission_year:admission_years(id, admission_year_name),
+        items:admission_fee_structure_items(id)
+      `)
+      .order('updated_at', { ascending: false });
+
+    if (filters?.institution_id) query = query.eq('institution_id', filters.institution_id);
+    if (filters?.admission_year_id) query = query.eq('admission_year_id', filters.admission_year_id);
+    if (filters?.status) query = query.eq('status', filters.status);
+    if (filters?.search) query = query.ilike('name', `%${filters.search}%`);
+
+    const { data, error } = await query;
+    if (error) throw error;
+
+    interface Joined {
+      institution: { name: string } | null;
+      degree: { degree_name: string } | null;
+      department: { department_name: string } | null;
+      programme: { program_name: string } | null;
+      quota: { name: string } | null;
+      community: { name: string } | null;
+      accommodation: { name: string } | null;
+      admission_year: { admission_year_name: string } | null;
+      items: Array<{ id: string }>;
+    }
+
+    return (data ?? []).map((row) => {
+      const joined = row as unknown as AdmissionFeeStructure & Joined;
+      return {
+        ...joined,
+        institution_name: joined.institution?.name ?? null,
+        degree_name: joined.degree?.degree_name ?? null,
+        department_name: joined.department?.department_name ?? null,
+        programme_name: joined.programme?.program_name ?? null,
+        quota_name: joined.quota?.name ?? null,
+        community_name: joined.community?.name ?? null,
+        accommodation_name: joined.accommodation?.name ?? null,
+        admission_year_name: joined.admission_year?.admission_year_name ?? null,
+        item_count: joined.items?.length ?? 0,
+      };
+    });
+  }
+
   static async getWithItems(id: string): Promise<AdmissionFeeStructureWithItems | null> {
     const supabase = createClientSupabaseClient();
     const { data, error } = await supabase
