@@ -960,9 +960,18 @@ export function BugReporterWidget() {
         </Tooltip>
       </TooltipProvider>
 
-      {/* Bug Report Modal */}
+      {/*
+        Bug Report Modal.
+        z-[100] is intentionally ABOVE the Sheet primitive (overlay z-[85],
+        content z-[90] in components/ui/sheet.tsx). The bug reporter must
+        remain reachable from any page that has a drawer/sheet open — for
+        example /campus-living/residents while the "Edit info" hostelite
+        drawer is showing (BUG-003871). Without this, the modal opens
+        BEHIND the Sheet's overlay and the click silently appears to do
+        nothing.
+      */}
       {isOpen && (
-        <div className='fixed inset-0 bg-black/50 flex items-center justify-center z-[70] p-4'>
+        <div className='fixed inset-0 bg-black/50 flex items-center justify-center z-[100] p-4'>
           <Card className='w-full max-w-md max-h-[90vh] overflow-y-auto'>
             <CardHeader className='flex flex-row items-center justify-between'>
               <div className='flex flex-col items-start justify-start gap-2'>
