@@ -97,7 +97,13 @@ export function LeadStagesDataTable() {
     try {
       const res = await fetch('/api/admin/lead-stages-policy/counts');
       if (!res.ok) throw new Error('counts endpoint not ready');
-      const data: StageLeadCount[] = await res.json();
+      const json = await res.json();
+      // API returns { data: StageLeadCount[] } envelope; tolerate raw array too.
+      const data: StageLeadCount[] = Array.isArray(json)
+        ? json
+        : Array.isArray(json?.data)
+          ? json.data
+          : [];
       setStageCounts(data);
     } catch {
       // Graceful degradation — endpoint may not be ready (Agent C parallel work)
