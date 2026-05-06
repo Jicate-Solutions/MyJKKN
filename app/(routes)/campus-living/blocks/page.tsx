@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -20,7 +21,8 @@ import {
   MapPin,
   Loader2,
   ShieldCheck,
-  Clock
+  Clock,
+  Pencil
 } from 'lucide-react';
 
 const statusConfig: Record<string, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' | 'success' }> = {
@@ -36,6 +38,7 @@ const typeConfig: Record<string, { label: string; variant: 'default' | 'secondar
 };
 
 export default function HostelBlocksPage() {
+  const router = useRouter();
   const { profile } = useAuth();
   const institutionId = profile?.institution_id || '';
   const { data, isLoading } = useHostelBlocks(institutionId);
@@ -128,17 +131,31 @@ export default function HostelBlocksPage() {
               <Link key={block.id} href={`/campus-living/blocks/${block.id}`}>
                 <Card className="hover:shadow-lg transition-shadow cursor-pointer h-full">
                   <CardHeader className="pb-3">
-                    <div className="flex items-start justify-between">
-                      <div>
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
                         <CardTitle className="text-lg">{block.name}</CardTitle>
                         <CardDescription className="flex items-center gap-1 mt-1">
                           <MapPin className="h-3 w-3" />
                           {block.address}
                         </CardDescription>
                       </div>
-                      <div className="flex gap-1.5">
+                      <div className="flex items-center gap-1.5 shrink-0">
                         <Badge variant={typeCfg.variant}>{typeCfg.label}</Badge>
                         <Badge variant={statusCfg.variant}>{statusCfg.label}</Badge>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7"
+                          aria-label="Edit block"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            router.push(`/campus-living/blocks/${block.id}/edit`);
+                          }}
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </Button>
                       </div>
                     </div>
                   </CardHeader>
