@@ -18,7 +18,7 @@
 // item's billing_category name in one query. Replaces the prior loader that
 // only returned raw IDs.
 
-import { use, useEffect, useState } from 'react';
+import { Suspense, use, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
@@ -573,7 +573,19 @@ export default function FeeStructureDetailPage({ params }: RouteProps) {
   const { id } = use(params);
   return (
     <AdmissionErrorBoundary>
-      <FeeStructureDetailPageContent id={id} />
+      {/* Suspense boundary required by Next.js 15 because the inner component
+          calls useSearchParams() to read the ?edit=1 mode flag. Without this
+          wrapper the build errors with "useSearchParams() should be wrapped
+          in a suspense boundary". */}
+      <Suspense
+        fallback={
+          <div className="flex items-center justify-center py-16">
+            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+          </div>
+        }
+      >
+        <FeeStructureDetailPageContent id={id} />
+      </Suspense>
     </AdmissionErrorBoundary>
   );
 }
