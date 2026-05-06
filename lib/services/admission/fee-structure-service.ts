@@ -118,6 +118,89 @@ export class FeeStructureService {
     return (data as AdmissionFeeStructureWithItems | null) ?? null;
   }
 
+  /**
+   * Detail loader for the admin detail page. Returns the structure + items
+   * + joined display names + billing-category names per item, in one query.
+   * Don't use this for hot paths — the joined shape is heavier than
+   * `getWithItems`, which is the right choice for the resolution flow.
+   */
+  static async getDetailById(id: string): Promise<
+    | (AdmissionFeeStructureWithItems & {
+        institution_name: string | null;
+        degree_name: string | null;
+        department_name: string | null;
+        programme_name: string | null;
+        quota_name: string | null;
+        community_name: string | null;
+        accommodation_name: string | null;
+        admission_year_name: string | null;
+        items: Array<
+          AdmissionFeeStructureWithItems['items'][number] & {
+            category_name: string | null;
+            category_frequency: string | null;
+          }
+        >;
+      })
+    | null
+  > {
+    const supabase = createClientSupabaseClient();
+    const { data, error } = await supabase
+      .from('admission_fee_structures')
+      .select(`
+        *,
+        institution:institutions(id, name),
+        degree:degrees(id, degree_name),
+        department:departments(id, department_name),
+        programme:programs(id, program_name),
+        quota:quotas(id, name),
+        community:community_categories(id, name),
+        accommodation:accommodation_types(id, name),
+        admission_year:admission_years(id, admission_year_name),
+        items:admission_fee_structure_items(*, billing_category:billing_categories(id, category_name, frequency))
+      `)
+      .eq('id', id)
+      .maybeSingle();
+    if (error) throw error;
+    if (!data) return null;
+
+    interface JoinedRow {
+      institution: { name: string } | null;
+      degree: { degree_name: string } | null;
+      department: { department_name: string } | null;
+      programme: { program_name: string } | null;
+      quota: { name: string } | null;
+      community: { name: string } | null;
+      accommodation: { name: string } | null;
+      admission_year: { admission_year_name: string } | null;
+      items: Array<{
+        billing_category: { category_name: string; frequency: string } | null;
+      }>;
+    }
+    const joined = data as unknown as AdmissionFeeStructureWithItems & JoinedRow;
+
+    return {
+      ...joined,
+      institution_name: joined.institution?.name ?? null,
+      degree_name: joined.degree?.degree_name ?? null,
+      department_name: joined.department?.department_name ?? null,
+      programme_name: joined.programme?.program_name ?? null,
+      quota_name: joined.quota?.name ?? null,
+      community_name: joined.community?.name ?? null,
+      accommodation_name: joined.accommodation?.name ?? null,
+      admission_year_name: joined.admission_year?.admission_year_name ?? null,
+      items: joined.items.map((it) => {
+        const withJoin = it as typeof it & {
+          billing_category: { category_name: string; frequency: string } | null;
+        };
+        return {
+          ...it,
+          category_name: withJoin.billing_category?.category_name ?? null,
+          category_frequency: withJoin.billing_category?.frequency ?? null,
+        };
+      }),
+    };
+  }
+
   static async findByDimensions(d: FeeStructureMatrixDimensions): Promise<AdmissionFeeStructureWithItems | null> {
     const supabase = createClientSupabaseClient();
     const { data, error } = await supabase
