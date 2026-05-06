@@ -37,6 +37,8 @@ import {
   Settings,
   LogOut
 } from 'lucide-react';
+import { DownloadMarkdownButton } from '@/components/api-docs/shared/download-markdown-button';
+import { childAppIntegrationMarkdown } from './child-app-integration-docs.markdown';
 
 export default function ChildAppIntegrationDocs() {
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
@@ -764,11 +766,18 @@ curl -X POST https://jkkn.ai/api/auth/child-app/token \\
     <div className='space-y-8'>
       {/* Header */}
       <div className='space-y-4'>
-        <div className='flex items-center gap-3'>
-          <GitBranch className='h-8 w-8 text-primary' />
-          <h1 className='text-3xl font-bold'>
-            Complete Child App Integration Guide
-          </h1>
+        <div className='flex items-start justify-between gap-4 flex-col sm:flex-row'>
+          <div className='flex items-center gap-3'>
+            <GitBranch className='h-8 w-8 text-primary' />
+            <h1 className='text-3xl font-bold'>
+              Complete Child App Integration Guide
+            </h1>
+          </div>
+          <DownloadMarkdownButton
+            filename='child-app-integration-guide.md'
+            content={childAppIntegrationMarkdown}
+            className='w-full sm:w-auto flex-shrink-0'
+          />
         </div>
         <p className='text-muted-foreground'>
           Step-by-step guide to integrate your application with MyJKKN

@@ -15,6 +15,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { CopyIcon } from '@/components/icons';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
+import { DownloadMarkdownButton } from '@/components/api-docs/shared/download-markdown-button';
+import { buildCurlDocumentationMarkdown } from './curl-documentation-content.markdown';
 
 export default function CurlDocumentationContent() {
   const [copied, setCopied] = useState<{ [key: string]: boolean }>({});
@@ -194,12 +196,19 @@ echo "API Tests Completed!"`;
 
   return (
     <div className='py-4 space-y-6'>
-      <div className='space-y-4'>
-        <h1 className='text-2xl font-bold'>CURL Documentation</h1>
-        <p className='text-muted-foreground'>
-          Comprehensive CURL commands to test all MyJKKN API endpoints. Perfect
-          for validating your API key and testing various endpoints.
-        </p>
+      <div className='space-y-4 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4'>
+        <div>
+          <h1 className='text-2xl font-bold'>CURL Documentation</h1>
+          <p className='text-muted-foreground'>
+            Comprehensive CURL commands to test all MyJKKN API endpoints. Perfect
+            for validating your API key and testing various endpoints.
+          </p>
+        </div>
+        <DownloadMarkdownButton
+          filename='curl-documentation.md'
+          content={() => buildCurlDocumentationMarkdown(curlExamples, testScript)}
+          className='w-full sm:w-auto flex-shrink-0'
+        />
       </div>
 
       <Alert>

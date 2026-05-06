@@ -351,6 +351,12 @@ const config: ModuleNavConfig = {
           ],
         },
         {
+          label: 'Fees Structure',
+          icon: 'IndianRupee',
+          href: '/admission/settings/fees-structure',
+          matchPaths: ['/admission/settings/fees-structure'],
+        },
+        {
           label: 'Form Builder',
           icon: 'FormInput',
           href: '/admission/settings/forms',

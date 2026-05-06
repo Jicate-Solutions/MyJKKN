@@ -12,6 +12,8 @@ import {
 import { Button } from '@/components/ui/button';
 import { Copy } from 'lucide-react';
 import { toast } from 'react-hot-toast';
+import { DownloadMarkdownButton } from '@/components/api-docs/shared/download-markdown-button';
+import { buildAcademicApiDocsMarkdown } from './academic-api-docs.markdown';
 
 const endpoints = [
   {
@@ -170,13 +172,21 @@ export default function AcademicApiDocs() {
 
   return (
     <div className='space-y-4'>
-      <div className='px-3 sm:px-0'>
-        <h2 className='text-base sm:text-lg font-semibold mb-2'>
-          Academic API Endpoints
-        </h2>
-        <p className='text-xs sm:text-sm text-muted-foreground'>
-          Access academic years, regulations, and batch data using these endpoints
-        </p>
+      <div className='px-3 sm:px-0 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3'>
+        <div>
+          <h2 className='text-base sm:text-lg font-semibold mb-2'>
+            Academic API Endpoints
+          </h2>
+          <p className='text-xs sm:text-sm text-muted-foreground'>
+            Access academic years, regulations, and batch data using these endpoints
+          </p>
+        </div>
+        <DownloadMarkdownButton
+          filename='academic-api-documentation.md'
+          content={() => buildAcademicApiDocsMarkdown(endpoints)}
+          size='sm'
+          className='w-full sm:w-auto flex-shrink-0'
+        />
       </div>
 
       <Card className='mx-0'>

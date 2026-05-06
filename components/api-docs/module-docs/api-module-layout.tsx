@@ -10,6 +10,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Separator } from '@/components/ui/separator';
 import { Search, BookOpen, AlertCircle, Layers } from 'lucide-react';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { DownloadMarkdownButton } from '../shared/download-markdown-button';
+import { apiModuleConfigToMarkdown } from '@/lib/utils/api-module-to-markdown';
 
 interface ApiModuleLayoutProps {
   config: ApiModuleConfig;
@@ -52,12 +54,20 @@ export function ApiModuleLayout({ config, children }: ApiModuleLayoutProps) {
     <div className="space-y-8">
       {/* Module Header */}
       <div className="space-y-4">
-        <div className="flex items-center gap-3">
-          <Layers className="h-8 w-8 text-primary" />
-          <div>
-            <h1 className="text-3xl font-bold">{config.moduleName} API</h1>
-            <p className="text-muted-foreground mt-1">{config.moduleDescription}</p>
+        <div className="flex items-start justify-between gap-4 flex-col sm:flex-row">
+          <div className="flex items-center gap-3">
+            <Layers className="h-8 w-8 text-primary" />
+            <div>
+              <h1 className="text-3xl font-bold">{config.moduleName} API</h1>
+              <p className="text-muted-foreground mt-1">{config.moduleDescription}</p>
+            </div>
           </div>
+          <DownloadMarkdownButton
+            filename={`${config.moduleName.toLowerCase().replace(/\s+/g, '-')}-api-documentation.md`}
+            content={() => apiModuleConfigToMarkdown(config)}
+            label='Download as Markdown'
+            className='w-full sm:w-auto flex-shrink-0'
+          />
         </div>
 
         {/* Base URL */}

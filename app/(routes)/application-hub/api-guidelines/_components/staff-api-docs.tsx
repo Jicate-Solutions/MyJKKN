@@ -16,6 +16,8 @@ import { Button } from '@/components/ui/button';
 import { useState } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { DownloadMarkdownButton } from '@/components/api-docs/shared/download-markdown-button';
+import { staffApiDocsMarkdown } from './staff-api-docs.markdown';
 
 export default function StaffApiDocs(): ReactElement {
   const [copied, setCopied] = useState(false);
@@ -607,7 +609,7 @@ export function StaffList() {
         </p>
 
         <div className='flex justify-between items-start flex-col sm:flex-row gap-4'>
-          <div className='w-full sm:w-auto'>
+          <div className='flex flex-col sm:flex-row gap-2 w-full sm:w-auto'>
             <Button
               variant='outline'
               className='flex items-center gap-2 w-full sm:w-auto'
@@ -616,6 +618,11 @@ export function StaffList() {
               <CopyIcon className='h-4 w-4' />
               {copied ? 'Copied!' : 'Copy AI Prompt for Staff API'}
             </Button>
+            <DownloadMarkdownButton
+              filename='staff-api-documentation.md'
+              content={staffApiDocsMarkdown}
+              className='w-full sm:w-auto'
+            />
           </div>
         </div>
       </div>
