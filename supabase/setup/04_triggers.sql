@@ -1134,3 +1134,17 @@ DROP TRIGGER IF EXISTS trg_detect_fee_dimension_change ON public.learners_profil
 CREATE TRIGGER trg_detect_fee_dimension_change
     AFTER UPDATE ON public.learners_profiles
     FOR EACH ROW EXECUTE FUNCTION public.trigger_detect_fee_dimension_change();
+
+-- ============================================================================
+-- trg_set_legacy_fee_mode_default — BEFORE INSERT default for legacy_fee_mode
+-- (Plan 6 Task 1)
+-- ============================================================================
+-- Sets NEW.legacy_fee_mode := false when the institution's
+-- admission_settings_per_institution.use_fee_structures flag is true.
+-- Flag false or missing → DDL default of true is preserved.
+-- ============================================================================
+
+DROP TRIGGER IF EXISTS trg_set_legacy_fee_mode_default ON public.learners_profiles;
+CREATE TRIGGER trg_set_legacy_fee_mode_default
+    BEFORE INSERT ON public.learners_profiles
+    FOR EACH ROW EXECUTE FUNCTION public.set_legacy_fee_mode_default();

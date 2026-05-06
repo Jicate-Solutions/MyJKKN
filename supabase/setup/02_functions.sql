@@ -13700,3 +13700,41 @@ $$;
 
 REVOKE ALL ON FUNCTION public.admission_approve_fee_change_event(uuid, jsonb, boolean) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.admission_approve_fee_change_event(uuid, jsonb, boolean) TO authenticated;
+
+-- ============================================================================
+-- set_legacy_fee_mode_default trigger function (Plan 6 Task 1)
+-- ============================================================================
+-- BEFORE INSERT trigger function on learners_profiles. Flips the row's
+-- legacy_fee_mode to false when the institution's
+-- admission_settings_per_institution.use_fee_structures flag is true.
+-- Flag false or missing → DDL default of true is preserved (fail-closed).
+-- Spec §12.1
+-- ============================================================================
+
+CREATE OR REPLACE FUNCTION public.set_legacy_fee_mode_default()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+    v_use_fee_structures boolean;
+BEGIN
+    IF NEW.institution_id IS NULL THEN
+        RETURN NEW;
+    END IF;
+
+    SELECT use_fee_structures INTO v_use_fee_structures
+      FROM public.admission_settings_per_institution
+     WHERE institution_id = NEW.institution_id;
+
+    IF v_use_fee_structures = true THEN
+        NEW.legacy_fee_mode := false;
+    END IF;
+    -- Flag false or missing → keep whatever was passed (defaults to true via DDL)
+
+    RETURN NEW;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.set_legacy_fee_mode_default() FROM PUBLIC;
