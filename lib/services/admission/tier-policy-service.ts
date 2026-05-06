@@ -293,20 +293,60 @@ export class TierPolicyService {
   // ---------------------------------------------------------------------------
 
   /**
-   * Human-readable label for a tier_strategy value. Centralised so the data
-   * table cell, the form dialog, and any future audit log render consistently.
+   * Plain-English label for a tier_strategy value. Director-facing — engineering
+   * terms (junction, FK, source) live in the .hint, never in the label.
    */
   static formatTierStrategy(strategy: TierStrategy): string {
     switch (strategy) {
       case 'institution_and_source':
-        return 'Institution + Source (junction)';
+        return 'Match by college AND lead source';
       case 'institution_only':
-        return 'Institution only (junction)';
+        return 'Match by college only';
       case 'institution_legacy_fk':
-        return 'Institution legacy FK';
+        return 'Old college mapping (legacy)';
       case 'cross_institution_fallback':
-        return 'Cross-institution fallback';
+        return 'Anyone available, any college';
     }
+  }
+
+  /**
+   * Plain-English explanation of WHAT this strategy does — shown next to the label
+   * in the form dialog's hint text and inside each cascade card on the table.
+   */
+  static explainTierStrategy(strategy: TierStrategy): string {
+    switch (strategy) {
+      case 'institution_and_source':
+        return 'Find counselors who handle this college AND know about this lead source (Instagram, Meta, walk-in, etc.).';
+      case 'institution_only':
+        return 'Find any counselor handling this college, regardless of lead source.';
+      case 'institution_legacy_fk':
+        return 'Falls back to the original college link from earlier data. Used when the new mapping is missing.';
+      case 'cross_institution_fallback':
+        return 'Last resort. If no college-matched counselor is free, give the lead to any available counselor across all colleges.';
+    }
+  }
+
+  /**
+   * Plain-English scope label. "Applies to all colleges" vs "Just for X College".
+   */
+  static formatScope(
+    scope: TierScopeType,
+    institutionName?: string | null,
+  ): string {
+    if (scope === 'global') return 'Applies to all colleges';
+    return institutionName
+      ? `Just for ${institutionName}`
+      : 'Just for one college';
+  }
+
+  /**
+   * Plain-English on-duty label. "Only counselors clocked in today" vs
+   * "Any counselor (clocked in or not)".
+   */
+  static formatOnDuty(required: boolean): string {
+    return required
+      ? 'Only counselors clocked in today'
+      : 'Any counselor (clocked in or not)';
   }
 
   /**
@@ -320,23 +360,23 @@ export class TierPolicyService {
   }> = [
     {
       value: 'institution_and_source',
-      label: 'Institution + Source (junction)',
-      hint: 'Counselors mapped to BOTH institution and lead source — highest specificity.',
+      label: 'Match by college AND lead source',
+      hint: 'Find counselors who handle this college AND know about this lead source (Instagram, Meta, walk-in, etc.). Most specific match.',
     },
     {
       value: 'institution_only',
-      label: 'Institution only (junction)',
-      hint: 'Counselors mapped to institution via junction table — medium specificity.',
+      label: 'Match by college only',
+      hint: 'Find any counselor handling this college, regardless of lead source.',
     },
     {
       value: 'institution_legacy_fk',
-      label: 'Institution legacy FK',
-      hint: 'Legacy counselors.institution_id FK fallback. Typically off-duty filter disabled for parity.',
+      label: 'Old college mapping (legacy)',
+      hint: 'Falls back to the original college link from earlier data. Used when the new mapping is missing.',
     },
     {
       value: 'cross_institution_fallback',
-      label: 'Cross-institution fallback',
-      hint: 'Rules-gated overflow across institutions — was Tier 4 in the original SQL function.',
+      label: 'Anyone available, any college',
+      hint: 'Last resort. If no college-matched counselor is free, give the lead to any available counselor across all colleges.',
     },
   ];
 }
