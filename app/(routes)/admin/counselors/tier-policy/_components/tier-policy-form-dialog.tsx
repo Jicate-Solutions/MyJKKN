@@ -1,9 +1,10 @@
 'use client';
 
 // ============================================================================
-// Tier Policy Form Dialog — create/edit a counselor_tier_policy row.
-// Created: 2026-05-06.
-// Field set mirrors the table CHECK constraints:
+// Tier Policy Form Dialog — Director-facing add/edit form.
+// Created: 2026-05-06. Rewritten 2026-05-07 for plain-English UX.
+//
+// Field set still mirrors the table CHECK constraints:
 //   - scope_type: global | institution
 //   - institution_id required iff scope_type=institution
 //   - tier_order: 1..4
@@ -11,6 +12,7 @@
 //   - on_duty_required: boolean
 //   - is_active: boolean
 //   - description: optional text
+// ...but every label and hint is rewritten for non-technical users.
 // ============================================================================
 
 import { useEffect, useState } from 'react';
@@ -106,15 +108,14 @@ export function TierPolicyFormDialog({
   };
 
   const handleSave = async () => {
-    // Client-side validation matching the table CHECK constraints
     const tierOrderNum = parseInt(form.tier_order, 10);
     if (!Number.isInteger(tierOrderNum) || tierOrderNum < 1 || tierOrderNum > 4) {
-      toast.error('Tier order must be a whole number between 1 and 4');
+      toast.error('Step number must be between 1 and 4');
       return;
     }
 
     if (form.scope_type === 'institution' && !form.institution_id) {
-      toast.error('Pick an institution for institution-scoped rules');
+      toast.error('Pick a college for this college-specific rule');
       return;
     }
 
@@ -133,15 +134,15 @@ export function TierPolicyFormDialog({
 
       if (isEdit && policy) {
         await TierPolicyService.updateTierPolicy(policy.id, payload);
-        toast.success('Tier policy updated');
+        toast.success('Step updated');
       } else {
         await TierPolicyService.createTierPolicy(payload);
-        toast.success('Tier policy created');
+        toast.success('Step added');
       }
 
       onSaved();
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Save failed';
+      const msg = err instanceof Error ? err.message : 'Could not save';
       toast.error(msg);
     } finally {
       setSaving(false);
@@ -153,18 +154,17 @@ export function TierPolicyFormDialog({
       <DialogContent className="max-w-lg">
         <DialogHeader>
           <DialogTitle>
-            {isEdit ? 'Edit Tier Policy' : 'New Tier Policy'}
+            {isEdit ? 'Edit Assignment Step' : 'Add Assignment Step'}
           </DialogTitle>
           <DialogDescription>
-            Drives fn_auto_assign_counselor_v2&apos;s fallback chain. Lower
-            tier_order is tried first.
+            Lower-numbered steps are tried first. The first match wins.
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4 py-2">
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
-              <Label htmlFor="scope_type">Scope</Label>
+              <Label htmlFor="scope_type">Who does this rule apply to?</Label>
               <Select
                 value={form.scope_type}
                 onValueChange={(v) => update('scope_type', v as TierScopeType)}
@@ -173,14 +173,14 @@ export function TierPolicyFormDialog({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="global">global (platform default)</SelectItem>
-                  <SelectItem value="institution">institution (override)</SelectItem>
+                  <SelectItem value="global">All colleges (default)</SelectItem>
+                  <SelectItem value="institution">Just one college (override)</SelectItem>
                 </SelectContent>
               </Select>
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="tier_order">Tier order (1–4)</Label>
+              <Label htmlFor="tier_order">Step number (1 = tried first)</Label>
               <Input
                 id="tier_order"
                 type="number"
@@ -195,13 +195,13 @@ export function TierPolicyFormDialog({
 
           {form.scope_type === 'institution' && (
             <div className="space-y-1.5">
-              <Label htmlFor="institution_id">Institution</Label>
+              <Label htmlFor="institution_id">Which college?</Label>
               <Select
                 value={form.institution_id}
                 onValueChange={(v) => update('institution_id', v)}
               >
                 <SelectTrigger id="institution_id">
-                  <SelectValue placeholder="Select an institution…" />
+                  <SelectValue placeholder="Pick a college…" />
                 </SelectTrigger>
                 <SelectContent>
                   {institutions.map((inst) => (
@@ -215,7 +215,7 @@ export function TierPolicyFormDialog({
           )}
 
           <div className="space-y-1.5">
-            <Label htmlFor="tier_strategy">Strategy</Label>
+            <Label htmlFor="tier_strategy">What kind of match should the system try?</Label>
             <Select
               value={form.tier_strategy}
               onValueChange={(v) => update('tier_strategy', v as TierStrategy)}
@@ -240,10 +240,10 @@ export function TierPolicyFormDialog({
             </p>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div className="flex items-center justify-between rounded-md border px-3 py-2">
-              <Label htmlFor="on_duty_required" className="cursor-pointer">
-                On-duty filter
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="flex items-center justify-between gap-3 rounded-md border px-3 py-2">
+              <Label htmlFor="on_duty_required" className="cursor-pointer text-sm">
+                Only counselors clocked in today?
               </Label>
               <Switch
                 id="on_duty_required"
@@ -251,9 +251,9 @@ export function TierPolicyFormDialog({
                 onCheckedChange={(v) => update('on_duty_required', v)}
               />
             </div>
-            <div className="flex items-center justify-between rounded-md border px-3 py-2">
-              <Label htmlFor="is_active" className="cursor-pointer">
-                Active
+            <div className="flex items-center justify-between gap-3 rounded-md border px-3 py-2">
+              <Label htmlFor="is_active" className="cursor-pointer text-sm">
+                Turn this step on?
               </Label>
               <Switch
                 id="is_active"
@@ -264,12 +264,12 @@ export function TierPolicyFormDialog({
           </div>
 
           <div className="space-y-1.5">
-            <Label htmlFor="description">Description (optional)</Label>
+            <Label htmlFor="description">Notes (optional)</Label>
             <Textarea
               id="description"
               value={form.description}
               onChange={(e) => update('description', e.target.value)}
-              placeholder="Why does this tier exist? Helps the next admin reading the table."
+              placeholder="Why does this step exist? Helpful for whoever reviews this later."
               rows={2}
             />
           </div>
@@ -285,7 +285,7 @@ export function TierPolicyFormDialog({
           </Button>
           <Button onClick={handleSave} disabled={saving}>
             {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            {isEdit ? 'Save changes' : 'Create rule'}
+            {isEdit ? 'Save changes' : 'Add step'}
           </Button>
         </DialogFooter>
       </DialogContent>

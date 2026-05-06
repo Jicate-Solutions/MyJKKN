@@ -1,15 +1,18 @@
 'use client';
 
 // ============================================================================
-// Tier Policy Data Table — admin CRUD for counselor_tier_policy table.
-// Created: 2026-05-06.
-// Lean by design: list + create + edit + toggle-active + delete. No bulk ops,
-// no inline reorder (tier_order is part of the unique key — change via edit).
+// Tier Policy Data Table — Director-facing cascade view.
+// Created: 2026-05-06. Rewritten 2026-05-07 for plain-English UX (Director ask:
+// "any tom dick and harry should be able to understand").
+//
+// Renders the tier policy as a vertical cascade of numbered steps with
+// "↓ if no match" arrows between them — visually expressing the order in
+// which the system tries to find a counselor for a new lead.
 // ============================================================================
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
-import { Pencil, Plus, RefreshCw, Trash2 } from 'lucide-react';
+import { ArrowDown, Pencil, Plus, RefreshCw, Trash2 } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -25,14 +28,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import {
   TierPolicyService,
@@ -65,7 +60,7 @@ export function TierPolicyDataTable() {
       const rows = await TierPolicyService.getTierPolicies();
       setPolicies(rows);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Failed to load policies';
+      const msg = err instanceof Error ? err.message : 'Failed to load rules';
       toast.error(msg);
       setPolicies([]);
     } finally {
@@ -77,6 +72,18 @@ export function TierPolicyDataTable() {
     load();
   }, [load]);
 
+  // Director-facing sort: global rules first (in step order), then any
+  // institution-specific overrides (also in step order).
+  const sortedPolicies = useMemo(() => {
+    if (!policies) return null;
+    return [...policies].sort((a, b) => {
+      if (a.scope_type !== b.scope_type) {
+        return a.scope_type === 'global' ? -1 : 1;
+      }
+      return a.tier_order - b.tier_order;
+    });
+  }, [policies]);
+
   const handleToggleActive = async (
     policy: CounselorTierPolicy,
     next: boolean,
@@ -84,10 +91,10 @@ export function TierPolicyDataTable() {
     setTogglingId(policy.id);
     try {
       await TierPolicyService.toggleActive(policy.id, next);
-      toast.success(`Tier ${policy.tier_order} ${next ? 'enabled' : 'disabled'}`);
+      toast.success(`Step ${policy.tier_order} ${next ? 'turned on' : 'turned off'}`);
       await load();
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Toggle failed';
+      const msg = err instanceof Error ? err.message : 'Could not update';
       toast.error(msg);
     } finally {
       setTogglingId(null);
@@ -98,11 +105,11 @@ export function TierPolicyDataTable() {
     if (!deletingPolicy) return;
     try {
       await TierPolicyService.deleteTierPolicy(deletingPolicy.id);
-      toast.success('Tier policy deleted');
+      toast.success('Step removed');
       setDeletingPolicy(null);
       await load();
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Delete failed';
+      const msg = err instanceof Error ? err.message : 'Could not delete';
       toast.error(msg);
     }
   };
@@ -124,19 +131,30 @@ export function TierPolicyDataTable() {
   };
 
   return (
-    <div className="space-y-4">
-      <div className="rounded-md border border-border bg-muted/30 p-4 text-sm text-muted-foreground">
-        Tier ordering drives fn_auto_assign_counselor_v2&apos;s fallback chain.
-        Global rows form the platform default; institution rows override per
-        institution. Director&apos;s standing rule (2026-04-29): policy
-        decisions live as config rows, not code constants.
+    <div className="space-y-6">
+      {/* Plain-English explainer — replaces engineering jargon banner. */}
+      <div className="rounded-lg border border-border bg-muted/30 p-5">
+        <h3 className="mb-2 text-sm font-semibold">How lead assignment works</h3>
+        <p className="text-sm text-muted-foreground">
+          When a new lead comes in, MyJKKN tries to assign a counselor in the
+          order shown below. If <strong>Step 1</strong> finds no one, the
+          system moves to <strong>Step 2</strong>, then <strong>Step 3</strong>,
+          and so on. The first match wins.
+        </p>
+        <p className="mt-2 text-sm text-muted-foreground">
+          Steps below the &ldquo;Applies to all colleges&rdquo; section are the
+          default rules. You can also add college-specific overrides — these
+          replace the default steps for that one college only.
+        </p>
       </div>
 
       <div className="flex items-center justify-between gap-2">
         <div>
-          <h2 className="text-lg font-semibold">Tier Rules</h2>
+          <h2 className="text-lg font-semibold">Assignment Steps</h2>
           <p className="text-xs text-muted-foreground">
-            {policies ? `${policies.length} row${policies.length === 1 ? '' : 's'}` : '—'}
+            {sortedPolicies
+              ? `${sortedPolicies.length} step${sortedPolicies.length === 1 ? '' : 's'} configured`
+              : '—'}
           </p>
         </div>
         <div className="flex gap-2">
@@ -152,103 +170,34 @@ export function TierPolicyDataTable() {
           </Button>
           <Button size="sm" onClick={handleNew} className="gap-2">
             <Plus className="h-4 w-4" />
-            New Tier Rule
+            Add Step
           </Button>
         </div>
       </div>
 
-      {loading || policies === null ? (
-        <div className="space-y-2">
-          <Skeleton className="h-10 w-full" />
-          <Skeleton className="h-10 w-full" />
-          <Skeleton className="h-10 w-full" />
+      {loading || sortedPolicies === null ? (
+        <div className="space-y-3">
+          <Skeleton className="h-32 w-full" />
+          <Skeleton className="h-32 w-full" />
+          <Skeleton className="h-32 w-full" />
         </div>
-      ) : policies.length === 0 ? (
-        <div className="rounded-md border border-dashed border-border bg-muted/30 p-8 text-center text-sm text-muted-foreground">
-          No tier policies yet. Run the migration{' '}
-          <code className="rounded bg-muted px-1">
-            20260510200001_create_counselor_tier_policy.sql
-          </code>{' '}
-          to seed the 4 global defaults, or click &ldquo;New Tier Rule&rdquo; to
-          create one manually.
+      ) : sortedPolicies.length === 0 ? (
+        <div className="rounded-md border border-dashed border-border bg-muted/30 p-8 text-center">
+          <p className="text-sm font-medium">No assignment steps yet</p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Click <strong>Add Step</strong> above to create your first
+            assignment rule.
+          </p>
         </div>
       ) : (
-        <div className="rounded-md border">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="w-20">Order</TableHead>
-                <TableHead>Scope</TableHead>
-                <TableHead>Institution</TableHead>
-                <TableHead>Strategy</TableHead>
-                <TableHead className="w-28">On Duty?</TableHead>
-                <TableHead className="w-24">Active</TableHead>
-                <TableHead className="w-28 text-right">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {policies.map((p) => (
-                <TableRow key={p.id}>
-                  <TableCell className="font-mono">{p.tier_order}</TableCell>
-                  <TableCell>
-                    <Badge variant={p.scope_type === 'global' ? 'default' : 'secondary'}>
-                      {p.scope_type}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="text-sm">
-                    {p.institution_id
-                      ? institutionNameById[p.institution_id] ?? (
-                          <span className="text-muted-foreground font-mono text-xs">
-                            {p.institution_id.slice(0, 8)}…
-                          </span>
-                        )
-                      : <span className="text-muted-foreground">—</span>}
-                  </TableCell>
-                  <TableCell className="text-sm">
-                    <span title={p.description ?? ''}>
-                      {TierPolicyService.formatTierStrategy(p.tier_strategy)}
-                    </span>
-                  </TableCell>
-                  <TableCell>
-                    {p.on_duty_required ? (
-                      <Badge variant="outline">Required</Badge>
-                    ) : (
-                      <span className="text-xs text-muted-foreground">No</span>
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    <Switch
-                      checked={p.is_active}
-                      disabled={togglingId === p.id}
-                      onCheckedChange={(v) => handleToggleActive(p, v)}
-                      aria-label={`Toggle tier ${p.tier_order} active`}
-                    />
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <div className="flex justify-end gap-1">
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        onClick={() => handleEdit(p)}
-                        aria-label="Edit"
-                      >
-                        <Pencil className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        onClick={() => setDeletingPolicy(p)}
-                        aria-label="Delete"
-                      >
-                        <Trash2 className="h-4 w-4 text-destructive" />
-                      </Button>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
+        <CascadeView
+          policies={sortedPolicies}
+          institutionNameById={institutionNameById}
+          togglingId={togglingId}
+          onToggle={handleToggleActive}
+          onEdit={handleEdit}
+          onDelete={(p) => setDeletingPolicy(p)}
+        />
       )}
 
       <TierPolicyFormDialog
@@ -270,23 +219,254 @@ export function TierPolicyDataTable() {
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete tier policy?</AlertDialogTitle>
+            <AlertDialogTitle>Remove this step?</AlertDialogTitle>
             <AlertDialogDescription>
               {deletingPolicy && (
                 <>
-                  Removes tier {deletingPolicy.tier_order} ({deletingPolicy.scope_type}
-                  {deletingPolicy.institution_id ? ` / ${institutionNameById[deletingPolicy.institution_id] ?? deletingPolicy.institution_id}` : ''}).
-                  This frees up the (scope, institution, tier_order) slot.
+                  This will remove <strong>Step {deletingPolicy.tier_order}</strong>
+                  {deletingPolicy.scope_type === 'institution'
+                    ? ` for ${institutionNameById[deletingPolicy.institution_id ?? ''] ?? 'this college'}`
+                    : ' from the default rules'}
+                  . The system will skip this step when looking for a counselor.
                 </>
               )}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDelete}>Delete</AlertDialogAction>
+            <AlertDialogAction onClick={handleDelete}>Remove</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+    </div>
+  );
+}
+
+// ----------------------------------------------------------------------------
+// CascadeView — vertical sequence of step cards with "↓ if no match" arrows.
+// Groups by scope (global cards first, then any institution-specific blocks).
+// ----------------------------------------------------------------------------
+interface CascadeViewProps {
+  policies: CounselorTierPolicy[];
+  institutionNameById: Record<string, string>;
+  togglingId: string | null;
+  onToggle: (p: CounselorTierPolicy, next: boolean) => void;
+  onEdit: (p: CounselorTierPolicy) => void;
+  onDelete: (p: CounselorTierPolicy) => void;
+}
+
+function CascadeView({
+  policies,
+  institutionNameById,
+  togglingId,
+  onToggle,
+  onEdit,
+  onDelete,
+}: CascadeViewProps) {
+  const globalRules = policies.filter((p) => p.scope_type === 'global');
+  const institutionRules = policies.filter(
+    (p) => p.scope_type === 'institution',
+  );
+
+  // Group institution-specific overrides by institution_id so each college
+  // gets its own labelled cascade block.
+  const byInstitution = useMemo(() => {
+    const map: Record<string, CounselorTierPolicy[]> = {};
+    for (const r of institutionRules) {
+      const key = r.institution_id ?? '__unknown';
+      if (!map[key]) map[key] = [];
+      map[key].push(r);
+    }
+    return map;
+  }, [institutionRules]);
+
+  return (
+    <div className="space-y-8">
+      {globalRules.length > 0 && (
+        <CascadeBlock
+          title="Default rules — applies to all colleges"
+          policies={globalRules}
+          institutionNameById={institutionNameById}
+          togglingId={togglingId}
+          onToggle={onToggle}
+          onEdit={onEdit}
+          onDelete={onDelete}
+        />
+      )}
+
+      {Object.entries(byInstitution).map(([instId, rules]) => (
+        <CascadeBlock
+          key={instId}
+          title={`Override — just for ${institutionNameById[instId] ?? 'one college'}`}
+          policies={rules}
+          institutionNameById={institutionNameById}
+          togglingId={togglingId}
+          onToggle={onToggle}
+          onEdit={onEdit}
+          onDelete={onDelete}
+        />
+      ))}
+    </div>
+  );
+}
+
+// ----------------------------------------------------------------------------
+// CascadeBlock — one labelled cascade (e.g. "Default rules" or
+// "Override for X College"). Renders step cards with arrows between them.
+// ----------------------------------------------------------------------------
+interface CascadeBlockProps {
+  title: string;
+  policies: CounselorTierPolicy[];
+  institutionNameById: Record<string, string>;
+  togglingId: string | null;
+  onToggle: (p: CounselorTierPolicy, next: boolean) => void;
+  onEdit: (p: CounselorTierPolicy) => void;
+  onDelete: (p: CounselorTierPolicy) => void;
+}
+
+function CascadeBlock({
+  title,
+  policies,
+  institutionNameById,
+  togglingId,
+  onToggle,
+  onEdit,
+  onDelete,
+}: CascadeBlockProps) {
+  return (
+    <div>
+      <h3 className="mb-3 text-sm font-semibold text-muted-foreground">
+        {title}
+      </h3>
+      <div className="space-y-2">
+        {policies.map((p, idx) => (
+          <div key={p.id}>
+            <StepCard
+              policy={p}
+              institutionNameById={institutionNameById}
+              isToggling={togglingId === p.id}
+              onToggle={(next) => onToggle(p, next)}
+              onEdit={() => onEdit(p)}
+              onDelete={() => onDelete(p)}
+            />
+            {idx < policies.length - 1 && (
+              <div className="flex items-center justify-center py-2 text-xs text-muted-foreground">
+                <ArrowDown className="mr-1 h-3 w-3" />
+                if no match
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ----------------------------------------------------------------------------
+// StepCard — one rule rendered as a numbered, plain-English card.
+// ----------------------------------------------------------------------------
+interface StepCardProps {
+  policy: CounselorTierPolicy;
+  institutionNameById: Record<string, string>;
+  isToggling: boolean;
+  onToggle: (next: boolean) => void;
+  onEdit: () => void;
+  onDelete: () => void;
+}
+
+function StepCard({
+  policy,
+  institutionNameById,
+  isToggling,
+  onToggle,
+  onEdit,
+  onDelete,
+}: StepCardProps) {
+  const strategyLabel = TierPolicyService.formatTierStrategy(policy.tier_strategy);
+  const strategyHint = TierPolicyService.explainTierStrategy(policy.tier_strategy);
+  const scopeLabel = TierPolicyService.formatScope(
+    policy.scope_type,
+    policy.institution_id ? institutionNameById[policy.institution_id] : null,
+  );
+  const onDutyLabel = TierPolicyService.formatOnDuty(policy.on_duty_required);
+
+  return (
+    <div
+      className={`rounded-lg border p-4 transition-opacity ${
+        policy.is_active
+          ? 'border-border bg-card'
+          : 'border-dashed border-border bg-muted/30 opacity-60'
+      }`}
+    >
+      <div className="flex items-start gap-4">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/10 text-base font-semibold text-primary">
+          {policy.tier_order}
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <h4 className="text-base font-semibold">
+                  Step {policy.tier_order}: {strategyLabel}
+                </h4>
+                {!policy.is_active && (
+                  <Badge variant="outline" className="text-xs">
+                    Turned off
+                  </Badge>
+                )}
+              </div>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {strategyHint}
+              </p>
+              <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                <span>{scopeLabel}</span>
+                <span>•</span>
+                <span>{onDutyLabel}</span>
+              </div>
+              {policy.description && (
+                <p className="mt-2 text-xs italic text-muted-foreground">
+                  Note: {policy.description}
+                </p>
+              )}
+            </div>
+            <div className="flex shrink-0 items-center gap-3">
+              <div className="flex items-center gap-2">
+                <Switch
+                  id={`toggle-${policy.id}`}
+                  checked={policy.is_active}
+                  disabled={isToggling}
+                  onCheckedChange={onToggle}
+                  aria-label={`Turn step ${policy.tier_order} on or off`}
+                />
+                <label
+                  htmlFor={`toggle-${policy.id}`}
+                  className="cursor-pointer text-xs text-muted-foreground"
+                >
+                  {policy.is_active ? 'On' : 'Off'}
+                </label>
+              </div>
+              <div className="flex gap-1">
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  onClick={onEdit}
+                  aria-label={`Edit step ${policy.tier_order}`}
+                >
+                  <Pencil className="h-4 w-4" />
+                </Button>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  onClick={onDelete}
+                  aria-label={`Remove step ${policy.tier_order}`}
+                >
+                  <Trash2 className="h-4 w-4 text-destructive" />
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
