@@ -139,6 +139,237 @@ export const BOS_MEETING_NEXT_STATUS: Record<BosMeetingStatus, BosMeetingStatus 
   ratified: null,
 };
 
+// ── Board (Reference from COE) ───────────────────────────────────────────────
+
+export interface BosBoard {
+  id: string;
+  board_code: string;
+  board_name: string;
+  board_type?: string | null;
+  institutions_id?: string;
+  is_active?: boolean;
+  display_name?: string | null;
+}
+
+export interface BosBoardFilters {
+  institutionsId?: string;
+  // Note: boards endpoint doesn't support pagination or filtering
+  // It returns filtered results based on authenticated user's institution scope
+}
+
+// ── Course Syllabus & Learning Outcomes ─────────────────────────────────
+
+export interface BosCourseObjective {
+  id?: string;
+  number: number;
+  description: string;
+}
+
+export interface BosCourseLearnOutcome {
+  clo_number: number;
+  description: string;
+  k_values: string[]; // ['K1', 'K3', 'K5', 'K6'] from taxonomy
+}
+
+export interface BosCourseObjectivesContent {
+  objectives: BosCourseObjective[];
+}
+
+export interface BosCourseLearnOutcomesContent {
+  clos: BosCourseLearnOutcome[];
+}
+
+// ── Course Content: Units & Chapters ───────────────────────────────────
+
+export interface BosChapter {
+  chapter_number: number;
+  title: string;
+  sections: string; // "Chapter 1: Sections 13 and 14"
+}
+
+export interface BosUnit {
+  unit_id: string; // "I", "II", "III", "IV", "V"
+  unit_title: string;
+  chapters: BosChapter[];
+}
+
+export interface BosCourseContentData {
+  units: BosUnit[];
+}
+
+// ── Textbooks & References ────────────────────────────────────────────
+
+export interface BosTextbook {
+  title: string;
+  author: string;
+  publication_year: number;
+  publisher?: string;
+}
+
+export interface BosBooksData {
+  primary: BosTextbook[];
+  references: BosTextbook[];
+}
+
+// ── Web Resources ─────────────────────────────────────────────────────
+
+export interface BosWebResource {
+  title: string;
+  url: string;
+}
+
+export interface BosWebResourcesData {
+  resources: BosWebResource[];
+}
+
+// ── Pedagogy Methods ──────────────────────────────────────────────────
+
+export interface BosPedagogyData {
+  methods: string[]; // ["Chalk and talk", "PowerPoint", "E-content", "Group discussion", ...]
+}
+
+// ── Programme Outcome Mappings ────────────────────────────────────────
+
+export interface BosPoMapping {
+  co_id: string; // "CO1", "CO2", etc.
+  pos: Record<string, 'H' | 'M' | 'L'>; // {"PO1": "H", "PO2": "M", ...}
+  psos?: Record<string, 'H' | 'M' | 'L'>; // Optional PSO mappings
+}
+
+export interface BosPOMappingsData {
+  mappings: BosPoMapping[];
+}
+
+// ── Complete Course Syllabus ──────────────────────────────────────────
+
+export interface BosSyllabusContent {
+  course_objectives?: BosCourseObjectivesContent;
+  course_learning_outcomes?: BosCourseLearnOutcomesContent;
+  course_content?: BosCourseContentData;
+  textbooks?: BosBooksData;
+  web_resources?: BosWebResourcesData;
+  pedagogy?: BosPedagogyData;
+  po_mappings?: BosPOMappingsData;
+}
+
+export interface BosCourseSyllabus {
+  id: string;
+  institutions_id: string;
+  board_id: string;
+  regulation_id?: string;
+  course_code: string;
+  course_name: string;
+  course_credits?: number;
+  total_hours?: number;
+  contact_hours?: number;
+
+  // Versioning
+  version_number: number;
+  is_latest: boolean;
+  is_archived: boolean;
+  revised_from_syllabus_id?: string;
+
+  // Content (as JSONB)
+  course_objectives?: Record<string, unknown> | BosCourseObjectivesContent;
+  course_learning_outcomes?: Record<string, unknown> | BosCourseLearnOutcomesContent;
+  course_content?: BosCourseContentData;
+  textbooks?: BosBooksData;
+  web_resources?: BosWebResourcesData;
+  pedagogy?: BosPedagogyData;
+  po_mappings?: BosPOMappingsData;
+
+  // Metadata
+  created_by: string; // User ID
+  created_at: string;
+  last_modified_by?: string;
+  last_modified_at?: string;
+
+  // Additional
+  notes?: string;
+  stream?: string; // "Engineering", "Pharmacy", "Nursing", "Dental", "Arts"
+}
+
+export type CreateBosSyllabusDto = Omit<
+  BosCourseSyllabus,
+  'id' | 'created_at' | 'last_modified_at' | 'version_number' | 'is_latest' | 'is_archived'
+>;
+
+export type UpdateBosSyllabusDto = Partial<Omit<
+  BosCourseSyllabus,
+  'id' | 'created_at' | 'created_by' | 'version_number' | 'regulation_id' | 'institutions_id'
+>>;
+
+export interface BosSyllabusFilters {
+  institutionsId?: string;
+  boardId?: string;
+  regulationId?: string;
+  courseCode?: string;
+  stream?: string;
+  isLatest?: boolean;
+  isArchived?: boolean;
+  search?: string;
+  page?: number;
+  limit?: number;
+  sortBy?: string;
+  sortOrder?: 'asc' | 'desc';
+}
+
+// ── Regulation Taxonomy Master ────────────────────────────────────────
+
+export interface BosRegulationTaxonomy {
+  id: string;
+  institutions_id: string;
+  regulation_id: string;
+  taxonomy_type: 'finks' | 'blooms' | string; // Framework choice
+  k_values: Record<string, string>; // {"K1": "Application", "K2": "Foundational", ...}
+  pos: Record<string, string>; // PO definitions: {"PO1": "...", "PO2": "..."}
+  psos?: Record<string, string>; // PSO definitions (optional)
+  created_by: string;
+  created_at: string;
+  updated_by?: string;
+  updated_at?: string;
+}
+
+export type CreateBosRegulationTaxonomyDto = Omit<
+  BosRegulationTaxonomy,
+  'id' | 'created_at' | 'updated_at' | 'created_by' | 'updated_by'
+>;
+
+export type UpdateBosRegulationTaxonomyDto = Partial<Omit<
+  BosRegulationTaxonomy,
+  'id' | 'created_at' | 'created_by' | 'institutions_id' | 'regulation_id'
+>>;
+
+// ── Syllabus Duplication & Revision ────────────────────────────────────
+
+export interface BosSyllabusDuplicateRequest {
+  source_regulation_id: string;
+  target_regulation_id: string;
+  course_code_mapping: Array<{
+    from: string; // "24UGTA01"
+    to: string;   // "25UGTA01"
+  }>;
+  keep_content?: boolean; // default: true
+}
+
+export interface BosSyllabusRevisionRequest {
+  syllabi_id: string;
+  updated_content: BosSyllabusContent;
+  notes?: string; // "Updated per board feedback"
+}
+
+export interface BosSyllabusHistory {
+  current: BosCourseSyllabus;
+  previous?: BosCourseSyllabus;
+  all_versions: BosCourseSyllabus[];
+}
+
+// ── List Response ─────────────────────────────────────────────────────
+
+export interface BosSyllabusListResponse extends BosListResponse<BosCourseSyllabus> {
+  // Inherits data, metadata from BosListResponse
+}
+
 // ── External Expert ──────────────────────────────────────────────────────────
 
 export interface BosExternalExpert {

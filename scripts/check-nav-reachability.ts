@@ -130,6 +130,7 @@ const NAV_EXCLUDE = new Set<string>([
   '/bos/compositions/new',
   '/bos/experts/new',
   '/bos/meetings/new',
+  '/bos/syllabi/new',
 
   // Campus-living /new forms
   '/campus-living/allocations/new',
