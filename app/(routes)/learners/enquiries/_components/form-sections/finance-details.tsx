@@ -151,10 +151,13 @@ export function FinanceDetailsSection({
         </p>
       </div>
 
-      {/* Legacy banner — only when the loaded learner has legacy_fee_mode=true */}
+      {/* Legacy banner — only when the loaded learner has legacy_fee_mode=true.
+       *  Plan 6 Task 2 (2026-05-05): the banner self-gates on the institution's
+       *  use_fee_structures flag, so we forward institutionId for that check. */}
       {legacyFeeMode && learnerId && (
         <LegacyModeBanner
           learnerId={learnerId}
+          institutionId={institutionId}
           dims={dims}
           legacyFeeItems={legacyFeeItemsRaw ?? []}
           onAdopted={() => setRefreshTick((t) => t + 1)}
