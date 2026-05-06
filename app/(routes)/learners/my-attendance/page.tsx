@@ -114,7 +114,10 @@ export default async function StudentAttendancePage({ searchParams }: PageProps)
           currentSemester={currentSemesterId}
         />
 
-        {/* Show message if no attendance data */}
+        {/* Statistics Cards — always shown so attendance % is visible even with no records */}
+        <AttendanceStatisticsCards stats={statistics} />
+
+        {/* Show message if no attendance data, otherwise show full breakdown */}
         {attendanceRecords.length === 0 ? (
           <Card>
             <CardHeader>
@@ -129,9 +132,6 @@ export default async function StudentAttendancePage({ searchParams }: PageProps)
           </Card>
         ) : (
           <>
-            {/* Statistics Cards */}
-            <AttendanceStatisticsCards stats={statistics} />
-
             {/* Trend Chart */}
             {trendData.length > 0 && <AttendanceTrendChart data={trendData} />}
 
