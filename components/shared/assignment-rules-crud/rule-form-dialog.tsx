@@ -4,6 +4,10 @@
 // Create/Edit dialog for admission_assignment_rules.
 // Mirrors: app/(routes)/admission/settings/assignment-rules/_components/row-actions.tsx
 // Uses textarea for criteria/action JSONB — UX polish deferred to follow-up PR.
+//
+// Rule-type dropdown is sourced from the assignment_rule_type_registry table
+// (Director's standing rule 2026-04-29 — every policy decision = config row).
+// Adding a new rule strategy is a SQL row, not a code deploy.
 
 import { useState, useEffect } from 'react';
 import { Loader2 } from 'lucide-react';
@@ -29,6 +33,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useAssignmentRuleMutations } from '@/hooks/admission';
+import { useRuleTypes } from '@/hooks/admission/use-rule-types';
 import type {
   AssignmentRule,
   AssignmentRuleType,
@@ -36,7 +41,9 @@ import type {
   UpdateAssignmentRuleInput,
 } from '@/lib/services/admission/assignment-rules-service';
 
-const RULE_TYPES: { value: AssignmentRuleType; label: string }[] = [
+// Fallback used only if the registry fetch fails — keeps the form usable.
+// Mirrors the seeded keys in supabase/migrations/20260506181402_create_assignment_rule_type_registry.sql.
+const FALLBACK_RULE_TYPES: { value: AssignmentRuleType; label: string }[] = [
   { value: 'program', label: 'Program' },
   { value: 'round_robin', label: 'Round Robin' },
   { value: 'location', label: 'Location' },
@@ -76,12 +83,27 @@ export function RuleFormDialog({
   const isEditing = !!rule;
   const { createRule, updateRule, isCreating, isUpdating } =
     useAssignmentRuleMutations();
+  const {
+    ruleTypes: registryRuleTypes,
+    isLoading: isLoadingRuleTypes,
+    error: ruleTypesError,
+  } = useRuleTypes();
+
+  // Build the dropdown option list. Prefer registry rows; fall back to the
+  // hardcoded list only when the registry fetch errored AND we have nothing
+  // cached to render.
+  const ruleTypeOptions: { value: string; label: string }[] = registryRuleTypes.length
+    ? registryRuleTypes.map((r) => ({ value: r.rule_type_key, label: r.display_label }))
+    : FALLBACK_RULE_TYPES.map((t) => ({ value: t.value, label: t.label }));
 
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [priority, setPriority] = useState('10');
   const [isActive, setIsActive] = useState(true);
-  const [ruleType, setRuleType] = useState<AssignmentRuleType>('round_robin');
+  // ruleType holds whatever rule_type_key the registry exposes — kept as a
+  // wider string so future custom keys (added via /admin/counselors/rule-types)
+  // type-check without code changes. The known-union keys still satisfy this.
+  const [ruleType, setRuleType] = useState<AssignmentRuleType | string>('round_robin');
   const [criteriaJson, setCriteriaJson] = useState(DEFAULT_CRITERIA);
   const [actionJson, setActionJson] = useState(DEFAULT_ACTION);
   const [jsonError, setJsonError] = useState<string | null>(null);
@@ -215,20 +237,32 @@ export function RuleFormDialog({
               <Label htmlFor="rule-type">Rule Type</Label>
               <Select
                 value={ruleType}
-                onValueChange={(v) => setRuleType(v as AssignmentRuleType)}
-                disabled={isBusy}
+                onValueChange={(v) => setRuleType(v)}
+                disabled={isBusy || isLoadingRuleTypes}
               >
                 <SelectTrigger id="rule-type">
-                  <SelectValue />
+                  {isLoadingRuleTypes ? (
+                    <span className="flex items-center gap-2 text-muted-foreground">
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                      Loading…
+                    </span>
+                  ) : (
+                    <SelectValue />
+                  )}
                 </SelectTrigger>
                 <SelectContent>
-                  {RULE_TYPES.map((t) => (
+                  {ruleTypeOptions.map((t) => (
                     <SelectItem key={t.value} value={t.value}>
                       {t.label}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
+              {ruleTypesError && registryRuleTypes.length === 0 && (
+                <p className="text-xs text-muted-foreground">
+                  Could not load rule-type registry — showing default list.
+                </p>
+              )}
             </div>
           </div>
 

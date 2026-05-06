@@ -1,6 +1,8 @@
 'use client';
 
 import { ColumnDef } from '@tanstack/react-table';
+import * as Icons from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import { Checkbox } from '@/components/ui/checkbox';
 import { DataTableColumnHeader } from '@/components/data-table/column-header';
 import { Badge } from '@/components/ui/badge';
@@ -18,23 +20,74 @@ import {
 import type { AssignmentRule } from '@/lib/services/admission/assignment-rules-service';
 import { DataTableRowActions } from './row-actions';
 
-export function getRuleTypeIcon(type?: string) {
-  switch (type) {
-    case 'program':
-      return <GraduationCap className="h-4 w-4 text-blue-500" />;
-    case 'round_robin':
-      return <Shuffle className="h-4 w-4 text-purple-500" />;
-    case 'location':
-      return <MapPin className="h-4 w-4 text-green-500" />;
-    case 'score':
-      return <Target className="h-4 w-4 text-red-500" />;
-    case 'source':
-      return <Building className="h-4 w-4 text-orange-500" />;
-    case 'workload':
-      return <Activity className="h-4 w-4 text-yellow-500" />;
-    default:
-      return <Settings className="h-4 w-4 text-gray-500" />;
+// Per-key Tailwind colour token. Keys mirror the seed in
+// supabase/migrations/20260506181402_create_assignment_rule_type_registry.sql.
+// Custom registry rows (added later via /admin/counselors/rule-types) fall
+// through to the muted default — admins can pick any lucide icon name and the
+// form-dialog will render it; colour is intentionally not surfaced as config
+// to keep the registry surface lean.
+const RULE_TYPE_COLOR: Record<string, string> = {
+  program: 'text-blue-500',
+  round_robin: 'text-purple-500',
+  location: 'text-green-500',
+  score: 'text-red-500',
+  source: 'text-orange-500',
+  workload: 'text-yellow-500',
+};
+
+// Hardcoded fallback used when callers pass only a key (no registry row).
+// Drop-in equivalent of the previous switch — keeps existing call-sites working
+// while consumers migrate to the (key, iconName) form.
+const FALLBACK_ICON_BY_KEY: Record<string, LucideIcon> = {
+  program: GraduationCap,
+  round_robin: Shuffle,
+  location: MapPin,
+  score: Target,
+  source: Building,
+  workload: Activity,
+};
+
+function resolveLucideIcon(iconName: string | null | undefined): LucideIcon | null {
+  if (!iconName) return null;
+  // Map kebab-case (DB convention) to PascalCase (lucide export name).
+  const pascal = iconName
+    .split(/[-_]/)
+    .filter(Boolean)
+    .map((s) => s.charAt(0).toUpperCase() + s.slice(1))
+    .join('');
+  const candidate = (Icons as unknown as Record<string, unknown>)[pascal];
+  return typeof candidate === 'function' ? (candidate as LucideIcon) : null;
+}
+
+/**
+ * Render the lucide icon for a rule type.
+ *
+ * @param type     The rule_type_key (e.g. 'program', 'round_robin', or a
+ *                 custom key from the registry).
+ * @param iconName Optional explicit icon name from the registry row
+ *                 (assignment_rule_type_registry.icon_name). When provided,
+ *                 takes precedence over the hardcoded fallback — this is the
+ *                 path used by table cells that have a registry row available.
+ */
+export function getRuleTypeIcon(type?: string, iconName?: string | null) {
+  const colorClass = (type && RULE_TYPE_COLOR[type]) || 'text-gray-500';
+
+  // 1) Registry-supplied icon name wins (decoupled from code).
+  const registryIcon = resolveLucideIcon(iconName);
+  if (registryIcon) {
+    const Icon = registryIcon;
+    return <Icon className={`h-4 w-4 ${colorClass}`} />;
   }
+
+  // 2) Backward-compat fallback for the seeded keys.
+  const fallback = type ? FALLBACK_ICON_BY_KEY[type] : null;
+  if (fallback) {
+    const Icon = fallback;
+    return <Icon className={`h-4 w-4 ${colorClass}`} />;
+  }
+
+  // 3) Unknown key — neutral marker.
+  return <Settings className="h-4 w-4 text-gray-500" />;
 }
 
 export function getColumns(
