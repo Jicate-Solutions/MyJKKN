@@ -59,6 +59,9 @@ import {
   Home,
   Receipt,
   Hash,
+  Activity,
+  Plus,
+  Clock,
 } from 'lucide-react';
 import { AdmissionErrorBoundary } from '@/components/admission';
 import { PermissionGuard } from '@/components/auth/permission-guard';
@@ -406,19 +409,80 @@ function FeeStructureDetailPageContent({ id }: { id: string }) {
                     )}
                   </section>
 
-                  {/* Audit footer */}
-                  <section className="border-t pt-4">
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
-                      <AuditLine label="Status" value={structure.status} />
-                      <AuditLine
-                        label="Created"
-                        value={new Date(structure.created_at).toLocaleDateString()}
-                      />
-                      <AuditLine
-                        label="Last updated"
-                        value={new Date(structure.updated_at).toLocaleString()}
-                      />
-                      <AuditLine label="Items" value={String(structure.items.length)} />
+                  {/* Audit footer — structured cards with icons + properly cased status */}
+                  <section>
+                    <h2 className="text-sm font-semibold mb-3 text-muted-foreground uppercase tracking-wide">
+                      Status & History
+                    </h2>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                      {/* Status — shown as a colored card with the same badge as the header */}
+                      <div className="rounded-md border bg-card p-3 space-y-2">
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                          <Activity className="h-4 w-4" />
+                          <span>Status</span>
+                        </div>
+                        <StatusBadge status={structure.status} />
+                        <p className="text-xs text-muted-foreground">
+                          {structure.status === 'active'
+                            ? 'In use for new enquiry resolutions.'
+                            : structure.status === 'draft'
+                            ? 'Not yet used — finish configuring then activate.'
+                            : 'Archived — kept for audit; not used for new resolutions.'}
+                        </p>
+                      </div>
+
+                      {/* Items count — shown with hash icon and grand total */}
+                      <div className="rounded-md border bg-card p-3 space-y-2">
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                          <Hash className="h-4 w-4" />
+                          <span>Line items</span>
+                        </div>
+                        <div className="text-2xl font-bold tabular-nums">
+                          {structure.items.length}
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          Total ₹{grandTotal.toLocaleString('en-IN')}
+                        </p>
+                      </div>
+
+                      {/* Created — date only, dim subtitle for relative time */}
+                      <div className="rounded-md border bg-card p-3 space-y-2">
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                          <Plus className="h-4 w-4" />
+                          <span>Created</span>
+                        </div>
+                        <div className="text-sm font-medium">
+                          {new Date(structure.created_at).toLocaleDateString('en-IN', {
+                            year: 'numeric',
+                            month: 'long',
+                            day: 'numeric',
+                          })}
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          {formatRelativeTime(structure.created_at)}
+                        </p>
+                      </div>
+
+                      {/* Updated — datetime full, with relative time */}
+                      <div className="rounded-md border bg-card p-3 space-y-2">
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                          <Clock className="h-4 w-4" />
+                          <span>Last updated</span>
+                        </div>
+                        <div
+                          className="text-sm font-medium"
+                          title={new Date(structure.updated_at).toLocaleString()}
+                        >
+                          {new Date(structure.updated_at).toLocaleDateString('en-IN', {
+                            year: 'numeric',
+                            month: 'long',
+                            day: 'numeric',
+                          })}
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          {formatRelativeTime(structure.updated_at)}
+                        </p>
+                      </div>
                     </div>
                   </section>
                 </>
@@ -485,13 +549,24 @@ function DimCard({
   );
 }
 
-function AuditLine({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <div className="text-muted-foreground uppercase tracking-wide text-[10px]">{label}</div>
-      <div className="font-medium">{value}</div>
-    </div>
-  );
+/**
+ * Renders an ISO timestamp as a friendly relative-time string. Falls back to
+ * the absolute date if the value is far in the past (>30 days).
+ */
+function formatRelativeTime(isoTimestamp: string): string {
+  const then = new Date(isoTimestamp).getTime();
+  const now = Date.now();
+  const diffMs = now - then;
+  const diffMin = Math.floor(diffMs / 60_000);
+  const diffHr = Math.floor(diffMs / 3_600_000);
+  const diffDay = Math.floor(diffMs / 86_400_000);
+
+  if (diffMin < 1) return 'Just now';
+  if (diffMin < 60) return `${diffMin} minute${diffMin !== 1 ? 's' : ''} ago`;
+  if (diffHr < 24) return `${diffHr} hour${diffHr !== 1 ? 's' : ''} ago`;
+  if (diffDay < 7) return `${diffDay} day${diffDay !== 1 ? 's' : ''} ago`;
+  if (diffDay < 30) return `${Math.floor(diffDay / 7)} week${Math.floor(diffDay / 7) !== 1 ? 's' : ''} ago`;
+  return new Date(isoTimestamp).toLocaleDateString('en-IN');
 }
 
 export default function FeeStructureDetailPage({ params }: RouteProps) {
