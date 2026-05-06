@@ -1,5 +1,11 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import type { LearnerProfile } from '@/types/learner-profile';
+import type {
+  AccountTransitionDocumentEntry,
+  AccountTransitionResult,
+} from '@/types/admission';
+import { AccountTransitionService } from '@/lib/services/admission/account-transition-service';
+import { AdmissionSettingsService } from '@/lib/services/admission/admission-settings-service';
 // FEE_STRUCTURE_CONFIG removed 2026-04-15 — dynamic fee_items flow replaces it.
 
 // ============================================
@@ -445,55 +451,53 @@ export class OnboardingService {
 
   /**
    * Admission team calls this to send a learner to the accounts team.
-   * 1. Validates lifecycle_status is admitted, pending, or approved.
-   * 2. Validates all required finance fields are filled (draft for accounts).
-   * 3. Updates lifecycle_status → 'account'.
    *
-   * Bills are NOT auto-created. The accounts team creates bills manually
-   * from the onboarding page using the captured fee_items as a reference.
+   * Plan 4 (2026-05-05): refactored to delegate to
+   * AccountTransitionService.transitionToAccount, which calls the atomic
+   * SECURITY DEFINER RPC `admission_account_transition_with_bills`. The RPC
+   * does:
+   *   1. Permission check (admission_documents.manage)
+   *   2. Lead status validation (admitted | pending | approved)
+   *   3. Fee structure resolution (or legacy_fee_mode fee_items check)
+   *   4. Required documents validation
+   *   5. Documents UPSERT
+   *   6. lifecycle_status → 'account'
+   *   7. Bill auto-generation (idempotent)
+   * All in one transaction — any failure rolls back everything.
+   *
+   * Backward-compat: existing callers pass only `learnerId`. If the
+   * institution has `required_documents_for_account_transition` set AND no
+   * documents are passed, the RPC will throw `required_documents_missing: ...`.
+   * UI callers should use the AccountTransitionDialog (Plan 4 Task 11) to
+   * collect documents and pass them via `receivedDocuments`.
+   *
+   * Legacy `validateFinanceFields` removed — the RPC does its own fee
+   * resolution validation.
    */
-  static async markAsAccount(learnerId: string): Promise<void> {
+  static async markAsAccount(
+    learnerId: string,
+    receivedDocuments?: AccountTransitionDocumentEntry[],
+  ): Promise<AccountTransitionResult> {
     try {
       const supabase = this.supabase as any;
 
-      // Fetch current learner
-      const { data: learner, error: fetchError } = await supabase
+      // Read institution to fetch required-documents config.
+      const { data: lp, error: readError } = await supabase
         .from('learners_profiles')
-        .select('*')
+        .select('institution_id')
         .eq('id', learnerId)
         .single();
+      if (readError) throw readError;
+      if (!lp) throw new Error(`Learner ${learnerId} not found`);
 
-      if (fetchError) throw fetchError;
-      if (!learner) throw new Error(`Learner ${learnerId} not found`);
+      const settings = await AdmissionSettingsService.getByInstitution(lp.institution_id);
+      const required = settings?.required_documents_for_account_transition ?? [];
 
-      // Guard: must be in a pre-billing status
-      const allowedStatuses = ['admitted', 'pending', 'approved'];
-      if (!allowedStatuses.includes(learner.lifecycle_status)) {
-        throw new Error(
-          `Cannot mark as account: learner is '${learner.lifecycle_status}'. Must be enquiry, pending, or approved.`
-        );
-      }
-
-      // Validate finance fields
-      const validation = this.validateFinanceFields(learner as LearnerProfile);
-      if (!validation.valid) {
-        throw new Error(
-          `Finance fields incomplete. Missing: ${(validation as ValidationFailure).missing.join(', ')}`
-        );
-      }
-
-      // Transition to 'account'
-      const { error: updateError } = await supabase
-        .from('learners_profiles')
-        .update({ lifecycle_status: 'account', updated_at: new Date().toISOString() })
-        .eq('id', learnerId);
-
-      if (updateError) throw updateError;
-
-      // NOTE: Bills are not auto-created here. Accounts team creates them
-      // manually in /billing/onboarding once the learner appears there.
-      // createBillsFromProfile() remains as a callable helper if you ever
-      // want to opt back into auto-creation per-learner.
+      return AccountTransitionService.transitionToAccount({
+        learner_id: learnerId,
+        required_documents: required,
+        received_documents: receivedDocuments ?? [],
+      });
     } catch (error) {
       console.error('[billing/onboarding] markAsAccount failed:', error);
       throw error;
