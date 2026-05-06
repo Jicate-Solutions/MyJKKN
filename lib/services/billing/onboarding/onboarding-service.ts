@@ -6,6 +6,7 @@ import type {
 } from '@/types/admission';
 import { AccountTransitionService } from '@/lib/services/admission/account-transition-service';
 import { AdmissionSettingsService } from '@/lib/services/admission/admission-settings-service';
+import { FeeChangeEventService } from '@/lib/services/admission/fee-change-event-service';
 // FEE_STRUCTURE_CONFIG removed 2026-04-15 — dynamic fee_items flow replaces it.
 
 // ============================================
@@ -529,6 +530,14 @@ export class OnboardingService {
         throw new Error(
           `Cannot approve: learner is '${learner.lifecycle_status}', expected 'account'`
         );
+      }
+
+      // Plan 5 Task 11: block activation while a fee-change event is pending review.
+      // The reconciliation must complete (approve/reject) before the learner can
+      // transition to 'active' — otherwise bills/credits could go stale.
+      const hasPending = await FeeChangeEventService.hasPendingForLearner(learnerId);
+      if (hasPending) {
+        throw new Error('Cannot activate: a pending fee-change event must be resolved first');
       }
 
       // Check all bills are paid
