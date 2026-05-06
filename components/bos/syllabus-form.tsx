@@ -55,6 +55,21 @@ export function SyllabusForm({
   const isEditing = !!syllabusId;
   const isLoading = createMutation.isPending || updateMutation.isPending;
 
+  const handleSaveAndNext = async (nextTab: string) => {
+    try {
+      if (isEditing && syllabusId) {
+        await updateMutation.mutateAsync(formData as UpdateBosSyllabusDto);
+      } else {
+        const result = await createMutation.mutateAsync(formData as CreateBosSyllabusDto);
+        // Update form with returned data (including ID from server)
+        setFormData((prev) => ({ ...prev, id: result.id }));
+      }
+      setActiveTab(nextTab);
+    } catch (error) {
+      console.error('Failed to save:', error);
+    }
+  };
+
   // Fetch institutions
   useEffect(() => {
     const fetchInstitutions = async () => {
@@ -292,11 +307,11 @@ export function SyllabusForm({
               <div className="flex justify-end gap-2 pt-4 border-t">
                 <Button
                   type="button"
-                  onClick={() => setActiveTab('objectives')}
-                  disabled={!formData.course_code || !formData.course_name || !formData.institutions_id || !formData.regulation_id || !!courseCodeError}
+                  onClick={() => handleSaveAndNext('objectives')}
+                  disabled={!formData.course_code || !formData.course_name || !formData.institutions_id || !formData.regulation_id || !!courseCodeError || isLoading}
                   className="bg-green-600 hover:bg-green-700"
                 >
-                  Save & Next
+                  {isLoading ? 'Saving...' : 'Save & Next'}
                 </Button>
               </div>
             </CardContent>
@@ -321,10 +336,11 @@ export function SyllabusForm({
                 </Button>
                 <Button
                   type="button"
-                  onClick={() => setActiveTab('clo')}
+                  onClick={() => handleSaveAndNext('clo')}
+                  disabled={isLoading}
                   className="bg-green-600 hover:bg-green-700"
                 >
-                  Save & Next
+                  {isLoading ? 'Saving...' : 'Save & Next'}
                 </Button>
               </div>
             </CardContent>
@@ -357,10 +373,11 @@ export function SyllabusForm({
                 </Button>
                 <Button
                   type="button"
-                  onClick={() => setActiveTab('content')}
+                  onClick={() => handleSaveAndNext('content')}
+                  disabled={isLoading}
                   className="bg-green-600 hover:bg-green-700"
                 >
-                  Save & Next
+                  {isLoading ? 'Saving...' : 'Save & Next'}
                 </Button>
               </div>
             </CardContent>
@@ -385,10 +402,11 @@ export function SyllabusForm({
                 </Button>
                 <Button
                   type="button"
-                  onClick={() => setActiveTab('resources')}
+                  onClick={() => handleSaveAndNext('resources')}
+                  disabled={isLoading}
                   className="bg-green-600 hover:bg-green-700"
                 >
-                  Save & Next
+                  {isLoading ? 'Saving...' : 'Save & Next'}
                 </Button>
               </div>
             </CardContent>
@@ -423,10 +441,11 @@ export function SyllabusForm({
                 </Button>
                 <Button
                   type="button"
-                  onClick={() => setActiveTab('pedagogy')}
+                  onClick={() => handleSaveAndNext('pedagogy')}
+                  disabled={isLoading}
                   className="bg-green-600 hover:bg-green-700"
                 >
-                  Save & Next
+                  {isLoading ? 'Saving...' : 'Save & Next'}
                 </Button>
               </div>
             </CardContent>
@@ -451,10 +470,11 @@ export function SyllabusForm({
                 </Button>
                 <Button
                   type="button"
-                  onClick={() => setActiveTab('mappings')}
+                  onClick={() => handleSaveAndNext('mappings')}
+                  disabled={isLoading}
                   className="bg-green-600 hover:bg-green-700"
                 >
-                  Save & Next
+                  {isLoading ? 'Saving...' : 'Save & Next'}
                 </Button>
               </div>
             </CardContent>
