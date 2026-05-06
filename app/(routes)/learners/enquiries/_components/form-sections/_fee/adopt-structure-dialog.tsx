@@ -3,18 +3,20 @@
 // ============================================================================
 // adopt-structure-dialog.tsx
 // ----------------------------------------------------------------------------
-// Plan 3 / Task 12 — Migrate a legacy lead to the matrix-derived fee structure.
+// Migrate a legacy lead to the matrix-derived fee structure.
 // Side-by-side preview: current legacy fee_items[] vs structure-derived rows
 // from FeeStructureService.findByDimensions (using the lead's current FK dims).
-// Confirm:
-//   1. Update learners_profiles.legacy_fee_mode = false (direct table update —
-//      v1 only; Plan 6 will wrap this and the resolution call in a single
-//      SECURITY DEFINER RPC for atomicity).
-//   2. Call FeeResolutionService.resolveForLearner — RPC re-resolves and
-//      persists fee_items.
-//   3. Log enquiry.legacy_fee_adopted activity.
+//
+// Confirm calls the atomic SECURITY DEFINER RPC
+// admission_adopt_structure_for_lead(p_learner_id) which:
+//   1. Permission-gates on admission_fees.manage_adjustments
+//   2. Flips legacy_fee_mode = false
+//   3. Resolves fee_items via admission_resolve_fee_items_for_lead
+//   4. Raises if the 8-dim lookup finds no match (no silent empty adoption)
+// All 3 happen in one transaction; any failure rolls back.
+// Activity log is emitted from the caller's session after the RPC succeeds.
 // ----------------------------------------------------------------------------
-// Spec §9.2  · Plan: 2026-05-05-admission-fees-plan-03 Task 12
+// Plan 3 Task 12 (initial) · Plan 6 Task 6 (atomic RPC refactor) · Spec §12.1
 // ============================================================================
 
 import { useEffect, useMemo, useState } from 'react';
@@ -33,7 +35,6 @@ import {
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { FeeStructureService } from '@/lib/services/admission/fee-structure-service';
-import { FeeResolutionService } from '@/lib/services/admission/fee-resolution-service';
 import { BillingCategoryService } from '@/lib/services/billing/categories/billing-category-service';
 import {
   logActivityForCurrentUser,
@@ -138,39 +139,46 @@ export function AdoptStructureDialog({
     }
     try {
       setSubmitting(true);
-      // Step 1 — flip legacy_fee_mode = false on the learner.
-      // NOTE: not atomic with step 2; Plan 6 will wrap this in a SECURITY
-      // DEFINER RPC. Acceptable for v1 because the worst-case is a row that
-      // sits in the gap with legacy_fee_mode=false but stale fee_items —
-      // the next page-load runs the RPC again.
+      // Single atomic RPC: flip legacy_fee_mode + resolve fee_items.
+      // Permission-gated server-side on admission_fees.manage_adjustments.
+      // Raises on no-match so we never silently adopt an empty fee list.
       const supabase = createClientSupabaseClient();
-      const { error: updateError } = await supabase
-        .from('learners_profiles')
-        .update({ legacy_fee_mode: false })
-        .eq('id', learnerId);
-      if (updateError) throw updateError;
+      const { data, error } = await supabase.rpc(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        'admission_adopt_structure_for_lead' as any,
+        { p_learner_id: learnerId },
+      );
+      if (error) throw error;
 
-      // Step 2 — resolve via RPC so fee_items[] is repopulated from the matrix.
-      const result = await FeeResolutionService.resolveForLearner(learnerId);
+      const result = data as {
+        success: boolean;
+        learner_id: string;
+        item_count: number;
+        fee_items: { amount?: number }[];
+      };
+      const resolvedTotal = (result.fee_items ?? []).reduce(
+        (sum, it) => sum + Number(it?.amount ?? 0),
+        0,
+      );
 
-      // Step 3 — activity log.
+      // Activity log emitted from caller's session (post-RPC, best-effort).
       await logActivityForCurrentUser({
         actionType: 'update',
         resourceType: 'learner',
         resourceId: learnerId,
         description: AdmissionFeesActivityTemplates.enquiry.legacy_fee_adopted(
-          result.items.length,
-          result.total,
+          result.item_count,
+          resolvedTotal,
         ),
         metadata: {
           sub_type: 'enquiry',
           event: 'legacy_fee_adopted',
-          item_count: result.items.length,
-          resolved_total: result.total,
+          item_count: result.item_count,
+          resolved_total: resolvedTotal,
         },
       });
 
-      toast.success('Migrated to matrix-derived fees');
+      toast.success(`Adopted: ${result.item_count} fee items`);
       onAdopted?.();
       onOpenChange(false);
     } catch (err) {
