@@ -257,6 +257,7 @@ export interface BosCourseSyllabus {
   institutions_id: string;
   board_id: string;
   regulation_id?: string;
+  composition_id?: string;
   course_code: string;
   course_name: string;
   course_credits?: number;

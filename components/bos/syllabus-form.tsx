@@ -34,6 +34,7 @@ export function SyllabusForm({
   const [institutions, setInstitutions] = useState<Institution[]>([]);
   const [regulations, setRegulations] = useState<Regulation[]>([]);
   const [boards, setBoards] = useState<{ id: string; name: string }[]>([]);
+  const [compositions, setCompositions] = useState<{ id: string; composition_title: string; board_id: string }[]>([]);
   const [courseCodeError, setCourseCodeError] = useState<string | null>(null);
 
   const [formData, setFormData] = useState<Partial<BosCourseSyllabus>>(
@@ -106,6 +107,30 @@ export function SyllabusForm({
 
     fetchBoards();
   }, []);
+
+  // Fetch compositions filtered by institution
+  useEffect(() => {
+    const fetchCompositions = async () => {
+      try {
+        const url = new URL('/api/bos/compositions', window.location.origin);
+        if (formData.institutions_id) {
+          url.searchParams.set('institutionsId', formData.institutions_id);
+        }
+        url.searchParams.set('isActive', 'true');
+        const res = await fetch(url.toString());
+        if (res.ok) {
+          const { data } = await res.json();
+          setCompositions(data || []);
+        }
+      } catch (err) {
+        console.error('Failed to fetch compositions:', err);
+      }
+    };
+
+    if (formData.institutions_id) {
+      fetchCompositions();
+    }
+  }, [formData.institutions_id]);
 
   // Fetch regulations filtered by institution
   useEffect(() => {
@@ -227,15 +252,25 @@ export function SyllabusForm({
                 )}
 
                 <div>
-                  <label className="block text-sm font-medium mb-1">Board *</label>
-                  <Select value={formData.board_id || ''} onValueChange={(val) => updateField('board_id', val)}>
+                  <label className="block text-sm font-medium mb-1">Composition *</label>
+                  <Select
+                    value={formData.composition_id || ''}
+                    onValueChange={(val) => {
+                      updateField('composition_id', val);
+                      // Auto-populate board_id from composition
+                      const selectedComposition = compositions.find(c => c.id === val);
+                      if (selectedComposition) {
+                        updateField('board_id', selectedComposition.board_id);
+                      }
+                    }}
+                  >
                     <SelectTrigger>
-                      <SelectValue placeholder="Select board" />
+                      <SelectValue placeholder="Select composition" />
                     </SelectTrigger>
                     <SelectContent>
-                      {boards.map((board) => (
-                        <SelectItem key={board.id} value={board.id}>
-                          {board.name}
+                      {compositions.map((comp) => (
+                        <SelectItem key={comp.id} value={comp.id}>
+                          {comp.composition_title}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -257,6 +292,15 @@ export function SyllabusForm({
                     </SelectContent>
                   </Select>
                 </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-1">Board (Auto-populated from Composition)</label>
+                <Input
+                  value={boards.find(b => b.id === formData.board_id)?.name || ''}
+                  disabled
+                  placeholder="Board will be set from composition"
+                />
               </div>
 
               <div className="grid grid-cols-2 gap-4">
@@ -341,7 +385,7 @@ export function SyllabusForm({
                 <Button
                   type="button"
                   onClick={() => handleSaveAndNext('objectives')}
-                  disabled={!formData.course_code || !formData.course_name || !formData.institutions_id || !formData.regulation_id || !!courseCodeError || isLoading}
+                  disabled={!formData.course_code || !formData.course_name || !formData.institutions_id || !formData.regulation_id || !formData.composition_id || !formData.board_id || !!courseCodeError || isLoading}
                   className="bg-green-600 hover:bg-green-700"
                 >
                   {isLoading ? 'Saving...' : 'Save & Next'}
