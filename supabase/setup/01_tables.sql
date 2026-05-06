@@ -5714,7 +5714,7 @@ END$$;
 
 ALTER TABLE public.billing_student_bills
     ADD CONSTRAINT billing_student_bills_status_check
-    CHECK (status IN ('unpaid','partially_paid','paid','superseded'));
+    CHECK (status IN ('unpaid','partially_paid','paid','cancelled','overdue','superseded'));
 
 ALTER TABLE public.billing_receipt_items
     ADD COLUMN IF NOT EXISTS allocation_reason text NOT NULL DEFAULT 'original_payment'
