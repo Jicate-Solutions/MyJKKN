@@ -5,6 +5,7 @@ import { PushNotificationProvider } from '@/components/notifications/push-notifi
 import { PWAProvider } from '@/components/pwa/pwa-provider';
 import { ThemeProvider } from '@/providers/theme-provider';
 import { AuthProvider } from '@/hooks/use-auth-provider';
+import { ReactQueryProvider } from '@/providers/query-client-provider';
 import { SpeedInsights } from '@vercel/speed-insights/next';
 import Script from 'next/script';
 import { PreviewBanner } from '@/components/layout/preview-banner';
@@ -183,23 +184,25 @@ export default function RootLayout({
         />
       </head>
       <body className={`${poppins.variable} font-sans antialiased`} suppressHydrationWarning>
-        <ThemeProvider
-          attribute='class'
-          defaultTheme='light'
-          enableSystem
-          disableTransitionOnChange
-          storageKey='theme-preference'
-        >
-          <AuthProvider>
-            <PWAProvider>
-              {/* Sticky preview banner — renders only when a preview session
-                  cookie is active. Non-dismissible by design. */}
-              <PreviewBanner />
-              <PushNotificationProvider>{children}</PushNotificationProvider>
-              <SpeedInsights />
-            </PWAProvider>
-          </AuthProvider>
-        </ThemeProvider>
+        <ReactQueryProvider>
+          <ThemeProvider
+            attribute='class'
+            defaultTheme='light'
+            enableSystem
+            disableTransitionOnChange
+            storageKey='theme-preference'
+          >
+            <AuthProvider>
+              <PWAProvider>
+                {/* Sticky preview banner — renders only when a preview session
+                    cookie is active. Non-dismissible by design. */}
+                <PreviewBanner />
+                <PushNotificationProvider>{children}</PushNotificationProvider>
+                <SpeedInsights />
+              </PWAProvider>
+            </AuthProvider>
+          </ThemeProvider>
+        </ReactQueryProvider>
         <Script
           src='https://accounts.google.com/gsi/client'
           strategy='lazyOnload'

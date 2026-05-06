@@ -85,7 +85,7 @@ export function CompositionDataTable({ search }: CompositionDataTableProps) {
               : search.is_active === 'false'
               ? false
               : undefined,
-          institutionsId: !isSuperAdmin ? userProfile?.institution_id : undefined,
+          institutionsId: search.institutionsId || (!isSuperAdmin ? userProfile?.institution_id : undefined),
         });
 
         return {

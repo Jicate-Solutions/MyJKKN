@@ -12,6 +12,7 @@ export const expertSearchParamsSchema = z.object({
     .enum(['university_nominee', 'subject_expert', 'industry_expert', 'alumni'])
     .optional(),
   is_active: z.enum(['true', 'false']).optional(),
+  institutionsId: z.string().optional(),
 });
 
 export type ExpertSearchParams = z.infer<typeof expertSearchParamsSchema>;

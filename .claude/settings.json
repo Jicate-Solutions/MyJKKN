@@ -1,6 +1,7 @@
 {
   "permissions": {
     "allow": [
+      "Bash(rm *)",
       "Bash",
       "Fetch(**)",
       "Read(**)",
@@ -31,7 +32,6 @@
       "mcp__*"
     ],
     "deny": [
-      "Bash(rm -rf:*)",
       "Bash(rm -fr:*)",
       "Bash(sudo:*)"
     ]

@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useState, useRef } from 'react';
 import {
   Select,
   SelectContent,
@@ -16,18 +17,77 @@ interface ExpertFiltersProps {
   searchParams: ExpertSearchParams;
   onFilterChange: (key: string, value: string | undefined) => void;
   onClearFilters: () => void;
+  isSuperAdmin?: boolean;
 }
 
 export function ExpertFilters({
   searchParams,
   onFilterChange,
   onClearFilters,
+  isSuperAdmin = false,
 }: ExpertFiltersProps) {
-  const hasActiveFilters = !!(searchParams.category || searchParams.is_active);
+  const [institutionOptions, setInstitutionOptions] = useState<{ id: string; name: string }[]>([]);
+  const institutionsAbortControllerRef = useRef<AbortController | null>(null);
+
+  // Fetch institutions (for super admins)
+  useEffect(() => {
+    if (!isSuperAdmin) return;
+
+    if (institutionsAbortControllerRef.current) {
+      institutionsAbortControllerRef.current.abort();
+    }
+    institutionsAbortControllerRef.current = new AbortController();
+
+    const fetchInstitutions = async () => {
+      try {
+        const res = await fetch('/api/bos/institutions', {
+          signal: institutionsAbortControllerRef.current?.signal,
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setInstitutionOptions(data || []);
+        }
+      } catch (err) {
+        if ((err as Error).name !== 'AbortError') {
+          console.error('Failed to fetch institutions:', err);
+        }
+      }
+    };
+
+    fetchInstitutions();
+
+    return () => {
+      institutionsAbortControllerRef.current?.abort();
+    };
+  }, [isSuperAdmin]);
+
+  const hasActiveFilters = !!(searchParams.category || searchParams.is_active || searchParams.institutionsId);
 
   return (
     <div className='flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between'>
-      <div className='flex flex-col gap-3 sm:flex-row sm:items-center'>
+      <div className='flex flex-col gap-3 sm:flex-row sm:items-center flex-wrap'>
+        {/* Institution Filter (Super Admin Only) */}
+        {isSuperAdmin && (
+          <div className='min-w-[200px]'>
+            <Select
+              value={searchParams.institutionsId || 'all'}
+              onValueChange={(val) => onFilterChange('institutionsId', val === 'all' ? undefined : val)}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder='All institutions' />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value='all'>All institutions</SelectItem>
+                {institutionOptions.map((inst) => (
+                  <SelectItem key={inst.id} value={inst.id}>
+                    {inst.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+
         {/* Category Filter */}
         <div className='min-w-[180px]'>
           <Select

@@ -1,27 +1,22 @@
-export const dynamic = 'force-dynamic';
+import { NextRequest, NextResponse } from 'next/server';
+import { createClient } from '@/lib/supabase/server';
 
-import { NextResponse, connection } from 'next/server';
-import { createServerSupabaseClient } from '@/lib/supabase/server';
-
-
-export async function GET() {
-  await connection();
+export async function GET(request: NextRequest) {
   try {
-    const supabase = await createServerSupabaseClient();
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    const { data: institutions, error } = await supabase
+    const { data, error } = await supabase
       .from('institutions')
       .select('id, name')
       .order('name');
 
     if (error) throw error;
 
-    return NextResponse.json(institutions || []);
+    return NextResponse.json({ data: data || [], count: data?.length || 0 });
   } catch (error) {
-    console.error('[INSTITUTIONS_GET] Error fetching institutions:', error);
-    return NextResponse.json(
-      { error: 'Failed to fetch institutions' },
-      { status: 500 }
-    );
+    console.error('[GET /api/institutions]', error);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

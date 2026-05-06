@@ -2,6 +2,7 @@
 
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useCallback } from 'react';
+import { usePermissions } from '@/hooks/use-permissions';
 import { CompositionFilters } from './composition-filters';
 import type { CompositionSearchParams } from './data-table-schema';
 
@@ -12,6 +13,7 @@ interface CompositionFiltersClientProps {
 export function CompositionFiltersClient({ searchParams }: CompositionFiltersClientProps) {
   const router = useRouter();
   const currentSearchParams = useSearchParams();
+  const { isSuperAdmin, userProfile } = usePermissions();
 
   const handleFilterChange = useCallback(
     (key: string, value: string | undefined) => {
@@ -40,6 +42,7 @@ export function CompositionFiltersClient({ searchParams }: CompositionFiltersCli
       searchParams={searchParams}
       onFilterChange={handleFilterChange}
       onClearFilters={handleClearFilters}
+      isSuperAdmin={isSuperAdmin}
     />
   );
 }

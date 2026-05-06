@@ -81,7 +81,7 @@ export function MeetingDataTable({ search }: MeetingDataTableProps) {
           academicYear: search.academic_year,
           status: search.status,
           meetingType: search.meeting_type,
-          institutionsId: !isSuperAdmin ? userProfile?.institution_id : undefined,
+          institutionsId: search.institutionsId || (!isSuperAdmin ? userProfile?.institution_id : undefined),
         });
 
         return {

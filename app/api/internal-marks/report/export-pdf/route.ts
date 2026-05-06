@@ -5,6 +5,7 @@ import {
   resolveInternalMarksAccess,
   resolveCoeInstitutionId,
 } from '@/lib/utils/internal-marks/internal-marks-access';
+import { flattenReportExtraMarks } from '@/lib/utils/internal-marks/flatten-extra-marks';
 import type { CiaReportResponse } from '@/types/internal-marks';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -29,13 +30,14 @@ export async function POST(request: NextRequest) {
     }
 
     const client = CoeRestClient.create();
-    const reportData = await client.get<CiaReportResponse>('/api/v1/cia-marks/report', {
+    const rawReport = await client.get<CiaReportResponse>('/api/v1/cia-marks/report', {
       institutions_id: coeInstitutionId,
       examination_session_id: examSessionId,
       course_code: courseCode,
       cia_round: String(ciaRound),
       program_code: programCode ?? undefined,
     });
+    const reportData = flattenReportExtraMarks(rawReport);
 
     const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
     doc.setFontSize(14);

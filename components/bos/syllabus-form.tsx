@@ -27,7 +27,6 @@ export function SyllabusForm({
 }: SyllabusFormProps) {
   const { data: existingSyllabus } = useBosSyllabus(syllabusId);
   const createMutation = useCreateBosSyllabus();
-  const updateMutation = useUpdateBosSyllabus(syllabusId || '');
   const { userProfile, isSuperAdmin } = usePermissions();
 
   const [activeTab, setActiveTab] = useState('basic');
@@ -52,19 +51,38 @@ export function SyllabusForm({
     }
   );
 
+  // Initialize with passed ID or empty string (will be set when we create)
+  const [currentUpdateId, setCurrentUpdateId] = useState<string>(syllabusId || '');
+  const updateMutation = useUpdateBosSyllabus(currentUpdateId);
+
   const { data: taxonomy } = useBosTaxonomy(formData.regulation_id || '');
 
-  const isEditing = !!syllabusId;
+  // Update mutation's ID when we get one from creation
+  const currentSyllabusId = syllabusId || formData.id;
+
+  // Consider it editing if we have an ID (either from prop or from creation response)
+  const isEditing = !!currentSyllabusId;
   const isLoading = createMutation.isPending || updateMutation.isPending;
 
   const handleSaveAndNext = async (nextTab: string) => {
     try {
-      if (isEditing && syllabusId) {
+      // Validate required fields before submission
+      if (!formData.course_code || !formData.course_name || !formData.institutions_id) {
+        console.error('Missing required fields:', {
+          course_code: formData.course_code,
+          course_name: formData.course_name,
+          institutions_id: formData.institutions_id
+        });
+        return;
+      }
+
+      if (isEditing && currentSyllabusId) {
         await updateMutation.mutateAsync(formData as UpdateBosSyllabusDto);
       } else {
         const result = await createMutation.mutateAsync(formData as CreateBosSyllabusDto);
         // Update form with returned data (including ID from server)
         setFormData((prev) => ({ ...prev, id: result.id }));
+        setCurrentUpdateId(result.id);
       }
       setActiveTab(nextTab);
     } catch (error) {
@@ -116,7 +134,7 @@ export function SyllabusForm({
         if (formData.institutions_id) {
           url.searchParams.set('institutionsId', formData.institutions_id);
         }
-        url.searchParams.set('isActive', 'true');
+        url.searchParams.set('limit', '100');
         const res = await fetch(url.toString());
         if (res.ok) {
           const { data } = await res.json();
@@ -160,7 +178,7 @@ export function SyllabusForm({
     e.preventDefault();
 
     try {
-      if (isEditing && syllabusId) {
+      if (isEditing && currentSyllabusId) {
         await updateMutation.mutateAsync(formData as UpdateBosSyllabusDto);
       } else {
         const result = await createMutation.mutateAsync(formData as CreateBosSyllabusDto);
@@ -198,7 +216,7 @@ export function SyllabusForm({
       );
       if (res.ok) {
         const { data } = await res.json();
-        if (data && data.length > 0 && data[0].id !== syllabusId) {
+        if (data && data.length > 0 && data[0].id !== currentSyllabusId) {
           setCourseCodeError(`Course code "${code}" already exists in this institution and regulation`);
           return false;
         }

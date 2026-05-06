@@ -1,0 +1,175 @@
+'use client';
+
+import { useEffect, useState, useRef } from 'react';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { Button } from '@/components/ui/button';
+import { RotateCcw } from 'lucide-react';
+import { MeetingSearchParams } from './data-table-schema';
+import { usePermissions } from '@/hooks/use-permissions';
+import { logger } from '@/lib/utils/enhanced-logger';
+
+interface Board {
+  id: string;
+  board_code: string;
+  board_name: string;
+}
+
+interface MeetingFiltersProps {
+  searchParams: MeetingSearchParams;
+  onFilterChange: (key: string, value: string | undefined) => void;
+  onClearFilters: () => void;
+  isSuperAdmin?: boolean;
+}
+
+export function MeetingFilters({
+  searchParams,
+  onFilterChange,
+  onClearFilters,
+  isSuperAdmin = false,
+}: MeetingFiltersProps) {
+  const { userProfile } = usePermissions();
+  const [boards, setBoards] = useState<Board[]>([]);
+  const [loadingBoards, setLoadingBoards] = useState(false);
+  const [institutionOptions, setInstitutionOptions] = useState<{ id: string; name: string }[]>([]);
+  const institutionsAbortControllerRef = useRef<AbortController | null>(null);
+
+  // Fetch institutions (for super admins)
+  useEffect(() => {
+    if (!isSuperAdmin) return;
+
+    if (institutionsAbortControllerRef.current) {
+      institutionsAbortControllerRef.current.abort();
+    }
+    institutionsAbortControllerRef.current = new AbortController();
+
+    const fetchInstitutions = async () => {
+      try {
+        const res = await fetch('/api/bos/institutions', {
+          signal: institutionsAbortControllerRef.current?.signal,
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setInstitutionOptions(data || []);
+        }
+      } catch (err) {
+        if ((err as Error).name !== 'AbortError') {
+          console.error('Failed to fetch institutions:', err);
+        }
+      }
+    };
+
+    fetchInstitutions();
+
+    return () => {
+      institutionsAbortControllerRef.current?.abort();
+    };
+  }, [isSuperAdmin]);
+
+  useEffect(() => {
+    const institutionIdToFetch = searchParams.institutionsId || userProfile?.institution_id;
+    if (!institutionIdToFetch) return;
+
+    async function fetchBoards() {
+      setLoadingBoards(true);
+      try {
+        const res = await fetch(
+          `/api/bos/boards?institutionsId=${institutionIdToFetch}`
+        );
+        if (res.ok) setBoards(await res.json());
+      } catch (error) {
+        logger.error('academic/bos', 'Failed to fetch boards for filter', error);
+      } finally {
+        setLoadingBoards(false);
+      }
+    }
+    fetchBoards();
+  }, [searchParams.institutionsId, userProfile?.institution_id]);
+
+  const hasActiveFilters = !!(
+    searchParams.board_id ||
+    searchParams.academic_year ||
+    searchParams.meeting_type ||
+    searchParams.institutionsId
+  );
+
+  return (
+    <div className='flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between'>
+      <div className='flex flex-col gap-3 sm:flex-row sm:items-center flex-wrap'>
+        {/* Institution Filter (Super Admin Only) */}
+        {isSuperAdmin && (
+          <div className='min-w-[200px]'>
+            <Select
+              value={searchParams.institutionsId || 'all'}
+              onValueChange={(val) => onFilterChange('institutionsId', val === 'all' ? undefined : val)}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder='All institutions' />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value='all'>All institutions</SelectItem>
+                {institutionOptions.map((inst) => (
+                  <SelectItem key={inst.id} value={inst.id}>
+                    {inst.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+
+        {/* Board Filter */}
+        <div className='min-w-[220px]'>
+          <Select
+            value={searchParams.board_id ?? 'all'}
+            disabled={loadingBoards}
+            onValueChange={(v) => onFilterChange('board_id', v === 'all' ? undefined : v)}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder={loadingBoards ? 'Loading...' : 'All Boards'} />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value='all'>All Boards</SelectItem>
+              {boards.map((b) => (
+                <SelectItem key={b.id} value={b.id}>
+                  {b.board_name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        {/* Meeting Type Filter */}
+        <div className='min-w-[160px]'>
+          <Select
+            value={searchParams.meeting_type ?? 'all'}
+            onValueChange={(v) => onFilterChange('meeting_type', v === 'all' ? undefined : v)}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder='All Types' />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value='all'>All Types</SelectItem>
+              <SelectItem value='regular'>Regular</SelectItem>
+              <SelectItem value='special'>Special</SelectItem>
+              <SelectItem value='emergency'>Emergency</SelectItem>
+              <SelectItem value='online'>Online</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+
+      {hasActiveFilters && (
+        <Button variant='ghost' onClick={onClearFilters} className='h-8 px-2 lg:px-3'>
+          Reset
+          <RotateCcw className='ml-2 h-4 w-4' />
+        </Button>
+      )}
+    </div>
+  );
+}

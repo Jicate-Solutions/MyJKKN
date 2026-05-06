@@ -2,6 +2,7 @@
 
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useCallback } from 'react';
+import { usePermissions } from '@/hooks/use-permissions';
 import { ExpertFilters } from './expert-filters';
 import type { ExpertSearchParams } from './data-table-schema';
 
@@ -12,6 +13,7 @@ interface ExpertFiltersClientProps {
 export function ExpertFiltersClient({ searchParams }: ExpertFiltersClientProps) {
   const router = useRouter();
   const currentSearchParams = useSearchParams();
+  const { isSuperAdmin, userProfile } = usePermissions();
 
   const handleFilterChange = useCallback(
     (key: string, value: string | undefined) => {
@@ -40,6 +42,7 @@ export function ExpertFiltersClient({ searchParams }: ExpertFiltersClientProps) 
       searchParams={searchParams}
       onFilterChange={handleFilterChange}
       onClearFilters={handleClearFilters}
+      isSuperAdmin={isSuperAdmin}
     />
   );
 }

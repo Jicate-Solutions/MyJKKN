@@ -33,6 +33,7 @@ import { Label } from '@/components/ui/label';
 import { AgendaTab } from './_components/agenda-tab';
 import { AttendanceTab } from './_components/attendance-tab';
 import { DocumentsTab } from './_components/documents-tab';
+import { SyllabusTab } from './_components/syllabi-tab';
 
 import { useBosMeeting, useTransitionBosMeetingStatus } from '@/hooks/bos/use-bos-meetings';
 import { usePermissions } from '@/hooks/use-permissions';
@@ -439,6 +440,7 @@ export default function MeetingDetailPage({ params }: MeetingDetailPageProps) {
                 )}
               </TabsTrigger>
               <TabsTrigger value='documents'>Documents</TabsTrigger>
+              <TabsTrigger value='syllabi'>Syllabi</TabsTrigger>
             </TabsList>
 
             <TabsContent value='agenda'>
@@ -458,6 +460,15 @@ export default function MeetingDetailPage({ params }: MeetingDetailPageProps) {
               <DocumentsTab
                 meeting={meeting}
                 compositionId={meeting.composition_id}
+              />
+            </TabsContent>
+
+            <TabsContent value='syllabi'>
+              <SyllabusTab
+                meetingId={meetingId}
+                regulationId={meeting.regulation_id}
+                institutionsId={meeting.institutions_id}
+                canEdit={canEdit}
               />
             </TabsContent>
           </Tabs>

@@ -4,6 +4,7 @@ import { PermissionGuard } from '@/components/auth/permission-guard';
 import { Skeleton } from '@/components/ui/skeleton';
 import { MeetingDataTable } from './_components/meeting-data-table';
 import { MeetingStatusTabs } from './_components/meeting-status-tabs';
+import { MeetingFiltersClient } from './_components/meeting-filters-client';
 import {
   meetingSearchParamsSchema,
   type MeetingSearchParams,
@@ -25,6 +26,7 @@ export default async function MeetingsPage({ searchParams }: MeetingsPageProps) 
     board_id: raw.board_id,
     academic_year: raw.academic_year,
     meeting_type: raw.meeting_type,
+    institutionsId: raw.institutionsId,
   }) satisfies MeetingSearchParams;
 
   return (
@@ -37,6 +39,9 @@ export default async function MeetingsPage({ searchParams }: MeetingsPageProps) 
 
         {/* Status filter tabs */}
         <MeetingStatusTabs currentStatus={search.status} />
+
+        {/* Additional filters */}
+        <MeetingFiltersClient searchParams={search} />
 
         {/* Data table */}
         <Suspense

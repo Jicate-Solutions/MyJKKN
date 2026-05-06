@@ -4,7 +4,7 @@ import { ReactNode } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
-import { Users, ClipboardList, CalendarDays, Receipt, BarChart3 } from 'lucide-react';
+import { Users, ClipboardList, CalendarDays, Receipt, BarChart3, BookOpen, Layers } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
   Breadcrumb,
@@ -16,8 +16,10 @@ import {
 } from '@/components/ui/breadcrumb';
 
 const BOS_NAV_TABS = [
+  { href: '/bos/taxonomy',     label: 'Taxonomy',         icon: Layers },
   { href: '/bos/experts',      label: 'External Experts', icon: Users },
   { href: '/bos/compositions', label: 'Compositions',     icon: ClipboardList },
+  { href: '/bos/syllabi',      label: 'Syllabi',          icon: BookOpen },
   { href: '/bos/meetings',     label: 'Meetings',         icon: CalendarDays },
   { href: '/bos/ta-da',        label: 'TA/DA Claims',     icon: Receipt },
   { href: '/bos/reports',      label: 'Reports',          icon: BarChart3 },
@@ -31,18 +33,29 @@ function resolveSubLeaf(tabHref: string, pathname: string): string | null {
   if (tail === '' || tail === '/') return null;
 
   if (tail === '/new') {
+    if (tabHref === '/bos/syllabi') return 'New Syllabus';
     if (tabHref === '/bos/experts') return 'Add Expert';
     if (tabHref === '/bos/compositions') return 'New Composition';
     if (tabHref === '/bos/meetings') return 'Schedule Meeting';
+    if (tabHref === '/bos/taxonomy') return null;
     return 'New';
   }
 
   if (tail.endsWith('/edit')) {
+    if (tabHref === '/bos/syllabi') return 'Edit Syllabus';
     if (tabHref === '/bos/experts') return 'Edit Expert';
     if (tabHref === '/bos/compositions') return 'Edit Composition';
     if (tabHref === '/bos/meetings') return 'Edit Meeting';
     return 'Edit';
   }
+
+  if (tail.endsWith('/history')) {
+    if (tabHref === '/bos/syllabi') return 'Syllabus History';
+    return 'History';
+  }
+
+  // Taxonomy regulation detail: '/<regulationId>'
+  if (tabHref === '/bos/taxonomy') return 'Manage Taxonomy';
 
   // Detail page: '/<id>'
   if (tabHref === '/bos/compositions') return 'Composition Details';

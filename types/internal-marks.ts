@@ -307,6 +307,9 @@ export interface CiaMarksSyncResponse {
 /**
  * A single learner row in a CIA report — their component marks + total.
  * The `marks` map is keyed by component code (e.g., marks["test_1"] = 18).
+ * `extra_marks` mirrors the write contract (cia_marks JSONB) — when COE
+ * returns it, the proxy flattens it into `marks` so consumers only deal
+ * with one shape.
  */
 export interface CiaReportLearner {
   register_number: string;
@@ -314,6 +317,7 @@ export interface CiaReportLearner {
   roll_number?: string;
   student_id?: string;
   marks: Record<string, number | null>;
+  extra_marks?: Record<string, number | null>;
   total?: number;
   in_words?: string;
 }

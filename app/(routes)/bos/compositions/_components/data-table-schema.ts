@@ -10,6 +10,7 @@ export const compositionSearchParamsSchema = z.object({
   board_id: z.string().optional(),
   academic_year: z.string().optional(),
   is_active: z.enum(['true', 'false']).optional(),
+  institutionsId: z.string().optional(),
 });
 
 export type CompositionSearchParams = z.infer<typeof compositionSearchParamsSchema>;

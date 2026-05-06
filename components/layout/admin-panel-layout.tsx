@@ -35,6 +35,7 @@ export default function AdminPanelLayout({
           // Add bottom padding on mobile to prevent content overlap with bottom nav
           isMobile && 'pb-20'
         )}
+        suppressHydrationWarning
       >
         <PushNotificationBanner />
         <Suspense>
@@ -48,6 +49,7 @@ export default function AdminPanelLayout({
           // Hide footer on mobile when bottom nav is present
           isMobile && 'hidden'
         )}
+        suppressHydrationWarning
       >
         <Footer />
       </footer>

@@ -447,6 +447,31 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "children": []
       },
       {
+        "path": "/admin/counselors",
+        "label": "Counselors",
+        "iconName": "FileText",
+        "children": [
+          {
+            "path": "/admin/counselors/alert-thresholds",
+            "label": "Alert Thresholds",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/admin/counselors/routing-config",
+            "label": "Routing Config",
+            "iconName": "FileText",
+            "children": []
+          }
+        ]
+      },
+      {
+        "path": "/admin/landing-pages",
+        "label": "Landing Pages",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
         "path": "/admin/lifecycle",
         "label": "Lifecycle",
         "iconName": "FileText",
@@ -478,6 +503,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         ]
       },
       {
+        "path": "/admin/nav-config",
+        "label": "Nav Config",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
         "path": "/admin/notifications",
         "label": "Notifications",
         "iconName": "FileText",
@@ -505,6 +536,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "path": "/admin/notifications/new",
             "label": "New",
             "iconName": "Plus",
+            "children": []
+          },
+          {
+            "path": "/admin/notifications/recipients",
+            "label": "Recipients",
+            "iconName": "FileText",
             "children": []
           }
         ]
@@ -579,8 +616,20 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "children": []
       },
       {
+        "path": "/admin/retention-policies",
+        "label": "Retention Policies",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
         "path": "/admin/saml",
         "label": "Saml",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
+        "path": "/admin/whatsapp-limits",
+        "label": "Whatsapp Limits",
         "iconName": "FileText",
         "children": []
       }
@@ -1172,43 +1221,10 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "iconName": "Wallet",
         "children": [
           {
-            "path": "/billing/categories/item-categories",
-            "label": "Item Categories",
-            "iconName": "Wallet",
-            "children": [
-              {
-                "path": "/billing/categories/item-categories/new",
-                "label": "New",
-                "iconName": "Plus",
-                "children": []
-              }
-            ]
-          },
-          {
-            "path": "/billing/categories/parent-categories",
-            "label": "Parent Categories",
-            "iconName": "Wallet",
-            "children": [
-              {
-                "path": "/billing/categories/parent-categories/new",
-                "label": "New",
-                "iconName": "Plus",
-                "children": []
-              }
-            ]
-          },
-          {
-            "path": "/billing/categories/sub-categories",
-            "label": "Sub Categories",
-            "iconName": "Wallet",
-            "children": [
-              {
-                "path": "/billing/categories/sub-categories/new",
-                "label": "New",
-                "iconName": "Plus",
-                "children": []
-              }
-            ]
+            "path": "/billing/categories/new",
+            "label": "New",
+            "iconName": "Plus",
+            "children": []
           }
         ]
       },
@@ -1372,8 +1388,27 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "children": []
       },
       {
+        "path": "/bos/syllabi",
+        "label": "Syllabi",
+        "iconName": "FileText",
+        "children": [
+          {
+            "path": "/bos/syllabi/new",
+            "label": "New",
+            "iconName": "Plus",
+            "children": []
+          }
+        ]
+      },
+      {
         "path": "/bos/ta-da",
         "label": "Ta Da",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
+        "path": "/bos/taxonomy",
+        "label": "Taxonomy",
         "iconName": "FileText",
         "children": []
       }
