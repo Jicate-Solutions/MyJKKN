@@ -33,6 +33,7 @@ export function SyllabusForm({
   const [activeTab, setActiveTab] = useState('basic');
   const [institutions, setInstitutions] = useState<Institution[]>([]);
   const [regulations, setRegulations] = useState<Regulation[]>([]);
+  const [boards, setBoards] = useState<{ id: string; name: string }[]>([]);
   const [courseCodeError, setCourseCodeError] = useState<string | null>(null);
 
   const [formData, setFormData] = useState<Partial<BosCourseSyllabus>>(
@@ -88,6 +89,23 @@ export function SyllabusForm({
       fetchInstitutions();
     }
   }, [isSuperAdmin]);
+
+  // Fetch boards
+  useEffect(() => {
+    const fetchBoards = async () => {
+      try {
+        const res = await fetch('/api/bos/boards');
+        if (res.ok) {
+          const { data } = await res.json();
+          setBoards(data || []);
+        }
+      } catch (err) {
+        console.error('Failed to fetch boards:', err);
+      }
+    };
+
+    fetchBoards();
+  }, []);
 
   // Fetch regulations filtered by institution
   useEffect(() => {
@@ -208,6 +226,21 @@ export function SyllabusForm({
                   </div>
                 )}
 
+                <div>
+                  <label className="block text-sm font-medium mb-1">Board *</label>
+                  <Select value={formData.board_id || ''} onValueChange={(val) => updateField('board_id', val)}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select board" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {boards.map((board) => (
+                        <SelectItem key={board.id} value={board.id}>
+                          {board.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
 
                 <div>
                   <label className="block text-sm font-medium mb-1">Regulation *</label>
