@@ -1705,6 +1705,49 @@ export const PERMISSION_CATEGORIES = [
       { key: 'ims.settings.suppliers.manage', label: 'Manage Suppliers' },
       { key: 'ims.settings.units.manage', label: 'Manage Units & Unit Conversions' }
     ]
+  },
+  {
+    // Added 2026-05-04 — AI Pulse module v3 (events-extension)
+    // Spec: specs/myjkkn-ai-pulse-spec.md (PR #641, merged)
+    // Substrate: PR #644 (wave-a1/ai-pulse-events-extension)
+    // RLS hardening: PR #715 (wave-a1.1/ai-pulse-rls-hardening)
+    //
+    // Champion = Krishnaveni; Co-Champion = Ranjith (Ranjith@jkkn.ac.in)
+    // Class Incharge reuses existing class_incharges table — no new role.
+    name: 'AI Pulse',
+    key: 'ai_pulse',
+    permissions: [
+      // Learner self-service
+      { key: 'aiPulse:view.self', label: 'View own AI Pulse cycle status' },
+      { key: 'aiPulse:submit.domain_sync', label: 'Submit Domain-Sync artifact' },
+      { key: 'aiPulse:submit.quiz', label: 'Submit live or async quiz' },
+      { key: 'aiPulse:submit.publication', label: 'Submit IG/GitHub publication URLs' },
+      { key: 'aiPulse:opt_out.leaderboard_individual', label: 'Opt out of leaderboard individual appearance' },
+      // Class Incharge (reuses class_incharges table for section scoping)
+      { key: 'aiPulse:rotation.manage', label: 'Manage section team rotation' },
+      { key: 'aiPulse:attendance.mark', label: 'Mark live + async attendance' },
+      { key: 'aiPulse:absence.escalate', label: 'Escalate Domain-Sync absence' },
+      // Faculty (Lab Judge)
+      { key: 'aiPulse:lab.score', label: 'Score Monday Lab presentation' },
+      { key: 'aiPulse:gold.select', label: 'Select Gold Standard team' },
+      { key: 'aiPulse:absence.excuse', label: 'Approve excused absence' },
+      // Department Head
+      { key: 'aiPulse:dept.heatmap', label: 'View department heatmap' },
+      { key: 'aiPulse:dept.intervene', label: 'Trigger HOD-chat intervention' },
+      // AI Pulse Champion + Co-Champion
+      { key: 'aiPulse:cycles.manage', label: 'Manage weekly cycles (create/cancel/postpone)' },
+      { key: 'aiPulse:topics.set', label: 'Set briefing topic per cycle' },
+      { key: 'aiPulse:tool.feature', label: 'Pick featured tool per cycle + manage master list' },
+      { key: 'aiPulse:anomaly.review', label: 'Review algorithmic anomaly flags monthly' },
+      { key: 'aiPulse:quiz.author', label: 'Author bilingual quiz per cycle' },
+      // External Judge (quarterly)
+      { key: 'aiPulse:gold.judge_quarterly', label: 'Judge Gold Standard quarterly' },
+      // IQAC
+      { key: 'aiPulse:naac.evidence_export', label: 'Export NAAC evidence pack' },
+      // Super Admin
+      { key: 'aiPulse:policies.manage', label: 'Manage AI Pulse policies' },
+      { key: 'aiPulse:value_lists.manage', label: 'Manage AI Pulse value-list master tables' }
+    ]
   }
 ];
 
