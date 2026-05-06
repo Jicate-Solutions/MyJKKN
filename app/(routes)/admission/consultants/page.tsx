@@ -52,7 +52,10 @@ import {
   Users,
   Edit,
   Trash2,
-  Upload
+  Upload,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown
 } from 'lucide-react';
 import Link from 'next/link';
 import {
@@ -170,11 +173,16 @@ function ConsultantsPageContent() {
 
   // Parse filters from URL
   const currentPage = parseInt(searchParams.get('page') || '1', 10);
+  // Default sort surfaces top-performing consultants instead of newly-added 0-referral rows
+  const sortBy = searchParams.get('sort_by') || 'total_leads_referred';
+  const sortOrder = (searchParams.get('sort_order') as 'asc' | 'desc') || 'desc';
   const filters: ConsultantFilters = {
     institution_id: institutionId || '',
     status: searchParams.get('status') as ConsultantFilters['status'] || undefined,
     consultant_type: searchParams.get('type') as ConsultantFilters['consultant_type'] || undefined,
     search: searchParams.get('search') || undefined,
+    sort_by: sortBy,
+    sort_order: sortOrder,
     page: currentPage,
     limit: 20
   };
@@ -231,9 +239,24 @@ function ConsultantsPageContent() {
     updateFilters({ search: searchTerm || undefined });
   };
 
+  const handleSort = (column: string) => {
+    const nextOrder: 'asc' | 'desc' =
+      sortBy === column && sortOrder === 'desc' ? 'asc' : 'desc';
+    updateFilters({ sort_by: column, sort_order: nextOrder });
+  };
+
   const handleClearFilters = () => {
     setSearchTerm('');
     router.push('/admission/consultants');
+  };
+
+  const SortIndicator = ({ column }: { column: string }) => {
+    if (sortBy !== column) {
+      return <ArrowUpDown className="h-3 w-3 ml-1 inline-block opacity-40" />;
+    }
+    return sortOrder === 'asc'
+      ? <ArrowUp className="h-3 w-3 ml-1 inline-block" />
+      : <ArrowDown className="h-3 w-3 ml-1 inline-block" />;
   };
 
   const hasFilters = searchParams.get('search') || searchParams.get('status') || searchParams.get('type');
@@ -458,8 +481,20 @@ function ConsultantsPageContent() {
                       <TableHead>Contact</TableHead>
                       <TableHead>Type</TableHead>
                       <TableHead>Status</TableHead>
-                      <TableHead className="text-right">Referrals</TableHead>
-                      <TableHead className="text-right">Commission Rate</TableHead>
+                      <TableHead
+                        className="text-right cursor-pointer select-none hover:bg-muted/50"
+                        onClick={() => handleSort('total_leads_referred')}
+                      >
+                        Referrals
+                        <SortIndicator column="total_leads_referred" />
+                      </TableHead>
+                      <TableHead
+                        className="text-right cursor-pointer select-none hover:bg-muted/50"
+                        onClick={() => handleSort('conversion_rate')}
+                      >
+                        Commission Rate
+                        <SortIndicator column="conversion_rate" />
+                      </TableHead>
                       <TableHead className="w-[50px]"></TableHead>
                     </TableRow>
                   </TableHeader>

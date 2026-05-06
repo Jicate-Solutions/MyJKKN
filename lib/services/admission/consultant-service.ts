@@ -400,8 +400,7 @@ export class ConsultantService {
     const {
       // institution_ids is accepted but ignored — associations managed separately
       institution_ids,
-      status,
-      tier,
+      // contract dates live on consultant_institutions junction, not the global row
       contract_start_date,
       contract_end_date,
       // strip form aliases before inserting into DB
@@ -412,6 +411,10 @@ export class ConsultantService {
       programs_handled,
       ...globalFields
     } = input as any;
+    // status and tier flow through to the INSERT — they're stored on
+    // education_consultants as the global default (per-institution overrides
+    // remain on consultant_institutions). See migration
+    // 20260506_add_status_and_tier_to_education_consultants.sql.
 
     // Step 1: Insert global consultant record
     const { data: consultant, error: consultantError } = await (supabase as any)
