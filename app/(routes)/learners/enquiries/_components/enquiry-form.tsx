@@ -42,6 +42,19 @@ import { FinanceDetailsSection } from './form-sections/finance-details';
 import { uploadProfileImage } from './profile-image-upload';
 import { usePermissions } from '@/hooks/use-permissions';
 
+// Plan 6 / Task 5 — pre-submit confirmation dialog wiring
+import { PreSubmitConfirmationDialog } from './pre-submit-confirmation-dialog';
+import { AdmissionSettingsService } from '@/lib/services/admission/admission-settings-service';
+import { FeeResolutionService } from '@/lib/services/admission/fee-resolution-service';
+import { BillingCategoryService } from '@/lib/services/billing/categories/billing-category-service';
+import { logActivityForCurrentUser } from '@/lib/utils/activity-logger-client';
+import { AdmissionFeesActivityTemplates } from '@/lib/utils/admission-fees-activity-templates';
+import type {
+  AdmissionFeeStructureWithItems,
+  FeeStructureMatrixDimensions,
+  ResolvedFeeItem,
+} from '@/types/admission';
+
 // Import location data for converting names to IDs
 import {
   indianStates,
@@ -477,6 +490,22 @@ export function EnquiryForm({
   const [savedEnquiryId, setSavedEnquiryId] = useState<string | null>(learner?.id || null);
   const [showCancelDialog, setShowCancelDialog] = useState(false);
   const [pendingImageFile, setPendingImageFile] = useState<File | null>(null);
+
+  // ========================================================================
+  // Plan 6 / Task 5 — Pre-submit confirmation dialog state.
+  // The flow: form submit → check institution's pre_submit_dialog_enabled →
+  // if enabled, fetch matrix preview, open dialog, wait for user → confirm
+  // calls commitSubmit which runs the existing save path + post-save fee
+  // resolution + activity log. If disabled, save proceeds inline.
+  // The dialog is bypassed entirely when:
+  //   - onSubmitProp is set (custom flows like change-request approval)
+  //   - the lead is in legacy_fee_mode (no matrix to preview)
+  //   - institution_id is missing (can't look up the setting)
+  // ========================================================================
+  const [preSubmitOpen, setPreSubmitOpen] = useState(false);
+  const [pendingFormValues, setPendingFormValues] = useState<EnquiryFormValues | null>(null);
+  const [previewMatch, setPreviewMatch] = useState<AdmissionFeeStructureWithItems | null>(null);
+  const [previewItems, setPreviewItems] = useState<ResolvedFeeItem[]>([]);
 
   const formTabs = visibleTabs
     ? ALL_TABS.filter(tab => visibleTabs.includes(tab.id))
@@ -1108,6 +1137,123 @@ export function EnquiryForm({
     }
   };
 
+  // ========================================================================
+  // Plan 6 / Task 5 — commitSubmit
+  // The actual save path. Used by both the inline (no-dialog) submit and the
+  // pre-submit dialog's onConfirm callback. After save it best-effort calls
+  // FeeResolutionService.resolveForLearner + logs enquiry.fee_resolved or
+  // enquiry.fee_match_failed (only when not delegated to onSubmitProp and
+  // not in legacy mode).
+  // ========================================================================
+  const commitSubmit = async (values: EnquiryFormValues) => {
+    setIsSubmitting(true);
+    try {
+      // Upload pending image file first (if exists)
+      if (pendingImageFile) {
+        console.log('[enquiry-form] Uploading pending image file...');
+        try {
+          const imageUrl = await uploadProfileImage(pendingImageFile);
+          values.student_photo_url = imageUrl; // Update form value with uploaded URL
+          console.log('[enquiry-form] Image uploaded successfully:', imageUrl);
+          toast.success('Image uploaded successfully');
+        } catch (error) {
+          console.error('[enquiry-form] Image upload failed:', error);
+          toast.error('Failed to upload image. Please try again.');
+          setIsSubmitting(false);
+          return; // Don't proceed if image upload fails
+        }
+      }
+
+      const data = formatFormDataForAPI(values);
+
+      // Allow overriding submission logic (e.g. for change requests)
+      if (onSubmitProp) {
+        console.log('[enquiry-form] Using custom onSubmit handler');
+        await onSubmitProp(data);
+        setIsSubmitting(false);
+        return;
+      }
+
+      let result: LearnerProfile;
+
+      if (learner) {
+        result = await LearnerProfileService.updateLearnerProfile(learner.id, data);
+        const isProfile = ['active', 'inactive', 'graduated', 'exited'].includes(learner.lifecycle_status);
+        toast.success(isProfile ? 'Profile updated successfully' : 'Admitted updated successfully');
+      } else if (savedEnquiryId) {
+        // Update existing draft with final submission
+        result = await LearnerProfileService.updateLearnerProfile(savedEnquiryId, data);
+        toast.success('Admitted submitted successfully');
+      } else {
+        result = await LearnerProfileService.createLearnerProfile(data as any);
+        toast.success('Admitted created successfully');
+      }
+
+      // Check if user account was created
+      // @ts-expect-error - Temporary metadata from service
+      const userCreation = result._userCreation;
+      if (userCreation) {
+        if (userCreation.success) {
+          toast.success(userCreation.message, { duration: 5000 });
+        } else {
+          toast.error(`User creation failed: ${userCreation.message}`, { duration: 5000 });
+        }
+      }
+
+      // Plan 6 Task 5 — post-save: resolve fee_items via RPC + log activity.
+      // Best-effort; never blocks UX. Skip when the lead is in legacy_fee_mode
+      // (no matrix match expected) or when finance is disabled for this view.
+      const isLegacy =
+        (result as { legacy_fee_mode?: boolean } | undefined)?.legacy_fee_mode ?? false;
+      if (result?.id && !isLegacy && canViewFinance) {
+        try {
+          const resolution = await FeeResolutionService.resolveForLearner(result.id);
+          if (resolution.matched) {
+            await logActivityForCurrentUser({
+              actionType: 'enquiry.fee_resolved',
+              resourceType: 'learner',
+              resourceId: result.id,
+              description: AdmissionFeesActivityTemplates.enquiry.fee_resolved(
+                resolution.items.length,
+                resolution.total,
+              ),
+              metadata: {
+                learner_id: result.id,
+                count: resolution.items.length,
+                total: resolution.total,
+              },
+            });
+          } else {
+            await logActivityForCurrentUser({
+              actionType: 'enquiry.fee_match_failed',
+              resourceType: 'learner',
+              resourceId: result.id,
+              description: AdmissionFeesActivityTemplates.enquiry.fee_match_failed(),
+              metadata: { learner_id: result.id },
+            });
+          }
+        } catch (err) {
+          console.error('[enquiry-form] Post-save fee resolution failed:', err);
+          // best-effort — never block submit on this
+        }
+      }
+
+      // Clear pending image after successful submission
+      setPendingImageFile(null);
+
+      if (onSuccess) {
+        onSuccess(result);
+      } else {
+        router.push(`/learners/enquiries/${result.id}`);
+      }
+    } catch (error) {
+      console.error('[enquiry-form] Error saving enquiry:', error);
+      toast.error('Failed to save enquiry');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   // Submit form (with validation)
   const onSubmit = async (values: EnquiryFormValues) => {
     // Prevent double-click
@@ -1120,7 +1266,7 @@ export function EnquiryForm({
     if (!validation.success) {
       const errors = validation.error.flatten().fieldErrors;
       const errorKeys = Object.keys(errors);
-      
+
       // Auto-switch to tab with first error
       if (errorKeys.length > 0) {
         const firstErrorField = errorKeys[0];
@@ -1194,74 +1340,105 @@ export function EnquiryForm({
       return;
     }
 
-    setIsSubmitting(true);
-    try {
-      // Upload pending image file first (if exists)
-      if (pendingImageFile) {
-        console.log('[enquiry-form] Uploading pending image file...');
-        try {
-          const imageUrl = await uploadProfileImage(pendingImageFile);
-          values.student_photo_url = imageUrl; // Update form value with uploaded URL
-          console.log('[enquiry-form] Image uploaded successfully:', imageUrl);
-          toast.success('Image uploaded successfully');
-        } catch (error) {
-          console.error('[enquiry-form] Image upload failed:', error);
-          toast.error('Failed to upload image. Please try again.');
-          setIsSubmitting(false);
-          return; // Don't proceed if image upload fails
+    // ======================================================================
+    // Plan 6 / Task 5 — Pre-submit confirmation dialog interception.
+    // Before invoking commitSubmit, check the institution's
+    // pre_submit_dialog_enabled setting. When ON, fetch the matrix preview
+    // and open the dialog; commitSubmit fires from the dialog's onConfirm.
+    // Bypass when:
+    //   - onSubmitProp is set (custom delegate, e.g. change-request approval)
+    //   - lead is already in legacy_fee_mode (no matrix to preview)
+    //   - finance not viewable in this context (e.g. student view)
+    //   - institution_id missing (can't look up the setting)
+    // ======================================================================
+    const isLegacy =
+      (learner as { legacy_fee_mode?: boolean } | undefined)?.legacy_fee_mode ?? false;
+    const canRunDialog =
+      !onSubmitProp &&
+      canViewFinance &&
+      !isLegacy &&
+      !!values.institution_id;
+
+    if (canRunDialog) {
+      let dialogEnabled = true; // The DDL default is true; treat unknown as ON.
+      try {
+        const settings = await AdmissionSettingsService.getByInstitution(values.institution_id!);
+        dialogEnabled = settings?.pre_submit_dialog_enabled ?? true;
+      } catch (err) {
+        console.error('[enquiry-form] Failed to load admission settings:', err);
+        // soft-fail: fall through to inline submit if the lookup blew up
+        dialogEnabled = false;
+      }
+
+      if (dialogEnabled) {
+        // Build the preview by remapping form fields to dim shape and calling
+        // FeeResolutionService.previewMatchByDimensions. previewItems is a
+        // best-effort projection — empty when no match, in which case the
+        // dialog's "no fee structure matched" banner shows.
+        const learnerLike = (learner ?? {}) as {
+          quota_id?: string;
+          community_category_id?: string;
+          accommodation_type_id?: string;
+        };
+        const dims: Partial<FeeStructureMatrixDimensions> = {
+          institution_id: values.institution_id ?? undefined,
+          degree_id: values.degree_id ?? undefined,
+          department_id: values.department_id ?? undefined,
+          // Form column is `program_id` (singular); dim shape uses British `programme_id`.
+          programme_id: values.program_id ?? undefined,
+          quota_id: learnerLike.quota_id,
+          community_category_id: learnerLike.community_category_id,
+          accommodation_type_id: learnerLike.accommodation_type_id,
+          admission_year_id: values.admission_year_id ?? undefined,
+        };
+        const allDimsPresent = !!(
+          dims.institution_id &&
+          dims.degree_id &&
+          dims.department_id &&
+          dims.programme_id &&
+          dims.quota_id &&
+          dims.community_category_id &&
+          dims.accommodation_type_id &&
+          dims.admission_year_id
+        );
+
+        let match: AdmissionFeeStructureWithItems | null = null;
+        let items: ResolvedFeeItem[] = [];
+        if (allDimsPresent) {
+          try {
+            match = await FeeResolutionService.previewMatchByDimensions(
+              dims as FeeStructureMatrixDimensions,
+            );
+            if (match?.items?.length) {
+              // Look up category labels (admission_fee_structure_items only
+              // carries billing_category_id, not the human label).
+              const categories =
+                await BillingCategoryService.getActiveBillingCategories().catch(() => []);
+              const labelById: Record<string, string> = {};
+              for (const cat of categories) labelById[cat.id] = cat.category_name;
+              items = match.items.map((it) => ({
+                category_id: it.billing_category_id,
+                category_name:
+                  labelById[it.billing_category_id] ?? it.billing_category_id,
+                amount: Number(it.amount ?? 0),
+                source: 'structure',
+              }));
+            }
+          } catch (err) {
+            console.error('[enquiry-form] previewMatchByDimensions failed:', err);
+          }
         }
+
+        setPreviewMatch(match);
+        setPreviewItems(items);
+        setPendingFormValues(values);
+        setPreSubmitOpen(true);
+        return; // wait for user confirmation
       }
-
-      const data = formatFormDataForAPI(values);
-
-      // Allow overriding submission logic (e.g. for change requests)
-      if (onSubmitProp) {
-        console.log('[enquiry-form] Using custom onSubmit handler');
-        await onSubmitProp(data);
-        setIsSubmitting(false);
-        return;
-      }
-
-      let result: LearnerProfile;
-
-      if (learner) {
-        result = await LearnerProfileService.updateLearnerProfile(learner.id, data);
-        const isProfile = ['active', 'inactive', 'graduated', 'exited'].includes(learner.lifecycle_status);
-        toast.success(isProfile ? 'Profile updated successfully' : 'Admitted updated successfully');
-      } else if (savedEnquiryId) {
-        // Update existing draft with final submission
-        result = await LearnerProfileService.updateLearnerProfile(savedEnquiryId, data);
-        toast.success('Admitted submitted successfully');
-      } else {
-        result = await LearnerProfileService.createLearnerProfile(data as any);
-        toast.success('Admitted created successfully');
-      }
-
-      // Check if user account was created
-      // @ts-expect-error - Temporary metadata from service
-      const userCreation = result._userCreation;
-      if (userCreation) {
-        if (userCreation.success) {
-          toast.success(userCreation.message, { duration: 5000 });
-        } else {
-          toast.error(`User creation failed: ${userCreation.message}`, { duration: 5000 });
-        }
-      }
-
-      // Clear pending image after successful submission
-      setPendingImageFile(null);
-
-      if (onSuccess) {
-        onSuccess(result);
-      } else {
-        router.push(`/learners/enquiries/${result.id}`);
-      }
-    } catch (error) {
-      console.error('[enquiry-form] Error saving enquiry:', error);
-      toast.error('Failed to save enquiry');
-    } finally {
-      setIsSubmitting(false);
     }
+
+    // No dialog — proceed to save inline.
+    await commitSubmit(values);
   };
 
   // Calculate profile completion status
@@ -1499,6 +1676,48 @@ export function EnquiryForm({
           </div>
         </div>
       </form>
+
+      {/* Plan 6 / Task 5 — pre-submit confirmation dialog. Read-only summary
+       *  shown when the institution's pre_submit_dialog_enabled flag is ON
+       *  and the lead is matrix-driven (not legacy_fee_mode). On confirm,
+       *  commitSubmit fires the existing save path. */}
+      <PreSubmitConfirmationDialog
+        open={preSubmitOpen}
+        onOpenChange={(open) => {
+          setPreSubmitOpen(open);
+          if (!open) {
+            // Closed without confirming — clear pending state.
+            setPendingFormValues(null);
+            setPreviewMatch(null);
+            setPreviewItems([]);
+          }
+        }}
+        leadName={
+          pendingFormValues
+            ? `${pendingFormValues.first_name ?? ''} ${pendingFormValues.last_name ?? ''}`.trim()
+            : ''
+        }
+        matchedStructureName={previewMatch?.name ?? null}
+        resolvedItems={previewItems}
+        total={previewItems.reduce((s, it) => s + Number(it.amount || 0), 0)}
+        submitting={isSubmitting}
+        onConfirm={async () => {
+          if (!pendingFormValues) {
+            setPreSubmitOpen(false);
+            return;
+          }
+          const values = pendingFormValues;
+          setPreSubmitOpen(false);
+          await commitSubmit(values);
+          // After commit, clear the pending state. (commitSubmit handles
+          // navigation/onSuccess so the component may unmount before this
+          // runs — guard for that case is implicit since setState on
+          // unmounted is a no-op warning, not an error.)
+          setPendingFormValues(null);
+          setPreviewMatch(null);
+          setPreviewItems([]);
+        }}
+      />
 
       {/* Cancel Confirmation Dialog */}
       <Dialog open={showCancelDialog} onOpenChange={setShowCancelDialog}>
