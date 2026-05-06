@@ -139,9 +139,10 @@ export async function PATCH(
       .select(
         `
         *,
-        category:employment_categories(id, category_name),
+        category:employment_categories(id, category_name, is_teaching, shows_extended_profile),
         institution:institutions(id, name, counselling_code),
-        department:departments(id, department_name)
+        department:departments(id, department_name),
+        role:custom_roles!role_key(id, role_key, role_name, description, is_system_role)
       `
       )
       .single();

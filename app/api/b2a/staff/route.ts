@@ -6,6 +6,36 @@ import { checkRateLimit } from '@/lib/api-keys/rate-limiter';
 import { logApiUsage, extractRequestMeta } from '@/lib/api-keys/audit-logger';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 
+// Embedded reference objects — every *_id column on the row is paired with the
+// matching named entity so consumers don't need a second round-trip to resolve
+// names. Keep these embeds shallow: only id + display fields, no permissions or
+// privileged columns from custom_roles.
+type StaffCategoryEmbed = {
+  id: string;
+  category_name: string;
+  is_teaching: boolean;
+  shows_extended_profile: boolean;
+} | null;
+
+type StaffInstitutionEmbed = {
+  id: string;
+  name: string;
+  counselling_code: string | null;
+} | null;
+
+type StaffDepartmentEmbed = {
+  id: string;
+  department_name: string;
+} | null;
+
+type StaffRoleEmbed = {
+  id: string;
+  role_key: string;
+  role_name: string;
+  description: string | null;
+  is_system_role: boolean | null;
+} | null;
+
 type StaffRow = {
   id: string;
   staff_id: string | null;
@@ -20,9 +50,18 @@ type StaffRow = {
   institution_email: string;
   email: string;
   is_active: boolean | null;
+  has_extended_profile: boolean | null;
+  // Role taxonomy:
+  //   role_type — high-level grouping (faculty/admin/support/management)
+  //   role_key  — fine-grained custom_roles key driving permissions
+  role_key: string | null;
   date_of_joining: string;
   created_at: string;
   updated_at: string;
+  category: StaffCategoryEmbed;
+  institution: StaffInstitutionEmbed;
+  department: StaffDepartmentEmbed;
+  role: StaffRoleEmbed;
 };
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
@@ -63,11 +102,18 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const isActiveParam = url.searchParams.get('is_active');
   const departmentId = url.searchParams.get('department_id');
   const designation = url.searchParams.get('designation');
+  const categoryId = url.searchParams.get('category_id');
+  const hasExtendedParam = url.searchParams.get('has_extended_profile');
+  // Role-based filters — see docs at /application-hub/api-guidelines (Staff API).
+  const roleType = url.searchParams.get('role_type');
+  const roleKey = url.searchParams.get('role_key');
   const offset = (page - 1) * limit;
 
   // Convert is_active to boolean — silently ignore any value that is not 'true' or 'false'
   const isActive: boolean | null =
     isActiveParam === 'true' ? true : isActiveParam === 'false' ? false : null;
+  const hasExtendedProfile: boolean | null =
+    hasExtendedParam === 'true' ? true : hasExtendedParam === 'false' ? false : null;
 
   // Step 5: Fetch data
   let items: StaffRow[] = [];
@@ -78,12 +124,23 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
     const supabase = createServiceRoleClient();
 
+    // Embed the category metadata so consumers can tell whether the extended
+    // profile (23 additional fields) is meaningful for this row without a
+    // second round-trip to /api/b2a/employment-categories. has_extended_profile
+    // is the per-staff opt-in flag; category.shows_extended_profile is the
+    // category-level default that controls visibility in the staff form.
     let query = supabase
       .from('staff')
       .select(
-        'id, staff_id, first_name, last_name, gender, designation, role_type, ' +
+        'id, staff_id, first_name, last_name, gender, designation, role_type, role_key, ' +
         'institution_id, department_id, category_id, institution_email, email, ' +
-        'is_active, date_of_joining, created_at, updated_at',
+        'is_active, has_extended_profile, date_of_joining, created_at, updated_at, ' +
+        // Name embeds — every *_id column above is paired with its named entity
+        // so consuming applications can render labels without extra lookups.
+        'category:employment_categories(id, category_name, is_teaching, shows_extended_profile), ' +
+        'institution:institutions(id, name, counselling_code), ' +
+        'department:departments(id, department_name), ' +
+        'role:custom_roles!role_key(id, role_key, role_name, description, is_system_role)',
         { count: 'exact' }
       );
 
@@ -97,6 +154,22 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
     if (departmentId) {
       query = query.eq('department_id', departmentId);
+    }
+
+    if (categoryId) {
+      query = query.eq('category_id', categoryId);
+    }
+
+    if (hasExtendedProfile !== null) {
+      query = query.eq('has_extended_profile', hasExtendedProfile);
+    }
+
+    if (roleType) {
+      query = query.eq('role_type', roleType);
+    }
+
+    if (roleKey) {
+      query = query.eq('role_key', roleKey);
     }
 
     if (designation) {

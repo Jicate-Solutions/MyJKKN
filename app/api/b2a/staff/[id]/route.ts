@@ -63,6 +63,43 @@ export async function GET(
   }
 
   // Step 5: Fetch single record
+  // Detail endpoint returns the full staff record, including the 29 extended-profile
+  // columns. Whether they are MEANINGFUL is signalled by:
+  //   • has_extended_profile (per-staff opt-in, set on save)
+  //   • category.shows_extended_profile (category-level default that controls
+  //     visibility of the extended-profile toggle in the staff form)
+  // Consumers should treat extended-profile columns as semantically null when both
+  // flags are false. JSONB columns default to '[]' in the DB so they are NEVER
+  // null on the wire — read them as empty arrays.
+  // Embedded reference objects — every *_id on the row is paired with its named
+  // entity so consumers can render labels without extra lookups. The role embed
+  // exposes role_name (display label) alongside role_key (permission slug).
+  interface StaffCategoryEmbed {
+    id: string;
+    category_name: string;
+    is_teaching: boolean;
+    shows_extended_profile: boolean;
+  }
+
+  interface StaffInstitutionEmbed {
+    id: string;
+    name: string;
+    counselling_code: string | null;
+  }
+
+  interface StaffDepartmentEmbed {
+    id: string;
+    department_name: string;
+  }
+
+  interface StaffRoleEmbed {
+    id: string;
+    role_key: string;
+    role_name: string;
+    description: string | null;
+    is_system_role: boolean | null;
+  }
+
   interface StaffDetail {
     id: string;
     staff_id: string | null;
@@ -87,11 +124,51 @@ export async function GET(
     department_id: string;
     profile_id: string | null;
     role_type: string | null;
+    // role_key — fine-grained custom_roles key (e.g. 'hod', 'principal', 'admission_counselor').
+    // Drives permission-aware integrations.
+    role_key: string | null;
     is_active: boolean | null;
     facilitator_certification: Record<string, unknown> | null;
     outcome_metrics: Record<string, unknown> | null;
     created_at: string;
     updated_at: string;
+
+    // Embedded named entities — paired with the *_id columns above.
+    category: StaffCategoryEmbed | null;
+    institution: StaffInstitutionEmbed | null;
+    department: StaffDepartmentEmbed | null;
+    role: StaffRoleEmbed | null;
+
+    // Extended faculty profile (gated by has_extended_profile + category.shows_extended_profile).
+    has_extended_profile: boolean;
+    slug: string | null;
+    status: 'draft' | 'published';
+    display_order: number;
+    experience_years: number;
+    research_papers: number;
+    phd_scholars: number;
+    awards_won: number;
+    pg_dissertations_guided: number;
+    ug_projects_guided: number;
+    qualification_summary: string | null;
+    professional_summary: string | null;
+    mentoring_description: string | null;
+    google_scholar_url: string | null;
+    researchgate_url: string | null;
+    orcid_url: string | null;
+    badges: unknown[];
+    qualifications: unknown[];
+    specialisations: unknown[];
+    experience_entries: unknown[];
+    research_focus_areas: unknown[];
+    publications: unknown[];
+    funded_projects: unknown[];
+    certifications: unknown[];
+    awards: unknown[];
+    memberships: unknown[];
+    phd_scholars_list: unknown[];
+    faqs: unknown[];
+    achievements: unknown[];
   }
 
   let record: StaffDetail | null = null;
@@ -104,10 +181,25 @@ export async function GET(
     let query = supabase
       .from('staff')
       .select(
+        // Core profile + base-table flags
         'id, staff_id, first_name, last_name, gender, date_of_birth, marital_status, blood_group, ' +
         'email, phone, institution_email, profile_picture, address, state, district, pincode, ' +
         'date_of_joining, designation, category_id, institution_id, department_id, profile_id, ' +
-        'role_type, is_active, facilitator_certification, outcome_metrics, created_at, updated_at'
+        'role_type, role_key, is_active, facilitator_certification, outcome_metrics, created_at, updated_at, ' +
+        // Embedded named entities — pair every *_id with its display label.
+        'category:employment_categories(id, category_name, is_teaching, shows_extended_profile), ' +
+        'institution:institutions(id, name, counselling_code), ' +
+        'department:departments(id, department_name), ' +
+        'role:custom_roles!role_key(id, role_key, role_name, description, is_system_role), ' +
+        // Extended faculty profile (29 columns) — see migration 20260503100001
+        'has_extended_profile, slug, status, display_order, ' +
+        'experience_years, research_papers, phd_scholars, awards_won, ' +
+        'pg_dissertations_guided, ug_projects_guided, ' +
+        'qualification_summary, professional_summary, mentoring_description, ' +
+        'google_scholar_url, researchgate_url, orcid_url, ' +
+        'badges, qualifications, specialisations, experience_entries, ' +
+        'research_focus_areas, publications, funded_projects, certifications, ' +
+        'awards, memberships, phd_scholars_list, faqs, achievements'
       )
       .eq('id', id);
 

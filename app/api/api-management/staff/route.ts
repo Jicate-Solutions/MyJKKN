@@ -111,14 +111,25 @@ export async function GET(request: NextRequest) {
     const categoryId = url.searchParams.get('category_id');
     const isActive = url.searchParams.get('is_active');
     const hasExtendedProfile = url.searchParams.get('has_extended_profile');
+    // role_type — coarse taxonomy (faculty/admin/support/management).
+    // role_key — fine-grained role keyed to custom_roles (e.g. 'hod', 'principal').
+    // Both freeform strings, no DB CHECK constraint — passed through as-is.
+    const roleType = url.searchParams.get('role_type');
+    const roleKey = url.searchParams.get('role_key');
 
     // Build query
+    // Category join is widened so external consumers can tell which extended-profile
+    // fields are meaningful for the row: is_teaching gates department requirement,
+    // shows_extended_profile gates the 23 extended profile columns.
+    // Every *_id column is paired with a named-entity embed (institution, department,
+    // role, category) so consuming applications can render labels without extra lookups.
     let query = (supabase as any).from('staff').select(
       `
       *,
-      category:employment_categories(id, category_name),
+      category:employment_categories(id, category_name, is_teaching, shows_extended_profile),
       institution:institutions(id, name),
-      department:departments(id, department_name)
+      department:departments(id, department_name),
+      role:custom_roles!role_key(id, role_key, role_name, description, is_system_role)
       `,
       { count: 'exact' }
     );
@@ -153,6 +164,14 @@ export async function GET(request: NextRequest) {
 
     if (hasExtendedProfile !== null) {
       query = query.eq('has_extended_profile', hasExtendedProfile === 'true');
+    }
+
+    if (roleType) {
+      query = query.eq('role_type', roleType);
+    }
+
+    if (roleKey) {
+      query = query.eq('role_key', roleKey);
     }
 
     // Apply pagination only if not fetching all records
