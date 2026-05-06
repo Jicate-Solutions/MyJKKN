@@ -57,6 +57,12 @@ interface ProgramOption {
 interface YearOption {
   id: string;
   admission_year_name: string;
+  // 2026-05-06: admission_years are scoped per programme (institution_id +
+  // program_id). The tree-rail loads all years for an institution once at the
+  // Institution node and filters by programmeId at the AccommodationNode
+  // before rendering year leaves — preventing the same year-name from
+  // appearing once per programme on every accommodation branch.
+  program_id: string;
 }
 interface NamedOption {
   id: string;
@@ -216,6 +222,7 @@ function InstitutionNode({
           (yr ?? []).map((y) => ({
             id: y.id,
             admission_year_name: y.admission_year_name,
+            program_id: y.program_id,
           })),
         );
         setQuotas((q ?? []).map((row) => ({ id: row.id, name: row.name })));
@@ -838,12 +845,19 @@ function AccommodationNode({
   const key = `inst:${institutionId}|deg:${degreeId}|dep:${departmentId}|prog:${programmeId}|q:${quotaId}|c:${communityId}|a:${accommodation.id}`;
   const isOpen = expanded.has(key);
 
+  // Filter institution-scoped years to only those that belong to the
+  // currently-selected programme. admission_years has a NOT NULL program_id
+  // column, so every year in `years` is owned by exactly one programme.
+  // Without this filter the same year-name (e.g. "2026-2027") repeats once
+  // per programme that has it configured.
+  const programmeYears = years.filter((y) => y.program_id === programmeId);
+
   // Pre-fetch coverage for each unique year on expand so leaf badges are
   // populated quickly. ensureCoverage is idempotent (skips cached keys).
   useEffect(() => {
     if (!isOpen) return;
-    for (const y of years) void ensureCoverage(y.id);
-  }, [isOpen, years, ensureCoverage]);
+    for (const y of programmeYears) void ensureCoverage(y.id);
+  }, [isOpen, programmeYears, ensureCoverage]);
 
   return (
     <li>
@@ -861,10 +875,12 @@ function AccommodationNode({
       </button>
       {isOpen && (
         <ul className="ml-4 border-l pl-2">
-          {years.length === 0 ? (
-            <li className="text-xs text-muted-foreground p-1">No admission years.</li>
+          {programmeYears.length === 0 ? (
+            <li className="text-xs text-muted-foreground p-1">
+              No admission years configured for this programme.
+            </li>
           ) : (
-            years.map((y) => (
+            programmeYears.map((y) => (
               <YearLeaf
                 key={y.id}
                 institutionId={institutionId}
