@@ -39,7 +39,10 @@ import toast from 'react-hot-toast';
 
 const supabase = createClientSupabaseClient();
 
-// Fetch admission-year rows (with their linked program info) for an institution.
+// Fetch admission-year rows (with their linked program info + per-quota seat
+// allocations) for an institution. The quota_seats embed surfaces the
+// breakdown stored in admission_year_quota_seats so the column cell can
+// render Govt:30 · Mgmt:20 · NRI:5 · free:5 alongside the cohort total.
 async function fetchAdmissionYearsForInstitution(
   institutionId: string
 ): Promise<AdmissionYearRow[]> {
@@ -57,6 +60,11 @@ async function fetchAdmissionYearsForInstitution(
           id,
           program_id,
           program_name
+        ),
+        quota_seats:admission_year_quota_seats (
+          quota_id,
+          sanctioned_intake,
+          quota:quotas ( id, code, name, sort_order )
         )
       `
     )
@@ -66,19 +74,36 @@ async function fetchAdmissionYearsForInstitution(
     .order('admission_year_name');
   if (error) throw error;
 
-  return (data ?? []).map((r: any) => ({
-    id: r.id,
-    admission_year_name: r.admission_year_name,
-    program_name: r.program?.program_name ?? '—',
-    program_code: r.program?.program_id ?? '—',
-    program_start_year: r.program_start_year,
-    program_end_year: r.program_end_year,
-    is_active: r.is_active,
-    sanctioned_intake: r.sanctioned_intake ?? 0,
-    originalSanctionedIntake: r.sanctioned_intake ?? 0,
-    dirty: false,
-    saving: false
-  }));
+  return (data ?? []).map((r: any) => {
+    // Order quota breakdown by the quotas.sort_order column for stable rendering
+    const quotaBreakdown = (r.quota_seats ?? [])
+      .filter((qs: any) => qs.quota)
+      .sort(
+        (a: any, b: any) =>
+          (a.quota?.sort_order ?? 999) - (b.quota?.sort_order ?? 999),
+      )
+      .map((qs: any) => ({
+        quota_id: qs.quota_id,
+        quota_code: qs.quota?.code ?? '—',
+        quota_name: qs.quota?.name ?? '—',
+        sanctioned_intake: qs.sanctioned_intake ?? 0,
+      }));
+
+    return {
+      id: r.id,
+      admission_year_name: r.admission_year_name,
+      program_name: r.program?.program_name ?? '—',
+      program_code: r.program?.program_id ?? '—',
+      program_start_year: r.program_start_year,
+      program_end_year: r.program_end_year,
+      is_active: r.is_active,
+      sanctioned_intake: r.sanctioned_intake ?? 0,
+      originalSanctionedIntake: r.sanctioned_intake ?? 0,
+      dirty: false,
+      saving: false,
+      quota_breakdown: quotaBreakdown,
+    };
+  });
 }
 
 async function updateSanctionedIntake(
