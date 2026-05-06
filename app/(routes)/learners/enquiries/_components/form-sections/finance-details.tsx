@@ -22,8 +22,9 @@
 // ============================================
 
 import { UseFormReturn, useWatch } from 'react-hook-form';
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Trash2 } from 'lucide-react';
+import { LookupService } from '@/lib/services/admission/lookup-service';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import {
@@ -88,7 +89,7 @@ export function FinanceDetailsSection({
   legacyFeeMode = false,
   extraDims,
 }: FinanceDetailsProps) {
-  // ----- Matrix dimensions (5 from this form + 3 from parent prop) -----
+  // ----- Matrix dimensions (5 from form + 3 resolved from form TEXT values) -----
   // The form column is `program_id` (singular); FeeStructureMatrixDimensions
   // uses `programme_id` (British). Remap inline.
   const institutionId = useWatch({ control: form.control, name: 'institution_id' });
@@ -100,14 +101,79 @@ export function FinanceDetailsSection({
     name: 'admission_year_id',
   });
 
+  // Form fields for the 3 demographic dims are TEXT (legacy schema):
+  // `quota`, `community`, `accommodation_type`. The matrix lookup needs FK
+  // IDs from quotas / community_categories / accommodation_types. We resolve
+  // TEXT → FK on the fly so net-new enquiries (pre-save) can hit the matrix.
+  // For loaded learners (edit mode), the parent `extraDims` prop carries the
+  // already-saved FK IDs and takes priority — avoids a redundant lookup.
+  const quotaText = useWatch({ control: form.control, name: 'quota' }) as string | null | undefined;
+  const communityText = useWatch({ control: form.control, name: 'community' }) as string | null | undefined;
+  const accommodationText = useWatch({ control: form.control, name: 'accommodation_type' }) as string | null | undefined;
+
+  const [quotaLookup, setQuotaLookup] = useState<Array<{ id: string; code: string; name: string }>>([]);
+  const [communityLookup, setCommunityLookup] = useState<Array<{ id: string; code: string; name: string }>>([]);
+  const [accommodationLookup, setAccommodationLookup] = useState<Array<{ id: string; code: string; name: string }>>([]);
+
+  useEffect(() => {
+    LookupService.listQuotas(true).then((rows) =>
+      setQuotaLookup(rows.map((r) => ({ id: r.id, code: r.code, name: r.name }))),
+    );
+    LookupService.listCommunityCategories(true).then((rows) =>
+      setCommunityLookup(rows.map((r) => ({ id: r.id, code: r.code, name: r.name }))),
+    );
+  }, []);
+
+  useEffect(() => {
+    if (!institutionId) {
+      setAccommodationLookup([]);
+      return;
+    }
+    LookupService.listAccommodationTypes(institutionId, true).then((rows) =>
+      setAccommodationLookup(rows.map((r) => ({ id: r.id, code: r.code, name: r.name }))),
+    );
+  }, [institutionId]);
+
+  // Resolve a TEXT value (e.g. "Government Quota" or "government" or "GQ")
+  // to its FK id by checking against code OR name (case-insensitive trim).
+  // Returns null when nothing matches — the matrix lookup then short-circuits
+  // to the no-match empty state, which is the correct UX.
+  const resolveLookupId = (
+    text: string | null | undefined,
+    rows: Array<{ id: string; code: string; name: string }>,
+  ): string | undefined => {
+    if (!text) return undefined;
+    const norm = text.trim().toLowerCase();
+    if (!norm) return undefined;
+    const match = rows.find(
+      (r) => r.code.toLowerCase() === norm || r.name.toLowerCase() === norm,
+    );
+    return match?.id;
+  };
+
+  const resolvedQuotaId = useMemo(
+    () => extraDims?.quota_id ?? resolveLookupId(quotaText, quotaLookup),
+    [extraDims?.quota_id, quotaText, quotaLookup],
+  );
+  const resolvedCommunityId = useMemo(
+    () => extraDims?.community_category_id ?? resolveLookupId(communityText, communityLookup),
+    [extraDims?.community_category_id, communityText, communityLookup],
+  );
+  const resolvedAccommodationId = useMemo(
+    () =>
+      extraDims?.accommodation_type_id ??
+      resolveLookupId(accommodationText, accommodationLookup),
+    [extraDims?.accommodation_type_id, accommodationText, accommodationLookup],
+  );
+
   const dims: Partial<FeeStructureMatrixDimensions> = {
     institution_id: institutionId,
     degree_id: degreeId,
     department_id: departmentId,
     programme_id: programIdValue,
-    quota_id: extraDims?.quota_id,
-    community_category_id: extraDims?.community_category_id,
-    accommodation_type_id: extraDims?.accommodation_type_id,
+    quota_id: resolvedQuotaId,
+    community_category_id: resolvedCommunityId,
+    accommodation_type_id: resolvedAccommodationId,
     admission_year_id: admissionYearIdValue,
   };
 
