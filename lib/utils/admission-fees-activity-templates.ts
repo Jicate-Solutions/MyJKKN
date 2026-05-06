@@ -44,5 +44,18 @@ export const AdmissionFeesActivityTemplates = {
   bill: {
     auto_generated: (count: number) =>
       `Auto-generated ${count} bill${count !== 1 ? 's' : ''} via account transition`,
+    superseded: (count: number) => `Superseded ${count} bill${count !== 1 ? 's' : ''}`,
+  },
+  fee_change_event: {
+    approved: (newBills: number, supersededBills: number) =>
+      `Fee change approved — ${newBills} new bill${newBills !== 1 ? 's' : ''}, ${supersededBills} superseded`,
+    rejected: (reason: string) => `Fee change rejected: ${reason}`,
+  },
+  receipt_item: {
+    reallocated: (count: number) => `Reallocated ${count} payment${count !== 1 ? 's' : ''} to replacement bills`,
+  },
+  student_credit_balance: {
+    created:  (amount: number, source: string) => `Credit balance: ₹${amount.toLocaleString()} (${source})`,
+    consumed: (amount: number, billDescription: string) => `Credit consumed: ₹${amount.toLocaleString()} against "${billDescription}"`,
   },
 };
