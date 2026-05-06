@@ -611,9 +611,6 @@ export async function POST(request: NextRequest) {
       if (mappedData.quota) {
         sanitizedData.quota = sanitizeValue(mappedData.quota, 'text');
       }
-      if (mappedData.category) {
-        sanitizedData.category = sanitizeValue(mappedData.category, 'text');
-      }
       if (mappedData.student_photo_url) {
         sanitizedData.student_photo_url = mappedData.student_photo_url;
       }

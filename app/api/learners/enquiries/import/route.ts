@@ -940,7 +940,6 @@ export async function POST(request: NextRequest): Promise<NextResponse<ImportRes
       // Counseling
       counseling_applied: data.counseling_applied,
       quota: data.quota,
-      category: data.category,
 
       // Reference
       reference_type: data.reference_type,

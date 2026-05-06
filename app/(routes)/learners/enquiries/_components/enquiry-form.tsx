@@ -139,7 +139,6 @@ export const enquiryFormSchema = z.object({
   counseling_number: z.string().nullable().optional(),
   scholarship_type: z.string().min(1, 'Scholarship type is required'),
   quota: z.string().nullable().optional(),
-  category: z.string().nullable().optional(),
   entry_type: z.string().min(1, 'Entry type is required'),
 
   // Course Selection
@@ -420,7 +419,6 @@ const fieldToTabMap: Record<string, string> = {
   counseling_number: 'academic-information',
   scholarship_type: 'academic-information',
   quota: 'academic-information',
-  category: 'academic-information',
   entry_type: 'academic-information',
 
   // Course Selection
@@ -613,7 +611,6 @@ export function EnquiryForm({
           counseling_number: learner.counseling_number || '',
           scholarship_type: learner.scholarship_type || '',
           quota: learner.quota || '',
-          category: learner.category || '',
           entry_type: learner.entry_type || '',
 
           // Course Selection
@@ -767,7 +764,6 @@ export function EnquiryForm({
           counseling_number: '',
           scholarship_type: '',
           quota: '',
-          category: '',
           entry_type: '',
 
           // Course Selection
@@ -937,7 +933,6 @@ export function EnquiryForm({
       counseling_number: values.counseling_number || undefined,
       scholarship_type: values.scholarship_type || undefined,
       quota: values.quota || undefined,
-      category: values.category || undefined,
       entry_type: values.entry_type || '',
 
       // Course Selection (UUID fields - must be undefined if empty)

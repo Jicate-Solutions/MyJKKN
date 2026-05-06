@@ -29,7 +29,6 @@ const GENDER_COLORS = {
   other: '#8B5CF6',
 };
 
-const CATEGORY_COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6'];
 const COMMUNITY_COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#6366F1'];
 
 export function AdvancedTrendsTab({ data }: AdvancedTrendsTabProps) {
@@ -69,8 +68,7 @@ export function AdvancedTrendsTab({ data }: AdvancedTrendsTabProps) {
     });
   }
 
-  // Sort category and community data
-  const sortedCategories = [...data.categoryMix].sort((a, b) => b.count - a.count);
+  // Sort community data
   const sortedCommunities = [...data.communityMix].sort((a, b) => b.count - a.count);
   const sortedIncome = [...data.incomeDistribution].sort((a, b) => b.count - a.count);
 
@@ -239,47 +237,6 @@ export function AdvancedTrendsTab({ data }: AdvancedTrendsTabProps) {
         </Card>
       </div>
 
-      {/* Category Mix Chart */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Category-wise Distribution</CardTitle>
-          <CardDescription>
-            SC, ST, OBC, General, and other categories
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <ResponsiveContainer width="100%" height={350}>
-            <BarChart data={sortedCategories}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="category" />
-              <YAxis />
-              <Tooltip
-                content={({ active, payload }) => {
-                  if (active && payload && payload.length) {
-                    const data = payload[0].payload;
-                    return (
-                      <div className="bg-background border rounded-lg p-3 shadow-lg">
-                        <p className="font-semibold">{data.category}</p>
-                        <p className="text-sm">Students: {data.count.toLocaleString()}</p>
-                        <p className="text-sm">
-                          Percentage: {data.percentage.toFixed(1)}%
-                        </p>
-                      </div>
-                    );
-                  }
-                  return null;
-                }}
-              />
-              <Bar dataKey="count" radius={[8, 8, 0, 0]}>
-                {sortedCategories.map((entry, index) => (
-                  <Cell key={`cell-${index}`} fill={CATEGORY_COLORS[index % CATEGORY_COLORS.length]} />
-                ))}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
-        </CardContent>
-      </Card>
-
       {/* Community Mix Chart */}
       <Card>
         <CardHeader>
@@ -354,35 +311,8 @@ export function AdvancedTrendsTab({ data }: AdvancedTrendsTabProps) {
         </CardContent>
       </Card>
 
-      {/* Summary Tables */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <Card>
-          <CardHeader>
-            <CardTitle>Category Summary</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-2">
-              {sortedCategories.map((cat, idx) => (
-                <div key={idx} className="flex items-center justify-between p-2 border-b last:border-0">
-                  <div className="flex items-center gap-2">
-                    <div
-                      className="w-3 h-3 rounded"
-                      style={{ backgroundColor: CATEGORY_COLORS[idx % CATEGORY_COLORS.length] }}
-                    />
-                    <span className="font-medium">{cat.category}</span>
-                  </div>
-                  <div className="text-right">
-                    <span className="font-semibold">{cat.count.toLocaleString()}</span>
-                    <span className="text-xs text-muted-foreground ml-2">
-                      ({cat.percentage.toFixed(1)}%)
-                    </span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-
+      {/* Summary Table */}
+      <div className="grid grid-cols-1 gap-6">
         <Card>
           <CardHeader>
             <CardTitle>Income Band Summary</CardTitle>

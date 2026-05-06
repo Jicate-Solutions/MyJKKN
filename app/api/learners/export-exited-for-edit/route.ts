@@ -245,7 +245,6 @@ export async function GET(request: NextRequest) {
       'Roll Number': learner.roll_number || '',
       'Register Number': learner.register_number || '',
       'Quota': learner.quota || '',
-      'Category': learner.category || '',
       'Photo URL': learner.student_photo_url || '',
     }));
 

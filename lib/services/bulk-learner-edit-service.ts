@@ -120,7 +120,6 @@ const FIELD_LABELS: Record<string, string> = {
   roll_number: 'Roll Number',
   register_number: 'Register Number',
   quota: 'Quota',
-  category: 'Category',
   student_photo_url: 'Photo URL',
   accommodation_type: 'Accommodation Type',
   hostel_type: 'Hostel Type',

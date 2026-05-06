@@ -36183,7 +36183,6 @@ export type Database = {
           capabilities: Json | null
           career_aspirations: Json | null
           caste: string | null
-          category: string | null
           college_email: string | null
           community: string
           counseling_applied: boolean | null
@@ -36641,7 +36640,6 @@ export type Database = {
           bus_required: boolean | null
           bus_route: string | null
           caste: string | null
-          category: string | null
           college_email: string | null
           community: string | null
           counseling_applied: boolean | null
@@ -36875,7 +36873,6 @@ export type Database = {
           bus_required: boolean | null
           bus_route: string | null
           caste: string | null
-          category: string | null
           college_email: string | null
           community: string | null
           counseling_applied: boolean | null
@@ -64366,7 +64363,6 @@ export type Database = {
           bus_required: boolean | null
           bus_route: string | null
           caste: string | null
-          category: string | null
           college_email: string | null
           community: string | null
           counseling_applied: boolean | null

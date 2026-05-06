@@ -470,12 +470,6 @@ export function LearnerDetail({ learner }: LearnerDetailProps) {
                       </h4>
                       <p className="text-sm">{learner.quota || 'Not specified'}</p>
                     </div>
-                    <div className="space-y-1">
-                      <h4 className="text-sm font-medium text-muted-foreground">
-                        Category
-                      </h4>
-                      <p className="text-sm">{learner.category || 'Not specified'}</p>
-                    </div>
                   </div>
                 </div>
               </CardContent>
