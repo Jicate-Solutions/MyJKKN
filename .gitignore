@@ -77,3 +77,6 @@ public/swe-worker-*.js.map
 
 # Sentry Config File
 .env.sentry-build-plugin
+
+# Agent worktrees (created by parallel sub-agent runs in interactive sessions)
+.claude/worktrees/
