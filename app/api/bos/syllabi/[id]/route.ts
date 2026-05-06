@@ -11,7 +11,7 @@ import { BosCourseSyllabus, UpdateBosSyllabusDto } from '@/types/bos';
  */
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     // Step 1: Authenticate user
@@ -22,6 +22,8 @@ export async function GET(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    const { id } = await params;
+
     // Step 2: Resolve institution scope
     const scope = await resolveBosAccess(user.id);
 
@@ -29,7 +31,7 @@ export async function GET(
     let query = supabase
       .from('bos_course_syllabi')
       .select('*')
-      .eq('id', params.id);
+      .eq('id', id);
 
     // Apply institution scope if not super admin
     if (!scope.isSuperAdmin) {
@@ -87,7 +89,7 @@ export async function GET(
  */
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     // Step 1: Authenticate user
@@ -98,6 +100,8 @@ export async function PUT(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    const { id } = await params;
+
     // Step 2: Resolve institution scope
     const scope = await resolveBosAccess(user.id);
 
@@ -105,7 +109,7 @@ export async function PUT(
     const { data: existingSyllabus, error: fetchError } = await supabase
       .from('bos_course_syllabi')
       .select('id, institutions_id')
-      .eq('id', params.id)
+      .eq('id', id)
       .maybeSingle();
 
     if (fetchError) {
@@ -150,7 +154,7 @@ export async function PUT(
         last_modified_by: user.id,
         last_modified_at: new Date().toISOString(),
       })
-      .eq('id', params.id)
+      .eq('id', id)
       .select()
       .single();
 
@@ -180,7 +184,7 @@ export async function PUT(
  */
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     // Step 1: Authenticate user
@@ -191,6 +195,8 @@ export async function DELETE(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    const { id } = await params;
+
     // Step 2: Resolve institution scope
     const scope = await resolveBosAccess(user.id);
 
@@ -198,7 +204,7 @@ export async function DELETE(
     const { data: existingSyllabus, error: fetchError } = await supabase
       .from('bos_course_syllabi')
       .select('id, institutions_id')
-      .eq('id', params.id)
+      .eq('id', id)
       .maybeSingle();
 
     if (fetchError) {
@@ -230,7 +236,7 @@ export async function DELETE(
         last_modified_by: user.id,
         last_modified_at: new Date().toISOString(),
       })
-      .eq('id', params.id);
+      .eq('id', id);
 
     if (deleteError) {
       console.error('[DELETE /api/bos/syllabi/[id]] Delete error:', deleteError);
