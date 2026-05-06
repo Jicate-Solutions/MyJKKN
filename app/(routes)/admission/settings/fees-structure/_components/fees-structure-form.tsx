@@ -31,10 +31,12 @@ import {
   FormMessage,
 } from '@/components/ui/form';
 import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from '@/components/ui/popover';
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 
 import { FeeStructureService } from '@/lib/services/admission/fee-structure-service';
 import { BillingCategoryService } from '@/lib/services/billing/categories/billing-category-service';
@@ -198,14 +200,14 @@ function NewStructureForm({
     [categories, items],
   );
 
-  const addItem = (categoryId: string) => {
+  const addItem = (categoryId: string, amount?: number) => {
     const cat = categories.find((c) => c.id === categoryId);
     if (!cat) return;
     form.setValue('items', [
       ...items,
       {
         billing_category_id: cat.id,
-        amount: cat.amount ?? 0,
+        amount: amount ?? cat.amount ?? 0,
         is_optional: false,
       },
     ]);
@@ -418,14 +420,14 @@ function ExistingStructureEditor({
 
   const total = items.reduce((s, it) => s + (Number(it.amount) || 0), 0);
 
-  const addItem = (categoryId: string) => {
+  const addItem = (categoryId: string, amount?: number) => {
     const cat = categories.find((c) => c.id === categoryId);
     if (!cat) return;
     setItems((prev) => [
       ...prev,
       {
         billing_category_id: cat.id,
-        amount: cat.amount ?? 0,
+        amount: amount ?? cat.amount ?? 0,
         is_optional: false,
         sort_order: prev.length,
       },
@@ -662,61 +664,46 @@ function ItemsEditor({
   items: ReadonlyArray<{ billing_category_id?: string; amount?: number }>;
   categories: BillingCategory[];
   remainingCategories: BillingCategory[];
-  onAdd: (categoryId: string) => void;
+  onAdd: (categoryId: string, amount?: number) => void;
   onRemove: (index: number) => void;
   onAmountChange: (index: number, value: number) => void;
 }) {
-  const [pickerOpen, setPickerOpen] = useState(false);
+  // Bottom add-row state — picked-but-not-yet-added category + amount.
+  // When the category is picked, the amount input pre-fills with the
+  // billing_category default (if any) so the admin can either accept or
+  // override before clicking Add.
+  const [pendingCategoryId, setPendingCategoryId] = useState<string>('');
+  const [pendingAmount, setPendingAmount] = useState<string>('');
+
+  const handleSelectCategory = (id: string) => {
+    setPendingCategoryId(id);
+    const cat = categories.find((c) => c.id === id);
+    if (cat?.amount != null && pendingAmount === '') {
+      setPendingAmount(String(cat.amount));
+    }
+  };
+
+  const handleAddClick = () => {
+    if (!pendingCategoryId) return;
+    const amountNum = Number(pendingAmount);
+    if (!Number.isFinite(amountNum) || amountNum < 0) return;
+    onAdd(pendingCategoryId, amountNum);
+    setPendingCategoryId('');
+    setPendingAmount('');
+  };
+
+  const canAdd = !!pendingCategoryId
+    && pendingAmount !== ''
+    && Number.isFinite(Number(pendingAmount))
+    && Number(pendingAmount) >= 0;
 
   return (
     <div className="space-y-2">
-      <div className="flex items-center justify-between">
-        <label className="text-sm font-medium">Fee Items</label>
-        <Popover open={pickerOpen} onOpenChange={setPickerOpen}>
-          <PopoverTrigger asChild>
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              disabled={remainingCategories.length === 0}
-            >
-              <Plus className="h-4 w-4 mr-1" />
-              Add Item
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent className="w-72 p-0">
-            <div className="max-h-72 overflow-auto py-1">
-              {remainingCategories.length === 0 ? (
-                <p className="text-xs text-muted-foreground p-2">
-                  All billing categories already added.
-                </p>
-              ) : (
-                remainingCategories.map((c) => (
-                  <button
-                    key={c.id}
-                    type="button"
-                    className="w-full text-left text-sm px-3 py-2 hover:bg-accent"
-                    onClick={() => {
-                      onAdd(c.id);
-                      setPickerOpen(false);
-                    }}
-                  >
-                    <div className="font-medium">{c.category_name}</div>
-                    <div className="text-xs text-muted-foreground">
-                      {c.frequency}
-                      {c.amount != null ? ` • default ₹${c.amount}` : ''}
-                    </div>
-                  </button>
-                ))
-              )}
-            </div>
-          </PopoverContent>
-        </Popover>
-      </div>
+      <label className="text-sm font-medium">Fee Items</label>
 
       {items.length === 0 ? (
         <div className="rounded-md border border-dashed p-4 text-xs text-muted-foreground text-center">
-          No fee items yet. Click &ldquo;Add Item&rdquo; to attach a billing category.
+          No fee items yet. Pick a category and amount below to add the first item.
         </div>
       ) : (
         <div className="rounded-md border divide-y">
@@ -758,6 +745,64 @@ function ItemsEditor({
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* Bottom add-row: Category select + Amount input + Add button. */}
+      {remainingCategories.length === 0 ? (
+        <p className="text-xs text-muted-foreground italic">
+          All billing categories already added.
+        </p>
+      ) : (
+        <div className="rounded-md border-2 border-dashed bg-muted/20 p-3">
+          <div className="flex items-end gap-2 flex-wrap sm:flex-nowrap">
+            <div className="flex-1 min-w-[180px]">
+              <label className="text-xs text-muted-foreground block mb-1">Category</label>
+              <Select value={pendingCategoryId} onValueChange={handleSelectCategory}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Select billing category" />
+                </SelectTrigger>
+                <SelectContent>
+                  {remainingCategories.map((c) => (
+                    <SelectItem key={c.id} value={c.id}>
+                      {c.category_name}
+                      <span className="text-xs text-muted-foreground ml-2">
+                        ({c.frequency}
+                        {c.amount != null ? ` · default ₹${c.amount}` : ''})
+                      </span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="w-full sm:w-40">
+              <label className="text-xs text-muted-foreground block mb-1">Amount (₹)</label>
+              <Input
+                type="number"
+                min={0}
+                step="0.01"
+                placeholder="0"
+                value={pendingAmount}
+                onChange={(e) => setPendingAmount(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && canAdd) {
+                    e.preventDefault();
+                    handleAddClick();
+                  }
+                }}
+              />
+            </div>
+            <Button
+              type="button"
+              size="sm"
+              onClick={handleAddClick}
+              disabled={!canAdd}
+              className="shrink-0"
+            >
+              <Plus className="h-4 w-4 mr-1" />
+              Add
+            </Button>
+          </div>
         </div>
       )}
     </div>
