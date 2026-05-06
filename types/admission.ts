@@ -1549,6 +1549,12 @@ export interface AdmissionFeeStructure {
   name: string;
   status: AdmissionFeeStructureStatus;
   notes: string | null;
+  // Date-bounded applicability within an admission year. NULL on either
+  // side means "no specific bound" (always applicable from start / until
+  // end). Resolution RPC picks the latest effective_from that contains
+  // today's date when multiple structures overlap.
+  effective_from: string | null;
+  effective_to: string | null;
   created_at: string;
   updated_at: string;
   created_by: string | null;
@@ -1581,13 +1587,13 @@ export type CreateAdmissionFeeStructureInput =
     | 'admission_year_id'
     | 'name'
   > &
-  Partial<Pick<AdmissionFeeStructure, 'status' | 'notes'>> & {
+  Partial<Pick<AdmissionFeeStructure, 'status' | 'notes' | 'effective_from' | 'effective_to'>> & {
     items: Array<Pick<AdmissionFeeStructureItem, 'billing_category_id' | 'amount'> &
       Partial<Pick<AdmissionFeeStructureItem, 'is_optional' | 'sort_order'>>>;
   };
 
 export type UpdateAdmissionFeeStructureInput =
-  Partial<Pick<AdmissionFeeStructure, 'name' | 'status' | 'notes'>>;
+  Partial<Pick<AdmissionFeeStructure, 'name' | 'status' | 'notes' | 'effective_from' | 'effective_to'>>;
 
 export interface FeeStructureMatrixDimensions {
   institution_id: string;

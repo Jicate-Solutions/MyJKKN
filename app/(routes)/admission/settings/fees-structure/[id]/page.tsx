@@ -222,6 +222,10 @@ function FeeStructureDetailPageContent({ id }: { id: string }) {
                   <div className="flex items-center gap-3 flex-wrap">
                     <h1 className="text-2xl font-bold">{structure.name}</h1>
                     <StatusBadge status={structure.status} />
+                    <EffectivePeriodBadge
+                      from={structure.effective_from}
+                      to={structure.effective_to}
+                    />
                   </div>
                   {structure.notes && (
                     <p className="text-sm text-muted-foreground max-w-2xl">{structure.notes}</p>
@@ -522,6 +526,36 @@ function StatusBadge({ status }: { status: 'draft' | 'active' | 'archived' }) {
   }
   if (status === 'draft') return <Badge variant="secondary">Draft</Badge>;
   return <Badge variant="outline">Archived</Badge>;
+}
+
+function EffectivePeriodBadge({
+  from,
+  to,
+}: {
+  from: string | null;
+  to: string | null;
+}) {
+  if (!from && !to) {
+    return (
+      <Badge variant="outline" className="font-normal">
+        <Calendar className="h-3 w-3 mr-1" /> Always applicable
+      </Badge>
+    );
+  }
+  const fmt = (d: string | null) =>
+    d
+      ? new Date(d).toLocaleDateString('en-IN', {
+          month: 'short',
+          day: 'numeric',
+          year: 'numeric',
+        })
+      : '∞';
+  return (
+    <Badge variant="outline" className="font-normal whitespace-nowrap">
+      <Calendar className="h-3 w-3 mr-1" />
+      {fmt(from)} – {fmt(to)}
+    </Badge>
+  );
 }
 
 function DimCard({

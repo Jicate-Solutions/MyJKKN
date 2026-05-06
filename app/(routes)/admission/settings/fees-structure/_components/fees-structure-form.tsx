@@ -158,15 +158,30 @@ const itemSchema = z.object({
   is_optional: z.boolean(),
 });
 
-const newSchema = z.object({
-  name: z
-    .string()
-    .min(2, 'Name must be at least 2 characters')
-    .max(150, 'Name must be at most 150 characters'),
-  status: z.enum(['draft', 'active']),
-  notes: z.string().max(500).optional(),
-  items: z.array(itemSchema).min(1, 'Add at least one fee item'),
-});
+const newSchema = z
+  .object({
+    name: z
+      .string()
+      .min(2, 'Name must be at least 2 characters')
+      .max(150, 'Name must be at most 150 characters'),
+    status: z.enum(['draft', 'active']),
+    notes: z.string().max(500).optional(),
+    // ISO date strings yyyy-MM-dd from <input type="date" /> — empty
+    // string means "no bound" (persisted as NULL).
+    effective_from: z.string().optional(),
+    effective_to: z.string().optional(),
+    items: z.array(itemSchema).min(1, 'Add at least one fee item'),
+  })
+  .refine(
+    (v) => {
+      if (!v.effective_from || !v.effective_to) return true;
+      return v.effective_to >= v.effective_from;
+    },
+    {
+      message: 'End date must be on or after start date',
+      path: ['effective_to'],
+    },
+  );
 type NewFormValues = z.infer<typeof newSchema>;
 
 function NewStructureForm({
@@ -186,6 +201,8 @@ function NewStructureForm({
       name: '',
       status: 'draft',
       notes: '',
+      effective_from: '',
+      effective_to: '',
       items: [],
     },
   });
@@ -233,6 +250,8 @@ function NewStructureForm({
         name: values.name,
         status: values.status,
         notes: values.notes || null,
+        effective_from: values.effective_from || null,
+        effective_to: values.effective_to || null,
         items: values.items.map((it, i) => ({
           billing_category_id: it.billing_category_id,
           amount: it.amount,
@@ -291,6 +310,37 @@ function NewStructureForm({
           )}
         />
 
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <FormField
+            control={form.control}
+            name="effective_from"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Effective from (optional)</FormLabel>
+                <FormControl>
+                  <Input type="date" {...field} />
+                </FormControl>
+                <FormDescription>Leave blank for no lower bound</FormDescription>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+          <FormField
+            control={form.control}
+            name="effective_to"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Effective to (optional)</FormLabel>
+                <FormControl>
+                  <Input type="date" {...field} />
+                </FormControl>
+                <FormDescription>Leave blank for no upper bound</FormDescription>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+        </div>
+
         <ItemsEditor
           items={items}
           categories={categories}
@@ -344,13 +394,26 @@ function NewStructureForm({
 // ===========================================================================
 // ExistingStructureEditor — edit / archive / activate / item CRUD
 // ===========================================================================
-const editSchema = z.object({
-  name: z
-    .string()
-    .min(2, 'Name must be at least 2 characters')
-    .max(150, 'Name must be at most 150 characters'),
-  notes: z.string().max(500).optional(),
-});
+const editSchema = z
+  .object({
+    name: z
+      .string()
+      .min(2, 'Name must be at least 2 characters')
+      .max(150, 'Name must be at most 150 characters'),
+    notes: z.string().max(500).optional(),
+    effective_from: z.string().optional(),
+    effective_to: z.string().optional(),
+  })
+  .refine(
+    (v) => {
+      if (!v.effective_from || !v.effective_to) return true;
+      return v.effective_to >= v.effective_from;
+    },
+    {
+      message: 'End date must be on or after start date',
+      path: ['effective_to'],
+    },
+  );
 type EditFormValues = z.infer<typeof editSchema>;
 
 interface DraftItem {
@@ -403,12 +466,26 @@ function ExistingStructureEditor({
     defaultValues: {
       name: structure.name,
       notes: structure.notes ?? '',
+      effective_from: structure.effective_from ?? '',
+      effective_to: structure.effective_to ?? '',
     },
   });
 
   useEffect(() => {
-    form.reset({ name: structure.name, notes: structure.notes ?? '' });
-  }, [structure.id, structure.name, structure.notes, form]);
+    form.reset({
+      name: structure.name,
+      notes: structure.notes ?? '',
+      effective_from: structure.effective_from ?? '',
+      effective_to: structure.effective_to ?? '',
+    });
+  }, [
+    structure.id,
+    structure.name,
+    structure.notes,
+    structure.effective_from,
+    structure.effective_to,
+    form,
+  ]);
 
   const remainingCategories = useMemo(
     () =>
@@ -474,10 +551,16 @@ function ExistingStructureEditor({
       // 1. Update parent fields when changed.
       const nameChanged = values.name !== structure.name;
       const notesChanged = (values.notes ?? '') !== (structure.notes ?? '');
-      if (nameChanged || notesChanged) {
+      const effectiveFromChanged =
+        (values.effective_from ?? '') !== (structure.effective_from ?? '');
+      const effectiveToChanged =
+        (values.effective_to ?? '') !== (structure.effective_to ?? '');
+      if (nameChanged || notesChanged || effectiveFromChanged || effectiveToChanged) {
         await FeeStructureService.update(structure.id, {
           name: values.name,
           notes: values.notes || null,
+          effective_from: values.effective_from || null,
+          effective_to: values.effective_to || null,
         });
       }
 
@@ -626,6 +709,35 @@ function ExistingStructureEditor({
             </FormItem>
           )}
         />
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <FormField
+            control={form.control}
+            name="effective_from"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Effective from (optional)</FormLabel>
+                <FormControl>
+                  <Input type="date" {...field} />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+          <FormField
+            control={form.control}
+            name="effective_to"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Effective to (optional)</FormLabel>
+                <FormControl>
+                  <Input type="date" {...field} />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+        </div>
 
         <ItemsEditor
           items={items}
