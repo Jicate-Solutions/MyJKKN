@@ -120,7 +120,15 @@ function FeeStructureDetailPageContent({ id }: { id: string }) {
       .finally(() => setLoading(false));
   }, [id, refreshTick]);
 
-  const handleChanged = () => setRefreshTick((t) => t + 1);
+  const handleChanged = () => {
+    setRefreshTick((t) => t + 1);
+    // If we're in edit mode (?edit=1), drop the query and return to the
+    // read-only view after a successful save. Without this the admin stays
+    // in the form which is confusing — the toast already confirms the save.
+    if (isEditMode) {
+      router.push(`/admission/settings/fees-structure/${id}`);
+    }
+  };
 
   const handleArchive = async () => {
     if (!structure) return;
