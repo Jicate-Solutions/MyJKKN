@@ -33,4 +33,16 @@ export const AdmissionFeesActivityTemplates = {
     value_mapped_via_dqr: (table: string, observed: string, mappedTo: string) =>
       `Mapped ${table}.${observed} → ${mappedTo} via DQR`,
   },
+  lifecycle: {
+    account_transition: (billsGenerated: number) =>
+      `Moved to Account stage; ${billsGenerated} bill${billsGenerated !== 1 ? 's' : ''} generated`,
+  },
+  documents: {
+    received: (docType: string, via: string) =>
+      `Document received: ${docType} (via ${via})`,
+  },
+  bill: {
+    auto_generated: (count: number) =>
+      `Auto-generated ${count} bill${count !== 1 ? 's' : ''} via account transition`,
+  },
 };
