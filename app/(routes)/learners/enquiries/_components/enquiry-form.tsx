@@ -47,6 +47,7 @@ import { PreSubmitConfirmationDialog } from './pre-submit-confirmation-dialog';
 import { AdmissionSettingsService } from '@/lib/services/admission/admission-settings-service';
 import { FeeResolutionService } from '@/lib/services/admission/fee-resolution-service';
 import { BillingCategoryService } from '@/lib/services/billing/categories/billing-category-service';
+import { LookupService } from '@/lib/services/admission/lookup-service';
 import { logActivityForCurrentUser } from '@/lib/utils/activity-logger-client';
 import { AdmissionFeesActivityTemplates } from '@/lib/utils/admission-fees-activity-templates';
 import type {
@@ -1370,20 +1371,74 @@ export function EnquiryForm({
         // FeeResolutionService.previewMatchByDimensions. previewItems is a
         // best-effort projection — empty when no match, in which case the
         // dialog's "no fee structure matched" banner shows.
+        //
+        // The 3 demographic dims (quota / community / accommodation) live on
+        // the form as TEXT fields but the matrix needs FK ids. For LOADED
+        // learners (edit mode) the parent passes already-resolved FK ids on
+        // the `learner` prop; for NEW enquiries we resolve TEXT→FK here so
+        // the preview matches what FinanceDetailsSection already shows.
         const learnerLike = (learner ?? {}) as {
           quota_id?: string;
           community_category_id?: string;
           accommodation_type_id?: string;
         };
+
+        const resolveLookupId = (
+          text: string | null | undefined,
+          rows: Array<{ id: string; code: string; name: string }>,
+        ): string | undefined => {
+          if (!text) return undefined;
+          const norm = text.trim().toLowerCase();
+          if (!norm) return undefined;
+          const match = rows.find(
+            (r) => r.code.toLowerCase() === norm || r.name.toLowerCase() === norm,
+          );
+          return match?.id;
+        };
+
+        let resolvedQuotaId = learnerLike.quota_id;
+        let resolvedCommunityId = learnerLike.community_category_id;
+        let resolvedAccommodationId = learnerLike.accommodation_type_id;
+
+        if (!resolvedQuotaId || !resolvedCommunityId || !resolvedAccommodationId) {
+          try {
+            const [quotas, communities, accommodations] = await Promise.all([
+              !resolvedQuotaId
+                ? LookupService.listQuotas(true)
+                : Promise.resolve([]),
+              !resolvedCommunityId
+                ? LookupService.listCommunityCategories(true)
+                : Promise.resolve([]),
+              !resolvedAccommodationId && values.institution_id
+                ? LookupService.listAccommodationTypes(values.institution_id, true)
+                : Promise.resolve([]),
+            ]);
+            if (!resolvedQuotaId) {
+              resolvedQuotaId = resolveLookupId(values.quota, quotas);
+            }
+            if (!resolvedCommunityId) {
+              resolvedCommunityId = resolveLookupId(values.community, communities);
+            }
+            if (!resolvedAccommodationId) {
+              resolvedAccommodationId = resolveLookupId(
+                values.accommodation_type,
+                accommodations,
+              );
+            }
+          } catch (err) {
+            console.error('[enquiry-form] TEXT→FK lookup failed:', err);
+          }
+        }
+
         const dims: Partial<FeeStructureMatrixDimensions> = {
           institution_id: values.institution_id ?? undefined,
           degree_id: values.degree_id ?? undefined,
           department_id: values.department_id ?? undefined,
           // Form column is `program_id` (singular); dim shape uses British `programme_id`.
           programme_id: values.program_id ?? undefined,
-          quota_id: learnerLike.quota_id,
-          community_category_id: learnerLike.community_category_id,
-          accommodation_type_id: learnerLike.accommodation_type_id,
+          quota_id: resolvedQuotaId,
+          community_category_id: resolvedCommunityId,
+          accommodation_type_id: resolvedAccommodationId,
           admission_year_id: values.admission_year_id ?? undefined,
         };
         const allDimsPresent = !!(
