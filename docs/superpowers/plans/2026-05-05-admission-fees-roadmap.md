@@ -40,7 +40,7 @@ This roadmap decomposes the spec into six sequential, module-wise plans. Each pl
 |---|---|---|---|---|
 | 1 | Foundation — lookup tables + shadow-FK + settings scaffolding | ✅ Completed (2026-05-05) | [`2026-05-05-admission-fees-plan-01-foundation.md`](./2026-05-05-admission-fees-plan-01-foundation.md) | — |
 | 2 | Fee Structure module — matrix CRUD + builder UI + lookup admin UI | ✅ Completed (2026-05-05) | [`2026-05-05-admission-fees-plan-02-fee-structure-module.md`](./2026-05-05-admission-fees-plan-02-fee-structure-module.md) | Plan 1 |
-| 3 | Resolution Engine + Finance Tab automation | ⬜ Not started | _to be written after Plan 2_ | Plans 1, 2 |
+| 3 | Resolution Engine + Finance Tab automation | ✅ Completed (2026-05-05) | [`2026-05-05-admission-fees-plan-03-resolution-engine-finance-tab.md`](./2026-05-05-admission-fees-plan-03-resolution-engine-finance-tab.md) | Plans 1, 2 |
 | 4 | Atomic Account Transition + documents-checklist | ⬜ Not started | _to be written after Plan 3_ | Plans 1, 2, 3 |
 | 5 | Fee-Change Reconciliation + supersede + reallocate | ⬜ Not started | _to be written after Plan 4_ | Plans 1, 2, 3, 4 |
 | 6 | Cutover & Adoption | ⬜ Not started | _to be written after Plan 5_ | Plans 1, 2, 3, 4, 5 |
@@ -197,8 +197,30 @@ Plan 2 landed with 16 commits across 4 migrations, 1 service file, 1 activity-te
 - Finance tab refactor in `learners/enquiries/_components/form-sections/finance-details.tsx` is the integration point
 - Permission keys still needed: `admission_fees.manage_adjustments`, `admission_fees.override`
 
-### Plan 3 retrospective
-_Not yet started._
+### Plan 3 retrospective (completed 2026-05-05)
+
+Plan 3 landed with 13 commits across 4 phases — 4 migrations (adjustments table + RLS + JSONB permission grants + resolution RPC), 2 services (FeeAdjustmentService + FeeResolutionService) + activity-templates extension, 8 UI components (5 finance-tab panels + 2 dialogs + 1 banner), and 1 surgical refactor of the existing `finance-details.tsx` (414 → 175 lines, 265 deletions). Total: ~2,500 lines of new TypeScript.
+
+**Key findings carried forward to Plans 4-6:**
+
+- **Form prop pattern**: `finance-details.tsx` receives `form: UseFormReturn<any>` as a PROP (not `useFormContext`). Use `form.control` + `useWatch({ control: form.control, name })`. Plan 4's status-change dialog component must follow the same pattern.
+- **`programme_id` vs `program_id` mismatch**: form column is `program_id` (singular `program`); `FeeStructureMatrixDimensions` uses `programme_id` (British). Always remap when assembling `dims` from the form. This will recur in Plan 4.
+- **Permissions hook**: `usePermissions` (plural) from `@/hooks/use-permissions` exposes `canPerformAll(module, actions)` and `isSuperAdmin`. Pattern: `isSuperAdmin || canPerformAll('admission_fees', ['manage_adjustments'])`. NOT the singular `usePermission`.
+- **Demographic FKs (`quota_id`, `community_category_id`, `accommodation_type_id`) live on `learners_profiles` but NOT in the enquiry form's zod schema** — passed through as `extraDims` props from the parent `enquiry-form.tsx`. Plan 4's status-change flow can read them directly from the loaded learner record.
+- **`tsc --noEmit -p tsconfig.json` HANGS** — Subagent C invented a useful technique: temp tsconfig extending project tsconfig with only the new files + their dep tree, then `tsc -p tempconfig.json`. Cleanly verified with zero errors. Worth using for Plan 4+.
+
+**v1.5 deferrals (collected for after Plan 6):**
+
+- **Pre-submit confirmation dialog wiring** is deferred. Component is fully built and committed; submit-handler integration in `enquiry-form.tsx` was deferred to v1.5 to avoid scope-creeping the Plan 3 surgery. v1.5 follow-up: read `admission_settings_per_institution.pre_submit_dialog_enabled` + open dialog before submit + log `enquiry.fee_resolved` / `fee_match_failed` on confirm.
+- **Adopt-structure flow atomicity** — flag flip + RPC + activity log is sequenced, not transactional. Plan 6 should wrap in a SECURITY DEFINER RPC.
+- **Evidence document upload** simplified to one-URL-per-line textarea. v1.5 should add real file upload + storage.
+- **Negative-amount clamp** in the resolution RPC — when an adjustment drives a category amount below 0, RPC clamps to 0 silently. v1.5 could fire `enquiry.fee_clamped_to_zero` activity event for visibility.
+
+**For Plan 4 to be aware of:**
+- Resolution RPC produces `fee_items[]` end-to-end. The bill engine `OnboardingService.createBillsFromProfile` already consumes that array.
+- `learners_profiles.legacy_fee_mode` defaults to true; flipped to false on adopt-structure or for net-new leads (Plan 6).
+- `admission_settings_per_institution.use_fee_structures` still default OFF — flipped per institution in Plan 6.
+- Plan 4 builds the atomic `admission_account_transition_with_bills` RPC + documents-checklist + status-change dialog; the dialog component should reuse the form-prop pattern documented above.
 
 ### Plan 4 retrospective
 _Not yet started._

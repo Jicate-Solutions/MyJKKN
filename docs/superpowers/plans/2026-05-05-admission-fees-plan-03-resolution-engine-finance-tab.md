@@ -148,7 +148,10 @@ CREATE TRIGGER trg_admission_fee_adjustments_touch
 SELECT count(*) AS col_count
   FROM information_schema.columns
  WHERE table_schema='public' AND table_name='admission_fee_adjustments';
--- Expected: 13.
+-- Expected: 14. _Correction applied 2026-05-05: original plan said 13; the DDL
+-- defines 14 columns (id, learner_id, billing_category_id, reason_code,
+-- reason_notes, delta_amount, applied_at, approved_by, evidence_documents,
+-- status, created_at, updated_at, created_by, updated_by) — plan miscounted._
 
 SELECT count(*) AS index_count
   FROM pg_indexes
