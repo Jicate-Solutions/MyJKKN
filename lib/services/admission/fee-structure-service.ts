@@ -125,7 +125,7 @@ export class FeeStructureService {
    * `getWithItems`, which is the right choice for the resolution flow.
    */
   static async getDetailById(id: string): Promise<
-    | (AdmissionFeeStructureWithItems & {
+    | (AdmissionFeeStructure & {
         institution_name: string | null;
         degree_name: string | null;
         department_name: string | null;
@@ -135,7 +135,7 @@ export class FeeStructureService {
         accommodation_name: string | null;
         admission_year_name: string | null;
         items: Array<
-          AdmissionFeeStructureWithItems['items'][number] & {
+          AdmissionFeeStructureItem & {
             category_name: string | null;
             category_frequency: string | null;
           }

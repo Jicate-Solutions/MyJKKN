@@ -69,6 +69,8 @@ import { FeesStructureForm } from '../_components/fees-structure-form';
 import { FeeStructureService } from '@/lib/services/admission/fee-structure-service';
 import toast from 'react-hot-toast';
 import type {
+  AdmissionFeeStructure,
+  AdmissionFeeStructureItem,
   AdmissionFeeStructureWithItems,
   FeeStructureMatrixDimensions,
 } from '@/types/admission';
@@ -77,7 +79,12 @@ interface RouteProps {
   params: Promise<{ id: string }>;
 }
 
-type DetailRow = AdmissionFeeStructureWithItems & {
+type DetailRowItem = AdmissionFeeStructureItem & {
+  category_name: string | null;
+  category_frequency: string | null;
+};
+
+type DetailRow = AdmissionFeeStructure & {
   institution_name: string | null;
   degree_name: string | null;
   department_name: string | null;
@@ -86,12 +93,7 @@ type DetailRow = AdmissionFeeStructureWithItems & {
   community_name: string | null;
   accommodation_name: string | null;
   admission_year_name: string | null;
-  items: Array<
-    AdmissionFeeStructureWithItems['items'][number] & {
-      category_name: string | null;
-      category_frequency: string | null;
-    }
-  >;
+  items: DetailRowItem[];
 };
 
 function FeeStructureDetailPageContent({ id }: { id: string }) {
