@@ -41,7 +41,7 @@ This roadmap decomposes the spec into six sequential, module-wise plans. Each pl
 | 1 | Foundation — lookup tables + shadow-FK + settings scaffolding | ✅ Completed (2026-05-05) | [`2026-05-05-admission-fees-plan-01-foundation.md`](./2026-05-05-admission-fees-plan-01-foundation.md) | — |
 | 2 | Fee Structure module — matrix CRUD + builder UI + lookup admin UI | ✅ Completed (2026-05-05) | [`2026-05-05-admission-fees-plan-02-fee-structure-module.md`](./2026-05-05-admission-fees-plan-02-fee-structure-module.md) | Plan 1 |
 | 3 | Resolution Engine + Finance Tab automation | ✅ Completed (2026-05-05) | [`2026-05-05-admission-fees-plan-03-resolution-engine-finance-tab.md`](./2026-05-05-admission-fees-plan-03-resolution-engine-finance-tab.md) | Plans 1, 2 |
-| 4 | Atomic Account Transition + documents-checklist | ⬜ Not started | _to be written after Plan 3_ | Plans 1, 2, 3 |
+| 4 | Atomic Account Transition + documents-checklist | ✅ Completed (2026-05-05) | [`2026-05-05-admission-fees-plan-04-atomic-account-transition.md`](./2026-05-05-admission-fees-plan-04-atomic-account-transition.md) | Plans 1, 2, 3 |
 | 5 | Fee-Change Reconciliation + supersede + reallocate | ⬜ Not started | _to be written after Plan 4_ | Plans 1, 2, 3, 4 |
 | 6 | Cutover & Adoption | ⬜ Not started | _to be written after Plan 5_ | Plans 1, 2, 3, 4, 5 |
 
@@ -222,8 +222,35 @@ Plan 3 landed with 13 commits across 4 phases — 4 migrations (adjustments tabl
 - `admission_settings_per_institution.use_fee_structures` still default OFF — flipped per institution in Plan 6.
 - Plan 4 builds the atomic `admission_account_transition_with_bills` RPC + documents-checklist + status-change dialog; the dialog component should reuse the form-prop pattern documented above.
 
-### Plan 4 retrospective
-_Not yet started._
+### Plan 4 retrospective (completed 2026-05-05)
+
+Plan 4 landed with 12 commits across 3 phases — 4 migrations (documents table + RLS + JSONB permission grant + atomic-transition RPC), 2 services + activity-templates extension + `OnboardingService.markAsAccount` refactor, 3 UI components + row-actions wiring. Plus 1 cross-plan fix (`logActivityForCurrentUser` invocation form). Total: ~1,400 lines of new TypeScript + ~280 lines of PL/pgSQL.
+
+**Critical fix discovered during execution:**
+
+- **`logActivityForCurrentUser` signature mismatch in Plans 3-4 templates.** Plan templates instructed positional-arg calls `logActivityForCurrentUser(actionType, description, metadata)` but the actual function takes a single object: `Omit<LogActivityClientParams, 'userId'>` with fields `{ actionType, description, resourceType?, resourceId?, metadata?, ... }`. Both Plan 3's `FeeAdjustmentService` and Plan 4's `AccountTransitionService` were patched to use the object form (commit `c7d1a8f1b`). Adds `resourceType: 'learner'` + `resourceId: <learner_id>` so activity rows are properly filterable by learner. **Plans 5-6 must use the object form.**
+
+**Other key findings carried forward:**
+
+- **`admission_leads.funnel_stage` is the lead's stage column, not `lifecycle_status`.** Plan template's gate `['admitted','pending','approved']` are not valid `FunnelStage` values; substituted late-funnel states `documents_verified | offer_accepted | token_paid | enrolled | confirmed`. The constant `ACCOUNT_TRANSITION_ELIGIBLE_STAGES` in `row-actions.tsx` is the single edit point.
+- **`AdmissionLead.learner_profile_id !== null` guard required**: RPC's `p_learner_id` parameter targets `learners_profiles.id`, not `admission_leads.id`. Leads without a backing learner profile can't be moved to Account regardless of stage.
+- **Bill INSERT column list match confirmed**: 14 columns, identical between RPC and existing `OnboardingService.createBillsFromProfile`. Required columns omitted by both: `is_recurring`, `recurrence_pattern`, `number_of_recurrences`, `payment_date` (all keep their table defaults).
+- **`legacy_fee_mode` branching**: RPC explicitly branches — false = call resolution RPC; true = trust existing `fee_items[]`. Intentional divergence from existing service heuristic (which checks if `fee_items` is non-empty without consulting `legacy_fee_mode`). Documented in Task 4 algorithm step 3.
+- **`AccountTransitionResult` return type** — `markAsAccount` signature changed from `Promise<void>` to `Promise<AccountTransitionResult>`. Backward-compat preserved (callers ignoring return value still work).
+
+**Required-documents UX gap (transient):**
+
+If an institution has non-empty `required_documents_for_account_transition`, the existing `useMarkAsAccount` mutation hook (which calls `markAsAccount(learnerId)` with no docs) will now throw `required_documents_missing: pan,aadhaar`. Users must use the new `AccountTransitionDialog` flow (wired into row-actions in Task 11). Acceptable v1 behavior since the dialog flow is the canonical path; legacy direct-call path is now a fail-fast.
+
+**Pre-existing codebase hygiene issue surfaced:**
+
+- **Supabase generated types are stale** — `types/supabase.ts` doesn't yet include any of Plans 1-4's new tables (`admission_settings_per_institution`, `admission_fee_structures`, `admission_fee_structure_items`, `admission_fee_adjustments`, `learner_admission_documents`, `quotas`, `community_categories`, `accommodation_types`). 59 pre-existing TS errors surface across admission services when full project compile runs. **Action item: regenerate Supabase types** via `npx supabase gen types typescript` after Plans 1-4 land. Not blocking — services use the table names as string literals which Supabase client accepts at runtime.
+
+**For Plan 5 to be aware of:**
+
+- `learner_admission_documents` table now exists; Plan 5 can read/write it during fee-change reconciliation if a programme change requires re-collecting docs.
+- `admission_account_transition_with_bills` RPC produces bills via the same column shape `OnboardingService.createBillsFromProfile` produces — Plan 5's supersede flow can swap them safely without column mismatch concerns.
+- The activity-logger object-form invocation pattern is now established and verified.
 
 ### Plan 5 retrospective
 _Not yet started._
