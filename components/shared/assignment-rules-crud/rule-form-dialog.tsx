@@ -28,7 +28,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { useAssignmentRuleMutations } from '@/hooks/admission';
+import { useAssignmentRuleMutations, useRuleTypes } from '@/hooks/admission';
 import type {
   AssignmentRule,
   AssignmentRuleType,
@@ -36,7 +36,11 @@ import type {
   UpdateAssignmentRuleInput,
 } from '@/lib/services/admission/assignment-rules-service';
 
-const RULE_TYPES: { value: AssignmentRuleType; label: string }[] = [
+// Hardcoded fallback used ONLY when the assignment_rule_type_registry fetch fails.
+// Mirrors the historical TS enum so the picker stays usable in degraded mode.
+// Once admins add custom rule types via /admin/counselors/rule-types, those rows
+// take over via useRuleTypes() — this fallback is the safety net, not the source.
+const FALLBACK_RULE_TYPES: { value: AssignmentRuleType; label: string }[] = [
   { value: 'program', label: 'Program' },
   { value: 'round_robin', label: 'Round Robin' },
   { value: 'location', label: 'Location' },
@@ -76,6 +80,15 @@ export function RuleFormDialog({
   const isEditing = !!rule;
   const { createRule, updateRule, isCreating, isUpdating } =
     useAssignmentRuleMutations();
+  const { ruleTypes: registryTypes, isLoading: ruleTypesLoading, isError: ruleTypesError } =
+    useRuleTypes();
+
+  // Prefer registry rows when available; fall back to the hardcoded list on
+  // fetch failure or while loading completes (so the dropdown is never empty).
+  const ruleTypeOptions: { value: string; label: string }[] =
+    registryTypes.length > 0
+      ? registryTypes.map((rt) => ({ value: rt.rule_type_key, label: rt.display_label }))
+      : FALLBACK_RULE_TYPES.map((t) => ({ value: t.value, label: t.label }));
 
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
@@ -212,23 +225,33 @@ export function RuleFormDialog({
               />
             </div>
             <div className="grid gap-1.5">
-              <Label htmlFor="rule-type">Rule Type</Label>
+              <Label htmlFor="rule-type">
+                Rule Type
+                {ruleTypesLoading && (
+                  <Loader2 className="ml-2 inline h-3 w-3 animate-spin text-muted-foreground" />
+                )}
+              </Label>
               <Select
                 value={ruleType}
                 onValueChange={(v) => setRuleType(v as AssignmentRuleType)}
-                disabled={isBusy}
+                disabled={isBusy || ruleTypesLoading}
               >
                 <SelectTrigger id="rule-type">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {RULE_TYPES.map((t) => (
+                  {ruleTypeOptions.map((t) => (
                     <SelectItem key={t.value} value={t.value}>
                       {t.label}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
+              {ruleTypesError && (
+                <p className="text-xs text-amber-600">
+                  Could not load rule types from registry — using built-in defaults.
+                </p>
+              )}
             </div>
           </div>
 

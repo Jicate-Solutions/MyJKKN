@@ -1,6 +1,7 @@
 'use client';
 
 import { ColumnDef } from '@tanstack/react-table';
+import * as Icons from 'lucide-react';
 import { Checkbox } from '@/components/ui/checkbox';
 import { DataTableColumnHeader } from '@/components/data-table/column-header';
 import { Badge } from '@/components/ui/badge';
@@ -14,11 +15,32 @@ import {
   Building,
   Activity,
   Settings,
+  type LucideIcon,
 } from 'lucide-react';
 import type { AssignmentRule } from '@/lib/services/admission/assignment-rules-service';
 import { DataTableRowActions } from './row-actions';
 
-export function getRuleTypeIcon(type?: string) {
+/**
+ * Render the icon for an assignment-rule type.
+ *
+ * @param type     The rule type key (e.g. 'round_robin'). Falls back to a hardcoded
+ *                 switch for the 6 system types when no iconName is supplied — keeps
+ *                 backwards compatibility with callers that don't yet read from the
+ *                 assignment_rule_type_registry.
+ * @param iconName Optional Lucide icon name from the registry row (e.g. 'Shuffle').
+ *                 When provided, it is preferred over the hardcoded mapping so admin-
+ *                 created rule types get the icon the admin chose. Unknown names
+ *                 fall through to the Settings glyph.
+ */
+export function getRuleTypeIcon(type?: string, iconName?: string | null) {
+  // Prefer registry-supplied icon when present.
+  if (iconName) {
+    const Resolved = (Icons as unknown as Record<string, LucideIcon>)[iconName];
+    if (Resolved) {
+      return <Resolved className="h-4 w-4 text-muted-foreground" />;
+    }
+  }
+
   switch (type) {
     case 'program':
       return <GraduationCap className="h-4 w-4 text-blue-500" />;
