@@ -109,6 +109,17 @@ export function QuotaSeatsDialog({ row, open, onOpenChange, onSaved }: Props) {
 
   const handleSave = async () => {
     if (!row) return;
+    // Guard against overallocation — UI disables the button, but a programmatic
+    // invocation (or keyboard shortcut) could bypass that. Refuse with a toast.
+    const sumNow = seatRows.reduce((s, r) => s + r.sanctioned_intake, 0);
+    if (sumNow > (row.sanctioned_intake ?? 0)) {
+      toast.error(
+        `Quota total (${sumNow.toLocaleString()}) exceeds cohort total (${(
+          row.sanctioned_intake ?? 0
+        ).toLocaleString()}). Reduce values to save.`,
+      );
+      return;
+    }
     setSaving(true);
     try {
       const supabase = createClientSupabaseClient();
@@ -139,6 +150,10 @@ export function QuotaSeatsDialog({ row, open, onOpenChange, onSaved }: Props) {
   const quotaTotal = seatRows.reduce((s, r) => s + r.sanctioned_intake, 0);
   const cohortTotal = row?.sanctioned_intake ?? 0;
   const variance = quotaTotal - cohortTotal;
+  // Save is blocked while the sum of quota allocations exceeds the
+  // cohort total — prevents over-promising seats. Negative variance
+  // (uncategorized capacity) is acceptable.
+  const isOverallocated = variance > 0;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -218,10 +233,23 @@ export function QuotaSeatsDialog({ row, open, onOpenChange, onSaved }: Props) {
             </div>
 
             {/* Totals strip — pinned above footer */}
-            <div className="shrink-0 mx-6 my-3 rounded-md bg-muted/50 px-3 py-2 text-sm space-y-1">
+            <div
+              className={`
+                shrink-0 mx-6 my-3 rounded-md px-3 py-2 text-sm space-y-1 border
+                ${
+                  isOverallocated
+                    ? 'bg-destructive/10 border-destructive/30'
+                    : 'bg-muted/50 border-transparent'
+                }
+              `}
+            >
               <div className="flex items-center justify-between gap-2">
                 <span className="text-muted-foreground">Quota allocations sum</span>
-                <span className="font-semibold tabular-nums">
+                <span
+                  className={`font-semibold tabular-nums ${
+                    isOverallocated ? 'text-destructive' : ''
+                  }`}
+                >
                   {quotaTotal.toLocaleString()}
                 </span>
               </div>
@@ -231,13 +259,30 @@ export function QuotaSeatsDialog({ row, open, onOpenChange, onSaved }: Props) {
                   {cohortTotal.toLocaleString()}
                 </span>
               </div>
-              {variance !== 0 && (
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-muted-foreground">Remaining capacity</span>
+                <span
+                  className={`font-semibold tabular-nums ${
+                    isOverallocated ? 'text-destructive' : 'text-emerald-700'
+                  }`}
+                >
+                  {(cohortTotal - quotaTotal).toLocaleString()}
+                </span>
+              </div>
+              {isOverallocated && (
+                <div className="flex items-start gap-2 text-xs pt-1 text-destructive font-medium">
+                  <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                  <span>
+                    Quota total exceeds cohort total by {variance.toLocaleString()} seats —
+                    reduce one or more quotas to save.
+                  </span>
+                </div>
+              )}
+              {variance < 0 && (
                 <div className="flex items-start gap-2 text-xs pt-1 text-amber-700">
                   <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
                   <span>
-                    {variance > 0
-                      ? `Quota total exceeds cohort total by ${variance.toLocaleString()} seats`
-                      : `${Math.abs(variance).toLocaleString()} seats unallocated (uncategorized capacity)`}
+                    {Math.abs(variance).toLocaleString()} seats unallocated (uncategorized capacity)
                   </span>
                 </div>
               )}
@@ -257,8 +302,13 @@ export function QuotaSeatsDialog({ row, open, onOpenChange, onSaved }: Props) {
           </Button>
           <Button
             onClick={handleSave}
-            disabled={saving || loading}
+            disabled={saving || loading || isOverallocated}
             className="w-full sm:w-auto"
+            title={
+              isOverallocated
+                ? 'Quota total exceeds cohort total — reduce values to enable save'
+                : 'Save quota allocations'
+            }
           >
             {saving ? (
               <Loader2 className="h-4 w-4 mr-1 animate-spin" />
