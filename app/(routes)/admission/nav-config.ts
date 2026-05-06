@@ -327,6 +327,12 @@ const config: ModuleNavConfig = {
           exact: true,
         },
         {
+          label: 'General',
+          icon: 'Sliders',
+          href: '/admission/settings/general',
+          matchPaths: ['/admission/settings/general'],
+        },
+        {
           label: 'Assignment Rules',
           icon: 'GitBranch',
           href: '/admission/settings/assignment-rules',
