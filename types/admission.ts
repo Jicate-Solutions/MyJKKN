@@ -1723,3 +1723,90 @@ export interface AccountTransitionResult {
   bills_generated: number;
   fee_items_count: number;
 }
+
+// ============================================================================
+// Fee-Change Reconciliation — Plan 5 types
+// ============================================================================
+// Spec §6.4, §8.3.2
+// Plan: docs/superpowers/plans/2026-05-05-admission-fees-plan-05-fee-change-reconciliation.md Task 8
+
+export type AdmissionFeeChangeEventStatus = 'pending_review' | 'approved' | 'rejected';
+export type AdmissionFeeChangeEventTriggerField =
+  | 'program_id' | 'quota_id' | 'community_category_id'
+  | 'accommodation_type_id' | 'admission_year_id' | 'manual';
+export type AdmissionFeeChangeEventLineDecision =
+  | 'apply_supplemental' | 'issue_credit_note' | 'refund_payment'
+  | 'reallocate_payment' | 'waive_delta' | 'do_nothing';
+
+export interface AdmissionFeeChangeEvent {
+  id: string;
+  learner_id: string;
+  trigger_field: AdmissionFeeChangeEventTriggerField;
+  old_program_id: string | null;
+  old_quota_id: string | null;
+  old_community_category_id: string | null;
+  old_accommodation_type_id: string | null;
+  old_admission_year_id: string | null;
+  old_fee_structure_id: string | null;
+  new_fee_structure_id: string | null;
+  status: AdmissionFeeChangeEventStatus;
+  reason_notes: string | null;
+  requested_by: string | null;
+  decided_by: string | null;
+  requested_at: string;
+  decided_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AdmissionFeeChangeEventLine {
+  id: string;
+  event_id: string;
+  billing_category_id: string;
+  old_amount: number | null;
+  new_amount: number | null;
+  paid_amount_so_far: number;
+  decision: AdmissionFeeChangeEventLineDecision | null;
+  generated_artifact_id: string | null;
+  decision_notes: string | null;
+}
+
+export interface AdmissionFeeChangeEventWithLines extends AdmissionFeeChangeEvent {
+  lines: AdmissionFeeChangeEventLine[];
+}
+
+export interface ApproveFeeChangeEventDecisionInput {
+  billing_category_id: string;
+  decision: AdmissionFeeChangeEventLineDecision;
+  reallocation_amount?: number;
+  decision_notes?: string;
+}
+
+export interface ApproveFeeChangeEventResult {
+  success: boolean;
+  event_id: string;
+  summary: {
+    new_bills: number;
+    superseded_bills: number;
+    credit_balances: number;
+    reallocations: number;
+  };
+}
+
+export type StudentCreditBalanceSource =
+  | 'fee_structure_change' | 'overpayment' | 'refund_reversal' | 'manual';
+
+export interface StudentCreditBalance {
+  id: string;
+  student_id: string;
+  amount: number;
+  source: StudentCreditBalanceSource;
+  source_event_id: string | null;
+  is_consumed: boolean;
+  consumed_against_bill_id: string | null;
+  consumed_at: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+  created_by: string | null;
+}
