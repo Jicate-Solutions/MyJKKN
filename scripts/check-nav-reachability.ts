@@ -118,6 +118,7 @@ const NAV_EXCLUDE = new Set<string>([
   '/admission/consultants/new',
   '/admission/gd-pi/new',
   '/admission/leads/new',
+  '/admission/settings/fees-structure/new',
   '/admission/settings/years/new',
 
   // Audit /new forms

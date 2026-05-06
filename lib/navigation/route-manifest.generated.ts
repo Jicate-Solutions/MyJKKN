@@ -466,7 +466,7 @@ export const ROUTE_MANIFEST: RouteNode[] = [
           {
             "path": "/admin/counselors/routing-errors",
             "label": "Routing Errors",
-            "iconName": "Users",
+            "iconName": "AlertTriangle",
             "children": []
           },
           {

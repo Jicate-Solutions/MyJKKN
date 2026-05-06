@@ -28,6 +28,26 @@ jobs:
         env:
           NODE_OPTIONS: '--max-old-space-size=8192'
 
+      # Regenerate route manifest from PR's filesystem so reachability check
+      # sees the actual state of the PR's pages, not the merged-in manifest.
+      - name: Regenerate route manifest
+        run: npm run gen:routes
+
+      # Catches "ghost page" merges — pages that exist on disk but aren't
+      # reachable from any sidebar/chip click sequence. Was caught only at
+      # Vercel deploy time before (PR #735, #736 fees-structure/new), which
+      # blocked deploys 2+ days after merge. Now fails the PR before merge.
+      - name: Check nav reachability
+        run: npm run check:reachability
+
+      # Catches sidebar config drift (entries pointing at deleted pages).
+      - name: Check sidebar coverage
+        run: npm run check:sidebar
+
+      # Catches modules that fail audit-coverage thresholds.
+      - name: Check audit coverage
+        run: npm run check:audit-coverage
+
       - name: Check admission-counselor membership contract
         run: npm run check:admission-counselor-membership
 

@@ -6,6 +6,8 @@
 // 20260506234138_create_counselor_routing_errors.sql for the writer-side
 // follow-up plan.
 
+export const navMeta = { label: 'Routing Errors', icon: 'AlertTriangle' } as const;
+
 import { useEffect, useMemo, useState } from 'react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
