@@ -1392,7 +1392,31 @@ export function EnquiryForm({
           {canViewFinance && (
             <TabsContent value="finance-details" className="space-y-4 mt-4">
               <Card className="p-3 sm:p-4 md:p-6">
-                <FinanceDetailsSection form={form} readOnly={!canEditFinance} />
+                <FinanceDetailsSection
+                  form={form}
+                  readOnly={!canEditFinance}
+                  // 2026-05-05 Plan 3 / Task 14: forward learnerId + matrix
+                  // dimensions that aren't on the form schema today, so the
+                  // matrix-driven Finance tab can resolve fees per learner.
+                  // legacy_fee_mode + (quota|community_category|accommodation_type)_id
+                  // live on learners_profiles but aren't in the form's zod schema;
+                  // we read them off the loaded `learner` prop directly.
+                  learnerId={savedEnquiryId ?? learner?.id}
+                  legacyFeeMode={
+                    (learner as { legacy_fee_mode?: boolean } | undefined)?.legacy_fee_mode ?? false
+                  }
+                  extraDims={
+                    learner
+                      ? {
+                          quota_id: (learner as { quota_id?: string }).quota_id,
+                          community_category_id: (learner as { community_category_id?: string })
+                            .community_category_id,
+                          accommodation_type_id: (learner as { accommodation_type_id?: string })
+                            .accommodation_type_id,
+                        }
+                      : undefined
+                  }
+                />
               </Card>
             </TabsContent>
           )}

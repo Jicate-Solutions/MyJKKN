@@ -9,12 +9,21 @@
 //          common across all institutions (billing_categories). Legacy
 //          parent_category_id / sub_category_id / *_name fields on fee_items are
 //          ignored on read and not written on save (backward-compat tolerant).
+// Updated: 2026-05-05 (Plan 3 / Task 14) - Surgical refactor. The manual
+//          useFieldArray('fee_items') repeater is replaced by the matrix-driven
+//          panels: LegacyModeBanner, FeeStructureReadonlyPanel,
+//          NoMatchEmptyState, FeeAdjustmentsPanel, ResolvedTotalPanel. Legacy
+//          fee fields (application_fee, tuition_fee, etc.) are kept but
+//          rendered ONLY when legacy_fee_mode === true on the parent learner.
+//
+//          Field naming remap: this form's column is `program_id` (singular),
+//          but FeeStructureMatrixDimensions uses `programme_id` (British). We
+//          remap inline at the dims-assembly site.
 // ============================================
 
-import { UseFormReturn, useFieldArray, useWatch } from 'react-hook-form';
-import { useEffect, useState } from 'react';
-import { IndianRupee, Plus, Trash2 } from 'lucide-react';
-import toast from 'react-hot-toast';
+import { UseFormReturn, useWatch } from 'react-hook-form';
+import { useState } from 'react';
+import { Trash2 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import {
@@ -24,113 +33,90 @@ import {
   FormLabel,
   FormMessage
 } from '@/components/ui/form';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue
-} from '@/components/ui/select';
-import { BillingCategoryService } from '@/lib/services/billing/categories/billing-category-service';
-import type { BillingCategory } from '@/types/billing';
+import type {
+  FeeStructureMatrixDimensions,
+  AdmissionFeeStructureWithItems,
+} from '@/types/admission';
+
+import { LegacyModeBanner } from './_fee/legacy-mode-banner';
+import { FeeStructureReadonlyPanel } from './_fee/fee-structure-readonly-panel';
+import { NoMatchEmptyState } from './_fee/no-match-empty-state';
+import { FeeAdjustmentsPanel } from './_fee/fee-adjustments-panel';
+import { ResolvedTotalPanel } from './_fee/resolved-total-panel';
 
 interface FinanceDetailsProps {
   form: UseFormReturn<any>;
   readOnly?: boolean;
+  /** Saved learner id from the parent (either prop `learner.id` or
+   *  `savedEnquiryId` after a draft save). When absent, the Adjustments and
+   *  RPC-driven Resolved Total cannot run — Resolved Total falls back to the
+   *  local computation from the matched structure. */
+  learnerId?: string;
+  /** True when the loaded learner row has `legacy_fee_mode = true`. The column
+   *  is not on the form schema; the parent reads it from the learner profile
+   *  and forwards it here. */
+  legacyFeeMode?: boolean;
+  /** Three matrix dimensions that aren't present on this form's schema today
+   *  (quota_id, community_category_id, accommodation_type_id). Parent supplies
+   *  them from the loaded learner profile if available. When any are missing,
+   *  the structure panel shows the "select all 8" hint, which is the correct
+   *  v1 behavior. */
+  extraDims?: {
+    quota_id?: string;
+    community_category_id?: string;
+    accommodation_type_id?: string;
+  };
 }
 
-interface FeeItemRow {
-  category_id?: string;
-  category_name?: string;
-  amount?: number;
-}
-
-function isPermissionError(err: any): boolean {
-  return (
-    err?.code === 'PGRST403' ||
-    err?.code === '42501' ||
-    /row-level security|permission denied|not authorized/i.test(err?.message || '')
+function isFullDims(d: Partial<FeeStructureMatrixDimensions>): boolean {
+  return !!(
+    d.institution_id &&
+    d.degree_id &&
+    d.department_id &&
+    d.programme_id &&
+    d.quota_id &&
+    d.community_category_id &&
+    d.accommodation_type_id &&
+    d.admission_year_id
   );
 }
 
 export function FinanceDetailsSection({
   form,
-  readOnly = false
+  readOnly = false,
+  learnerId,
+  legacyFeeMode = false,
+  extraDims,
 }: FinanceDetailsProps) {
-  const [categories, setCategories] = useState<BillingCategory[]>([]);
-  const [loading, setLoading] = useState(false);
-
-  const { fields, append, remove } = useFieldArray({
+  // ----- Matrix dimensions (5 from this form + 3 from parent prop) -----
+  // The form column is `program_id` (singular); FeeStructureMatrixDimensions
+  // uses `programme_id` (British). Remap inline.
+  const institutionId = useWatch({ control: form.control, name: 'institution_id' });
+  const degreeId = useWatch({ control: form.control, name: 'degree_id' });
+  const departmentId = useWatch({ control: form.control, name: 'department_id' });
+  const programIdValue = useWatch({ control: form.control, name: 'program_id' });
+  const admissionYearIdValue = useWatch({
     control: form.control,
-    name: 'fee_items'
+    name: 'admission_year_id',
   });
 
-  const feeItems = useWatch({
-    control: form.control,
-    name: 'fee_items'
-  }) as FeeItemRow[] | undefined;
-
-  // Load all active billing categories (global, no per-institution scoping).
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        setLoading(true);
-        const list = await BillingCategoryService.getActiveBillingCategories();
-        if (!cancelled) setCategories(list);
-      } catch (err: any) {
-        console.error('[finance-details] load categories:', err);
-        if (isPermissionError(err)) {
-          toast.error(
-            'You do not have permission to view billing categories. Please ask an admin to grant billing.categories.view.'
-          );
-        } else {
-          toast.error('Failed to load fee categories. Please try again.');
-        }
-        if (!cancelled) setCategories([]);
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const handleCategoryChange = (index: number, categoryId: string) => {
-    const cat = categories.find((c) => c.id === categoryId);
-    form.setValue(`fee_items.${index}.category_id`, categoryId);
-    form.setValue(
-      `fee_items.${index}.category_name`,
-      cat?.category_name ?? ''
-    );
-    if (cat?.amount != null) {
-      form.setValue(
-        `fee_items.${index}.amount`,
-        Math.round(Number(cat.amount))
-      );
-    }
+  const dims: Partial<FeeStructureMatrixDimensions> = {
+    institution_id: institutionId,
+    degree_id: degreeId,
+    department_id: departmentId,
+    programme_id: programIdValue,
+    quota_id: extraDims?.quota_id,
+    community_category_id: extraDims?.community_category_id,
+    accommodation_type_id: extraDims?.accommodation_type_id,
+    admission_year_id: admissionYearIdValue,
   };
 
-  const addFeeItem = () => {
-    append({
-      category_id: '',
-      category_name: ''
-      // amount intentionally omitted — undefined renders as empty placeholder.
-    });
-  };
+  // ----- Component state -----
+  const [matchedStructure, setMatchedStructure] =
+    useState<AdmissionFeeStructureWithItems | null>(null);
+  const [refreshTick, setRefreshTick] = useState(0);
 
-  const total = (feeItems || []).reduce(
-    (sum, it) => sum + Number(it?.amount || 0),
-    0
-  );
-
-  // Already-added guard: prevent picking the same category twice in one form.
-  const selectedCategoryIds = new Set(
-    (feeItems || []).map((it) => it?.category_id).filter(Boolean) as string[]
-  );
-
-  // Legacy columns (read-only display if present)
+  // ----- Legacy fee fields (only rendered when legacyFeeMode=true) -----
   const legacyFields: Array<{ name: string; label: string }> = [
     { name: 'application_fee', label: 'Application Fee' },
     { name: 'university_reg_fee', label: 'University Registration Fee' },
@@ -146,186 +132,75 @@ export function FinanceDetailsSection({
     control: form.control,
     name: legacyFields.map((f) => f.name)
   }) as Array<number | null | undefined>;
-  const hasLegacyData = legacyValues?.some((v) => v != null && Number(v) > 0);
+
+  // ----- Read legacy fee_items from form (passed to LegacyModeBanner so the
+  //       adopt-structure dialog can show side-by-side preview). -----
+  const legacyFeeItemsRaw = useWatch({
+    control: form.control,
+    name: 'fee_items'
+  }) as Array<{ category_id?: string; category_name?: string; amount?: number }> | undefined;
 
   return (
-    <div className='space-y-8'>
+    <div className='space-y-6'>
       <div>
         <h2 className='text-xl font-semibold mb-2'>Finance Details</h2>
         <p className='text-sm text-muted-foreground'>
-          Add fee line items by selecting a billing category, then enter the
-          amount. Categories are common across all institutions.
+          Fees are auto-populated from the configured fee-structure matrix.
+          Use Adjustments to add per-learner exceptions (scholarships, donor
+          seats, rebates, surcharges).
         </p>
       </div>
 
-      {/* Dynamic fee items */}
-      <div className='space-y-4'>
-        <div className='flex items-center justify-between'>
-          <h3 className='text-sm font-semibold flex items-center gap-2'>
-            <IndianRupee className='h-4 w-4' />
-            Fee Items
-          </h3>
-          {!readOnly && (
-            <Button
-              type='button'
-              variant='outline'
-              size='sm'
-              onClick={addFeeItem}
-              disabled={loading}
-            >
-              <Plus className='h-4 w-4 mr-1' />
-              Add Fee
-            </Button>
-          )}
-        </div>
+      {/* Legacy banner — only when the loaded learner has legacy_fee_mode=true */}
+      {legacyFeeMode && learnerId && (
+        <LegacyModeBanner
+          learnerId={learnerId}
+          dims={dims}
+          legacyFeeItems={legacyFeeItemsRaw ?? []}
+          onAdopted={() => setRefreshTick((t) => t + 1)}
+        />
+      )}
 
-        {fields.length === 0 && (
-          <p className='text-sm text-muted-foreground italic'>
-            No fees added yet. Click &quot;Add Fee&quot; to add a line item.
-          </p>
+      {/* Fee Structure (read-only, matrix-derived) */}
+      <section className='space-y-2'>
+        <h3 className='text-sm font-medium'>Fee Structure</h3>
+        <FeeStructureReadonlyPanel
+          dims={dims}
+          onMatchChange={(m) => setMatchedStructure(m)}
+        />
+        {!matchedStructure && isFullDims(dims) && !legacyFeeMode && (
+          <NoMatchEmptyState dims={dims} />
         )}
+      </section>
 
-        {fields.length > 0 && (
-          <div className='space-y-3'>
-            {fields.map((field, index) => {
-              const row = feeItems?.[index];
-              const itemId = row?.category_id || '';
+      {/* Adjustments (only when learnerId is known and we're not in legacy mode) */}
+      {learnerId && !legacyFeeMode && (
+        <section className='space-y-2'>
+          <h3 className='text-sm font-medium'>Adjustments</h3>
+          <FeeAdjustmentsPanel
+            learnerId={learnerId}
+            onChange={() => setRefreshTick((t) => t + 1)}
+          />
+        </section>
+      )}
 
-              return (
-                <div
-                  key={field.id}
-                  className='grid grid-cols-1 md:grid-cols-[1fr_180px_auto] gap-3 items-start p-3 border rounded-md bg-muted/20'
-                >
-                  {/* Category */}
-                  <FormField
-                    control={form.control}
-                    name={`fee_items.${index}.category_id`}
-                    render={({ field: cField }) => (
-                      <FormItem>
-                        <FormLabel className='text-xs'>Category *</FormLabel>
-                        <Select
-                          onValueChange={(value) => handleCategoryChange(index, value)}
-                          value={cField.value || ''}
-                          disabled={readOnly || loading}
-                        >
-                          <FormControl>
-                            <SelectTrigger>
-                              <SelectValue
-                                placeholder={
-                                  loading ? 'Loading...' : 'Select category'
-                                }
-                              />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            {categories.length === 0 ? (
-                              <SelectItem value='none' disabled>
-                                No active billing categories
-                              </SelectItem>
-                            ) : (
-                              categories.map((cat) => {
-                                const taken =
-                                  selectedCategoryIds.has(cat.id) &&
-                                  cat.id !== itemId;
-                                return (
-                                  <SelectItem
-                                    key={cat.id}
-                                    value={cat.id}
-                                    disabled={taken}
-                                  >
-                                    {cat.category_name}
-                                    {cat.amount != null
-                                      ? ` — ₹${Number(cat.amount).toLocaleString('en-IN')}`
-                                      : ''}
-                                    {taken ? ' (already added)' : ''}
-                                  </SelectItem>
-                                );
-                              })
-                            )}
-                          </SelectContent>
-                        </Select>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
+      {/* Resolved Total — render whenever we have a structure match OR the row
+       *  is in legacy mode (in which case the total is derived from
+       *  fee_items[] left untouched by the RPC's legacy short-circuit). */}
+      {(matchedStructure || legacyFeeMode) && (
+        <section>
+          <ResolvedTotalPanel
+            learnerId={learnerId}
+            matchedStructure={matchedStructure}
+            refreshTick={refreshTick}
+          />
+        </section>
+      )}
 
-                  {/* Amount */}
-                  <FormField
-                    control={form.control}
-                    name={`fee_items.${index}.amount`}
-                    render={({ field: amtField }) => (
-                      <FormItem>
-                        <FormLabel className='text-xs'>Amount (₹) *</FormLabel>
-                        <FormControl>
-                          <Input
-                            {...amtField}
-                            type='number'
-                            step='1'
-                            min='0'
-                            inputMode='numeric'
-                            placeholder='0'
-                            value={
-                              amtField.value === undefined ||
-                              amtField.value === null
-                                ? ''
-                                : amtField.value
-                            }
-                            onChange={(e) => {
-                              const raw = e.target.value;
-                              if (raw === '') {
-                                amtField.onChange(undefined);
-                                return;
-                              }
-                              const digitsOnly = raw.replace(/[^\d]/g, '');
-                              amtField.onChange(
-                                digitsOnly === '' ? undefined : parseInt(digitsOnly, 10)
-                              );
-                            }}
-                            onKeyDown={(e) => {
-                              if (['.', ',', 'e', 'E', '+', '-'].includes(e.key)) {
-                                e.preventDefault();
-                              }
-                            }}
-                            onFocus={(e) => e.target.select()}
-                            disabled={readOnly}
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  {!readOnly && (
-                    <div className='pt-6'>
-                      <Button
-                        type='button'
-                        variant='ghost'
-                        size='icon'
-                        onClick={() => remove(index)}
-                        className='text-destructive'
-                      >
-                        <Trash2 className='h-4 w-4' />
-                      </Button>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-
-            <div className='flex justify-end pt-2 border-t'>
-              <div className='text-sm'>
-                <span className='text-muted-foreground'>Total: </span>
-                <span className='font-semibold text-base'>
-                  ₹ {total.toLocaleString('en-IN')}
-                </span>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Legacy fees — editable so users can zero out or clear all */}
-      {hasLegacyData && (
+      {/* Legacy fee fields — preserved but only visible when legacy_fee_mode=true.
+       *  These are individual NUMERIC columns on learners_profiles that predate
+       *  the fee_items[] flow. Editable so users can zero out or clear all. */}
+      {legacyFeeMode && (
         <div className='space-y-3 pt-6 border-t border-dashed'>
           <div className='flex items-start justify-between gap-4'>
             <div>
@@ -333,9 +208,10 @@ export function FinanceDetailsSection({
                 Legacy Fee Structure
               </h3>
               <p className='text-xs text-muted-foreground'>
-                These values were saved before the fee-items flow. Edit amounts
-                below or click &quot;Clear All&quot; to remove the legacy data
-                and use the Fee Items section above instead.
+                These values were saved before the matrix-driven fee flow.
+                Edit amounts below or click &quot;Clear All&quot; to remove the
+                legacy data. After migrating to the fee structure (banner
+                above), these fields will hide automatically.
               </p>
             </div>
             {!readOnly && (
@@ -356,8 +232,8 @@ export function FinanceDetailsSection({
           <div className='grid grid-cols-1 md:grid-cols-2 gap-3'>
             {legacyFields.map(({ name, label }, i) => {
               const val = legacyValues?.[i];
-              if (val == null || Number(val) === 0) return null;
               if (readOnly) {
+                if (val == null || Number(val) === 0) return null;
                 return (
                   <div
                     key={name}
@@ -401,6 +277,16 @@ export function FinanceDetailsSection({
           </div>
         </div>
       )}
+
+      {/* TODO Plan 3 v1.5: wire PreSubmitConfirmationDialog into enquiry-form.tsx
+       *  submit handler (was Task 13 Step 2 — deferred from Task 14 batch to
+       *  keep the surgical refactor risk-bounded). The dialog component is
+       *  already implemented at:
+       *    app/(routes)/learners/enquiries/_components/pre-submit-confirmation-dialog.tsx
+       *  Wiring spec: when admission_settings_per_institution.pre_submit_dialog_enabled
+       *  is true for the lead's institution, intercept onSubmit, show the dialog
+       *  with the resolved fee items, and on confirm proceed with the existing
+       *  submit + log enquiry.fee_resolved (or .fee_match_failed). */}
     </div>
   );
 }
