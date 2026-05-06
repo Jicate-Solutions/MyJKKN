@@ -12,9 +12,13 @@
 // Updated: 2026-05-05 (Plan 3 / Task 14) - Surgical refactor. The manual
 //          useFieldArray('fee_items') repeater is replaced by the matrix-driven
 //          panels: LegacyModeBanner, FeeStructureReadonlyPanel,
-//          NoMatchEmptyState, FeeAdjustmentsPanel, ResolvedTotalPanel. Legacy
-//          fee fields (application_fee, tuition_fee, etc.) are kept but
-//          rendered ONLY when legacy_fee_mode === true on the parent learner.
+//          NoMatchEmptyState, FeeAdjustmentsPanel. Legacy fee fields
+//          (application_fee, tuition_fee, etc.) are kept but rendered ONLY
+//          when legacy_fee_mode === true on the parent learner.
+// Updated: 2026-05-07 - Removed the standalone ResolvedTotalPanel. The fee
+//          structure card now shows its own subtotal row, eliminating the
+//          dual-resolution-path bug where RPC and local computation drifted
+//          out of sync (causing Resolved Total = ₹0 with structure populated).
 //
 //          Field naming remap: this form's column is `program_id` (singular),
 //          but FeeStructureMatrixDimensions uses `programme_id` (British). We
@@ -43,7 +47,6 @@ import { LegacyModeBanner } from './_fee/legacy-mode-banner';
 import { FeeStructureReadonlyPanel } from './_fee/fee-structure-readonly-panel';
 import { NoMatchEmptyState } from './_fee/no-match-empty-state';
 import { FeeAdjustmentsPanel } from './_fee/fee-adjustments-panel';
-import { ResolvedTotalPanel } from './_fee/resolved-total-panel';
 
 interface FinanceDetailsProps {
   form: UseFormReturn<any>;
@@ -180,7 +183,7 @@ export function FinanceDetailsSection({
   // ----- Component state -----
   const [matchedStructure, setMatchedStructure] =
     useState<AdmissionFeeStructureWithItems | null>(null);
-  const [refreshTick, setRefreshTick] = useState(0);
+  const [, setRefreshTick] = useState(0);
 
   // ----- Legacy fee fields (only rendered when legacyFeeMode=true) -----
   const legacyFields: Array<{ name: string; label: string }> = [
@@ -249,19 +252,6 @@ export function FinanceDetailsSection({
           <FeeAdjustmentsPanel
             learnerId={learnerId}
             onChange={() => setRefreshTick((t) => t + 1)}
-          />
-        </section>
-      )}
-
-      {/* Resolved Total — render whenever we have a structure match OR the row
-       *  is in legacy mode (in which case the total is derived from
-       *  fee_items[] left untouched by the RPC's legacy short-circuit). */}
-      {(matchedStructure || legacyFeeMode) && (
-        <section>
-          <ResolvedTotalPanel
-            learnerId={learnerId}
-            matchedStructure={matchedStructure}
-            refreshTick={refreshTick}
           />
         </section>
       )}

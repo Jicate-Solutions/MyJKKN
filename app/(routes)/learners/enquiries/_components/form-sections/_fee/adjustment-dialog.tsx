@@ -191,8 +191,11 @@ export function AdjustmentDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[520px]">
-        <DialogHeader>
+      <DialogContent
+        className="flex flex-col gap-0 p-0 sm:max-w-[520px]"
+        style={{ maxHeight: 'min(90vh, 720px)' }}
+      >
+        <DialogHeader className="shrink-0 border-b px-6 py-4">
           <DialogTitle>{isEditing ? 'Edit Adjustment' : 'Add Adjustment'}</DialogTitle>
           <DialogDescription>
             {isEditing
@@ -202,7 +205,11 @@ export function AdjustmentDialog({
         </DialogHeader>
 
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-4">
+          <form
+            onSubmit={form.handleSubmit(handleSubmit)}
+            className="flex min-h-0 flex-1 flex-col"
+          >
+            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-4">
             <FormField
               control={form.control}
               name="reason_code"
@@ -338,7 +345,9 @@ export function AdjustmentDialog({
               )}
             />
 
-            <DialogFooter>
+            </div>
+
+            <DialogFooter className="shrink-0 border-t bg-muted/30 px-6 py-3">
               <Button
                 type="button"
                 variant="outline"

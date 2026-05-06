@@ -5,9 +5,9 @@
 // ----------------------------------------------------------------------------
 // Plan 3 / Task 9 — Finance tab read-only "Fee Structure" section.
 // Auto-fetches the matching active fee structure via the 8-dimension matrix
-// when all dimensions are present. Renders a read-only table of base line items
-// before any adjustments. Sibling components (FeeAdjustmentsPanel,
-// ResolvedTotalPanel, NoMatchEmptyState) handle the rest of the Finance tab.
+// when all dimensions are present. Renders a polished card with header,
+// per-item rows, and a Subtotal footer. Sibling components
+// (FeeAdjustmentsPanel, NoMatchEmptyState) handle the rest of the tab.
 // ----------------------------------------------------------------------------
 // Spec §9.2  · Plan: 2026-05-05-admission-fees-plan-03 Task 9
 // ============================================================================
@@ -134,32 +134,53 @@ export function FeeStructureReadonlyPanel({ dims, onMatchChange }: Props) {
     return null;
   }
 
+  const subtotal = match.items.reduce((sum, it) => sum + Number(it.amount), 0);
+
   return (
-    <div className="rounded border bg-muted/30 p-4">
-      <div className="mb-2 text-sm font-medium">
-        Auto-populated from: <span className="font-mono">{match.name}</span>
+    <div className="rounded-lg border bg-card shadow-sm overflow-hidden">
+      <div className="flex items-start justify-between gap-3 border-b bg-muted/40 px-4 py-3">
+        <div className="min-w-0">
+          <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            Auto-populated from
+          </div>
+          <div className="mt-0.5 text-sm font-semibold truncate">{match.name}</div>
+        </div>
+        <span className="shrink-0 rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-medium text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
+          {match.items.length} item{match.items.length !== 1 ? 's' : ''}
+        </span>
       </div>
       <table className="w-full text-sm">
         <thead>
-          <tr className="text-left text-muted-foreground">
-            <th className="py-1">Category</th>
-            <th className="py-1 text-right">Amount</th>
+          <tr className="bg-muted/20 text-muted-foreground">
+            <th className="px-4 py-2 text-left font-medium">Category</th>
+            <th className="px-4 py-2 text-right font-medium">Amount</th>
           </tr>
         </thead>
         <tbody>
-          {match.items.map((it) => {
+          {match.items.map((it, idx) => {
             const label =
               categoriesById[it.billing_category_id]?.category_name ?? it.billing_category_id;
             return (
-              <tr key={it.id} className="border-t">
-                <td className="py-1">{label}</td>
-                <td className="py-1 text-right">
+              <tr
+                key={it.id}
+                className={idx % 2 === 0 ? 'bg-background' : 'bg-muted/10'}
+              >
+                <td className="px-4 py-2">{label}</td>
+                <td className="px-4 py-2 text-right tabular-nums">
                   ₹{Number(it.amount).toLocaleString('en-IN')}
                 </td>
               </tr>
             );
           })}
         </tbody>
+        <tfoot>
+          <tr className="border-t-2 bg-muted/30">
+            <td className="px-4 py-3 text-sm font-semibold">Subtotal</td>
+            <td className="px-4 py-3 text-right text-base font-bold tabular-nums">
+              ₹{subtotal.toLocaleString('en-IN')}
+            </td>
+          </tr>
+        </tfoot>
       </table>
     </div>
   );

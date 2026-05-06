@@ -29,8 +29,8 @@ import { AdjustmentDialog } from './adjustment-dialog';
 
 interface Props {
   learnerId: string;
-  /** Bumped by parent after each successful create/update/remove. Lets the
-   *  ResolvedTotalPanel know it needs to re-fetch the resolution. */
+  /** Bumped by parent after each successful create/update/remove. Reserved for
+   *  callers that need to react to adjustment changes (e.g. recompute totals). */
   onChange?: () => void;
 }
 
