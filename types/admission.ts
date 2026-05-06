@@ -1613,3 +1613,71 @@ export interface FeeStructureCoverageReportRow {
   has_structure: boolean;
   item_count: number;
 }
+
+// ============================================================================
+// Admission Fee Adjustments + Resolution — Plan 3 types
+// ============================================================================
+// Spec §6.3, §7
+// Plan: docs/superpowers/plans/2026-05-05-admission-fees-plan-03-resolution-engine-finance-tab.md Task 5
+
+export type AdmissionFeeAdjustmentReasonCode =
+  | 'scholarship_merit'
+  | 'donor_seat'
+  | 'sibling_rebate'
+  | 'management_waiver'
+  | 'fee_concession'
+  | 'staff_ward'
+  | 'financial_hardship'
+  | 'other';
+
+export type AdmissionFeeAdjustmentStatus = 'active' | 'reversed';
+
+export interface AdmissionFeeAdjustment {
+  id: string;
+  learner_id: string;
+  billing_category_id: string | null;
+  reason_code: AdmissionFeeAdjustmentReasonCode;
+  reason_notes: string | null;
+  delta_amount: number;
+  applied_at: string;
+  approved_by: string | null;
+  evidence_documents: unknown[];
+  status: AdmissionFeeAdjustmentStatus;
+  created_at: string;
+  updated_at: string;
+  created_by: string | null;
+  updated_by: string | null;
+}
+
+export type CreateAdmissionFeeAdjustmentInput = Pick<
+  AdmissionFeeAdjustment,
+  'learner_id' | 'reason_code' | 'delta_amount'
+> &
+  Partial<
+    Pick<
+      AdmissionFeeAdjustment,
+      'billing_category_id' | 'reason_notes' | 'evidence_documents' | 'approved_by'
+    >
+  >;
+
+export type UpdateAdmissionFeeAdjustmentInput = Partial<
+  Pick<
+    AdmissionFeeAdjustment,
+    'reason_code' | 'reason_notes' | 'delta_amount' | 'evidence_documents' | 'approved_by' | 'status'
+  >
+>;
+
+/** Shape of a single resolved fee_items[] entry (after RPC merge) */
+export interface ResolvedFeeItem {
+  category_id: string | null;
+  category_name: string;
+  amount: number;
+  source: 'structure' | 'adjustment_global';
+}
+
+/** RPC return wrapper for UI consumers */
+export interface ResolveFeeItemsResult {
+  items: ResolvedFeeItem[];
+  matched: boolean;
+  total: number;
+}
