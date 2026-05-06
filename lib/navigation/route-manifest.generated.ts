@@ -464,6 +464,18 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
+            "path": "/admin/counselors/routing-errors",
+            "label": "Routing Errors",
+            "iconName": "Users",
+            "children": []
+          },
+          {
+            "path": "/admin/counselors/rule-types",
+            "label": "Rule Types",
+            "iconName": "ListChecks",
+            "children": []
+          },
+          {
             "path": "/admin/counselors/tier-policy",
             "label": "Tier Policy",
             "iconName": "Layers",
