@@ -1177,6 +1177,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
     ]
   },
   {
+    "path": "/ai-pulse",
+    "label": "Ai Pulse",
+    "iconName": "FileText",
+    "children": []
+  },
+  {
     "path": "/ai-query",
     "label": "Ai Query",
     "iconName": "FileText",

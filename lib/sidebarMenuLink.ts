@@ -568,6 +568,12 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/learn/profile': 'pde.profile.view',
   '/learn/leaderboard': 'pde.leaderboard.view',
 
+  // AI Pulse
+  // Re-glue PR (post-#728 revert): landing page only. Mapped to view_profile
+  // (universal authenticated key) so all personas see the chip — same pattern
+  // as /meetings/inbox. Re-map to `aiPulse:view.self` once PR #747 lands.
+  '/ai-pulse': 'view_profile',
+
   // Startup Studio
   // Added 2026-04-24 (Wave 2b PR-S2): module root for the flat sidebar row.
   '/startup-studio': 'startup_studio.analytics.view',
@@ -1540,6 +1546,22 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/work-pulse/all', label: 'All Submissions', active: pathname.startsWith('/work-pulse/all') },
             { href: '/work-pulse/impact', label: 'Impact', active: pathname.startsWith('/work-pulse/impact') },
           ]
+        }
+      ]
+    },
+    {
+      // Re-glue PR (post-#728 revert): single sidebar entry to the AI Pulse
+      // landing page. Champion Console / My Pulse / per-cycle pages live in
+      // PR #732 / #729 / etc. — they 404 until those merge, but the landing
+      // page is reachable today and explains the program.
+      groupLabel: 'AI Pulse',
+      menus: [
+        {
+          href: '/ai-pulse',
+          label: 'AI Pulse',
+          active: pathname === '/ai-pulse' || pathname.startsWith('/ai-pulse/'),
+          icon: Activity,
+          submenus: []
         }
       ]
     },
