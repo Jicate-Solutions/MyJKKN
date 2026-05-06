@@ -1350,6 +1350,8 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/admin/pde/engagement', label: 'PDE · Engagement', active: pathname === '/admin/pde/engagement' },
             { href: '/admin/pde/at-risk', label: 'PDE · At-Risk', active: pathname === '/admin/pde/at-risk' },
             { href: '/admin/pde/lti', label: 'PDE · LTI Config', active: pathname === '/admin/pde/lti' },
+            // AI Pulse Policies (config-as-row, super_admin only — spec Q3)
+            { href: '/admin/config/ai-pulse', label: 'AI Pulse · Policies', active: pathname.startsWith('/admin/config/ai-pulse') },
             // Other
             { href: '/audit-trail', label: 'Audit Trail', active: pathname.startsWith('/audit-trail') },
             { href: '/admin/lifecycle', label: 'Lifecycle Analytics', active: pathname.startsWith('/admin/lifecycle') },
