@@ -1681,3 +1681,45 @@ export interface ResolveFeeItemsResult {
   matched: boolean;
   total: number;
 }
+
+// ============================================================================
+// Atomic Account Transition — Plan 4 types
+// ============================================================================
+// Spec §6.6, §8.3.1
+// Plan: docs/superpowers/plans/2026-05-05-admission-fees-plan-04-atomic-account-transition.md Task 5
+
+export interface LearnerAdmissionDocument {
+  id: string;
+  learner_id: string;
+  doc_type: string;
+  is_received: boolean;
+  received_at: string | null;
+  received_by: string | null;
+  received_via: 'physical' | 'email' | 'upload' | null;
+  document_ref: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export type AccountTransitionDocumentEntry = {
+  doc_type: string;
+  received_via: 'physical' | 'email' | 'upload';
+  document_ref?: string;
+};
+
+export interface AccountTransitionPayload {
+  learner_id: string;
+  required_documents: string[];                          // doc_types from settings
+  received_documents: AccountTransitionDocumentEntry[];  // user-provided
+}
+
+export interface AccountTransitionResult {
+  success: boolean;
+  learner_id: string;
+  lifecycle_status: 'account';
+  documents_recorded: number;
+  bills_existing: number;
+  bills_generated: number;
+  fee_items_count: number;
+}
