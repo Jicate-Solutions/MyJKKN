@@ -879,7 +879,10 @@ BEGIN
                       FROM public.billing_receipt_items
                      WHERE bill_id = v_old_bill_id
                        AND allocation_reason = 'original_payment';
-                    GET DIAGNOSTICS v_summary = ROW_COUNT;  -- temporary repurpose; tracked below
+                    -- Increment the reallocations counter (each line that runs reallocation
+                    -- counts once; the GET DIAGNOSTICS form was a draft mistake — never
+                    -- assign GET DIAGNOSTICS to v_summary because it would overwrite the
+                    -- JSONB with an integer).
                     v_summary := jsonb_set(v_summary, '{reallocations}',
                         to_jsonb((v_summary->>'reallocations')::int + 1));
 
