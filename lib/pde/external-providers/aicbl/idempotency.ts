@@ -8,7 +8,7 @@ export async function checkAndReserve(
 ): Promise<{ isNew: boolean }> {
   const supabase = createServiceRoleClient();
 
-  const { error, count } = await supabase
+  const { error } = await supabase
     .from("aicbl_inbox_events")
     .insert({
       event_id: eventId,
@@ -16,16 +16,15 @@ export async function checkAndReserve(
       client_id: clientId,
       payload: payload as Record<string, unknown>,
       status: "received",
-    })
-    .select("event_id", { count: "exact", head: true });
+    });
 
   if (error) {
-    // Unique-violation on event_id PK → duplicate
+    // Unique-violation on event_id PK → duplicate (idempotent replay)
     if (error.code === "23505") return { isNew: false };
     throw error;
   }
 
-  return { isNew: (count ?? 0) > 0 };
+  return { isNew: true };
 }
 
 export async function markProcessed(
