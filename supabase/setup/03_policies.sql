@@ -6032,3 +6032,49 @@ CREATE POLICY fee_adjustments_write
            AND public.role_has_institution_access(lp.institution_id)
       )
     );
+
+-- ============================================================================
+-- learner_admission_documents RLS (Plan 4 Task 2)
+-- ============================================================================
+-- Spec §10.2. Read: admission_fees.read OR admission_documents.manage with
+-- institution access to parent learner. Write: admission_documents.manage only.
+-- ============================================================================
+
+ALTER TABLE public.learner_admission_documents ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS learner_admission_documents_read
+    ON public.learner_admission_documents;
+CREATE POLICY learner_admission_documents_read
+    ON public.learner_admission_documents FOR SELECT
+    USING (
+      EXISTS (
+        SELECT 1 FROM public.learners_profiles lp
+         WHERE lp.id = learner_admission_documents.learner_id
+           AND (
+             public.user_has_permission('admission_fees.read')
+             OR public.user_has_permission('admission_documents.manage')
+           )
+           AND public.role_has_institution_access(lp.institution_id)
+      )
+    );
+
+DROP POLICY IF EXISTS learner_admission_documents_write
+    ON public.learner_admission_documents;
+CREATE POLICY learner_admission_documents_write
+    ON public.learner_admission_documents FOR ALL
+    USING (
+      EXISTS (
+        SELECT 1 FROM public.learners_profiles lp
+         WHERE lp.id = learner_admission_documents.learner_id
+           AND public.user_has_permission('admission_documents.manage')
+           AND public.role_has_institution_access(lp.institution_id)
+      )
+    )
+    WITH CHECK (
+      EXISTS (
+        SELECT 1 FROM public.learners_profiles lp
+         WHERE lp.id = learner_admission_documents.learner_id
+           AND public.user_has_permission('admission_documents.manage')
+           AND public.role_has_institution_access(lp.institution_id)
+      )
+    );
