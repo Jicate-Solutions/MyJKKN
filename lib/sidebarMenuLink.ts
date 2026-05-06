@@ -560,6 +560,19 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/admission/settings/years/[id]': 'admission.settings.years.view',
   '/admission/settings/years/[id]/edit': 'admission.settings.years.edit',
 
+  // AI Pulse (events-extension v3, spec: specs/myjkkn-ai-pulse-spec.md)
+  // Learner-facing landing + per-cycle thin redirect routes. The /[cycle]
+  // pages are server-component redirects to /startup-studio/events/[id]/...
+  // so the auth/RLS check there governs the actual surface; the routes
+  // below only need the learner gate to be reachable from the sidebar.
+  '/ai-pulse': 'aiPulse:view.self',
+  '/ai-pulse/scoring/[cycle]': 'aiPulse:view.self',
+  '/ai-pulse/leaderboard/[cycle]': 'aiPulse:view.self',
+  '/ai-pulse/declare/[cycle]': 'aiPulse:view.self',
+  '/ai-pulse/demo-day/[cycle]': 'aiPulse:view.self',
+  // AI Pulse super-admin policy editor (config-as-row pattern, Q3 spec)
+  '/admin/config/ai-pulse': 'super_admin',
+
   // PDE (Principal Development Engine) — Learning
   '/learn/quests': 'pde.quests.view',
   '/learn/capabilities': 'pde.capabilities.view',
@@ -1337,6 +1350,8 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/admin/pde/engagement', label: 'PDE · Engagement', active: pathname === '/admin/pde/engagement' },
             { href: '/admin/pde/at-risk', label: 'PDE · At-Risk', active: pathname === '/admin/pde/at-risk' },
             { href: '/admin/pde/lti', label: 'PDE · LTI Config', active: pathname === '/admin/pde/lti' },
+            // AI Pulse Policies (config-as-row, super_admin only — spec Q3)
+            { href: '/admin/config/ai-pulse', label: 'AI Pulse · Policies', active: pathname.startsWith('/admin/config/ai-pulse') },
             // Other
             { href: '/audit-trail', label: 'Audit Trail', active: pathname.startsWith('/audit-trail') },
             { href: '/admin/lifecycle', label: 'Lifecycle Analytics', active: pathname.startsWith('/admin/lifecycle') },
@@ -1383,6 +1398,19 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/learn/profile', label: 'Profile', active: pathname === '/learn/profile' },
             { href: '/learn/leaderboard', label: 'Leaderboard', active: pathname === '/learn/leaderboard' },
           ]
+        },
+        {
+          // AI Pulse (events-extension v3, spec: specs/myjkkn-ai-pulse-spec.md).
+          // Top-level learner-facing entry for the unified Thursday session.
+          // /ai-pulse renders the My Pulse landing (other agent owns); the
+          // /scoring/[cycle], /leaderboard/[cycle], /declare/[cycle], and
+          // /demo-day/[cycle] routes are thin server-component redirects to
+          // the corresponding /startup-studio/events/[id]/... surfaces.
+          href: '/ai-pulse',
+          label: 'AI Pulse',
+          active: pathname === '/ai-pulse' || pathname.startsWith('/ai-pulse/'),
+          icon: Activity,
+          submenus: []
         },
         {
           href: '/vac',
