@@ -570,8 +570,11 @@ export const MENU_PERMISSIONS: MenuPermissions = {
 
   // AI Pulse
   // Re-glue PR (post-#728 revert): landing page only. Mapped to view_profile
-  // (universal authenticated key) so all personas see the chip — same pattern
-  // as /meetings/inbox. Re-map to `aiPulse:view.self` once PR #747 lands.
+  // (universal authenticated key) so all personas see the chip — same
+  // pattern as /meetings/inbox. The actual feature pages (Champion Console
+  // /admin/cycles, My Pulse, scoring, etc.) gate via the granular aiPulse:*
+  // keys from PR #747. Landing page is purely informational so universal
+  // access is safe.
   '/ai-pulse': 'view_profile',
 
   // Startup Studio
