@@ -346,6 +346,41 @@ export class FeeStructureService {
     return this.update(id, { status: 'archived' });
   }
 
+  /**
+   * Hard delete a fee structure. Cascades to admission_fee_structure_items
+   * via the table's ON DELETE CASCADE. RLS gate: requires
+   * admission_fees.delete (super_admin by default per Plan post-ship migration
+   * 20260507100011). Logs an activity entry before the row goes away —
+   * after the delete, fees-by-id lookups would return null.
+   */
+  static async delete(id: string): Promise<void> {
+    const supabase = createClientSupabaseClient();
+
+    // Read minimal metadata for activity log before delete fires
+    const { data: row } = await supabase
+      .from('admission_fee_structures')
+      .select('id, name, institution_id')
+      .eq('id', id)
+      .maybeSingle();
+
+    const { error } = await supabase
+      .from('admission_fee_structures')
+      .delete()
+      .eq('id', id);
+    if (error) throw error;
+
+    if (row) {
+      void logActivityForCurrentUser({
+        actionType: 'delete',
+        resourceType: 'admission_fee_structure',
+        resourceId: row.id,
+        resourceName: row.name,
+        description: AdmissionFeesActivityTemplates.fee_structure.archived(row.name),
+        institutionId: row.institution_id,
+      });
+    }
+  }
+
   static async activate(id: string): Promise<AdmissionFeeStructure> {
     return this.update(id, { status: 'active' });
   }

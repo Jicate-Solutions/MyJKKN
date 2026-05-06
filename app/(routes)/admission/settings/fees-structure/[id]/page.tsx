@@ -62,11 +62,13 @@ import {
   Activity,
   Plus,
   Clock,
+  Trash2,
 } from 'lucide-react';
 import { AdmissionErrorBoundary } from '@/components/admission';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import { FeesStructureForm } from '../_components/fees-structure-form';
 import { FeeStructureService } from '@/lib/services/admission/fee-structure-service';
+import { usePermissions } from '@/hooks/use-permissions';
 import toast from 'react-hot-toast';
 import type {
   AdmissionFeeStructure,
@@ -101,11 +103,15 @@ function FeeStructureDetailPageContent({ id }: { id: string }) {
   const searchParams = useSearchParams();
   const isEditMode = searchParams.get('edit') === '1';
 
+  const { isSuperAdmin, canPerformAll } = usePermissions();
+  const canDelete = isSuperAdmin || canPerformAll('admission_fees', ['delete']);
+
   const [structure, setStructure] = useState<DetailRow | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [refreshTick, setRefreshTick] = useState(0);
   const [confirmArchive, setConfirmArchive] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const [actionRunning, setActionRunning] = useState(false);
 
   useEffect(() => {
@@ -156,6 +162,20 @@ function FeeStructureDetailPageContent({ id }: { id: string }) {
       toast.error(err instanceof Error ? err.message : 'Activate failed');
     } finally {
       setActionRunning(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!structure) return;
+    setActionRunning(true);
+    try {
+      await FeeStructureService.delete(structure.id);
+      toast.success(`Deleted "${structure.name}"`);
+      router.push('/admission/settings/fees-structure');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Delete failed');
+      setActionRunning(false);
+      setConfirmDelete(false);
     }
   };
 
@@ -282,6 +302,17 @@ function FeeStructureDetailPageContent({ id }: { id: string }) {
                       disabled={actionRunning}
                     >
                       <Archive className="h-4 w-4 mr-1" /> Archive
+                    </Button>
+                  )}
+                  {canDelete && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setConfirmDelete(true)}
+                      disabled={actionRunning}
+                      className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                    >
+                      <Trash2 className="h-4 w-4 mr-1" /> Delete
                     </Button>
                   )}
                   <Button asChild variant="ghost" size="sm">
@@ -519,6 +550,31 @@ function FeeStructureDetailPageContent({ id }: { id: string }) {
               <AlertDialogCancel disabled={actionRunning}>Cancel</AlertDialogCancel>
               <AlertDialogAction onClick={handleArchive} disabled={actionRunning}>
                 {actionRunning ? 'Archiving…' : 'Archive'}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
+        <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete this fee structure?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This permanently removes <strong>{structure?.name}</strong> and all its line
+                items. Existing learners with snapshotted fee_items keep their fees, but the
+                structure row itself disappears from history.{' '}
+                <strong>Cannot be undone.</strong> If you only want to stop using this
+                structure for new enquiries, choose <em>Archive</em> instead.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={actionRunning}>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={handleDelete}
+                disabled={actionRunning}
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              >
+                {actionRunning ? 'Deleting…' : 'Delete permanently'}
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
