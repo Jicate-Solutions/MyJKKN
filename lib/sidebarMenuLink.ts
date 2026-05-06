@@ -1398,6 +1398,19 @@ export function GetPages(pathname: string): MenuGroup[] {
           ]
         },
         {
+          // AI Pulse (events-extension v3, spec: specs/myjkkn-ai-pulse-spec.md).
+          // Top-level learner-facing entry for the unified Thursday session.
+          // /ai-pulse renders the My Pulse landing (other agent owns); the
+          // /scoring/[cycle], /leaderboard/[cycle], /declare/[cycle], and
+          // /demo-day/[cycle] routes are thin server-component redirects to
+          // the corresponding /startup-studio/events/[id]/... surfaces.
+          href: '/ai-pulse',
+          label: 'AI Pulse',
+          active: pathname === '/ai-pulse' || pathname.startsWith('/ai-pulse/'),
+          icon: Activity,
+          submenus: []
+        },
+        {
           href: '/vac',
           label: 'Value Added Courses',
           active: pathname === '/vac' || pathname.startsWith('/vac/'),
