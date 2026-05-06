@@ -43,7 +43,7 @@ This roadmap decomposes the spec into six sequential, module-wise plans. Each pl
 | 3 | Resolution Engine + Finance Tab automation | ✅ Completed (2026-05-05) | [`2026-05-05-admission-fees-plan-03-resolution-engine-finance-tab.md`](./2026-05-05-admission-fees-plan-03-resolution-engine-finance-tab.md) | Plans 1, 2 |
 | 4 | Atomic Account Transition + documents-checklist | ✅ Completed (2026-05-05) | [`2026-05-05-admission-fees-plan-04-atomic-account-transition.md`](./2026-05-05-admission-fees-plan-04-atomic-account-transition.md) | Plans 1, 2, 3 |
 | 5 | Fee-Change Reconciliation + supersede + reallocate | ✅ Completed (2026-05-05) | [`2026-05-05-admission-fees-plan-05-fee-change-reconciliation.md`](./2026-05-05-admission-fees-plan-05-fee-change-reconciliation.md) | Plans 1, 2, 3, 4 |
-| 6 | Cutover & Adoption | ⬜ Not started | _to be written after Plan 5_ | Plans 1, 2, 3, 4, 5 |
+| 6 | Cutover & Adoption | ✅ Completed (2026-05-05) — **🚢 SPEC SHIPPED** | [`2026-05-05-admission-fees-plan-06-cutover-adoption.md`](./2026-05-05-admission-fees-plan-06-cutover-adoption.md) | Plans 1, 2, 3, 4, 5 |
 
 **Status legend:** ⬜ Not started · 🟡 In progress · ✅ Completed · ⛔ Blocked
 
@@ -282,5 +282,27 @@ Plan 5 landed with 17 commits across 4 phases — 7 migrations + 1 follow-up sta
 - Realtime updates on the notification bell (currently 30s polling)
 - Activity log on the trigger context (Postgres trigger could write activity logs directly; v1 keeps logging at service layer for consistency)
 
-### Plan 6 retrospective
-_Not yet started._
+### Plan 6 retrospective (completed 2026-05-05)
+
+Plan 6 landed with 8 commits across 5 phases — 3 migrations (flag-default trigger, settings.manage permission grant, atomic adopt-structure RPC), 6 UI files (banner gate, settings page + 2 components, pre-submit dialog wiring, dialog refactor), 1 codebase-hygiene commit (Supabase types regen, single-line 2.86MB), 1 runbook, 1 roadmap mark.
+
+**The spec is shipped.** All six plans executed across ~93 commits since 2026-05-05, ~14,500 lines of new code, 11 new tables, 6 SECURITY DEFINER RPCs, 1 Postgres trigger pair, 6 permission keys, 9 activity event types.
+
+**Plan 6 specific findings:**
+
+- **Supabase types regenerated via MCP** (`mcp__supabase__generate_typescript_types`) — 2.86MB single-line file, 73,902 → 1 line in `wc -l` terms but functionally complete. All 11 Plans 1-5 tables now in the types index. The 59+ pre-existing TS errors documented in Plans 2-5 retrospectives are resolved.
+- **Pre-submit dialog wired across three submit paths**: `handleSaveAndNext` (intermediate save) and `handleSaveDraft` (draft save) bypass the dialog; `onSubmit` (final-submit) gates through it. Bypass conditions include `legacy_fee_mode=true` (no matrix to preview), missing `institution_id`, custom `onSubmitProp` flows, and student view (no finance access). Activity log emission (`enquiry.fee_resolved` / `fee_match_failed`) fires for both with-dialog and inline paths.
+- **Adopt-structure now atomic via RPC** — flag flip + resolve + persist in a single SECURITY DEFINER transaction. `RAISE EXCEPTION` rolls back on no-match (vs the prior service-level sequence that could partially succeed).
+- **Banner correctly gated**: only shows on `legacy_fee_mode=true` rows in flag-on institutions. Flag-off institutions' legacy rows do NOT show the banner (prevents tempting admins into per-lead migration before institution-wide readiness).
+- **End-to-end runbook documented** at `docs/superpowers/runbooks/2026-05-05-admission-fees-end-to-end-smoke.md`. 8 phases of UI + SQL verification covering net-new enquiry, account transition, fee-change reconciliation, activation gate, legacy adoption, activity log audit, and isolation check between flag-on/flag-off institutions.
+
+**v1.5 deferrals carried forward (intentional, not blockers):**
+- Pre-submit dialog wiring exists but bypasses for `legacy_fee_mode=true` rows — this is correct behavior (no matrix preview to show); legacy leads use the simpler submit path
+- Credit balance consumption flow at receipt creation (Plan 5)
+- Refund automation (Plan 5)
+- Tree-rail compression in fee-structure builder (Plan 2)
+- Realtime updates on notification bell (Plan 5)
+- Per-institution selector in onboarding header for the bell (Plan 5)
+- Prettify the regenerated `types/supabase.ts` (currently single-line 2.86MB; functional but git-diff-hostile)
+
+**Sign-off**: the spec at `docs/superpowers/specs/2026-05-05-admission-fee-structure-automation-design.md` is FULFILLED. Net-new enquiries in flag-on institutions follow the matrix-driven flow end-to-end; flag-off institutions retain legacy behavior; the adoption banner gives admins a one-click migration path; programme/quota changes after bill generation flow through pending-event review with supersede-not-delete semantics. All 9 spec activity events instrumented. All 6 spec permission keys registered.
