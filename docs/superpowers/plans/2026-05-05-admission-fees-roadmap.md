@@ -42,7 +42,7 @@ This roadmap decomposes the spec into six sequential, module-wise plans. Each pl
 | 2 | Fee Structure module — matrix CRUD + builder UI + lookup admin UI | ✅ Completed (2026-05-05) | [`2026-05-05-admission-fees-plan-02-fee-structure-module.md`](./2026-05-05-admission-fees-plan-02-fee-structure-module.md) | Plan 1 |
 | 3 | Resolution Engine + Finance Tab automation | ✅ Completed (2026-05-05) | [`2026-05-05-admission-fees-plan-03-resolution-engine-finance-tab.md`](./2026-05-05-admission-fees-plan-03-resolution-engine-finance-tab.md) | Plans 1, 2 |
 | 4 | Atomic Account Transition + documents-checklist | ✅ Completed (2026-05-05) | [`2026-05-05-admission-fees-plan-04-atomic-account-transition.md`](./2026-05-05-admission-fees-plan-04-atomic-account-transition.md) | Plans 1, 2, 3 |
-| 5 | Fee-Change Reconciliation + supersede + reallocate | ⬜ Not started | _to be written after Plan 4_ | Plans 1, 2, 3, 4 |
+| 5 | Fee-Change Reconciliation + supersede + reallocate | ✅ Completed (2026-05-05) | [`2026-05-05-admission-fees-plan-05-fee-change-reconciliation.md`](./2026-05-05-admission-fees-plan-05-fee-change-reconciliation.md) | Plans 1, 2, 3, 4 |
 | 6 | Cutover & Adoption | ⬜ Not started | _to be written after Plan 5_ | Plans 1, 2, 3, 4, 5 |
 
 **Status legend:** ⬜ Not started · 🟡 In progress · ✅ Completed · ⛔ Blocked
@@ -252,8 +252,35 @@ If an institution has non-empty `required_documents_for_account_transition`, the
 - `admission_account_transition_with_bills` RPC produces bills via the same column shape `OnboardingService.createBillsFromProfile` produces — Plan 5's supersede flow can swap them safely without column mismatch concerns.
 - The activity-logger object-form invocation pattern is now established and verified.
 
-### Plan 5 retrospective
-_Not yet started._
+### Plan 5 retrospective (completed 2026-05-05)
+
+Plan 5 landed with 17 commits across 4 phases — 7 migrations + 1 follow-up status-constraint fix, 2 new services + 1 service refactor + activity-templates extension, 4 UI components + onboarding header wiring. Plus 1 plan-doc bug-fix from before execution started (`af3117d4a` — `GET DIAGNOSTICS v_summary` antipattern in the RPC). Total: ~2,500 lines of new code (TypeScript + ~280 lines PL/pgSQL for the approval RPC).
+
+**Critical fix discovered during execution:**
+
+- **Status constraint narrowing** (`da36590d3`). Plan Task 3 replaced the bill status check from `('paid','unpaid','partially_paid','cancelled','overdue')` with `('unpaid','partially_paid','paid','superseded')`, dropping `'cancelled'` and `'overdue'`. Zero rows had those values pre-migration so no data was invalidated, but multiple downstream consumers (`student-bill-service.ts`, `billing-report-service.ts`, `student-search-service.ts`) filter on `status='overdue'` and would have silently returned zero rows forever. Re-broadened the constraint to the union: `('unpaid','partially_paid','paid','cancelled','overdue','superseded')`. **Plan 6 should NOT narrow this further** — the project's existing semantics rely on these values.
+
+**Other findings:**
+
+- **Plan column-count expectations were off in two places**: events 15 vs actual 18, lines 8 vs actual 9. Schema is correct; verifications were authored from incomplete column lists. No action needed.
+- **RPC parsing verified**: 9229 chars, prosecdef=true, all 6 decision branches present, 14-column bill INSERT shape (matches Plan 4's verified shape), the resolve RPC is invoked after decisions apply, no `GET DIAGNOSTICS` antipattern (the pre-execution plan fix was preserved).
+- **Trigger smoke**: trigger row exists; actual firing exercised in Plan 6 cutover testing.
+- **`<Sheet>` component** is available at `@/components/ui/sheet.tsx` — used directly without fallback to Dialog.
+- **Permission gating split**: page-level via existing `<PermissionGuard module='billing.onboarding'>`; per-action via the SECURITY DEFINER RPC + RLS policy on UPDATE. No client-side `usePermissions` check duplicates the server-side gate.
+
+**For Plan 6 to be aware of:**
+
+- Bill `status='superseded'` is now a valid value. Plan 6 cutover testing should verify that `revertToApproved`, `markAsApproved`, and bill listing queries handle the superseded state correctly (most should already filter by status enum mapping).
+- The notification bell currently renders with `institutionId={undefined}` — global view across all institutions. Plan 6 may want to restrict to selected-institution context once a per-institution selector exists in the onboarding header.
+- Activation chain new precondition: `markAsApproved` blocks while pending fee-change events exist. Plan 6's adoption banner work should explicitly test that activating a learner with a pending event throws the right error.
+- `student_credit_balances` consumption (applying balances against new bills at payment time) is **deferred to v1.5**. Plan 6 doesn't need to wire this up.
+
+**v1.5 deferrals (collected for after Plan 6):**
+
+- Credit balance consumption flow at receipt creation time
+- Refund automation (currently `refund_payment` decision only flags for manual refund via the existing `billing_refunds` UI)
+- Realtime updates on the notification bell (currently 30s polling)
+- Activity log on the trigger context (Postgres trigger could write activity logs directly; v1 keeps logging at service layer for consistency)
 
 ### Plan 6 retrospective
 _Not yet started._
