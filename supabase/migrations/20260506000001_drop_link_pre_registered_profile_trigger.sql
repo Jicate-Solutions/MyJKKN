@@ -1,0 +1,40 @@
+-- 20260506000001_drop_link_pre_registered_profile_trigger.sql
+--
+-- ROOT-CAUSE FIX (2026-05-06):
+--
+-- The `link_pre_registered_profile_trigger` on `auth.users INSERT` was running a
+-- naive DELETE+INSERT swap on the pre-registered profile. For roles other than
+-- 'staff' / 'faculty' / 'driver' it took a catch-all branch that did NOT detach
+-- `staff.profile_id` (FK ON DELETE NO ACTION) before the DELETE, so the FK
+-- violation rolled back the entire `auth.users` INSERT, which made
+-- `exchangeCodeForSession` fail and bounced the user back to the login page.
+--
+-- Even for roles in branch 1 ('staff' / 'faculty'), only 5 referencing tables
+-- were detached (staff, user_institution_access, user_activity_logs,
+-- user_notifications, push_subscriptions) — any user with rows in
+-- `event_registrations.owner_id`, `event_team_members.profile_id`,
+-- `bug_report_participants`, etc. would still hit a FK violation and roll back.
+--
+-- Production evidence (queried 2026-05-06): 52 pre-registered profiles created
+-- across roles like office_assistant, faculty, system_admin, warden, etc., over
+-- the last 60 days; ZERO of them had a corresponding `auth.users` row.
+-- 100% lockout for the affected roles.
+--
+-- The Next.js auth callback already calls the safer
+-- `migrate_pre_registered_profile_to_auth` RPC at
+-- `app/auth/callback/route.ts:152`, which:
+--   - DISABLE TRIGGER trg_sync_staff_to_profiles to avoid re-resolving
+--     staff.profile_id back to the orphan profile during detach.
+--   - UPDATE staff SET profile_id = NULL ... BEFORE the DELETE (avoiding the
+--     exact FK violation that broke this trigger).
+--   - DELETE FROM profiles WHERE id = old_id.
+--   - INSERT INTO profiles (id = auth.users.id, ...).
+--   - UPDATE staff SET profile_id = auth.users.id (re-attach).
+--   - Re-INSERT user_roles for the new profile id.
+--
+-- We drop ONLY the trigger; the `link_pre_registered_profile()` function stays
+-- in place in case any other code needs to invoke it explicitly. Today no code
+-- does (verified via `git grep`), but keeping the function avoids breaking
+-- any operational scripts that might reference it.
+
+DROP TRIGGER IF EXISTS link_pre_registered_profile_trigger ON auth.users;

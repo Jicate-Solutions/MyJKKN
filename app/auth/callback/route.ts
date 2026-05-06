@@ -335,10 +335,16 @@ export async function GET(request: NextRequest) {
         }
       };
 
-      // INVITE-ONLY POLICY (2026-04-14):
+      // INVITE-ONLY POLICY (2026-04-14, updated 2026-05-06):
       // If no profile exists, the user is not authorized. We no longer auto-create
       // 'guest' profiles. Legitimate onboarding paths are:
-      //   (a) Pre-registered profile — linked by link_pre_registered_profile trigger on auth.users
+      //   (a) Pre-registered profile — migrated via the migrate_pre_registered_profile_to_auth
+      //       RPC called above (line ~152). The auth.users INSERT trigger
+      //       link_pre_registered_profile_trigger was dropped on 2026-05-06 because
+      //       its naive DELETE+INSERT raised FK violations on staff.profile_id and
+      //       210+ other blocking FKs to profiles(id), causing exchangeCodeForSession
+      //       to roll back and the user to bounce. The RPC now uses dynamic FK
+      //       detachment to handle every blocking reference.
       //   (b) Approved learner — has a row in learners_profiles with matching college_email
       //   (c) Admin-created profile — via /users/new
       // If none of these apply, we sign the user out, delete their auth.users row, and
