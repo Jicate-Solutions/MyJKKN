@@ -592,6 +592,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/ai-pulse/my-pulse': 'aiPulse:view.self',
   '/ai-pulse/admin/cycles': 'aiPulse:cycles.manage',
   '/ai-pulse/admin/cycles/[id]': 'aiPulse:cycles.manage',
+  '/ai-pulse/evidence/naac': 'aiPulse:naac.evidence_export',
 
   // Startup Studio
   // Added 2026-04-24 (Wave 2b PR-S2): module root for the flat sidebar row.
@@ -1593,6 +1594,7 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/ai-pulse/admin/anomalies', label: 'Anomaly Review', active: pathname.startsWith('/ai-pulse/admin/anomalies') },
             { href: '/ai-pulse/my-pulse', label: 'My Pulse', active: pathname.startsWith('/ai-pulse/my-pulse') },
             { href: '/ai-pulse/admin/cycles', label: 'Champion Console', active: pathname.startsWith('/ai-pulse/admin/cycles') },
+            { href: '/ai-pulse/evidence/naac', label: 'NAAC Evidence Export', active: pathname.startsWith('/ai-pulse/evidence/naac') },
           ]
         }
       ]
