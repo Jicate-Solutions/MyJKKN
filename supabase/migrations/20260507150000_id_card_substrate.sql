@@ -165,7 +165,7 @@ CREATE POLICY "id_card_print_jobs_student_select_own"
       FROM public.students s
       JOIN public.profiles p ON p.id = auth.uid()
       WHERE s.id = id_card_print_jobs.student_id
-        AND s.profile_id = p.id
+        AND s.college_email = p.email
         AND p.role = 'student'
     )
   );
@@ -225,7 +225,7 @@ CREATE POLICY "student_photos_student_select_own"
       SELECT 1
       FROM public.students s
       JOIN public.profiles p ON p.id = auth.uid()
-      WHERE s.profile_id = p.id
+      WHERE s.college_email = p.email
         AND p.role = 'student'
         AND storage.objects.name LIKE s.id::text || '/%'
     )
