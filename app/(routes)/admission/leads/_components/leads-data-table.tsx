@@ -422,37 +422,49 @@ export function LeadsDataTable() {
     resetSelection: () => void;
   }) => (
     <div className="space-y-4 w-full">
-      {/* Row 1: Action button + Filter dropdowns */}
-      <div className="flex w-full py-4 flex-col justify-between sm:flex-row sm:items-center gap-4">
-        {/* Primary action */}
-        {canCreate && (
+      {/* Row 1: Action group (left) + Filter dropdowns (right, wraps on narrow).
+          Layout decisions:
+            - Parent uses `flex-wrap` so the filter strip drops onto a new row
+              instead of overlapping the action buttons at mid widths.
+            - Action group is its own flex container so Add Lead + Refresh stay
+              adjacent regardless of where the filter strip wraps.
+            - Filters use `flex-wrap` (not `overflow-x-auto`) so on desktop
+              they reflow into multiple rows; on mobile they stack cleanly
+              instead of forcing a horizontal scroll. */}
+      <div className="flex w-full flex-wrap items-center justify-between gap-x-3 gap-y-2 py-4">
+        {/* Action group — Add Lead + Refresh always adjacent. */}
+        <div className="flex w-full items-center gap-2 sm:w-auto">
+          {canCreate && (
+            <Button
+              onClick={() => router.push('/admission/leads/new')}
+              size="sm"
+              className="h-8 flex-1 sm:flex-none"
+            >
+              <Plus className="mr-2 h-4 w-4" />
+              Add Lead
+            </Button>
+          )}
+
           <Button
-            onClick={() => router.push('/admission/leads/new')}
+            variant="outline"
             size="sm"
-            className="h-8 shrink-0 w-full sm:w-auto"
+            className="h-8 px-2 shrink-0"
+            onClick={() => {
+              setIsRefreshing(true);
+              setRefetchKey((prev) => prev + 1);
+              setTimeout(() => setIsRefreshing(false), 1000);
+              toast.success('Leads refreshed');
+            }}
+            aria-label="Refresh leads"
           >
-            <Plus className="mr-2 h-4 w-4" />
-            Add Lead
+            <RefreshCw className={`h-3.5 w-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
           </Button>
-        )}
+        </div>
 
-        {/* Refresh button */}
-        <Button
-          variant="outline"
-          size="sm"
-          className="h-8 px-2 shrink-0"
-          onClick={() => {
-            setIsRefreshing(true);
-            setRefetchKey((prev) => prev + 1);
-            setTimeout(() => setIsRefreshing(false), 1000);
-            toast.success('Leads refreshed');
-          }}
-        >
-          <RefreshCw className={`h-3.5 w-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
-        </Button>
-
-        {/* Filter dropdowns — scrollable on mobile */}
-        <div className="flex items-center gap-2 overflow-x-auto pb-1 sm:pb-0 -mx-1 px-1 sm:mx-0 sm:px-0 scrollbar-none">
+        {/* Filter dropdowns — wrap onto subsequent rows when the row is full.
+            Left-aligned at every breakpoint so a wrapped row doesn't show
+            unexplained empty space at the start of the line. */}
+        <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
           <Select
             value={stageFilter}
             onValueChange={(value) => {
