@@ -462,8 +462,32 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "label": "Routing Config",
             "iconName": "Users",
             "children": []
+          },
+          {
+            "path": "/admin/counselors/routing-errors",
+            "label": "Routing Errors",
+            "iconName": "AlertTriangle",
+            "children": []
+          },
+          {
+            "path": "/admin/counselors/rule-types",
+            "label": "Rule Types",
+            "iconName": "ListChecks",
+            "children": []
+          },
+          {
+            "path": "/admin/counselors/tier-policy",
+            "label": "Tier Policy",
+            "iconName": "Layers",
+            "children": []
           }
         ]
+      },
+      {
+        "path": "/admin/dashboard-drilldowns",
+        "label": "Dashboard Drilldowns",
+        "iconName": "FileText",
+        "children": []
       },
       {
         "path": "/admin/exophone-mapping",
@@ -475,6 +499,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "path": "/admin/landing-pages",
         "label": "Landing Pages",
         "iconName": "FileText",
+        "children": []
+      },
+      {
+        "path": "/admin/lead-stages-policy",
+        "label": "Lead Stages Policy",
+        "iconName": "GitBranch",
         "children": []
       },
       {
@@ -638,6 +668,19 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "label": "Telephony Policies",
         "iconName": "FileText",
         "children": []
+      },
+      {
+        "path": "/admin/whatsapp-byow",
+        "label": "Whatsapp Byow",
+        "iconName": "FileText",
+        "children": [
+          {
+            "path": "/admin/whatsapp-byow/secret-rotation",
+            "label": "Secret Rotation",
+            "iconName": "FileText",
+            "children": []
+          }
+        ]
       },
       {
         "path": "/admin/whatsapp-limits",
@@ -1012,10 +1055,60 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
+            "path": "/admission/settings/fees-structure",
+            "label": "Fees Structure",
+            "iconName": "GraduationCap",
+            "children": [
+              {
+                "path": "/admission/settings/fees-structure/new",
+                "label": "New",
+                "iconName": "Plus",
+                "children": []
+              }
+            ]
+          },
+          {
             "path": "/admission/settings/forms",
             "label": "Forms",
             "iconName": "GraduationCap",
             "children": []
+          },
+          {
+            "path": "/admission/settings/general",
+            "label": "General",
+            "iconName": "GraduationCap",
+            "children": []
+          },
+          {
+            "path": "/admission/settings/lookups",
+            "label": "Lookups",
+            "iconName": "GraduationCap",
+            "children": [
+              {
+                "path": "/admission/settings/lookups/accommodation-types",
+                "label": "Accommodation Types",
+                "iconName": "GraduationCap",
+                "children": []
+              },
+              {
+                "path": "/admission/settings/lookups/community-categories",
+                "label": "Community Categories",
+                "iconName": "Users2",
+                "children": []
+              },
+              {
+                "path": "/admission/settings/lookups/data-quality",
+                "label": "Data Quality",
+                "iconName": "CheckCircle2",
+                "children": []
+              },
+              {
+                "path": "/admission/settings/lookups/quotas",
+                "label": "Quotas",
+                "iconName": "GraduationCap",
+                "children": []
+              }
+            ]
           },
           {
             "path": "/admission/settings/seat-config",

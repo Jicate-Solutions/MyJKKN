@@ -57,6 +57,14 @@ export {
   assignmentRulesKeys,
 } from './use-assignment-rules';
 
+// Re-export rule-type registry hooks (assignment_rule_type_registry)
+export {
+  useRuleTypes,
+  useAllRuleTypes,
+  useRuleTypeMutations,
+  ruleTypesKeys,
+} from './use-rule-types';
+
 // Re-export communication templates hooks
 export {
   useCommunicationTemplates,

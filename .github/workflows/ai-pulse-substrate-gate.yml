@@ -1,0 +1,125 @@
+name: AI Pulse Substrate Gate
+
+# Mechanical enforcement of the falsifiable-test-before-substrate-merge rule
+# (Director directive locked 2026-05-01 via /lock-initiative discipline,
+# documented in continuation brief 2026-05-07).
+#
+# Why this exists
+# ---------------
+# The rule "falsifiable test before any substrate merges" is enforced socially
+# by reviewing each PR's title/scope. On 2026-05-07, PR #716 was discovered to
+# be stacked on PR #644 + #715, meaning a click on "merge" for the named
+# permissions PR would have silently merged the substrate too — bypassing the
+# falsifiable-test gate.
+#
+# This workflow shifts enforcement from PR names to PR content: any PR whose
+# diff adds or modifies AI Pulse substrate files is gated until a Director-
+# applied 'phase-2-passed' label is present.
+#
+# Pattern: gates regulate named transactions; reality flows through unnamed
+# channels. Closing the gap means inspecting the content, not the name.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  substrate-gate:
+    name: AI Pulse Substrate Gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    # Drafts can't merge — nothing to gate. Fires when PR flips to ready.
+    if: ${{ !github.event.pull_request.draft }}
+
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect AI Pulse substrate changes
+        id: detect
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+          git fetch origin "$BASE_REF" --quiet
+
+          filename_hits=$(
+            git diff --name-only "origin/$BASE_REF...HEAD" \
+              -- 'supabase/migrations/*ai_pulse*.sql' || true
+          )
+
+          content_hits=$(
+            git diff "origin/$BASE_REF...HEAD" -- 'supabase/migrations/*.sql' \
+              | grep -E '^\+.*\b(ai_pulse_[a-z_]+|event_team_attendance|engagement_signals)\b' \
+              | head -5 || true
+          )
+
+          if [[ -z "$filename_hits" && -z "$content_hits" ]]; then
+            echo "has_substrate=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::No AI Pulse substrate changes detected — gate not applicable"
+          else
+            echo "has_substrate=true" >> "$GITHUB_OUTPUT"
+            {
+              echo "### 🔍 AI Pulse substrate changes detected"
+              echo ""
+              if [[ -n "$filename_hits" ]]; then
+                echo "**Filename matches** (\`*ai_pulse*.sql\` under \`supabase/migrations/\`):"
+                echo '```'
+                echo "$filename_hits"
+                echo '```'
+              fi
+              if [[ -n "$content_hits" ]]; then
+                echo "**Content matches** (added lines reference AI Pulse tables or event_team_attendance/engagement_signals):"
+                echo '```'
+                echo "$content_hits"
+                echo '```'
+              fi
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Enforce phase-2-passed label
+        if: steps.detect.outputs.has_substrate == 'true'
+        env:
+          LABELS: ${{ toJson(github.event.pull_request.labels.*.name) }}
+        run: |
+          set -euo pipefail
+          if echo "$LABELS" | grep -q '"phase-2-passed"'; then
+            echo "::notice title=Substrate gate bypassed::'phase-2-passed' label present"
+            {
+              echo ""
+              echo "✅ \`phase-2-passed\` label present — substrate gate cleared"
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          {
+            echo ""
+            echo "## ❌ Substrate gate blocked"
+            echo ""
+            echo "This PR adds or modifies AI Pulse substrate (under \`supabase/migrations/\`),"
+            echo "but does not have the \`phase-2-passed\` label."
+            echo ""
+            echo "**Per Director's /lock-initiative gate (locked 2026-05-01):**"
+            echo "- Substrate cannot merge until the falsifiable test passes"
+            echo "- Test = Sheets-only pilot, ≥70% engaged-attendance after at least 1 cycle"
+            echo "- Once the test passes, Director adds \`phase-2-passed\` label to this PR"
+            echo "- Gate then auto-clears on next sync"
+            echo ""
+            echo "**To bypass (only after test passes):**"
+            echo '```'
+            echo "gh pr edit <PR-number> --repo Jicate-Solutions/MyJKKN --add-label phase-2-passed"
+            echo '```'
+            echo ""
+            echo "_If this PR shouldn't be classified as AI Pulse substrate, refactor it so the"
+            echo "diff doesn't include \`supabase/migrations/*ai_pulse*.sql\` or content references"
+            echo "to AI Pulse tables._"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          echo "::error title=AI Pulse Substrate Gate Failed::This PR touches AI Pulse substrate without the 'phase-2-passed' label. See job summary for details."
+          exit 1
