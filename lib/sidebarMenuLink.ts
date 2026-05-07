@@ -588,6 +588,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // keys from PR #747. Landing page is purely informational so universal
   // access is safe.
   '/ai-pulse': 'view_profile',
+  '/ai-pulse/admin/anomalies': 'aiPulse:anomaly.review',
 
   // Startup Studio
   // Added 2026-04-24 (Wave 2b PR-S2): module root for the flat sidebar row.
@@ -1584,7 +1585,10 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'AI Pulse',
           active: pathname === '/ai-pulse' || pathname.startsWith('/ai-pulse/'),
           icon: Activity,
-          submenus: []
+          submenus: [
+            { href: '/ai-pulse', label: 'Overview', active: pathname === '/ai-pulse' },
+            { href: '/ai-pulse/admin/anomalies', label: 'Anomaly Review', active: pathname.startsWith('/ai-pulse/admin/anomalies') },
+          ]
         }
       ]
     },
