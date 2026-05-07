@@ -323,7 +323,10 @@ function FeeStructureDetailPageContent({ id }: { id: string }) {
                 </div>
               </div>
 
-              {/* Matrix Dimensions — 8 cards in a 4×2 grid */}
+              {/* Matrix Dimensions — 8 cards in a 4×2 grid.
+               *  Rendered ONLY in view mode; edit mode shows the editable
+               *  selector inside the form to avoid two competing displays. */}
+              {!isEditMode && (
               <section>
                 <h2 className="text-sm font-semibold mb-3 text-muted-foreground uppercase tracking-wide">
                   Matrix Dimensions
@@ -379,11 +382,12 @@ function FeeStructureDetailPageContent({ id }: { id: string }) {
                   />
                 </div>
                 <p className="text-xs text-muted-foreground mt-3">
-                  Dimensions are immutable on an existing structure (they form the matrix key).
-                  To change a dimension, archive this structure and create a new one with the
-                  desired combination.
+                  Click <em>Edit</em> to change any dimension. Note that the 8 dimensions
+                  form the unique matrix key — saving with a combination already used by
+                  another structure will be rejected.
                 </p>
               </section>
+              )}
 
               {/* Mode-dependent body */}
               {isEditMode ? (

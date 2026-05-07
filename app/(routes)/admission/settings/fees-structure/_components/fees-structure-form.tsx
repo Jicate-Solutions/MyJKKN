@@ -42,6 +42,7 @@ import { FeeStructureService } from '@/lib/services/admission/fee-structure-serv
 import { BillingCategoryService } from '@/lib/services/billing/categories/billing-category-service';
 import { logActivityForCurrentUser } from '@/lib/utils/activity-logger-client';
 import { AdmissionFeesActivityTemplates } from '@/lib/utils/admission-fees-activity-templates';
+import { FeesStructureDimensionSelector } from './fees-structure-dimension-selector';
 import type {
   AdmissionFeeStructureWithItems,
   FeeStructureMatrixDimensions,
@@ -400,6 +401,7 @@ const editSchema = z
       .string()
       .min(2, 'Name must be at least 2 characters')
       .max(150, 'Name must be at most 150 characters'),
+    status: z.enum(['draft', 'active', 'archived']),
     notes: z.string().max(500).optional(),
     effective_from: z.string().optional(),
     effective_to: z.string().optional(),
@@ -446,6 +448,22 @@ function ExistingStructureEditor({
       .sort((a, b) => a.sort_order - b.sort_order),
   );
 
+  // Editable copy of the 8 matrix dimensions. Seeded from the loaded
+  // structure; updated via the FeesStructureDimensionSelector. Saved as part
+  // of handleSaveAll.
+  const initialDims: FeeStructureMatrixDimensions = {
+    institution_id: structure.institution_id,
+    degree_id: structure.degree_id,
+    department_id: structure.department_id,
+    programme_id: structure.programme_id,
+    quota_id: structure.quota_id,
+    community_category_id: structure.community_category_id,
+    accommodation_type_id: structure.accommodation_type_id,
+    admission_year_id: structure.admission_year_id,
+  };
+  const [editableDims, setEditableDims] =
+    useState<Partial<FeeStructureMatrixDimensions>>(initialDims);
+
   // Reset local state if the structure prop changes (different leaf clicked).
   useEffect(() => {
     setItems(
@@ -459,12 +477,23 @@ function ExistingStructureEditor({
         }))
         .sort((a, b) => a.sort_order - b.sort_order),
     );
-  }, [structure.id, structure.items]);
+    setEditableDims({
+      institution_id: structure.institution_id,
+      degree_id: structure.degree_id,
+      department_id: structure.department_id,
+      programme_id: structure.programme_id,
+      quota_id: structure.quota_id,
+      community_category_id: structure.community_category_id,
+      accommodation_type_id: structure.accommodation_type_id,
+      admission_year_id: structure.admission_year_id,
+    });
+  }, [structure.id, structure.items, structure.institution_id, structure.degree_id, structure.department_id, structure.programme_id, structure.quota_id, structure.community_category_id, structure.accommodation_type_id, structure.admission_year_id]);
 
   const form = useForm<EditFormValues>({
     resolver: zodResolver(editSchema),
     defaultValues: {
       name: structure.name,
+      status: structure.status,
       notes: structure.notes ?? '',
       effective_from: structure.effective_from ?? '',
       effective_to: structure.effective_to ?? '',
@@ -474,6 +503,7 @@ function ExistingStructureEditor({
   useEffect(() => {
     form.reset({
       name: structure.name,
+      status: structure.status,
       notes: structure.notes ?? '',
       effective_from: structure.effective_from ?? '',
       effective_to: structure.effective_to ?? '',
@@ -481,11 +511,22 @@ function ExistingStructureEditor({
   }, [
     structure.id,
     structure.name,
+    structure.status,
     structure.notes,
     structure.effective_from,
     structure.effective_to,
     form,
   ]);
+
+  // Highlights when dims have been modified — drives the "key change" warning.
+  const dimsChanged = useMemo(() => {
+    const k: Array<keyof FeeStructureMatrixDimensions> = [
+      'institution_id', 'degree_id', 'department_id', 'programme_id',
+      'quota_id', 'community_category_id', 'accommodation_type_id', 'admission_year_id',
+    ];
+    return k.some((key) => editableDims[key] !== initialDims[key]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editableDims, structure.id]);
 
   const remainingCategories = useMemo(
     () =>
@@ -546,21 +587,50 @@ function ExistingStructureEditor({
   };
 
   const handleSaveAll = async (values: EditFormValues) => {
+    // Block save if dims are partially filled — all 8 must remain set.
+    const dimKeys: Array<keyof FeeStructureMatrixDimensions> = [
+      'institution_id', 'degree_id', 'department_id', 'programme_id',
+      'quota_id', 'community_category_id', 'accommodation_type_id', 'admission_year_id',
+    ];
+    const missingDim = dimKeys.find((k) => !editableDims[k]);
+    if (missingDim) {
+      toast.error(`All 8 matrix dimensions are required (missing: ${missingDim.replace(/_id$/, '')})`);
+      return;
+    }
+
     setSubmitting(true);
     try {
       // 1. Update parent fields when changed.
       const nameChanged = values.name !== structure.name;
+      const statusChanged = values.status !== structure.status;
       const notesChanged = (values.notes ?? '') !== (structure.notes ?? '');
       const effectiveFromChanged =
         (values.effective_from ?? '') !== (structure.effective_from ?? '');
       const effectiveToChanged =
         (values.effective_to ?? '') !== (structure.effective_to ?? '');
-      if (nameChanged || notesChanged || effectiveFromChanged || effectiveToChanged) {
+      if (
+        nameChanged || statusChanged || notesChanged ||
+        effectiveFromChanged || effectiveToChanged ||
+        dimsChanged
+      ) {
         await FeeStructureService.update(structure.id, {
           name: values.name,
+          status: values.status,
           notes: values.notes || null,
           effective_from: values.effective_from || null,
           effective_to: values.effective_to || null,
+          // Only send dims when they actually changed; otherwise the update
+          // payload stays minimal and Postgres trigger noise stays low.
+          ...(dimsChanged ? {
+            institution_id: editableDims.institution_id!,
+            degree_id: editableDims.degree_id!,
+            department_id: editableDims.department_id!,
+            programme_id: editableDims.programme_id!,
+            quota_id: editableDims.quota_id!,
+            community_category_id: editableDims.community_category_id!,
+            accommodation_type_id: editableDims.accommodation_type_id!,
+            admission_year_id: editableDims.admission_year_id!,
+          } : {}),
         });
       }
 
@@ -682,19 +752,56 @@ function ExistingStructureEditor({
           </span>
         </div>
 
-        <FormField
-          control={form.control}
-          name="name"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>Name</FormLabel>
-              <FormControl>
-                <Input {...field} />
-              </FormControl>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
+        {dimsChanged && (
+          <div className="rounded-md border bg-rose-50 dark:bg-rose-900/20 border-rose-300 dark:border-rose-700 p-3 flex items-start gap-2 text-xs">
+            <AlertTriangle className="h-4 w-4 text-rose-600 mt-0.5 shrink-0" />
+            <span className="text-rose-900 dark:text-rose-200">
+              <strong>Matrix dimensions changed.</strong> This structure will move
+              to a different slot in the matrix. Any other structure with the new
+              combination will collide and the save will fail. Existing learners
+              who were resolved against the old combination will <em>not</em>
+              automatically re-route — confirm this is intentional before saving.
+            </span>
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <FormField
+            control={form.control}
+            name="name"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Name</FormLabel>
+                <FormControl>
+                  <Input {...field} />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+          <FormField
+            control={form.control}
+            name="status"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Status</FormLabel>
+                <Select value={field.value} onValueChange={field.onChange}>
+                  <FormControl>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent>
+                    <SelectItem value="draft">Draft</SelectItem>
+                    <SelectItem value="active">Active</SelectItem>
+                    <SelectItem value="archived">Archived</SelectItem>
+                  </SelectContent>
+                </Select>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+        </div>
 
         <FormField
           control={form.control}
@@ -736,6 +843,18 @@ function ExistingStructureEditor({
                 <FormMessage />
               </FormItem>
             )}
+          />
+        </div>
+
+        <div className="space-y-2 border-t pt-4">
+          <label className="text-sm font-medium block">Matrix Dimensions</label>
+          <p className="text-xs text-muted-foreground">
+            All 8 dimensions form the unique key of this fee structure. Changing
+            any of them moves this structure to a different matrix slot.
+          </p>
+          <FeesStructureDimensionSelector
+            selectedDims={editableDims}
+            onChange={setEditableDims}
           />
         </div>
 

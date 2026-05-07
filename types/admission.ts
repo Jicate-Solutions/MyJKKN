@@ -1593,7 +1593,15 @@ export type CreateAdmissionFeeStructureInput =
   };
 
 export type UpdateAdmissionFeeStructureInput =
-  Partial<Pick<AdmissionFeeStructure, 'name' | 'status' | 'notes' | 'effective_from' | 'effective_to'>>;
+  Partial<Pick<
+    AdmissionFeeStructure,
+    | 'name' | 'status' | 'notes' | 'effective_from' | 'effective_to'
+    // 8 matrix dimensions — editing them is supported but risky. The UNIQUE
+    // constraint on (8 dims + effective_from) will reject collisions; the UI
+    // layer warns the admin before submit.
+    | 'institution_id' | 'degree_id' | 'department_id' | 'programme_id'
+    | 'quota_id' | 'community_category_id' | 'accommodation_type_id' | 'admission_year_id'
+  >>;
 
 export interface FeeStructureMatrixDimensions {
   institution_id: string;
