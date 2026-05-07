@@ -1768,6 +1768,65 @@ export const PERMISSION_CATEGORIES = [
       { key: 'aiPulse:policies.manage', label: 'Manage AI Pulse policies' },
       { key: 'aiPulse:value_lists.manage', label: 'Manage AI Pulse value-list master tables' }
     ]
+  },
+  {
+    // HR/Appraisal Program — Phase 0 prerequisites (2026-05-07)
+    // Spec set: specs/{SAMS-SLICE-1,HR-LEAVE-ACTIVATION,HR-ATTENDANCE-LIVE,
+    // PROMOTION-RULEBOOK,VERIFIED-PUBLICATIONS,STUDENT-FEEDBACK}-SPEC.md
+    // Plan set: docs/plans/2026-05-07-{module}-plan.md (6 modules + coordination)
+    // 23 keys gated by this PR (#TBD); module pages land in subsequent PRs.
+    name: 'Staff Appraisal & Performance (SAMS)',
+    key: 'sams',
+    permissions: [
+      { key: 'sams.appraisal.self.read', label: 'Read own appraisal' },
+      { key: 'sams.appraisal.self.write', label: 'Write own appraisal (before submit)' },
+      { key: 'sams.appraisal.review', label: 'Review and approve appraisals (HoD/Principal)' },
+      { key: 'sams.cycle.manage', label: 'Create / manage appraisal cycles' },
+      { key: 'sams.metric.config', label: 'Configure metric definitions' },
+      { key: 'sams.threshold.write', label: 'Tune metric thresholds (super-admin)' }
+    ]
+  },
+  {
+    name: 'Promotion & Career',
+    key: 'hr_promotion',
+    permissions: [
+      { key: 'hr.promotion.criteria.write', label: 'Configure promotion criteria' },
+      { key: 'hr.promotion.case.create', label: 'Create promotion case for candidate' },
+      { key: 'hr.promotion.case.view', label: 'View promotion case-sheet' },
+      { key: 'hr.promotion.case.decide', label: 'Director decision on promotion (approve / reject)' }
+    ]
+  },
+  {
+    name: 'Student Feedback (Course × Faculty)',
+    key: 'feedback',
+    permissions: [
+      { key: 'feedback.student_course_faculty.respond', label: 'Submit feedback response (student)' },
+      { key: 'feedback.student_course_faculty.template.write', label: 'Configure feedback question template' },
+      { key: 'feedback.student_course_faculty.faculty_view', label: 'View own ratings (faculty)' },
+      { key: 'feedback.student_course_faculty.aggregate.view', label: 'View department aggregates (HoD)' }
+    ]
+  },
+  {
+    name: 'Research & Publications',
+    key: 'research_publications',
+    permissions: [
+      { key: 'sh.publications.enrich', label: 'Enrich own publication entries (faculty)' },
+      { key: 'sh.publications.verify', label: 'Verify publication entries (research-cell)' },
+      { key: 'sh.publications.dashboard', label: 'Director progress dashboard' }
+    ]
+  },
+  {
+    // Phase 0 add-ons to existing HR scope (attendance config + leave dispute)
+    name: 'HR Configuration (Phase 0)',
+    key: 'hr_phase_0_config',
+    permissions: [
+      { key: 'hr.attendance.status_types.write', label: 'Configure attendance status types' },
+      { key: 'hr.attendance.thresholds.write', label: 'Configure attendance thresholds' },
+      { key: 'hr.leave.policies.write', label: 'Configure leave cadre policies' },
+      { key: 'hr.leave.balance.dispute', label: 'Submit leave balance correction request' },
+      { key: 'hr.leave.dispute.approve', label: 'Approve leave balance correction' },
+      { key: 'admin.departments.hod.write', label: 'Assign Head of Department to a department' }
+    ]
   }
 ];
 
