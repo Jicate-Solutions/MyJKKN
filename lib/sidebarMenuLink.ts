@@ -589,6 +589,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // access is safe.
   '/ai-pulse': 'view_profile',
   '/ai-pulse/admin/anomalies': 'aiPulse:anomaly.review',
+  '/ai-pulse/my-pulse': 'aiPulse:view.self',
 
   // Startup Studio
   // Added 2026-04-24 (Wave 2b PR-S2): module root for the flat sidebar row.
@@ -1588,6 +1589,7 @@ export function GetPages(pathname: string): MenuGroup[] {
           submenus: [
             { href: '/ai-pulse', label: 'Overview', active: pathname === '/ai-pulse' },
             { href: '/ai-pulse/admin/anomalies', label: 'Anomaly Review', active: pathname.startsWith('/ai-pulse/admin/anomalies') },
+            { href: '/ai-pulse/my-pulse', label: 'My Pulse', active: pathname.startsWith('/ai-pulse/my-pulse') },
           ]
         }
       ]

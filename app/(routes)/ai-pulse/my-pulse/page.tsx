@@ -1,10 +1,13 @@
-// app/(routes)/ai-pulse/page.tsx
+// app/(routes)/ai-pulse/my-pulse/page.tsx
 // Created: 2026-05-06 — Wave B.1 Learner My Pulse
+// Relocated: 2026-05-07 (PR #729 Wave 2C nav-fix) — moved from /ai-pulse
+// to /ai-pulse/my-pulse so the AI Pulse landing page (PR #749) remains
+// authoritative and this learner-only view becomes a sub-route.
 //
 // DRAFT — gated on PR #644 (substrate: ai_pulse event_type + config.kind discriminator
 // + engagement_signals JSONB) and PR #716 (aiPulse:* permission keys).
 //
-// Surface: /ai-pulse — learner sees their current cycle, team, attendance, streak,
+// Surface: /ai-pulse/my-pulse — learner sees their current cycle, team, attendance, streak,
 // and quick actions for Domain-Sync / Quiz / Publication submissions.
 //
 // Permission gate: aiPulse:view.self (server-side via user_has_permission RPC).
@@ -19,10 +22,10 @@ import {
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import { AiPulseLearnerService } from '@/lib/services/ai-pulse/learner-service';
-import { CurrentCycleCard } from './_components/current-cycle-card';
-import { MyTeamCard } from './_components/my-team-card';
-import { MyAttendanceCard } from './_components/my-attendance-card';
-import { QuickActionsCard } from './_components/quick-actions-card';
+import { CurrentCycleCard } from '../_components/current-cycle-card';
+import { MyTeamCard } from '../_components/my-team-card';
+import { MyAttendanceCard } from '../_components/my-attendance-card';
+import { QuickActionsCard } from '../_components/quick-actions-card';
 
 export const dynamic = 'force-dynamic';
 
