@@ -350,6 +350,9 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // ExoPhone → institution mapping (M-1, 2026-05-03 — brand-integrity recovery).
   // super_admin only — directly drives per-institution call attribution.
   '/admin/exophone-mapping': 'super_admin',
+  // AI Pulse policies (Wave B.6, 2026-05-04 — config-as-row admin surface).
+  // super_admin only per ai-pulse-spec v3 §4.3.
+  '/admin/config/ai-pulse': 'aiPulse:policies.manage',
 
   // System Management
   // Work Pulse
@@ -1367,6 +1370,7 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/admin/lifecycle', label: 'Lifecycle Analytics', active: pathname.startsWith('/admin/lifecycle') },
             { href: '/admin/retention-policies', label: 'Retention Policies (config)', active: pathname.startsWith('/admin/retention-policies') },
             { href: '/admin/page-metadata', label: 'Page Metadata', active: pathname.startsWith('/admin/page-metadata') },
+            { href: '/admin/config/ai-pulse', label: 'AI Pulse · Policies', active: pathname.startsWith('/admin/config/ai-pulse') },
           ]
         }
       ]
