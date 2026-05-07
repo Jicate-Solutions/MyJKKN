@@ -680,8 +680,43 @@ export default function BulkUploadStaff() {
 
       const data = await file.arrayBuffer();
       const workbook = XLSX.read(data);
-      const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+
+      // Pick the data sheet, not the prose sheet. The downloaded template ships
+      // with sheets in this order: [Instructions, Format Examples, Template,
+      // Filled Example]. Reading SheetNames[0] grabs Instructions and produces
+      // rows with no recognizable headers, causing every required-field
+      // validation to fire on every row.
+      const REQUIRED_HEADER = 'first_name';
+      const pickDataSheet = (): XLSX.WorkSheet => {
+        const named = ['Template', 'Filled Example'];
+        for (const name of named) {
+          if (workbook.Sheets[name]) {
+            const headers = (XLSX.utils.sheet_to_json(workbook.Sheets[name], {
+              header: 1
+            })[0] ?? []) as string[];
+            if (headers.includes(REQUIRED_HEADER)) return workbook.Sheets[name];
+          }
+        }
+        for (const name of workbook.SheetNames) {
+          const sheet = workbook.Sheets[name];
+          const headers = (XLSX.utils.sheet_to_json(sheet, {
+            header: 1
+          })[0] ?? []) as string[];
+          if (headers.includes(REQUIRED_HEADER)) return sheet;
+        }
+        return workbook.Sheets[workbook.SheetNames[0]];
+      };
+
+      const worksheet = pickDataSheet();
       const jsonData = XLSX.utils.sheet_to_json(worksheet);
+
+      const firstRowKeys = jsonData[0] ? Object.keys(jsonData[0] as object) : [];
+      if (jsonData.length > 0 && !firstRowKeys.includes(REQUIRED_HEADER)) {
+        toast.error(
+          'Could not find a data sheet with the expected columns. Make sure your file has a "Template" sheet (or a sheet whose first row contains "first_name", "last_name", etc.). Re-download the template if unsure.'
+        );
+        return;
+      }
 
       // Check if file is empty
       if (jsonData.length === 0) {
