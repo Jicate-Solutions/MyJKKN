@@ -24,6 +24,7 @@ export type EntityType = 'institution' | 'admin_office' | 'company' | 'school';
 export interface Institution {
   id: string;
   name: string;
+  display_name?: string; // Optional friendly label; falls back to `name` when null/empty
   counselling_code: string;
   institution_type: InstitutionType;
   category: InstitutionCategory;

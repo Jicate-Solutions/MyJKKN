@@ -140,6 +140,11 @@ export default function InstitutionDetailsPage({
             <h1 className='text-2xl font-bold text-black py-1'>
               {institution.name}
             </h1>
+            {institution.display_name && (
+              <p className='text-base font-medium text-muted-foreground'>
+                {institution.display_name}
+              </p>
+            )}
             <p className='text-sm sm:text-base text-muted-foreground'>
               Institution Details
             </p>

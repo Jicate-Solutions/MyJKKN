@@ -34693,6 +34693,7 @@ export type Database = {
           country: string | null
           created_at: string | null
           created_by: string | null
+          display_name: string | null
           email: string | null
           entity_type: string
           id: string
@@ -34733,6 +34734,7 @@ export type Database = {
           country?: string | null
           created_at?: string | null
           created_by?: string | null
+          display_name?: string | null
           email?: string | null
           entity_type?: string
           id?: string
@@ -34773,6 +34775,7 @@ export type Database = {
           country?: string | null
           created_at?: string | null
           created_by?: string | null
+          display_name?: string | null
           email?: string | null
           entity_type?: string
           id?: string
