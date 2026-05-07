@@ -76,6 +76,29 @@ const config: ModuleNavConfig = {
       ],
     },
     {
+      label: 'Gate Entry',
+      icon: 'ScanLine',
+      href: '/admission/gate-entry',
+      matchPaths: ['/admission/gate-entry', '/admission/gate-entry/today'],
+      // Tier-3 chips: the kiosk capture form and the day's roll. Lives outside
+      // the Leads group because the permission profile is different (gate
+      // security can use these but cannot see the full lead list).
+      children: [
+        {
+          label: 'Log Entry',
+          icon: 'ScanLine',
+          href: '/admission/gate-entry',
+          exact: true,
+        },
+        {
+          label: "Today's Entries",
+          icon: 'Clock',
+          href: '/admission/gate-entry/today',
+          matchPaths: ['/admission/gate-entry/today'],
+        },
+      ],
+    },
+    {
       label: 'GD-PI',
       icon: 'Award',
       href: '/admission/gd-pi',

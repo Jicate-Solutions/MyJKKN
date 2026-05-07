@@ -15,6 +15,8 @@ import type {
   CaptureMetaInput,
   CaptureAction,
   CaptureLeadResult,
+  GateEntryInput,
+  GateEntryResult,
 } from '@/types/admission';
 
 import { AssignmentRulesService, type LeadDataForAssignment } from './assignment-rules-service';
@@ -219,6 +221,35 @@ export class LeadService {
   static async createLead(leadData: CreateLeadInput, user?: User, supabaseOverride?: any): Promise<AdmissionLead> {
     const result = await this.captureLead(leadData, undefined, user, supabaseOverride);
     return result.lead;
+  }
+
+  /**
+   * Gate-entry kiosk capture. Calls the dedicated `capture_gate_entry_lead`
+   * RPC (which wraps `capture_admission_lead` and adds the gate_entry source
+   * capture row + permission gate). Returns the RPC's raw result so the UI
+   * can show "Welcome back" on `action: 'merged'`.
+   *
+   * The RPC is the single permission boundary — `admission.gate_entry.create`
+   * (granted to gate_security) — so a kiosk-only role can use this without
+   * being granted broader `admission.leads.create`.
+   */
+  static async createGateEntry(input: GateEntryInput): Promise<GateEntryResult> {
+    const supabase = createClientSupabaseClient();
+    const { data, error } = await supabase.rpc('capture_gate_entry_lead', {
+      p_first_name:       input.first_name,
+      p_phone:            input.phone,
+      p_institution_id:   input.institution_id,
+      p_last_name:        input.last_name ?? null,
+      p_program_id:       input.program_id ?? null,
+      p_referral_type:    input.source === 'referral' ? input.referral_type ?? null : null,
+      p_referred_by_id:   input.source === 'referral' ? input.referred_by_id ?? null : null,
+      p_referred_by_name: input.source === 'referral' ? input.referred_by_name ?? null : null,
+    });
+
+    if (error) {
+      throw new Error(error.message || 'Failed to log gate entry');
+    }
+    return data as GateEntryResult;
   }
 
   /**

@@ -950,7 +950,12 @@ export const PERMISSION_CATEGORIES = [
       { key: 'admission.settings.years.view', label: 'View Admission Years' },
       { key: 'admission.settings.years.create', label: 'Create Admission Years' },
       { key: 'admission.settings.years.edit', label: 'Edit Admission Years' },
-      { key: 'admission.settings.years.delete', label: 'Delete Admission Years' }
+      { key: 'admission.settings.years.delete', label: 'Delete Admission Years' },
+
+      // Gate Entry (2026-05-07) — kiosk capture flow for gate security
+      { key: 'admission.gate_entry.create', label: 'Log Gate Entry (kiosk)' },
+      { key: 'admission.gate_entry.view',   label: "View Today's Gate Entries" },
+      { key: 'admission.gate_entry.manage', label: 'Manage Gate Entry Settings' }
     ]
   },
   // Admission Fees (2026-05-07) — matrix-driven fee-structure module

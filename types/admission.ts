@@ -18,7 +18,40 @@ export type LeadSource =
   | 'publisher'
   | 'google_ads'
   | 'facebook_ads'
+  | 'gate_entry'
   | 'other';
+
+/**
+ * Gate Entry capture input — used by the kiosk form at /admission/gate-entry.
+ * The DB-level lead.source stays 'walk_in' (the channel category); the per-touch
+ * source on the source-capture row is 'gate_entry' (the specific touch).
+ */
+export interface GateEntryInput {
+  first_name: string;
+  phone: string;
+  institution_id: string;
+  last_name?: string | null;
+  program_id?: string | null;
+  /** UI radio: 'walk_in' = direct, 'referral' = show consultant picker. */
+  source: 'walk_in' | 'referral';
+  /** Only when source='referral' and a referrer was picked. */
+  referral_type?: ReferralType | null;
+  referred_by_id?: string | null;
+  /** Free-text fallback when the referrer wasn't in the consultant list. */
+  referred_by_name?: string | null;
+}
+
+/**
+ * Return shape from capture_gate_entry_lead RPC. Mirrors capture_admission_lead
+ * — `action: 'merged'` indicates a returning visitor (existing lead row was
+ * reused; the gate UI shows "Welcome back").
+ */
+export interface GateEntryResult {
+  lead_id: string;
+  capture_id: string;
+  action: 'created' | 'merged';
+  reactivated?: boolean;
+}
 
 export type FunnelStage =
   | 'new'
@@ -213,6 +246,13 @@ export interface AdmissionLead {
   created_at: string;
   updated_at: string;
   created_by: string | null;
+
+  // Gate Entry (2026-05-07) — denormalized columns maintained by trigger on
+  // admission_lead_source_captures with source='gate_entry'. See migration
+  // 20260507100017. first_* preserves the *earliest* visit; count is total.
+  first_gate_entry_at?: string | null;
+  first_gate_entry_by?: string | null;
+  gate_entry_count?: number;
 
   // Relationships (optional populated)
   counselor?: Counselor;

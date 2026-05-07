@@ -1411,6 +1411,29 @@ function LeadDetailPageContent() {
                         Priority
                       </Badge>
                     )}
+                    {/* Came-via-Gate badge (2026-05-07). Visible when this lead
+                     *  was captured at the institution gate. Tooltip would
+                     *  show timestamp if shadcn Tooltip were imported here —
+                     *  for now, the timestamp is in the title attribute. */}
+                    {lead.first_gate_entry_at && (
+                      <Badge
+                        variant="outline"
+                        className="bg-emerald-50 text-emerald-700 border-emerald-200"
+                        title={`First gate entry: ${new Date(lead.first_gate_entry_at).toLocaleString('en-IN')}${
+                          (lead.gate_entry_count ?? 0) > 1
+                            ? ` · Visits: ${lead.gate_entry_count}`
+                            : ''
+                        }`}
+                      >
+                        <ScanLine className="h-3 w-3 mr-1" />
+                        Came via Gate
+                        {(lead.gate_entry_count ?? 0) > 1 && (
+                          <span className="ml-1 text-[10px] font-normal">
+                            ×{lead.gate_entry_count}
+                          </span>
+                        )}
+                      </Badge>
+                    )}
                     {/* Phase 6 spec #14: readonly badge when this user is the FROM-counselor */}
                     {isReadonlyCascadedView && (
                       <Badge variant="outline" className="bg-slate-100 text-slate-700 border-slate-300">
