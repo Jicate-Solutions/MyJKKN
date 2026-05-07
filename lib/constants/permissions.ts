@@ -953,6 +953,21 @@ export const PERMISSION_CATEGORIES = [
       { key: 'admission.settings.years.delete', label: 'Delete Admission Years' }
     ]
   },
+  // Admission Fees (2026-05-07) — matrix-driven fee-structure module
+  // Keys are flat under `admission_fees.*` (not `admission.fees.*`) because
+  // RLS policies + service code reference them that way.
+  {
+    name: 'Admission Fees',
+    key: 'admission_fees',
+    permissions: [
+      { key: 'admission_fees.read', label: 'View Fee Structures' },
+      { key: 'admission_fees.manage', label: 'Create / Edit Fee Structures' },
+      { key: 'admission_fees.delete', label: 'Delete Fee Structures' },
+      { key: 'admission_fees.manage_adjustments', label: 'Manage Per-Learner Fee Adjustments' },
+      { key: 'admission_fees.approve_change_event', label: 'Approve Fee Change Events' },
+      { key: 'admission_fees.override', label: 'Override Resolved Fee Items' }
+    ]
+  },
   {
     name: 'Work Pulse',
     key: 'work_pulse',
