@@ -50,6 +50,7 @@ import { ContentLayout } from '@/components/layout/content-layout';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 
 import { useAuth } from '@/hooks/use-auth';
+import { usePermissions } from '@/hooks/use-permissions';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import { useFormDraftObject } from '@/hooks/use-form-draft';
 import { useConsultantsForDropdown } from '@/hooks/admission/use-consultants';
@@ -96,15 +97,32 @@ export default function GateEntryPage() {
 // ─── Form component ───────────────────────────────────────────────────────
 function GateEntryForm() {
   const { profile } = useAuth();
-  const { institutions } = useInstitutionsWithAccess();
+  const { isSuperAdmin, isAdmissionGlobalUser } = usePermissions();
+  const { institutions, loading: institutionsLoading } = useInstitutionsWithAccess();
 
-  // Gate security has institution_scope='own' so their profile.institution_id
-  // is the only institution they can log entries for. Render it disabled.
-  const institutionId = profile?.institution_id ?? '';
+  // Institution selection — mirrors /admission/leads/new (2026-05-07).
+  // Gate security has institution_scope='own' (single institution auto-locked),
+  // but super_admin / admission global / cross-institution staff may capture
+  // entries on behalf of another campus, so we need a real dropdown.
+  const [selectedInstitutionId, setSelectedInstitutionId] = useState<string>('');
+
+  // Auto-fill institution: scoped users get their own; users with exactly one
+  // accessible institution get it auto-picked; super_admin / global must pick.
+  useEffect(() => {
+    if (!isSuperAdmin && !isAdmissionGlobalUser && profile?.institution_id) {
+      setSelectedInstitutionId(profile.institution_id);
+    } else if (institutions.length === 1) {
+      setSelectedInstitutionId(institutions[0].id);
+    }
+  }, [profile?.institution_id, isSuperAdmin, isAdmissionGlobalUser, institutions]);
+
+  const institutionId = selectedInstitutionId;
   const institutionName = useMemo(
     () => institutions.find((i) => i.id === institutionId)?.name ?? '—',
     [institutions, institutionId],
   );
+  const canSelectInstitution =
+    isSuperAdmin || isAdmissionGlobalUser || institutions.length > 1;
 
   // Draft state — survives accidental tab close / refresh
   const draftKey = `gate-entry-draft:${profile?.id ?? 'anon'}:${institutionId}`;
@@ -119,15 +137,22 @@ function GateEntryForm() {
   const [programs, setPrograms] = useState<Program[]>([]);
   const [programsLoading, setProgramsLoading] = useState(false);
   useEffect(() => {
-    if (!institutionId) return;
+    // Clear stale program selection when the institution changes — otherwise
+    // a super_admin switching institutions could submit a program_id from the
+    // previous campus, which the capture RPC would reject.
+    setDraftField('program_id', '');
+    if (!institutionId) {
+      setPrograms([]);
+      return;
+    }
     let cancelled = false;
     setProgramsLoading(true);
-    ProgramService.getPrograms({ institution_id: institutionId, is_active: true })
+    ProgramService.getPrograms({ institution_id: institutionId, isActive: true })
       .then(({ data }) => { if (!cancelled) setPrograms(data ?? []); })
       .catch(() => { if (!cancelled) setPrograms([]); })
       .finally(() => { if (!cancelled) setProgramsLoading(false); });
     return () => { cancelled = true; };
-  }, [institutionId]);
+  }, [institutionId, setDraftField]);
 
   // Consultants for the referral picker (scoped to the user's institution).
   // Hook signature: useConsultantsForDropdown(institutionId?: string) →
@@ -143,7 +168,8 @@ function GateEntryForm() {
 
   // Submission
   const [submitting, setSubmitting] = useState(false);
-  const [errors, setErrors] = useState<Partial<Record<keyof FormData, string>>>({});
+  // Errors keyed by form-field OR top-level surface (e.g. 'institution').
+  const [errors, setErrors] = useState<Record<string, string>>({});
   const [lastResult, setLastResult] = useState<GateEntryResult | null>(null);
   const [lastName, setLastName] = useState('');
   const [captureCount, setCaptureCount] = useState(0);
@@ -156,13 +182,13 @@ function GateEntryForm() {
   }, [captureCount]);
 
   const validate = useCallback((): boolean => {
-    const e: Partial<Record<keyof FormData, string>> = {};
+    const e: Record<string, string> = {};
     if (!form.first_name.trim()) e.first_name = 'First name is required';
     const phoneStripped = form.phone.replace(/[\s\-()]/g, '');
     if (!phoneStripped) e.phone = 'Phone is required';
     else if (!PHONE_REGEX.test(phoneStripped))
       e.phone = 'Enter a valid 10-digit Indian mobile number';
-    if (!institutionId) e.first_name = 'Your account is not linked to an institution';
+    if (!institutionId) e.institution = 'Institution is required';
     if (form.source === 'referral'
         && !form.referred_by_id
         && !form.referred_by_name.trim()) {
@@ -217,11 +243,11 @@ function GateEntryForm() {
     }
   }, [form, institutionId, selectedConsultant, validate, clearDraft, setDraftValues]);
 
-  // Group programmes by degree_name for nicer rendering
+  // Group programmes by degree.degree_name for nicer rendering
   const programsByDegree = useMemo(() => {
     const map = new Map<string, Program[]>();
     for (const p of programs) {
-      const k = (p as Program & { degree_name?: string }).degree_name ?? 'Other';
+      const k = p.degree?.degree_name ?? 'Other';
       if (!map.has(k)) map.set(k, []);
       map.get(k)!.push(p);
     }
@@ -229,7 +255,7 @@ function GateEntryForm() {
   }, [programs]);
 
   return (
-    <div className="max-w-xl mx-auto space-y-6 px-4 sm:px-0">
+    <div className="mx-auto space-y-6 px-4 sm:px-0">
       {/* Header */}
       <div className="flex items-center justify-between gap-2">
         <div className="space-y-0.5">
@@ -312,16 +338,51 @@ function GateEntryForm() {
           )}
         </div>
 
-        {/* Institution (read-only) */}
+        {/* Institution — selectable for super_admin / global; locked for own-scope */}
         <div className="space-y-1.5">
-          <Label>
-            Institution <span className="text-xs text-muted-foreground">/ கல்வி நிறுவனம்</span>
+          <Label htmlFor="institution_id">
+            Institution <span className="text-rose-500">*</span>
+            <span className="text-xs text-muted-foreground ml-1">/ கல்வி நிறுவனம்</span>
           </Label>
-          <Input
-            value={institutionName}
-            disabled
-            className="h-12 bg-muted/50"
-          />
+          {canSelectInstitution ? (
+            <Select
+              value={selectedInstitutionId}
+              onValueChange={(v) => {
+                setSelectedInstitutionId(v);
+                if (errors.institution) {
+                  setErrors((prev) => {
+                    const next = { ...prev };
+                    delete next.institution;
+                    return next;
+                  });
+                }
+              }}
+              disabled={submitting || institutionsLoading}
+            >
+              <SelectTrigger
+                id="institution_id"
+                className={`h-12 ${errors.institution ? 'border-rose-500' : ''}`}
+              >
+                <SelectValue placeholder={institutionsLoading ? 'Loading…' : 'Select institution'} />
+              </SelectTrigger>
+              <SelectContent>
+                {institutions.map((inst) => (
+                  <SelectItem key={inst.id} value={inst.id}>
+                    {inst.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : (
+            <Input
+              value={institutionsLoading ? 'Loading…' : institutionName}
+              disabled
+              className="h-12 bg-muted/50"
+            />
+          )}
+          {errors.institution && (
+            <p className="text-xs text-rose-600">{errors.institution}</p>
+          )}
         </div>
 
         {/* Programme */}
@@ -333,10 +394,18 @@ function GateEntryForm() {
           <Select
             value={form.program_id || PROGRAM_UNDECIDED}
             onValueChange={(v) => setDraftField('program_id', v === PROGRAM_UNDECIDED ? '' : v)}
-            disabled={submitting || programsLoading}
+            disabled={submitting || programsLoading || !institutionId}
           >
             <SelectTrigger id="program_id" className="h-12">
-              <SelectValue placeholder={programsLoading ? 'Loading…' : 'Pick a programme'} />
+              <SelectValue
+                placeholder={
+                  !institutionId
+                    ? 'Select an institution first'
+                    : programsLoading
+                    ? 'Loading…'
+                    : 'Pick a programme'
+                }
+              />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value={PROGRAM_UNDECIDED}>

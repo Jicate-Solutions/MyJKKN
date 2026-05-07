@@ -92,6 +92,7 @@ import {
   Stethoscope,
   LayoutDashboard,
   UsersRound,
+  ScanLine,
 } from 'lucide-react';
 import { CustomRole } from '@/types/auth';
 // FEATURE_FLAGS import removed - not used in sidebar filtering
@@ -478,7 +479,15 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // Admission Leads
   '/admission/leads': 'admission.leads.view',
   '/admission/leads/new': 'admission.leads.create',
+  '/admission/leads/work': 'admission.leads.view',
   '/admission/leads/[id]': 'admission.leads.view',
+
+  // Admission Gate Entry (kiosk capture flow — gate_security + admission staff)
+  // Without these, the trie falls back to `/admission` => admission.dashboard.view,
+  // which gate_security does NOT hold — they would be blocked at the route layer
+  // even though their own permissions are correct.
+  '/admission/gate-entry': 'admission.gate_entry.create',
+  '/admission/gate-entry/today': 'admission.gate_entry.view',
 
   // Admission Applications
   '/admission/applications': 'admission.applications.view',
@@ -1157,7 +1166,14 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'Admission CRM',
           active: pathname === '/admission' || pathname.startsWith('/admission/'),
           icon: UserCheck,
-          submenus: []
+          // Gate Entry surfaced in the sidebar (2026-05-07) so super_admin /
+          // admission staff / gate_security can reach the kiosk capture flow
+          // without first landing on /admission. Other admission features
+          // remain reachable via the in-page chip nav (AdmissionNav).
+          submenus: [
+            { href: '/admission/gate-entry', label: 'Gate Entry · Log', icon: ScanLine, active: pathname === '/admission/gate-entry' },
+            { href: '/admission/gate-entry/today', label: "Gate Entry · Today", icon: Clock, active: pathname === '/admission/gate-entry/today' },
+          ]
         }
       ]
     },
