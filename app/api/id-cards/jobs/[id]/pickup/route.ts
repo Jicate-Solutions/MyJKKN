@@ -11,7 +11,7 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, connection } from 'next/server';
 import { z } from 'zod';
 import { jsonOk, jsonError } from '@/lib/id-cards/responses';
-import { requireAgentToken } from '@/lib/id-cards/auth';
+import { requireAgentToken, isAuthFailure } from '@/lib/id-cards/auth';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import type { IdCardPrintJob } from '@/lib/id-cards/types';
 
@@ -24,7 +24,7 @@ export async function POST(
   await connection();
   try {
     const auth = requireAgentToken(request);
-    if (!auth.ok) return jsonError(auth.message, 'forbidden', auth.status);
+    if (isAuthFailure(auth)) return jsonError(auth.message, 'forbidden', auth.status);
 
     const { id } = await params;
     const parsed = idSchema.safeParse(id);

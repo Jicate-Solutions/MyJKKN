@@ -14,7 +14,7 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, connection } from 'next/server';
 import { z } from 'zod';
 import { jsonOk, jsonError } from '@/lib/id-cards/responses';
-import { requireUser, requireUserOrAgent } from '@/lib/id-cards/auth';
+import { requireUser, requireUserOrAgent, isAuthFailure } from '@/lib/id-cards/auth';
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 import {
   JOB_WRITER_ROLES,
@@ -39,7 +39,7 @@ export async function POST(request: NextRequest) {
   await connection();
   try {
     const auth = await requireUser(JOB_WRITER_ROLES);
-    if (!auth.ok) return jsonError(auth.message, 'forbidden', auth.status);
+    if (isAuthFailure(auth)) return jsonError(auth.message, 'forbidden', auth.status);
 
     let raw: unknown;
     try {
@@ -123,7 +123,7 @@ export async function GET(request: NextRequest) {
   try {
     // Either a user with a job-reader role OR a valid agent token may list jobs.
     const auth = await requireUserOrAgent(request, JOB_READER_ROLES);
-    if (!auth.ok) return jsonError(auth.message, 'forbidden', auth.status);
+    if (isAuthFailure(auth)) return jsonError(auth.message, 'forbidden', auth.status);
 
     const url = new URL(request.url);
     const parsed = getQuerySchema.safeParse({

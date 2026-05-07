@@ -5,12 +5,17 @@
 //   1. requireUser(roles) — Supabase session + role check (super_admin / registrar / admission_admin).
 //   2. requireAgentToken() — `Authorization: Bearer ${AGENT_PRINT_TOKEN}` header. Fail-closed if env unset.
 //
-// Both return a discriminated result so route handlers can early-return with the right status.
+// Both return a discriminated union so route handlers can early-return with the right status.
 
 import { NextRequest } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 
-export type AuthFailure = { ok: false; status: 401 | 403 | 500; message: string };
+export type AuthFailure = {
+  ok: false;
+  status: 401 | 403 | 500;
+  message: string;
+};
+
 export type UserAuthSuccess = {
   ok: true;
   kind: 'user';
@@ -18,17 +23,33 @@ export type UserAuthSuccess = {
   role: string;
   supabase: Awaited<ReturnType<typeof createClient>>;
 };
-export type AgentAuthSuccess = { ok: true; kind: 'agent' };
-export type EitherAuthSuccess = UserAuthSuccess | AgentAuthSuccess;
+
+export type AgentAuthSuccess = {
+  ok: true;
+  kind: 'agent';
+};
+
+/**
+ * Type guard so callers can narrow with one helper instead of relying on
+ * inline discriminant checks (which were occasionally not narrowing in
+ * single-line returns under our tsconfig).
+ */
+export function isAuthFailure(
+  result: { ok: boolean }
+): result is AuthFailure {
+  return result.ok === false;
+}
+
+export type UserAuthResult = UserAuthSuccess | AuthFailure;
+export type AgentAuthResult = AgentAuthSuccess | AuthFailure;
+export type EitherAuthResult = UserAuthSuccess | AgentAuthSuccess | AuthFailure;
 
 /**
  * Enforce a Supabase session AND that the user's `profiles.role` is in `allowedRoles`.
- *
- * Returns a discriminated union — call sites do `if (!auth.ok) return jsonError(...)`.
  */
 export async function requireUser(
   allowedRoles: readonly string[]
-): Promise<UserAuthSuccess | AuthFailure> {
+): Promise<UserAuthResult> {
   const supabase = await createClient();
   const {
     data: { user }
@@ -54,11 +75,9 @@ export async function requireUser(
 
 /**
  * Validate the agent print-station bearer token.
- *
- * Fail-closed: if `AGENT_PRINT_TOKEN` env var is unset, EVERY request is rejected
- * with 500. We do not silently grant access on a missing-secret config.
+ * Fail-closed: if `AGENT_PRINT_TOKEN` env var is unset, EVERY request is rejected with 500.
  */
-export function requireAgentToken(request: NextRequest): AgentAuthSuccess | AuthFailure {
+export function requireAgentToken(request: NextRequest): AgentAuthResult {
   const expected = process.env.AGENT_PRINT_TOKEN;
   if (!expected || expected.trim() === '') {
     return {
@@ -87,17 +106,14 @@ export function requireAgentToken(request: NextRequest): AgentAuthSuccess | Auth
 export async function requireUserOrAgent(
   request: NextRequest,
   allowedRoles: readonly string[]
-): Promise<EitherAuthSuccess | AuthFailure> {
-  const userAuth = await requireUser(allowedRoles);
-  if (userAuth.ok) return userAuth;
+): Promise<EitherAuthResult> {
+  const userAuth: UserAuthResult = await requireUser(allowedRoles);
+  if (!isAuthFailure(userAuth)) return userAuth;
 
-  // Only fall back to agent-token if the failure was an auth failure (401/403),
-  // not a server misconfiguration (500). Surface 500 from agent path if present.
-  const agentAuth = requireAgentToken(request);
-  if (agentAuth.ok) return agentAuth;
+  const agentAuth: AgentAuthResult = requireAgentToken(request);
+  if (!isAuthFailure(agentAuth)) return agentAuth;
 
-  // Both paths failed. Return the more informative failure.
-  // Prefer 500 (server misconfig) over 401/403 because it actually requires action.
+  // Both paths failed — prefer 500 (server misconfig) over 401/403.
   if (agentAuth.status === 500) return agentAuth;
   return userAuth;
 }

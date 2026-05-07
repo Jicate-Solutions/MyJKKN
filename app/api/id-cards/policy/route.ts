@@ -15,7 +15,7 @@ import { NextRequest, connection } from 'next/server';
 import { z } from 'zod';
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 import { jsonOk, jsonError } from '@/lib/id-cards/responses';
-import { requireUser } from '@/lib/id-cards/auth';
+import { requireUser, isAuthFailure } from '@/lib/id-cards/auth';
 import { ID_CARD_POLICY_KEYS, type IdCardPolicy, type IdCardPolicyKey } from '@/lib/id-cards/types';
 
 const getQuerySchema = z.object({
@@ -85,7 +85,7 @@ export async function PATCH(request: NextRequest) {
   await connection();
   try {
     const auth = await requireUser(['super_admin']);
-    if (!auth.ok) return jsonError(auth.message, 'forbidden', auth.status);
+    if (isAuthFailure(auth)) return jsonError(auth.message, 'forbidden', auth.status);
 
     let body: unknown;
     try {

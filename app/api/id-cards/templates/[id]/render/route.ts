@@ -10,7 +10,7 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, connection } from 'next/server';
 import { z } from 'zod';
 import { jsonOk, jsonError } from '@/lib/id-cards/responses';
-import { requireUserOrAgent } from '@/lib/id-cards/auth';
+import { requireUserOrAgent, isAuthFailure } from '@/lib/id-cards/auth';
 import { TEMPLATE_RENDER_ROLES } from '@/lib/id-cards/types';
 
 const paramsSchema = z.string().uuid();
@@ -27,7 +27,7 @@ export async function GET(
   await connection();
   try {
     const auth = await requireUserOrAgent(request, TEMPLATE_RENDER_ROLES);
-    if (!auth.ok) return jsonError(auth.message, 'forbidden', auth.status);
+    if (isAuthFailure(auth)) return jsonError(auth.message, 'forbidden', auth.status);
 
     const { id } = await params;
     const parsedId = paramsSchema.safeParse(id);
