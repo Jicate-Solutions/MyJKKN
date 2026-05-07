@@ -179,7 +179,14 @@ export function EditHosteliteDrawer({ learner, onClose }: Props) {
     !form.hostel_type || form.hostel_type === '' ? HOSTEL_TYPE_NONE : form.hostel_type;
 
   return (
-    <Sheet open={open} onOpenChange={handleOpenChange}>
+    // modal={false} — keeps the rest of the page interactive while the
+    // drawer is open. The bug-reporter FAB (z-[95]) and Quick-Pulse FAB
+    // (z-[100]) sit at fixed bottom-right; with modal={true} Radix marks
+    // their containers as inert and clicks silently no-op. The drawer
+    // still closes on ESC and overlay click — those are Radix defaults
+    // independent of `modal`. (BUG-003893 — PR #724 raised the bug-reporter
+    // modal z-index but the FAB itself remained inert.)
+    <Sheet open={open} onOpenChange={handleOpenChange} modal={false}>
       <SheetContent className='w-full sm:max-w-xl overflow-y-auto'>
         <SheetHeader>
           <SheetTitle>Edit hostel details</SheetTitle>
@@ -227,6 +234,30 @@ export function EditHosteliteDrawer({ learner, onClose }: Props) {
                     <Badge variant='outline' className='text-xs'>
                       {learner.accommodation_type ?? 'Not set'}
                     </Badge>
+                  </dd>
+                </div>
+                <div>
+                  <dt className='text-xs text-muted-foreground'>Father&apos;s name</dt>
+                  <dd className='text-xs'>{learner.father_name ?? '—'}</dd>
+                </div>
+                <div>
+                  <dt className='text-xs text-muted-foreground'>Mother&apos;s name</dt>
+                  <dd className='text-xs'>{learner.mother_name ?? '—'}</dd>
+                </div>
+                <div>
+                  <dt className='text-xs text-muted-foreground'>Hostel fee</dt>
+                  <dd className='text-xs'>
+                    {typeof learner.hostel_fee === 'number'
+                      ? `₹${learner.hostel_fee.toLocaleString('en-IN')}`
+                      : '—'}
+                  </dd>
+                </div>
+                <div>
+                  <dt className='text-xs text-muted-foreground'>Day-scholar fee</dt>
+                  <dd className='text-xs'>
+                    {typeof learner.dayscholar_fee === 'number'
+                      ? `₹${learner.dayscholar_fee.toLocaleString('en-IN')}`
+                      : '—'}
                   </dd>
                 </div>
               </dl>
