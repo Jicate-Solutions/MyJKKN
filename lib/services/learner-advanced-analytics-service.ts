@@ -261,7 +261,7 @@ export class LearnerAdvancedAnalyticsService {
 
   /**
    * Trend Analytics
-   * Gender ratio, category/community mix, first-generation, income distribution
+   * Gender ratio, community mix, first-generation, income distribution
    */
   static async getTrendMetrics(
     filters: LearnerDashboardFilters
@@ -270,7 +270,7 @@ export class LearnerAdvancedAnalyticsService {
 
     let query = supabase
       .from('learners_profiles')
-      .select('gender, category, community, first_graduate, annual_income');
+      .select('gender, community, first_graduate, annual_income');
 
     if (filters.institutionId) {
       query = query.eq('institution_id', filters.institutionId);

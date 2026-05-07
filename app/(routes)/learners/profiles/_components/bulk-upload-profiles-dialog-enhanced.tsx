@@ -532,7 +532,6 @@ export function BulkUploadProfilesDialogEnhanced({ onSuccess }: { onSuccess?: ()
               counseling_applied: sanitizeValue(mappedData.counseling_applied, 'text'),
               counseling_number: sanitizeValue(mappedData.counseling_number, 'text'),
               quota: sanitizeValue(mappedData.quota, 'text', 'quota'),
-              category: sanitizeValue(mappedData.category, 'text'),
 
               // SECTION 11: Reference Information
               reference_type: sanitizeValue(mappedData.reference_type, 'text'),
