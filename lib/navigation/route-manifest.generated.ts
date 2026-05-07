@@ -502,6 +502,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "children": []
       },
       {
+        "path": "/admin/lead-stages-policy",
+        "label": "Lead Stages Policy",
+        "iconName": "GitBranch",
+        "children": []
+      },
+      {
         "path": "/admin/lifecycle",
         "label": "Lifecycle",
         "iconName": "FileText",
