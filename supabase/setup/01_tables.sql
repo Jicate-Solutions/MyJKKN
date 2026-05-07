@@ -102,6 +102,8 @@ CREATE TABLE IF NOT EXISTS public.api_keys (
 CREATE TABLE IF NOT EXISTS public.institutions (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     name VARCHAR(255) NOT NULL,
+    -- Updated: 2026-05-07 - Added optional display_name (friendly label, falls back to name)
+    display_name VARCHAR(255),
     phone VARCHAR(20),
     email VARCHAR(255),
     website VARCHAR(255),
@@ -5489,7 +5491,8 @@ CREATE TABLE IF NOT EXISTS public.admission_fee_structures (
     department_id           uuid NOT NULL REFERENCES public.departments(id),
     programme_id            uuid NOT NULL REFERENCES public.programs(id),
     quota_id                uuid NOT NULL REFERENCES public.quotas(id),
-    community_category_id   uuid NOT NULL REFERENCES public.community_categories(id),
+    -- Community moved to junction table (admission_fee_structure_communities)
+    -- in migration 20260507120001 — one structure can apply to N communities.
     accommodation_type_id   uuid NOT NULL REFERENCES public.accommodation_types(id),
     admission_year_id       uuid NOT NULL REFERENCES public.admission_years(id),
     name                    text NOT NULL,
@@ -5499,9 +5502,7 @@ CREATE TABLE IF NOT EXISTS public.admission_fee_structures (
     created_at              timestamptz NOT NULL DEFAULT now(),
     updated_at              timestamptz NOT NULL DEFAULT now(),
     created_by              uuid REFERENCES public.profiles(id) ON DELETE SET NULL,
-    updated_by              uuid REFERENCES public.profiles(id) ON DELETE SET NULL,
-    UNIQUE (institution_id, degree_id, department_id, programme_id,
-            quota_id, community_category_id, accommodation_type_id, admission_year_id)
+    updated_by              uuid REFERENCES public.profiles(id) ON DELETE SET NULL
 );
 
 CREATE INDEX IF NOT EXISTS ix_fee_structures_institution_year_status
@@ -5511,6 +5512,22 @@ DROP TRIGGER IF EXISTS trg_admission_fee_structures_touch ON public.admission_fe
 CREATE TRIGGER trg_admission_fee_structures_touch
     BEFORE UPDATE ON public.admission_fee_structures
     FOR EACH ROW EXECUTE FUNCTION public._touch_updated_at();
+
+CREATE TABLE IF NOT EXISTS public.admission_fee_structure_communities (
+    fee_structure_id      uuid NOT NULL
+                          REFERENCES public.admission_fee_structures(id)
+                          ON DELETE CASCADE,
+    community_category_id uuid NOT NULL
+                          REFERENCES public.community_categories(id),
+    created_at            timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (fee_structure_id, community_category_id)
+);
+
+CREATE INDEX IF NOT EXISTS ix_fee_structure_communities_community
+    ON public.admission_fee_structure_communities (community_category_id);
+
+CREATE INDEX IF NOT EXISTS ix_fee_structure_communities_structure
+    ON public.admission_fee_structure_communities (fee_structure_id);
 
 CREATE TABLE IF NOT EXISTS public.admission_fee_structure_items (
     id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),

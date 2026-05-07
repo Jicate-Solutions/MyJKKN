@@ -2,10 +2,14 @@
 
 // fees-structure-dimension-selector.tsx
 //
-// Form-format alternative to the recursive tree-rail. 8 cascading <Select>
+// Form-format alternative to the recursive tree-rail. 7 cascading <Select>
 // dropdowns lay out horizontally on wide screens (4 cols), stacking on mobile.
-// Selecting a parent dim resets all descendants. When all 8 are picked, the
+// Selecting a parent dim resets all descendants. When all 7 are picked, the
 // parent page renders the form-mode editor below.
+//
+// Community is no longer one of these dimensions — it lives in the form's
+// own multi-select picker (one structure → N communities via the
+// admission_fee_structure_communities junction).
 //
 // Replaces the prior tree-rail (which is still in repo at
 // fees-structure-tree-rail.tsx) — the new selector is more accessible for
@@ -51,15 +55,11 @@ export function FeesStructureDimensionSelector({ selectedDims, onChange }: Props
   const [years, setYears] = useState<Option[]>([]);
   const [accommodations, setAccommodations] = useState<Option[]>([]);
   const [quotas, setQuotas] = useState<Option[]>([]);
-  const [communities, setCommunities] = useState<Option[]>([]);
 
   // Global lookups load once
   useEffect(() => {
     LookupService.listQuotas(true).then((rows) =>
       setQuotas(rows.map((r) => ({ id: r.id, name: r.name }))),
-    );
-    LookupService.listCommunityCategories(true).then((rows) =>
-      setCommunities(rows.map((r) => ({ id: r.id, name: r.name }))),
     );
   }, []);
 
@@ -131,7 +131,6 @@ export function FeesStructureDimensionSelector({ selectedDims, onChange }: Props
       admission_year_id: undefined,
       accommodation_type_id: undefined,
       quota_id: selectedDims.quota_id,
-      community_category_id: selectedDims.community_category_id,
     });
 
   const setDegree = (id: string) =>
@@ -162,8 +161,6 @@ export function FeesStructureDimensionSelector({ selectedDims, onChange }: Props
     onChange({ ...selectedDims, admission_year_id: id });
   const setQuota = (id: string) =>
     onChange({ ...selectedDims, quota_id: id });
-  const setCommunity = (id: string) =>
-    onChange({ ...selectedDims, community_category_id: id });
   const setAccommodation = (id: string) =>
     onChange({ ...selectedDims, accommodation_type_id: id });
 
@@ -176,7 +173,6 @@ export function FeesStructureDimensionSelector({ selectedDims, onChange }: Props
     && selectedDims.programme_id
     && selectedDims.admission_year_id
     && selectedDims.quota_id
-    && selectedDims.community_category_id
     && selectedDims.accommodation_type_id
   );
 
@@ -187,7 +183,6 @@ export function FeesStructureDimensionSelector({ selectedDims, onChange }: Props
     !selectedDims.programme_id && 'Programme',
     !selectedDims.admission_year_id && 'Admission Year',
     !selectedDims.quota_id && 'Quota',
-    !selectedDims.community_category_id && 'Community',
     !selectedDims.accommodation_type_id && 'Accommodation',
   ].filter(Boolean);
 
@@ -197,7 +192,9 @@ export function FeesStructureDimensionSelector({ selectedDims, onChange }: Props
         <div>
           <h2 className="text-sm font-medium">Select Fee Structure Dimensions</h2>
           <p className="text-xs text-muted-foreground">
-            Pick all 8 dimensions to view, edit, or create the fee structure for that combination.
+            Pick all 7 dimensions to view, edit, or create the fee structure
+            for that combination. Communities are selected separately in the
+            form below — one structure can cover N communities.
           </p>
         </div>
         <Button variant="ghost" size="sm" onClick={handleReset}>
@@ -356,26 +353,9 @@ export function FeesStructureDimensionSelector({ selectedDims, onChange }: Props
           </Select>
         </div>
 
-        {/* 7. Community Category (global lookup) */}
+        {/* 7. Accommodation Type (institution-scoped) */}
         <div className="space-y-1">
-          <Label className="text-xs">7. Community</Label>
-          <Select value={selectedDims.community_category_id ?? ''} onValueChange={setCommunity}>
-            <SelectTrigger className="w-full">
-              <SelectValue placeholder="Select community" />
-            </SelectTrigger>
-            <SelectContent>
-              {communities.map((c) => (
-                <SelectItem key={c.id} value={c.id}>
-                  {c.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-
-        {/* 8. Accommodation Type (institution-scoped) */}
-        <div className="space-y-1">
-          <Label className="text-xs">8. Accommodation</Label>
+          <Label className="text-xs">7. Accommodation</Label>
           <Select
             value={selectedDims.accommodation_type_id ?? ''}
             onValueChange={setAccommodation}
@@ -406,7 +386,7 @@ export function FeesStructureDimensionSelector({ selectedDims, onChange }: Props
       {allDimsSelected ? (
         <div className="flex items-center gap-2 text-xs text-emerald-700 bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900 rounded p-2">
           <CheckCircle2 className="h-4 w-4 shrink-0" />
-          <span>All 8 dimensions selected — fee structure form loaded below.</span>
+          <span>All 7 dimensions selected — fee structure form loaded below.</span>
         </div>
       ) : (
         <p className="text-xs text-muted-foreground">

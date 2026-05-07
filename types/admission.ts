@@ -1583,7 +1583,10 @@ export interface AdmissionFeeStructure {
   department_id: string;
   programme_id: string;
   quota_id: string;
-  community_category_id: string;
+  // Communities live in the admission_fee_structure_communities junction
+  // (migration 20260507120001). One structure → N communities. The list is
+  // surfaced on read shapes via `community_category_ids`. No single-community
+  // FK lives on this table any more.
   accommodation_type_id: string;
   admission_year_id: string;
   name: string;
@@ -1599,6 +1602,12 @@ export interface AdmissionFeeStructure {
   updated_at: string;
   created_by: string | null;
   updated_by: string | null;
+  /**
+   * Communities this structure applies to (from the junction table).
+   * Always populated by the read-side service queries; non-null & may be
+   * empty if the structure is mid-creation.
+   */
+  community_category_ids: string[];
 }
 
 export interface AdmissionFeeStructureItem {
@@ -1622,12 +1631,13 @@ export type CreateAdmissionFeeStructureInput =
     | 'department_id'
     | 'programme_id'
     | 'quota_id'
-    | 'community_category_id'
     | 'accommodation_type_id'
     | 'admission_year_id'
     | 'name'
   > &
   Partial<Pick<AdmissionFeeStructure, 'status' | 'notes' | 'effective_from' | 'effective_to'>> & {
+    /** N communities this structure applies to. Must contain at least one. */
+    community_category_ids: string[];
     items: Array<Pick<AdmissionFeeStructureItem, 'billing_category_id' | 'amount'> &
       Partial<Pick<AdmissionFeeStructureItem, 'is_optional' | 'sort_order'>>>;
   };
@@ -1636,20 +1646,27 @@ export type UpdateAdmissionFeeStructureInput =
   Partial<Pick<
     AdmissionFeeStructure,
     | 'name' | 'status' | 'notes' | 'effective_from' | 'effective_to'
-    // 8 matrix dimensions — editing them is supported but risky. The UNIQUE
-    // constraint on (8 dims + effective_from) will reject collisions; the UI
-    // layer warns the admin before submit.
+    // 7 matrix dimensions — editing them is supported but risky. The
+    // overlap-prevention trigger on the junction will reject conflicting
+    // moves; the UI layer warns the admin before submit.
     | 'institution_id' | 'degree_id' | 'department_id' | 'programme_id'
-    | 'quota_id' | 'community_category_id' | 'accommodation_type_id' | 'admission_year_id'
-  >>;
+    | 'quota_id' | 'accommodation_type_id' | 'admission_year_id'
+  >> & {
+    /** When provided, replaces the community set for this structure. */
+    community_category_ids?: string[];
+  };
 
+/**
+ * 7-dim matrix key. Community is no longer part of the matrix — it lives on
+ * the junction (admission_fee_structure_communities). The form's "find or
+ * create" lookup uses these 7 dims plus a list of communities.
+ */
 export interface FeeStructureMatrixDimensions {
   institution_id: string;
   degree_id: string;
   department_id: string;
   programme_id: string;
   quota_id: string;
-  community_category_id: string;
   accommodation_type_id: string;
   admission_year_id: string;
 }

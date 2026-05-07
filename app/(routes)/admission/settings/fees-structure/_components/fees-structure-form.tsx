@@ -16,11 +16,12 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { toast } from 'react-hot-toast';
-import { Plus, Trash2, AlertTriangle, Loader2, Archive, CheckCircle } from 'lucide-react';
+import { Plus, Trash2, AlertTriangle, Loader2, Archive, CheckCircle, X } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   Form,
   FormControl,
@@ -37,9 +38,23 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover';
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from '@/components/ui/command';
 
 import { FeeStructureService } from '@/lib/services/admission/fee-structure-service';
 import { BillingCategoryService } from '@/lib/services/billing/categories/billing-category-service';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { logActivityForCurrentUser } from '@/lib/utils/activity-logger-client';
 import { AdmissionFeesActivityTemplates } from '@/lib/utils/admission-fees-activity-templates';
 import { FeesStructureDimensionSelector } from './fees-structure-dimension-selector';
@@ -49,27 +64,61 @@ import type {
 } from '@/types/admission';
 import type { BillingCategory } from '@/types/billing';
 
+/**
+ * The form's `dims` prop carries the 7 matrix dimensions plus an optional
+ * `community_category_id` "leaf hint" — produced when the tree-rail leaf the
+ * user clicked is a specific community. The form uses that hint to find a
+ * matching structure (a structure may serve N communities; the hint picks
+ * which row to show); on Save, the multi-community picker drives which
+ * communities the structure actually covers.
+ */
+type DimsWithLeafCommunity = Partial<FeeStructureMatrixDimensions> & {
+  community_category_id?: string;
+};
+
+interface Community {
+  id: string;
+  name: string;
+}
+
 interface Props {
-  dims: Partial<FeeStructureMatrixDimensions>;
+  dims: DimsWithLeafCommunity;
   onChanged?: () => void;
 }
 
 export function FeesStructureForm({ dims, onChanged }: Props) {
   const [structure, setStructure] = useState<AdmissionFeeStructureWithItems | null>(null);
   const [categories, setCategories] = useState<BillingCategory[]>([]);
+  const [communityOptions, setCommunityOptions] = useState<Community[]>([]);
   const [loading, setLoading] = useState(false);
   // Bumping reloadTick re-runs the dim lookup so child forms can request a
   // refetch of the parent state after a mutation.
   const [reloadTick, setReloadTick] = useState(0);
 
   useEffect(() => {
-    if (!isFullDims(dims)) {
+    if (!hasSevenDims(dims)) {
+      setStructure(null);
+      return;
+    }
+    // Without a leaf community we can't disambiguate among the N structures
+    // that may share these 7 dims, so we treat this as "create new" — no
+    // existing-structure lookup. The /new page hits this branch.
+    if (!dims.community_category_id) {
       setStructure(null);
       return;
     }
     let cancelled = false;
     setLoading(true);
-    FeeStructureService.findByDimensions(dims as FeeStructureMatrixDimensions)
+    const sevenDims: FeeStructureMatrixDimensions = {
+      institution_id:        dims.institution_id!,
+      degree_id:             dims.degree_id!,
+      department_id:         dims.department_id!,
+      programme_id:          dims.programme_id!,
+      quota_id:              dims.quota_id!,
+      accommodation_type_id: dims.accommodation_type_id!,
+      admission_year_id:     dims.admission_year_id!,
+    };
+    FeeStructureService.findByDimensions(sevenDims, dims.community_category_id!)
       .then((s) => {
         if (!cancelled) setStructure(s);
       })
@@ -94,17 +143,33 @@ export function FeesStructureForm({ dims, onChanged }: Props) {
       });
   }, []);
 
+  // Load all communities once for the multi-select picker.
+  useEffect(() => {
+    const supabase = createClientSupabaseClient();
+    (supabase as any)
+      .from('community_categories')
+      .select('id, name')
+      .order('name')
+      .then(({ data, error }: { data: Community[] | null; error: any }) => {
+        if (error) {
+          console.error('Failed to load communities', error);
+          toast.error('Failed to load community list');
+          return;
+        }
+        setCommunityOptions(data ?? []);
+      });
+  }, []);
+
   const handleStructureChanged = () => {
     setReloadTick((t) => t + 1);
     onChanged?.();
   };
 
-  if (!isFullDims(dims)) {
+  if (!hasSevenDims(dims)) {
     return (
       <div className="text-sm text-muted-foreground py-12 text-center">
         <p>
-          Select an admission-year leaf in the tree (drill all the way down) to view
-          or create a fee structure.
+          Pick all 7 matrix dimensions to view, edit, or create a fee structure.
         </p>
       </div>
     );
@@ -120,8 +185,20 @@ export function FeesStructureForm({ dims, onChanged }: Props) {
   if (!structure) {
     return (
       <NewStructureForm
-        dims={dims as FeeStructureMatrixDimensions}
+        dims={{
+          institution_id:        dims.institution_id!,
+          degree_id:             dims.degree_id!,
+          department_id:         dims.department_id!,
+          programme_id:          dims.programme_id!,
+          quota_id:              dims.quota_id!,
+          accommodation_type_id: dims.accommodation_type_id!,
+          admission_year_id:     dims.admission_year_id!,
+        }}
+        // Leaf hint is optional; absent on /new where the user hasn't drilled
+        // into a community yet. The form treats it as a default selection.
+        leafCommunityId={dims.community_category_id ?? null}
         categories={categories}
+        communityOptions={communityOptions}
         onCreated={handleStructureChanged}
       />
     );
@@ -130,19 +207,24 @@ export function FeesStructureForm({ dims, onChanged }: Props) {
     <ExistingStructureEditor
       structure={structure}
       categories={categories}
+      communityOptions={communityOptions}
       onChanged={handleStructureChanged}
     />
   );
 }
 
-function isFullDims(d: Partial<FeeStructureMatrixDimensions>): boolean {
+/**
+ * The form requires the 7 matrix dimensions to be set. A leaf-community hint
+ * (if provided) is used only to look up an existing structure for editing —
+ * absent on /new. The community list is set inside the form itself.
+ */
+function hasSevenDims(d: DimsWithLeafCommunity): boolean {
   return !!(
     d.institution_id &&
     d.degree_id &&
     d.department_id &&
     d.programme_id &&
     d.quota_id &&
-    d.community_category_id &&
     d.accommodation_type_id &&
     d.admission_year_id
   );
@@ -171,6 +253,9 @@ const newSchema = z
     // string means "no bound" (persisted as NULL).
     effective_from: z.string().optional(),
     effective_to: z.string().optional(),
+    community_category_ids: z
+      .array(z.string().min(1))
+      .min(1, 'Select at least one community'),
     items: z.array(itemSchema).min(1, 'Add at least one fee item'),
   })
   .refine(
@@ -187,11 +272,16 @@ type NewFormValues = z.infer<typeof newSchema>;
 
 function NewStructureForm({
   dims,
+  leafCommunityId,
   categories,
+  communityOptions,
   onCreated,
 }: {
   dims: FeeStructureMatrixDimensions;
+  /** Tree-rail leaf community — pre-fills the multi-select. Null on /new. */
+  leafCommunityId: string | null;
   categories: BillingCategory[];
+  communityOptions: Community[];
   onCreated: () => void;
 }) {
   const [submitting, setSubmitting] = useState(false);
@@ -204,11 +294,18 @@ function NewStructureForm({
       notes: '',
       effective_from: '',
       effective_to: '',
+      // Pre-fill with the tree-leaf community when one is provided, so the
+      // structure created here covers the leaf the user just clicked. The
+      // user can add more communities before saving — the whole point of
+      // this multi-select is letting them declare "BC, MBC, OBC all share
+      // these fees" in one create flow.
+      community_category_ids: leafCommunityId ? [leafCommunityId] : [],
       items: [],
     },
   });
 
   const items = form.watch('items');
+  const communityIds = form.watch('community_category_ids');
 
   const remainingCategories = useMemo(
     () =>
@@ -248,6 +345,7 @@ function NewStructureForm({
     try {
       await FeeStructureService.create({
         ...dims,
+        community_category_ids: values.community_category_ids,
         name: values.name,
         status: values.status,
         notes: values.notes || null,
@@ -260,7 +358,11 @@ function NewStructureForm({
           sort_order: i,
         })),
       });
-      toast.success('Fee structure created');
+      toast.success(
+        values.community_category_ids.length === 1
+          ? 'Fee structure created'
+          : `Fee structure created for ${values.community_category_ids.length} communities`,
+      );
       onCreated();
     } catch (err) {
       console.error(err);
@@ -278,7 +380,8 @@ function NewStructureForm({
         <div className="border-b pb-2 mb-2">
           <h2 className="text-lg font-semibold">New Fee Structure</h2>
           <p className="text-xs text-muted-foreground">
-            Create a fee structure for the selected 8-dim combination.
+            Pick the communities this fee schedule covers — the same fees
+            often apply to multiple communities (BC + MBC + OBC, etc.).
           </p>
         </div>
 
@@ -295,6 +398,14 @@ function NewStructureForm({
               <FormMessage />
             </FormItem>
           )}
+        />
+
+        <CommunityMultiSelectField
+          control={form.control}
+          name="community_category_ids"
+          options={communityOptions}
+          value={communityIds}
+          onChange={(ids) => form.setValue('community_category_ids', ids, { shouldValidate: true })}
         />
 
         <FormField
@@ -429,10 +540,12 @@ interface DraftItem {
 function ExistingStructureEditor({
   structure,
   categories,
+  communityOptions,
   onChanged,
 }: {
   structure: AdmissionFeeStructureWithItems;
   categories: BillingCategory[];
+  communityOptions: Community[];
   onChanged: () => void;
 }) {
   const [submitting, setSubmitting] = useState(false);
@@ -448,7 +561,7 @@ function ExistingStructureEditor({
       .sort((a, b) => a.sort_order - b.sort_order),
   );
 
-  // Editable copy of the 8 matrix dimensions. Seeded from the loaded
+  // Editable copy of the 7 matrix dimensions. Seeded from the loaded
   // structure; updated via the FeesStructureDimensionSelector. Saved as part
   // of handleSaveAll.
   const initialDims: FeeStructureMatrixDimensions = {
@@ -457,12 +570,17 @@ function ExistingStructureEditor({
     department_id: structure.department_id,
     programme_id: structure.programme_id,
     quota_id: structure.quota_id,
-    community_category_id: structure.community_category_id,
     accommodation_type_id: structure.accommodation_type_id,
     admission_year_id: structure.admission_year_id,
   };
   const [editableDims, setEditableDims] =
     useState<Partial<FeeStructureMatrixDimensions>>(initialDims);
+
+  // Editable community list — sourced from the junction. Defaults to whatever
+  // the structure currently covers. Add/remove flows back through update().
+  const [editableCommunityIds, setEditableCommunityIds] = useState<string[]>(
+    structure.community_category_ids ?? [],
+  );
 
   // Reset local state if the structure prop changes (different leaf clicked).
   useEffect(() => {
@@ -483,11 +601,11 @@ function ExistingStructureEditor({
       department_id: structure.department_id,
       programme_id: structure.programme_id,
       quota_id: structure.quota_id,
-      community_category_id: structure.community_category_id,
       accommodation_type_id: structure.accommodation_type_id,
       admission_year_id: structure.admission_year_id,
     });
-  }, [structure.id, structure.items, structure.institution_id, structure.degree_id, structure.department_id, structure.programme_id, structure.quota_id, structure.community_category_id, structure.accommodation_type_id, structure.admission_year_id]);
+    setEditableCommunityIds(structure.community_category_ids ?? []);
+  }, [structure.id, structure.items, structure.institution_id, structure.degree_id, structure.department_id, structure.programme_id, structure.quota_id, structure.accommodation_type_id, structure.admission_year_id, structure.community_category_ids]);
 
   const form = useForm<EditFormValues>({
     resolver: zodResolver(editSchema),
@@ -522,11 +640,19 @@ function ExistingStructureEditor({
   const dimsChanged = useMemo(() => {
     const k: Array<keyof FeeStructureMatrixDimensions> = [
       'institution_id', 'degree_id', 'department_id', 'programme_id',
-      'quota_id', 'community_category_id', 'accommodation_type_id', 'admission_year_id',
+      'quota_id', 'accommodation_type_id', 'admission_year_id',
     ];
     return k.some((key) => editableDims[key] !== initialDims[key]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editableDims, structure.id]);
+
+  // Tracked separately because community lives in the junction.
+  const communitiesChanged = useMemo(() => {
+    const a = [...(structure.community_category_ids ?? [])].sort();
+    const b = [...editableCommunityIds].sort();
+    if (a.length !== b.length) return true;
+    return a.some((v, i) => v !== b[i]);
+  }, [structure.community_category_ids, editableCommunityIds]);
 
   const remainingCategories = useMemo(
     () =>
@@ -587,10 +713,10 @@ function ExistingStructureEditor({
   };
 
   const handleSaveAll = async (values: EditFormValues) => {
-    // Block save if dims are partially filled — all 8 must remain set.
+    // Block save if dims are partially filled — all 7 must remain set.
     const dimKeys: Array<keyof FeeStructureMatrixDimensions> = [
       'institution_id', 'degree_id', 'department_id', 'programme_id',
-      'quota_id', 'community_category_id', 'accommodation_type_id', 'admission_year_id',
+      'quota_id', 'accommodation_type_id', 'admission_year_id',
     ];
     const missingDim = dimKeys.find((k) => !editableDims[k]);
     if (missingDim) {
@@ -608,10 +734,16 @@ function ExistingStructureEditor({
         (values.effective_from ?? '') !== (structure.effective_from ?? '');
       const effectiveToChanged =
         (values.effective_to ?? '') !== (structure.effective_to ?? '');
+      if (editableCommunityIds.length === 0) {
+        toast.error('At least one community must remain on this fee structure.');
+        setSubmitting(false);
+        return;
+      }
+
       if (
         nameChanged || statusChanged || notesChanged ||
         effectiveFromChanged || effectiveToChanged ||
-        dimsChanged
+        dimsChanged || communitiesChanged
       ) {
         await FeeStructureService.update(structure.id, {
           name: values.name,
@@ -627,9 +759,13 @@ function ExistingStructureEditor({
             department_id: editableDims.department_id!,
             programme_id: editableDims.programme_id!,
             quota_id: editableDims.quota_id!,
-            community_category_id: editableDims.community_category_id!,
             accommodation_type_id: editableDims.accommodation_type_id!,
             admission_year_id: editableDims.admission_year_id!,
+          } : {}),
+          // Only send community list when it actually changed — a no-op diff
+          // skips the read-back-and-replace round-trip on the junction.
+          ...(communitiesChanged ? {
+            community_category_ids: editableCommunityIds,
           } : {}),
         });
       }
@@ -849,13 +985,34 @@ function ExistingStructureEditor({
         <div className="space-y-2 border-t pt-4">
           <label className="text-sm font-medium block">Matrix Dimensions</label>
           <p className="text-xs text-muted-foreground">
-            All 8 dimensions form the unique key of this fee structure. Changing
-            any of them moves this structure to a different matrix slot.
+            7 dimensions plus the community list below form the unique key of
+            this fee structure. Changing a dimension moves it to a different
+            matrix slot.
           </p>
           <FeesStructureDimensionSelector
             selectedDims={editableDims}
             onChange={setEditableDims}
           />
+        </div>
+
+        <div className="space-y-2 border-t pt-4">
+          <label className="text-sm font-medium block">Communities Covered</label>
+          <p className="text-xs text-muted-foreground">
+            This fee schedule applies to every community in the list below. Add
+            or remove communities to share the same fees across multiple
+            categories.
+          </p>
+          <CommunityChipPicker
+            options={communityOptions}
+            value={editableCommunityIds}
+            onChange={setEditableCommunityIds}
+          />
+          {communitiesChanged && (
+            <p className="text-xs text-amber-700 dark:text-amber-300">
+              Community list changed — leads in removed communities will lose
+              this fee schedule on their next resolution.
+            </p>
+          )}
         </div>
 
         <ItemsEditor
@@ -1042,4 +1199,130 @@ function ItemsEditor({
 
 function categoryName(categories: BillingCategory[], id: string): string {
   return categories.find((c) => c.id === id)?.category_name ?? id;
+}
+
+// ===========================================================================
+// CommunityChipPicker — Popover + searchable command list with checkbox rows.
+// Shared by the new-structure form (via the FormField wrapper) and the
+// existing-structure editor.
+// ===========================================================================
+function CommunityChipPicker({
+  options,
+  value,
+  onChange,
+}: {
+  options: Community[];
+  value: string[];
+  onChange: (ids: string[]) => void;
+}) {
+  const [open, setOpen] = useState(false);
+
+  const toggle = (id: string) => {
+    onChange(value.includes(id) ? value.filter((v) => v !== id) : [...value, id]);
+  };
+
+  const selectedNames = useMemo(() => {
+    return value
+      .map((id) => options.find((o) => o.id === id)?.name)
+      .filter((n): n is string => !!n);
+  }, [value, options]);
+
+  return (
+    <div className="space-y-2">
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <Button
+            type="button"
+            variant="outline"
+            role="combobox"
+            aria-expanded={open}
+            className="w-full justify-between font-normal"
+          >
+            {value.length === 0
+              ? 'Select communities…'
+              : `${value.length} ${value.length === 1 ? 'community' : 'communities'} selected`}
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
+          <Command>
+            <CommandInput placeholder="Search communities…" />
+            <CommandList>
+              <CommandEmpty>No communities found.</CommandEmpty>
+              <CommandGroup>
+                {options.map((opt) => (
+                  <CommandItem
+                    key={opt.id}
+                    value={opt.name}
+                    onSelect={() => toggle(opt.id)}
+                  >
+                    <Checkbox checked={value.includes(opt.id)} className="mr-2" />
+                    {opt.name}
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+            </CommandList>
+          </Command>
+        </PopoverContent>
+      </Popover>
+
+      {selectedNames.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {value.map((id) => {
+            const opt = options.find((o) => o.id === id);
+            if (!opt) return null;
+            return (
+              <Badge key={id} variant="secondary" className="gap-1">
+                {opt.name}
+                <button
+                  type="button"
+                  onClick={() => toggle(id)}
+                  className="ml-0.5 rounded-full hover:bg-muted-foreground/20"
+                  aria-label={`Remove ${opt.name}`}
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </Badge>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// react-hook-form integration for the new-structure form. Surfaces the same
+// chip picker but routes value/error through the form context so the schema's
+// "min 1" validation error renders.
+function CommunityMultiSelectField({
+  control,
+  name,
+  options,
+  value,
+  onChange,
+}: {
+  control: any;
+  name: 'community_category_ids';
+  options: Community[];
+  value: string[];
+  onChange: (ids: string[]) => void;
+}) {
+  return (
+    <FormField
+      control={control}
+      name={name}
+      render={() => (
+        <FormItem>
+          <FormLabel>Communities</FormLabel>
+          <FormControl>
+            <CommunityChipPicker options={options} value={value} onChange={onChange} />
+          </FormControl>
+          <FormDescription>
+            One fee structure can apply to multiple communities — pick every
+            community that shares this fee schedule.
+          </FormDescription>
+          <FormMessage />
+        </FormItem>
+      )}
+    />
+  );
 }

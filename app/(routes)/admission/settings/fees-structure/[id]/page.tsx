@@ -179,14 +179,20 @@ function FeeStructureDetailPageContent({ id }: { id: string }) {
     }
   };
 
-  const dims: Partial<FeeStructureMatrixDimensions> | null = structure
+  const dims:
+    | (Partial<FeeStructureMatrixDimensions> & { community_category_id?: string })
+    | null = structure
     ? {
         institution_id: structure.institution_id,
         degree_id: structure.degree_id,
         department_id: structure.department_id,
         programme_id: structure.programme_id,
         quota_id: structure.quota_id,
-        community_category_id: structure.community_category_id,
+        // Leaf-community hint: pick the first community linked to this
+        // structure so the form's findByDimensions lookup resolves to this
+        // exact row. The form's editor then surfaces the full community list
+        // for the operator to edit.
+        community_category_id: structure.community_category_ids?.[0],
         accommodation_type_id: structure.accommodation_type_id,
         admission_year_id: structure.admission_year_id,
       }
@@ -370,9 +376,20 @@ function FeeStructureDetailPageContent({ id }: { id: string }) {
                   />
                   <DimCard
                     icon={<Users className="h-4 w-4" />}
-                    label="Community"
+                    label={
+                      structure.community_category_ids.length > 1
+                        ? `Communities (${structure.community_category_ids.length})`
+                        : 'Community'
+                    }
                     name={structure.community_name}
-                    id={structure.community_category_id}
+                    // Show first id when one community; for multi, omit the
+                    // single-id badge and let the joined `community_name`
+                    // string carry the comma-separated list.
+                    id={
+                      structure.community_category_ids.length === 1
+                        ? structure.community_category_ids[0]
+                        : ''
+                    }
                   />
                   <DimCard
                     icon={<Home className="h-4 w-4" />}
@@ -382,9 +399,9 @@ function FeeStructureDetailPageContent({ id }: { id: string }) {
                   />
                 </div>
                 <p className="text-xs text-muted-foreground mt-3">
-                  Click <em>Edit</em> to change any dimension. Note that the 8 dimensions
-                  form the unique matrix key — saving with a combination already used by
-                  another structure will be rejected.
+                  Click <em>Edit</em> to change any dimension. The 7 dimensions plus the
+                  community list form the structure&apos;s identity — saving in a way that
+                  conflicts with another active structure&apos;s coverage will be rejected.
                 </p>
               </section>
               )}
