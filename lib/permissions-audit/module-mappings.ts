@@ -71,6 +71,10 @@ function deriveCategoryKey(moduleName: string): string | undefined {
  */
 export const CATEGORY_ONLY_MODULES: ReadonlyArray<readonly [string, string]> = [
   ['Documents', 'documents'],
+  // AI Pulse re-glue (post-#728 revert): module exists at the route layer
+  // (/ai-pulse landing page) but the substrate tables ship in PR #747+.
+  // CATEGORY_ONLY_MODULES until then.
+  ['AI Pulse', 'system'],
 ];
 
 /**
@@ -127,6 +131,7 @@ export const ROUTE_PREFIX_TO_MODULE: ReadonlyArray<readonly [string, string]> = 
   ['/accreditation', 'System'],
   ['/audit-trail', 'System'],
   ['/work-pulse', 'Work Pulse'],
+  ['/ai-pulse', 'AI Pulse'],
   ['/my-bug-reports', 'Bug Reports'],
   ['/bug-leaderboard', 'Bug Reports'],
   ['/admission', 'Admission'],
