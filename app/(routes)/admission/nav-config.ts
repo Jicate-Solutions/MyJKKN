@@ -126,6 +126,12 @@ const config: ModuleNavConfig = {
           matchPaths: ['/admission/counselors/daily-view'],
         },
         {
+          label: 'Director Pulse',
+          icon: 'Activity',
+          href: '/admission/counselors/director-pulse',
+          matchPaths: ['/admission/counselors/director-pulse'],
+        },
+        {
           label: 'Call Logs',
           icon: 'Phone',
           href: '/admission/counselors/calls',
