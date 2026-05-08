@@ -57,5 +57,42 @@ try { assertNoForbidden({ first_name: 'Boobalan' }); }
 catch { threw = true; }
 assert(!threw, 'assertNoForbidden does NOT throw on first_name');
 
-if (failures > 0) { console.error(`\n${failures} failure(s)`); process.exit(1); }
-console.log('\nAll whitelist checks passed.');
+// 5. Schema existence check — every column in every section must exist on
+//    learners_profiles. Without this, a typo in the whitelist becomes a
+//    silent no-op (Postgres will accept the UPDATE but skip unknown cols).
+async function verifySchemaExistence(): Promise<void> {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) {
+    console.warn('SKIP: schema check (NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY missing)');
+    return;
+  }
+  const { createClient } = await import('@supabase/supabase-js');
+  const sb = createClient(url, key);
+  const allCols = [
+    ...STUDENT_WRITABLE_COLUMNS.basic,
+    ...STUDENT_WRITABLE_COLUMNS.academic,
+    ...STUDENT_WRITABLE_COLUMNS.contact,
+  ];
+  const { data, error } = await sb
+    .from('information_schema.columns' as any)
+    .select('column_name')
+    .eq('table_schema', 'public')
+    .eq('table_name', 'learners_profiles')
+    .in('column_name', allCols);
+  if (error) {
+    console.error('FAIL: schema query error:', error.message);
+    failures++;
+    return;
+  }
+  const existing = new Set((data ?? []).map((r: any) => r.column_name));
+  for (const col of allCols) {
+    assert(existing.has(col), `column '${col}' exists on learners_profiles`);
+  }
+}
+
+(async () => {
+  await verifySchemaExistence();
+  if (failures > 0) { console.error(`\n${failures} failure(s)`); process.exit(1); }
+  console.log('\nAll whitelist checks passed.');
+})();

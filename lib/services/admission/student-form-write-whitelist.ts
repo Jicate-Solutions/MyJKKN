@@ -16,7 +16,7 @@ export const STUDENT_WRITABLE_COLUMNS = {
     'annual_income',
   ],
   academic: [
-    'tenth_marks', 'twelfth_marks', 'twelfth_group',
+    'tenth_marks', 'twelfth_marks',
     'last_school', 'board_of_study',
     'neet_roll_number', 'neet_score',
     'counseling_applied', 'counseling_number',
