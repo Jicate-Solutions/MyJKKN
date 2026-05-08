@@ -115,10 +115,14 @@ export function StudentFormQRDialog({ open, onOpenChange, learnerProfileId }: Pr
           )}
         </div>
         <DialogFooter className="gap-2">
-          <Button variant="outline" size="sm" onClick={generate} disabled={generating}>
+          {/* type='button' is defensive — Radix Dialog renders in a portal so
+              these buttons are outside the form's DOM tree, but adding it
+              avoids any framework-version surprise where form submission
+              could leak through portals. */}
+          <Button type="button" variant="outline" size="sm" onClick={generate} disabled={generating}>
             <RefreshCw className="h-4 w-4 mr-1" /> Regenerate
           </Button>
-          <Button variant="ghost" size="sm" onClick={() => onOpenChange(false)}>Close</Button>
+          <Button type="button" variant="ghost" size="sm" onClick={() => onOpenChange(false)}>Close</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

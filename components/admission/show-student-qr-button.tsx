@@ -16,8 +16,18 @@ export function ShowStudentQRButton({ learnerProfileId, alreadySubmitted, size =
   return (
     <>
       <Button
+        type="button"
         size={size}
-        onClick={() => setOpen(true)}
+        onClick={(e) => {
+          // Prevent native form submission when this button is rendered
+          // inside a <form> (e.g. /learners/enquiries/[id]/edit). Without
+          // explicit type='button' AND stopPropagation, react-hook-form
+          // sees the click as a submit and fires onInvalid, producing the
+          // 'Validation Failed: Please check Basic Details' toast.
+          e.preventDefault();
+          e.stopPropagation();
+          setOpen(true);
+        }}
         disabled={alreadySubmitted}
         title={alreadySubmitted ? 'Student form already submitted' : 'Show QR for student to scan'}
         className="gap-1"
