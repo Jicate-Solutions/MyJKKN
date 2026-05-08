@@ -1599,8 +1599,13 @@ CREATE POLICY "email_logs_select_admin" ON bug_report_email_logs
 -- SECTION 11: RESOURCE MANAGEMENT MODULE TABLES
 -- ================================================================================
 
--- RESOURCES TABLE (2 policies)
--- Updated: 2025-01-30 - Fixed to use profiles.institution_id instead of user_institution_access
+-- RESOURCES TABLE (4 policies)
+-- Updated: 2026-05-08 - Migrated INSERT/UPDATE/DELETE to canonical permission +
+--                       role_has_institution_access() pattern (see migration
+--                       20260509153000_resources_perm_based_rls.sql) so any
+--                       role granted resources.resources.* in the role catalog
+--                       can write within its institutional scope without
+--                       hardcoding profile.role values in policy SQL.
 ALTER TABLE resources ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "resources_select_institution" ON resources
@@ -1611,13 +1616,45 @@ CREATE POLICY "resources_select_institution" ON resources
         )
     );
 
-CREATE POLICY "resources_all_admin" ON resources
-    FOR ALL USING (
-        institution_id IN (
-            SELECT institution_id FROM profiles
-            WHERE id = auth.uid() AND institution_id IS NOT NULL
+CREATE POLICY "resources_insert_perm" ON resources
+    FOR INSERT
+    WITH CHECK (
+        is_super_admin()
+        OR is_admin(auth.uid())
+        OR (
+            role_has_institution_access(institution_id)
+            AND user_has_permission('resources.resources.create')
         )
-        AND user_has_permission('resources.manage')
+    );
+
+CREATE POLICY "resources_update_perm" ON resources
+    FOR UPDATE
+    USING (
+        is_super_admin()
+        OR is_admin(auth.uid())
+        OR (
+            role_has_institution_access(institution_id)
+            AND user_has_permission('resources.resources.edit')
+        )
+    )
+    WITH CHECK (
+        is_super_admin()
+        OR is_admin(auth.uid())
+        OR (
+            role_has_institution_access(institution_id)
+            AND user_has_permission('resources.resources.edit')
+        )
+    );
+
+CREATE POLICY "resources_delete_perm" ON resources
+    FOR DELETE
+    USING (
+        is_super_admin()
+        OR is_admin(auth.uid())
+        OR (
+            role_has_institution_access(institution_id)
+            AND user_has_permission('resources.resources.delete')
+        )
     );
 
 -- RESOURCE_RESERVATIONS TABLE (4 policies)
