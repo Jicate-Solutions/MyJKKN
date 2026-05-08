@@ -137,11 +137,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     father_mobile: lead.parent_phone || '',
     mother_name: '',
     mother_mobile: '',
-    // Referral attribution — preserve the source that brought this lead in.
-    // These columns were added to learners_profiles on 2026-04-18. Before that
-    // migration this data was dropped on conversion; now it flows through.
-    referral_type: lead.referral_type || null,
-    referred_by_id: lead.referred_by_id || null,
+    // Referral attribution — referred_by_id / referral_type are DEFERRED to
+    // step 7b. Setting referred_by_id on this INSERT fires the learner-side
+    // sync trigger BEFORE step 7 links the lead, racing the lead-side trigger
+    // and violating uniq_attribution_consultant_learner. referred_by_name is
+    // a plain text shadow with no triggers attached, so it stays here.
     referred_by_name: lead.referred_by_name || null,
     // Required fields with safe defaults
     lifecycle_status: 'enquiry',
@@ -195,6 +195,36 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       { error: `Failed to link profile to lead: ${updateError.message}` },
       { status: 500 }
     );
+  }
+
+  // ── 7b. Propagate referral attribution onto the new learner ────────────────
+  // Deferred from step 5 to break a trigger race:
+  //   step 6 INSERT learner with referred_by_id  →  learner-trigger inserts
+  //     attribution row L (admission_id=NULL, learner_profile_id=new) because
+  //     the lead doesn't yet point at the learner.
+  //   step 7 UPDATE lead.learner_profile_id      →  lead-trigger DO UPDATEs
+  //     existing row A to set learner_profile_id=new, colliding with row L on
+  //     uniq_attribution_consultant_learner.
+  // By updating referred_by_id here — after the lead is linked — the
+  // learner-trigger's EXISTS guard finds the lead-link and skips the insert,
+  // so only row A (now populated with learner_profile_id) remains.
+  if (lead.referred_by_id || lead.referral_type) {
+    const { error: refError } = await (svc as any)
+      .from('learners_profiles')
+      .update({
+        referred_by_id: lead.referred_by_id || null,
+        referral_type: lead.referral_type || null,
+      })
+      .eq('id', profile.id);
+    if (refError) {
+      // Non-fatal: row A on consultant_lead_attributions already carries the
+      // consultant link via the lead-trigger; the learner's referred_by_id
+      // column is a denormalized convenience that read sites can fall back on.
+      console.warn(
+        '[bridge/convert] Could not propagate referral attribution to learner:',
+        refError.message
+      );
+    }
   }
 
   // ── 8. Self-heal the lead's own admission_year_id when we re-resolved it ───
