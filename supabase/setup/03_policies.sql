@@ -1743,14 +1743,18 @@ ALTER TABLE resource_parent_categories ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "parent_cat_select_all" ON resource_parent_categories
     FOR SELECT USING (true);
 
-CREATE POLICY "parent_cat_insert_admin" ON resource_parent_categories
-    FOR INSERT WITH CHECK (is_super_admin());
+-- Permission-driven write policies (see migration
+-- 20260509110001_resource_categories_perm_based_rls.sql).
+-- user_has_permission() bypasses for super_admin via is_super_admin=true,
+-- so no separate is_super_admin() OR clause is required.
+CREATE POLICY "parent_cat_insert_perm" ON resource_parent_categories
+    FOR INSERT WITH CHECK (user_has_permission('resources.categories.create'));
 
-CREATE POLICY "parent_cat_update_admin" ON resource_parent_categories
-    FOR UPDATE USING (is_super_admin());
+CREATE POLICY "parent_cat_update_perm" ON resource_parent_categories
+    FOR UPDATE USING (user_has_permission('resources.categories.edit'));
 
-CREATE POLICY "parent_cat_delete_admin" ON resource_parent_categories
-    FOR DELETE USING (is_super_admin());
+CREATE POLICY "parent_cat_delete_perm" ON resource_parent_categories
+    FOR DELETE USING (user_has_permission('resources.categories.delete'));
 
 CREATE POLICY "parent_cat_select_active" ON resource_parent_categories
     FOR SELECT USING (status = 'active');
@@ -1760,14 +1764,14 @@ ALTER TABLE resource_sub_categories ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "sub_cat_select_all" ON resource_sub_categories
     FOR SELECT USING (true);
 
-CREATE POLICY "sub_cat_insert_admin" ON resource_sub_categories
-    FOR INSERT WITH CHECK (is_super_admin());
+CREATE POLICY "sub_cat_insert_perm" ON resource_sub_categories
+    FOR INSERT WITH CHECK (user_has_permission('resources.subcategories.create'));
 
-CREATE POLICY "sub_cat_update_admin" ON resource_sub_categories
-    FOR UPDATE USING (is_super_admin());
+CREATE POLICY "sub_cat_update_perm" ON resource_sub_categories
+    FOR UPDATE USING (user_has_permission('resources.subcategories.edit'));
 
-CREATE POLICY "sub_cat_delete_admin" ON resource_sub_categories
-    FOR DELETE USING (is_super_admin());
+CREATE POLICY "sub_cat_delete_perm" ON resource_sub_categories
+    FOR DELETE USING (user_has_permission('resources.subcategories.delete'));
 
 ALTER TABLE resource_attribute_definitions ENABLE ROW LEVEL SECURITY;
 
