@@ -558,15 +558,14 @@ export function EnquiryForm({
 
   // Task 16: override flow — confirm dialog before admission edits a
   // student-fillable section; records the override in the activity log on save.
+  // The `canOverrideStudentSection` derived boolean lives further down in the
+  // file (after the usePermissions() call at line ~597) — moving it here
+  // would create a TDZ ReferenceError because `isSuperAdminUser` etc. are
+  // not yet in scope at this depth.
   const [overrideDialog, setOverrideDialog] = useState<'basic' | 'academic' | 'contact' | null>(null);
   const [sectionOverrideMode, setSectionOverrideMode] = useState<{
     basic: boolean; academic: boolean; contact: boolean;
   }>({ basic: false, academic: false, contact: false });
-
-  const canOverrideStudentSection =
-    isSuperAdminUser
-    || isAdmissionGlobalUser
-    || canAccess('learners', 'profile.student_section.override') === true;
 
   // ========================================================================
   // Plan 6 / Task 5 — Pre-submit confirmation dialog state.
@@ -603,6 +602,13 @@ export function EnquiryForm({
     isSuperAdminUser || isAdmissionGlobalUser
     || canAccess('learners', 'finance.edit')
     || canAccess('learners', 'admissions.edit');
+  // Task 16 — derive AFTER usePermissions() is called above, otherwise
+  // the references hit a temporal dead zone (the override-state useState
+  // calls live earlier in the function body).
+  const canOverrideStudentSection =
+    isSuperAdminUser
+    || isAdmissionGlobalUser
+    || canAccess('learners', 'profile.student_section.override') === true;
 
   // Filter out finance tab if user lacks permission
   const filteredFormTabs = canViewFinance
