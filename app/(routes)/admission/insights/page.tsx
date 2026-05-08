@@ -1,5 +1,7 @@
 'use client';
 
+export const navMeta = { label: 'AI Insights', icon: 'Lightbulb' } as const;
+
 import { useEffect, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
