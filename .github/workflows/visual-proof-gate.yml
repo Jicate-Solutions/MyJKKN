@@ -1,0 +1,259 @@
+name: Visual Proof Gate
+
+# Mechanical enforcement of the visual-proof bookend rule
+# (Director directive locked 2026-05-08, memory entry:
+#  ~/.claude/projects/-Users-omm-PROJECTS-MyJKKN/memory/feedback_visual_proof_bookend_mandatory.md
+#  matching skill: ~/.claude/skills/myjkkn-chain/SKILL.md Step 3.5).
+#
+# Why this exists
+# ---------------
+# PR #757 (substrate, merged 2026-05-07 03:05 UTC) shipped with green type-check
+# and green build but ZERO visual proof. It went unverified on production for ~7
+# hours until Director asked "what up local preview." Type-check + build are
+# necessary but not sufficient — the only proof that survives is the rendered
+# page.
+#
+# /myjkkn-chain Step 3.5 documents the rule. THIS workflow makes it structurally
+# enforced — without a screenshot artifact OR an explicit skip label, the PR
+# cannot pass status checks.
+#
+# Pattern: skill instructions are read; CI gates can't be skipped.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  visual-proof:
+    name: Visual Proof Gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    # Drafts can't merge — nothing to gate. Fires when PR flips to ready.
+    if: ${{ !github.event.pull_request.draft }}
+
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Classify PR scope by changed files
+        id: scope
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+          git fetch origin "$BASE_REF" --quiet
+
+          # Get full list of changed files
+          CHANGED=$(git diff --name-only "origin/$BASE_REF...HEAD")
+          echo "Changed files:"
+          echo "$CHANGED" | sed 's/^/  /'
+          echo ""
+
+          # Files that produce ZERO renderable UI changes — gate skips when
+          # the PR ONLY contains files matching these patterns.
+          NON_UI_REGEX='^(supabase/|docs/|specs/|\.claude/|\.github/|README\.md|CHANGELOG\.md|LICENSE|\.gitignore|package-lock\.json|pnpm-lock\.yaml|yarn\.lock|tsconfig\.json|tsconfig\..*\.json)'
+
+          # Anything outside the non-UI set means the gate applies.
+          UI_TOUCHING=$(echo "$CHANGED" | grep -vE "$NON_UI_REGEX" || true)
+
+          if [[ -z "$UI_TOUCHING" ]]; then
+            echo "scope=sql_or_docs_only" >> "$GITHUB_OUTPUT"
+            echo "requires_proof=false" >> "$GITHUB_OUTPUT"
+            {
+              echo "## ✅ Visual Proof Gate — not applicable"
+              echo ""
+              echo "All changed files are SQL/docs/config (no UI rendering surface). Gate skipped."
+              echo ""
+              echo "**Files in this PR:**"
+              echo '```'
+              echo "$CHANGED"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "scope=ui_touching" >> "$GITHUB_OUTPUT"
+            echo "requires_proof=true" >> "$GITHUB_OUTPUT"
+            # Save UI-touching files for the next step's failure message
+            echo "$UI_TOUCHING" > /tmp/ui-touching.txt
+            {
+              echo "## 🔍 Visual Proof Gate — applies"
+              echo ""
+              echo "This PR touches UI / runtime code. Visual proof required before merge."
+              echo ""
+              echo "**UI-touching files:**"
+              echo '```'
+              echo "$UI_TOUCHING" | head -30
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Check for visual proof evidence
+        if: steps.scope.outputs.requires_proof == 'true'
+        env:
+          BASE_REF: ${{ github.base_ref }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          LABELS: ${{ toJson(github.event.pull_request.labels.*.name) }}
+        run: |
+          set -euo pipefail
+
+          # ---- Path 1: explicit skip label (justified bypass — Director-only) ----
+          if echo "$LABELS" | grep -q '"visual-proof-skip"'; then
+            # Authority check — only Director (Ommsharravana) can apply this label.
+            # Anyone else applying it (including Claude or any other agent) is a
+            # bypass attempt and the gate must NOT clear.
+            #
+            # Query the issue timeline for the most recent `labeled` event whose
+            # label is `visual-proof-skip`. The actor.login of that event is who
+            # applied it.
+            DIRECTOR_LOGIN="Ommsharravana"
+            LABELER=$(
+              gh api -X GET "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/timeline" \
+                --paginate \
+                --jq '[.[] | select(.event == "labeled" and .label.name == "visual-proof-skip")] | last | .actor.login' \
+                2>/dev/null || echo ""
+            )
+
+            if [[ "$LABELER" != "$DIRECTOR_LOGIN" ]]; then
+              {
+                echo ""
+                echo "## ❌ Visual Proof Gate blocked — \`visual-proof-skip\` applied by unauthorized user"
+                echo ""
+                echo "The \`visual-proof-skip\` label was applied by \`${LABELER:-unknown}\`, but only"
+                echo "\`$DIRECTOR_LOGIN\` (Director) is authorized to skip the visual proof gate."
+                echo ""
+                echo "**Why this restriction exists** (locked 2026-05-08):"
+                echo "If any contributor — including Claude — could apply the skip label, the gate"
+                echo "becomes procedural rather than structural. Director's approval is the structural lock."
+                echo ""
+                echo "**Remediation (any one of):**"
+                echo "1. Director applies the label: \`gh pr edit $PR_NUMBER --repo $GITHUB_REPOSITORY --add-label visual-proof-skip\` (run by Director)"
+                echo "2. Or attach actual visual proof — see options below"
+                echo "3. Or remove the (unauthorized) label and re-trigger gate: \`gh pr edit $PR_NUMBER --remove-label visual-proof-skip\`"
+              } >> "$GITHUB_STEP_SUMMARY"
+              echo "::error title=Unauthorized skip::'visual-proof-skip' applied by '$LABELER', not Director"
+              exit 1
+            fi
+
+            {
+              echo ""
+              echo "## ✅ Gate bypassed — \`visual-proof-skip\` label present (Director-applied)"
+              echo ""
+              echo "Director-applied label asserts this PR genuinely has no UI surface to verify"
+              echo "(e.g. revert PR, cron-only change, webhook-only API). Skip is recorded for audit."
+              echo ""
+              echo "Applied by: \`$LABELER\`"
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::notice title=Visual proof gate skipped::'visual-proof-skip' label present (Director-applied)"
+            exit 0
+          fi
+
+          # ---- Path 2: screenshot file committed to .screenshots/ ----
+          # Director's protocol attaches screenshots to the PR. The simplest,
+          # auditable, structurally-enforced way is to commit them to the PR
+          # branch under .screenshots/ — diff includes them, GitHub renders
+          # them inline in the PR description via relative paths.
+          SCREENSHOT_FILES=$(
+            git diff --name-only --diff-filter=A "origin/$BASE_REF...HEAD" \
+              -- '.screenshots/*.png' '.screenshots/*.jpg' '.screenshots/*.jpeg' \
+                 '.screenshots/*.gif' '.screenshots/*.webp' || true
+          )
+
+          # ---- Path 3: GitHub user-uploaded image URL in PR body ----
+          # When a screenshot is dragged into the PR description in the GitHub
+          # web UI, GitHub uploads it and inserts a https://github.com/user-attachments/
+          # or https://user-images.githubusercontent.com/ URL. Detecting either
+          # variant counts as visual proof.
+          BODY_HAS_IMAGE=""
+          if [[ -n "$PR_BODY" ]]; then
+            if echo "$PR_BODY" | grep -qE '!\[.*\]\(https://(github\.com/user-attachments/|user-images\.githubusercontent\.com/)'; then
+              BODY_HAS_IMAGE="yes"
+            fi
+          fi
+
+          # ---- Path 4: same image URL in PR comments (post-merge screenshot) ----
+          # /deploy-myjkkn Step 5b posts the post-deploy screenshot as a PR comment.
+          # That counts as visual proof for PRs already merged that we re-verify.
+          # For pre-merge gating, comments are also valid because Director might
+          # post the pre-merge screenshot via `gh pr comment` rather than embed
+          # in the description.
+          COMMENT_HAS_IMAGE=$(
+            gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json comments --jq '.comments[].body' \
+              | grep -cE '!\[.*\]\(https://(github\.com/user-attachments/|user-images\.githubusercontent\.com/)' \
+              || true
+          )
+
+          {
+            echo ""
+            echo "## Detection results"
+            echo ""
+            echo "| Path | Found |"
+            echo "| --- | --- |"
+            echo "| 1. \`visual-proof-skip\` label | $(echo "$LABELS" | grep -q '"visual-proof-skip"' && echo "✓" || echo "—") |"
+            echo "| 2. Screenshot files in \`.screenshots/\` | $([[ -n "$SCREENSHOT_FILES" ]] && echo "✓ ($(echo "$SCREENSHOT_FILES" | wc -l | tr -d ' ') file(s))" || echo "—") |"
+            echo "| 3. GitHub-hosted image in PR description | $([[ -n "$BODY_HAS_IMAGE" ]] && echo "✓" || echo "—") |"
+            echo "| 4. GitHub-hosted image in PR comments | $([[ "$COMMENT_HAS_IMAGE" -gt 0 ]] && echo "✓ ($COMMENT_HAS_IMAGE)" || echo "—") |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          # Pass if ANY of paths 2, 3, or 4 fired.
+          if [[ -n "$SCREENSHOT_FILES" || -n "$BODY_HAS_IMAGE" || "$COMMENT_HAS_IMAGE" -gt 0 ]]; then
+            {
+              echo ""
+              echo "✅ Visual proof detected — gate cleared."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::notice title=Visual proof detected::Gate cleared"
+            exit 0
+          fi
+
+          # ---- BLOCK ----
+          {
+            echo ""
+            echo "## ❌ Visual Proof Gate blocked"
+            echo ""
+            echo "This PR touches UI / runtime code, but no visual proof is attached."
+            echo ""
+            echo "**Per Director directive (locked 2026-05-08, /myjkkn-chain Step 3.5):**"
+            echo "> ALL PRs except SQL/docs-only require a screenshot of the rendered page,"
+            echo "> attached to the PR before \`gh pr ready\` flips it from Draft."
+            echo ""
+            echo "### To clear the gate (any one of these):"
+            echo ""
+            echo "**Option A — Commit a screenshot to the PR branch (recommended for substrate / UI changes):**"
+            echo '```bash'
+            echo "# 1. Take screenshot via local-auth.sh + browser-use"
+            echo "bash scripts/local-auth.sh director@jkkn.ac.in /<path>"
+            echo "~/.local/bin/browser-use -s pr-${PR_NUMBER}-pre screenshot --full .screenshots/pr-${PR_NUMBER}-pre.png"
+            echo ""
+            echo "# 2. Commit to PR branch"
+            echo "git add .screenshots/pr-${PR_NUMBER}-pre.png"
+            echo "git commit -m \"chore: visual proof for PR #${PR_NUMBER}\""
+            echo "git push"
+            echo '```'
+            echo ""
+            echo "**Option B — Drag a screenshot into the PR description in the GitHub web UI**"
+            echo "GitHub will upload it to \`user-attachments\` and insert the URL automatically."
+            echo ""
+            echo "**Option C — Apply \`visual-proof-skip\` label (only for genuine no-UI cases):**"
+            echo '```bash'
+            echo "gh pr edit ${PR_NUMBER} --repo ${GITHUB_REPOSITORY} --add-label visual-proof-skip"
+            echo '```'
+            echo "Use ONLY for: revert PRs, cron-only changes, webhook-only APIs, generated files."
+            echo "Director will see the label in the PR sidebar and can challenge it."
+            echo ""
+            echo "### UI-touching files in this PR:"
+            echo '```'
+            cat /tmp/ui-touching.txt | head -20
+            echo '```'
+            echo ""
+            echo "_Memory: \`feedback_visual_proof_bookend_mandatory.md\` · Skill: \`/myjkkn-chain\` Step 3.5_"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          echo "::error title=Visual Proof Gate failed::PR touches UI / runtime code without a screenshot. See job summary for the 3 ways to clear the gate."
+          exit 1
