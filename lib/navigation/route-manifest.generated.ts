@@ -162,6 +162,31 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         ]
       },
       {
+        "path": "/academic/obe",
+        "label": "Obe",
+        "iconName": "FileText",
+        "children": [
+          {
+            "path": "/academic/obe/co-po-mapping",
+            "label": "Co Po Mapping",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/academic/obe/po-pso",
+            "label": "Po Pso",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/academic/obe/regulation-config",
+            "label": "Regulation Config",
+            "iconName": "FileText",
+            "children": []
+          }
+        ]
+      },
+      {
         "path": "/academic/periods",
         "label": "Periods",
         "iconName": "FileText",
@@ -1356,6 +1381,18 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         ]
       },
       {
+        "path": "/bos/course-scheme",
+        "label": "Course Scheme",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
+        "path": "/bos/courses",
+        "label": "Courses",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
         "path": "/bos/experts",
         "label": "Experts",
         "iconName": "FileText",
@@ -1410,7 +1447,14 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "path": "/bos/taxonomy",
         "label": "Taxonomy",
         "iconName": "FileText",
-        "children": []
+        "children": [
+          {
+            "path": "/bos/taxonomy/new",
+            "label": "New",
+            "iconName": "Plus",
+            "children": []
+          }
+        ]
       }
     ]
   },
@@ -2344,6 +2388,25 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "label": "My Attendance",
         "iconName": "FileText",
         "children": []
+      },
+      {
+        "path": "/learners/my-marks",
+        "label": "My Marks",
+        "iconName": "FileText",
+        "children": [
+          {
+            "path": "/learners/my-marks/internal",
+            "label": "Internal",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/learners/my-marks/result",
+            "label": "Result",
+            "iconName": "FileText",
+            "children": []
+          }
+        ]
       },
       {
         "path": "/learners/my-profile",

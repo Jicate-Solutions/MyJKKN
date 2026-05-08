@@ -4,7 +4,7 @@ import { ReactNode } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
-import { Users, ClipboardList, CalendarDays, Receipt, BarChart3, BookOpen, Layers } from 'lucide-react';
+import { Users, ClipboardList, CalendarDays, Receipt, BarChart3, BookOpen, Layers, BookText, ListTree } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
   Breadcrumb,
@@ -16,13 +16,15 @@ import {
 } from '@/components/ui/breadcrumb';
 
 const BOS_NAV_TABS = [
-  { href: '/bos/taxonomy',     label: 'Taxonomy',         icon: Layers },
-  { href: '/bos/experts',      label: 'External Experts', icon: Users },
-  { href: '/bos/compositions', label: 'Compositions',     icon: ClipboardList },
-  { href: '/bos/syllabi',      label: 'Syllabi',          icon: BookOpen },
-  { href: '/bos/meetings',     label: 'Meetings',         icon: CalendarDays },
-  { href: '/bos/ta-da',        label: 'TA/DA Claims',     icon: Receipt },
-  { href: '/bos/reports',      label: 'Reports',          icon: BarChart3 },
+  { href: '/bos/taxonomy',      label: 'Taxonomy',         icon: Layers },
+  { href: '/bos/courses',       label: 'Courses',          icon: BookText },
+  { href: '/bos/course-scheme', label: 'Course Scheme',    icon: ListTree },
+  { href: '/bos/experts',       label: 'External Experts', icon: Users },
+  { href: '/bos/compositions',  label: 'Compositions',     icon: ClipboardList },
+  { href: '/bos/syllabi',       label: 'Syllabi',          icon: BookOpen },
+  { href: '/bos/meetings',      label: 'Meetings',         icon: CalendarDays },
+  { href: '/bos/ta-da',         label: 'TA/DA Claims',     icon: Receipt },
+  { href: '/bos/reports',       label: 'Reports',          icon: BarChart3 },
 ];
 
 // Per-tab leaf labels for sub-routes.
@@ -37,6 +39,7 @@ function resolveSubLeaf(tabHref: string, pathname: string): string | null {
     if (tabHref === '/bos/experts') return 'Add Expert';
     if (tabHref === '/bos/compositions') return 'New Composition';
     if (tabHref === '/bos/meetings') return 'Schedule Meeting';
+    if (tabHref === '/bos/courses') return 'New Course';
     if (tabHref === '/bos/taxonomy') return null;
     return 'New';
   }
@@ -46,6 +49,7 @@ function resolveSubLeaf(tabHref: string, pathname: string): string | null {
     if (tabHref === '/bos/experts') return 'Edit Expert';
     if (tabHref === '/bos/compositions') return 'Edit Composition';
     if (tabHref === '/bos/meetings') return 'Edit Meeting';
+    if (tabHref === '/bos/courses') return 'Edit Course';
     return 'Edit';
   }
 

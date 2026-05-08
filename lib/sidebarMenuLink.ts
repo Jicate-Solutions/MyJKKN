@@ -180,6 +180,9 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/learners/my-timetable': 'learners.my-timetable.view',
   '/learners/my-attendance': 'learners.my-attendance.view',
   '/learners/my-profile': 'learners.my-profile.view',
+  '/learners/my-marks': 'learners.my-marks.view',
+  '/learners/my-marks/internal': 'learners.my-marks.view',
+  '/learners/my-marks/result': 'learners.my-marks.view',
 
   // Admin Routes
   '/learners/enquiries': 'learners.admissions.view',
@@ -292,6 +295,13 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/learners/privileges/my/report': 'learners.privileges.report',
 
   '/academic/staff-planning': 'academic.staff.planning.view',
+
+  // OBE (Outcome-Based Education) — Phase 3 (Config setup)
+  '/academic/obe': 'academic.obe.view',
+  '/academic/obe/regulation-config': 'academic.obe.config.manage',
+  '/academic/obe/po-pso': 'academic.obe.outcomes.manage',
+  '/academic/obe/co-po-mapping': 'academic.obe.mapping.manage',
+
   '/academic/timetables': 'academic.timetables.view',
   '/academic/timetables/templates': 'academic.timetables.templates.view',
   '/academic/timetables/templates/analytics': 'academic.timetables.templates.analytics',
@@ -788,8 +798,10 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // "Permission: super_admin or audit.external_auditor.manage")
   '/audit/external-auditors': 'audit.external_auditor.manage',
 
-  // Board of Studies — five tier-2 sub-pages under /bos
+  // Board of Studies — seven tier-2 sub-pages under /bos
   '/bos/compositions': 'bos.compositions.view',
+  '/bos/courses': 'bos.courses.view',
+  '/bos/course-scheme': 'bos.scheme.view',
   '/bos/experts': 'bos.experts.view',
   '/bos/meetings': 'bos.meetings.view',
   '/bos/reports': 'bos.reports.view',
@@ -1005,9 +1017,13 @@ export function GetPages(pathname: string): MenuGroup[] {
         {
           // D3: click → module root. `/academic` resolves to the in-page
           // AcademicNav (nav-config.ts) which handles all drill-down.
+          // OBE owns its own sidebar entry, so /academic/obe must NOT light
+          // this one up.
           href: '/academic',
           label: 'Academic',
-          active: pathname === '/academic' || pathname.startsWith('/academic/'),
+          active:
+            (pathname === '/academic' || pathname.startsWith('/academic/')) &&
+            !pathname.startsWith('/academic/obe'),
           icon: GraduationCap,
           submenus: []
         },
@@ -1019,6 +1035,17 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'Board of Studies',
           active: pathname === '/bos' || pathname.startsWith('/bos/'),
           icon: ClipboardList,
+          submenus: []
+        },
+        {
+          // OBE (Outcome-Based Education) — sibling of BOS under Academic.
+          // Pages live under /academic/obe (dashboard, regulation-config,
+          // po-pso, co-po-mapping). RBAC keys are mapped in MENU_PERMISSIONS
+          // (academic.obe.* — see lib/sidebarMenuLink.ts:299-303).
+          href: '/academic/obe',
+          label: 'OBE',
+          active: pathname.startsWith('/academic/obe'),
+          icon: Target,
           submenus: []
         }
       ]
@@ -1128,6 +1155,7 @@ export function GetPages(pathname: string): MenuGroup[] {
             // Student portal (role=student — filtered downstream)
             { href: '/learners/my-timetable', label: 'My Timetable', active: pathname === '/learners/my-timetable' },
             { href: '/learners/my-attendance', label: 'My Attendance', active: pathname.startsWith('/learners/my-attendance') },
+            { href: '/learners/my-marks', label: 'Marks', active: pathname.startsWith('/learners/my-marks') },
             { href: '/learners/my-profile', label: 'My Profile', active: pathname === '/learners/my-profile' },
             { href: '/learners/leave-onduty', label: 'Leave/OnDuty · Landing', active: pathname === '/learners/leave-onduty' },
             { href: '/learners/leave-onduty/my-applications', label: 'Leave/OnDuty · My Applications', active: pathname === '/learners/leave-onduty/my-applications' },
