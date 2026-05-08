@@ -59,7 +59,9 @@ export function applyInstitutionScope(
 // adds explicit module+action checks used by /api/bos/courses-master and
 // /api/bos/course-mapping proxy routes.
 
-export type BosModule = 'bos.courses' | 'bos.scheme';
+// Module strings match the runtime convention used elsewhere in this codebase
+// (see BOS_MODULES in lib/services/bos/bos-role-permissions.ts).
+export type BosModule = 'academic.bos-courses' | 'academic.bos-scheme';
 export type BosAction = 'view' | 'create' | 'edit' | 'delete' | 'import';
 
 /**

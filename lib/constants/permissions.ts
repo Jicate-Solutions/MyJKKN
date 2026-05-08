@@ -263,6 +263,9 @@ export const PERMISSION_CATEGORIES = [
       { key: 'learners.my-attendance.view', label: 'View My Attendance (Students)' },
       { key: 'learners.my-profile.view', label: 'View My Profile (Students)' },
       { key: 'learners.my-profile.edit', label: 'Edit My Profile (Students)' },
+      { key: 'learners.my-marks.view', label: 'View My Marks (Students)' },
+      { key: 'learners.my-marks.internal.view', label: 'View My Internal Marks (Students)' },
+      { key: 'learners.my-marks.result.view', label: 'View My Semester Result (Students)' },
 
       // Legacy permissions (deprecated - use my-* versions above)
       { key: 'learners.attendance.view', label: 'View Own Attendance (Students) - DEPRECATED: Use learners.my-attendance.view' },
@@ -1575,7 +1578,15 @@ export const PERMISSION_CATEGORIES = [
       { key: 'bos.members.view', label: 'View BoS Members' },
       { key: 'bos.members.create', label: 'Create BoS Members' },
       { key: 'bos.members.edit', label: 'Edit BoS Members' },
-      { key: 'bos.members.delete', label: 'Delete BoS Members' }
+      { key: 'bos.members.delete', label: 'Delete BoS Members' },
+      // Added 2026-05-08 — BoS Courses & Course Scheme tabs
+      { key: 'bos.courses.view', label: 'View BoS Courses' },
+      { key: 'bos.courses.create', label: 'Create BoS Courses' },
+      { key: 'bos.courses.edit', label: 'Edit BoS Courses' },
+      { key: 'bos.courses.delete', label: 'Delete BoS Courses' },
+      { key: 'bos.courses.import', label: 'Import BoS Courses (Excel)' },
+      { key: 'bos.scheme.view', label: 'View BoS Course Scheme' },
+      { key: 'bos.scheme.edit', label: 'Edit BoS Course Scheme' }
     ]
   },
   // Added 2026-04-27 — menu-coverage baseline cleanup (Failure 1 of #511/#515

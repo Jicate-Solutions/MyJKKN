@@ -17,6 +17,8 @@ export const BOS_MODULES = {
   MEETINGS: 'academic.bos-meetings',
   TA_DA: 'academic.bos-ta-da',
   REPORTS: 'academic.bos-reports',
+  COURSES: 'academic.bos-courses',
+  SCHEME: 'academic.bos-scheme',
 } as const;
 
 export const BOS_ACTIONS = {
@@ -28,6 +30,7 @@ export const BOS_ACTIONS = {
   DUPLICATE: 'duplicate',
   EXPORT: 'export',
   SUBMIT: 'submit',
+  IMPORT: 'import',
 } as const;
 
 /**
@@ -44,6 +47,8 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, RolePermissions> = {
     [BOS_MODULES.MEETINGS]: ['view', 'create', 'edit', 'delete'],
     [BOS_MODULES.TA_DA]: ['view', 'create', 'edit', 'delete', 'approve'],
     [BOS_MODULES.REPORTS]: ['view', 'export'],
+    [BOS_MODULES.COURSES]: ['view', 'create', 'edit', 'delete', 'import'],
+    [BOS_MODULES.SCHEME]: ['view', 'edit'],
   },
 
   // HOD: Can manage syllabi, experts, compositions, meetings for their department
@@ -55,6 +60,8 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, RolePermissions> = {
     [BOS_MODULES.MEETINGS]: ['view', 'create', 'edit'],
     [BOS_MODULES.TA_DA]: ['view', 'submit'],
     [BOS_MODULES.REPORTS]: ['view'],
+    [BOS_MODULES.COURSES]: ['view', 'create', 'edit', 'import'],
+    [BOS_MODULES.SCHEME]: ['view', 'edit'],
   },
 
   // Principal: View-only access
@@ -66,6 +73,8 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, RolePermissions> = {
     [BOS_MODULES.MEETINGS]: ['view'],
     [BOS_MODULES.TA_DA]: ['view'],
     [BOS_MODULES.REPORTS]: ['view', 'export'],
+    [BOS_MODULES.COURSES]: ['view'],
+    [BOS_MODULES.SCHEME]: ['view'],
   },
 
   // Faculty: Limited access to syllabi and TA/DA
@@ -77,6 +86,8 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, RolePermissions> = {
     [BOS_MODULES.MEETINGS]: ['view'],
     [BOS_MODULES.TA_DA]: ['view', 'submit'],
     [BOS_MODULES.REPORTS]: ['view'],
+    [BOS_MODULES.COURSES]: ['view'],
+    [BOS_MODULES.SCHEME]: ['view'],
   },
 
   // Coordinator: Can help manage BOS operations
@@ -88,6 +99,8 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, RolePermissions> = {
     [BOS_MODULES.MEETINGS]: ['view', 'create', 'edit'],
     [BOS_MODULES.TA_DA]: ['view', 'submit'],
     [BOS_MODULES.REPORTS]: ['view'],
+    [BOS_MODULES.COURSES]: ['view', 'create', 'edit'],
+    [BOS_MODULES.SCHEME]: ['view'],
   },
 
   // Default (no specific role): View only
@@ -99,6 +112,8 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, RolePermissions> = {
     [BOS_MODULES.MEETINGS]: ['view'],
     [BOS_MODULES.TA_DA]: ['view'],
     [BOS_MODULES.REPORTS]: ['view'],
+    [BOS_MODULES.COURSES]: ['view'],
+    [BOS_MODULES.SCHEME]: ['view'],
   },
 };
 
