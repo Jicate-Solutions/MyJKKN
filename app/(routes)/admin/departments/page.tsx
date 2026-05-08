@@ -121,9 +121,14 @@ export default function DepartmentsHoDPage() {
           scopedOptions.length === 0
             ? 'No staff with role_key=hod found in this institution. Assign role_key=hod to a staff member first.'
             : 'Pick the staff member who acts as HoD. Used by SAMS appraisal routing.',
+        // NOTE: Radix Select forbids `value=""` (it reserves empty string for
+        // the placeholder-clear behavior and crashes the Select.Item with the
+        // error: "<Select.Item /> must have a value prop that is not an empty
+        // string"). We use a sentinel `__unassigned__` and translate it back
+        // to NULL in onSave + rowToFormValues.
         options: scopedOptions.length === 0
-          ? [{ value: '', label: '— No HoD candidates available —' }]
-          : [{ value: '', label: '— Unassigned —' }, ...scopedOptions],
+          ? [{ value: '__unassigned__', label: '— No HoD candidates available —' }]
+          : [{ value: '__unassigned__', label: '— Unassigned —' }, ...scopedOptions],
         required: false,
       },
     ];
@@ -234,7 +239,11 @@ export default function DepartmentsHoDPage() {
         );
       }
       const raw = values.head_of_department_id;
-      const hodId = typeof raw === 'string' && raw.length > 0 ? raw : null;
+      // Treat the Radix sentinel `__unassigned__` and any falsy value as NULL.
+      const hodId =
+        typeof raw === 'string' && raw.length > 0 && raw !== '__unassigned__'
+          ? raw
+          : null;
 
       // TODO(Phase 0A): drop `as any` after types/supabase.ts regenerates with
       // departments.head_of_department_id field; current snapshot predates DDL.
@@ -259,7 +268,10 @@ export default function DepartmentsHoDPage() {
   };
 
   const rowToFormValues = (row: DepartmentRow) => ({
-    head_of_department_id: row.head_of_department_id ?? '',
+    // Map NULL → `__unassigned__` sentinel so Radix Select selects the
+    // "— Unassigned —" / "— No HoD candidates available —" option (neither
+    // can be `''` because Radix forbids empty-string values on Select.Item).
+    head_of_department_id: row.head_of_department_id ?? '__unassigned__',
   });
 
   return (
