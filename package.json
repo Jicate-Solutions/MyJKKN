@@ -93,6 +93,7 @@
     "@types/web-push": "^3.6.4",
     "@vercel/speed-insights": "^1.2.0",
     "axios": "^1.7.7",
+    "browser-image-compression": "^2.0.2",
     "canvas-confetti": "^1.9.4",
     "chart.js": "^4.5.0",
     "class-variance-authority": "^0.7.0",
