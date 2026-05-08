@@ -26,7 +26,8 @@ import {
   AlertCircle,
   XCircle,
   Eye,
-  RefreshCw
+  RefreshCw,
+  Download
 } from 'lucide-react';
 import Link from 'next/link';
 import Image from 'next/image';
@@ -334,24 +335,66 @@ export default function BugReportDetailPage() {
                     </div>
                   )}
 
-                  {/* Additional Images */}
+                  {/* Additional Attachments (images + documents) */}
                   {bugReport.attachment_urls && bugReport.attachment_urls.length > 0 && (
                     <div>
                       <label className='text-sm font-medium text-muted-foreground mb-2 block'>
-                        Additional Images ({bugReport.attachment_urls.length})
+                        Additional Attachments ({bugReport.attachment_urls.length})
                       </label>
                       <div className='grid grid-cols-2 gap-3'>
-                        {bugReport.attachment_urls.map((url, index) => (
-                          <div key={index} className='relative rounded-lg overflow-hidden border bg-muted'>
-                            <Image
-                              src={url}
-                              alt={`Additional screenshot ${index + 1}`}
-                              width={400}
-                              height={300}
-                              className='w-full h-auto max-h-48 object-contain'
-                            />
-                          </div>
-                        ))}
+                        {bugReport.attachment_urls.map((url, index) => {
+                          // Detect image vs document from URL extension. Images
+                          // render inline as thumbnails; documents render as a
+                          // download card.
+                          const isImage = /\.(png|jpe?g|gif|webp|svg)(\?|$)/i.test(url);
+                          const filename = (() => {
+                            try {
+                              const path = new URL(url).pathname;
+                              return decodeURIComponent(path.split('/').pop() || `attachment-${index + 1}`);
+                            } catch {
+                              return `attachment-${index + 1}`;
+                            }
+                          })();
+                          const ext = (filename.split('.').pop() || '').toLowerCase();
+
+                          if (isImage) {
+                            return (
+                              <div key={index} className='relative rounded-lg overflow-hidden border bg-muted'>
+                                <Image
+                                  src={url}
+                                  alt={`Additional screenshot ${index + 1}`}
+                                  width={400}
+                                  height={300}
+                                  className='w-full h-auto max-h-48 object-contain'
+                                />
+                              </div>
+                            );
+                          }
+
+                          // Non-image: download card
+                          return (
+                            <a
+                              key={index}
+                              href={url}
+                              target='_blank'
+                              rel='noopener noreferrer'
+                              download={filename}
+                              className='group flex items-center gap-3 rounded-lg border bg-muted p-4 hover:bg-muted/70 transition-colors'
+                            >
+                              <div className='flex h-12 w-12 shrink-0 items-center justify-center rounded-md bg-background border'>
+                                <Download className='h-5 w-5 text-muted-foreground' />
+                              </div>
+                              <div className='min-w-0 flex-1'>
+                                <div className='truncate text-sm font-medium' title={filename}>
+                                  {filename}
+                                </div>
+                                <div className='text-xs text-muted-foreground uppercase'>
+                                  {ext || 'file'} · click to download
+                                </div>
+                              </div>
+                            </a>
+                          );
+                        })}
                       </div>
                     </div>
                   )}

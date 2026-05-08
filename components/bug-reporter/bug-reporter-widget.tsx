@@ -514,7 +514,7 @@ export function BugReporterWidget() {
     }
   };
 
-  // Handle multiple file selection for additional images
+  // Handle multiple file selection for additional attachments (images + documents)
   const handleMultipleFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = event.target.files;
     if (!files || files.length === 0) return;
@@ -522,29 +522,47 @@ export function BugReporterWidget() {
     setIsCapturingScreenshot(true);
 
     try {
-      const maxFiles = 5; // Maximum 5 additional images
-      const maxSizeBytes = 5 * 1024 * 1024;
+      const maxFiles = 5; // Maximum 5 additional attachments
+      const imageMaxSize = 5 * 1024 * 1024; // 5MB for images (compressed)
+      const docMaxSize = 10 * 1024 * 1024; // 10MB for documents (uncompressed)
       const totalAllowed = maxFiles - additionalImages.length;
 
+      // Allowed non-image MIME types — kept in sync with the Supabase bug-reports
+      // bucket's allowed_mime_types policy. Update both together when widening.
+      const allowedDocTypes = new Set([
+        'application/pdf',
+        'text/csv',
+        'text/plain',
+        'application/json',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', // .xlsx
+        'application/vnd.ms-excel', // .xls
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document', // .docx
+        'application/msword' // .doc
+      ]);
+
       if (files.length > totalAllowed) {
-        toast.error(`You can only upload ${totalAllowed} more image(s). Maximum is ${maxFiles} additional images.`);
+        toast.error(`You can only upload ${totalAllowed} more file(s). Maximum is ${maxFiles} additional attachments.`);
         return;
       }
 
-      const processedImages: string[] = [];
+      const processedFiles: string[] = [];
 
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
+        const isImage = file.type.startsWith('image/');
+        const isAllowedDoc = allowedDocTypes.has(file.type);
 
-        // Validate file type
-        if (!file.type.startsWith('image/')) {
-          toast.error(`File "${file.name}" is not an image. Skipping.`);
+        // Validate file type — image OR allowed document
+        if (!isImage && !isAllowedDoc) {
+          toast.error(`File "${file.name}" type "${file.type || 'unknown'}" is not supported. Allowed: images, PDF, CSV, TXT, JSON, XLS/XLSX, DOC/DOCX. Skipping.`);
           continue;
         }
 
-        // Validate file size
-        if (file.size > maxSizeBytes) {
-          toast.error(`File "${file.name}" is too large (max 5MB). Skipping.`);
+        // Validate file size — different cap for images vs documents
+        const sizeCap = isImage ? imageMaxSize : docMaxSize;
+        if (file.size > sizeCap) {
+          const capMb = isImage ? 5 : 10;
+          toast.error(`File "${file.name}" is too large (max ${capMb}MB). Skipping.`);
           continue;
         }
 
@@ -556,18 +574,24 @@ export function BugReporterWidget() {
           reader.readAsDataURL(file);
         });
 
-        // Compress the image
-        const compressedDataUrl = await compressScreenshot(dataURL);
-        processedImages.push(compressedDataUrl);
+        if (isImage) {
+          // Compress images (existing behavior — JPEG re-encode to fit upload limits)
+          const compressedDataUrl = await compressScreenshot(dataURL);
+          processedFiles.push(compressedDataUrl);
+        } else {
+          // Pass documents through as-is — compression would corrupt non-image bytes.
+          // Data URL prefix carries the MIME so consumers can detect type.
+          processedFiles.push(dataURL);
+        }
       }
 
-      if (processedImages.length > 0) {
-        setAdditionalImages(prev => [...prev, ...processedImages]);
-        toast.success(`${processedImages.length} image(s) added successfully!`);
+      if (processedFiles.length > 0) {
+        setAdditionalImages(prev => [...prev, ...processedFiles]);
+        toast.success(`${processedFiles.length} file(s) added successfully!`);
       }
     } catch (error: any) {
       logger.error('bug-reports', 'Multiple file upload failed', error);
-      toast.error(error instanceof Error ? error.message : 'Failed to upload images');
+      toast.error(error instanceof Error ? error.message : 'Failed to upload files');
     } finally {
       setIsCapturingScreenshot(false);
       // Reset file input
@@ -857,25 +881,51 @@ export function BugReporterWidget() {
         }
       }
 
-      // Upload additional images directly from browser
+      // Upload additional attachments (images + documents) directly from browser
       if (additionalImages.length > 0 && result.additionalSignedUrls?.length > 0) {
         const supabaseClient = createClientSupabaseClient();
+
+        // Map MIME type to a sensible file extension. Used to give uploaded files
+        // a correct extension so the viewer can detect type from the URL.
+        const mimeToExt = (mime: string): string => {
+          const map: Record<string, string> = {
+            'image/jpeg': 'jpg',
+            'image/jpg': 'jpg',
+            'image/png': 'png',
+            'image/gif': 'gif',
+            'image/webp': 'webp',
+            'image/svg+xml': 'svg',
+            'application/pdf': 'pdf',
+            'text/csv': 'csv',
+            'text/plain': 'txt',
+            'application/json': 'json',
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
+            'application/vnd.ms-excel': 'xls',
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
+            'application/msword': 'doc'
+          };
+          return map[mime] ?? 'bin';
+        };
+
         await Promise.allSettled(
           additionalImages
             .slice(0, result.additionalSignedUrls.length)
-            .map(async (imgDataUrl: string, i: number) => {
+            .map(async (dataUrl: string, i: number) => {
               const signed = result.additionalSignedUrls[i];
               if (!signed) return;
               try {
-                const ext = imgDataUrl.startsWith('data:image/jpeg') ? 'jpg' : 'png';
-                const file = dataURLtoFile(imgDataUrl, `additional-${i + 1}.${ext}`);
+                // Parse MIME from data URL prefix: "data:<mime>;base64,..."
+                const mimeMatch = dataUrl.match(/^data:([^;]+);base64,/);
+                const mime = mimeMatch?.[1] ?? 'image/png';
+                const ext = mimeToExt(mime);
+                const file = dataURLtoFile(dataUrl, `additional-${i + 1}.${ext}`);
                 await supabaseClient.storage
                   .from('bug-reports')
                   .uploadToSignedUrl(signed.path, signed.token, file, {
                     contentType: file.type
                   });
               } catch (err) {
-                logger.warn('bug-reports', `Additional image ${i + 1} upload failed`, err);
+                logger.warn('bug-reports', `Additional attachment ${i + 1} upload failed`, err);
               }
             })
         );
@@ -905,7 +955,7 @@ export function BugReporterWidget() {
 
   return (
     <>
-      {/* Hidden file input for manual image upload (single) */}
+      {/* Hidden file input for manual screenshot upload (single, images only — replaces auto-captured screenshot) */}
       <input
         ref={fileInputRef}
         type="file"
@@ -915,15 +965,15 @@ export function BugReporterWidget() {
         aria-label="Upload screenshot"
       />
 
-      {/* Hidden file input for multiple additional images */}
+      {/* Hidden file input for additional attachments (multiple, images + documents) */}
       <input
         ref={multipleFileInputRef}
         type="file"
-        accept="image/*"
+        accept="image/*,application/pdf,.csv,.xlsx,.xls,.docx,.doc,.txt,.json"
         multiple
         onChange={handleMultipleFileSelect}
         style={{ display: 'none' }}
-        aria-label="Upload additional images"
+        aria-label="Upload additional attachments"
       />
 
       {/* Floating Bug Report Button */}
