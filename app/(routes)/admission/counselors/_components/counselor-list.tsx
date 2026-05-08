@@ -166,14 +166,23 @@ export function CounselorList({ onRefresh, institutionId, isGlobalUser }: Counse
 
       const records = (data || []) as unknown as CounselorRecord[];
 
-      // 2. Fetch users with an admission counsellor role (admission_counselor
-      //    or expo_counselor — both share the same CRM access surface) who
-      //    may NOT be in admission_counselors table.
-      // Step A: Get both counselor role IDs
+      // 2. Fetch users with ANY counsellor role who may NOT be in
+      //    admission_counselors table. Widened 2026-05-08 to include the
+      //    learner_counselor and staff_counselor variants too — the Add
+      //    Counselor dialog can assign all four, and after the v3 RPC
+      //    change the user's profiles.role no longer mirrors the
+      //    counselor key, so this enrichment is the only way to surface
+      //    those records with a proper role badge.
+      // Step A: Get all counselor role IDs
       const { data: counselorRoles } = await supabase
         .from('custom_roles')
         .select('id')
-        .in('role_key', ['admission_counselor', 'expo_counselor']);
+        .in('role_key', [
+          'admission_counselor',
+          'expo_counselor',
+          'learner_counselor',
+          'staff_counselor',
+        ]);
 
       if (counselorRoles && counselorRoles.length > 0) {
         const counselorRoleIds = counselorRoles.map((r: any) => r.id);

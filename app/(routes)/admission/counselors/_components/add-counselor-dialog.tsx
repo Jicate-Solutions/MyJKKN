@@ -96,19 +96,27 @@ export function AddCounselorDialog({
   const supabase = createClientSupabaseClient();
 
   // Assigns the counsellor role via the SECURITY DEFINER RPC introduced
-  // 2026-04-27 and extended 2026-04-30 to accept a role_key. A direct user_roles
-  // INSERT from the browser is RLS-blocked for admission/admission_staff users
-  // (the user_roles INSERT policy needs roles.create, which those roles
-  // intentionally lack). The RPC bypasses RLS but re-checks authorization
-  // internally — the caller must have admission.counselors.create, the target
-  // must already have an admission_counselors row, and p_role_key must be one
-  // of the four allowlisted counsellor keys.
+  // 2026-04-27, extended 2026-04-30 to accept a role_key, and corrected
+  // 2026-05-08 to preserve the user's existing primary role. A direct
+  // user_roles INSERT from the browser is RLS-blocked for admission/
+  // admission_staff users (user_roles INSERT policy needs roles.create,
+  // which those roles intentionally lack). The RPC bypasses RLS but re-
+  // checks authorization internally — the caller must have
+  // admission.counselors.create, the target must already have an
+  // admission_counselors row, and p_role_key must be one of the four
+  // allowlisted counsellor keys.
+  //
+  // We pass p_is_primary: false explicitly so the new counsellor role is
+  // ALWAYS additive. Without this the SQL DEFAULT would have flipped the
+  // user's primary role and the AFTER-INSERT sync_primary_role_to_profile
+  // trigger would mirror it into profiles.role, overwriting their prior
+  // identity (e.g. 'student' → 'learner_counselor'). The v3 RPC defaults
+  // already auto-detect this case, but sending false is belt-and-braces.
   //
   // Two counsellors created on 2026-04-27 04:37 UTC ended up with NO user_roles
   // entry because the previous "non-blocking best-effort" implementation never
-  // destructured {error} from .insert() — Supabase returns RLS denials in the
-  // result, not as a thrown exception, so the catch block never fired. Returns
-  // {ok, message} so the submit handler can surface failures via toast.
+  // destructured {error} from .insert(). Returns {ok, message} so the submit
+  // handler can surface failures via toast.
   const assignCounselorRole = async (
     profileId: string,
     roleKey: CounselorRoleKey,
@@ -116,6 +124,7 @@ export function AddCounselorDialog({
     const { error } = await (supabase as any).rpc('assign_counselor_role', {
       p_user_id: profileId,
       p_role_key: roleKey,
+      p_is_primary: false,
     });
     if (error) {
       console.error('[admission/counselors] assign_counselor_role RPC failed:', error);
