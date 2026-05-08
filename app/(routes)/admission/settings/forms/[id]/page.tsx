@@ -61,7 +61,31 @@ import { PermissionGuard } from '@/components/auth/permission-guard';
 import { AdmissionErrorBoundary } from '@/components/admission';
 import { useAdmissionForm, useFormMutations } from '@/hooks/admission/use-admission-forms';
 import { FormBuilderService } from '@/lib/services/admission/form-builder-service';
-import type { FormFieldType, AdmissionFormField } from '@/types/admission';
+import type {
+  FormFieldType,
+  AdmissionFormField,
+  LeadSource,
+} from '@/types/admission';
+
+// Channel attribution options shown in the form-settings panel. Keep in
+// sync with LEAD_SOURCE_OPTIONS in app/(routes)/admission/settings/forms/
+// page.tsx and the lead_source enum in supabase/migrations.
+const LEAD_SOURCE_OPTIONS: { value: LeadSource; label: string }[] = [
+  { value: 'website', label: 'Website' },
+  { value: 'whatsapp', label: 'WhatsApp' },
+  { value: 'social_media', label: 'Social Media' },
+  { value: 'education_fair', label: 'Education Fair' },
+  { value: 'newspaper', label: 'Newspaper' },
+  { value: 'google_ads', label: 'Google Ads' },
+  { value: 'facebook_ads', label: 'Facebook Ads' },
+  { value: 'referral', label: 'Referral' },
+  { value: 'agent', label: 'Agent' },
+  { value: 'publisher', label: 'Publisher' },
+  { value: 'walk_in', label: 'Walk-in' },
+  { value: 'inbound_call', label: 'Inbound Call' },
+  { value: 'gate_entry', label: 'Gate Entry' },
+  { value: 'other', label: 'Other' },
+];
 import { FormPreviewDialog } from './_components/form-preview-dialog';
 import { ImageUploadField } from './_components/image-upload-field';
 import {
@@ -518,6 +542,29 @@ function FormSettingsPanel({
         />
       </div>
       <div>
+        <Label htmlFor="set-lead-source">Lead Source</Label>
+        <Select
+          value={(form.lead_source as LeadSource) || 'website'}
+          onValueChange={(v) => onUpdate({ lead_source: v as LeadSource })}
+        >
+          <SelectTrigger id="set-lead-source">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {LEAD_SOURCE_OPTIONS.map((opt) => (
+              <SelectItem key={opt.value} value={opt.value}>
+                {opt.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <p className="text-xs text-muted-foreground mt-1">
+          Submissions from this form attribute leads to this source in the
+          leads module. The website form keeps the default <em>Website</em>;
+          a WhatsApp-campaign form should use <em>WhatsApp</em>.
+        </p>
+      </div>
+      <div>
         <Label htmlFor="set-color">Primary Color</Label>
         <div className="flex gap-2 items-center">
           <Input
@@ -791,6 +838,7 @@ function FormBuilderContent({ formId }: { formId: string }) {
         thank_you_message: localFormState.thank_you_message,
         auto_whatsapp: localFormState.auto_whatsapp,
         allow_duplicate: localFormState.allow_duplicate,
+        lead_source: localFormState.lead_source,
       },
     });
     // react-hot-toast's promise helper gives inline loading/success/error states
@@ -815,6 +863,7 @@ function FormBuilderContent({ formId }: { formId: string }) {
             thank_you_message: localFormState.thank_you_message,
             auto_whatsapp: localFormState.auto_whatsapp,
             allow_duplicate: localFormState.allow_duplicate,
+            lead_source: localFormState.lead_source,
           },
         });
       }

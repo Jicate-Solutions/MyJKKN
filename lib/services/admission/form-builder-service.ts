@@ -10,6 +10,7 @@ import type {
   AdmissionFormTemplate,
   CreateAdmissionFormInput,
   FormFieldCondition,
+  LeadSource,
 } from '@/types/admission';
 
 export class FormBuilderService {
@@ -124,6 +125,96 @@ export class FormBuilderService {
     const supabase = createClientSupabaseClient();
     const { error } = await (supabase as any).from('admission_forms').delete().eq('id', formId);
     if (error) throw error;
+  }
+
+  /**
+   * Deep-clone an existing form including all sections and fields.
+   *
+   * Use case: ship a parallel form for a new channel (e.g. a WhatsApp-source
+   * form mirroring the website form's exact schema). The clone:
+   *   - takes a fresh name/slug from the caller (slug uniqueness is enforced
+   *     by the DB index — caller should call isSlugAvailable first)
+   *   - copies every styling/branding field (logo, banner, primary_color,
+   *     thank-you copy, etc.)
+   *   - lets caller override lead_source so the cloned form attributes
+   *     submissions to a different channel
+   *   - is always created in 'draft' status — caller reviews before publish
+   *   - re-creates sections/fields with fresh IDs and remaps section_id on
+   *     fields. Orphan fields (no section_id on source) stay orphan.
+   */
+  static async duplicateForm(
+    sourceFormId: string,
+    overrides: {
+      name: string;
+      slug: string;
+      lead_source?: LeadSource;
+      description?: string | null;
+    },
+    userId: string
+  ): Promise<AdmissionForm> {
+    const source = await this.getFormById(sourceFormId);
+
+    const input: CreateAdmissionFormInput = {
+      institution_id: source.institution_id,
+      name: overrides.name,
+      slug: overrides.slug,
+      description:
+        overrides.description !== undefined ? overrides.description : source.description,
+      form_type: source.form_type,
+      institution_ids: source.institution_ids ?? [],
+      program_ids: source.program_ids ?? [],
+      logo_url: source.logo_url,
+      banner_url: source.banner_url,
+      primary_color: source.primary_color,
+      thank_you_title: source.thank_you_title,
+      thank_you_message: source.thank_you_message,
+      allow_duplicate: source.allow_duplicate,
+      auto_whatsapp: source.auto_whatsapp,
+      wa_template_id: source.wa_template_id,
+      max_submissions: source.max_submissions,
+      starts_at: source.starts_at,
+      expires_at: source.expires_at,
+      lead_source: overrides.lead_source ?? source.lead_source,
+    };
+
+    const newForm = await this.createForm(input, userId);
+
+    // Walk sections in order; the synthetic 'unsectioned' bucket returned by
+    // getFormById has id === 'unsectioned' and contains fields whose original
+    // section_id was null — we re-insert those with section_id = null on the
+    // new form rather than creating a section row for them.
+    const sourceSections = source.sections ?? [];
+    for (const section of sourceSections) {
+      const sectionFields = section.fields ?? [];
+      let newSectionId: string | null = null;
+
+      if (section.id !== 'unsectioned') {
+        const newSection = await this.createSection(newForm.id, {
+          title: section.title,
+          description: section.description ?? undefined,
+          display_order: section.display_order,
+          is_collapsible: section.is_collapsible,
+          condition: section.condition,
+        });
+        newSectionId = newSection.id;
+      }
+
+      for (const field of sectionFields) {
+        const {
+          id: _id,
+          form_id: _formId,
+          section_id: _sectionId,
+          created_at: _createdAt,
+          ...fieldRest
+        } = field as any;
+        await this.createField(newForm.id, {
+          ...fieldRest,
+          section_id: newSectionId,
+        });
+      }
+    }
+
+    return newForm;
   }
 
   // ─── Sections CRUD ──────────────────────────────────────────

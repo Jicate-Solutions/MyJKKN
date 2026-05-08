@@ -8,6 +8,7 @@
 
 export type LeadSource =
   | 'website'
+  | 'whatsapp'
   | 'admission_form'
   | 'walk_in'
   | 'referral'
@@ -18,6 +19,7 @@ export type LeadSource =
   | 'publisher'
   | 'google_ads'
   | 'facebook_ads'
+  | 'inbound_call'
   | 'gate_entry'
   | 'other';
 
@@ -1257,6 +1259,13 @@ export interface AdmissionForm {
   max_submissions: number | null;
   starts_at: string | null;
   expires_at: string | null;
+  /**
+   * Channel attribution for leads created via this form. Read by
+   * FormSubmissionService.processSubmission to set lead.source. Existing
+   * forms default to 'website' (DB-level default), so legacy behavior is
+   * preserved without any data migration.
+   */
+  lead_source: LeadSource;
   created_by: string | null;
   created_at: string;
   updated_at: string;
@@ -1282,6 +1291,7 @@ export interface CreateAdmissionFormInput {
   max_submissions?: number | null;
   starts_at?: string | null;
   expires_at?: string | null;
+  lead_source?: LeadSource;
 }
 
 export interface AdmissionFormSubmission {
