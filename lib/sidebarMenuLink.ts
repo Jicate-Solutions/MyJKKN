@@ -1528,6 +1528,54 @@ export function GetPages(pathname: string): MenuGroup[] {
       })()
     },
     {
+      groupLabel: 'Internship Module',
+      menus: [
+        {
+          href: '/admin/internship-policy',
+          label: 'Internship Policies',
+          active: pathname.startsWith('/admin/internship-policy'),
+          icon: GraduationCap,
+          submenus: [
+            {
+              href: '/admin/internship-policy',
+              label: 'All Policies',
+              active: pathname === '/admin/internship-policy'
+            },
+            {
+              href: '/admin/internship-policy/eligibility',
+              label: 'Eligibility',
+              active: pathname === '/admin/internship-policy/eligibility'
+            },
+            {
+              href: '/admin/internship-policy/fees',
+              label: 'Fees',
+              active: pathname === '/admin/internship-policy/fees'
+            },
+            {
+              href: '/admin/internship-policy/attendance',
+              label: 'Attendance',
+              active: pathname === '/admin/internship-policy/attendance'
+            },
+            {
+              href: '/admin/internship-policy/evaluation',
+              label: 'Evaluation',
+              active: pathname === '/admin/internship-policy/evaluation'
+            },
+            {
+              href: '/admin/internship-policy/cycle',
+              label: 'Cycle',
+              active: pathname === '/admin/internship-policy/cycle'
+            },
+            {
+              href: '/admin/internship-policy/notifications',
+              label: 'Notifications',
+              active: pathname === '/admin/internship-policy/notifications'
+            }
+          ]
+        }
+      ]
+    },
+    {
       groupLabel: 'System',
       menus: [
         {
