@@ -48,6 +48,7 @@ import { ConsultantAttributionCard } from './_components/consultant-attribution-
 import { SourcesCapturedCard } from './_components/sources-captured-card';
 import { CallHistoryCard } from './_components/call-history-card';
 import { LogCallDialog } from '@/components/admission/log-call-dialog';
+import { ShowStudentQRButton } from '@/components/admission/show-student-qr-button';
 import { QuickActionsBar } from '@/components/admission/quick-actions-bar';
 import { useExpoEvent } from '@/hooks/admission/use-expos';
 import { useConsultantsForDropdown, useLeadAttributions } from '@/hooks/admission/use-consultants';
@@ -922,6 +923,30 @@ function LeadDetailPageContent() {
     }
   }, [lead?.institution_id]);
 
+  // Resolve the profile name for whoever first logged this lead at the gate.
+  // Stored as a UUID on lead.first_gate_entry_by; the Source & Timeline card
+  // wants the human name. Falls back to email if no name is set.
+  const [gateEntryByName, setGateEntryByName] = useState<string | null>(null);
+  useEffect(() => {
+    const byId = lead?.first_gate_entry_by;
+    if (!byId) {
+      setGateEntryByName(null);
+      return;
+    }
+    let cancelled = false;
+    const supabase = createClientSupabaseClient();
+    (supabase as any)
+      .from('profiles')
+      .select('full_name, email')
+      .eq('id', byId)
+      .maybeSingle()
+      .then(({ data, error }: { data: any; error: any }) => {
+        if (cancelled || error || !data) return;
+        setGateEntryByName(data.full_name || data.email || null);
+      });
+    return () => { cancelled = true; };
+  }, [lead?.first_gate_entry_by]);
+
   // Organization hierarchy for Create Application dialog
   const { institutions } = useInstitutionsWithAccess();
   const { data: degreesData, isLoading: loadingDegrees } = useDegrees({
@@ -1482,12 +1507,19 @@ function LeadDetailPageContent() {
               </Button>
               {/* Convert to Admitted — shows "View Learner Profile" once converted */}
               {lead.learner_profile_id ? (
-                <Button variant="outline" size="sm" asChild>
-                  <a href={`/learners/profiles/${lead.learner_profile_id}`}>
-                    <ExternalLink className="h-4 w-4 mr-2" />
-                    View Learner Profile
-                  </a>
-                </Button>
+                <>
+                  <Button variant="outline" size="sm" asChild>
+                    <a href={`/learners/profiles/${lead.learner_profile_id}`}>
+                      <ExternalLink className="h-4 w-4 mr-2" />
+                      View Learner Profile
+                    </a>
+                  </Button>
+                  <ShowStudentQRButton
+                    learnerProfileId={lead.learner_profile_id}
+                    alreadySubmitted={(lead as any).learner?.is_profile_complete === true}
+                    size="sm"
+                  />
+                </>
               ) : (
                 <Button
                   variant="default"
@@ -2068,9 +2100,21 @@ function LeadDetailPageContent() {
                       <dl className="grid grid-cols-2 gap-4">
                         <div>
                           <dt className="text-sm text-muted-foreground">Lead Source</dt>
-                          <dd className="font-medium capitalize">{(lead.source || '-').replace(/_/g, ' ')}</dd>
+                          <dd className="font-medium capitalize">
+                            {/* Display the lead's underlying channel category
+                             *  verbatim — gate-entry leads stay 'walk_in' here
+                             *  by design (per operator request 2026-05-07);
+                             *  gate-specific context lives in the dedicated
+                             *  Gate Entry block below. */}
+                            {(lead.source || '-').replace(/_/g, ' ')}
+                          </dd>
                         </div>
-                        {lead.source === 'referral' && lead.referral_type && (
+                        {/* Referral details render whenever the lead carries a
+                         *  referral_type — independent of lead.source. The
+                         *  prior gate `lead.source === 'referral'` silently
+                         *  hid these for gate-entry leads (whose source stays
+                         *  'walk_in' even when the visitor was referred). */}
+                        {lead.referral_type && (
                           <>
                             <div>
                               <dt className="text-sm text-muted-foreground">Referral Type</dt>
@@ -2080,6 +2124,33 @@ function LeadDetailPageContent() {
                               <div>
                                 <dt className="text-sm text-muted-foreground">Referred By</dt>
                                 <dd className="font-medium">{lead.referred_by_name}</dd>
+                              </div>
+                            )}
+                          </>
+                        )}
+                        {/* Gate Entry metadata block — visible only when this
+                         *  lead was first captured at the institution gate.
+                         *  Shows when, who entered them, and the visit count. */}
+                        {lead.first_gate_entry_at && (
+                          <>
+                            <div>
+                              <dt className="text-sm text-muted-foreground">Gate Entry Time</dt>
+                              <dd className="font-medium">
+                                {formatDateTimeDMY(lead.first_gate_entry_at)}
+                              </dd>
+                            </div>
+                            <div>
+                              <dt className="text-sm text-muted-foreground">Logged By</dt>
+                              <dd className="font-medium">
+                                {gateEntryByName ?? '—'}
+                              </dd>
+                            </div>
+                            {(lead.gate_entry_count ?? 0) > 0 && (
+                              <div>
+                                <dt className="text-sm text-muted-foreground">Total Visits</dt>
+                                <dd className="font-medium tabular-nums">
+                                  {lead.gate_entry_count}
+                                </dd>
                               </div>
                             )}
                           </>
