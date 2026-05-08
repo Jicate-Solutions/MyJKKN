@@ -49,8 +49,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS ux_lsft_one_active_per_learner
 -- RLS is deny-all for the anon role; only service-role bypasses it.
 ALTER TABLE public.learner_self_fill_tokens ENABLE ROW LEVEL SECURITY;
 
-DROP POLICY IF EXISTS lsft_admin_read ON public.learner_self_fill_tokens;
-CREATE POLICY lsft_admin_read
+DROP POLICY IF EXISTS learner_self_fill_tokens_read ON public.learner_self_fill_tokens;
+CREATE POLICY learner_self_fill_tokens_read
     ON public.learner_self_fill_tokens FOR SELECT
     USING (
       public.is_super_admin()
