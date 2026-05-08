@@ -63,6 +63,11 @@ import {
   getTaluksByDistrict
 } from '@/lib/data/locations';
 import toast from 'react-hot-toast';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
+
+// Task 15 — student-self-fill QR + per-section status chips
+import { ShowStudentQRButton } from '@/components/admission/show-student-qr-button';
+import { StudentSectionStatusChip } from './student-section-status-chip';
 
 /**
  * Complete Enquiry Form Schema
@@ -489,6 +494,57 @@ export function EnquiryForm({
   const [savedEnquiryId, setSavedEnquiryId] = useState<string | null>(learner?.id || null);
   const [showCancelDialog, setShowCancelDialog] = useState(false);
   const [pendingImageFile, setPendingImageFile] = useState<File | null>(null);
+
+  // Task 15 — per-section student-fill status (sourced from admission_lead_activities)
+  type SectionKey = 'basic' | 'academic' | 'contact';
+  type SectionStatus = { filled: boolean; filledAt: string | null; filledBy: 'student' | 'admission_override' | null };
+  const [sectionStatus, setSectionStatus] = useState<Record<SectionKey, SectionStatus>>({
+    basic:    { filled: false, filledAt: null, filledBy: null },
+    academic: { filled: false, filledAt: null, filledBy: null },
+    contact:  { filled: false, filledAt: null, filledBy: null },
+  });
+
+  useEffect(() => {
+    const learnerProfileId = savedEnquiryId ?? learner?.id;
+    if (!learnerProfileId) return;
+    const supabase = createClientSupabaseClient();
+    (async () => {
+      // Resolve learner_profile_id → admission_leads.id
+      const { data: leadRow } = await supabase
+        .from('admission_leads')
+        .select('id')
+        .eq('learner_profile_id', learnerProfileId)
+        .maybeSingle();
+      if (!leadRow?.id) return;
+      const { data: rows } = await supabase
+        .from('admission_lead_activities')
+        .select('subject, description, created_at')
+        .eq('lead_id', leadRow.id)
+        .eq('activity_type', 'student_section_filled')
+        .order('created_at', { ascending: false });
+      if (!rows) return;
+      const next: Record<SectionKey, SectionStatus> = {
+        basic:    { filled: false, filledAt: null, filledBy: null },
+        academic: { filled: false, filledAt: null, filledBy: null },
+        contact:  { filled: false, filledAt: null, filledBy: null },
+      };
+      for (const r of rows) {
+        const desc = r.description || '';
+        const isOverride = /admission override/i.test(desc);
+        const m = desc.match(/Filled (basic|academic|contact)/i);
+        const section = m?.[1]?.toLowerCase() as SectionKey | undefined;
+        if (!section || !next[section]) continue;
+        if (next[section].filled) continue; // keep most recent (already top-sorted)
+        next[section] = {
+          filled: true,
+          filledAt: r.created_at,
+          filledBy: isOverride ? 'admission_override' : 'student',
+        };
+      }
+      setSectionStatus(next);
+    })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [savedEnquiryId, learner?.id]);
 
   // ========================================================================
   // Plan 6 / Task 5 — Pre-submit confirmation dialog state.
@@ -1512,6 +1568,16 @@ export function EnquiryForm({
   return (
     <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit, onInvalid)} className="space-y-6">
+        {/* Task 15 — QR button for student self-fill; only shown on edit (learner exists) and not student view */}
+        {!isStudentView && (savedEnquiryId ?? learner?.id) && (
+          <div className="flex items-center justify-end gap-2 pb-2">
+            <ShowStudentQRButton
+              learnerProfileId={(savedEnquiryId ?? learner?.id)!}
+              alreadySubmitted={(learner as { is_profile_complete?: boolean } | undefined)?.is_profile_complete === true}
+            />
+          </div>
+        )}
+
         {/* Profile Completion Indicator */}
         {canAutoActivate && (
           <Alert variant={isProfileComplete ? 'default' : 'default'} className={isProfileComplete ? 'border-green-500 bg-green-50' : 'border-blue-500 bg-blue-50'}>
@@ -1583,6 +1649,17 @@ export function EnquiryForm({
           </TabsList>
 
           <TabsContent value="basic-details" className="space-y-4 mt-4">
+            {!isStudentView && learner?.id && (
+              <div className="flex items-center justify-between mb-1">
+                <div />
+                <StudentSectionStatusChip
+                  filled={sectionStatus.basic.filled}
+                  filledAt={sectionStatus.basic.filledAt}
+                  filledBy={sectionStatus.basic.filledBy}
+                  canOverride={false}
+                />
+              </div>
+            )}
             <Card className="p-3 sm:p-4 md:p-6">
               <BasicDetailsSection
                 form={form}
@@ -1593,6 +1670,17 @@ export function EnquiryForm({
           </TabsContent>
 
           <TabsContent value="academic-information" className="space-y-4 mt-4">
+            {!isStudentView && learner?.id && (
+              <div className="flex items-center justify-between mb-1">
+                <div />
+                <StudentSectionStatusChip
+                  filled={sectionStatus.academic.filled}
+                  filledAt={sectionStatus.academic.filledAt}
+                  filledBy={sectionStatus.academic.filledBy}
+                  canOverride={false}
+                />
+              </div>
+            )}
             <Card className="p-3 sm:p-4 md:p-6">
               <AcademicInformationSection form={form} />
             </Card>
@@ -1605,6 +1693,17 @@ export function EnquiryForm({
           </TabsContent>
 
           <TabsContent value="contact-details" className="space-y-4 mt-4">
+            {!isStudentView && learner?.id && (
+              <div className="flex items-center justify-between mb-1">
+                <div />
+                <StudentSectionStatusChip
+                  filled={sectionStatus.contact.filled}
+                  filledAt={sectionStatus.contact.filledAt}
+                  filledBy={sectionStatus.contact.filledBy}
+                  canOverride={false}
+                />
+              </div>
+            )}
             <Card className="p-3 sm:p-4 md:p-6">
               <ContactDetailsSection form={form} />
             </Card>
