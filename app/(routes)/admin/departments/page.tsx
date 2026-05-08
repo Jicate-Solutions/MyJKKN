@@ -50,28 +50,47 @@ export default function DepartmentsHoDPage() {
   const [hodOptions, setHodOptions] = useState<ReadonlyArray<HoDCandidate>>([]);
 
   // Pre-load HoD candidates once. Re-loaded only on manual refresh of the table.
-  // For ~50 max staff with role_key='hod' across 8 colleges this is cheap.
+  // ~40 staff have role_key='hod' across 8 institutions today (verified 2026-05-08
+  // against prod). Cheap one-shot fetch.
+  //
+  // Note: role_key lives on `staff`, NOT on `profiles`. The original Coordination
+  // PR (#767) wired this query against `profiles.role_key` which doesn't exist —
+  // surfacing zero candidates regardless of state. Fixed in this PR.
+  // departments.head_of_department_id references profiles(id), so we resolve
+  // staff.profile_id and skip any staff rows without a linked profile (cannot
+  // receive notifications / permissions without a profile).
   useEffect(() => {
     let active = true;
     (async () => {
-      // TODO(Phase 0A): drop `as any` cast after types/supabase.ts regenerates
-      // post-migration. Pre-cast supabase to break the deep-inference chain.
+      // TODO(Phase 0A): drop `as any` cast after Supabase TS client typing
+      // tolerates the institutions!inner relation join cleanly.
       const sb = supabase as any;
       const { data, error } = await sb
-        .from('profiles')
-        .select('id, full_name, institution_id, institutions!inner(name), role_key')
-        .eq('role_key', 'hod');
+        .from('staff')
+        .select(
+          'profile_id, first_name, last_name, institution_id, institutions!inner(name), role_key, is_active',
+        )
+        .eq('role_key', 'hod')
+        .eq('is_active', true);
       if (!active) return;
       if (error) {
         toast.error(`Could not load HoD candidates: ${error.message}`);
         return;
       }
-      const candidates: HoDCandidate[] = (data ?? []).map((row: any) => ({
-        profile_id: row.id,
-        full_name: row.full_name,
-        institution_id: row.institution_id,
-        institution_name: row.institutions?.name ?? '—',
-      }));
+      const candidates: HoDCandidate[] = (data ?? [])
+        .filter((row: any) => row.profile_id)
+        .map((row: any) => {
+          const fullName = [row.first_name, row.last_name]
+            .filter(Boolean)
+            .join(' ')
+            .trim();
+          return {
+            profile_id: row.profile_id,
+            full_name: fullName || '(unnamed)',
+            institution_id: row.institution_id,
+            institution_name: row.institutions?.name ?? '—',
+          };
+        });
       setHodOptions(candidates);
     })();
     return () => {
