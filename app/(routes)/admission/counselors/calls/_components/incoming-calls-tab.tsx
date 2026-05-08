@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -157,6 +157,18 @@ function getNotesIndicator(log: { call_notes?: string | null; cost_amount?: numb
 
 function RecordingPlayer({ url }: { url: string | null }) {
   const [playing, setPlaying] = useState(false);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  // Cleanup audio when component unmounts to avoid orphaned playback.
+  useEffect(() => {
+    return () => {
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current = null;
+      }
+    };
+  }, []);
+
   if (!url) return <span className="text-xs text-muted-foreground">-</span>;
 
   return (
@@ -166,15 +178,42 @@ function RecordingPlayer({ url }: { url: string | null }) {
       className="h-7 px-2 text-xs"
       onClick={(e) => {
         e.stopPropagation();
-        const audio = new Audio(url);
-        if (playing) {
-          audio.pause();
+        // Pause: stop the *current* audio instance (held in ref), not a fresh
+        // one. The previous code created `new Audio()` on every click and
+        // called pause/play on that fresh instance, which never matched the
+        // one actually playing — so the Pause button silently did nothing
+        // and the Play button could leave the UI stuck in "Pause" state if
+        // the underlying play() promise rejected (autoplay/CORS).
+        if (playing && audioRef.current) {
+          audioRef.current.pause();
+          audioRef.current = null;
           setPlaying(false);
-        } else {
-          audio.play().catch(() => window.open(url, '_blank'));
-          audio.onended = () => setPlaying(false);
-          setPlaying(true);
+          return;
         }
+
+        const audio = new Audio(url);
+        audioRef.current = audio;
+        audio.onended = () => {
+          audioRef.current = null;
+          setPlaying(false);
+        };
+        audio.onerror = () => {
+          audioRef.current = null;
+          setPlaying(false);
+        };
+        audio
+          .play()
+          .then(() => {
+            // Only flip to "Pause" once playback actually started.
+            setPlaying(true);
+          })
+          .catch(() => {
+            // Browser blocked playback (autoplay policy / CORS / network).
+            // Reset state and fall back to opening the recording in a new tab.
+            audioRef.current = null;
+            setPlaying(false);
+            window.open(url, '_blank');
+          });
       }}
     >
       {playing ? <Pause className="h-3 w-3 mr-1" /> : <Play className="h-3 w-3 mr-1" />}
