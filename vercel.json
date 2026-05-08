@@ -114,6 +114,10 @@
     {
       "path": "/api/cron/form-abandon-recovery?secret=${CRON_SECRET}",
       "schedule": "*/30 * * * *"
+    },
+    {
+      "path": "/api/cron/analyze-calls?secret=${CRON_SECRET}",
+      "schedule": "*/15 * * * *"
     }
   ]
 }
