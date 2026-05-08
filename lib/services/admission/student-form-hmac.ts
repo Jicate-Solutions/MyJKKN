@@ -5,7 +5,12 @@
 // `<base64url payload>.<base64url signature>`.
 // The DB stores SHA-256 hash of the FULL signed value, peppered with a
 // server secret. Lookup is by hash; HMAC validates authenticity.
+//
+// `import 'server-only'` is defense in depth — node:crypto would already
+// fail at build time if a client bundle tried to pull this in, but the
+// explicit guard makes the contract obvious to readers and trips earlier.
 
+import 'server-only';
 import crypto from 'node:crypto';
 
 interface TokenPayload {
