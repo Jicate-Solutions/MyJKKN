@@ -24,7 +24,7 @@ import { PermissionGuard } from '@/components/auth/permission-guard';
 import { useAuth } from '@/hooks/use-auth';
 import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
 import {
-  useDashboardSummary,
+  useAdmissionDashboard,
   useFunnelSummary,
   useAdmissionLeads,
   useLatestUnreadBriefing
@@ -271,7 +271,7 @@ function AdmissionDashboardPageContent() {
   // Get latest unread briefing for popup
   const { data: latestBriefingNotification } = useLatestUnreadBriefing(profile?.id);
 
-  const { summary, isLoading: summaryLoading, refetch } = useDashboardSummary(institutionId || '');
+  const { summary, isLoading: summaryLoading, refetchAll: refetch } = useAdmissionDashboard(institutionId || '');
   const { funnel, isLoading: funnelLoading } = useFunnelSummary(institutionId || '');
 
   const isLoading = accessLoading || summaryLoading || funnelLoading;

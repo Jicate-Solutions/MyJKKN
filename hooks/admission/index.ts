@@ -1055,27 +1055,6 @@ export function useAdmissionDashboard(filtersOrId?: string | any) {
   };
 }
 
-export function useDashboardSummary(institutionId?: string) {
-  const query = useQuery({
-    queryKey: ['dashboard-summary', institutionId ?? '__all__'],
-    queryFn: async () => LeadService.getDashboardSummary(institutionId),
-    staleTime: 2 * 60 * 1000,
-  });
-
-  return {
-    summary: query.data || {
-      totalLeads: 0,
-      newLeads: 0,
-      convertedLeads: 0,
-      pendingFollowups: 0,
-      todayFollowups: 0,
-      conversionRate: 0
-    },
-    isLoading: query.isLoading,
-    refetch: query.refetch
-  };
-}
-
 export function useFunnelSummary(institutionId?: string) {
   const query = useQuery({
     queryKey: ['funnel-summary', institutionId ?? '__all__'],
