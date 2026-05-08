@@ -311,6 +311,23 @@ export function useAdmissionLeads(filters?: LeadFilters) {
   };
 }
 
+/**
+ * Cross-cache signal for the leads list. The leads-data-table uses a manual
+ * fetchData/refetchKey DataTable (not useQuery), so queryClient.invalidate-
+ * Queries doesn't reach it. We dispatch a window CustomEvent on every
+ * successful lead mutation; the table subscribes and bumps its refetchKey.
+ *
+ * Event name is shared with the listener in
+ * app/(routes)/admission/leads/_components/leads-data-table.tsx — keep them
+ * in sync if either side renames.
+ */
+const ADMISSION_LEADS_CHANGED_EVENT = 'admission-leads-changed';
+function emitLeadsChanged() {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent(ADMISSION_LEADS_CHANGED_EVENT));
+  }
+}
+
 export function useLeadMutations() {
   const queryClient = useQueryClient();
 
@@ -321,6 +338,7 @@ export function useLeadMutations() {
     onSuccess: (data) => {
       toast.success('Lead created successfully');
       queryClient.invalidateQueries({ queryKey: ['admission-leads'] });
+      emitLeadsChanged();
       queryClient.invalidateQueries({ queryKey: ['funnel-summary'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
       queryClient.invalidateQueries({ queryKey: ['admission-dashboard'] });
@@ -338,6 +356,7 @@ export function useLeadMutations() {
     onSuccess: () => {
       toast.success('Lead updated successfully');
       queryClient.invalidateQueries({ queryKey: ['admission-leads'] });
+      emitLeadsChanged();
       queryClient.invalidateQueries({ queryKey: ['admission-lead'] });
       queryClient.invalidateQueries({ queryKey: ['funnel-summary'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
@@ -354,15 +373,19 @@ export function useLeadMutations() {
       return LeadService.deleteLead(id);
     },
     onSuccess: () => {
-      toast.success('Lead deleted successfully');
+      // Soft-delete: row stays in admission_leads with funnel_stage='lost'.
+      // Toast wording matches the row-action label ("Mark as Lost") so users
+      // don't expect the row to vanish from the list.
+      toast.success('Lead marked as lost');
       queryClient.invalidateQueries({ queryKey: ['admission-leads'] });
+      emitLeadsChanged();
       queryClient.invalidateQueries({ queryKey: ['funnel-summary'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
       queryClient.invalidateQueries({ queryKey: ['admission-dashboard'] });
       queryClient.invalidateQueries({ queryKey: ['counselor-daily-view'] });
     },
     onError: (error: Error) => {
-      toast.error(error.message || 'Failed to delete lead');
+      toast.error(error.message || 'Failed to mark lead as lost');
     }
   });
 
@@ -373,6 +396,7 @@ export function useLeadMutations() {
     onSuccess: () => {
       toast.success('Lead permanently deleted');
       queryClient.invalidateQueries({ queryKey: ['admission-leads'] });
+      emitLeadsChanged();
       queryClient.invalidateQueries({ queryKey: ['funnel-summary'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
       queryClient.invalidateQueries({ queryKey: ['admission-dashboard'] });
@@ -390,6 +414,7 @@ export function useLeadMutations() {
     onSuccess: (_data, variables) => {
       toast.success('Lead stage updated');
       queryClient.invalidateQueries({ queryKey: ['admission-leads'] });
+      emitLeadsChanged();
       queryClient.invalidateQueries({ queryKey: ['admission-lead'] });
       queryClient.invalidateQueries({ queryKey: ['funnel-summary'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
@@ -413,6 +438,7 @@ export function useLeadMutations() {
     onSuccess: (_, variables) => {
       toast.success(variables.isHot ? 'Marked as hot lead' : 'Removed hot lead status');
       queryClient.invalidateQueries({ queryKey: ['admission-leads'] });
+      emitLeadsChanged();
       queryClient.invalidateQueries({ queryKey: ['admission-lead'] });
       queryClient.invalidateQueries({ queryKey: ['funnel-summary'] });
       queryClient.invalidateQueries({ queryKey: ['counselor-daily-view'] });
@@ -430,6 +456,7 @@ export function useLeadMutations() {
     onSuccess: (_, variables) => {
       toast.success(variables.isPriority ? 'Marked as priority' : 'Removed priority status');
       queryClient.invalidateQueries({ queryKey: ['admission-leads'] });
+      emitLeadsChanged();
       queryClient.invalidateQueries({ queryKey: ['admission-lead'] });
       queryClient.invalidateQueries({ queryKey: ['funnel-summary'] });
       queryClient.invalidateQueries({ queryKey: ['admission-dashboard'] });
@@ -448,6 +475,7 @@ export function useLeadMutations() {
       toast.success('Tag added');
       queryClient.invalidateQueries({ queryKey: ['admission-lead'] });
       queryClient.invalidateQueries({ queryKey: ['admission-leads'] });
+      emitLeadsChanged();
     },
     onError: (error: Error) => {
       toast.error(error.message || 'Failed to add tag');
@@ -462,6 +490,7 @@ export function useLeadMutations() {
       toast.success('Tag removed');
       queryClient.invalidateQueries({ queryKey: ['admission-lead'] });
       queryClient.invalidateQueries({ queryKey: ['admission-leads'] });
+      emitLeadsChanged();
     },
     onError: (error: Error) => {
       toast.error(error.message || 'Failed to remove tag');
@@ -476,6 +505,7 @@ export function useLeadMutations() {
     onSuccess: (data) => {
       // Toast is fired by the calling component's onSuccess callback — don't duplicate
       queryClient.invalidateQueries({ queryKey: ['admission-leads'] });
+      emitLeadsChanged();
       queryClient.invalidateQueries({ queryKey: ['funnel-summary'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
       queryClient.invalidateQueries({ queryKey: ['admission-dashboard'] });
@@ -494,6 +524,7 @@ export function useLeadMutations() {
     onSuccess: (_data, variables) => {
       toast.success('Counselor assigned');
       queryClient.invalidateQueries({ queryKey: ['admission-leads'] });
+      emitLeadsChanged();
       queryClient.invalidateQueries({ queryKey: ['admission-lead'] });
       queryClient.invalidateQueries({ queryKey: ['counselor-performance'] });
       queryClient.invalidateQueries({ queryKey: ['counselor-daily-view'] });
@@ -514,6 +545,7 @@ export function useLeadMutations() {
     onSuccess: (_data, variables) => {
       toast.success('Followup scheduled');
       queryClient.invalidateQueries({ queryKey: ['admission-leads'] });
+      emitLeadsChanged();
       queryClient.invalidateQueries({ queryKey: ['admission-lead'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
       queryClient.invalidateQueries({ queryKey: ['counselor-daily-view'] });
@@ -602,6 +634,7 @@ export function useApplicationMutations() {
       toast.success('Application created successfully');
       queryClient.invalidateQueries({ queryKey: ['admission-applications'] });
       queryClient.invalidateQueries({ queryKey: ['admission-leads'] });
+      emitLeadsChanged();
       queryClient.invalidateQueries({ queryKey: ['admission-lead'] });
       queryClient.invalidateQueries({ queryKey: ['lead-timeline'] });
       queryClient.invalidateQueries({ queryKey: ['lead-activities'] });
@@ -633,6 +666,7 @@ export function useApplicationMutations() {
       toast.success('Application status updated');
       queryClient.invalidateQueries({ queryKey: ['admission-applications'] });
       queryClient.invalidateQueries({ queryKey: ['admission-leads'] });
+      emitLeadsChanged();
       queryClient.invalidateQueries({ queryKey: ['admission-lead'] });
       queryClient.invalidateQueries({ queryKey: ['admission-application'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
@@ -652,6 +686,7 @@ export function useApplicationMutations() {
       toast.success('Application deleted successfully');
       queryClient.invalidateQueries({ queryKey: ['admission-applications'] });
       queryClient.invalidateQueries({ queryKey: ['admission-leads'] });
+      emitLeadsChanged();
       queryClient.invalidateQueries({ queryKey: ['admission-lead'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
       queryClient.invalidateQueries({ queryKey: ['admission-dashboard'] });

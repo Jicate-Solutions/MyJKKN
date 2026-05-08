@@ -22,10 +22,19 @@ import { ArrowLeft, Loader2, Phone, Search, ScanLine, User } from 'lucide-react'
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 
 import { useAuth } from '@/hooks/use-auth';
+import { usePermissions } from '@/hooks/use-permissions';
+import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 
 interface GateEntryRow {
@@ -51,7 +60,28 @@ export default function GateEntryTodayPage() {
 
 function GateEntryTodayBody() {
   const { profile } = useAuth();
-  const institutionId = profile?.institution_id ?? null;
+  const { isSuperAdmin, isAdmissionGlobalUser } = usePermissions();
+  const { institutions } = useInstitutionsWithAccess();
+
+  // Institution resolution mirrors the gate-entry capture form so the two
+  // pages stay in lockstep. profile.institution_id alone is insufficient for
+  // admission_staff / super_admin (their profile FK is often null even when
+  // they have institution access via Role Management).
+  const [selectedInstitutionId, setSelectedInstitutionId] = useState<string>('');
+  useEffect(() => {
+    if (!isSuperAdmin && !isAdmissionGlobalUser && profile?.institution_id) {
+      setSelectedInstitutionId(profile.institution_id);
+    } else if (institutions.length === 1) {
+      setSelectedInstitutionId(institutions[0].id);
+    }
+  }, [profile?.institution_id, isSuperAdmin, isAdmissionGlobalUser, institutions]);
+
+  // '_all' is the meta value: query without an institution_id filter and let
+  // RLS scope the rows. Useful for admission_staff who manage several
+  // campuses and want to see today's traffic across all of them.
+  const canSelectInstitution =
+    isSuperAdmin || isAdmissionGlobalUser || institutions.length > 1;
+  const institutionId = selectedInstitutionId || '_all';
 
   const [rows, setRows] = useState<GateEntryRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -59,7 +89,6 @@ function GateEntryTodayBody() {
   const [search, setSearch] = useState('');
 
   useEffect(() => {
-    if (!institutionId) return;
     let cancelled = false;
     setLoading(true);
     setError(null);
@@ -69,12 +98,13 @@ function GateEntryTodayBody() {
     const startIso = today.toISOString();
 
     const supabase = createClientSupabaseClient();
-    supabase
+    let query = supabase
       .from('admission_lead_source_captures')
       .select(`
         id,
         captured_at,
         lead_id,
+        institution_id,
         admission_leads!inner (
           first_name,
           last_name,
@@ -83,18 +113,22 @@ function GateEntryTodayBody() {
           gate_entry_count
         )
       `)
-      .eq('institution_id', institutionId)
       .eq('source', 'gate_entry')
       .gte('captured_at', startIso)
-      .order('captured_at', { ascending: false })
-      .then(({ data, error: err }) => {
+      .order('captured_at', { ascending: false });
+
+    // Only apply the institution filter when a specific institution is
+    // chosen; '_all' lets RLS do the scoping.
+    if (institutionId && institutionId !== '_all') {
+      query = query.eq('institution_id', institutionId);
+    }
+
+    query.then(({ data, error: err }) => {
         if (cancelled) return;
         if (err) {
           setError(err.message);
           setRows([]);
         } else {
-          // Supabase returns the joined relation as an object (not array)
-          // when the FK is one-to-one. Coerce in case it's typed as array.
           const flat: GateEntryRow[] = (data ?? []).map((r: any) => {
             const lead = Array.isArray(r.admission_leads)
               ? r.admission_leads[0]
@@ -135,7 +169,7 @@ function GateEntryTodayBody() {
   }, [rows]);
 
   return (
-    <div className="max-w-5xl mx-auto space-y-4 px-4 sm:px-0">
+    <div className="mx-auto space-y-4 px-4 sm:px-0">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
         <div>
@@ -158,6 +192,32 @@ function GateEntryTodayBody() {
           </Link>
         </Button>
       </div>
+
+      {/* Institution selector — only when the user has access to more than
+          one campus (or is super_admin). A wider scope ('_all') is offered
+          so admission ops can see today's volume across the group without
+          flipping between dropdowns. */}
+      {canSelectInstitution && (
+        <div className="flex items-center gap-2">
+          <label className="text-sm text-muted-foreground shrink-0">Institution:</label>
+          <Select
+            value={selectedInstitutionId || '_all'}
+            onValueChange={(v) => setSelectedInstitutionId(v === '_all' ? '' : v)}
+          >
+            <SelectTrigger className="h-9 w-full sm:w-[240px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="_all">All accessible institutions</SelectItem>
+              {institutions.map((inst) => (
+                <SelectItem key={inst.id} value={inst.id}>
+                  {inst.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
 
       {/* Summary */}
       <div className="grid grid-cols-3 gap-3">

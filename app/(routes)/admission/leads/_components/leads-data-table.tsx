@@ -73,6 +73,19 @@ export function LeadsDataTable() {
     return () => window.removeEventListener('focus', handleFocus);
   }, []);
 
+  // Bridge from lead mutations → this manual-refetch DataTable. The hooks
+  // in hooks/admission/index.ts dispatch a window CustomEvent on every
+  // successful lead mutation (create/update/delete/stage/etc). We listen
+  // and bump refetchKey, which triggers fetchData via the DataTable's
+  // refetchKey prop. Reason for the indirection: this table doesn't use
+  // useQuery (it's a controlled fetchData/refetchKey DataTable), so
+  // queryClient.invalidateQueries doesn't reach it directly.
+  useEffect(() => {
+    const handler = () => setRefetchKey((prev) => prev + 1);
+    window.addEventListener('admission-leads-changed', handler);
+    return () => window.removeEventListener('admission-leads-changed', handler);
+  }, []);
+
   // Attribution map: leadId -> primary consultant name (populated after each page load)
   const [attributionsMap, setAttributionsMap] = useState<Map<string, string>>(new Map());
 

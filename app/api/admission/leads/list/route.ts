@@ -168,6 +168,8 @@ export async function GET(request: NextRequest) {
         state,
         parent_name,
         parent_phone,
+        program_id,
+        alternative_programs,
         interested_programs,
         preferred_channel,
         counselor_id,
@@ -232,11 +234,23 @@ export async function GET(request: NextRequest) {
       query = query.eq('wa_opt_in', true);
     }
 
-    // Filter by program — `interested_programs` is a uuid[] column.
-    // `.contains()` translates to the PostgreSQL `@>` array-contains operator,
-    // so this returns rows whose interested_programs array includes programId.
+    // Filter by program — match against ALL three program-id storage columns
+    // since the 2026-04-21 split:
+    //   - program_id (single uuid, primary)            → `eq`
+    //   - alternative_programs (uuid[], multi-select) → `cs` (array contains)
+    //   - interested_programs (legacy uuid[])         → `cs` (pre-split rows)
+    // The `.or(...)` chain emits one PostgREST `or=(...)` clause so the user
+    // sees every lead that lists this program in any of the three columns.
+    // UUIDs are safe to interpolate (alphanumeric + dashes only — no escape
+    // hazards in the PostgREST OR syntax).
     if (programId) {
-      query = query.contains('interested_programs', [programId]);
+      query = query.or(
+        [
+          `program_id.eq.${programId}`,
+          `alternative_programs.cs.{${programId}}`,
+          `interested_programs.cs.{${programId}}`,
+        ].join(','),
+      );
     }
 
     if (search) {
@@ -278,18 +292,32 @@ export async function GET(request: NextRequest) {
 
     if (error) throw error;
 
-    // 8. Resolve program IDs on `interested_programs` to names server-side so
-    //    the client never renders raw UUIDs while a client-side map loads.
-    //    `interested_programs` is a uuid[] / text[] column — Supabase can't
-    //    auto-join it, so we batch-fetch the names here and inject them.
+    // 8. Resolve program IDs to names server-side so the client never renders
+    //    raw UUIDs while a client-side map loads.
+    //
+    //    Three columns can hold program IDs since the 2026-04-21 split:
+    //      - program_id (uuid)            : the primary "Interested Program"
+    //      - alternative_programs (uuid[]): backup picks (multi-select)
+    //      - interested_programs (uuid[]) : LEGACY column, kept for ~350 pre-
+    //                                       split rows; no new writes go here
+    //
+    //    Earlier this endpoint only read `interested_programs`, so every lead
+    //    created since the split (including all gate-entry captures) had an
+    //    empty Interested Courses cell. Now we union all three sources, dedupe
+    //    via Set, batch-resolve the names, and emit them in primary-then-alts
+    //    order so the table's "show first 2 + N more" UI puts the primary first.
     const rows = data || [];
-    const programIds = Array.from(
-      new Set(
-        rows.flatMap((r: any) =>
-          Array.isArray(r.interested_programs) ? r.interested_programs : []
-        )
-      )
-    ) as string[];
+    const programIdSet = new Set<string>();
+    for (const r of rows as any[]) {
+      if (typeof r.program_id === 'string' && r.program_id) programIdSet.add(r.program_id);
+      if (Array.isArray(r.alternative_programs)) {
+        r.alternative_programs.forEach((id: string) => id && programIdSet.add(id));
+      }
+      if (Array.isArray(r.interested_programs)) {
+        r.interested_programs.forEach((id: string) => id && programIdSet.add(id));
+      }
+    }
+    const programIds = [...programIdSet];
 
     let programNameMap = new Map<string, string>();
     if (programIds.length) {
@@ -304,14 +332,30 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    const enriched = rows.map((r: any) => ({
-      ...r,
-      interested_program_names: Array.isArray(r.interested_programs)
-        ? r.interested_programs
-            .map((id: string) => programNameMap.get(id))
-            .filter(Boolean)
-        : [],
-    }));
+    const enriched = rows.map((r: any) => {
+      // Build the per-lead name list in display order:
+      //   primary (program_id) → alternatives (alternative_programs[])
+      //   → legacy (interested_programs[], for pre-split rows only)
+      // Dedupe within the lead so a primary that was also marked as an alt
+      // doesn't render twice.
+      const seen = new Set<string>();
+      const names: string[] = [];
+      const push = (id: string | null | undefined) => {
+        if (!id || seen.has(id)) return;
+        const name = programNameMap.get(id);
+        if (!name) return;
+        seen.add(id);
+        names.push(name);
+      };
+      push(r.program_id);
+      if (Array.isArray(r.alternative_programs)) {
+        r.alternative_programs.forEach(push);
+      }
+      if (Array.isArray(r.interested_programs)) {
+        r.interested_programs.forEach(push);
+      }
+      return { ...r, interested_program_names: names };
+    });
 
     return NextResponse.json({
       data: enriched,

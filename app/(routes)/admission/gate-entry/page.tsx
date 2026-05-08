@@ -54,9 +54,19 @@ import { usePermissions } from '@/hooks/use-permissions';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import { useFormDraftObject } from '@/hooks/use-form-draft';
 import { useConsultantsForDropdown } from '@/hooks/admission/use-consultants';
+import {
+  useReferralInstitutions,
+  useReferralDepartments,
+  useReferralStudents,
+  useReferralStaff,
+} from '@/hooks/admission/use-referral-dropdowns-hierarchy';
 import { LeadService } from '@/lib/services/admission/lead-service';
 import { ProgramService } from '@/lib/services/organization/program-service';
-import type { GateEntryInput, GateEntryResult } from '@/types/admission';
+import type {
+  GateEntryInput,
+  GateEntryResult,
+  ReferralType,
+} from '@/types/admission';
 import type { Program } from '@/types/organizations';
 
 // ─── Form shape ───────────────────────────────────────────────────────────
@@ -66,7 +76,11 @@ interface FormData {
   phone: string;
   program_id: string; // '' or 'undecided' or actual UUID
   source: 'walk_in' | 'referral';
-  referred_by_id: string;     // consultant uuid (when picked from list)
+  // Referral sub-type. Empty when source='walk_in' or before user picks.
+  // Mirrors the leads/new form so gate guards see the same UX as the
+  // admission desk operators.
+  referral_type: '' | ReferralType; // 'consultant' | 'student' | 'faculty'
+  referred_by_id: string;     // referrer uuid (consultant / student / staff)
   referred_by_name: string;   // free-text fallback
 }
 
@@ -76,6 +90,7 @@ const INITIAL_FORM: FormData = {
   phone: '',
   program_id: '',
   source: 'walk_in',
+  referral_type: '',
   referred_by_id: '',
   referred_by_name: '',
 };
@@ -129,7 +144,6 @@ function GateEntryForm() {
   const {
     values: form,
     setValue: setDraftField,
-    setValues: setDraftValues,
     clearDraft,
   } = useFormDraftObject<FormData>(draftKey, INITIAL_FORM);
 
@@ -154,17 +168,66 @@ function GateEntryForm() {
     return () => { cancelled = true; };
   }, [institutionId, setDraftField]);
 
-  // Consultants for the referral picker (scoped to the user's institution).
-  // Hook signature: useConsultantsForDropdown(institutionId?: string) →
-  // { data: Array<{id, name, value, label}> }. Empty string disables the
-  // query — we only fire once we have the institution.
+  // Consultants for the referral picker — fetched globally, NOT scoped to
+  // the gate's institution. Reason: education_consultants are group-level
+  // entities that refer students to any campus; the consultant_institutions
+  // junction is only sparsely populated (1 / 28 rows in production as of
+  // 2026-05-07). Passing an institution_id forces an `!inner` join that
+  // silently excludes the 27 consultants without a junction row, leaving
+  // the picker empty. Mirrors the /admission/leads/new pattern.
   const { data: consultants = [], isLoading: consultantsLoading } =
-    useConsultantsForDropdown(institutionId || undefined);
+    useConsultantsForDropdown();
   const [consultantOpen, setConsultantOpen] = useState(false);
   const selectedConsultant = useMemo(
     () => consultants.find((c) => c.id === form.referred_by_id),
     [consultants, form.referred_by_id],
   );
+
+  // Referrer hierarchy for student/faculty types — mirrors the leads/new form.
+  // INDEPENDENT of the lead's institution: a student at Institution A may
+  // refer a walk-in for Institution B, so the picker browses all institutions.
+  const [referrerInstitutionId, setReferrerInstitutionId] = useState<string>('');
+  const [referrerDepartmentId, setReferrerDepartmentId] = useState<string>('');
+  const [studentPickerOpen, setStudentPickerOpen] = useState(false);
+  const [facultyPickerOpen, setFacultyPickerOpen] = useState(false);
+
+  // Seed referrer institution from the lead institution the first time the
+  // user picks a student/faculty referral type. They can still change it.
+  useEffect(() => {
+    if (
+      (form.referral_type === 'student' || form.referral_type === 'faculty') &&
+      !referrerInstitutionId &&
+      institutionId
+    ) {
+      setReferrerInstitutionId(institutionId);
+    }
+  }, [form.referral_type, referrerInstitutionId, institutionId]);
+
+  const { data: referrerInstitutions = [], isLoading: referrerInstitutionsLoading } =
+    useReferralInstitutions();
+  const { data: referrerDepartments = [], isLoading: referrerDepartmentsLoading } =
+    useReferralDepartments(referrerInstitutionId || undefined);
+  const { data: studentsDropdown = [], isLoading: studentsLoading } = useReferralStudents(
+    referrerInstitutionId || undefined,
+    referrerDepartmentId || undefined,
+  );
+  const { data: facultyDropdown = [], isLoading: facultyLoading } = useReferralStaff(
+    referrerInstitutionId || undefined,
+    referrerDepartmentId || undefined,
+  );
+
+  // Display name for whichever referrer type is active — used by submit and
+  // the picker's "selected" label.
+  const selectedReferrerName = useMemo(() => {
+    if (form.referral_type === 'consultant') return selectedConsultant?.name ?? '';
+    if (form.referral_type === 'student') {
+      return studentsDropdown.find((s) => s.id === form.referred_by_id)?.name ?? '';
+    }
+    if (form.referral_type === 'faculty') {
+      return facultyDropdown.find((f) => f.id === form.referred_by_id)?.name ?? '';
+    }
+    return '';
+  }, [form.referral_type, form.referred_by_id, selectedConsultant, studentsDropdown, facultyDropdown]);
 
   // Submission
   const [submitting, setSubmitting] = useState(false);
@@ -189,10 +252,17 @@ function GateEntryForm() {
     else if (!PHONE_REGEX.test(phoneStripped))
       e.phone = 'Enter a valid 10-digit Indian mobile number';
     if (!institutionId) e.institution = 'Institution is required';
-    if (form.source === 'referral'
-        && !form.referred_by_id
-        && !form.referred_by_name.trim()) {
-      e.referred_by_name = 'Pick a consultant or enter the referrer name';
+    if (form.source === 'referral') {
+      if (!form.referral_type) {
+        e.referral_type = 'Select a referral type';
+      } else if (!form.referred_by_id && !form.referred_by_name.trim()) {
+        e.referred_by_name =
+          form.referral_type === 'consultant'
+            ? 'Pick a consultant or enter the referrer name'
+            : form.referral_type === 'student'
+            ? 'Pick a student or enter the referrer name'
+            : 'Pick a faculty member or enter the referrer name';
+      }
     }
     setErrors(e);
     return Object.keys(e).length === 0;
@@ -210,11 +280,15 @@ function GateEntryForm() {
         program_id:        form.program_id && form.program_id !== PROGRAM_UNDECIDED
                              ? form.program_id : null,
         source:            form.source,
-        referral_type:     form.source === 'referral' && form.referred_by_id
-                             ? 'consultant' : null,
+        // Persist the user-chosen referral_type when a referrer was identified
+        // (either via picker or free-text); null otherwise so the RPC stores
+        // an unattributed referral instead of mislabelling it as 'consultant'.
+        referral_type:     form.source === 'referral' && form.referral_type
+                             ? form.referral_type
+                             : null,
         referred_by_id:    form.source === 'referral' ? form.referred_by_id || null : null,
         referred_by_name:  form.source === 'referral'
-                             ? (selectedConsultant?.name ?? form.referred_by_name.trim() ?? null)
+                             ? (selectedReferrerName || form.referred_by_name.trim() || null)
                              : null,
       };
 
@@ -228,12 +302,26 @@ function GateEntryForm() {
         toast.success(`Gate entry saved for ${form.first_name.trim()}`);
       }
 
-      // Auto-reset for high-throughput entry
+      // Reset the form synchronously so the gate guard sees an empty form
+      // immediately and can start typing the next visitor's name. The green
+      // "Saved" badge stays on screen and fades on its own after 1.5s — UX
+      // and form-state are decoupled now (previously a single setTimeout
+      // delayed both, which meant the form appeared "stuck" on the prior
+      // entry's data for 1.5s).
+      //
+      // Only clearDraft() is needed — it sets values back to INITIAL_FORM
+      // AND wipes sessionStorage. The redundant setDraftValues(INITIAL_FORM)
+      // that used to live here was a no-op once the hook's reset ran.
+      clearDraft();
+      setErrors({});
+      setReferrerInstitutionId('');
+      setReferrerDepartmentId('');
+      setCaptureCount((c) => c + 1);
+
+      // Fade the success badge after a beat so it doesn't linger forever.
       setTimeout(() => {
-        clearDraft();
-        setDraftValues(INITIAL_FORM);
-        setErrors({});
-        setCaptureCount((c) => c + 1);
+        setLastResult(null);
+        setLastName('');
       }, 1500);
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Failed to log gate entry';
@@ -241,7 +329,7 @@ function GateEntryForm() {
     } finally {
       setSubmitting(false);
     }
-  }, [form, institutionId, selectedConsultant, validate, clearDraft, setDraftValues]);
+  }, [form, institutionId, selectedConsultant, validate, clearDraft]);
 
   // Group programmes by degree.degree_name for nicer rendering
   const programsByDegree = useMemo(() => {
@@ -444,78 +532,309 @@ function GateEntryForm() {
           </div>
         </div>
 
-        {/* Conditional referral block */}
+        {/* Conditional referral block — mirrors /admission/leads/new:
+            Step 1: Referral Type (consultant / student / faculty)
+            Step 2: type-specific picker
+              · consultant   → flat searchable list scoped to the institution
+              · student/faculty → institution → department → person cascade
+            Plus a free-text fallback for referrers not in any list. */}
         {form.source === 'referral' && (
           <div className="rounded-md border bg-muted/30 p-3 space-y-3">
             <div className="space-y-1.5">
-              <Label>
-                Referrer (consultant)
-                <span className="text-xs text-muted-foreground ml-1">/ பரிந்துரைத்தவர்</span>
+              <Label htmlFor="referral_type">
+                Referral type
+                <span className="text-xs text-muted-foreground ml-1">/ வகை</span>
               </Label>
-              <Popover open={consultantOpen} onOpenChange={setConsultantOpen}>
-                <PopoverTrigger asChild>
-                  <Button
-                    variant="outline"
-                    role="combobox"
-                    className="w-full h-12 justify-between font-normal"
-                    disabled={submitting || consultantsLoading}
-                  >
-                    {selectedConsultant
-                      ? selectedConsultant.name
-                      : (consultantsLoading ? 'Loading consultants…' : 'Search consultants…')}
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0">
-                  <Command>
-                    <CommandInput placeholder="Search consultants" />
-                    <CommandList>
-                      <CommandEmpty>No consultants found.</CommandEmpty>
-                      <CommandGroup>
-                        {consultants.map((c) => (
-                          <CommandItem
-                            key={c.id}
-                            value={c.name}
-                            onSelect={() => {
-                              setDraftField('referred_by_id', c.id);
-                              setDraftField('referred_by_name', '');
-                              setConsultantOpen(false);
-                            }}
-                          >
-                            <Check
-                              className={`mr-2 h-4 w-4 ${
-                                form.referred_by_id === c.id ? 'opacity-100' : 'opacity-0'
-                              }`}
-                            />
-                            <span>{c.name}</span>
-                          </CommandItem>
-                        ))}
-                      </CommandGroup>
-                    </CommandList>
-                  </Command>
-                </PopoverContent>
-              </Popover>
-            </div>
-
-            <div className="space-y-1.5">
-              <Label htmlFor="referred_by_name">
-                Or enter referrer name (if not in list)
-              </Label>
-              <Input
-                id="referred_by_name"
-                value={form.referred_by_name}
-                onChange={(e) => {
-                  setDraftField('referred_by_name', e.target.value);
-                  if (e.target.value) setDraftField('referred_by_id', '');
+              <Select
+                value={form.referral_type || ''}
+                onValueChange={(value) => {
+                  setDraftField('referral_type', value as ReferralType);
+                  // Picking a different type invalidates the previously picked
+                  // referrer — wipe it so the user has to choose again.
+                  setDraftField('referred_by_id', '');
+                  setDraftField('referred_by_name', '');
                 }}
-                placeholder="e.g. Mr. Kumar"
-                autoComplete="off"
-                disabled={submitting || !!form.referred_by_id}
-                className="h-12"
-              />
-              {errors.referred_by_name && (
-                <p className="text-xs text-rose-600">{errors.referred_by_name}</p>
+                disabled={submitting}
+              >
+                <SelectTrigger id="referral_type" className="h-12">
+                  <SelectValue placeholder="Select referral type" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="consultant">Consultant</SelectItem>
+                  <SelectItem value="student">Student</SelectItem>
+                  <SelectItem value="faculty">Faculty</SelectItem>
+                </SelectContent>
+              </Select>
+              {errors.referral_type && (
+                <p className="text-xs text-rose-600">{errors.referral_type}</p>
               )}
             </div>
+
+            {/* Consultant searchable picker */}
+            {form.referral_type === 'consultant' && (
+              <div className="space-y-1.5">
+                <Label>
+                  Select consultant
+                  <span className="text-xs text-muted-foreground ml-1">/ ஆலோசகர்</span>
+                </Label>
+                <Popover open={consultantOpen} onOpenChange={setConsultantOpen}>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      role="combobox"
+                      className="w-full h-12 justify-between font-normal"
+                      disabled={submitting || consultantsLoading}
+                    >
+                      {selectedConsultant
+                        ? selectedConsultant.name
+                        : (consultantsLoading ? 'Loading consultants…' : 'Search consultants…')}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0">
+                    <Command>
+                      <CommandInput placeholder="Search consultants" />
+                      <CommandList>
+                        <CommandEmpty>No consultants found.</CommandEmpty>
+                        <CommandGroup>
+                          {consultants.map((c) => (
+                            <CommandItem
+                              key={c.id}
+                              value={c.name}
+                              onSelect={() => {
+                                setDraftField('referred_by_id', c.id);
+                                setDraftField('referred_by_name', '');
+                                setConsultantOpen(false);
+                              }}
+                            >
+                              <Check
+                                className={`mr-2 h-4 w-4 ${
+                                  form.referred_by_id === c.id ? 'opacity-100' : 'opacity-0'
+                                }`}
+                              />
+                              <span>{c.name}</span>
+                            </CommandItem>
+                          ))}
+                        </CommandGroup>
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
+              </div>
+            )}
+
+            {/* Hierarchy filters for student / faculty referrer */}
+            {(form.referral_type === 'student' || form.referral_type === 'faculty') && (
+              <>
+                <div className="space-y-1.5">
+                  <Label>Referrer institution</Label>
+                  <Select
+                    value={referrerInstitutionId}
+                    onValueChange={(value) => {
+                      setReferrerInstitutionId(value);
+                      setReferrerDepartmentId('');
+                      setDraftField('referred_by_id', '');
+                    }}
+                    disabled={submitting || referrerInstitutionsLoading}
+                  >
+                    <SelectTrigger className="h-12">
+                      <SelectValue
+                        placeholder={
+                          referrerInstitutionsLoading
+                            ? 'Loading institutions…'
+                            : 'Select institution'
+                        }
+                      />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {referrerInstitutions.map((inst) => (
+                        <SelectItem key={inst.id} value={inst.id}>
+                          {inst.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label>
+                    Department <span className="text-xs text-muted-foreground">(optional)</span>
+                  </Label>
+                  <Select
+                    value={referrerDepartmentId || '_all'}
+                    onValueChange={(value) => {
+                      setReferrerDepartmentId(value === '_all' ? '' : value);
+                      setDraftField('referred_by_id', '');
+                    }}
+                    disabled={
+                      submitting || !referrerInstitutionId || referrerDepartmentsLoading
+                    }
+                  >
+                    <SelectTrigger className="h-12">
+                      <SelectValue
+                        placeholder={
+                          !referrerInstitutionId
+                            ? 'Select institution first'
+                            : referrerDepartmentsLoading
+                            ? 'Loading departments…'
+                            : 'All departments'
+                        }
+                      />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="_all">All departments</SelectItem>
+                      {referrerDepartments.map((d) => (
+                        <SelectItem key={d.id} value={d.id}>
+                          {d.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </>
+            )}
+
+            {/* Student searchable picker */}
+            {form.referral_type === 'student' && (
+              <div className="space-y-1.5">
+                <Label>
+                  Select student
+                  <span className="text-xs text-muted-foreground ml-1">/ மாணவர்</span>
+                </Label>
+                <Popover open={studentPickerOpen} onOpenChange={setStudentPickerOpen}>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      role="combobox"
+                      className="w-full h-12 justify-between font-normal"
+                      disabled={submitting || !referrerInstitutionId || studentsLoading}
+                    >
+                      {!referrerInstitutionId
+                        ? 'Select institution first'
+                        : studentsLoading
+                        ? 'Loading students…'
+                        : form.referred_by_id && selectedReferrerName
+                        ? selectedReferrerName
+                        : 'Search students…'}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0">
+                    <Command>
+                      <CommandInput placeholder="Search students" />
+                      <CommandList>
+                        <CommandEmpty>
+                          {studentsLoading ? 'Loading…' : 'No students found.'}
+                        </CommandEmpty>
+                        <CommandGroup>
+                          {studentsDropdown.map((s) => (
+                            <CommandItem
+                              key={s.id}
+                              value={s.name}
+                              onSelect={() => {
+                                setDraftField('referred_by_id', s.id);
+                                setDraftField('referred_by_name', '');
+                                setStudentPickerOpen(false);
+                              }}
+                            >
+                              <Check
+                                className={`mr-2 h-4 w-4 ${
+                                  form.referred_by_id === s.id ? 'opacity-100' : 'opacity-0'
+                                }`}
+                              />
+                              <span>{s.name}</span>
+                            </CommandItem>
+                          ))}
+                        </CommandGroup>
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
+              </div>
+            )}
+
+            {/* Faculty searchable picker */}
+            {form.referral_type === 'faculty' && (
+              <div className="space-y-1.5">
+                <Label>
+                  Select faculty
+                  <span className="text-xs text-muted-foreground ml-1">/ ஆசிரியர்</span>
+                </Label>
+                <Popover open={facultyPickerOpen} onOpenChange={setFacultyPickerOpen}>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      role="combobox"
+                      className="w-full h-12 justify-between font-normal"
+                      disabled={submitting || !referrerInstitutionId || facultyLoading}
+                    >
+                      {!referrerInstitutionId
+                        ? 'Select institution first'
+                        : facultyLoading
+                        ? 'Loading staff…'
+                        : form.referred_by_id && selectedReferrerName
+                        ? selectedReferrerName
+                        : 'Search faculty…'}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0">
+                    <Command>
+                      <CommandInput placeholder="Search faculty" />
+                      <CommandList>
+                        <CommandEmpty>
+                          {facultyLoading ? 'Loading…' : 'No staff found.'}
+                        </CommandEmpty>
+                        <CommandGroup>
+                          {facultyDropdown.map((f) => (
+                            <CommandItem
+                              key={f.id}
+                              value={f.name}
+                              onSelect={() => {
+                                setDraftField('referred_by_id', f.id);
+                                setDraftField('referred_by_name', '');
+                                setFacultyPickerOpen(false);
+                              }}
+                            >
+                              <Check
+                                className={`mr-2 h-4 w-4 ${
+                                  form.referred_by_id === f.id ? 'opacity-100' : 'opacity-0'
+                                }`}
+                              />
+                              <span>{f.name}</span>
+                            </CommandItem>
+                          ))}
+                        </CommandGroup>
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
+              </div>
+            )}
+
+            {/* Free-text fallback — visible only after a type is picked, so
+                guards aren't asked to type a name before they know what kind
+                of referrer it is. Disabled if a list pick is already locked
+                in (mirrors the leads/new constraint). */}
+            {form.referral_type && (
+              <div className="space-y-1.5">
+                <Label htmlFor="referred_by_name">
+                  Or enter referrer name (if not in list)
+                </Label>
+                <Input
+                  id="referred_by_name"
+                  value={form.referred_by_name}
+                  onChange={(e) => {
+                    setDraftField('referred_by_name', e.target.value);
+                    if (e.target.value) setDraftField('referred_by_id', '');
+                  }}
+                  placeholder="e.g. Mr. Kumar"
+                  autoComplete="off"
+                  disabled={submitting || !!form.referred_by_id}
+                  className="h-12"
+                />
+                {errors.referred_by_name && (
+                  <p className="text-xs text-rose-600">{errors.referred_by_name}</p>
+                )}
+              </div>
+            )}
           </div>
         )}
       </div>
