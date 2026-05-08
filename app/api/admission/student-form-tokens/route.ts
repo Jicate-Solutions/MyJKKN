@@ -41,6 +41,27 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
   }
 
+  // 4a. Institution-scope check — service-role bypasses RLS, so we must
+  //     enforce institution access at the API boundary. role_has_institution_access
+  //     uses auth.uid() internally; we only pass the institution_id.
+  const { data: learnerRow, error: learnerLookupErr } = await (supabase as any)
+    .from('learners_profiles')
+    .select('institution_id')
+    .eq('id', learnerProfileId)
+    .maybeSingle();
+  if (learnerLookupErr) {
+    console.error('[student-form-tokens POST] learner lookup failed:', learnerLookupErr);
+    return NextResponse.json({ error: 'Server error' }, { status: 500 });
+  }
+  if (!learnerRow) {
+    return NextResponse.json({ error: 'Learner not found' }, { status: 404 });
+  }
+  const { data: hasInstAccess } = await (supabase as any)
+    .rpc('role_has_institution_access', { check_institution_id: learnerRow.institution_id });
+  if (!hasInstAccess) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  }
+
   // 4. Generate token
   try {
     const result = await StudentFormService.generateToken(learnerProfileId, user.id);
