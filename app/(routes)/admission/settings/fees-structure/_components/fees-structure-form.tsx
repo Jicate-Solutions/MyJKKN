@@ -11,7 +11,7 @@
 // All mutations destructure {error} via the service layer (see
 // fee-structure-service.ts) and surface errors via react-hot-toast.
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
@@ -285,6 +285,12 @@ function NewStructureForm({
   onCreated: () => void;
 }) {
   const [submitting, setSubmitting] = useState(false);
+  // Synchronous lock to defeat the React-state lag double-click race: two
+  // clicks within a single render frame both see submitting=false in the
+  // closure and queue two FeeStructureService.create() calls, producing
+  // duplicate fee structures with the same dimensions. The ref mutates
+  // immediately so the second invocation's guard sees the lock.
+  const submittingRef = useRef(false);
 
   const form = useForm<NewFormValues>({
     resolver: zodResolver(newSchema),
@@ -341,7 +347,10 @@ function NewStructureForm({
   };
 
   const onSubmit = async (values: NewFormValues) => {
+    if (submittingRef.current) return;
+    submittingRef.current = true;
     setSubmitting(true);
+    let succeeded = false;
     try {
       await FeeStructureService.create({
         ...dims,
@@ -363,12 +372,20 @@ function NewStructureForm({
           ? 'Fee structure created'
           : `Fee structure created for ${values.community_category_ids.length} communities`,
       );
+      succeeded = true;
       onCreated();
     } catch (err) {
       console.error(err);
       toast.error(err instanceof Error ? err.message : 'Failed to create fee structure');
     } finally {
-      setSubmitting(false);
+      submittingRef.current = false;
+      // On success, keep the buttons disabled — the parent navigates away
+      // and the form unmounts, so re-enabling would just create a brief
+      // window where a frantic user could trigger a duplicate create
+      // before the route change lands.
+      if (!succeeded) {
+        setSubmitting(false);
+      }
     }
   };
 
