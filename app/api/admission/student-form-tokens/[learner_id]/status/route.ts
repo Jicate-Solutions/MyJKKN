@@ -20,6 +20,17 @@ export async function GET(
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
+  // Permission check — same key as POST. Polling reveals token state, so it
+  // should be admission-only.
+  const { data: hasPerm } = await (supabase as any)
+    .rpc('user_has_permission', {
+      user_id: user.id,
+      permission_key: 'admission.leads.student_form.generate'
+    });
+  if (!hasPerm) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  }
+
   // Institution-scope check — user must have access to this learner's
   // institution. Same pattern as the token-generate endpoint.
   const svc = createServiceRoleClient();
