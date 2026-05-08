@@ -132,6 +132,12 @@ const config: ModuleNavConfig = {
           matchPaths: ['/admission/counselors/director-pulse'],
         },
         {
+          label: 'Lead Mood Digest',
+          icon: 'Heart',
+          href: '/admission/counselors/lead-mood',
+          matchPaths: ['/admission/counselors/lead-mood'],
+        },
+        {
           label: 'Call Logs',
           icon: 'Phone',
           href: '/admission/counselors/calls',

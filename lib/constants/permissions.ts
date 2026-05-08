@@ -903,6 +903,7 @@ export const PERMISSION_CATEGORIES = [
       { key: 'admission.counselors.team.view', label: 'View Counselor Team Page' },
       { key: 'admission.counselors.team.manage', label: 'Manage Counselor Team (reassign, schedule, allocate)' },
       { key: 'admission.counselors.director_pulse', label: 'View Director Pulse (live counselor activity dashboard)' },
+      { key: 'admission.counselors.lead_mood', label: 'View Lead Mood Digest (sentiment + anxious-lead drilldown)' },
 
       // Consultant Management
       { key: 'admission.consultants.view', label: 'View Education Consultants' },
