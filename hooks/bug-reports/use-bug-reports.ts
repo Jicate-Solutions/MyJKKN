@@ -53,7 +53,7 @@ const fetchBugReporterStats = async (filters: BugReporterStatsFilters) => {
 };
 
 const fetchBugReportById = async (reportId: string) => {
-  const response = await fetch(`/api/bug-reports/${reportId}`);
+  const response = await fetch(`/api/bug-reports/${reportId}`, { cache: 'no-store' });
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));
     const errorMessage = errorData.error || 'Failed to fetch bug report details';
@@ -284,6 +284,13 @@ export const useUpdateBugReportStatus = () => {
   return useMutation({
     mutationFn: updateBugReportStatus,
     onSuccess: (data, variables) => {
+      // Synchronously merge the new status into the detail cache so the badge
+      // updates immediately, before any refetch round-trip resolves.
+      queryClient.setQueryData(
+        queryKeys.bugReports.detail(variables.reportId),
+        (old: any) => (old ? { ...old, ...data } : old)
+      );
+
       // Invalidate and refetch all bug reports queries using centralized keys
       queryClient.invalidateQueries({ queryKey: queryKeys.bugReports.lists() });
 
@@ -295,7 +302,7 @@ export const useUpdateBugReportStatus = () => {
         queryKey: queryKeys.bugReports.leaderboard()
       });
 
-      // Update the specific bug report in cache
+      // Background-refresh the detail to pick up any joined fields
       queryClient.invalidateQueries({
         queryKey: queryKeys.bugReports.detail(variables.reportId)
       });

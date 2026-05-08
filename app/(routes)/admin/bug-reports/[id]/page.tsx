@@ -3,6 +3,8 @@
 
 import { useParams, useRouter } from 'next/navigation';
 import { useState, useEffect } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import { queryKeys } from '@/lib/query/query-keys';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import {
   useBugReport,
@@ -149,6 +151,7 @@ export default function BugReportDetailsPage() {
   const updateStatusMutation = useUpdateBugReportStatus();
   const deleteReportMutation = useDeleteBugReport();
   const supabase = createClientSupabaseClient();
+  const queryClient = useQueryClient();
 
   // Set up real-time subscription for this specific bug report
   useEffect(() => {
@@ -172,13 +175,20 @@ export default function BugReportDetailsPage() {
               router.push('/admin/bug-reports');
             }, 2000);
           } else if (payload.eventType === 'UPDATE') {
-            // For updates, refetch the data to get latest changes
+            // Apply the new row from the realtime payload directly into the
+            // detail cache so the badge updates instantly. We still kick a
+            // background refetch to pick up any joined fields the payload
+            // doesn't carry (reporter_name, institution_name, etc.).
+            queryClient.setQueryData(
+              queryKeys.bugReports.detail(id),
+              (old: any) => (old ? { ...old, ...payload.new } : old)
+            );
             refetch();
 
             // Show notification for status changes
             const newStatus = payload.new?.status;
             const oldStatus = payload.old?.status;
-            if (newStatus !== oldStatus) {
+            if (newStatus && newStatus !== oldStatus) {
               toast.success(
                 `Bug report status changed to: ${newStatus.replace('_', ' ')}`
               );
@@ -191,7 +201,7 @@ export default function BugReportDetailsPage() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [id, supabase, refetch, router]);
+  }, [id, supabase, refetch, router, queryClient]);
 
   const handleStatusChange = async (status: BugReportStatus) => {
     try {
