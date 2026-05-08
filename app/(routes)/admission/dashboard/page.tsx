@@ -402,8 +402,8 @@ function AdmissionDashboardPageContent() {
             />
             <KPICard
               title="Priority Leads"
-              value={funnel?.priorityLeads || 0}
-              description="Flagged for immediate action"
+              value={institutionId ? (funnel?.priorityLeads || 0) : '—'}
+              description={institutionId ? 'Flagged for immediate action' : 'Select an institution'}
               icon={Star}
               color="text-yellow-600"
             />
