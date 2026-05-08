@@ -173,17 +173,25 @@ export default function GatePassesPage() {
               Track student exit and entry with QR-based gate pass system
             </p>
           </div>
-          <Button
-            variant="outline"
-            onClick={() =>
-              toast.info('Gate-pass export ships next.', {
-                description: 'CSV export of gate-pass logs will be available once the export endpoint is live.',
-              })
-            }
-          >
-            <Download className="mr-2 h-4 w-4" />
-            Export
-          </Button>
+          <div className="flex gap-2">
+            <Button asChild>
+              <Link href="/campus-living/gate-passes/new">
+                <DoorOpen className="mr-2 h-4 w-4" />
+                Issue Gate Pass
+              </Link>
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() =>
+                toast.info('Gate-pass export ships next.', {
+                  description: 'CSV export of gate-pass logs will be available once the export endpoint is live.',
+                })
+              }
+            >
+              <Download className="mr-2 h-4 w-4" />
+              Export
+            </Button>
+          </div>
         </div>
 
         {/* Overdue Alert */}
