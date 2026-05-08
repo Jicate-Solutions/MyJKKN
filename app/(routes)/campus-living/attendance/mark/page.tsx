@@ -265,10 +265,33 @@ export default function MarkAttendancePage() {
 
         {filteredStudents.length === 0 && !isLoading && (
           <Card>
-            <CardContent className="flex flex-col items-center justify-center py-12">
+            <CardContent className="flex flex-col items-center justify-center py-12 text-center">
               <Users className="h-12 w-12 text-muted-foreground mb-4" />
-              <p className="text-lg font-medium">No students found</p>
-              <p className="text-sm text-muted-foreground">Select a block or adjust your search</p>
+              {/* BUG-003896: distinguish "no residents allocated yet" (the
+                  reporter's case — empty hostel_residents table) from
+                  "current search/filter excluded everyone". The first needs
+                  a CTA to allocate residents; the second a hint to clear
+                  filters. */}
+              {students && students.length === 0 ? (
+                <>
+                  <p className="text-lg font-medium">No residents to mark yet</p>
+                  <p className="text-sm text-muted-foreground max-w-md mb-4">
+                    Attendance can only be taken for hostel residents. Allocate students to a hostel block first, then return here to mark attendance.
+                  </p>
+                  <Button asChild>
+                    <Link href="/campus-living/allocations/new">
+                      Allocate residents
+                    </Link>
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <p className="text-lg font-medium">No matching residents</p>
+                  <p className="text-sm text-muted-foreground">
+                    Clear the search or pick a different block
+                  </p>
+                </>
+              )}
             </CardContent>
           </Card>
         )}
