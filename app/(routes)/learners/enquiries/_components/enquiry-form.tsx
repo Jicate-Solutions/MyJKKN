@@ -25,6 +25,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import type { LearnerProfile } from '@/types/learner-profile';
@@ -545,6 +555,18 @@ export function EnquiryForm({
     })();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [savedEnquiryId, learner?.id]);
+
+  // Task 16: override flow — confirm dialog before admission edits a
+  // student-fillable section; records the override in the activity log on save.
+  const [overrideDialog, setOverrideDialog] = useState<'basic' | 'academic' | 'contact' | null>(null);
+  const [sectionOverrideMode, setSectionOverrideMode] = useState<{
+    basic: boolean; academic: boolean; contact: boolean;
+  }>({ basic: false, academic: false, contact: false });
+
+  const canOverrideStudentSection =
+    isSuperAdminUser
+    || isAdmissionGlobalUser
+    || canAccess('learners', 'profile.student_section.override') === true;
 
   // ========================================================================
   // Plan 6 / Task 5 — Pre-submit confirmation dialog state.
@@ -1293,6 +1315,33 @@ export function EnquiryForm({
       // Clear pending image after successful submission
       setPendingImageFile(null);
 
+      // Task 16: write override audit rows for any section edited under override mode
+      const overriddenSections = (Object.keys(sectionOverrideMode) as Array<'basic' | 'academic' | 'contact'>)
+        .filter((s) => sectionOverrideMode[s]);
+      if (overriddenSections.length > 0 && result?.id) {
+        try {
+          const supabase = createClientSupabaseClient();
+          const { data: leadRow } = await supabase
+            .from('admission_leads')
+            .select('id')
+            .eq('learner_profile_id', result.id)
+            .maybeSingle();
+          if (leadRow?.id) {
+            const rows = overriddenSections.map((s) => ({
+              lead_id: leadRow.id,
+              activity_type: 'student_section_filled',
+              subject: `Admission override — ${s} section`,
+              description: `Filled ${s} section as admission override`,
+            }));
+            await supabase.from('admission_lead_activities').insert(rows);
+          }
+        } catch (err) {
+          console.error('[enquiry-form] Override audit log write failed:', err);
+          // best-effort — never block save on this
+        }
+        setSectionOverrideMode({ basic: false, academic: false, contact: false });
+      }
+
       if (onSuccess) {
         onSuccess(result);
       } else {
@@ -1656,7 +1705,8 @@ export function EnquiryForm({
                   filled={sectionStatus.basic.filled}
                   filledAt={sectionStatus.basic.filledAt}
                   filledBy={sectionStatus.basic.filledBy}
-                  canOverride={false}
+                  canOverride={canOverrideStudentSection && !sectionStatus.basic.filled}
+                  onOverrideClick={() => setOverrideDialog('basic')}
                 />
               </div>
             )}
@@ -1677,7 +1727,8 @@ export function EnquiryForm({
                   filled={sectionStatus.academic.filled}
                   filledAt={sectionStatus.academic.filledAt}
                   filledBy={sectionStatus.academic.filledBy}
-                  canOverride={false}
+                  canOverride={canOverrideStudentSection && !sectionStatus.academic.filled}
+                  onOverrideClick={() => setOverrideDialog('academic')}
                 />
               </div>
             )}
@@ -1700,7 +1751,8 @@ export function EnquiryForm({
                   filled={sectionStatus.contact.filled}
                   filledAt={sectionStatus.contact.filledAt}
                   filledBy={sectionStatus.contact.filledBy}
-                  canOverride={false}
+                  canOverride={canOverrideStudentSection && !sectionStatus.contact.filled}
+                  onOverrideClick={() => setOverrideDialog('contact')}
                 />
               </div>
             )}
@@ -1867,6 +1919,32 @@ export function EnquiryForm({
           setPreviewItems([]);
         }}
       />
+
+      {/* Task 16: Override-edit confirm dialog */}
+      <AlertDialog open={!!overrideDialog} onOpenChange={(o) => !o && setOverrideDialog(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Override student-filled section?</AlertDialogTitle>
+            <AlertDialogDescription>
+              You&apos;re editing fields the student should fill themselves. This action
+              will be recorded in the audit log.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (overrideDialog) {
+                  setSectionOverrideMode((prev) => ({ ...prev, [overrideDialog]: true }));
+                }
+                setOverrideDialog(null);
+              }}
+            >
+              Yes, fill on behalf
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Cancel Confirmation Dialog */}
       <Dialog open={showCancelDialog} onOpenChange={setShowCancelDialog}>
