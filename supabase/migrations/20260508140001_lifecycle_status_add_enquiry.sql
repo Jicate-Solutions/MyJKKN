@@ -1,0 +1,23 @@
+-- ============================================================================
+-- 20260508140001 — lifecycle_status: ADD VALUE 'enquiry'
+-- ============================================================================
+-- The student-self-fill design (docs/superpowers/specs/2026-05-08-student-
+-- self-fill-enquiry-design.md) parks newly-converted leads in
+-- lifecycle_status='enquiry' until BOTH the student fills their portion AND
+-- admission completes course/accommodation/finance — only then flips to
+-- 'admitted'. The bridge endpoint's lifecycle_status='enquiry' write was
+-- introduced by commit de940c2de (Task 2) but the live enum was missing the
+-- value, producing 22023 "invalid input value for enum lifecycle_status:
+-- enquiry" on every Convert-to-Admitted click.
+--
+-- supabase/setup/01_tables.sql declared the enum with 'enquiry' from the
+-- start; the live DB drifted in some earlier ad-hoc migration (also gained
+-- an extra 'account' value not in the setup mirror). This migration is the
+-- minimum fix to align the live enum with the spec.
+--
+-- ALTER TYPE ... ADD VALUE IF NOT EXISTS is supported on Postgres 9.6+,
+-- so this migration is safe to re-apply on environments where the value is
+-- already present.
+-- ============================================================================
+
+ALTER TYPE public.lifecycle_status ADD VALUE IF NOT EXISTS 'enquiry';
