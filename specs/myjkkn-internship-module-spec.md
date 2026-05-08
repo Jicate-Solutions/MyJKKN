@@ -281,4 +281,143 @@ Verdict scheduled: 2026-08-08 (90 days).
 
 ---
 
-*Spec written 2026-05-08 12:35 IST. Source-of-truth for all subsequent /myjkkn-chain stages on this module.*
+## 11. Silent Assumption Decisions (from /assumption-thrash, 2026-05-08)
+
+### Phase 0 — Layer 2 overlap resolutions (3 critical findings)
+
+| # | Finding | Decision | Schema impact |
+|---|---|---|---|
+| O1 | `competency_catalog` (15 cols) + `competency_program_mapping` + `learner_competencies` already exist with sophisticated framework | Extend existing 3-table system; add `posting_assignment_id UUID` to `learner_competencies` | DROP `internship_competencies` from spec |
+| O2 | `hr_attendance_status_types` (7 live rows), `hr_attendance_records` (20 cols) exist for HR attendance | Add `on_clinical_posting` row to `hr_attendance_status_types` + write `hr_attendance_records` from internship module → solves LOP-immunity bug at right layer | DROP standalone `internship_facilitator_attendance` plan |
+| O3 | `health_practice_attendance` (8 cols, 0 rows) — dormant clinical attendance scaffold | ADOPT + EXTEND with GPS, hospital_id, geofence_pass, facilitator_id, posting_assignment_id, is_proxy, is_emergency cols | RENAME consideration to `internship_attendance` (deferred to v1.1 cleanup) |
+
+### Round 1 — Structural choices
+
+| # | Question | Decision | Rationale |
+|---|---|---|---|
+| 1 | Temporal model | **Per-college template-driven** (each college configures own time anchor) | AHS 12-week batches + Engineering 8-week internships + Education 1-month teaching practice need different time anchors |
+| 2 | GPS attendance granularity | **One row per assignment per day** | Matches AHS Google Chat photo ritual; multi-shift hospitals merge into one row with arrival/departure times |
+| 3 | Per-college variance | **Single `internship_program_config` table with (college_id, program_id) keys + JSONB rubric/template/duration** | Q3 platform-wide policy management preserved; cascade-preview spans colleges |
+| 4 | Lineage | **Hybrid — structural rules frozen at cycle activation, threshold tweaks live** | Cycle locks approval_chain/posting_type/fee_threshold/geofence; logbook deadline + flag % stay editable per Director-grade autonomy |
+
+### Round 2 — Edge cases + workflow
+
+| # | Question | Decision | Rationale |
+|---|---|---|---|
+| 5 | Mid-cycle additions (transfer student) | **Pro-rata from join_date** | Required days = total × (days_remaining / cycle_total); cleanest for transfers |
+| 6 | Exhausted absences | **Threshold-based per program config** (warn_below_pct + fail_below_pct in JSONB) | INC nursing 90/85, AICTE engineering 75/65 — accreditation-aligned |
+| 7 | Cancellation mid-cycle | **Hybrid: pre-activation soft-delete; post-activation supersede + audit** | Audit fidelity for accreditation; partial completion preserved |
+| 8 | Fri+Mon postings — Sat/Sun on-duty? | **Per-hospital config** (`internship_external_sites.operates_weekends BOOLEAN`) | ICU/OBG/emergency hospitals operate weekends; outpatient don't |
+
+### Round 3 — Operational edges
+
+| # | Question | Decision | Rationale |
+|---|---|---|---|
+| 9 | Proxy attendance (faculty phone fails) | **Coordinator + emergency override flag** (`is_proxy`, `proxy_reason`, `marked_for`) with audit highlights | Mitigates GPS strict-block edge cases |
+| 10 | Emergency GPS-bypass | **Faculty self-flag `is_emergency` + 20-char reason + photo, audit-logged + weekly digest to coordinator** | Self-policing via visibility; Director sees abuse patterns |
+| 11 | Approval escalation | **Auto-escalate after configurable hours + manual delegate** (`platform_policies.internship.approval.escalate_after_hours` default 72h) | Hybrid covers vacations + busy days |
+| 12 | Documentation requirements | **Per-program config** (`internship_program_config.attachment_requirements JSONB`) | INC requires daily logbook photos; engineering may require only weekly summary |
+
+### Round 4 — Compliance + visibility
+
+| # | Question | Decision | Rationale |
+|---|---|---|---|
+| 13 | Hospital portal privacy | **Preceptor sees ALL students at their site** (cross-preceptor visibility, RLS scope = `(institution_id, site_id)`) | Better cross-coverage during preceptor absence |
+| 14 | Completion artifacts | **Auto-generate certificate on completion + on-demand re-issue** | Pattern from existing `accreditation_certificates` + `pde_certificates`; public verify URL `/internships/certificates/verify/[certId]` |
+| 15 | Cycle blackouts | **Per-college configurable blackout calendar** (`internship_college_blackouts` table) | Each college's exam dates + accreditation visits differ |
+| 16 | Retroactive recomputation | **Status frozen at assessment + cascade-preview shows hypothetical changes + opt-in retro apply** | Audit-safe with Director-grade override option |
+
+### Round 5 — Realtime + integrations
+
+| # | Question | Decision | Rationale |
+|---|---|---|---|
+| 17 | Realtime invalidation | **Supabase realtime subscriptions on `platform_policies` + `internship_*` tables** | Director's policy edits propagate live to in-flight users; pattern from `hr_dashboard_access_log` |
+| 18 | Vehicle booking | **Dedicated `internship_vehicles` (port from omm-dev)** | TMS is currently spec-only (not live); ship-speed wins; v2.x consideration to merge |
+| 19 | Cascade-preview multi-policy edits | **Accumulating preview** (cumulative effect across multiple edits before single Save) | Director sees joined consequence of holistic policy change |
+| 20 | Hospital portal auth | **Magic-link email + 30-day persistent session** | 3am ICU shifts; pattern reuses `scripts/local-auth.sh` magic-link infra |
+
+### Round 6 — Lifecycle + versioning + cadence + edits
+
+| # | Question | Decision | Rationale |
+|---|---|---|---|
+| 21 | Cycle lifecycle states | **Hybrid: enum transitions + `internship_cycle_status_labels(college_id, status_enum, label_text)` per-college display labels** | State machine semantics preserved; per-college vocabulary honored |
+| 22 | Evaluation rubric versioning | **Snapshot at assignment activation** (`internship_assignments.evaluation_rubric_snapshot JSONB`) | Audit-safe; rubric edits don't retroactively affect active assignments |
+| 23 | Notification cadence | **Platform-wide via `platform_policies.internship.notify.*` + per-college override** (`internship_college_notification_overrides`) | Defaults flexible; cascade-preview shows propagation |
+| 24 | Logbook late-edit | **Window-based: editable for `platform_policies.internship.logbook.edit_window_hours` (default 24), then locked** | `internship_logbook_entries.edited_at`, `edit_history JSONB` |
+
+### Round 7 — Final edges
+
+| # | Question | Decision | Rationale |
+|---|---|---|---|
+| 25 | Incident severity | **3-tier (minor/major/critical) with auto-escalation per `platform_policies.internship.incident.{tier}.notify_within_hours`** | Cleanly maps to JKKN's escalation patterns; cascade-preview shows alert-time consequence |
+| 26 | Concurrent posting (multi-dept rotation) | **Configurable per program** (`internship_program_config.assignment_split_strategy ENUM('single_row','per_department_row')`) | Nursing INC requires per-dept logs; AHS multi-dept fits single-row |
+| 27 | Site type seeds | **Full 12+ types** (hospital, company, school, pharmacy, clinic, lab, ngo, factory, retail_pharmacy, health_camp, community_outreach, virtual_internship, other) — all marked `is_system=true`, CRUDable | Pre-empts catalog gaps in week 1 |
+| 28 | Certificate revocation | **`internship_certificates.is_revoked BOOLEAN` + revoked_at + revoked_by + revocation_reason; public verify URL flips to 'REVOKED'** | Audit-grade revocation when retro-recomputation triggers |
+
+### Schema implications (consolidated — derived from 28 decisions)
+
+**New tables (10):**
+1. `internship_external_sites` (hospital/company/etc. master with operates_weekends + geofence_radius_meters)
+2. `internship_site_contacts` (admin coordinators at sites; portal_user_id linked)
+3. `internship_preceptors` (first-class preceptor records — site_id, profile_id, specialization, max_students)
+4. `internship_posting_cycles` (with temporal_mode snapshot, escalate_after_hours, delegated_to)
+5. `internship_cycle_hospitals` (M2M)
+6. `internship_assignments` (with assignment_join_date, required_attendance_pct_snapshot, evaluation_rubric_snapshot JSONB, superseded_by, cancellation_audit JSONB)
+7. `internship_logbook_entries` (with edited_at, edit_history JSONB)
+8. `internship_evaluations` (dual eval: facilitator + preceptor)
+9. `internship_incidents` (3-tier severity)
+10. `internship_certificates` (with is_revoked, revoked_at, revocation_reason)
+11. `internship_vehicles` (transport bookings, port from omm-dev)
+
+**New config tables (6):**
+12. `internship_site_types` (master, 12+ seeded values)
+13. `internship_program_config` ((college_id, program_id) keyed, JSONB for rubric/template/duration/attendance_thresholds/attachment_requirements/assignment_split_strategy)
+14. `internship_logbook_templates` (program-level)
+15. `internship_evaluation_rubrics` (program-level, versioned)
+16. `internship_approval_chains` (rows per posting_type)
+17. `internship_cycle_status_labels` ((college_id, status_enum, label_text))
+18. `internship_college_blackouts` ((college_id, start_date, end_date, reason))
+19. `internship_college_notification_overrides` ((college_id, policy_key, override_value))
+
+**Modified existing tables (3):**
+- `health_practice_attendance` ADOPT+EXTEND: add gps_lat, gps_lng, geofence_pass, hospital_id, facilitator_id, posting_assignment_id, is_proxy, proxy_reason, marked_for, is_emergency, emergency_reason, emergency_photo_url
+- `learner_competencies` ADD: `posting_assignment_id UUID` FK
+- `hr_attendance_status_types` ADD ROW: `on_clinical_posting`
+
+**New ENUM:**
+- `internship_cycle_status_enum`: draft, pending_approval, approved, fee_checking, assignments_ready, active, completed, cancelled
+
+**New SQL function:**
+- `fn_internship_evaluate_policy(policy_key TEXT, context JSONB) RETURNS JSONB` — mirrors Spec #537 counselor-rules pattern
+
+**Cross-cutting `platform_policies` keys (~16):**
+- `internship.logbook.submit_within_hours` (24)
+- `internship.logbook.late_penalty_pct`
+- `internship.logbook.edit_window_hours` (24)
+- `internship.attendance.flag_below_pct` (75)
+- `internship.roster.reminder_d_minus` (3)
+- `internship.vehicle.lead_time_days` (5)
+- `internship.gps.strict_mode` (true)
+- `internship.approval.escalate_after_hours` (72)
+- `internship.incident.minor.notify_within_hours`
+- `internship.incident.major.notify_within_hours`
+- `internship.incident.critical.notify_within_hours`
+- `internship.notify.roster_reminder_d_minus`
+- `internship.notify.faculty_schedule_d_minus`
+- `internship.notify.logbook_reminder_after_hours`
+- `internship.notify.evaluation_reminder_after_hours`
+- `internship.label.{role_key}` (per-role UI label override)
+
+---
+
+## 12. Next Step
+
+Spec ready for `/myjkkn-api` substrate-first 3+1 spawn. File-disjoint agent groups:
+- **Agent A** — DDL (4 migrations: substrate, seeds, reader fn, lop-immunity wiring)
+- **Agent B** — Service layer + hooks (lib/services/internships/* + hooks/internships/* + lib/services/admin/internship-policy-service.ts)
+- **Agent C** — UI scaffolding (app/(routes)/internships/* — 30 routes ported with rename; cascade-preview shared component)
+- **Phase 2 consuming engine** — wires faculty-attendance-service LOP-immunity, accreditation page hooks, sidebar nav, INTERNSHIP_POSTING permission catalog, realtime channels
+
+---
+
+*Spec written 2026-05-08 12:35 IST. Assumption-thrash 28 decisions added 2026-05-08 13:00 IST. Source-of-truth for all subsequent /myjkkn-chain stages on this module.*
