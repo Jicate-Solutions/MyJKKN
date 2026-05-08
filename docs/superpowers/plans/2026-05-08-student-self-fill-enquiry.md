@@ -6,7 +6,7 @@
 
 **Architecture:** New table `learner_self_fill_tokens` holds 30-min HMAC-signed tokens. Public Next.js route at `/student-form/[token]` validates the token, then a service-role API endpoint writes only whitelisted columns to `learners_profiles`. Admission UI gets a `ShowStudentQRButton` reused from the lead detail page and the enquiries edit page. The bridge endpoint switches to `lifecycle_status='enquiry'`; the row flips to `'admitted'` only when admission saves the desktop edit.
 
-**Tech Stack:** Next.js 14 App Router · TypeScript · Supabase (Postgres + Storage) · service-role for student-form writes · `qrcode` npm package (admission UI) · `browser-image-compression` (selfie compression) · HMAC-SHA256 for token signing · SHA-256 + pepper for token storage hashing.
+**Tech Stack:** Next.js 16 App Router · TypeScript · Supabase (Postgres + Storage) · service-role for student-form writes · `qrcode` npm package (admission UI) · `browser-image-compression` (selfie compression) · HMAC-SHA256 for token signing · SHA-256 + pepper for token storage hashing.
 
 **Spec reference:** `docs/superpowers/specs/2026-05-08-student-self-fill-enquiry-design.md` (commit `d76cf9e2d`).
 
