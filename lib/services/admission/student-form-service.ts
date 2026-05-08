@@ -175,7 +175,51 @@ export class StudentFormService {
       return;
     }
 
-    // Final submit: consume token + flip is_profile_complete + audit log
+    // Final submit. Order: lookup lead_id → write audit rows → consume
+    // token → flip is_profile_complete. Audit happens BEFORE consume so a
+    // partial failure leaves the form re-submittable rather than half-locked.
+    //
+    // admission_lead_activities.lead_id is NOT NULL, so we resolve the lead
+    // via admission_leads.learner_profile_id. Most converted leads will have
+    // exactly one such row (FK is one-to-one), but a handful of learners
+    // were created without a corresponding admission_leads entry (legacy
+    // imports). For those we skip the audit rows with a warning rather
+    // than blocking the submit.
+
+    let leadId: string | null = null;
+    {
+      const { data: leadRow } = await (svc as any)
+        .from('admission_leads')
+        .select('id')
+        .eq('learner_profile_id', ctx.learner_profile_id)
+        .maybeSingle();
+      leadId = leadRow?.id ?? null;
+    }
+
+    if (leadId) {
+      const activityRows = (['basic', 'academic', 'contact'] as const).map((s) => ({
+        lead_id: leadId,
+        activity_type: 'student_section_filled',
+        subject: `Student filled ${s} section via QR`,
+        description: `Section: ${s}. Filled via QR self-fill at counter.`,
+      }));
+      const { error: actErr } = await (svc as any)
+        .from('admission_lead_activities')
+        .insert(activityRows);
+      if (actErr) {
+        // Audit failure is non-fatal — log loudly but continue with submit
+        // rather than block the student at the counter.
+        console.warn('[StudentFormService] activity log failed:', actErr.message);
+      }
+    } else {
+      console.warn(
+        '[StudentFormService] no admission_leads row for learner',
+        ctx.learner_profile_id,
+        '— skipping activity audit',
+      );
+    }
+
+    // Consume the token (single UPDATE — atomic at row level)
     const { error: tokenErr } = await (svc as any)
       .from('learner_self_fill_tokens')
       .update({
@@ -187,24 +231,12 @@ export class StudentFormService {
       .eq('status', 'active');
     if (tokenErr) throw new Error('token_consume_failed: ' + tokenErr.message);
 
+    // Flip the learner's completion flag
     const { error: completeErr } = await (svc as any)
       .from('learners_profiles')
       .update({ is_profile_complete: true, updated_at: new Date().toISOString() })
       .eq('id', ctx.learner_profile_id);
     if (completeErr) throw new Error('complete_flag_failed: ' + completeErr.message);
-
-    // 3 activity rows — one per section — for audit
-    const activityRows = (['basic', 'academic', 'contact'] as const).map((s) => ({
-      lead_id: null,  // student-form is post-conversion; no admission_lead context
-      profile_id: ctx.learner_profile_id,
-      activity_type: 'student_section_filled',
-      description: `Filled ${s} section via student form`,
-      metadata: { section: s, filled_via: 'qr_self_fill' },
-    }));
-    const { error: actErr } = await (svc as any)
-      .from('admission_lead_activities')
-      .insert(activityRows);
-    if (actErr) console.warn('[StudentFormService] activity log failed:', actErr.message);
   }
 
   /**
