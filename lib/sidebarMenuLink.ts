@@ -529,6 +529,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/admission/counselors/calls': 'admission.counselors.view',
   '/admission/counselors/daily-view': 'admission.counselors.view',
   '/admission/counselors/director-pulse': 'admission.counselors.director_pulse',
+  '/admission/counselors/lead-mood': 'admission.counselors.lead_mood',
   '/admission/counselors/reminders': 'admission.counselors.view',
   // Team management (Phase 5) — 5 in-page tabs under one sidebar entry
   '/admission/counselors/team': 'admission.counselors.view',
