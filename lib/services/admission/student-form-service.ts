@@ -6,6 +6,7 @@
 // is the security boundary.
 
 import 'server-only';
+import crypto from 'node:crypto';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import {
   STUDENT_WRITABLE_COLUMNS,
@@ -60,32 +61,32 @@ export class StudentFormService {
       .eq('learner_profile_id', learnerProfileId)
       .eq('status', 'active');
 
-    // 3. Insert new token row (DB generates id)
+    // 3. Generate token id + sign + hash UP-FRONT, then a single INSERT.
+    //    Earlier we did a two-step "insert with placeholder, update with
+    //    real hash" — that worked exactly once because every subsequent
+    //    insert re-collided on token_hash='placeholder' (the column has a
+    //    UNIQUE constraint). Generating the id in JS removes the dependency
+    //    on a server-assigned UUID and lets us write the real hash from the
+    //    start.
+    const tokenId = crypto.randomUUID();
+    const now = Math.floor(Date.now() / 1000);
+    const rawToken = signToken({ tid: tokenId, iat: now, exp: now + TOKEN_TTL_SECONDS });
+    const tokenHash = hashRawToken(rawToken);
     const expiresAt = new Date(Date.now() + TOKEN_TTL_SECONDS * 1000);
-    const { data: row, error: insErr } = await (svc as any)
+
+    const { error: insErr } = await (svc as any)
       .from('learner_self_fill_tokens')
       .insert({
+        id: tokenId,
         learner_profile_id: learnerProfileId,
-        token_hash: 'placeholder',  // updated below; needed for unique constraint
+        token_hash: tokenHash,
         status: 'active',
         expires_at: expiresAt.toISOString(),
         generated_by: byUserId,
-      })
-      .select('id')
-      .single();
-    if (insErr || !row) throw new Error('token_insert_failed: ' + (insErr?.message ?? ''));
+      });
+    if (insErr) throw new Error('token_insert_failed: ' + insErr.message);
 
-    // 4. Sign token + write hash back
-    const now = Math.floor(Date.now() / 1000);
-    const rawToken = signToken({ tid: row.id, iat: now, exp: now + TOKEN_TTL_SECONDS });
-    const tokenHash = hashRawToken(rawToken);
-    const { error: updErr } = await (svc as any)
-      .from('learner_self_fill_tokens')
-      .update({ token_hash: tokenHash })
-      .eq('id', row.id);
-    if (updErr) throw new Error('token_hash_write_failed: ' + updErr.message);
-
-    return { token: rawToken, token_id: row.id, expires_at: expiresAt.toISOString() };
+    return { token: rawToken, token_id: tokenId, expires_at: expiresAt.toISOString() };
   }
 
   /**
