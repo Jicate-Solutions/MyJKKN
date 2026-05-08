@@ -242,6 +242,15 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/admin/bug-reports': 'system.bugs.view',
   '/admin/ai-query-tools': 'super_admin', // Super admin only - AI Query Tools Registry
 
+  // Internship Module — Policy Admin (super_admin only)
+  '/admin/internship-policy': 'super_admin',
+  '/admin/internship-policy/eligibility': 'super_admin',
+  '/admin/internship-policy/fees': 'super_admin',
+  '/admin/internship-policy/attendance': 'super_admin',
+  '/admin/internship-policy/evaluation': 'super_admin',
+  '/admin/internship-policy/cycle': 'super_admin',
+  '/admin/internship-policy/notifications': 'super_admin',
+
   // Lifecycle Analytics
   '/admin/lifecycle': 'admin.lifecycle.view',
 
