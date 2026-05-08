@@ -1,3 +1,10 @@
+// app/api/admission/student-form-tokens/[id]/revoke/route.ts
+//
+// Manual token revocation (admission action). Path param `id` here is the
+// TOKEN id; the sibling /status route also uses `[id]` but reads it as a
+// learner id. Next.js requires the same dynamic segment name at a given
+// depth, so we share `[id]` and disambiguate by endpoint suffix.
+
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
@@ -7,7 +14,7 @@ import { StudentFormService } from '@/lib/services/admission/student-form-servic
 
 export async function POST(
   _request: NextRequest,
-  { params }: { params: Promise<{ token_id: string }> },
+  { params }: { params: Promise<{ id: string }> },
 ): Promise<NextResponse> {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -22,7 +29,7 @@ export async function POST(
     });
   if (!hasPerm) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
-  const { token_id } = await params;
+  const { id: token_id } = await params;
 
   // Institution-scope check — find the token's learner, then verify access.
   const svc = createServiceRoleClient();

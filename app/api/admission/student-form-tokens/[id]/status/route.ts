@@ -1,8 +1,13 @@
-// app/api/admission/student-form-tokens/[learner_id]/status/route.ts
+// app/api/admission/student-form-tokens/[id]/status/route.ts
 //
 // Polling endpoint for the admission QR dialog. Returns the latest token
 // status for a learner so the dialog can auto-close when student submits.
 // Auth-only (admission users); no service-role write — read only.
+//
+// Path param `id` is the LEARNER profile id here. The sibling /revoke
+// route also uses `[id]` (Next.js requires the same dynamic segment name
+// at a given depth) but interprets it as a token id. Each handler knows
+// what to do with the value via its endpoint suffix.
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -12,9 +17,9 @@ import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 
 export async function GET(
   _request: NextRequest,
-  { params }: { params: Promise<{ learner_id: string }> },
+  { params }: { params: Promise<{ id: string }> },
 ): Promise<NextResponse> {
-  const { learner_id } = await params;
+  const { id: learner_id } = await params;
 
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
