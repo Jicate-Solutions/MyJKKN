@@ -202,8 +202,27 @@ export default function AttendanceHistoryPage() {
                 ))}
                 {records.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
-                      No attendance records found
+                    <TableCell colSpan={8} className="py-10">
+                      {(selectedBlock !== 'all' || fromDate || toDate || searchQuery) ? (
+                        <div className="text-center text-muted-foreground space-y-1">
+                          <p className="font-medium text-foreground">No matching records</p>
+                          <p className="text-sm">
+                            Clear the filters or pick a different date range to see all attendance history.
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="flex flex-col items-center text-center space-y-3">
+                          <p className="font-medium text-foreground">No attendance history yet</p>
+                          <p className="text-sm text-muted-foreground max-w-md">
+                            History appears here once attendance has been marked. Mark attendance for a block first, then return here to view and filter past records.
+                          </p>
+                          <Button asChild size="sm" className="mt-1">
+                            <Link href="/campus-living/attendance/mark">
+                              Mark attendance
+                            </Link>
+                          </Button>
+                        </div>
+                      )}
                     </TableCell>
                   </TableRow>
                 )}
