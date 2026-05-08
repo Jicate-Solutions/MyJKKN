@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
@@ -10,11 +11,12 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { useAuth } from '@/hooks/use-auth';
+import { usePermissions } from '@/hooks/use-permissions';
 import { useCreateHostelAllocation } from '@/hooks/campus-living/use-hostel-allocations';
 import { useHostelBlocks } from '@/hooks/campus-living/use-hostel-blocks';
 import { useRoomsByBlock } from '@/hooks/campus-living/use-hostel-rooms';
 import { useBedsByRoom } from '@/hooks/campus-living/use-hostel-beds';
-import { useSearchStudentsByQuery } from '@/hooks/billing/use-student-search';
+import { useLearnerHostelites } from '@/hooks/campus-living/use-learner-hostelites';
 import {
   ArrowLeft,
   Save,
@@ -24,6 +26,7 @@ import {
   Building2,
   BedDouble,
   Phone,
+  Plus,
   Heart
 } from 'lucide-react';
 
@@ -41,6 +44,7 @@ export default function NewAllocationPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { profile } = useAuth();
+  const { isSuperAdmin } = usePermissions();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [studentSearch, setStudentSearch] = useState('');
   const [step, setStep] = useState(1);
@@ -65,9 +69,22 @@ export default function NewAllocationPage() {
   const { data: rooms } = useRoomsByBlock(formData.block_id);
   const { data: beds } = useBedsByRoom(formData.room_id);
 
-  // Real student search — replaces previous hardcoded placeholder list (BUG-003865)
-  const { data: searchResults, isLoading: studentsLoading } =
-    useSearchStudentsByQuery(studentSearch, profile?.institution_id, 10);
+  // Resident search — pulls from `learners_profiles.accommodation_type='HOSTEL'`
+  // (the same cohort visible on /campus-living/residents). Previously used the
+  // billing-side `useSearchStudentsByQuery` which returned every active learner
+  // including day scholars (BUG-003895 — "not pulling data from residents data").
+  // Mirrors the institution scoping convention from /residents learners-tab:
+  // super_admin → undefined (no filter), otherwise scope to the user's institution.
+  const residentInstitutionId: string | undefined = isSuperAdmin
+    ? undefined
+    : profile?.institution_id ?? undefined;
+  const trimmedSearch = studentSearch.trim();
+  const { data: searchResultsResp, isLoading: studentsLoading } = useLearnerHostelites(
+    residentInstitutionId,
+    trimmedSearch.length >= 2 ? { search: trimmedSearch } : undefined,
+    { enabled: trimmedSearch.length >= 2 },
+  );
+  const searchResults = searchResultsResp?.data?.slice(0, 10);
 
   const handleChange = (field: string, value: string) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
@@ -180,7 +197,7 @@ export default function NewAllocationPage() {
                   )}
                   {searchResults?.map((student) => {
                     const fullName = `${student.first_name ?? ''} ${student.last_name ?? ''}`.trim() || '—';
-                    const subline = [student.roll_number, student.mobile_number]
+                    const subline = [student.roll_number, student.student_email ?? student.college_email]
                       .filter(Boolean)
                       .join(' · ') || '—';
                     return (
@@ -295,7 +312,20 @@ export default function NewAllocationPage() {
                     </select>
                   </div>
                   <div className="space-y-2">
-                    <Label>Room *</Label>
+                    <div className="flex items-center justify-between">
+                      <Label>Room *</Label>
+                      {formData.block_id && (
+                        <Link
+                          href={`/campus-living/blocks/${formData.block_id}/rooms`}
+                          className="text-xs text-primary hover:underline inline-flex items-center gap-1"
+                          target="_blank"
+                          rel="noopener"
+                        >
+                          <Plus className="h-3 w-3" />
+                          Manage rooms
+                        </Link>
+                      )}
+                    </div>
                     <select
                       className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                       value={formData.room_id}
@@ -310,6 +340,23 @@ export default function NewAllocationPage() {
                         <option key={r.id} value={r.id}>{r.room_number} ({r.room_type}, capacity {r.capacity})</option>
                       ))}
                     </select>
+                    {/* Empty-state hint — wardens used to hit a dead end here when
+                        the selected block had no rooms (BUG-003894 — "no interface
+                        to add rooms"). The Manage rooms link above is the path. */}
+                    {formData.block_id && rooms && rooms.length === 0 && (
+                      <p className="text-xs text-muted-foreground">
+                        No rooms in this block yet. Use{' '}
+                        <Link
+                          href={`/campus-living/blocks/${formData.block_id}/rooms`}
+                          className="text-primary hover:underline"
+                          target="_blank"
+                          rel="noopener"
+                        >
+                          Manage rooms
+                        </Link>{' '}
+                        to add one.
+                      </p>
+                    )}
                   </div>
                   <div className="space-y-2">
                     <Label>Bed *</Label>
