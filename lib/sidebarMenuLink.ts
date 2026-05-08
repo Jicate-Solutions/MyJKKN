@@ -263,6 +263,16 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/hr/recruitment/candidates': 'hr.recruitment.view',
   '/hr/recruitment/approvals': 'hr.recruitment.approve',
 
+  // HR/Appraisal Program — Phase 0 (2026-05-07). Module pages ship in subsequent PRs;
+  // sidebar entries gate visibility on permission availability per role. See
+  // specs/{SAMS-SLICE-1,PROMOTION-RULEBOOK,VERIFIED-PUBLICATIONS,STUDENT-FEEDBACK,
+  // HR-LEAVE-ACTIVATION,HR-ATTENDANCE-LIVE}-SPEC.md.
+  '/hr/sams': 'sams.appraisal.self.read',
+  '/hr/sams/review': 'sams.appraisal.review',
+  '/hr/promotions': 'hr.promotion.case.view',
+  '/hr/attendance/my': 'hr.attendance.view_self',
+  '/hr/profile/publications': 'sh.publications.enrich',
+
   // Staff Counseling (Phase 1 — placeholder gate; module pages land in Phase 2)
   // Spec: specs/counselor-taxonomy-spec.md. Role seed:
   // supabase/migrations/20260427_counselor_taxonomy_phase1.sql
@@ -353,6 +363,16 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // AI Pulse policies (Wave B.6, 2026-05-04 — config-as-row admin surface).
   // super_admin only per ai-pulse-spec v3 §4.3.
   '/admin/config/ai-pulse': 'aiPulse:policies.manage',
+
+  // HR/Appraisal Program — Phase 0 admin surfaces (2026-05-07). Module pages
+  // land in subsequent PRs. Permission keys defined in lib/constants/permissions.ts
+  // (categories: SAMS, hr_promotion, research_publications, hr_phase_0_config).
+  '/admin/sams/cycles': 'sams.cycle.manage',
+  '/admin/sams/metric-definitions': 'sams.metric.config',
+  '/admin/hr/promotions/criteria': 'hr.promotion.criteria.write',
+  '/admin/hr/attendance/thresholds': 'hr.attendance.thresholds.write',
+  '/admin/research/publications/pending': 'sh.publications.verify',
+  '/admin/departments': 'admin.departments.hod.write',
 
   // System Management
   // Work Pulse
@@ -1231,6 +1251,12 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/hr/recruitment/submit', label: 'Recruitment · Submit Candidate', active: pathname === '/hr/recruitment/submit' },
             { href: '/hr/recruitment/my', label: 'Recruitment · My Candidates', active: pathname === '/hr/recruitment/my' },
             { href: '/hr/recruitment/approvals', label: 'Recruitment · Approvals', active: pathname === '/hr/recruitment/approvals' },
+            // HR/Appraisal Program — Phase 0 (2026-05-07). Module pages land in subsequent PRs.
+            { href: '/hr/sams', label: 'Self-Appraisal', active: pathname === '/hr/sams' },
+            { href: '/hr/sams/review', label: 'Appraisals · Review Inbox', active: pathname === '/hr/sams/review' },
+            { href: '/hr/promotions', label: 'Promotion Cases', active: pathname.startsWith('/hr/promotions') },
+            { href: '/hr/attendance/my', label: 'My Attendance', active: pathname.startsWith('/hr/attendance/my') },
+            { href: '/hr/profile/publications', label: 'My Publications', active: pathname.startsWith('/hr/profile/publications') },
           ]
         }
       ]
@@ -1376,6 +1402,13 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/admin/retention-policies', label: 'Retention Policies (config)', active: pathname.startsWith('/admin/retention-policies') },
             { href: '/admin/page-metadata', label: 'Page Metadata', active: pathname.startsWith('/admin/page-metadata') },
             { href: '/admin/config/ai-pulse', label: 'AI Pulse · Policies', active: pathname.startsWith('/admin/config/ai-pulse') },
+            // HR/Appraisal Program — Phase 0 (2026-05-07). Module pages land in subsequent PRs.
+            { href: '/admin/sams/cycles', label: 'SAMS · Cycles', active: pathname.startsWith('/admin/sams/cycles') },
+            { href: '/admin/sams/metric-definitions', label: 'SAMS · Metric Definitions', active: pathname.startsWith('/admin/sams/metric-definitions') },
+            { href: '/admin/hr/promotions/criteria', label: 'Promotion · Criteria', active: pathname.startsWith('/admin/hr/promotions/criteria') },
+            { href: '/admin/hr/attendance/thresholds', label: 'Attendance · Thresholds', active: pathname.startsWith('/admin/hr/attendance/thresholds') },
+            { href: '/admin/research/publications/pending', label: 'Publications · Pending Verification', active: pathname.startsWith('/admin/research/publications/pending') },
+            { href: '/admin/departments', label: 'Departments · HoD Assignment', active: pathname.startsWith('/admin/departments') },
           ]
         }
       ]

@@ -4118,6 +4118,39 @@ export type Database = {
           },
         ]
       }
+      admission_fee_structure_communities: {
+        Row: {
+          community_category_id: string
+          created_at: string
+          fee_structure_id: string
+        }
+        Insert: {
+          community_category_id: string
+          created_at?: string
+          fee_structure_id: string
+        }
+        Update: {
+          community_category_id?: string
+          created_at?: string
+          fee_structure_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "admission_fee_structure_communities_community_category_id_fkey"
+            columns: ["community_category_id"]
+            isOneToOne: false
+            referencedRelation: "community_categories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "admission_fee_structure_communities_fee_structure_id_fkey"
+            columns: ["fee_structure_id"]
+            isOneToOne: false
+            referencedRelation: "admission_fee_structures"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       admission_fee_structure_items: {
         Row: {
           amount: number
@@ -4164,7 +4197,6 @@ export type Database = {
         Row: {
           accommodation_type_id: string
           admission_year_id: string
-          community_category_id: string
           created_at: string
           created_by: string | null
           degree_id: string
@@ -4184,7 +4216,6 @@ export type Database = {
         Insert: {
           accommodation_type_id: string
           admission_year_id: string
-          community_category_id: string
           created_at?: string
           created_by?: string | null
           degree_id: string
@@ -4204,7 +4235,6 @@ export type Database = {
         Update: {
           accommodation_type_id?: string
           admission_year_id?: string
-          community_category_id?: string
           created_at?: string
           created_by?: string | null
           degree_id?: string
@@ -4234,13 +4264,6 @@ export type Database = {
             columns: ["admission_year_id"]
             isOneToOne: false
             referencedRelation: "admission_years"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "admission_fee_structures_community_category_id_fkey"
-            columns: ["community_category_id"]
-            isOneToOne: false
-            referencedRelation: "community_categories"
             referencedColumns: ["id"]
           },
           {
@@ -6082,10 +6105,13 @@ export type Database = {
           engagement_score: number | null
           entry_date: string | null
           expo_event_id: string | null
+          first_gate_entry_at: string | null
+          first_gate_entry_by: string | null
           first_name: string
           first_touch_at: string | null
           full_name: string | null
           funnel_stage: Database["public"]["Enums"]["funnel_stage"]
+          gate_entry_count: number
           gender: string | null
           id: string
           institution_id: string
@@ -6179,10 +6205,13 @@ export type Database = {
           engagement_score?: number | null
           entry_date?: string | null
           expo_event_id?: string | null
+          first_gate_entry_at?: string | null
+          first_gate_entry_by?: string | null
           first_name?: string
           first_touch_at?: string | null
           full_name?: string | null
           funnel_stage?: Database["public"]["Enums"]["funnel_stage"]
+          gate_entry_count?: number
           gender?: string | null
           id?: string
           institution_id: string
@@ -6276,10 +6305,13 @@ export type Database = {
           engagement_score?: number | null
           entry_date?: string | null
           expo_event_id?: string | null
+          first_gate_entry_at?: string | null
+          first_gate_entry_by?: string | null
           first_name?: string
           first_touch_at?: string | null
           full_name?: string | null
           funnel_stage?: Database["public"]["Enums"]["funnel_stage"]
+          gate_entry_count?: number
           gender?: string | null
           id?: string
           institution_id?: string
@@ -6455,6 +6487,34 @@ export type Database = {
             columns: ["expo_event_id"]
             isOneToOne: false
             referencedRelation: "expo_events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "admission_leads_first_gate_entry_by_fkey"
+            columns: ["first_gate_entry_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "admission_leads_first_gate_entry_by_fkey"
+            columns: ["first_gate_entry_by"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "admission_leads_first_gate_entry_by_fkey"
+            columns: ["first_gate_entry_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "admission_leads_first_gate_entry_by_fkey"
+            columns: ["first_gate_entry_by"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
             referencedColumns: ["id"]
           },
           {
@@ -16300,6 +16360,7 @@ export type Database = {
           department_name: string
           department_order: number
           display_name: string | null
+          head_of_department_id: string | null
           id: string
           institution_id: string
           is_active: boolean | null
@@ -16313,6 +16374,7 @@ export type Database = {
           department_name: string
           department_order?: number
           display_name?: string | null
+          head_of_department_id?: string | null
           id?: string
           institution_id: string
           is_active?: boolean | null
@@ -16326,6 +16388,7 @@ export type Database = {
           department_name?: string
           department_order?: number
           display_name?: string | null
+          head_of_department_id?: string | null
           id?: string
           institution_id?: string
           is_active?: boolean | null
@@ -16337,6 +16400,34 @@ export type Database = {
             columns: ["degree_id"]
             isOneToOne: false
             referencedRelation: "degrees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "departments_head_of_department_id_fkey"
+            columns: ["head_of_department_id"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "departments_head_of_department_id_fkey"
+            columns: ["head_of_department_id"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "departments_head_of_department_id_fkey"
+            columns: ["head_of_department_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "departments_head_of_department_id_fkey"
+            columns: ["head_of_department_id"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
             referencedColumns: ["id"]
           },
           {
@@ -75862,6 +75953,19 @@ export type Database = {
         Args: { p_capture: Json; p_lead: Json }
         Returns: Json
       }
+      capture_gate_entry_lead: {
+        Args: {
+          p_first_name: string
+          p_institution_id: string
+          p_last_name?: string
+          p_phone: string
+          p_program_id?: string
+          p_referral_type?: string
+          p_referred_by_id?: string
+          p_referred_by_name?: string
+        }
+        Returns: Json
+      }
       check_ai_query_rate_limit: { Args: { p_user_id: string }; Returns: Json }
       check_ai_solution_clearance: {
         Args: { p_learner_id: string }
@@ -78738,6 +78842,7 @@ export type Database = {
         | "facebook_ads"
         | "other"
         | "inbound_call"
+        | "gate_entry"
       learning_path_status:
         | "draft"
         | "active"
@@ -80060,6 +80165,7 @@ export const Constants = {
         "facebook_ads",
         "other",
         "inbound_call",
+        "gate_entry",
       ],
       learning_path_status: [
         "draft",
