@@ -49,6 +49,12 @@ import { AdmissionErrorBoundary } from '@/components/admission';
 import { BriefingNotificationBanner } from '@/components/admission/briefing-notification-banner';
 import { BriefingPopup } from '@/components/admission/briefing-popup';
 
+// navMeta — declares this page for sidebar auto-discovery, matching the
+// canonical `{ label, icon }` shape used by `/admin/counselors/rule-types`.
+// Aligns discoverability with `/admission/group-dashboard` so both admission
+// dashboards render consistently in nav scaffolding.
+export const navMeta = { label: 'Admission Dashboard', icon: 'LayoutDashboard' } as const;
+
 // Funnel stages with colors — matches admission_lead_stage enum
 const FUNNEL_STAGES = [
   { key: 'new', label: 'New', color: 'bg-blue-500' },
@@ -165,7 +171,13 @@ function FunnelVisualization({
 
         return (
           <div key={stage.key} className="flex items-center gap-3">
-            <div className="w-32 text-sm text-muted-foreground truncate">{stage.label}</div>
+            {/*
+              `title` attr — fixed-width label column truncates long stage names
+              like "Application Submitted", "Documents Pending", "Follow-up
+              Scheduled". Native browser tooltip reveals the full name on hover
+              without adding a Tooltip primitive dep.
+            */}
+            <div className="w-32 text-sm text-muted-foreground truncate" title={stage.label}>{stage.label}</div>
             <div className="flex-1 h-6 bg-muted rounded-full overflow-hidden">
               <div
                 className={`h-full ${stage.color} transition-all duration-500`}
@@ -367,6 +379,13 @@ function AdmissionDashboardPageContent() {
           />
 
           {/* KPI Cards */}
+          {/*
+            Hot Leads KPI: when no specific institution is selected, the detail
+            section below shows "Select a specific institution to see hot leads".
+            We render the KPI as "—" (with explanatory description) instead of a
+            number so the two zones agree. Approach (b) chosen over (a) so the
+            4-column grid layout stays balanced.
+          */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             <KPICard
               title="Total Active Leads"
@@ -376,8 +395,8 @@ function AdmissionDashboardPageContent() {
             />
             <KPICard
               title="Hot Leads"
-              value={funnel?.hotLeads || 0}
-              description="High engagement prospects"
+              value={institutionId ? (funnel?.hotLeads || 0) : '—'}
+              description={institutionId ? 'High engagement prospects' : 'Select an institution'}
               icon={Flame}
               color="text-orange-600"
             />
