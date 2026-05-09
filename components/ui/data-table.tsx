@@ -306,10 +306,17 @@ export function DataTable<TData, TValue>({
     return () => clearTimeout(timer);
   }, [globalFilter, onSearch]);
 
-  // Get permission hooks with loading state
+  // Get permission hooks with loading state.
+  // isAdmissionGlobalUser / isCounselorUser are pulled in so the table mirrors
+  // PermissionGuard's bypass logic for admission.* modules — without this, users
+  // who pass the page-level guard via the role-key/scope='all' bypass (admission,
+  // admission_counselor, expo_counselor) would silently see an empty table body.
+  // See feedback memory: feedback_datatable_permissions_module_mismatch.md.
   const {
     canAccess,
     isSuperAdmin,
+    isAdmissionGlobalUser,
+    isCounselorUser,
     isLoading: permissionsLoading
   } = usePermissions();
 
@@ -342,12 +349,23 @@ export function DataTable<TData, TValue>({
     // Super admins can always view
     if (isSuperAdmin) return true;
 
+    // Mirror PermissionGuard's admission-module bypasses so users who passed
+    // the outer guard via legacy role-key / institution_scope='all' don't get
+    // silently blocked here when their enhancedPermissions object lacks the
+    // granular admission.<feature>.view key.
+    if (
+      (isAdmissionGlobalUser || isCounselorUser) &&
+      permissions.module.startsWith('admission.')
+    ) {
+      return true;
+    }
+
     // Check the view permission (or default to true if not specified)
     return (
       permissions.actions?.view !== false &&
       (!permissions.actions?.view || canAccess(permissions.module, 'view'))
     );
-  }, [permissions, canAccess, isSuperAdmin]);
+  }, [permissions, canAccess, isSuperAdmin, isAdmissionGlobalUser, isCounselorUser]);
 
   // Check if user has permission to perform bulk actions
   const canPerformBulkAction = React.useMemo(() => {
@@ -356,6 +374,15 @@ export function DataTable<TData, TValue>({
 
     // Super admins can always perform bulk actions
     if (isSuperAdmin) return true;
+
+    // Same admission-module bypass as canViewTable — keeps action surfaces
+    // consistent with the page-level PermissionGuard for legacy admission roles.
+    if (
+      (isAdmissionGlobalUser || isCounselorUser) &&
+      permissions.module.startsWith('admission.')
+    ) {
+      return true;
+    }
 
     // For backward compatibility, check delete permission if using onDeleteSelected
     // Otherwise check edit permission for bulk actions
@@ -367,12 +394,21 @@ export function DataTable<TData, TValue>({
       (permissions.actions?.[permissionAction] ||
         canAccess(permissions.module, permissionAction))
     );
-  }, [permissions, canAccess, isSuperAdmin, onDeleteSelected, onBulkAction]);
+  }, [permissions, canAccess, isSuperAdmin, isAdmissionGlobalUser, isCounselorUser, onDeleteSelected, onBulkAction]);
 
   // Filter columns based on permissions
   const permissionFilteredColumns = React.useMemo(() => {
     // If no permissions required or super admin, show all columns
     if (!permissions?.module || isSuperAdmin) {
+      return columns;
+    }
+
+    // Same admission-module bypass — show all columns to legacy admission roles
+    // so per-column requiredPermission keys don't strip the table down.
+    if (
+      (isAdmissionGlobalUser || isCounselorUser) &&
+      permissions.module.startsWith('admission.')
+    ) {
       return columns;
     }
 
@@ -388,7 +424,7 @@ export function DataTable<TData, TValue>({
       // Check if user has permission to see this column
       return canAccess(module, action);
     });
-  }, [columns, permissions, canAccess, isSuperAdmin]);
+  }, [columns, permissions, canAccess, isSuperAdmin, isAdmissionGlobalUser, isCounselorUser]);
 
   // Only add selection column if bulk action functionality is available
   const columnsWithSelection = React.useMemo(() => {

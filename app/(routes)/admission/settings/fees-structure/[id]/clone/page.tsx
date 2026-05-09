@@ -275,6 +275,9 @@ function CloneFeeStructurePageContent({ id }: { id: string }) {
                       toast.success('Cloned fee structure created');
                       handleCloned();
                     }}
+                    onCancel={() =>
+                      router.push(`/admission/settings/fees-structure/${id}`)
+                    }
                     initialValues={prefill}
                     heading="Clone — review & customize"
                     description="Every field below is pre-filled from the source. Adjust any subset — line items, communities, dates — then save the new structure."

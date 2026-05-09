@@ -10,6 +10,12 @@ import { ColumnDef } from '@tanstack/react-table';
 import { Checkbox } from '@/components/ui/checkbox';
 import { DataTableColumnHeader } from '@/components/data-table/column-header';
 import { Badge } from '@/components/ui/badge';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import Link from 'next/link';
 import type { AdmissionFeeStructure } from '@/types/admission';
 import { FeeStructureRowActions } from './fee-structures-row-actions';
@@ -53,13 +59,27 @@ export const columns: ColumnDef<FeeStructureRow>[] = [
   {
     accessorKey: 'name',
     header: ({ column }) => <DataTableColumnHeader column={column} title="Name" />,
+    // The 220px column width often clips long structure names ("BBA Honors —
+    // Mgmt quota — 2025-26 cohort — Hostel A …"). We ellipsize the visible
+    // cell with `truncate` and surface the full name in a Radix tooltip on
+    // hover/focus, matching the per-instance TooltipProvider pattern used
+    // elsewhere in the project (e.g. student-receipts-table.tsx).
     cell: ({ row }) => (
-      <Link
-        href={`/admission/settings/fees-structure/${row.original.id}`}
-        className="font-medium text-primary hover:underline"
-      >
-        {row.original.name}
-      </Link>
+      <TooltipProvider delayDuration={200}>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Link
+              href={`/admission/settings/fees-structure/${row.original.id}`}
+              className="font-medium text-primary hover:underline block max-w-full truncate"
+            >
+              {row.original.name}
+            </Link>
+          </TooltipTrigger>
+          <TooltipContent side="top" className="max-w-md">
+            <p className="break-words">{row.original.name}</p>
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
     ),
     size: 220,
   },

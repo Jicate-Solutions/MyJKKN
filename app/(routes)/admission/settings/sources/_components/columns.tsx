@@ -1,57 +1,98 @@
 'use client';
 
 import { ColumnDef } from '@tanstack/react-table';
+import Link from 'next/link';
 import { DataTableColumnHeader } from '@/components/data-table/column-header';
-import { Globe } from 'lucide-react';
-import type { SourceSummary } from '@/lib/services/admission/source-tracking-service';
+import { Badge } from '@/components/ui/badge';
+import { Globe, Building2, Users, Activity } from 'lucide-react';
+import type { SourceMaster } from '@/lib/services/admission/source-master-service';
+import { SourceRowActions } from './row-actions';
 
-export const columns: ColumnDef<SourceSummary>[] = [
+export const columns: ColumnDef<SourceMaster>[] = [
   {
-    accessorKey: 'source',
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Source" />
-    ),
+    accessorKey: 'label',
+    header: ({ column }) => <DataTableColumnHeader column={column} title="Source" />,
+    cell: ({ row }) => {
+      const s = row.original;
+      return (
+        <Link
+          href={`/admission/settings/sources/${s.id}`}
+          className="flex flex-col gap-0.5 hover:underline"
+        >
+          <span className="font-medium">{s.label}</span>
+          <span className="text-xs text-muted-foreground font-mono">{s.key}</span>
+        </Link>
+      );
+    },
+  },
+  {
+    accessorKey: 'enum_value',
+    header: ({ column }) => <DataTableColumnHeader column={column} title="Routes To" />,
     cell: ({ row }) => (
-      <div className="flex items-center gap-2">
-        <Globe className="h-4 w-4 text-gray-400 shrink-0" />
-        <span className="font-medium">{row.getValue('source')}</span>
+      <Badge variant="outline" className="font-mono text-xs">
+        {row.original.enum_value}
+      </Badge>
+    ),
+  },
+  {
+    id: 'scope',
+    header: 'Scope',
+    cell: ({ row }) => {
+      const isGlobal = row.original.institution_id === null;
+      return (
+        <Badge variant={isGlobal ? 'secondary' : 'default'} className="gap-1">
+          {isGlobal ? <Globe className="h-3 w-3" /> : <Building2 className="h-3 w-3" />}
+          {isGlobal ? 'Global' : 'Institution'}
+        </Badge>
+      );
+    },
+  },
+  {
+    id: 'origin',
+    header: 'Origin',
+    cell: ({ row }) =>
+      row.original.is_system ? (
+        <Badge variant="outline" className="text-blue-600 border-blue-200">System</Badge>
+      ) : (
+        <Badge variant="outline" className="text-purple-600 border-purple-200">Custom</Badge>
+      ),
+  },
+  {
+    accessorKey: 'counselor_count',
+    header: ({ column }) => <DataTableColumnHeader column={column} title="Counselors" />,
+    cell: ({ row }) => (
+      <div className="flex items-center gap-1.5">
+        <Users className="h-3.5 w-3.5 text-muted-foreground" />
+        <span className="font-medium">{row.original.counselor_count ?? 0}</span>
       </div>
     ),
   },
   {
-    accessorKey: 'leads',
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Leads" />
+    accessorKey: 'lead_count',
+    header: ({ column }) => <DataTableColumnHeader column={column} title="Leads" />,
+    cell: ({ row }) => (
+      <div className="flex items-center gap-1.5">
+        <Activity className="h-3.5 w-3.5 text-muted-foreground" />
+        <span className="font-medium">{(row.original.lead_count ?? 0).toLocaleString()}</span>
+      </div>
     ),
-    cell: ({ row }) => {
-      const leads = row.getValue<number>('leads');
-      return <span className="font-medium">{leads.toLocaleString()}</span>;
-    },
   },
   {
-    accessorKey: 'conversions',
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Conversions" />
-    ),
-    cell: ({ row }) => {
-      const conversions = row.getValue<number>('conversions');
-      return <span>{conversions.toLocaleString()}</span>;
-    },
+    accessorKey: 'is_active',
+    header: 'Status',
+    cell: ({ row }) =>
+      row.original.is_active ? (
+        <Badge className="bg-green-100 text-green-700 hover:bg-green-100 border-green-200">
+          Active
+        </Badge>
+      ) : (
+        <Badge variant="outline" className="text-muted-foreground">
+          Inactive
+        </Badge>
+      ),
   },
   {
-    accessorKey: 'conversionRate',
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Conv. Rate" />
-    ),
-    cell: ({ row }) => {
-      const rate = row.getValue<number>('conversionRate');
-      const colorClass =
-        rate >= 15
-          ? 'text-green-600 font-medium'
-          : rate >= 10
-          ? 'text-yellow-600'
-          : 'text-red-600';
-      return <span className={colorClass}>{(rate ?? 0).toFixed(1)}%</span>;
-    },
+    id: 'actions',
+    cell: ({ row }) => <SourceRowActions source={row.original} />,
   },
 ];

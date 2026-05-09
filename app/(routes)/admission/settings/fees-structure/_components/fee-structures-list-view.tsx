@@ -8,7 +8,7 @@
 // row selection, column visibility/resizing. Filters (institution, status)
 // rendered via renderToolbarContent.
 
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 import { DataTable } from '@/components/data-table/data-table';
@@ -36,6 +36,33 @@ import { usePermissions } from '@/hooks/use-permissions';
 import { FeeStructureService } from '@/lib/services/admission/fee-structure-service';
 import { columns, type FeeStructureRow } from './columns';
 
+// Tiny helper that lives inside `renderCustomToolbar` and pushes the
+// DataTable's selection state up to the parent. Without this we'd be stuck
+// rendering the bulk-action UI inside the toolbar's right cluster (which is
+// what made it cram against Export/View/Settings on the screenshot). The
+// effect depends on rows.length (a primitive) — NOT the rows array — to avoid
+// an infinite render loop when the DataTable hands back a fresh array each
+// render. The latest array is captured via ref so the bulk-delete handler
+// still operates on the current selection.
+function BulkSelectionSync({
+  rows,
+  reset,
+  rowsRef,
+  onChange,
+}: {
+  rows: FeeStructureRow[];
+  reset: () => void;
+  rowsRef: React.MutableRefObject<FeeStructureRow[]>;
+  onChange: (count: number, reset: () => void) => void;
+}) {
+  rowsRef.current = rows;
+  const count = rows.length;
+  useEffect(() => {
+    onChange(count, reset);
+  }, [count, reset, onChange]);
+  return null;
+}
+
 export function FeeStructuresListView() {
   const router = useRouter();
   const { institutions } = useInstitutionsWithAccess();
@@ -45,6 +72,24 @@ export function FeeStructuresListView() {
   const [institutionFilter, setInstitutionFilter] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [refetchKey, setRefetchKey] = useState(0);
+
+  // Bulk-selection state, lifted out of the toolbar so the bulk-action bar
+  // can render as a FULL-WIDTH banner above the DataTable instead of
+  // competing for horizontal space inside the toolbar's right cluster.
+  const selectedRowsRef = useRef<FeeStructureRow[]>([]);
+  const [selectedCount, setSelectedCount] = useState(0);
+  const [resetSelectionFn, setResetSelectionFn] = useState<() => void>(
+    () => () => {},
+  );
+  const handleSelectionChange = useCallback(
+    (count: number, reset: () => void) => {
+      setSelectedCount(count);
+      // Wrap in arrow so React doesn't invoke `reset` immediately when the
+      // setter sees a function (state setter functional-update rule).
+      setResetSelectionFn(() => reset);
+    },
+    [],
+  );
 
   // Bulk-delete state. We capture the selected rows + the resetSelection
   // callback that the DataTable hands to renderToolbarContent so the dialog
@@ -135,7 +180,17 @@ export function FeeStructuresListView() {
     totalSelectedCount: number;
     resetSelection: () => void;
   }) => (
-    <div className="space-y-2">
+    <>
+      {/* Sync selection up to parent so the bulk-action bar can render as a
+          full-width banner ABOVE the DataTable instead of cramming inside
+          the toolbar's right cluster. */}
+      <BulkSelectionSync
+        rows={props.selectedRows}
+        reset={props.resetSelection}
+        rowsRef={selectedRowsRef}
+        onChange={handleSelectionChange}
+      />
+
       <div className="flex items-center gap-2 flex-wrap">
         {/* Institution filter */}
         <Select
@@ -201,43 +256,48 @@ export function FeeStructuresListView() {
           New Fee Structure
         </Button>
       </div>
-
-      {/* Bulk-action bar — appears once at least one row is selected and the
-          caller holds admission_fees.delete (granted to admission +
-          super_admin per migration 20260508160001). resetSelection is the
-          DataTable-provided callback that clears the selection map; we
-          stash it on state so the confirm dialog (which lives outside this
-          render function) can call it on success. */}
-      {props.selectedRows.length > 0 && canBulkDelete && (
-        <div className="flex items-center gap-2 p-2 bg-destructive/10 rounded-md border border-destructive/20">
-          <span className="text-sm font-medium">
-            {props.selectedRows.length} selected
-          </span>
-          <Button
-            variant="destructive"
-            size="sm"
-            className="h-8 ml-auto"
-            onClick={() => {
-              setPendingRows(props.selectedRows);
-              // Wrap in an arrow so React doesn't invoke the resetSelection
-              // updater immediately when stored via setState. Without this,
-              // setPendingResetSelection(props.resetSelection) would CALL
-              // it (state setters that receive a function treat it as an
-              // updater).
-              setPendingResetSelection(() => props.resetSelection);
-              setConfirmBulkDelete(true);
-            }}
-          >
-            <Trash2 className="h-4 w-4 mr-1" />
-            Delete {props.selectedRows.length}
-          </Button>
-        </div>
-      )}
-    </div>
+    </>
   );
 
   return (
     <>
+      {/* Full-width bulk-action banner — only renders once at least one row
+          is selected and the caller holds admission_fees.delete. Sits ABOVE
+          the DataTable so it never has to fight Export / View / Settings for
+          horizontal space (the layout bug from screenshot 523). On narrow
+          viewports the contents wrap with `flex-wrap` so the destructive
+          button never gets clipped or overlapped. */}
+      {selectedCount > 0 && canBulkDelete && (
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2 rounded-md border border-destructive/30 bg-destructive/10 p-3">
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-medium">
+              {selectedCount} selected
+            </span>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 text-xs"
+              onClick={() => resetSelectionFn()}
+            >
+              Clear
+            </Button>
+          </div>
+          <Button
+            variant="destructive"
+            size="sm"
+            className="h-8"
+            onClick={() => {
+              setPendingRows(selectedRowsRef.current);
+              setPendingResetSelection(() => resetSelectionFn);
+              setConfirmBulkDelete(true);
+            }}
+          >
+            <Trash2 className="h-4 w-4 mr-1" />
+            Delete {selectedCount}
+          </Button>
+        </div>
+      )}
+
       <DataTable
         fetchDataFn={fetchData}
         getColumns={() => columns as any}

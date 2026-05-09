@@ -282,6 +282,7 @@ export function NewStructureForm({
   categories,
   communityOptions,
   onCreated,
+  onCancel,
   initialValues,
   heading,
   description,
@@ -293,6 +294,14 @@ export function NewStructureForm({
   categories: BillingCategory[];
   communityOptions: Community[];
   onCreated: () => void;
+  /**
+   * Optional Cancel handler — when supplied, a Cancel button is rendered to
+   * the LEFT of the submit cluster. Used by the clone page so operators have
+   * an explicit "bail out without creating" path. Without it, users were
+   * mistaking the outline-styled "Save as Draft" button for Cancel and
+   * accidentally creating draft clones on the way out.
+   */
+  onCancel?: () => void;
   /** Optional prefill — used by the clone flow. */
   initialValues?: Partial<NewFormValues>;
   /** Optional heading override (default 'New Fee Structure'). */
@@ -512,6 +521,16 @@ export function NewStructureForm({
             Total: <span className="font-semibold">₹{total.toLocaleString('en-IN')}</span>
           </p>
           <div className="flex gap-2">
+            {onCancel && (
+              <Button
+                type="button"
+                variant="ghost"
+                disabled={submitting}
+                onClick={onCancel}
+              >
+                Cancel
+              </Button>
+            )}
             <Button
               type="button"
               variant="outline"
