@@ -74,10 +74,12 @@ export const MODULES: Module[] = [
   // ── Admission CRM ─────────────────────────────────────────────────────
   { slug: 'admission', label: 'Admission CRM', icon: 'UserPlus', section: 'Admission CRM', hasNavConfig: true },
 
-  // ── Human Resources ───────────────────────────────────────────────────
-  // Wave 2 (PR pending) merged 'Employee Management' into 'Human Resources'.
-  { slug: 'staff', label: 'Staff', icon: 'Briefcase', section: 'Human Resources', hasNavConfig: false },
-  { slug: 'hr', label: 'HR', icon: 'UsersRound', section: 'Human Resources', hasNavConfig: false },
+  // ── Employee Management ───────────────────────────────────────────────
+  // Combined section housing both /staff (Staff) and /hr (HR) modules.
+  // Renamed from 'Facilitators Management' / 'Human Resources' on
+  // 2026-05-09 per product decision to unify under "Employee Management".
+  { slug: 'staff', label: 'Staff', icon: 'Briefcase', section: 'Employee Management', hasNavConfig: false },
+  { slug: 'hr', label: 'HR', icon: 'UsersRound', section: 'Employee Management', hasNavConfig: false },
 
   // ── Learners ──────────────────────────────────────────────────────────
   { slug: 'learners', label: 'Learners', icon: 'GraduationCap', section: 'Learners', hasNavConfig: false },
@@ -87,6 +89,10 @@ export const MODULES: Module[] = [
 
   // ── Resources ─────────────────────────────────────────────────────────
   { slug: 'resource-management', label: 'Resources', icon: 'Package', section: 'Resources', hasNavConfig: false },
+
+  // ── Inventory (IMS) ───────────────────────────────────────────────────
+  // Sister to Resources — distinct top-level /ims/* tree.
+  { slug: 'ims', label: 'Inventory Management', icon: 'Package', section: 'Inventory (IMS)', hasNavConfig: false },
 
   // ── Service Requests ──────────────────────────────────────────────────
   { slug: 'service-requests', label: 'Service Requests', icon: 'Wrench', section: 'Service Requests', hasNavConfig: false },
@@ -98,6 +104,10 @@ export const MODULES: Module[] = [
   // ── OKR ───────────────────────────────────────────────────────────────
   { slug: 'okr', label: 'OKR & Performance', icon: 'Target', section: 'OKR', hasNavConfig: true },
 
+  // ── AI Pulse ──────────────────────────────────────────────────────────
+  // Productivity / activity insights tool — sits next to OKR & Work Pulse.
+  { slug: 'ai-pulse', label: 'AI Pulse', icon: 'Sparkles', section: 'AI Pulse', hasNavConfig: false },
+
   // ── Learning & Courses ────────────────────────────────────────────────
   // Wave 2 (PR pending) merged 'Value Added Courses' into 'Learning & Courses'.
   { slug: 'learn', label: 'Learning', icon: 'BookOpen', section: 'Learning & Courses', hasNavConfig: false },
@@ -107,6 +117,10 @@ export const MODULES: Module[] = [
 
   // ── Events ────────────────────────────────────────────────────────────
   { slug: 'events', label: 'Events', icon: 'Calendar', section: 'Events', hasNavConfig: false },
+
+  // ── Meetings ──────────────────────────────────────────────────────────
+  // Scheduling / coordination tool — paired with Events.
+  { slug: 'meetings', label: 'Meetings', icon: 'CalendarDays', section: 'Meetings', hasNavConfig: false },
 
   // ── Startup Studio ────────────────────────────────────────────────────
   { slug: 'startup-studio', label: 'Startup Studio', icon: 'Rocket', section: 'Startup Studio', hasNavConfig: true },
@@ -128,6 +142,10 @@ export const MODULES: Module[] = [
 
   // ── Audit Workflow ────────────────────────────────────────────────────
   { slug: 'audit', label: 'Audit Workflow', icon: 'ClipboardCheck', section: 'Audit Workflow', hasNavConfig: true },
+
+  // ── Board of Studies ──────────────────────────────────────────────────
+  // Academic governance — placed near Audit Workflow & Accreditation.
+  { slug: 'bos', label: 'Board of Studies', icon: 'ClipboardList', section: 'Board of Studies', hasNavConfig: true },
 
   // ── Accreditation ─────────────────────────────────────────────────────
   { slug: 'accreditation', label: 'Accreditation', icon: 'Award', section: 'Accreditation', hasNavConfig: true },

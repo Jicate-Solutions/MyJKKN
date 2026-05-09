@@ -529,6 +529,8 @@ export const PERMISSION_CATEGORIES = [
     name: 'HR Management',
     key: 'hr',
     permissions: [
+      // Module-root visibility — gates the HR sidebar section.
+      { key: 'hr.view', label: 'View HR Module' },
       // Recruitment (Phase 1A+1B shipped 2026-04-15) —
       // RLS keys referenced in supabase/setup/03_policies.sql for hr_recruitment_*
       { key: 'hr.recruitment.view', label: 'View Recruitment Candidates' },
@@ -1194,6 +1196,8 @@ export const PERMISSION_CATEGORIES = [
     name: 'Solutions Hub',
     key: 'solutions',
     permissions: [
+      // Module-root visibility — gates the Solution Hub sidebar section.
+      { key: 'solutions.view', label: 'View Solution Hub Module' },
       // Dashboard
       { key: 'solutions.dashboard.view', label: 'View Solutions Dashboard' },
 
@@ -1523,6 +1527,8 @@ export const PERMISSION_CATEGORIES = [
     name: 'Value-Added Courses',
     key: 'vac',
     permissions: [
+      // Module-root visibility — gates the VAC sidebar section.
+      { key: 'vac.view', label: 'View Value-Added Courses Module' },
       // Learner-facing
       { key: 'vac.courses.view', label: 'View VAC Catalogue' },
       { key: 'vac.my_courses.view', label: 'View My Courses' },
@@ -1633,6 +1639,8 @@ export const PERMISSION_CATEGORIES = [
     name: 'Health & Wellness',
     key: 'health',
     permissions: [
+      // Module-root visibility — gates the Health & Wellness sidebar section.
+      { key: 'health.view', label: 'View Health & Wellness Module' },
       { key: 'health.dashboard.view', label: 'View Health Dashboard' },
       { key: 'health.profile.view', label: 'View My Health Profile' },
       { key: 'health.leaderboard.view', label: 'View Health Leaderboard' },
@@ -1747,6 +1755,8 @@ export const PERMISSION_CATEGORIES = [
     name: 'AI Pulse',
     key: 'ai_pulse',
     permissions: [
+      // Module-root visibility — gates the AI Pulse sidebar section.
+      { key: 'ai_pulse.view', label: 'View AI Pulse Module' },
       // Learner self-service
       { key: 'aiPulse:view.self', label: 'View own AI Pulse cycle status' },
       { key: 'aiPulse:submit.domain_sync', label: 'Submit Domain-Sync artifact' },
@@ -1847,6 +1857,33 @@ export const PERMISSION_CATEGORIES = [
     permissions: [
       { key: 'platform.ai_models.view', label: 'View AI Model Config (provider/model + usage)' },
       { key: 'platform.ai_models.write', label: 'Change AI Model Config (provider/model + spend caps)' }
+    ]
+  },
+  // ======================================================================
+  // Module-root visibility for sections that have no other catalog entry.
+  // These keys gate sidebar sections only — granular permissions for
+  // sub-pages live in their respective module categories where applicable.
+  // Added 2026-05-09 to close catalog gaps surfaced by the sidebar audit.
+  // ======================================================================
+  {
+    name: 'Faculty',
+    key: 'faculty',
+    permissions: [
+      { key: 'faculty.view', label: 'View Faculty Module' }
+    ]
+  },
+  {
+    name: 'Learning',
+    key: 'learn',
+    permissions: [
+      { key: 'learn.view', label: 'View Learning Module' }
+    ]
+  },
+  {
+    name: 'Meetings',
+    key: 'meetings',
+    permissions: [
+      { key: 'meetings.view', label: 'View Meetings Module' }
     ]
   }
 ];

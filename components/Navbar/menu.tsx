@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { Ellipsis, LogOut, Download, ChevronDown, ChevronRight } from 'lucide-react';
+import { Ellipsis, LogOut, Download, ChevronDown, ChevronRight, FileText } from 'lucide-react';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -15,7 +15,7 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { GetRoleBasedPages, RolePermissionData } from '@/lib/sidebarMenuLink';
 import { getModulesBySection } from '@/lib/navigation/modules';
-import { getPageRegistry } from '@/lib/navigation/page-registry';
+import { getPageRegistry, getPageByPath } from '@/lib/navigation/page-registry';
 import { filterByPermissions } from '@/lib/navigation/permission-filter';
 import { AuthService } from '@/lib/auth/auth-service';
 import { useEffect, useMemo } from 'react';
@@ -237,13 +237,32 @@ export function Menu({ isOpen }: MenuProps) {
               const showClickableHeader = isOpen !== false && !!groupLabel;
               // PR #680's accordion was designed for sections with a single
               // module-root row. After Wave 2b PR-S2 (#432) flattened the
-              // sidebar, most sections render multiple rows that already share
-              // the same URL slug (e.g. /users, /users/dashboard, /users/roles
-              // all live in "User Management"). Without these guards, every
-              // row in a flat section would expand together — keyed by slug —
-              // and each accordion would duplicate the same sibling list.
+              // sidebar, most sections render multiple rows that share the
+              // same URL slug (e.g. /users, /users/dashboard, /users/roles
+              // all live in "User Management"). Without an anchor pick,
+              // every row would expand together (slug-keyed state) and each
+              // would re-list the same children.
+              //
+              // Anchor selection: the row whose href matches /<slug> exactly
+              // wins; otherwise the first row in section-order claims the
+              // anchor for its slug. Only the anchor row gets the accordion;
+              // sibling rows are plain links. The anchor's children list
+              // excludes any href already rendered in this section, so
+              // siblings never appear duplicated under the anchor.
               const siblingHrefs = new Set(menus.map((m) => m.href));
-              const isFlatSection = menus.length > 1;
+              const anchorBySlug = new Map<string, string>();
+              for (const m of menus) {
+                if (m.href === '/') continue;
+                const slug = m.href.replace(/^\//, '').split('/')[0];
+                if (m.href === `/${slug}` && !anchorBySlug.has(slug)) {
+                  anchorBySlug.set(slug, m.href);
+                }
+              }
+              for (const m of menus) {
+                if (m.href === '/') continue;
+                const slug = m.href.replace(/^\//, '').split('/')[0];
+                if (!anchorBySlug.has(slug)) anchorBySlug.set(slug, m.href);
+              }
               return (
               <li
                 className={cn('w-full', groupLabel ? 'pt-5' : '')}
@@ -289,7 +308,7 @@ export function Menu({ isOpen }: MenuProps) {
                   <p className='pb-2'></p>
                 )}
                 <div id={`sidebar-section-${index}`} hidden={collapsed}>
-                {menus.map(({ href, label, icon: Icon, active }) => {
+                {menus.map(({ href, label, icon: Icon, active, submenus, noSubmenus }) => {
                   const iconName = (Icon as { displayName?: string }).displayName || 'Folder';
                   const moduleName = groupLabel || 'General';
 
@@ -297,24 +316,42 @@ export function Menu({ isOpen }: MenuProps) {
                   // Skip Dashboard ('/') — it has no sub-pages and stays a plain link.
                   const moduleSlug = href === '/' ? null : href.replace(/^\//, '').split('/')[0]!;
 
-                  // Filter the route manifest by URL path prefix to get this
-                  // module's direct children (depth = 2 segments, e.g.
-                  // /admission/leads). Path-based filtering avoids the
-                  // module-name fuzzy match in getPagesByModule(), which fails
-                  // for hyphenated slugs like 'campus-living' (the manifest
-                  // stores those as humanized 'Campus Living').
-                  // Skipped for flat sections — those rows ARE the module's
-                  // pages already, an accordion would just re-list them.
-                  const moduleSubPages = (moduleSlug && !isFlatSection)
-                    ? getPageRegistry().filter((p) => {
-                        const segs = p.path.split('/').filter(Boolean);
-                        return (
-                          segs.length === 2 &&
-                          segs[0] === moduleSlug &&
-                          p.path !== href &&
-                          !siblingHrefs.has(p.path)
-                        );
-                      })
+                  // Children source priority:
+                  //  1. `noSubmenus: true` on the row → plain link, no
+                  //     children at all (skip both submenus and manifest).
+                  //  2. Explicit `submenus` array on the anchor row — lets
+                  //     authors set custom order + custom labels per child.
+                  //     Icon is borrowed from the route-manifest entry when
+                  //     available, else falls back to FileText.
+                  //  3. Otherwise auto-discover depth-2 pages from the route
+                  //     manifest (alphabetical) excluding any sibling href.
+                  //
+                  // Only the anchor row for each slug gets sub-pages; non-anchor
+                  // siblings render as plain links.
+                  const isAnchor = moduleSlug ? anchorBySlug.get(moduleSlug) === href : false;
+                  const moduleSubPages = (isAnchor && !noSubmenus)
+                    ? (submenus.length > 0
+                        ? submenus.map((sub) => {
+                            const fromManifest = getPageByPath(sub.href);
+                            return {
+                              path: sub.href,
+                              title: sub.label,
+                              module: moduleSlug ?? '',
+                              icon: fromManifest?.icon ?? FileText,
+                              iconName: fromManifest?.iconName ?? 'FileText',
+                              keywords: [],
+                              description: '',
+                            };
+                          })
+                        : getPageRegistry().filter((p) => {
+                            const segs = p.path.split('/').filter(Boolean);
+                            return (
+                              segs.length === 2 &&
+                              segs[0] === moduleSlug &&
+                              p.path !== href &&
+                              !siblingHrefs.has(p.path)
+                            );
+                          }))
                     : [];
                   const directChildren = filterByPermissions(
                     moduleSubPages,
@@ -356,20 +393,19 @@ export function Menu({ isOpen }: MenuProps) {
                                   asChild
                                 >
                                   <Link href={href}>
-                                    <span className={cn(isOpen === false ? '' : 'mr-4')}>
+                                    {/* useAccordion === true here, which means
+                                        isOpen !== false (line 351). The collapsed
+                                        sidebar (icon-only, isOpen===false) takes
+                                        the plain-link branch below, never this
+                                        accordion branch — so the isOpen === false
+                                        layout variants are dead code here. */}
+                                    <span className='mr-4'>
                                       <Icon size={18} />
                                     </span>
-                                    <p
-                                      className={cn(
-                                        'max-w-[170px] truncate flex-1 text-left',
-                                        isOpen === false
-                                          ? '-translate-x-96 opacity-0'
-                                          : 'translate-x-0 opacity-100'
-                                      )}
-                                    >
+                                    <p className='max-w-[170px] truncate flex-1 text-left translate-x-0 opacity-100'>
                                       {label}
                                     </p>
-                                    {isOpen !== false && (() => {
+                                    {(() => {
                                       const shortcut = getShortcutForPath(href);
                                       return shortcut ? (
                                         <kbd className='hidden lg:inline-flex h-4 select-none items-center rounded border px-1 font-mono text-[9px] font-medium text-muted-foreground dark:text-gray-400 dark:border-gray-600 dark:bg-gray-800/50 bg-muted/80 border-border/60 mr-1'>

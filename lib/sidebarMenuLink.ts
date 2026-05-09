@@ -71,7 +71,12 @@ import {
   Rocket,
   Vote,
   SearchCheck,
-  UserCog
+  UserCog,
+  HeartPulse,
+  Activity,
+  Lightbulb,
+  BookOpenCheck,
+  UsersRound
 } from 'lucide-react';
 import { CustomRole } from '@/types/auth';
 // FEATURE_FLAGS import removed - not used in sidebar filtering
@@ -95,6 +100,14 @@ interface MenuItem {
     label: string;
     active: boolean;
   }>;
+  /**
+   * Opt out of the smart accordion for this anchor row. When true, the
+   * row renders as a plain link with NO children — no manifest
+   * auto-discovery, no submenu expansion. Use for module roots whose
+   * sub-pages should NOT be exposed in the sidebar (e.g. /users/new
+   * is a form page reached only by clicking "New User", not via nav).
+   */
+  noSubmenus?: boolean;
 }
 
 interface MenuGroup {
@@ -428,6 +441,29 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/startup-studio/events/[id]/vote': 'startup_studio.events.view',
   '/startup-studio/events/[id]/checklists': 'startup_studio.checklists.manage',
   '/startup-studio/events/[id]/dashboard': 'startup_studio.analytics.view',
+
+  // ── Module-root permissions for sections added so the smart accordion
+  //    can surface depth-2 children. Granting `<module>.view` to a role
+  //    makes the section appear; the accordion then auto-discovers all
+  //    routed sub-pages. Super admin sees all without these entries.
+  '/staff': 'staff.view',
+  '/campus-living': 'campus_living.view',
+  '/hr': 'hr.view',
+  '/okr': 'okr.view',
+  '/learn': 'learn.view',
+  '/vac': 'vac.view',
+  '/health': 'health.view',
+  '/events': 'events.view',
+  '/solutions': 'solutions.view',
+  '/work-pulse': 'work_pulse.view',
+  '/learners-council': 'learners_council.view',
+  '/faculty': 'faculty.view',
+  '/audit': 'audit.view',
+  '/accreditation': 'accreditation.view',
+  '/ai-pulse': 'ai_pulse.view',
+  '/bos': 'bos.view',
+  '/ims': 'ims.view',
+  '/meetings': 'meetings.view'
 };
 
 export function GetPages(pathname: string): MenuGroup[] {
@@ -466,7 +502,10 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'All Users',
           active: pathname === '/users',
           icon: Users,
-          submenus: []
+          submenus: [],
+          // Plain link — suppresses accordion so /users/new and
+          // /users/permissions-audit don't auto-surface as submenus.
+          noSubmenus: true
         },
         {
           href: '/users/roles',
@@ -488,31 +527,37 @@ export function GetPages(pathname: string): MenuGroup[] {
           active: pathname === '/users/activity',
           icon: ClipboardCheck,
           submenus: []
+        },
+        {
+          href: '/users/permissions-audit',
+          label: 'Permissions Audit',
+          active: pathname === '/users/permissions-audit',
+          icon: Shield,
+          submenus: [],
+          noSubmenus: true
         }
       ]
     },
     {
+      // Merged from former 'Applications' + 'Application Management'
+      // sections per MODULES (lib/navigation/modules.ts) which combines
+      // /application-hub/* and /applications/* into one section.
       groupLabel: 'Applications',
       menus: [
         {
           href: '/application-hub/api-guidelines',
           label: 'API Guidelines',
           active: pathname === '/application-hub/api-guidelines',
-          icon: BookOpen, // or any other icon you prefer
+          icon: BookOpen,
           submenus: []
         },
         {
           href: '/application-hub',
           label: 'Application Hub',
           active: pathname === '/application-hub',
-          icon: LayoutGrid, // or any other icon you prefer
+          icon: LayoutGrid,
           submenus: []
-        }
-      ]
-    },
-    {
-      groupLabel: 'Application Management',
-      menus: [
+        },
         {
           href: '/applications',
           label: 'All Applications',
@@ -538,7 +583,7 @@ export function GetPages(pathname: string): MenuGroup[] {
     },
 
     {
-      groupLabel: 'Organization Management',
+      groupLabel: 'Organization',
       menus: [
         {
           href: '/organizations/dashboard',
@@ -610,7 +655,7 @@ export function GetPages(pathname: string): MenuGroup[] {
       ]
     },
     {
-      groupLabel: 'Academic Management',
+      groupLabel: 'Academic',
       menus: [
         {
           href: '/academic/years',
@@ -1045,34 +1090,30 @@ export function GetPages(pathname: string): MenuGroup[] {
     },
 
     {
-      groupLabel: 'Facilitators Management',
+      groupLabel: 'Employee Management',
       menus: [
+        // Two anchor rows: Staff + HR. The smart accordion in
+        // components/Navbar/menu.tsx expands each one's `submenus`
+        // array (when non-empty) in declared order with declared labels.
+        // When `submenus: []`, it falls back to auto-discovery from the
+        // route manifest (alphabetical by folder name).
         {
-          href: '/staff/dashboard',
-          label: 'Analytics Dashboard',
-          active: pathname === '/staff/dashboard',
-          icon: BarChart,
-          submenus: []
+          href: '/staff',
+          label: 'Staff',
+          active: pathname.startsWith('/staff'),
+          icon: Briefcase,
+          submenus: [
+            { href: '/staff/dashboard',       label: 'Analytics Dashboard', active: pathname === '/staff/dashboard' },
+            { href: '/staff/category',        label: 'Employee Category',      active: pathname === '/staff/category' },
+            { href: '/staff/list',            label: 'Employee List',          active: pathname === '/staff/list' },
+            { href: '/staff/class-incharges', label: 'Class Incharges',     active: pathname.startsWith('/staff/class-incharges') }
+          ]
         },
         {
-          href: '/staff/category',
-          label: 'Facilitators Category',
-          active: pathname === '/staff/category',
-          icon: Tags,
-          submenus: []
-        },
-        {
-          href: '/staff/list',
-          label: 'Facilitators List',
-          active: pathname === '/staff/list',
-          icon: Users,
-          submenus: []
-        },
-        {
-          href: '/staff/class-incharges',
-          label: 'Class Incharges',
-          active: pathname.startsWith('/staff/class-incharges'),
-          icon: UserCheck,
+          href: '/hr',
+          label: 'HR',
+          active: pathname.startsWith('/hr'),
+          icon: UsersRound,
           submenus: []
         }
       ]
@@ -1172,7 +1213,7 @@ export function GetPages(pathname: string): MenuGroup[] {
 
    
     {
-      groupLabel: 'Accounts',
+      groupLabel: 'Billing & Accounts',
       menus: [
         {
           href: '/billing/categories',
@@ -1266,7 +1307,7 @@ export function GetPages(pathname: string): MenuGroup[] {
     },
     
     {
-      groupLabel: 'Resource Management',
+      groupLabel: 'Resources',
       menus: [
         {
           href: '/resource-management/analytics-dashboard',
@@ -1582,6 +1623,202 @@ export function GetPages(pathname: string): MenuGroup[] {
               active: pathname === '/admin/internship-policy/notifications'
             }
           ]
+        }
+      ]
+    },
+    // ── Modules added so the smart accordion in components/Navbar/menu.tsx
+    //    can surface every depth-2 page under each module's anchor row.
+    //    Each section here contributes ONE anchor row at /<slug>; the
+    //    accordion auto-discovers /<slug>/X children from the route
+    //    manifest. Section order is governed by lib/navigation/modules.ts
+    //    (MODULES) — sections with a matching `section` name appear in
+    //    that order; sections not in MODULES trail at the end as
+    //    forward-compat (see menu.tsx pages useMemo).
+    {
+      groupLabel: 'Campus Living',
+      menus: [
+        {
+          href: '/campus-living',
+          label: 'Campus Living',
+          active: pathname.startsWith('/campus-living'),
+          icon: Home,
+          submenus: []
+        }
+      ]
+    },
+    {
+      groupLabel: 'OKR',
+      menus: [
+        {
+          href: '/okr',
+          label: 'OKR & Performance',
+          active: pathname.startsWith('/okr'),
+          icon: Target,
+          submenus: []
+        }
+      ]
+    },
+    {
+      groupLabel: 'Learning & Courses',
+      menus: [
+        {
+          href: '/learn',
+          label: 'Learning',
+          active: pathname.startsWith('/learn'),
+          icon: BookOpen,
+          submenus: []
+        },
+        {
+          href: '/vac',
+          label: 'Value Added Courses',
+          active: pathname.startsWith('/vac'),
+          icon: BookOpenCheck,
+          submenus: []
+        }
+      ]
+    },
+    {
+      groupLabel: 'Health & Wellness',
+      menus: [
+        {
+          href: '/health',
+          label: 'Health & Wellness',
+          active: pathname.startsWith('/health'),
+          icon: HeartPulse,
+          submenus: []
+        }
+      ]
+    },
+    {
+      groupLabel: 'Events',
+      menus: [
+        {
+          href: '/events',
+          label: 'Events',
+          active: pathname.startsWith('/events'),
+          icon: Calendar,
+          submenus: []
+        }
+      ]
+    },
+    {
+      groupLabel: 'Solution Hub',
+      menus: [
+        {
+          href: '/solutions',
+          label: 'Solution Hub',
+          active: pathname.startsWith('/solutions'),
+          icon: Lightbulb,
+          submenus: []
+        }
+      ]
+    },
+    {
+      groupLabel: 'Work Pulse',
+      menus: [
+        {
+          href: '/work-pulse',
+          label: 'Work Pulse',
+          active: pathname.startsWith('/work-pulse'),
+          icon: Activity,
+          submenus: []
+        }
+      ]
+    },
+    {
+      groupLabel: 'Learners Council',
+      menus: [
+        {
+          href: '/learners-council',
+          label: 'Learners Council',
+          active: pathname.startsWith('/learners-council'),
+          icon: Vote,
+          submenus: []
+        }
+      ]
+    },
+    {
+      groupLabel: 'Faculty',
+      menus: [
+        {
+          href: '/faculty',
+          label: 'Faculty',
+          active: pathname.startsWith('/faculty'),
+          icon: UserCog,
+          submenus: []
+        }
+      ]
+    },
+    {
+      groupLabel: 'Audit Workflow',
+      menus: [
+        {
+          href: '/audit',
+          label: 'Audit Workflow',
+          active: pathname.startsWith('/audit'),
+          icon: ClipboardCheck,
+          submenus: []
+        }
+      ]
+    },
+    {
+      groupLabel: 'Accreditation',
+      menus: [
+        {
+          href: '/accreditation',
+          label: 'Accreditation',
+          active: pathname.startsWith('/accreditation'),
+          icon: Award,
+          submenus: []
+        }
+      ]
+    },
+    // ── Forward-compat sections (not yet in MODULES — trail at end) ──────
+    {
+      groupLabel: 'AI Pulse',
+      menus: [
+        {
+          href: '/ai-pulse',
+          label: 'AI Pulse',
+          active: pathname.startsWith('/ai-pulse'),
+          icon: Sparkles,
+          submenus: []
+        }
+      ]
+    },
+    {
+      groupLabel: 'Board of Studies',
+      menus: [
+        {
+          href: '/bos',
+          label: 'Board of Studies',
+          active: pathname.startsWith('/bos'),
+          icon: ClipboardList,
+          submenus: []
+        }
+      ]
+    },
+    {
+      groupLabel: 'Inventory (IMS)',
+      menus: [
+        {
+          href: '/ims',
+          label: 'Inventory Management',
+          active: pathname.startsWith('/ims'),
+          icon: Package,
+          submenus: []
+        }
+      ]
+    },
+    {
+      groupLabel: 'Meetings',
+      menus: [
+        {
+          href: '/meetings',
+          label: 'Meetings',
+          active: pathname.startsWith('/meetings'),
+          icon: CalendarDays,
+          submenus: []
         }
       ]
     },
