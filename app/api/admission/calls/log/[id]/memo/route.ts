@@ -7,9 +7,12 @@
 //      `call-memos/{institution_id}/{call_log_id}.webm`
 //   3. Client PATCHes here with { memo_audio_url, memo_audio_duration_seconds }
 //
-// We additionally seed `memo_analyze_status = 'queued'` so Agent O's cron
+// We additionally seed `memo_analyze_status = 'pending'` so Agent O's cron
 // (companion PR) picks the row up on its next sweep without needing a
-// separate trigger. Schema columns are added by Agent O's migration —
+// separate trigger. The cron filters on `memo_analyze_status IN
+// ('pending', 'failed')` and the CHECK constraint allows only the
+// canonical state-machine values, so 'pending' is the right initial
+// state. Schema columns are added by Agent O's migration —
 // this route is no-op-safe if those columns are still missing (we wrap the
 // update in a defensive try/catch and report a clear error).
 
@@ -82,7 +85,7 @@ export async function PATCH(
     const updatePayload: Record<string, any> = {
       memo_audio_url,
       memo_audio_duration_seconds: Math.round(memo_audio_duration_seconds),
-      memo_analyze_status: 'queued',
+      memo_analyze_status: 'pending',
       updated_at: new Date().toISOString(),
     };
     if (typeof memo_audio_size_bytes === 'number' && memo_audio_size_bytes >= 0) {
