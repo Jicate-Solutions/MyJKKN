@@ -184,30 +184,35 @@ export function Menu({ isOpen }: MenuProps) {
 
   return (
     <div className='overflow-y-auto h-full custom-scrollbar'>
-      {/* Search trigger button */}
-      <div className='px-2 pt-4 pb-1'>
-        <button
-          onClick={openCommandPalette}
-          className={cn(
-            'w-full flex items-center gap-2 rounded-lg border border-border/50 px-3 py-2 text-sm text-muted-foreground',
-            'hover:bg-accent hover:text-accent-foreground transition-colors',
-            'dark:border-gray-700/50 dark:hover:bg-gray-800',
-            isOpen === false && 'justify-center px-2'
-          )}
-        >
-          <Search className='h-4 w-4 shrink-0' />
-          {isOpen !== false && (
-            <>
-              <span className='flex-1 text-left truncate'>Search...</span>
-              <kbd className='hidden lg:inline-flex h-5 select-none items-center rounded border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground dark:border-gray-600'>
-                Ctrl+K
-              </kbd>
-            </>
-          )}
-        </button>
+      {/* Sticky header: search + favorites pin to the top so they remain
+          visible while the rest of the sidebar scrolls. The bg-sidebar
+          background prevents scrolling content from showing through. */}
+      <div className='sticky top-0 z-10 bg-sidebar'>
+        {/* Search trigger button */}
+        <div className='px-2 pt-4 pb-1'>
+          <button
+            onClick={openCommandPalette}
+            className={cn(
+              'w-full flex items-center gap-2 rounded-lg border border-border/50 px-3 py-2 text-sm text-muted-foreground',
+              'hover:bg-accent hover:text-accent-foreground transition-colors',
+              'dark:border-gray-700/50 dark:hover:bg-gray-800',
+              isOpen === false && 'justify-center px-2'
+            )}
+          >
+            <Search className='h-4 w-4 shrink-0' />
+            {isOpen !== false && (
+              <>
+                <span className='flex-1 text-left truncate'>Search...</span>
+                <kbd className='hidden lg:inline-flex h-5 select-none items-center rounded border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground dark:border-gray-600'>
+                  Ctrl+K
+                </kbd>
+              </>
+            )}
+          </button>
+        </div>
+        {/* Favorites section */}
+        <FavoritesSidebarSection isOpen={isOpen} />
       </div>
-      {/* Favorites section */}
-      <FavoritesSidebarSection isOpen={isOpen} />
       <nav className='mt-2 h-full w-full'>
         {permissionsLoading ? (
           <div className='flex justify-center items-center py-4'>
@@ -230,6 +235,15 @@ export function Menu({ isOpen }: MenuProps) {
               // Only truly anonymous groups (no label) can be completely
               // header-less; labeled groups always render a clickable header.
               const showClickableHeader = isOpen !== false && !!groupLabel;
+              // PR #680's accordion was designed for sections with a single
+              // module-root row. After Wave 2b PR-S2 (#432) flattened the
+              // sidebar, most sections render multiple rows that already share
+              // the same URL slug (e.g. /users, /users/dashboard, /users/roles
+              // all live in "User Management"). Without these guards, every
+              // row in a flat section would expand together — keyed by slug —
+              // and each accordion would duplicate the same sibling list.
+              const siblingHrefs = new Set(menus.map((m) => m.href));
+              const isFlatSection = menus.length > 1;
               return (
               <li
                 className={cn('w-full', groupLabel ? 'pt-5' : '')}
@@ -289,13 +303,16 @@ export function Menu({ isOpen }: MenuProps) {
                   // module-name fuzzy match in getPagesByModule(), which fails
                   // for hyphenated slugs like 'campus-living' (the manifest
                   // stores those as humanized 'Campus Living').
-                  const moduleSubPages = moduleSlug
+                  // Skipped for flat sections — those rows ARE the module's
+                  // pages already, an accordion would just re-list them.
+                  const moduleSubPages = (moduleSlug && !isFlatSection)
                     ? getPageRegistry().filter((p) => {
                         const segs = p.path.split('/').filter(Boolean);
                         return (
                           segs.length === 2 &&
                           segs[0] === moduleSlug &&
-                          p.path !== href
+                          p.path !== href &&
+                          !siblingHrefs.has(p.path)
                         );
                       })
                     : [];
