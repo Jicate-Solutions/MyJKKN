@@ -394,3 +394,80 @@ export const LEAVE_DURATION_LABELS: Record<LeaveDurationType, string> = {
   second_half: 'Second half (PM)',
   hourly: 'Hourly',
 };
+
+// === T1.5b Phase 2a — Employee Documents ===
+// Spec: specs/hr-module-decomposition-2026-05-09.md (Tier 1, T1.5b Phase 2a)
+// Schema lives in production via 20260510004015_create_hr_employee_documents.sql.
+
+export type EmployeeDocumentVerificationStatus =
+  | 'pending'      // default on upload
+  | 'verified'     // HR officer marked as accepted (Phase 2b)
+  | 'rejected'     // HR officer rejected (Phase 2b)
+  | 'expired';     // cron flipped this when expires_at passed (Phase 2b)
+
+export type EmployeeDocumentMimeType =
+  | 'application/pdf'
+  | 'image/jpeg'
+  | 'image/png';
+
+export interface HREmployeeDocument {
+  id: string;
+  staff_id: string;
+  institution_id: string;
+  required_document_id: string | null;
+  document_code: string;
+  document_name: string;
+  storage_path: string;
+  file_name: string;
+  file_size_bytes: number;
+  mime_type: EmployeeDocumentMimeType;
+  verification_status: EmployeeDocumentVerificationStatus;
+  verification_notes: string | null;
+  verified_by: string | null;
+  verified_at: string | null;
+  expires_at: string | null;
+  replaces_document_id: string | null;
+  uploaded_at: string;
+  uploaded_by: string;
+  created_at: string;
+  updated_at: string;
+  created_by: string | null;
+  updated_by: string | null;
+}
+
+// Row from hr_required_documents joined with the latest live upload (if any)
+// for a single staff member. Drives the "My Documents" checklist UI.
+export interface HRDocumentChecklistItem {
+  required_document_id: string;
+  document_code: string;
+  document_name: string;
+  category: string | null;
+  is_mandatory: boolean;
+  notes: string | null;
+  // The latest non-replaced upload for this staff_id+document_code, if any.
+  upload: HREmployeeDocument | null;
+}
+
+export const EMPLOYEE_DOCUMENT_STATUS_LABELS: Record<
+  EmployeeDocumentVerificationStatus,
+  string
+> = {
+  pending: 'Awaiting Verification',
+  verified: 'Verified',
+  rejected: 'Rejected',
+  expired: 'Expired',
+};
+
+// Allowed MIME types and corresponding accept attribute for <input type="file">
+export const EMPLOYEE_DOCUMENT_ALLOWED_MIME: ReadonlyArray<EmployeeDocumentMimeType> = [
+  'application/pdf',
+  'image/jpeg',
+  'image/png',
+];
+
+export const EMPLOYEE_DOCUMENT_ACCEPT_ATTR =
+  'application/pdf,image/jpeg,image/png';
+
+// 5 MB in bytes — mirror of the DB CHECK constraint and bucket file_size_limit.
+export const EMPLOYEE_DOCUMENT_MAX_BYTES = 5 * 1024 * 1024;
+
