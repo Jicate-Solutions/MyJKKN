@@ -80,3 +80,5 @@ public/swe-worker-*.js.map
 
 # Agent worktrees (created by parallel sub-agent runs in interactive sessions)
 .claude/worktrees/
+
+.screenshots/
