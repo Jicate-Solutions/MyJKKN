@@ -138,9 +138,16 @@ CREATE TABLE IF NOT EXISTS network_routers (
   routeros_version TEXT,
   serial_number TEXT,
 
-  api_endpoint TEXT NOT NULL,            -- 'https://172.20.0.1'
-  api_credentials_secret_id TEXT NOT NULL,  -- reference to vault/secret-store; never plaintext
-  api_verify_tls BOOLEAN NOT NULL DEFAULT false,  -- self-signed cert for now
+  -- RADIUS configuration (architecture pivot 2026-05-09; see Spec-Decisions-Locked decision #25)
+  -- Each MikroTik points at exactly ONE network_radius_servers row, sending RADIUS over TLS (RADSEC).
+  radius_server_id UUID,                       -- FK set after network_radius_servers is created (deferred constraint below)
+  radius_shared_secret_ref TEXT NOT NULL,      -- vault/secret-store reference; never plaintext
+  radius_nas_identifier TEXT,                  -- arbitrary string router puts in Access-Request; maps to institution + campus
+
+  -- Optional admin REST API access (for panic-button kicks, IoT whitelist syncs).
+  -- Not the primary auth path. Auth flows entirely through RADIUS.
+  api_endpoint TEXT,                           -- 'https://172.20.0.1' for admin REST (optional)
+  api_verify_tls BOOLEAN NOT NULL DEFAULT false,
 
   campus_label TEXT,                     -- 'main','engineering','medical','arts'
   is_primary BOOLEAN NOT NULL DEFAULT false,
@@ -165,9 +172,69 @@ CREATE TRIGGER set_network_routers_updated_at
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- ----------------------------------------------------------------------------
+-- Table: network_radius_servers
+-- Purpose: Registry of FreeRADIUS endpoints that terminate RADIUS/RADSEC from
+--          MikroTik routers and proxy auth decisions to MyJKKN's HTTP API.
+--          Architecture pivot 2026-05-09 (see Spec-Decisions-Locked decision #25).
+--          One JICATE-managed VPS serves all customer routers as multi-tenant
+--          RADIUS termination — clients.conf entries on the VPS map each
+--          router to its institution_id via NAS-Identifier.
+-- ----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS network_radius_servers (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
+  -- This is the JICATE-managed shared infra; institution_id is nullable for the
+  -- shared row, OR set to the institution that owns a dedicated RADIUS box.
+  institution_id UUID REFERENCES institutions(id) ON DELETE RESTRICT,
+
+  display_name TEXT NOT NULL,                  -- 'JICATE Shared RADIUS (Hetzner FRA)'
+  hostname TEXT NOT NULL,                      -- 'radius.myjkkn.ai'
+  ipv4_address TEXT,                           -- DNS preferred, but pinned for clients.conf
+  auth_port INT NOT NULL DEFAULT 2083,         -- RADSEC default
+  acct_port INT NOT NULL DEFAULT 2083,         -- accounting on same port for RADSEC
+  coa_port INT NOT NULL DEFAULT 3799,          -- RFC 5176 dynamic auth
+
+  protocol TEXT NOT NULL DEFAULT 'radsec' CHECK (protocol IN ('radsec', 'radius_udp')),
+  tls_cert_fingerprint TEXT,                   -- pinned cert SHA-256 for RouterOS to verify
+
+  -- Where this RADIUS server proxies auth decisions
+  myjkkn_auth_endpoint TEXT NOT NULL,          -- 'https://myjkkn.ai/api/network/radius-auth'
+  myjkkn_acct_endpoint TEXT,                   -- if accounting goes through HTTP rather than direct DB writes
+
+  is_active BOOLEAN NOT NULL DEFAULT true,
+  is_primary BOOLEAN NOT NULL DEFAULT false,
+  notes TEXT,
+
+  last_health_check_at TIMESTAMPTZ,
+  last_health_status TEXT CHECK (last_health_status IN ('ok','degraded','down')),
+
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  created_by UUID REFERENCES profiles(id) ON DELETE SET NULL,
+  updated_by UUID REFERENCES profiles(id) ON DELETE SET NULL,
+
+  UNIQUE (hostname, auth_port)
+);
+
+CREATE INDEX idx_network_radius_servers_active ON network_radius_servers(is_active) WHERE is_active = true;
+
+CREATE TRIGGER set_network_radius_servers_updated_at
+  BEFORE UPDATE ON network_radius_servers
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- Now that the table exists, link network_routers.radius_server_id to it.
+ALTER TABLE network_routers
+  ADD CONSTRAINT fk_network_routers_radius_server
+  FOREIGN KEY (radius_server_id) REFERENCES network_radius_servers(id) ON DELETE RESTRICT;
+
+-- ----------------------------------------------------------------------------
 -- Table: network_pending_requests
 -- Purpose: Captures captive-portal context across MyJKKN auth round-trip.
---          Direct mirror of saml_pending_requests (10 min TTL, consumed-once).
+--          PRIMARY auth path (RADIUS) does NOT use this table — it's only
+--          needed for the OAuth subflow (Google/Microsoft sign-in), where
+--          users round-trip through MyJKKN's web auth before MikroTik
+--          completes the hotspot login. For username+password auth, RADIUS
+--          is single-round-trip and this table is bypassed entirely.
 -- ----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS network_pending_requests (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -730,6 +797,10 @@ ALTER TABLE network_routers ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "routers_admin_all" ON network_routers FOR ALL
   USING (EXISTS (SELECT 1 FROM profiles WHERE profiles.id = auth.uid() AND profiles.role IN ('super_admin','director','administrator')));
 
+ALTER TABLE network_radius_servers ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "radius_servers_admin_all" ON network_radius_servers FOR ALL
+  USING (EXISTS (SELECT 1 FROM profiles WHERE profiles.id = auth.uid() AND profiles.role IN ('super_admin','director','administrator')));
+
 -- Sessions: user sees own sessions; admins see all in their institution
 
 ALTER TABLE network_sessions ENABLE ROW LEVEL SECURITY;
@@ -809,7 +880,14 @@ BEGIN
     (v_jkkn_id, 'security_incident',   'Security Block',          'Network access blocked. Contact IT helpdesk.',                            'critical', true, true)
   ON CONFLICT (institution_id, code) DO NOTHING;
 
-  -- Module config (12 tunables)
+  -- RADIUS server registry (1 row to start: the JICATE-shared VPS)
+  -- IPv4 + tls_cert_fingerprint will be filled in once VPS is provisioned.
+  INSERT INTO network_radius_servers (institution_id, display_name, hostname, auth_port, acct_port, coa_port, protocol, myjkkn_auth_endpoint, is_active, is_primary, notes) VALUES
+    (NULL, 'JICATE Shared RADIUS (placeholder)', 'radius.myjkkn.ai', 2083, 2083, 3799, 'radsec', 'https://myjkkn.ai/api/network/radius-auth', true, true,
+     'Awaiting VPS provisioning (Hetzner CCX13). Update ipv4_address and tls_cert_fingerprint once provisioned. See Smoke-Test-RADIUS-2026-05-09 for substrate proof.')
+  ON CONFLICT (hostname, auth_port) DO NOTHING;
+
+  -- Module config (13 tunables)
   INSERT INTO network_module_config (institution_id, config_key, display_name, description, config_value, value_type, default_value, category) VALUES
     (v_jkkn_id, 'lockout.max_attempts',          'Lockout: Max Failed Attempts',     'Failed logins before lockout',                              '{"value": 5}'::jsonb,  'integer',          '{"value": 5}'::jsonb,  'auth'),
     (v_jkkn_id, 'lockout.duration_minutes',      'Lockout: Duration (minutes)',      'How long the user stays locked out',                        '{"value": 30}'::jsonb, 'duration_minutes', '{"value": 30}'::jsonb, 'auth'),
@@ -822,7 +900,8 @@ BEGIN
     (v_jkkn_id, 'session.idle_timeout_minutes',  'Session Idle Timeout (minutes)',   'Auto-end session after this many idle minutes',             '{"value": 30}'::jsonb, 'duration_minutes', '{"value": 30}'::jsonb, 'session'),
     (v_jkkn_id, 'alerts.teleport_window_seconds','Anomaly: Teleport Window (sec)',   'Same MAC on different AP within window flags teleport',     '{"value": 60}'::jsonb, 'integer',          '{"value": 60}'::jsonb, 'alerts'),
     (v_jkkn_id, 'alerts.failed_login_spike',     'Anomaly: Failed Login Spike',      'Failed logins per minute that triggers Director alert',     '{"value": 20}'::jsonb, 'integer',          '{"value": 20}'::jsonb, 'alerts'),
-    (v_jkkn_id, 'retention.archive_after_days',  'Session Archive After (days)',     'Sessions older than this archived to cold partitions',      '{"value": 365}'::jsonb,'integer',          '{"value": 365}'::jsonb,'session')
+    (v_jkkn_id, 'retention.archive_after_days',  'Session Archive After (days)',     'Sessions older than this archived to cold partitions',      '{"value": 365}'::jsonb,'integer',          '{"value": 365}'::jsonb,'session'),
+    (v_jkkn_id, 'radius.coa_on_fee_change',      'CoA on Fee Status Change',         'Send Change-of-Authorization packet to kick active sessions when fee state changes (RFC 5176)', '{"value": true}'::jsonb, 'boolean', '{"value": true}'::jsonb, 'failover')
   ON CONFLICT (institution_id, config_key) DO NOTHING;
 END $$;
 
@@ -833,8 +912,9 @@ END $$;
 COMMENT ON TABLE network_auth_methods       IS 'Per-institution catalog of authentication methods displayed on captive portal';
 COMMENT ON TABLE network_bandwidth_tiers    IS 'Attendance-driven bandwidth tiers applied at session start';
 COMMENT ON TABLE network_block_reasons      IS 'Catalog of reasons a user can be blocked; surfaces user-friendly messaging on portal';
-COMMENT ON TABLE network_routers            IS 'Registry of MikroTik routers per institution. api_credentials_secret_id references vault entry.';
-COMMENT ON TABLE network_pending_requests   IS 'Short-lived (10 min TTL) captive-portal context across MyJKKN auth round-trip. Mirror of saml_pending_requests.';
+COMMENT ON TABLE network_routers            IS 'Registry of MikroTik routers per institution. radius_shared_secret_ref references vault entry; routers RADIUS-auth via the linked network_radius_servers row.';
+COMMENT ON TABLE network_radius_servers     IS 'Registry of FreeRADIUS endpoints (typically JICATE-shared VPSes) that terminate RADIUS/RADSEC from customer routers and proxy auth decisions to MyJKKN HTTP API.';
+COMMENT ON TABLE network_pending_requests   IS 'Short-lived (10 min TTL) context for the OAuth subflow only (Google/Microsoft sign-in round-trip through MyJKKN web auth). Primary RADIUS auth path bypasses this table.';
 COMMENT ON TABLE network_sessions           IS 'Active and historical WiFi sessions, partitioned monthly by created_at. Forever retention; cold partitions archived offline.';
 COMMENT ON TABLE network_devices            IS 'User-device registration; enforces max-devices-per-role policy from network_module_config.';
 COMMENT ON TABLE network_lockouts           IS 'Failed-attempt lockout state. Defaults: 5 attempts in 30 min → 30 min lockout (configurable).';
