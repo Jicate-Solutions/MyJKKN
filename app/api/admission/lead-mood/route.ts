@@ -2,6 +2,12 @@
 // GET — server-side aggregate for the Lead Mood Digest dashboard.
 // Returns: { kpis, distribution, topConcerns, anxiousLeads }
 //
+// 2026-05-09 DATA-SOURCE SWAP (Build #4 voice-memo backend):
+//   Reads from admission_call_logs.memo_* columns instead of
+//   admission_call_intelligence (which is empty due to dormant Exotel
+//   ExoVoice flag). Counselor voice memos uploaded via /admission/calls
+//   form trigger the analyze-voice-memos cron, which fills these columns.
+//
 // Auth: super_admin OR admission-global users only. The page uses client-side
 // React Query hooks for real-time refresh, but this endpoint is provided so
 // external schedulers (digests, alerts) can pull the same payload server-side.
@@ -17,7 +23,7 @@ function classifySentiment(
 ): 'positive' | 'neutral' | 'negative' {
   const s = (sentiment || '').toLowerCase();
   if (['positive', 'happy', 'enthusiastic'].includes(s)) return 'positive';
-  if (['negative', 'concerned', 'anxious', 'angry', 'frustrated'].includes(s)) return 'negative';
+  if (['negative', 'concerned', 'anxious', 'angry', 'frustrated', 'hostile'].includes(s)) return 'negative';
   if (s === 'neutral') return 'neutral';
   if (score != null) {
     if (score >= 0.6) return 'positive';
@@ -28,7 +34,7 @@ function classifySentiment(
 
 function isConcerned(sentiment: string | null, score: number | null): boolean {
   const s = (sentiment || '').toLowerCase();
-  if (['negative', 'concerned', 'anxious', 'angry', 'frustrated'].includes(s)) return true;
+  if (['negative', 'concerned', 'anxious', 'angry', 'frustrated', 'hostile'].includes(s)) return true;
   if (score != null && score < 0.3) return true;
   return false;
 }
@@ -83,37 +89,40 @@ export async function GET(request: NextRequest) {
     if (institutionId) totalQ = totalQ.eq('institution_id', institutionId);
     const { count: totalCallsToday } = await totalQ;
 
-    let intelQ = supabase
-      .from('admission_call_intelligence')
+    // Memo-completed rows from today.
+    let memoQ = supabase
+      .from('admission_call_logs')
       .select(
-        'id, sentiment, sentiment_score, institution_id, categories, admission_call_logs!inner(counselor_id, created_at)',
+        'id, memo_sentiment, memo_sentiment_score, memo_categories, institution_id, counselor_id, created_at',
       )
-      .gte('admission_call_logs.created_at', todayStart)
-      .not('sentiment', 'is', null);
-    if (institutionId) intelQ = intelQ.eq('institution_id', institutionId);
-    const { data: analyzed } = await intelQ;
+      .gte('created_at', todayStart)
+      .eq('memo_analyze_status', 'completed')
+      .not('memo_sentiment', 'is', null);
+    if (institutionId) memoQ = memoQ.eq('institution_id', institutionId);
+    const { data: analyzed } = await memoQ;
 
-    type IntelRow = {
+    type MemoRow = {
       id: string;
-      sentiment: string | null;
-      sentiment_score: number | null;
+      memo_sentiment: string | null;
+      memo_sentiment_score: number | null;
+      memo_categories: string[] | null;
       institution_id: string | null;
-      categories: string[] | null;
-      admission_call_logs: { counselor_id: string | null; created_at: string } | null;
+      counselor_id: string | null;
+      created_at: string;
     };
 
-    const rows = (analyzed || []) as IntelRow[];
+    const rows = (analyzed || []) as MemoRow[];
 
     let positive = 0;
     let neutral = 0;
     let negative = 0;
     let concerned = 0;
     rows.forEach((r) => {
-      const cls = classifySentiment(r.sentiment, r.sentiment_score);
+      const cls = classifySentiment(r.memo_sentiment, r.memo_sentiment_score);
       if (cls === 'positive') positive++;
       else if (cls === 'neutral') neutral++;
       else negative++;
-      if (isConcerned(r.sentiment, r.sentiment_score)) concerned++;
+      if (isConcerned(r.memo_sentiment, r.memo_sentiment_score)) concerned++;
     });
 
     const analyzedTotal = rows.length;
@@ -141,9 +150,9 @@ export async function GET(request: NextRequest) {
       { positive: number; neutral: number; negative: number; total: number }
     >();
     rows.forEach((r) => {
-      const key = r.admission_call_logs?.counselor_id || 'unassigned';
+      const key = r.counselor_id || 'unassigned';
       const ex = buckets.get(key) || { positive: 0, neutral: 0, negative: 0, total: 0 };
-      const cls = classifySentiment(r.sentiment, r.sentiment_score);
+      const cls = classifySentiment(r.memo_sentiment, r.memo_sentiment_score);
       if (cls === 'positive') ex.positive++;
       else if (cls === 'neutral') ex.neutral++;
       else ex.negative++;
@@ -175,11 +184,11 @@ export async function GET(request: NextRequest) {
       .sort((a, b) => b.total - a.total);
 
     // -------------------------------------------------
-    // 3. Top concerns (last 24h categories)
+    // 3. Top concerns (today's memo categories)
     // -------------------------------------------------
     const categoryCounts = new Map<string, number>();
     rows.forEach((r) => {
-      (r.categories || []).forEach((cat) => {
+      (r.memo_categories || []).forEach((cat) => {
         if (!cat) return;
         const key = cat.trim();
         if (!key) return;
@@ -195,66 +204,56 @@ export async function GET(request: NextRequest) {
     // 4. Anxious leads (recent N with negative sentiment)
     // -------------------------------------------------
     let anxiousQ = supabase
-      .from('admission_call_intelligence')
+      .from('admission_call_logs')
       .select(
         `
         id,
-        call_log_id,
         call_sid,
-        sentiment,
-        sentiment_score,
-        summary,
+        memo_sentiment,
+        memo_sentiment_score,
+        memo_summary,
         institution_id,
-        admission_call_logs!inner (
+        created_at,
+        counselor_id,
+        lead_id,
+        to_number,
+        admission_leads (
           id,
-          created_at,
-          counselor_id,
-          lead_id,
-          to_number,
-          admission_leads (
-            id,
-            full_name,
-            first_name,
-            phone
-          )
+          full_name,
+          first_name,
+          phone
         )
       `,
       )
-      .or('sentiment.in.(negative,concerned,anxious,angry,frustrated),sentiment_score.lt.0.3')
-      .order('id', { ascending: false })
+      .eq('memo_analyze_status', 'completed')
+      .or(
+        'memo_sentiment.in.(negative,concerned,anxious,angry,frustrated,hostile),memo_sentiment_score.lt.0.3',
+      )
+      .order('created_at', { ascending: false })
       .limit(50);
     if (institutionId) anxiousQ = anxiousQ.eq('institution_id', institutionId);
     const { data: anxiousRaw } = await anxiousQ;
 
     type AnxiousJoined = {
       id: string;
-      call_log_id: string;
       call_sid: string;
-      sentiment: string | null;
-      sentiment_score: number | null;
-      summary: string | null;
+      memo_sentiment: string | null;
+      memo_sentiment_score: number | null;
+      memo_summary: string | null;
       institution_id: string | null;
-      admission_call_logs: {
-        id: string;
-        created_at: string;
-        counselor_id: string | null;
-        lead_id: string | null;
-        to_number: string | null;
-        admission_leads: {
-          id: string;
-          full_name: string | null;
-          first_name: string | null;
-          phone: string | null;
-        } | null;
-      } | null;
+      created_at: string;
+      counselor_id: string | null;
+      lead_id: string | null;
+      to_number: string | null;
+      admission_leads:
+        | { id: string; full_name: string | null; first_name: string | null; phone: string | null }
+        | null;
     };
 
     const anxiousRows = (anxiousRaw || []) as AnxiousJoined[];
 
     const anxiousCounselorIds = Array.from(
-      new Set(
-        anxiousRows.map((r) => r.admission_call_logs?.counselor_id).filter(Boolean) as string[],
-      ),
+      new Set(anxiousRows.map((r) => r.counselor_id).filter(Boolean) as string[]),
     );
     const anxiousNameMap = new Map<string, string>(nameMap);
     const missing = anxiousCounselorIds.filter((id) => !anxiousNameMap.has(id));
@@ -268,31 +267,24 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    const anxiousLeads = anxiousRows
-      .filter((r) => r.admission_call_logs)
-      .map((r) => {
-        const log = r.admission_call_logs!;
-        const lead = log.admission_leads || null;
-        return {
-          intelligence_id: r.id,
-          call_log_id: r.call_log_id,
-          call_sid: r.call_sid,
-          lead_id: log.lead_id,
-          lead_name: lead?.full_name || lead?.first_name || null,
-          lead_phone: lead?.phone || log.to_number || null,
-          counselor_id: log.counselor_id,
-          counselor_name: log.counselor_id ? anxiousNameMap.get(log.counselor_id) || null : null,
-          sentiment: r.sentiment,
-          sentiment_score: r.sentiment_score,
-          summary_excerpt: r.summary ? r.summary.slice(0, 100) : null,
-          call_created_at: log.created_at,
-          institution_id: r.institution_id,
-        };
-      })
-      .sort(
-        (a, b) =>
-          new Date(b.call_created_at).getTime() - new Date(a.call_created_at).getTime(),
-      );
+    const anxiousLeads = anxiousRows.map((r) => {
+      const lead = r.admission_leads || null;
+      return {
+        intelligence_id: r.id, // alias call_log_id for UI compat
+        call_log_id: r.id,
+        call_sid: r.call_sid,
+        lead_id: r.lead_id,
+        lead_name: lead?.full_name || lead?.first_name || null,
+        lead_phone: lead?.phone || r.to_number || null,
+        counselor_id: r.counselor_id,
+        counselor_name: r.counselor_id ? anxiousNameMap.get(r.counselor_id) || null : null,
+        sentiment: r.memo_sentiment,
+        sentiment_score: r.memo_sentiment_score,
+        summary_excerpt: r.memo_summary ? r.memo_summary.slice(0, 100) : null,
+        call_created_at: r.created_at,
+        institution_id: r.institution_id,
+      };
+    });
 
     return NextResponse.json({
       success: true,
