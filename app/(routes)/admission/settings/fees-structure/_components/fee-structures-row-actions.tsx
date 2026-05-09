@@ -12,7 +12,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { MoreHorizontal, Eye, Pencil, Archive, RefreshCw, Loader2, Trash2 } from 'lucide-react';
+import { MoreHorizontal, Eye, Pencil, Archive, RefreshCw, Loader2, Trash2, Copy } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -114,6 +114,13 @@ export function FeeStructureRowActions({ structure, onChanged }: Props) {
             }
           >
             <Pencil className="h-4 w-4 mr-2" /> Edit
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onClick={() =>
+              router.push(`/admission/settings/fees-structure/${structure.id}/clone`)
+            }
+          >
+            <Copy className="h-4 w-4 mr-2" /> Clone
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           {structure.status === 'archived' ? (

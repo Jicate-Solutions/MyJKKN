@@ -48,6 +48,7 @@ export const columns: ColumnDef<FeeStructureRow>[] = [
     ),
     enableSorting: false,
     enableHiding: false,
+    enableResizing: false
   },
   {
     accessorKey: 'name',

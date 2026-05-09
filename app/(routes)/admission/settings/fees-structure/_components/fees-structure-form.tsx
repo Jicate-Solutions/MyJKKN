@@ -270,12 +270,22 @@ const newSchema = z
   );
 type NewFormValues = z.infer<typeof newSchema>;
 
-function NewStructureForm({
+/**
+ * Exported so the [id]/clone page can reuse this exact form, pre-filled from
+ * the source structure. The clone flow needs full per-field editability —
+ * passing `initialValues` overrides the defaults below without forcing the
+ * caller to reach into react-hook-form.
+ */
+export function NewStructureForm({
   dims,
   leafCommunityId,
   categories,
   communityOptions,
   onCreated,
+  initialValues,
+  heading,
+  description,
+  primaryActionLabel,
 }: {
   dims: FeeStructureMatrixDimensions;
   /** Tree-rail leaf community — pre-fills the multi-select. Null on /new. */
@@ -283,6 +293,14 @@ function NewStructureForm({
   categories: BillingCategory[];
   communityOptions: Community[];
   onCreated: () => void;
+  /** Optional prefill — used by the clone flow. */
+  initialValues?: Partial<NewFormValues>;
+  /** Optional heading override (default 'New Fee Structure'). */
+  heading?: string;
+  /** Optional description override. */
+  description?: string;
+  /** Optional override for the activate button label (default 'Save & Activate'). */
+  primaryActionLabel?: string;
 }) {
   const [submitting, setSubmitting] = useState(false);
   // Synchronous lock to defeat the React-state lag double-click race: two
@@ -295,18 +313,22 @@ function NewStructureForm({
   const form = useForm<NewFormValues>({
     resolver: zodResolver(newSchema),
     defaultValues: {
-      name: '',
-      status: 'draft',
-      notes: '',
-      effective_from: '',
-      effective_to: '',
+      name: initialValues?.name ?? '',
+      // Clone flow defaults to 'draft' so operators can review the prefilled
+      // copy before activating; that's also the safe default for plain /new.
+      status: initialValues?.status ?? 'draft',
+      notes: initialValues?.notes ?? '',
+      effective_from: initialValues?.effective_from ?? '',
+      effective_to: initialValues?.effective_to ?? '',
       // Pre-fill with the tree-leaf community when one is provided, so the
       // structure created here covers the leaf the user just clicked. The
       // user can add more communities before saving — the whole point of
       // this multi-select is letting them declare "BC, MBC, OBC all share
       // these fees" in one create flow.
-      community_category_ids: leafCommunityId ? [leafCommunityId] : [],
-      items: [],
+      community_category_ids:
+        initialValues?.community_category_ids ??
+        (leafCommunityId ? [leafCommunityId] : []),
+      items: initialValues?.items ?? [],
     },
   });
 
@@ -395,10 +417,10 @@ function NewStructureForm({
     <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
         <div className="border-b pb-2 mb-2">
-          <h2 className="text-lg font-semibold">New Fee Structure</h2>
+          <h2 className="text-lg font-semibold">{heading ?? 'New Fee Structure'}</h2>
           <p className="text-xs text-muted-foreground">
-            Pick the communities this fee schedule covers — the same fees
-            often apply to multiple communities (BC + MBC + OBC, etc.).
+            {description ??
+              'Pick the communities this fee schedule covers — the same fees often apply to multiple communities (BC + MBC + OBC, etc.).'}
           </p>
         </div>
 
@@ -511,7 +533,7 @@ function NewStructureForm({
               }}
             >
               {submitting ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : null}
-              Save & Activate
+              {primaryActionLabel ?? 'Save & Activate'}
             </Button>
           </div>
         </div>
