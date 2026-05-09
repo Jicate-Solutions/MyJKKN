@@ -1236,13 +1236,7 @@ function LeadDetailPageContent() {
       <PermissionGuard module="admission" action="leads.view">
         <ContentLayout title="Lead Details">
           <LeadDetailSkeleton />
-          <LogCallDialog
-          open={showLogCallDialog}
-          onOpenChange={setShowLogCallDialog}
-          lead={lead ? { id: lead.id, full_name: lead.full_name, phone: lead.phone, funnel_stage: lead.funnel_stage, institution_id: lead.institution_id } : null}
-          onSendWhatsApp={() => { setShowLogCallDialog(false); setPersonalMsgOpen(true); }}
-        />
-      </ContentLayout>
+        </ContentLayout>
       </PermissionGuard>
     );
   }
@@ -1565,6 +1559,25 @@ function LeadDetailPageContent() {
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>
+          </div>
+
+          {/* Quick Actions Bar — Call, Log Call, WhatsApp, SMS, Note, Follow-up.
+              Renders post-loading so Log Call is reachable on lead detail. */}
+          <div className={isReadonlyCascadedView ? 'pointer-events-none opacity-50' : ''}>
+            <QuickActionsBar
+              lead={{
+                phone: lead.phone || '',
+                alternate_phone: lead.alternate_phone,
+                parent_phone: lead.parent_phone,
+                parent_name: lead.parent_name,
+                email: lead.email,
+              }}
+              onLogCall={() => setShowLogCallDialog(true)}
+              onWhatsApp={() => setPersonalMsgOpen(true)}
+              onSMS={() => {/* TODO: wire to SMS dialog when added */}}
+              onNote={() => setShowActivityDialog(true)}
+              onFollowUp={() => setShowFollowupDialog(true)}
+            />
           </div>
 
           {/* Stage Selector — disabled for cascaded-away FROM-counselor */}
@@ -3360,6 +3373,14 @@ function LeadDetailPageContent() {
           defaultPhone={lead?.phone || ''}
           leadId={lead?.id}
           recipientName={lead?.full_name || ''}
+        />
+
+        {/* Log Call Dialog (with voice memo recorder from PR #795) */}
+        <LogCallDialog
+          open={showLogCallDialog}
+          onOpenChange={setShowLogCallDialog}
+          lead={lead ? { id: lead.id, full_name: lead.full_name, phone: lead.phone, funnel_stage: lead.funnel_stage, institution_id: lead.institution_id } : null}
+          onSendWhatsApp={() => { setShowLogCallDialog(false); setPersonalMsgOpen(true); }}
         />
       </ContentLayout>
     </PermissionGuard>
