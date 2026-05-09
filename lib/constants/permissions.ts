@@ -960,7 +960,12 @@ export const PERMISSION_CATEGORIES = [
       // Gate Entry (2026-05-07) — kiosk capture flow for gate security
       { key: 'admission.gate_entry.create', label: 'Log Gate Entry (kiosk)' },
       { key: 'admission.gate_entry.view',   label: "View Today's Gate Entries" },
-      { key: 'admission.gate_entry.manage', label: 'Manage Gate Entry Settings' }
+      { key: 'admission.gate_entry.manage', label: 'Manage Gate Entry Settings' },
+
+      // Voice Memo (2026-05-09) — counselor records 30s English memo on call log;
+      // Whisper cron analyzes for sentiment/summary/categories that flow into the
+      // Lead Mood Digest (PR #779).
+      { key: 'admission.voice_memo', label: 'Record Voice Memo on Call Log' }
     ]
   },
   // Admission Fees (2026-05-07) — matrix-driven fee-structure module
