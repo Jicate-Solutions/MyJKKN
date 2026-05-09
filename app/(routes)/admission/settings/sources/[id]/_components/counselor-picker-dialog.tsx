@@ -3,7 +3,8 @@
 import { useState, useMemo } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
-import { Search, Users } from 'lucide-react';
+import { Search, Users, Check } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 import {
   Dialog,
@@ -18,7 +19,6 @@ import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { Label } from '@/components/ui/label';
 
 import {
@@ -150,8 +150,8 @@ export function CounselorPickerDialog({
         onOpenChange(o);
       }}
     >
-      <DialogContent className="sm:max-w-[640px]">
-        <DialogHeader>
+      <DialogContent className="flex max-h-[92vh] w-[95vw] flex-col gap-4 overflow-hidden sm:max-w-[640px]">
+        <DialogHeader className="shrink-0">
           <DialogTitle>Assign counselors to this source</DialogTitle>
           <DialogDescription>
             Pick one or more counselors. Defaults below apply to every counselor
@@ -159,7 +159,7 @@ export function CounselorPickerDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4">
+        <div className="flex min-h-0 flex-1 flex-col gap-4">
           <div className="relative">
             <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
             <Input
@@ -170,7 +170,63 @@ export function CounselorPickerDialog({
             />
           </div>
 
-          <ScrollArea className="h-[260px] rounded-md border">
+          {/* Quick assign by role — chips for each of the 4 counselor roles
+              with current/visible counts. Clicking toggles ALL users of that
+              role (within the active search filter) into the selection. */}
+          {!isLoading && (counselors?.length ?? 0) > 0 && (
+            <div className="flex flex-wrap items-center gap-1.5 rounded-md border bg-muted/20 px-3 py-2">
+              <span className="text-xs font-medium text-muted-foreground mr-1">
+                Assign by role:
+              </span>
+              {(Object.keys(ROLE_SHORT_LABEL) as CounselorRoleKey[]).map((roleKey) => {
+                const groupUsers = grouped.get(roleKey) ?? [];
+                if (groupUsers.length === 0) {
+                  return (
+                    <span
+                      key={roleKey}
+                      className="inline-flex items-center gap-1 rounded-full border border-dashed px-2 py-0.5 text-[11px] text-muted-foreground/60"
+                      title={`No ${ROLE_SHORT_LABEL[roleKey].toLowerCase()} counselors available`}
+                    >
+                      {ROLE_SHORT_LABEL[roleKey]} (0)
+                    </span>
+                  );
+                }
+                const ids = groupUsers.map((c) => c.id);
+                const allSelected = ids.every((id) => selected.has(id));
+                const someSelected = !allSelected && ids.some((id) => selected.has(id));
+                return (
+                  <button
+                    key={roleKey}
+                    type="button"
+                    onClick={() => toggleGroup(roleKey, ids)}
+                    className={cn(
+                      'inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium transition-all',
+                      allSelected
+                        ? `${ROLE_BADGE_VARIANT[roleKey]} ring-2 ring-offset-1 ring-current`
+                        : someSelected
+                          ? ROLE_BADGE_VARIANT[roleKey]
+                          : 'bg-background text-muted-foreground hover:bg-muted hover:text-foreground'
+                    )}
+                    title={
+                      allSelected
+                        ? `Click to unselect all ${ROLE_SHORT_LABEL[roleKey].toLowerCase()} counselors`
+                        : `Click to select all ${ids.length} ${ROLE_SHORT_LABEL[roleKey].toLowerCase()} counselors`
+                    }
+                  >
+                    {allSelected && <Check className="h-3 w-3" />}
+                    {!allSelected && <Users className="h-3 w-3" />}
+                    {ROLE_SHORT_LABEL[roleKey]} ({ids.length})
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Native overflow-y-auto is more flex-friendly than Radix ScrollArea
+              here. The Root → Viewport chain in ScrollArea doesn't always
+              propagate flex-derived heights, leaving the inner Viewport at
+              content-height and disabling scrolling. */}
+          <div className="min-h-[180px] flex-1 overflow-y-auto overscroll-contain rounded-md border">
             {isLoading && (
               <div className="space-y-2 p-3">
                 {Array.from({ length: 5 }).map((_, i) => (
@@ -198,7 +254,7 @@ export function CounselorPickerDialog({
                       <button
                         type="button"
                         onClick={() => toggleGroup(role, ids)}
-                        className="flex w-full items-center justify-between px-2 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted rounded"
+                        className="sticky top-0 z-10 flex w-full items-center justify-between rounded bg-background/95 px-2 py-1.5 text-xs font-medium text-muted-foreground backdrop-blur supports-[backdrop-filter]:bg-background/80 hover:bg-muted"
                       >
                         <span>
                           {ROLE_SHORT_LABEL[role]} Counselors ({list.length})
@@ -210,15 +266,15 @@ export function CounselorPickerDialog({
                       {list.map((c) => (
                         <label
                           key={c.id}
-                          className="flex cursor-pointer items-center gap-3 px-2 py-2 hover:bg-muted/50 rounded text-sm"
+                          className="flex cursor-pointer items-center gap-3 rounded px-2 py-2 text-sm hover:bg-muted/50"
                         >
                           <Checkbox
                             checked={selected.has(c.id)}
                             onCheckedChange={() => toggleOne(c.id)}
                           />
-                          <div className="flex-1 min-w-0">
+                          <div className="min-w-0 flex-1">
                             <div className="flex items-center gap-2">
-                              <span className="font-medium truncate">
+                              <span className="truncate font-medium">
                                 {c.name}
                               </span>
                               <Badge
@@ -228,12 +284,12 @@ export function CounselorPickerDialog({
                                 {ROLE_SHORT_LABEL[role]}
                               </Badge>
                             </div>
-                            <div className="text-xs text-muted-foreground truncate">
+                            <div className="truncate text-xs text-muted-foreground">
                               {c.designation ? `${c.designation} · ` : ''}
                               {c.email}
                             </div>
                           </div>
-                          <span className="text-xs text-muted-foreground tabular-nums">
+                          <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
                             {c.current_leads ?? 0} active
                           </span>
                         </label>
@@ -243,10 +299,10 @@ export function CounselorPickerDialog({
                 })}
               </div>
             )}
-          </ScrollArea>
+          </div>
 
-          <div className="grid grid-cols-2 gap-3 pt-2 border-t">
-            <div className="col-span-2 text-xs font-medium text-muted-foreground uppercase tracking-wide">
+          <div className="grid shrink-0 grid-cols-2 gap-3 border-t pt-3">
+            <div className="col-span-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
               Defaults applied to selection
             </div>
             <div>
@@ -301,7 +357,7 @@ export function CounselorPickerDialog({
           </div>
         </div>
 
-        <DialogFooter>
+        <DialogFooter className="shrink-0 gap-2 sm:gap-0">
           <Button
             variant="outline"
             onClick={() => onOpenChange(false)}

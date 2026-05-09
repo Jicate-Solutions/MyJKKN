@@ -56,6 +56,12 @@ export class LeadDistributionService {
     return createClientSupabaseClient();
   }
 
+  /**
+   * Server-side aggregation via SQL function. Replaces a client-side bucket-
+   * and-count that fetched up to 14k+ raw lead rows and silently capped at
+   * the PostgREST 1000-row default — so for any source with >1000 leads the
+   * panel was under-reporting.
+   */
   static async get({
     sourceEnum,
     fromDate,
@@ -64,147 +70,97 @@ export class LeadDistributionService {
   }: GetDistributionInput): Promise<DistributionResult> {
     const supabase = this.supabase;
 
-    let q = (supabase as any)
-      .from('admission_leads')
-      .select('id, source, funnel_stage, assigned_counselor_id, assigned_at, created_at, institution_id')
-      .eq('source', sourceEnum);
+    const { data: rows, error } = await (supabase as any).rpc(
+      'get_source_distribution',
+      {
+        p_source: sourceEnum,
+        p_from: fromDate ? fromDate.toISOString() : null,
+        p_to: toDate
+          ? (() => {
+              const end = new Date(toDate);
+              end.setHours(23, 59, 59, 999);
+              return end.toISOString();
+            })()
+          : null,
+        p_institution_id: institutionId ?? null,
+      }
+    );
 
-    if (fromDate) q = q.gte('created_at', fromDate.toISOString());
-    if (toDate) {
-      const endOfDay = new Date(toDate);
-      endOfDay.setHours(23, 59, 59, 999);
-      q = q.lte('created_at', endOfDay.toISOString());
-    }
-    if (institutionId) q = q.eq('institution_id', institutionId);
-
-    const { data: leads, error } = await q;
     if (error) {
-      logger.error('admissions', 'Error fetching distribution leads', error);
+      logger.error('admissions', 'Error fetching distribution rows', error);
       throw error;
     }
 
-    type LeadRow = {
-      id: string;
-      source: string;
-      funnel_stage: string | null;
-      assigned_counselor_id: string | null;
-      assigned_at: string | null;
-      created_at: string;
-      institution_id: string | null;
+    type AggRow = {
+      counselor_id: string | null;
+      user_id: string | null;
+      counselor_name: string | null;
+      counselor_email: string | null;
+      counselor_designation: string | null;
+      total_leads: number | string;
+      new_leads: number | string;
+      progressed_leads: number | string;
+      conversions: number | string;
+      lost_leads: number | string;
+      last_assigned_at: string | null;
     };
 
-    const rows = (leads ?? []) as LeadRow[];
+    const aggRows = (rows ?? []) as AggRow[];
 
-    // Bucket leads by user_id (assigned_counselor_id IS profiles.id)
-    const buckets = new Map<string | null, LeadRow[]>();
-    for (const r of rows) {
-      const k = r.assigned_counselor_id;
-      if (!buckets.has(k)) buckets.set(k, []);
-      buckets.get(k)!.push(r);
-    }
-
-    // Pull counselor metadata for assigned bucket
-    const userIds = Array.from(buckets.keys()).filter(
-      (k): k is string => !!k
-    );
-
-    const counselorMap = new Map<
-      string,
-      {
-        counselor_id: string;
-        user_id: string;
-        name: string;
-        email: string | null;
-        designation: string | null;
-      }
-    >();
-    if (userIds.length > 0) {
-      const { data: counselors } = await (supabase as any)
-        .from('admission_counselors')
-        .select('id, user_id, name, email, designation')
-        .in('user_id', userIds);
-      for (const c of (counselors ?? []) as {
-        id: string;
-        user_id: string;
-        name: string;
-        email: string | null;
-        designation: string | null;
-      }[]) {
-        counselorMap.set(c.user_id, {
-          counselor_id: c.id,
-          user_id: c.user_id,
-          name: c.name,
-          email: c.email,
-          designation: c.designation,
-        });
-      }
-    }
-
-    // Roles by user_id (for the role badge)
+    const userIds = aggRows
+      .map((r) => r.user_id)
+      .filter((u): u is string => !!u);
     const roleMap = await this.getRoleKeysByUserIds(userIds);
 
-    const perCounselor: CounselorDistribution[] = [];
     let totalConversions = 0;
     let totalProgressed = 0;
     let totalAssigned = 0;
     let totalUnassigned = 0;
+    let totalLeads = 0;
 
-    for (const [userId, leadList] of buckets.entries()) {
-      const totalLeads = leadList.length;
-      const newLeads = leadList.filter((l) => l.funnel_stage === NEW_STAGE).length;
-      const conversions = leadList.filter((l) =>
-        CONVERSION_STAGES.includes(l.funnel_stage as (typeof CONVERSION_STAGES)[number])
-      ).length;
-      const lostLeads = leadList.filter((l) =>
-        FAILED_STAGES.includes(l.funnel_stage as (typeof FAILED_STAGES)[number])
-      ).length;
-      const progressedLeads = totalLeads - newLeads - lostLeads;
+    const perCounselor: CounselorDistribution[] = aggRows.map((r) => {
+      const total = Number(r.total_leads) || 0;
+      const news = Number(r.new_leads) || 0;
+      const progressed = Number(r.progressed_leads) || 0;
+      const conversions = Number(r.conversions) || 0;
+      const lost = Number(r.lost_leads) || 0;
+      const isUnassigned = !r.user_id;
 
-      const lastAssignedAt =
-        leadList
-          .map((l) => l.assigned_at)
-          .filter((t): t is string => !!t)
-          .sort()
-          .at(-1) ?? null;
-
-      const c = userId ? counselorMap.get(userId) : null;
-      const isUnassigned = !userId;
-
-      if (isUnassigned) totalUnassigned += totalLeads;
-      else totalAssigned += totalLeads;
+      totalLeads += total;
+      if (isUnassigned) totalUnassigned += total;
+      else totalAssigned += total;
       totalConversions += conversions;
-      totalProgressed += progressedLeads + conversions;
+      totalProgressed += progressed + conversions;
 
-      perCounselor.push({
-        counselor_id: c?.counselor_id ?? null,
-        user_id: userId ?? null,
-        name: c?.name ?? (isUnassigned ? 'Unassigned' : 'Unknown user'),
-        email: c?.email ?? null,
-        designation: c?.designation ?? null,
-        role_key: userId ? (roleMap.get(userId) ?? null) : null,
-        totalLeads,
-        newLeads,
-        progressedLeads,
+      return {
+        counselor_id: r.counselor_id ?? null,
+        user_id: r.user_id ?? null,
+        name:
+          r.counselor_name ??
+          (isUnassigned ? 'Unassigned' : 'Unknown user'),
+        email: r.counselor_email ?? null,
+        designation: r.counselor_designation ?? null,
+        role_key: r.user_id ? (roleMap.get(r.user_id) ?? null) : null,
+        totalLeads: total,
+        newLeads: news,
+        progressedLeads: progressed,
         conversions,
-        lostLeads,
+        lostLeads: lost,
         conversionRate:
-          totalLeads > 0 ? Math.round((conversions / totalLeads) * 1000) / 10 : 0,
+          total > 0 ? Math.round((conversions / total) * 1000) / 10 : 0,
         progressionRate:
-          totalLeads > 0
-            ? Math.round(((progressedLeads + conversions) / totalLeads) * 1000) / 10
+          total > 0
+            ? Math.round(((progressed + conversions) / total) * 1000) / 10
             : 0,
-        lastAssignedAt,
-      });
-    }
+        lastAssignedAt: r.last_assigned_at ?? null,
+      };
+    });
 
-    // Sort: highest volume first, unassigned bucket last
     perCounselor.sort((a, b) => {
       if (!a.user_id && b.user_id) return 1;
       if (a.user_id && !b.user_id) return -1;
       return b.totalLeads - a.totalLeads;
     });
-
-    const totalLeads = rows.length;
 
     return {
       summary: {

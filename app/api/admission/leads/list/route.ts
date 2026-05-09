@@ -12,6 +12,10 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse, connection } from 'next/server';
 import { createServiceRoleClient, getAuthUser } from '@/lib/supabase/server';
 import { sanitizeSearch } from '@/lib/config/pagination';
+import {
+  getCounselorScope,
+  buildLeadVisibilityOr,
+} from '@/lib/api-helpers/admission-counselor-scope';
 
 // Retry only on undici / Node fetch transient failures (cold-start flakes on
 // Windows + Turbopack). Postgres errors should surface immediately without retry.
@@ -194,6 +198,30 @@ export async function GET(request: NextRequest) {
         });
       }
       query = query.eq('institution_id', profile.institution_id);
+    }
+
+    // 5b. Counselor source-scoping — mirrors the RLS in
+    // supabase/migrations/20260509130000_admission_leads_source_scoped_rls.sql.
+    // For users who hold one of the 4 counselor role_keys without a broader
+    // admission/admin role, restrict visibility to:
+    //   - leads where counselor_id = user's admission_counselors.id, OR
+    //   - leads where assigned_counselor_id = user.id, OR
+    //   - leads where source ∈ user's currently-mapped source enum_values
+    // (Active mappings only: not paused, within effective_from/to window.)
+    if (!isAdmissionGlobalUser) {
+      const scope = await getCounselorScope(supabase, user.id);
+      if (scope.isStrictCounselor) {
+        const orClause = buildLeadVisibilityOr(scope, user.id);
+        if (!orClause) {
+          // Counselor has no admission_counselors row AND no source mappings.
+          // Strict-mode: nothing visible.
+          return NextResponse.json({
+            data: [],
+            metadata: { total: 0, page, limit, totalPages: 0 },
+          });
+        }
+        query = query.or(orClause);
+      }
     }
 
     // 6. Apply filters

@@ -51,6 +51,7 @@ import { LogCallDialog } from '@/components/admission/log-call-dialog';
 import { ShowStudentQRButton } from '@/components/admission/show-student-qr-button';
 import { QuickActionsBar } from '@/components/admission/quick-actions-bar';
 import { useExpoEvent } from '@/hooks/admission/use-expos';
+import { useActiveLeadSources } from '@/hooks/admission/use-active-lead-sources';
 import { useConsultantsForDropdown, useLeadAttributions } from '@/hooks/admission/use-consultants';
 import { useStudentsForDropdown, useFacultyForDropdown } from '@/hooks/admission/use-referral-dropdowns';
 import { ConsultantService } from '@/lib/services/admission/consultant-service';
@@ -163,20 +164,8 @@ const FUNNEL_STAGES = [
   { value: 'dormant', label: 'Dormant' },
 ];
 
-const LEAD_SOURCES = [
-  { value: 'website', label: 'Website' },
-  { value: 'admission_form', label: 'Admission Form' },
-  { value: 'walk_in', label: 'Walk-in' },
-  { value: 'referral', label: 'Referral' },
-  { value: 'social_media', label: 'Social Media' },
-  { value: 'newspaper', label: 'Newspaper' },
-  { value: 'education_fair', label: 'Education Fair' },
-  { value: 'agent', label: 'Agent/Partner' },
-  { value: 'publisher', label: 'Publisher' },
-  { value: 'google_ads', label: 'Google Ads' },
-  { value: 'facebook_ads', label: 'Facebook Ads' },
-  { value: 'other', label: 'Other' }
-];
+// Source options now come from useActiveLeadSources() — admin-curated rows
+// in admission_lead_sources_master replace this once-static list.
 
 const GENDERS = [
   { value: 'male', label: 'Male' },
@@ -393,6 +382,7 @@ function CommunicationItem({
 }
 
 function LeadDetailPageContent() {
+  const { options: leadSources } = useActiveLeadSources();
   const params = useParams();
   const router = useRouter();
   const leadId = params.id as string;
@@ -3259,8 +3249,8 @@ function LeadDetailPageContent() {
                         <SelectValue placeholder="Select source" />
                       </SelectTrigger>
                       <SelectContent>
-                        {LEAD_SOURCES.map((s) => (
-                          <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
+                        {leadSources.map((s) => (
+                          <SelectItem key={s.masterId} value={s.value}>{s.label}</SelectItem>
                         ))}
                       </SelectContent>
                     </Select>

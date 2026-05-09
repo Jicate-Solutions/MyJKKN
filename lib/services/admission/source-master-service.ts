@@ -280,22 +280,29 @@ export class SourceMasterService {
     return out;
   }
 
+  /**
+   * Server-side aggregate via SQL function (avoids the PostgREST 1000-row cap
+   * that the previous client-side fetch+count was hitting silently).
+   * Returns counts ONLY for the requested enum values to keep the surface tidy.
+   */
   private static async getLeadCountsByEnumValue(
     enumValues: LeadSourceEnum[]
   ): Promise<Map<LeadSourceEnum, number>> {
     const out = new Map<LeadSourceEnum, number>();
     if (enumValues.length === 0) return out;
-    const unique = Array.from(new Set(enumValues));
+    const wanted = new Set(enumValues);
     const { data, error } = await (this.supabase as any)
-      .from('admission_leads')
-      .select('source')
-      .in('source', unique);
+      .rpc('get_lead_counts_by_source', { p_institution_id: null });
     if (error) {
       logger.error('admissions', 'Error counting leads per source', error);
       return out;
     }
-    for (const row of (data ?? []) as { source: LeadSourceEnum }[]) {
-      out.set(row.source, (out.get(row.source) ?? 0) + 1);
+    for (const row of (data ?? []) as Array<{
+      source: LeadSourceEnum;
+      lead_count: number | string;
+    }>) {
+      if (!wanted.has(row.source)) continue;
+      out.set(row.source, Number(row.lead_count) || 0);
     }
     return out;
   }

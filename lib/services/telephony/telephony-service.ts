@@ -90,6 +90,12 @@ export interface CallLogFilters {
   to_date?: string;
   has_notes?: boolean;
   admission_only?: boolean;
+  /**
+   * When provided, restricts results to call logs whose lead_id is in this set.
+   * Used by the API route to mirror admission_leads source-scoping for strict
+   * counselor users. Empty array = no results.
+   */
+  lead_id_in?: string[];
   page?: number;
   limit?: number;
   sort_by?: string;
@@ -237,6 +243,16 @@ export class TelephonyService {
     if (filters.institution_id) query = query.eq('institution_id', filters.institution_id);
     if (filters.lead_id) query = query.eq('lead_id', filters.lead_id);
     if (filters.counselor_id) query = query.eq('counselor_id', filters.counselor_id);
+    // lead_id_in: counselor-visibility scope from the API route. Empty array
+    // means "no accessible leads" — return no rows rather than ignoring the
+    // filter (which would be a permission leak).
+    if (filters.lead_id_in) {
+      if (filters.lead_id_in.length === 0) {
+        query = query.eq('id', '00000000-0000-0000-0000-000000000000');
+      } else {
+        query = query.in('lead_id', filters.lead_id_in);
+      }
+    }
     if (filters.direction) query = query.eq('direction', filters.direction);
     // Use started_at (actual call time) not created_at (DB sync time)
     if (filters.from_date) query = query.gte('started_at', filters.from_date);
