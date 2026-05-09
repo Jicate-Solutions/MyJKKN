@@ -651,7 +651,8 @@ export class TelephonyService {
     const { mapOutcomeToDisposition } = await import('@/lib/utils/admission/stage-suggestions');
     const disposition = mapOutcomeToDisposition(input.call_outcome, input.interest_level);
     const followUpDateTime = input.follow_up_date ? (input.follow_up_time ? `${input.follow_up_date}T${input.follow_up_time}:00` : `${input.follow_up_date}T09:00:00`) : null;
-    const { data: callLog, error: callError } = await supabase.from('admission_call_logs').insert({ institution_id: input.institution_id, lead_id: input.lead_id, counselor_id: input.counselor_id || null, direction: 'outbound', status: 'completed', call_disposition: disposition, from_number: 'manual', to_number: input.phone_called, duration_seconds: 0, call_notes: input.call_notes || null, follow_up_date: followUpDateTime, is_admission_call: true }).select().single();
+    const manualCallSid = `manual-${crypto.randomUUID()}`;
+    const { data: callLog, error: callError } = await supabase.from('admission_call_logs').insert({ call_sid: manualCallSid, institution_id: input.institution_id, lead_id: input.lead_id, counselor_id: input.counselor_id || null, direction: 'outbound', status: 'completed', call_disposition: disposition, from_number: 'manual', to_number: input.phone_called, duration_seconds: 0, call_notes: input.call_notes || null, follow_up_date: followUpDateTime, is_admission_call: true }).select().single();
     if (callError) throw new Error(`Failed to log call: ${callError.message}`);
     let leadUpdated = false;
     const leadUpdate: Record<string, any> = { last_contact_at: new Date().toISOString(), updated_at: new Date().toISOString() };
