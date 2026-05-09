@@ -241,6 +241,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/system/lti-tools': 'lti.tools.view',
   '/admin/bug-reports': 'system.bugs.view',
   '/admin/ai-query-tools': 'super_admin', // Super admin only - AI Query Tools Registry
+  '/admin/ai-models': 'super_admin', // Super admin only - AI Model Config (provider/model picker + spend caps + usage)
 
   // Internship Module — Policy Admin (super_admin only)
   '/admin/internship-policy': 'super_admin',
@@ -1427,6 +1428,15 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'Audit Trail',
           active: pathname.startsWith('/audit-trail'),
           icon: History,
+          submenus: []
+        },
+        {
+          // /admin/ai-models — super_admin AI feature config (provider/model picker
+          // + monthly spend caps + per-feature usage stats). Created 2026-05-09.
+          href: '/admin/ai-models',
+          label: 'AI Models',
+          active: pathname.startsWith('/admin/ai-models'),
+          icon: Sparkles,
           submenus: []
         },
         {

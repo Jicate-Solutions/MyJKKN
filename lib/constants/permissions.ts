@@ -1837,6 +1837,17 @@ export const PERMISSION_CATEGORIES = [
       { key: 'hr.leave.dispute.approve', label: 'Approve leave balance correction' },
       { key: 'admin.departments.hod.write', label: 'Assign Head of Department to a department' }
     ]
+  },
+  {
+    // Platform Configuration — super_admin scope today (sidebar gates via 'super_admin'),
+    // granular keys registered for forward-compat so admin-cell roles can be granted
+    // ai_models.view without a sidebar rewrite. 2026-05-09.
+    name: 'Platform Configuration',
+    key: 'platform_config',
+    permissions: [
+      { key: 'platform.ai_models.view', label: 'View AI Model Config (provider/model + usage)' },
+      { key: 'platform.ai_models.write', label: 'Change AI Model Config (provider/model + spend caps)' }
+    ]
   }
 ];
 
