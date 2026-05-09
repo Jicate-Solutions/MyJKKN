@@ -51,10 +51,17 @@ export default function AdminPanelLayout({
       >
         <Footer />
       </footer>
-      {/* Bottom Navigation for mobile */}
-      <Suspense>
-        <BottomNavbar />
-      </Suspense>
+      {/* Bottom Navigation for mobile — wrapper-level lg:hidden enforces
+          mobile-only rendering regardless of any descendant component's
+          internal guards (defense-in-depth). Matches the convention used
+          by BottomNavbar's <motion.nav> and AttentionBar's outer divs.
+          Director-flagged 2026-05-08: black floating bar bled through to
+          desktop /admission/dashboard view. */}
+      <div className="lg:hidden">
+        <Suspense>
+          <BottomNavbar />
+        </Suspense>
+      </div>
       <KeyboardShortcutsHelp />
     </CommandPaletteProvider>
   );

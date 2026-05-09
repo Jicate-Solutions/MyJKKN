@@ -1,5 +1,7 @@
 'use client';
 
+export const navMeta = { label: 'AI Insights', icon: 'Lightbulb' } as const;
+
 import { useEffect, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -32,6 +34,7 @@ import {
   BreadcrumbSeparator,
 } from '@/components/ui/breadcrumb';
 import { PermissionGuard } from '@/components/auth/permission-guard';
+import { QuickStats } from './_components/quick-stats';
 
 export default function AIInsightsPage() {
   const { selectedInstitutionId: institutionId, loading: institutionLoading } = useUserInstitutionAccess();
@@ -248,6 +251,9 @@ export default function AIInsightsPage() {
           </Card>
         </div>
 
+        {/* Live Stats — instant SQL-backed actionable summary, independent of Claude generation */}
+        <QuickStats institutionId={institutionId} />
+
         {/* Main Content Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Left Column - Active Insights */}
@@ -273,15 +279,18 @@ export default function AIInsightsPage() {
                   </div>
                 ) : insights.length === 0 ? (
                   <div className="text-center py-12 text-muted-foreground">
-                    <Brain className="h-16 w-16 mx-auto mb-4 opacity-20" />
-                    <h3 className="text-lg font-medium mb-2">No Active Insights</h3>
-                    <p className="text-sm mb-4">
-                      Click "Generate Insights" to analyze your data and get
-                      actionable recommendations.
+                    <Brain className={`h-16 w-16 mx-auto mb-4 ${isGenerating ? 'animate-pulse text-purple-400' : 'opacity-20'}`} />
+                    <h3 className="text-lg font-medium mb-2">
+                      {isGenerating ? 'Generating AI insights…' : 'No AI Insights Yet'}
+                    </h3>
+                    <p className="text-sm mb-4 max-w-md mx-auto">
+                      {isGenerating
+                        ? 'Claude is analysing your lead pipeline. This usually takes 10–20 seconds. Live Stats above are already actionable.'
+                        : 'AI-generated insights will analyse patterns Live Stats above can\'t see. Click Generate to start.'}
                     </p>
                     <Button onClick={generateInsights} disabled={isGenerating}>
-                      <Sparkles className="h-4 w-4 mr-2" />
-                      Generate Insights
+                      <Sparkles className={`h-4 w-4 mr-2 ${isGenerating ? 'animate-pulse' : ''}`} />
+                      {isGenerating ? 'Generating…' : 'Generate AI Insights'}
                     </Button>
                   </div>
                 ) : (
