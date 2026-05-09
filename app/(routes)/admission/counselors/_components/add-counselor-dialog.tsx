@@ -331,32 +331,124 @@ export function AddCounselorDialog({
 
         setUserResults((data as LearnerResult[]) || []);
       } else {
-        // BUG (2026-04-21): Pre-registered profiles have a `profiles` row but no
-        // corresponding `auth.users` row, so selecting them caused
-        // `admission_counselors_user_id_fkey` (profiles.user_id -> auth.users.id)
-        // to fail at insert time. Filter them out of the picker: a user who has
-        // not yet activated their account cannot be assigned as a counselor.
-        // `is_pre_registered` flips to false on first OAuth/email login.
-        // Using `.not('is_pre_registered', 'is', true)` matches both `false` and
-        // `NULL`, which is defensive given the column is nullable.
-        let query = supabase
-          .from('profiles')
-          .select('id, full_name, email, phone_number, role')
+        // Source of truth for the staff picker is the `staff` table — it covers
+        // BOTH teaching AND non-teaching categories (employment_categories.is_teaching).
+        // The previous implementation filtered `profiles.role IN (...)` against a
+        // hardcoded list ('faculty','hod','staff','digital_coordinator',
+        // 'admission_counselor','expo_counselor'); but staff.role_key is dynamic
+        // (FK to custom_roles.role_key) and sync_staff_to_profiles mirrors it into
+        // profiles.role verbatim, so any non-teaching role_key outside that list
+        // (librarian, lab_technician, office_assistant, custom roles, …) was being
+        // silently dropped. Fixed 2026-05-09.
+        //
+        // Pre-registered filter still applies: profiles with is_pre_registered=true
+        // have no auth.users row, and admission_counselors.user_id FK would 23503
+        // on insert. `is_pre_registered` flips to false on first OAuth/email login.
+        let staffQuery = supabase
+          .from('staff')
+          .select(`
+            id,
+            profile_id,
+            department_id,
+            role_key,
+            first_name,
+            last_name,
+            profile:profile_id (
+              id,
+              full_name,
+              email,
+              phone_number,
+              role,
+              is_pre_registered
+            )
+          `)
           .eq('institution_id', existInstitutionId)
-          .in('role', ['faculty', 'hod', 'staff', 'digital_coordinator', 'admission_counselor', 'expo_counselor'])
+          .eq('is_active', true)
+          .not('profile_id', 'is', null);
+
+        if (departmentId) staffQuery = staffQuery.eq('department_id', departmentId);
+
+        // Fallback: digital_coordinator / admission_counselor / expo_counselor
+        // users may exist as standalone `profiles` rows without a `staff` record
+        // (e.g. counselors hired directly into the admission system). Keep them
+        // pickable to preserve original behavior.
+        let profilesQuery = supabase
+          .from('profiles')
+          .select('id, full_name, email, phone_number, role, department_id')
+          .eq('institution_id', existInstitutionId)
+          .in('role', ['digital_coordinator', 'admission_counselor', 'expo_counselor'])
           .not('is_pre_registered', 'is', true);
 
-        if (departmentId) query = query.eq('department_id', departmentId);
+        if (departmentId) profilesQuery = profilesQuery.eq('department_id', departmentId);
 
-        const { data, error } = await query.order('full_name').limit(200);
+        const [staffRes, profilesRes] = await Promise.all([
+          staffQuery.order('first_name').limit(200),
+          profilesQuery.order('full_name').limit(200),
+        ]);
 
-        if (error) {
-          console.error('[admission/counselors] Facilitator query failed:', error);
-          toast.error('Failed to load facilitators');
+        if (staffRes.error) {
+          console.error('[admission/counselors] Staff query failed:', staffRes.error);
+          toast.error('Failed to load staff');
           return;
         }
+        if (profilesRes.error) {
+          // Non-fatal: staff results are still useful even if the standalone-profile
+          // fallback fails. Surface a warning toast so the operator sees the issue.
+          console.error('[admission/counselors] Standalone profiles fallback failed:', profilesRes.error);
+        }
 
-        setUserResults((data as FacilitatorResult[]) || []);
+        // Merge & dedupe by profile id — selectedUser.id must point at profiles.id
+        // (admission_counselors.user_id -> auth.users.id contract).
+        const seen = new Set<string>();
+        const merged: FacilitatorResult[] = [];
+
+        for (const row of (staffRes.data || []) as Array<{
+          profile_id: string | null;
+          role_key: string | null;
+          profile: {
+            id: string;
+            full_name: string | null;
+            email: string | null;
+            phone_number: string | null;
+            role: string | null;
+            is_pre_registered: boolean | null;
+          } | null;
+        }>) {
+          const p = row.profile;
+          if (!p) continue;
+          if (p.is_pre_registered === true) continue;
+          if (seen.has(p.id)) continue;
+          seen.add(p.id);
+          merged.push({
+            id: p.id,
+            full_name: p.full_name || '',
+            email: p.email || '',
+            phone_number: p.phone_number,
+            role: p.role || row.role_key || 'staff',
+          });
+        }
+
+        for (const row of (profilesRes.data || []) as Array<{
+          id: string;
+          full_name: string | null;
+          email: string | null;
+          phone_number: string | null;
+          role: string | null;
+        }>) {
+          if (seen.has(row.id)) continue;
+          seen.add(row.id);
+          merged.push({
+            id: row.id,
+            full_name: row.full_name || '',
+            email: row.email || '',
+            phone_number: row.phone_number,
+            role: row.role || 'unknown',
+          });
+        }
+
+        merged.sort((a, b) => (a.full_name || '').localeCompare(b.full_name || ''));
+
+        setUserResults(merged);
       }
     } catch (err) {
       console.error('[admission/counselors] Fetch users error:', err);
@@ -931,7 +1023,7 @@ export function AddCounselorDialog({
               <p className="text-sm text-center">
                 {userType === 'learner'
                   ? 'Select institution and semester above to find learners'
-                  : 'Select an institution above to find facilitators'}
+                  : 'Select an institution above to find staff (teaching & non-teaching)'}
               </p>
             </div>
           )}
