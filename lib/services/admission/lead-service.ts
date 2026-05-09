@@ -1244,9 +1244,15 @@ export class LeadService {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    // Get all leads - select both stage (enum) and funnel_stage (legacy)
+    // Get all leads - select both stage (enum) and funnel_stage (legacy).
+    // learner_profile_id is the proxy for "Application Started" — when a
+    // counselor advances a lead, a learner_profile row is created and linked.
+    // PR #790 diagnosed that stage='enrolled' has zero rows ever, so the
+    // legacy "Conversion Rate" KPI was structurally impossible. Director
+    // chose Path A: replace with "Application Start Rate" using the
+    // learner-profile linkage as numerator.
     let leadsQuery = (this.supabase as any).from('admission_leads')
-      .select('stage, funnel_stage, created_at, is_hot_lead, is_priority, last_contact_at, next_followup_at');
+      .select('stage, funnel_stage, created_at, is_hot_lead, is_priority, last_contact_at, next_followup_at, learner_profile_id');
     if (institutionId) {
       leadsQuery = leadsQuery.eq('institution_id', institutionId);
     }
@@ -1263,10 +1269,17 @@ export class LeadService {
     const newLeads = allLeads.filter((l: any) =>
       new Date(l.created_at) >= today
     ).length;
+    // Legacy "converted" metric — kept for backwards compat with older
+    // consumers, but the dashboard KPI now uses applicationStartedLeads below.
     const convertedLeads = allLeads.filter((l: any) => {
       const s = l.stage || l.funnel_stage;
       return s === 'enrolled';
     }).length;
+    // New: Application Started — leads that have been advanced into the
+    // learner_profiles table. The honest, currently-measurable signal.
+    const applicationStartedLeads = allLeads.filter((l: any) =>
+      l.learner_profile_id != null
+    ).length;
     // Count leads with overdue or pending followups
     const pendingFollowups = allLeads.filter((l: any) => {
       const s = l.stage || l.funnel_stage;
@@ -1283,14 +1296,19 @@ export class LeadService {
     const conversionRate = totalLeads > 0
       ? (convertedLeads / totalLeads) * 100
       : 0;
+    const applicationStartRate = totalLeads > 0
+      ? (applicationStartedLeads / totalLeads) * 100
+      : 0;
 
     return {
       totalLeads,
       newLeads,
       convertedLeads,
+      applicationStartedLeads,
       pendingFollowups,
       todayFollowups,
-      conversionRate: Math.round(conversionRate * 10) / 10
+      conversionRate: Math.round(conversionRate * 10) / 10,
+      applicationStartRate: Math.round(applicationStartRate * 10) / 10
     };
   }
 }
