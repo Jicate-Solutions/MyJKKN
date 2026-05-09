@@ -1642,8 +1642,13 @@ export function GetPages(pathname: string): MenuGroup[] {
 // but MENU_PERMISSIONS uses static [id] placeholders as keys.
 // Without this, MENU_PERMISSIONS['/startup-studio/events/572a5836-.../my-team'] = undefined
 // → whole Startup Studio group is filtered out for students navigating inside an event.
+//
+// Exported so other navigation surfaces (e.g. components/navigation/auto-tab-nav.tsx)
+// share the same regex/canonicalisation when looking up MENU_PERMISSIONS — without
+// a single source of truth here those callers either drift or skip normalization
+// and silently lose permission resolution for any href containing a real UUID.
 const UUID_SEGMENT_REGEX = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
-function normalizeRoute(href: string): string {
+export function normalizeRoute(href: string): string {
   return href.replace(UUID_SEGMENT_REGEX, '[id]');
 }
 
