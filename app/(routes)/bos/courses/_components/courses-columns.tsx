@@ -12,7 +12,16 @@ export const coursesColumns: ColumnDef<BosCourseMaster>[] = [
     header: 'Code',
     cell: ({ row }) => <span className='font-mono text-xs'>{row.original.course_code}</span>,
   },
-  { accessorKey: 'course_name', header: 'Name' },
+  {
+    id: 'name',
+    header: 'Name',
+    // Tolerant lookup — COE may surface the field as course_name, name,
+    // or display_name depending on the response shape.
+    cell: ({ row }) => {
+      const r = row.original as BosCourseMaster & { name?: string; display_name?: string };
+      return r.course_name || r.name || r.display_name || '—';
+    },
+  },
   { accessorKey: 'course_part_master', header: 'Part' },
   {
     accessorKey: 'course_type',
@@ -24,18 +33,35 @@ export const coursesColumns: ColumnDef<BosCourseMaster>[] = [
   {
     accessorKey: 'credit',
     header: 'Credits',
-    cell: ({ row }) => Number(row.original.credit ?? 0).toFixed(2),
+    cell: ({ row }) => {
+      // Hide zero/null credits — show '—' so the column reads cleanly.
+      const v = row.original.credit;
+      if (v === null || v === undefined || Number(v) === 0) {
+        return <span className='text-xs text-muted-foreground'>—</span>;
+      }
+      return Number(v).toFixed(2);
+    },
   },
   {
     id: 'hours',
     header: 'L+P',
-    cell: ({ row }) => `${row.original.theory_hours}+${row.original.practical_hours}`,
+    cell: ({ row }) => {
+      const t = row.original.theory_hours ?? 0;
+      const p = row.original.practical_hours ?? 0;
+      if (t === 0 && p === 0) return <span className='text-xs text-muted-foreground'>—</span>;
+      return `${t}+${p}`;
+    },
   },
   {
     id: 'marks',
     header: 'Marks',
-    cell: ({ row }) =>
-      `${row.original.internal_max_mark}/${row.original.external_max_mark}/${row.original.total_max_mark}`,
+    cell: ({ row }) => {
+      const i = row.original.internal_max_mark ?? 0;
+      const e = row.original.external_max_mark ?? 0;
+      const t = row.original.total_max_mark ?? 0;
+      if (i === 0 && e === 0 && t === 0) return <span className='text-xs text-muted-foreground'>—</span>;
+      return `${i}/${e}/${t}`;
+    },
   },
   {
     id: 'status',

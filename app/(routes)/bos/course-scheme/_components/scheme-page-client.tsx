@@ -8,6 +8,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { useAuth } from '@/hooks/use-auth';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useBosCourseScheme, type SchemeFilters } from '@/hooks/bos/use-bos-course-scheme';
+import { InstitutionPicker } from '../../_components/institution-picker';
 import { SchemeFiltersBar } from './scheme-filters';
 import { SemesterTable } from './semester-table';
 import type { BosCourseMappingDetailed } from '@/types/bos-courses';
@@ -17,6 +18,10 @@ export function SchemePageClient() {
   const { canAccess, isSuperAdmin } = usePermissions();
   const canEdit = isSuperAdmin || canAccess('academic.bos-scheme', 'edit');
 
+  // Default to user's own institution; super-admins start unset and pick.
+  const [institutionId, setInstitutionId] = useState<string | undefined>(
+    profile?.institution_id ?? undefined,
+  );
   const [filters, setFilters] = useState<SchemeFilters | null>(null);
   const [editMode, setEditMode] = useState(false);
 
@@ -34,22 +39,26 @@ export function SchemePageClient() {
     );
   }, [data]);
 
-  if (!profile?.institution_id) {
-    return (
-      <p className='text-sm text-muted-foreground'>
-        Your account is not linked to an institution. Contact admin.
-      </p>
-    );
-  }
-
   return (
     <div className='space-y-6'>
       <div className='flex items-end justify-between gap-3 flex-wrap'>
-        <SchemeFiltersBar
-          institutionId={profile.institution_id}
-          value={filters}
-          onChange={setFilters}
-        />
+        <div className='flex gap-3 flex-wrap items-end'>
+          <InstitutionPicker
+            value={institutionId}
+            onChange={(id) => {
+              setInstitutionId(id);
+              // Clear filters when switching institutions to avoid stale program/regulation
+              setFilters(null);
+            }}
+          />
+          {institutionId && (
+            <SchemeFiltersBar
+              institutionId={institutionId}
+              value={filters}
+              onChange={setFilters}
+            />
+          )}
+        </div>
         {canEdit && filters && (
           <Button
             variant={editMode ? 'default' : 'outline'}
@@ -62,7 +71,11 @@ export function SchemePageClient() {
         )}
       </div>
 
-      {!filters && (
+      {!institutionId && (
+        <p className='text-sm text-muted-foreground'>Select an institution to begin.</p>
+      )}
+
+      {institutionId && !filters && (
         <p className='text-sm text-muted-foreground'>
           Enter program code, regulation, and (optionally) batch to load the scheme.
         </p>

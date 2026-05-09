@@ -20,5 +20,9 @@ export function CoursesDataTable({
   if (isLoading) return <Skeleton className='h-64 w-full' />;
   if (error) return <p className='text-sm text-red-600'>{(error as Error).message}</p>;
 
-  return <DataTable columns={coursesColumns} data={data?.data ?? []} />;
+  // COE responses arrive as either {data: [...]} or a flat array — handle both.
+  // (See lib/services/internal-marks/cia-marks-service.ts which uses the same dual-shape unwrap.)
+  const rows = Array.isArray(data) ? data : (data?.data ?? []);
+
+  return <DataTable columns={coursesColumns} data={rows} />;
 }
