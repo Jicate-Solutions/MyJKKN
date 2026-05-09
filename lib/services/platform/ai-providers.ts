@@ -17,6 +17,7 @@ export type ProviderId =
   | 'openai'
   | 'anthropic'
   | 'google'
+  | 'groq'
   | 'sarvam'
   | 'whisper';
 
@@ -109,11 +110,21 @@ export const AI_PROVIDER_REGISTRY: ProviderRegistryEntry[] = [
     envVarHint: 'GOOGLE_GENAI_API_KEY',
     models: [
       {
-        id: 'gemini-2.5-flash',
-        label: 'Gemini 2.5 Flash (cheap, fast)',
-        inputPer1KTokensInr: 0.013,
-        outputPer1KTokensInr: 0.043,
+        id: 'gemini-2.5-flash-lite',
+        label: 'Gemini 2.5 Flash Lite (cheapest)',
+        inputPer1KTokensInr: 0.0032,
+        outputPer1KTokensInr: 0.0126,
         modality: 'chat',
+        notes:
+          'Cheapest production-grade option for simple classification (~4× cheaper than GPT-4o-mini). Default for voice_memo.sentiment.',
+      },
+      {
+        id: 'gemini-2.5-flash',
+        label: 'Gemini 2.5 Flash (higher quality)',
+        inputPer1KTokensInr: 0.0063,
+        outputPer1KTokensInr: 0.0252,
+        modality: 'chat',
+        notes: 'Multilingual-friendly; use when sentiment task needs richer reasoning.',
       },
       {
         id: 'gemini-2.5-pro',
@@ -121,6 +132,28 @@ export const AI_PROVIDER_REGISTRY: ProviderRegistryEntry[] = [
         inputPer1KTokensInr: 0.106,
         outputPer1KTokensInr: 0.425,
         modality: 'chat',
+      },
+    ],
+  },
+  {
+    id: 'groq',
+    label: 'Groq (fast Whisper inference)',
+    envVarHint: 'GROQ_API_KEY',
+    models: [
+      {
+        id: 'whisper-large-v3',
+        label: 'Whisper Large v3 (Groq turbo)',
+        perMinuteInr: 0.056,
+        modality: 'audio_transcription',
+        notes:
+          'Same Whisper model as OpenAI, served on Groq LPUs. ~9× cheaper than OpenAI Whisper-1 for English audio. Default for voice_memo.transcribe.',
+      },
+      {
+        id: 'whisper-large-v3-turbo',
+        label: 'Whisper Large v3 Turbo (lower cost)',
+        perMinuteInr: 0.034,
+        modality: 'audio_transcription',
+        notes: 'Distilled variant, slightly less accurate but cheaper.',
       },
     ],
   },

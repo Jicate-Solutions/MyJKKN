@@ -215,8 +215,9 @@ export async function listAllFeatures(): Promise<AiModelConfigRow[]> {
 
 function getHardcodedFallback(featureKey: string): ResolvedModel {
   const FALLBACKS: Record<string, ResolvedModel> = {
-    'voice_memo.transcribe': fallback(featureKey, 'openai', 'whisper-1'),
-    'voice_memo.sentiment': fallback(featureKey, 'openai', 'gpt-4o-mini'),
+    // Voice memo defaults to cheap stack post 20260513 migration.
+    'voice_memo.transcribe': fallback(featureKey, 'groq', 'whisper-large-v3'),
+    'voice_memo.sentiment': fallback(featureKey, 'google', 'gemini-2.5-flash-lite'),
     'admission.briefing': fallback(featureKey, 'openai', 'gpt-4o-mini'),
     'admission.ai_insights': fallback(featureKey, 'openai', 'gpt-4o-mini'),
     'ai_pulse.anomaly_detection': fallback(featureKey, 'openai', 'gpt-4o-mini'),
