@@ -68,6 +68,9 @@ const FUNNEL_STAGES = [
   { key: 'application_submitted', label: 'Application Submitted', color: 'bg-rose-500' },
   { key: 'documents_pending', label: 'Documents Pending', color: 'bg-orange-500' },
   { key: 'documents_verified', label: 'Documents Verified', color: 'bg-amber-500' },
+  { key: 'interview_scheduled', label: 'Interview Scheduled', color: 'bg-yellow-500' },
+  { key: 'interview_completed', label: 'Interview Completed', color: 'bg-yellow-600' },
+  { key: 'interviewed', label: 'Interviewed', color: 'bg-yellow-400' },
   { key: 'offer_sent', label: 'Offer Sent', color: 'bg-green-500' },
   { key: 'offer_accepted', label: 'Offer Accepted', color: 'bg-emerald-500' },
   { key: 'token_paid', label: 'Token Paid', color: 'bg-teal-500' },
@@ -77,7 +80,9 @@ const FUNNEL_STAGES = [
   { key: 'confirmed', label: 'Confirmed', color: 'bg-green-600' },
   { key: 'declined', label: 'Declined', color: 'bg-red-500' },
   { key: 'withdrew', label: 'Withdrew', color: 'bg-red-400' },
-  { key: 'expired', label: 'Expired', color: 'bg-gray-400' }
+  { key: 'expired', label: 'Expired', color: 'bg-gray-400' },
+  { key: 'lost', label: 'Lost', color: 'bg-gray-500' },
+  { key: 'dormant', label: 'Dormant', color: 'bg-gray-300' }
 ];
 
 function DashboardSkeleton() {
@@ -157,7 +162,7 @@ function KPICard({
 function FunnelVisualization({
   funnelData
 }: {
-  funnelData: { total: number; byStage: Record<string, number>; hotLeads: number; priorityLeads: number } | undefined;
+  funnelData: { total: number; activeTotal?: number; byStage: Record<string, number>; hotLeads: number; priorityLeads: number } | undefined;
 }) {
   if (!funnelData) return null;
 
@@ -389,7 +394,7 @@ function AdmissionDashboardPageContent() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             <KPICard
               title="Total Active Leads"
-              value={funnel?.total || 0}
+              value={funnel?.activeTotal ?? 0}
               icon={Users}
               color="text-blue-600"
             />

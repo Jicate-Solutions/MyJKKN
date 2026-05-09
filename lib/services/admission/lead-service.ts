@@ -1226,8 +1226,19 @@ export class LeadService {
       percentage: leads.length > 0 ? (count / leads.length) * 100 : 0
     }));
 
+    // activeTotal excludes terminal lifecycle stages — rows that are no longer
+    // in active pipeline (lost, dormant, enrolled, confirmed, declined, withdrew,
+    // expired). This is what the "Total Active Leads" KPI should reflect.
+    // See docs/diagnostics/admission-active-leads-reconciliation-2026-05-08.md.
+    const TERMINAL_STAGES: FunnelStage[] = [
+      'lost', 'dormant', 'enrolled', 'confirmed', 'declined', 'withdrew', 'expired'
+    ];
+    const terminalCount = TERMINAL_STAGES.reduce((sum, s) => sum + (byStage[s] || 0), 0);
+    const activeTotal = leads.length - terminalCount;
+
     return {
       total: leads.length,
+      activeTotal,
       byStage,
       hotLeads,
       priorityLeads,
