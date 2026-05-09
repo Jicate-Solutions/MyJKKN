@@ -2,19 +2,31 @@
 // Voice Memo Analysis Pipeline — runs every 5 min via Vercel cron
 // =====================================================================
 // Sweeps `admission_call_logs` for memo_audio_url uploads in
-// pending/failed status, runs them through OpenAI Whisper (forced
-// English) → language guardrail → GPT-4o-mini sentiment + summary +
-// categories → writes back to memo_* columns.
+// pending/failed status, runs them through a configured transcription
+// provider (forced English) → language guardrail → configured sentiment
+// provider for sentiment + summary + categories → writes back to memo_*
+// columns.
 //
-// EMPIRICAL CONTEXT (Director's Path A, 2026-05-09):
+// MULTI-PROVIDER (PR wiring Groq + Gemini, 2026-05-09):
+//   Provider + model are read at run-time from the ai_model_config table
+//   via getModelForFeature() (PR #797 substrate). Defaults post-migration
+//   20260513:
+//     voice_memo.transcribe → groq / whisper-large-v3
+//     voice_memo.sentiment  → google / gemini-2.5-flash-lite
+//   Director can swap any feature back to OpenAI (or any other provider)
+//   via /admin/ai-models without a redeploy. Records every call to
+//   ai_model_usage so the admin Cost panel reflects live spend.
+//
+// EMPIRICAL CONTEXT:
 //   Counselors record 30-second English voice memos after each
 //   admission lead call (personal phone, no Exotel call cost). At
-//   ~6,680 memos/month, total OpenAI spend ≈ ₹2,200/mo.
+//   ~6,680 memos/month, the cheap-stack default cuts spend from
+//   ~₹2,340/mo (OpenAI) to ~₹390/mo (Groq + Gemini Flash Lite).
 //
 //   Whisper Tamil accuracy is ~21% (Soniox benchmark) — effectively
 //   garbage. Two-layer language guardrail rejects non-English audio
-//   BEFORE GPT runs:
-//     (a) Whisper response.language must equal 'en'.
+//   BEFORE the sentiment model runs:
+//     (a) Transcription response.language must equal 'en'.
 //     (b) Transcript must not contain Tamil/Devanagari/Bengali/Arabic
 //         unicode ranges (Whisper occasionally misclassifies as 'en'
 //         when the audio is empty or has accented English).
@@ -23,9 +35,12 @@
 //
 // Auth: CRON_SECRET via Authorization: Bearer <secret> OR ?secret= query.
 // Schedule: */5 * * * * (every 5 min).
-// Required env: CRON_SECRET, OPENAI_API_KEY.
+// Required env: CRON_SECRET, GROQ_API_KEY, GOOGLE_API_KEY (or
+//   GOOGLE_GENAI_API_KEY), OPENAI_API_KEY (kept as fallback / used by
+//   other features still on OpenAI).
 //
 // Created: 2026-05-09 (Build #4 voice memo backend).
+// Updated: 2026-05-09 (multi-provider via ai_model_config).
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -33,8 +48,21 @@ export const maxDuration = 60;
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
+import {
+  getModelForFeature,
+  recordUsage,
+} from '@/lib/services/platform/ai-model-config-service';
+import {
+  transcribeAudio,
+  estimateTranscriptionCostInr,
+} from '@/lib/services/platform/ai-clients/transcription';
+import {
+  analyzeStructured,
+  estimateChatCostInr,
+} from '@/lib/services/platform/ai-clients/sentiment';
+import { getModel } from '@/lib/services/platform/ai-providers';
 
-const BATCH_LIMIT = 20; // rate-limit Whisper API calls per run
+const BATCH_LIMIT = 20; // rate-limit transcription API calls per run
 const STORAGE_BUCKET = 'call-memos';
 
 // Unicode regex ranges for non-Latin scripts that Whisper can mislabel as English.
@@ -57,46 +85,7 @@ interface AnalysisResult {
   categories: string[];
 }
 
-// ============================================================================
-// OPENAI HELPERS
-// ============================================================================
-
-async function transcribeWithWhisper(
-  audioBuffer: ArrayBuffer,
-  apiKey: string,
-  filename: string,
-): Promise<{ text: string; language: string }> {
-  const form = new FormData();
-  // Whisper API requires a file. Wrap the buffer in a Blob.
-  const blob = new Blob([audioBuffer], { type: 'audio/webm' });
-  form.append('file', blob, filename);
-  form.append('model', 'whisper-1');
-  form.append('language', 'en'); // force English
-  form.append('response_format', 'verbose_json'); // gives us .language
-
-  const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${apiKey}` },
-    body: form,
-  });
-
-  if (!response.ok) {
-    const errBody = await response.text();
-    throw new Error(`Whisper API ${response.status}: ${errBody.slice(0, 200)}`);
-  }
-
-  const data = (await response.json()) as { text?: string; language?: string };
-  return {
-    text: (data.text || '').trim(),
-    language: (data.language || 'unknown').toLowerCase(),
-  };
-}
-
-async function analyzeSentiment(
-  transcript: string,
-  apiKey: string,
-): Promise<AnalysisResult> {
-  const systemPrompt = `You analyze 30-second voice memos that admission counselors record after calling
+const SENTIMENT_SYSTEM_PROMPT = `You analyze 30-second voice memos that admission counselors record after calling
 prospective students. Extract structured sentiment data.
 
 Return ONLY a JSON object with this exact shape:
@@ -114,53 +103,27 @@ Be calibrated:
 - anxious (0.1-0.3): family pressure, deadline stress, financial uncertainty
 - hostile (<0.2): rude, refusing, complaint about JKKN`;
 
-  const response = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: 'gpt-4o-mini',
-      response_format: { type: 'json_object' },
-      temperature: 0.2,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: `Transcript:\n\n${transcript}` },
-      ],
-    }),
-  });
+// ============================================================================
+// SHAPE NORMALIZER — clamps + fills defaults regardless of provider
+// ============================================================================
 
-  if (!response.ok) {
-    const errBody = await response.text();
-    throw new Error(`GPT API ${response.status}: ${errBody.slice(0, 200)}`);
-  }
-
-  const data = (await response.json()) as {
-    choices?: Array<{ message?: { content?: string } }>;
-  };
-  const content = data.choices?.[0]?.message?.content;
-  if (!content) throw new Error('GPT returned empty content');
-
-  const parsed = JSON.parse(content) as Partial<AnalysisResult>;
-  // Defensive defaults — clamp + normalize.
+function normalizeAnalysis(raw: Record<string, unknown>): AnalysisResult {
   const sentiment =
-    typeof parsed.sentiment === 'string' && parsed.sentiment.length > 0
-      ? parsed.sentiment
+    typeof raw.sentiment === 'string' && (raw.sentiment as string).length > 0
+      ? (raw.sentiment as string)
       : 'neutral';
   const score =
-    typeof parsed.sentiment_score === 'number'
-      ? Math.max(0, Math.min(1, parsed.sentiment_score))
+    typeof raw.sentiment_score === 'number'
+      ? Math.max(0, Math.min(1, raw.sentiment_score as number))
       : 0.5;
   const summary =
-    typeof parsed.summary === 'string' && parsed.summary.length > 0
-      ? parsed.summary.slice(0, 500)
+    typeof raw.summary === 'string' && (raw.summary as string).length > 0
+      ? (raw.summary as string).slice(0, 500)
       : '';
-  const categories = Array.isArray(parsed.categories)
-    ? (parsed.categories.filter((c) => typeof c === 'string' && c.length > 0) as string[]).slice(
-        0,
-        3,
-      )
+  const categories = Array.isArray(raw.categories)
+    ? ((raw.categories as unknown[]).filter(
+        (c) => typeof c === 'string' && (c as string).length > 0,
+      ) as string[]).slice(0, 3)
     : [];
 
   return { sentiment, sentiment_score: score, summary, categories };
@@ -187,14 +150,9 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ ok: false, error: 'unauthorized' }, { status: 401 });
   }
 
-  const openaiKey = process.env.OPENAI_API_KEY;
-  if (!openaiKey) {
-    console.error('[cron/analyze-voice-memos] OPENAI_API_KEY not set');
-    return NextResponse.json(
-      { ok: false, error: 'OPENAI_API_KEY not configured' },
-      { status: 500 },
-    );
-  }
+  // --- Resolve provider config (cached 60s per process) ------------
+  const transcribeConfig = await getModelForFeature('voice_memo.transcribe');
+  const sentimentConfig = await getModelForFeature('voice_memo.sentiment');
 
   const supabase = createServiceRoleClient();
 
@@ -215,6 +173,10 @@ export async function GET(request: NextRequest) {
   }
 
   const candidates = (candidatesRaw || []) as MemoCandidate[];
+
+  // --- Pricing reference (used for cost estimates) -----------------
+  const transcribePricing = getModel(transcribeConfig.provider, transcribeConfig.model_id);
+  const sentimentPricing = getModel(sentimentConfig.provider, sentimentConfig.model_id);
 
   // --- Process -----------------------------------------------------
   let completed = 0;
@@ -239,16 +201,58 @@ export async function GET(request: NextRequest) {
         throw new Error(`storage download: ${dlErr?.message || 'no blob'}`);
       }
       const audioBuffer = await audioBlob.arrayBuffer();
+      const audioMime = audioBlob.type || 'audio/webm';
 
-      // Whisper transcription.
-      const { text: transcript, language } = await transcribeWithWhisper(
-        audioBuffer,
-        openaiKey,
-        `${c.id}.webm`,
-      );
+      // ----- Transcription (provider dispatch) -----
+      const txStart = Date.now();
+      let transcript = '';
+      let language = 'unknown';
+      try {
+        const result = await transcribeAudio({
+          audioBuffer,
+          filename: `${c.id}.${audioMime.includes('mp4') ? 'm4a' : 'webm'}`,
+          provider: transcribeConfig.provider,
+          modelId: transcribeConfig.model_id,
+          language: 'en',
+          mimeType: audioMime,
+        });
+        transcript = result.text;
+        language = result.language;
+
+        // Best-effort cost estimate. Whisper response_format=verbose_json gives
+        // duration but we don't surface it through the helper yet — leave null.
+        await recordUsage(
+          'voice_memo.transcribe',
+          transcribeConfig.provider,
+          transcribeConfig.model_id,
+          {
+            duration_ms: Date.now() - txStart,
+            success: true,
+            cost_inr: estimateTranscriptionCostInr(
+              transcribePricing?.perMinuteInr,
+              null,
+            ),
+            call_log_id: c.id,
+          },
+        );
+      } catch (txErr) {
+        const msg = txErr instanceof Error ? txErr.message : String(txErr);
+        await recordUsage(
+          'voice_memo.transcribe',
+          transcribeConfig.provider,
+          transcribeConfig.model_id,
+          {
+            duration_ms: Date.now() - txStart,
+            success: false,
+            error_message: msg.slice(0, 500),
+            call_log_id: c.id,
+          },
+        );
+        throw txErr;
+      }
 
       // Language guardrail:
-      //   (a) Whisper response.language must be 'en'.
+      //   (a) Transcription response.language must be 'en'.
       //   (b) Transcript must not contain non-Latin scripts.
       const hasNonLatin = NON_LATIN_REGEX.test(transcript);
       if (language !== 'en' || hasNonLatin) {
@@ -291,8 +295,51 @@ export async function GET(request: NextRequest) {
         })
         .eq('id', c.id);
 
-      // GPT-4o-mini sentiment + summary + categories.
-      const analysis = await analyzeSentiment(transcript, openaiKey);
+      // ----- Sentiment / structured extraction (provider dispatch) -----
+      const stStart = Date.now();
+      let analysis: AnalysisResult;
+      try {
+        const raw = await analyzeStructured({
+          provider: sentimentConfig.provider,
+          modelId: sentimentConfig.model_id,
+          systemPrompt: SENTIMENT_SYSTEM_PROMPT,
+          userPrompt: `Transcript:\n\n${transcript}`,
+        });
+        analysis = normalizeAnalysis(raw.parsed);
+
+        await recordUsage(
+          'voice_memo.sentiment',
+          sentimentConfig.provider,
+          sentimentConfig.model_id,
+          {
+            input_tokens: raw.inputTokens ?? undefined,
+            output_tokens: raw.outputTokens ?? undefined,
+            duration_ms: Date.now() - stStart,
+            success: true,
+            cost_inr: estimateChatCostInr(
+              sentimentPricing?.inputPer1KTokensInr,
+              sentimentPricing?.outputPer1KTokensInr,
+              raw.inputTokens,
+              raw.outputTokens,
+            ),
+            call_log_id: c.id,
+          },
+        );
+      } catch (stErr) {
+        const msg = stErr instanceof Error ? stErr.message : String(stErr);
+        await recordUsage(
+          'voice_memo.sentiment',
+          sentimentConfig.provider,
+          sentimentConfig.model_id,
+          {
+            duration_ms: Date.now() - stStart,
+            success: false,
+            error_message: msg.slice(0, 500),
+            call_log_id: c.id,
+          },
+        );
+        throw stErr;
+      }
 
       await supabase
         .from('admission_call_logs')
@@ -351,6 +398,8 @@ export async function GET(request: NextRequest) {
       rejected,
       failed,
       remaining,
+      transcribe_provider: `${transcribeConfig.provider}/${transcribeConfig.model_id}`,
+      sentiment_provider: `${sentimentConfig.provider}/${sentimentConfig.model_id}`,
       first_errors: errors.slice(0, 5),
     }),
   );
@@ -363,6 +412,8 @@ export async function GET(request: NextRequest) {
     rejected,
     failed,
     remaining,
+    transcribe_provider: `${transcribeConfig.provider}/${transcribeConfig.model_id}`,
+    sentiment_provider: `${sentimentConfig.provider}/${sentimentConfig.model_id}`,
     errors: errors.slice(0, 10),
   });
 }
