@@ -610,7 +610,7 @@ export function BugReporterWidget() {
   // Clear all additional images
   const handleClearAllAdditionalImages = () => {
     setAdditionalImages([]);
-    toast.success('All additional images cleared');
+    toast.success('All additional attachments cleared');
   };
 
   // Handle clipboard paste (alternative method)
@@ -1464,14 +1464,14 @@ export function BugReporterWidget() {
                 </div>
               )}
 
-              {/* Additional Images Section */}
+              {/* Additional Attachments Section */}
               <div>
                 <label className='text-sm font-medium flex items-center justify-between'>
                   <span className='text-muted-foreground'>
-                    Additional Images (Optional)
+                    Additional Attachments (Optional)
                   </span>
                   <span className='text-xs text-muted-foreground'>
-                    {additionalImages.length}/5 images
+                    {additionalImages.length}/5 files
                   </span>
                 </label>
 
@@ -1527,10 +1527,10 @@ export function BugReporterWidget() {
                   <div className='mt-1 p-4 border-2 border-dashed border-muted-foreground/25 rounded-lg text-center'>
                     <div className='text-muted-foreground mb-2'>
                       <p className='text-sm mb-1'>
-                        Add up to 5 additional images
+                        Add up to 5 attachments
                       </p>
                       <p className='text-xs'>
-                        Screenshots, error messages, mockups, etc.
+                        Screenshots, PDFs, spreadsheets, error logs, etc.
                       </p>
                     </div>
                     <Button
@@ -1541,7 +1541,7 @@ export function BugReporterWidget() {
                       className='text-xs'
                     >
                       <Camera className='w-3 h-3 mr-1' />
-                      {isCapturingScreenshot ? 'Processing...' : 'Add Images'}
+                      {isCapturingScreenshot ? 'Processing...' : 'Add Attachments'}
                     </Button>
                   </div>
                 )}
