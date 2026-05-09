@@ -155,7 +155,14 @@ function LogCallForm({
   const [followUpTime, setFollowUpTime] = useState('');
   const [acceptStage, setAcceptStage] = useState(false);
   const [isUploadingMemo, setIsUploadingMemo] = useState(false);
+  const [hasMemo, setHasMemo] = useState(false);
   const memoRecorderRef = useRef<VoiceMemoRecorderHandle | null>(null);
+
+  // Voice memo is REQUIRED when call was Connected — captures the conversation
+  // for Whisper → sentiment → Lead Mood Digest. Other outcomes have no
+  // conversation to record, so memo stays optional there.
+  const memoRequired = outcome === 'connected';
+  const memoBlocksSave = memoRequired && !hasMemo;
   const resolvedInstitutionId = lead.institution_id || selectedInstitutionId || '';
 
   // Stage suggestion — recomputed when outcome/interest change
@@ -332,16 +339,24 @@ function LogCallForm({
         </div>
       )}
 
-      {/* Section 4b: Voice memo (optional) — 30-second English audio note,
-          processed by Whisper downstream into sentiment/summary/categories
-          that flow into the Lead Mood Digest. */}
+      {/* Section 4b: Voice memo — REQUIRED for connected calls, optional for
+          others. 30-second English audio note, processed by Whisper downstream
+          into sentiment/summary/categories that flow into the Lead Mood Digest. */}
       {outcome && resolvedInstitutionId && (
-        <VoiceMemoRecorder
-          ref={memoRecorderRef}
-          institutionId={resolvedInstitutionId}
-          onError={(msg) => toast.error(msg)}
-          disabled={isLoggingCall || isUploadingMemo}
-        />
+        <div className={memoBlocksSave ? 'rounded-lg ring-1 ring-amber-300' : ''}>
+          <VoiceMemoRecorder
+            ref={memoRecorderRef}
+            institutionId={resolvedInstitutionId}
+            onError={(msg) => toast.error(msg)}
+            onMemoStateChange={setHasMemo}
+            disabled={isLoggingCall || isUploadingMemo}
+          />
+          {memoBlocksSave && (
+            <p className="mt-1.5 text-xs text-amber-700">
+              Voice memo is required for connected calls.
+            </p>
+          )}
+        </div>
       )}
 
       {/* Section 5: Follow-up */}
@@ -405,8 +420,9 @@ function LogCallForm({
         <div className="flex flex-col gap-2 pt-2 border-t">
           <Button
             onClick={() => handleSave(false)}
-            disabled={isLoggingCall || isUploadingMemo}
+            disabled={isLoggingCall || isUploadingMemo || memoBlocksSave}
             className="w-full"
+            title={memoBlocksSave ? 'Record a voice memo to save this connected call' : undefined}
           >
             {isLoggingCall || isUploadingMemo ? (
               <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> {isUploadingMemo ? 'Uploading memo...' : 'Saving...'}</>
@@ -418,8 +434,9 @@ function LogCallForm({
             <Button
               variant="outline"
               onClick={() => handleSave(true)}
-              disabled={isLoggingCall || isUploadingMemo}
+              disabled={isLoggingCall || isUploadingMemo || memoBlocksSave}
               className="w-full gap-2"
+              title={memoBlocksSave ? 'Record a voice memo to save this connected call' : undefined}
             >
               <MessageCircle className="h-4 w-4" />
               Save & Send WhatsApp

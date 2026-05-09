@@ -47,6 +47,8 @@ export interface VoiceMemoRecorderProps {
   onError?: (msg: string) => void;
   /** Disable controls while parent form is submitting */
   disabled?: boolean;
+  /** Fires whenever a memo blob becomes available or is cleared (retake) — lets parent gate Save until memo exists. */
+  onMemoStateChange?: (hasMemo: boolean) => void;
 }
 
 /**
@@ -56,7 +58,7 @@ export interface VoiceMemoRecorderProps {
 import { forwardRef, useImperativeHandle } from 'react';
 
 export const VoiceMemoRecorder = forwardRef<VoiceMemoRecorderHandle, VoiceMemoRecorderProps>(
-  function VoiceMemoRecorder({ institutionId, onMemoUploaded, onError, disabled }, ref) {
+  function VoiceMemoRecorder({ institutionId, onMemoUploaded, onError, disabled, onMemoStateChange }, ref) {
     const [state, setState] = useState<RecorderState>('idle');
     const [errorMsg, setErrorMsg] = useState<string | null>(null);
     const [elapsedSec, setElapsedSec] = useState(0);
@@ -130,6 +132,13 @@ export const VoiceMemoRecorder = forwardRef<VoiceMemoRecorderHandle, VoiceMemoRe
         }
       };
     }, [stopAmplitudeLoop, stopTickLoop, releaseStream, releaseAudioPreview]);
+
+    // Notify parent when memo presence changes (recorded/uploading/uploaded => has memo).
+    useEffect(() => {
+      if (!onMemoStateChange) return;
+      const hasMemo = state === 'recorded' || state === 'uploading' || state === 'uploaded';
+      onMemoStateChange(hasMemo);
+    }, [state, onMemoStateChange]);
 
     // ────────────────────────────────────────────────────────────────────
     // Recording
