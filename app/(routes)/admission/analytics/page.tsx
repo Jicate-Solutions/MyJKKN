@@ -1,5 +1,7 @@
 'use client';
 
+export const navMeta = { label: 'Funnel Analytics', icon: 'TrendingUp' } as const;
+
 import { useState } from 'react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
