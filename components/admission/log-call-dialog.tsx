@@ -1,11 +1,13 @@
 'use client';
 
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useRef } from 'react';
 import { useMediaQuery } from '@/hooks/use-media-query';
 import { useCallMutations } from '@/hooks/admission/use-call-mutations';
 import { useAuth } from '@/hooks/use-auth';
 import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
 import { getStageSuggestion } from '@/lib/utils/admission/stage-suggestions';
+import { toast } from 'sonner';
+import { VoiceMemoRecorder, type VoiceMemoRecorderHandle } from '@/components/admission/voice-memo-recorder';
 import type { CallOutcome, InterestLevel, NextAction, LogCallInput } from '@/lib/services/telephony/telephony-service';
 import {
   Dialog,
@@ -152,6 +154,9 @@ function LogCallForm({
   const [followUpDate, setFollowUpDate] = useState('');
   const [followUpTime, setFollowUpTime] = useState('');
   const [acceptStage, setAcceptStage] = useState(false);
+  const [isUploadingMemo, setIsUploadingMemo] = useState(false);
+  const memoRecorderRef = useRef<VoiceMemoRecorderHandle | null>(null);
+  const resolvedInstitutionId = lead.institution_id || selectedInstitutionId || '';
 
   // Stage suggestion — recomputed when outcome/interest change
   const stageSuggestion = useMemo(() => {
@@ -178,13 +183,17 @@ function LogCallForm({
     setAcceptStage(false);
   }, []);
 
-  // Save handler
+  // Save handler — also handles voice-memo upload + PATCH after the row is created.
+  // Flow: insert call_log via existing mutation → use returned id to upload memo
+  // to {institution_id}/{call_log_id}.webm → PATCH the row with memo_audio_url
+  // + memo_audio_duration_seconds. Memo is OPTIONAL: form succeeds even if the
+  // memo upload fails (we surface a toast but don't block the call log).
   const handleSave = useCallback((sendWhatsApp = false) => {
     if (!outcome) return;
 
     const input: LogCallInput = {
       lead_id: lead.id,
-      institution_id: lead.institution_id || selectedInstitutionId || '',
+      institution_id: resolvedInstitutionId,
       counselor_id: profile?.id,
       phone_called: lead.phone,
       call_outcome: outcome,
@@ -198,7 +207,35 @@ function LogCallForm({
     };
 
     logManualCall.mutate(input, {
-      onSuccess: () => {
+      onSuccess: async (data: any) => {
+        // After the row exists, attempt memo upload (if a memo was recorded).
+        const callLogId: string | undefined = data?.callLog?.id;
+        const hasMemo = memoRecorderRef.current?.hasMemo() ?? false;
+        if (callLogId && hasMemo) {
+          setIsUploadingMemo(true);
+          try {
+            const result = await memoRecorderRef.current!.uploadMemo(callLogId);
+            if (result) {
+              const patchRes = await fetch(`/api/admission/calls/log/${callLogId}/memo`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  memo_audio_url: result.url,
+                  memo_audio_duration_seconds: result.durationSec,
+                }),
+              });
+              if (!patchRes.ok) {
+                const err = await patchRes.json().catch(() => ({}));
+                toast.error(err?.message || 'Memo uploaded but could not be linked to the call log.');
+              }
+            }
+          } catch (err: any) {
+            toast.error(err?.message || 'Memo upload failed.');
+          } finally {
+            setIsUploadingMemo(false);
+          }
+        }
+
         onClose();
         if (sendWhatsApp && onSendWhatsApp) {
           // Small delay so the dialog animation finishes
@@ -206,7 +243,7 @@ function LogCallForm({
         }
       },
     });
-  }, [outcome, interest, nextAction, notes, followUpDate, followUpTime, stageSuggestion, acceptStage, lead, selectedInstitutionId, profile, logManualCall, onClose, onSendWhatsApp]);
+  }, [outcome, interest, nextAction, notes, followUpDate, followUpTime, stageSuggestion, acceptStage, lead, resolvedInstitutionId, profile, logManualCall, onClose, onSendWhatsApp]);
 
   const currentStageLabel = (lead.funnel_stage || 'new').replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase());
 
@@ -295,6 +332,18 @@ function LogCallForm({
         </div>
       )}
 
+      {/* Section 4b: Voice memo (optional) — 30-second English audio note,
+          processed by Whisper downstream into sentiment/summary/categories
+          that flow into the Lead Mood Digest. */}
+      {outcome && resolvedInstitutionId && (
+        <VoiceMemoRecorder
+          ref={memoRecorderRef}
+          institutionId={resolvedInstitutionId}
+          onError={(msg) => toast.error(msg)}
+          disabled={isLoggingCall || isUploadingMemo}
+        />
+      )}
+
       {/* Section 5: Follow-up */}
       {outcome && (
         <div>
@@ -356,11 +405,11 @@ function LogCallForm({
         <div className="flex flex-col gap-2 pt-2 border-t">
           <Button
             onClick={() => handleSave(false)}
-            disabled={isLoggingCall}
+            disabled={isLoggingCall || isUploadingMemo}
             className="w-full"
           >
-            {isLoggingCall ? (
-              <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Saving...</>
+            {isLoggingCall || isUploadingMemo ? (
+              <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> {isUploadingMemo ? 'Uploading memo...' : 'Saving...'}</>
             ) : (
               'Save & Close'
             )}
@@ -369,7 +418,7 @@ function LogCallForm({
             <Button
               variant="outline"
               onClick={() => handleSave(true)}
-              disabled={isLoggingCall}
+              disabled={isLoggingCall || isUploadingMemo}
               className="w-full gap-2"
             >
               <MessageCircle className="h-4 w-4" />
