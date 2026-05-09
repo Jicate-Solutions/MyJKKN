@@ -435,6 +435,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
     "iconName": "FileText",
     "children": [
       {
+        "path": "/admin/ai-models",
+        "label": "AI Models",
+        "iconName": "Sparkles",
+        "children": []
+      },
+      {
         "path": "/admin/ai-query-tools",
         "label": "Ai Query Tools",
         "iconName": "FileText",
@@ -445,6 +451,19 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "label": "Bug Reports",
         "iconName": "FileText",
         "children": []
+      },
+      {
+        "path": "/admin/config",
+        "label": "Config",
+        "iconName": "FileText",
+        "children": [
+          {
+            "path": "/admin/config/ai-pulse",
+            "label": "Ai Pulse",
+            "iconName": "FileText",
+            "children": []
+          }
+        ]
       },
       {
         "path": "/admin/counselors",
@@ -490,10 +509,59 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "children": []
       },
       {
+        "path": "/admin/departments",
+        "label": "Departments",
+        "iconName": "Building2",
+        "children": []
+      },
+      {
         "path": "/admin/exophone-mapping",
         "label": "Exophone Mapping",
         "iconName": "FileText",
         "children": []
+      },
+      {
+        "path": "/admin/internship-policy",
+        "label": "Internship Policy",
+        "iconName": "FileText",
+        "children": [
+          {
+            "path": "/admin/internship-policy/attendance",
+            "label": "Attendance",
+            "iconName": "CheckSquare",
+            "children": []
+          },
+          {
+            "path": "/admin/internship-policy/cycle",
+            "label": "Cycle",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/admin/internship-policy/eligibility",
+            "label": "Eligibility",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/admin/internship-policy/evaluation",
+            "label": "Evaluation",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/admin/internship-policy/fees",
+            "label": "Fees",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/admin/internship-policy/notifications",
+            "label": "Notifications",
+            "iconName": "Bell",
+            "children": []
+          }
+        ]
       },
       {
         "path": "/admin/landing-pages",
@@ -774,6 +842,18 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
+            "path": "/admission/counselors/director-pulse",
+            "label": "Director Pulse",
+            "iconName": "Users",
+            "children": []
+          },
+          {
+            "path": "/admission/counselors/lead-mood",
+            "label": "Lead Mood",
+            "iconName": "Users",
+            "children": []
+          },
+          {
             "path": "/admission/counselors/productivity",
             "label": "Productivity",
             "iconName": "Users",
@@ -845,6 +925,19 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "path": "/admission/data-quality/phone-validation",
             "label": "Phone Validation",
             "iconName": "CheckCircle2",
+            "children": []
+          }
+        ]
+      },
+      {
+        "path": "/admission/gate-entry",
+        "label": "Gate Entry",
+        "iconName": "GraduationCap",
+        "children": [
+          {
+            "path": "/admission/gate-entry/today",
+            "label": "Today",
+            "iconName": "GraduationCap",
             "children": []
           }
         ]
@@ -1186,7 +1279,46 @@ export const ROUTE_MANIFEST: RouteNode[] = [
     "path": "/ai-pulse",
     "label": "Ai Pulse",
     "iconName": "FileText",
-    "children": []
+    "children": [
+      {
+        "path": "/ai-pulse/admin",
+        "label": "Admin",
+        "iconName": "FileText",
+        "children": [
+          {
+            "path": "/ai-pulse/admin/anomalies",
+            "label": "Anomalies",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/ai-pulse/admin/cycles",
+            "label": "Cycles",
+            "iconName": "RotateCw",
+            "children": []
+          }
+        ]
+      },
+      {
+        "path": "/ai-pulse/evidence",
+        "label": "Evidence",
+        "iconName": "FileText",
+        "children": [
+          {
+            "path": "/ai-pulse/evidence/naac",
+            "label": "Naac",
+            "iconName": "FileText",
+            "children": []
+          }
+        ]
+      },
+      {
+        "path": "/ai-pulse/my-pulse",
+        "label": "My Pulse",
+        "iconName": "FileText",
+        "children": []
+      }
+    ]
   },
   {
     "path": "/ai-query",
@@ -1689,7 +1821,14 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "path": "/campus-living/gate-passes",
         "label": "Gate Passes",
         "iconName": "Ticket",
-        "children": []
+        "children": [
+          {
+            "path": "/campus-living/gate-passes/new",
+            "label": "New",
+            "iconName": "Plus",
+            "children": []
+          }
+        ]
       },
       {
         "path": "/campus-living/health",
