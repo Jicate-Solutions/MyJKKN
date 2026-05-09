@@ -256,8 +256,17 @@ export default function SeatConfigPage() {
       </Button>
     ) : undefined;
 
+  // Outer guard was previously module='admission' / action='view' (= permission
+  // key 'admission.view'). No role holds that bare key — admission/admission_staff/
+  // administrator only have admission.settings.seats.view (verified in
+  // custom_roles.permissions). super_admins got past via the is_super_admin
+  // bypass; isAdmissionGlobalUser bypassed legacy admission* role-keys. Custom
+  // roles granted only the per-page key were silently blocked here even though
+  // the inner DataTable would have let them through. The matching key per the
+  // catalog (lib/constants/permissions.ts) and route manifest
+  // (lib/sidebarMenuLink.ts:586) is admission.settings.seats.view.
   return (
-    <PermissionGuard module='admission' action='view'>
+    <PermissionGuard module='admission.settings.seats' action='view'>
       <ContentLayout title='Seat Configuration'>
         <div className='p-4 sm:p-6 space-y-4'>
           <Breadcrumb>
