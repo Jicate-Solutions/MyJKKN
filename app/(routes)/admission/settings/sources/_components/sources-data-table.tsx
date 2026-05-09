@@ -17,11 +17,16 @@ export const useSourcesRefresh = () => useContext(SourcesRefreshContext);
 
 export function SourcesDataTable() {
   const { profile } = useAuth();
-  const { isSuperAdmin, canAccess } = usePermissions();
+  const { isSuperAdmin, isAdmissionGlobalUser, canAccess } = usePermissions();
 
-  const institutionId = isSuperAdmin
-    ? undefined
-    : profile?.institution_id || undefined;
+  // Pass undefined (no institution filter) for users with cross-institution
+  // access — super admin OR admission global users (institution_scope='all',
+  // typically the Admission Officer role). Anyone narrower gets their own
+  // institution_id; the service then unions globals + their institution rows.
+  const institutionId =
+    isSuperAdmin || isAdmissionGlobalUser
+      ? undefined
+      : profile?.institution_id || undefined;
 
   const canManage =
     isSuperAdmin || canAccess('admission.settings.sources', 'manage');
@@ -34,7 +39,11 @@ export function SourcesDataTable() {
     async (params: DataFetchParams) => {
       const data = await SourceMasterService.list({
         search: params.search,
-        institution_id: institutionId ?? null, // null fetches global rows when not super_admin scope
+        // undefined = no filter (super_admin / admission global → see ALL rows
+        // across institutions). A UUID = union of globals + that institution's
+        // custom rows. Never pass null here — that would hide system rows from
+        // a single-institution user, producing a blank table.
+        institution_id: institutionId,
         sortBy: (params.sort_by as keyof SourceMaster) || 'display_order',
         sortOrder: (params.sort_order as 'asc' | 'desc') || 'asc',
       });

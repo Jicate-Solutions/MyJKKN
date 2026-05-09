@@ -102,8 +102,18 @@ export class SourceMasterService {
       q = q.or(`label.ilike.%${filters.search}%,key.ilike.%${filters.search}%`);
     }
     if (filters.institution_id !== undefined) {
-      if (filters.institution_id === null) q = q.is('institution_id', null);
-      else q = q.eq('institution_id', filters.institution_id);
+      if (filters.institution_id === null) {
+        // Explicit null means "global rows only" (admin view of just system rows)
+        q = q.is('institution_id', null);
+      } else {
+        // A specific institution UUID — include BOTH global rows AND this
+        // institution's custom rows. The earlier .eq() was hiding the 14
+        // system master rows from any non-super-admin user, producing a
+        // blank table for admission-role users.
+        q = q.or(
+          `institution_id.is.null,institution_id.eq.${filters.institution_id}`
+        );
+      }
     }
     if (filters.is_active !== undefined) q = q.eq('is_active', filters.is_active);
     if (filters.is_system !== undefined) q = q.eq('is_system', filters.is_system);

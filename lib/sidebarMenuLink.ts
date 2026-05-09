@@ -362,6 +362,15 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/admission/insights': 'admission.insights.view',
   '/admission/insights/status': 'admission.insights.view',
 
+  // Admission Gate Entry (kiosk capture)
+  '/admission/gate-entry': 'admission.gate_entry.view',
+  '/admission/gate-entry/today': 'admission.gate_entry.view',
+
+  // Admission GD-PI (Group Discussion / Personal Interview)
+  '/admission/gd-pi': 'admission.applications.view',
+  '/admission/gd-pi/new': 'admission.applications.create',
+  '/admission/gd-pi/[id]': 'admission.applications.view',
+
   // Admission Leads
   '/admission/leads': 'admission.leads.view',
   '/admission/leads/new': 'admission.leads.create',
@@ -809,24 +818,40 @@ export function GetPages(pathname: string): MenuGroup[] {
       groupLabel: 'Admission CRM',
       menus: [
         {
+          // Dashboard now hosts the Analytics submenu — was a standalone item.
+          // Active when on either /admission/dashboard or /admission/analytics.
           href: '/admission/dashboard',
           label: 'Dashboard',
-          active: pathname === '/admission/dashboard',
+          active:
+            pathname === '/admission/dashboard' ||
+            pathname === '/admission/analytics',
           icon: LayoutGrid,
-          submenus: []
-        },
-        {
-          href: '/admission/analytics',
-          label: 'Analytics',
-          active: pathname === '/admission/analytics',
-          icon: LineChart,
-          submenus: []
+          submenus: [
+            {
+              href: '/admission/dashboard',
+              label: 'Dashboard Overview',
+              active: pathname === '/admission/dashboard'
+            },
+            {
+              href: '/admission/analytics',
+              label: 'Analytics',
+              active: pathname === '/admission/analytics'
+            }
+          ]
         },
         {
           href: '/admission/group-dashboard',
           label: 'Group Dashboard',
           active: pathname === '/admission/group-dashboard',
           icon: Building2,
+          submenus: []
+        },
+        {
+          // Gate Entry — kiosk capture, lives alongside the other entry points.
+          href: '/admission/gate-entry',
+          label: 'Gate Entry',
+          active: pathname.startsWith('/admission/gate-entry'),
+          icon: UserCheck,
           submenus: []
         },
         {
@@ -852,6 +877,15 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'Applications',
           active: pathname.startsWith('/admission/applications'),
           icon: FileText,
+          submenus: []
+        },
+        {
+          // GD-PI sits next to Applications since interviews are part of the
+          // application/admission decision process.
+          href: '/admission/gd-pi',
+          label: 'GD-PI',
+          active: pathname.startsWith('/admission/gd-pi'),
+          icon: ClipboardCheck,
           submenus: []
         },
         {
