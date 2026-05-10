@@ -66,11 +66,9 @@ export default function MaintenancePage() {
         <MaintenanceStatsCards stats={stats || null} isLoading={statsLoading} />
       </div>
 
-      {/* Filters */}
+      {/* Filters (search is provided by the DataTable below) */}
       <div className='mb-6'>
         <MaintenanceFilters
-          searchQuery=''
-          onSearchChange={() => {}}
           typeFilter={typeFilter}
           onTypeChange={setTypeFilter}
           statusFilter={statusFilter}
