@@ -133,10 +133,15 @@ export class SourceMasterService {
     const sources = (rows ?? []) as SourceMaster[];
     if (sources.length === 0) return [];
 
-    // Parallel aggregations: counselor counts + lead counts per enum_value
+    // Parallel aggregations: counselor counts + lead counts per enum_value.
+    // Pass the user's institution_id to the lead-count RPC so single-institution
+    // admins see counts scoped to their own institution. undefined = no filter
+    // = all institutions (super_admin / admission-global view).
+    const leadInstitutionFilter =
+      typeof filters.institution_id === 'string' ? filters.institution_id : null;
     const [counselorCounts, leadCounts] = await Promise.all([
       this.getCounselorCountsBySource(sources.map((s) => s.id)),
-      this.getLeadCountsByEnumValue(sources.map((s) => s.enum_value)),
+      this.getLeadCountsByEnumValue(sources.map((s) => s.enum_value), leadInstitutionFilter),
     ]);
 
     return sources.map((s) => {
@@ -301,9 +306,11 @@ export class SourceMasterService {
    * Server-side aggregate via SQL function (avoids the PostgREST 1000-row cap
    * that the previous client-side fetch+count was hitting silently).
    * Returns total / assigned / unassigned counts per enum value.
+   * institutionId=null aggregates across all institutions (super-admin view).
    */
   private static async getLeadCountsByEnumValue(
-    enumValues: LeadSourceEnum[]
+    enumValues: LeadSourceEnum[],
+    institutionId: string | null
   ): Promise<Map<LeadSourceEnum, { total: number; assigned: number; unassigned: number }>> {
     const out = new Map<
       LeadSourceEnum,
@@ -312,7 +319,7 @@ export class SourceMasterService {
     if (enumValues.length === 0) return out;
     const wanted = new Set(enumValues);
     const { data, error } = await (this.supabase as any)
-      .rpc('get_lead_counts_by_source', { p_institution_id: null });
+      .rpc('get_lead_counts_by_source', { p_institution_id: institutionId });
     if (error) {
       logger.error('admissions', 'Error counting leads per source', error);
       return out;
