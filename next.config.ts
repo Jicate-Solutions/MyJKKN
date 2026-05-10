@@ -289,7 +289,20 @@ const nextConfig: NextConfig = {
   }
 };
 
-export default withSentryConfig(withSerwist(nextConfig), {
+// Local builds (CI unset) skip Sentry's webpack plugin entirely. The plugin
+// generates source maps + instruments every module for 646 client pages,
+// pushing local Windows builds past 12 GB heap. Vercel's 8 GB container
+// completes fine because Linux webpack uses less memory and the build
+// container has fewer competing processes than a 16 GB dev laptop.
+//
+// Runtime Sentry is unaffected — Sentry.init / captureException are wired
+// in sentry.*.config.ts / instrumentation.ts and don't depend on the
+// build-time wrapper. Local builds just lose source-map remapping for
+// minified stack traces, which only matters when uploading to Sentry
+// (which requires SENTRY_AUTH_TOKEN that local devs don't have anyway).
+const baseConfig = withSerwist(nextConfig);
+
+export default process.env.CI ? withSentryConfig(baseConfig, {
   // For all available options, see:
   // https://www.npmjs.com/package/@sentry/webpack-plugin#options
 
@@ -325,4 +338,4 @@ export default withSentryConfig(withSerwist(nextConfig), {
       removeDebugLogging: true,
     },
   }
-});
+}) : baseConfig;
