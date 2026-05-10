@@ -18,8 +18,8 @@ import {
   deleteSiteContact,
 } from '@/lib/services/internships/sites-service';
 import type {
-  CreateSiteInput,
-  UpdateSiteInput,
+  CreateExternalSiteInput,
+  UpdateExternalSiteInput,
   CreateSiteContactInput,
   UpdateSiteContactInput,
 } from '@/lib/services/internships/types';
@@ -68,6 +68,27 @@ export function useSite(id?: string) {
 }
 
 // ---------------------------------------------------------------------------
+// Query — site types (config lookup table powering the site_type_id FK)
+// ---------------------------------------------------------------------------
+
+export function useSiteTypes(activeOnly = true) {
+  const supabase = createClientSupabaseClient();
+  return useQuery({
+    queryKey: [...sitesKeys.all, 'site-types', activeOnly ? 'active' : 'all'] as const,
+    queryFn: async () => {
+      let query = supabase
+        .from('internship_site_types')
+        .select('id, institution_id, config_key, display_name, description, is_system, is_active, sort_order, created_at, updated_at')
+        .order('sort_order', { ascending: true });
+      if (activeOnly) query = query.eq('is_active', true);
+      const { data, error } = await query;
+      if (error) throw new Error(error.message);
+      return data ?? [];
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Queries — contacts
 // ---------------------------------------------------------------------------
 
@@ -93,7 +114,7 @@ export function useCreateSite() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (input: CreateSiteInput) =>
+    mutationFn: (input: CreateExternalSiteInput) =>
       createSite(supabase, input).then(({ data, error }) => {
         if (error) throw error;
         return data!;
@@ -113,7 +134,7 @@ export function useUpdateSite() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({ id, updates }: { id: string; updates: UpdateSiteInput }) =>
+    mutationFn: ({ id, updates }: { id: string; updates: UpdateExternalSiteInput }) =>
       updateSite(supabase, id, updates).then(({ data, error }) => {
         if (error) throw error;
         return data!;

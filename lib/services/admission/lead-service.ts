@@ -196,14 +196,14 @@ export class LeadService {
       query = query.eq('institution_id', institutionId);
     }
 
-    const { data, error } = await query.single();
+    const { data, error } = await query.maybeSingle();
 
     if (error) {
       console.error('[LeadService] Error fetching lead:', error);
-      if (error.code === 'PGRST116') {
-        throw new Error('Lead not found');
-      }
       throw new Error(`Failed to fetch lead: ${error.message}`);
+    }
+    if (!data) {
+      throw new Error('Lead not found');
     }
 
     return this.normalizeLead(data);
@@ -1164,90 +1164,65 @@ export class LeadService {
    * the authenticated user can access (controlled by RLS).
    */
   static async getFunnelSummary(institutionId?: string): Promise<any> {
-    let query = (this.supabase as any).from('admission_leads')
-      .select('stage, funnel_stage, is_hot_lead, is_priority');
-    if (institutionId) {
-      query = query.eq('institution_id', institutionId);
-    }
-    const { data, error } = await query;
+    // Server-side aggregate via RPC. Replaces a row-fetch+client-count
+    // that was silently truncated by PostgREST max_rows = 10000. The RPC
+    // returns { totalLeads, hotLeads, priorityLeads, byStage } as jsonb.
+    const { data, error } = await (this.supabase as any).rpc(
+      'get_admission_funnel_summary_aggregate',
+      { p_institution_id: institutionId ?? null }
+    );
 
     if (error) {
       console.error('[LeadService] Error fetching funnel summary:', error);
       throw new Error(`Failed to fetch funnel summary: ${error.message}`);
     }
 
-    const leads = data || [];
+    const totalLeads = Number(data?.totalLeads ?? 0);
+    const hotLeads = Number(data?.hotLeads ?? 0);
+    const priorityLeads = Number(data?.priorityLeads ?? 0);
+    const byStageRaw: Record<string, number | string> = data?.byStage ?? {};
 
-    // Count by stage — all 22 stages from admission_lead_stage enum
+    // Normalize byStage to the typed Record<FunnelStage, number> shape that
+    // existing consumers expect, with all 26 stages present (zeros for those
+    // not represented in the RPC response).
     const byStage: Record<FunnelStage, number> = {
-      new: 0,
-      contacted: 0,
-      not_reachable: 0,
-      interested: 0,
-      follow_up_scheduled: 0,
-      engaged: 0,
-      qualified: 0,
-      application_started: 0,
-      application_submitted: 0,
-      documents_pending: 0,
-      documents_verified: 0,
-      interview_scheduled: 0,
-      interview_completed: 0,
-      offer_sent: 0,
-      offer_accepted: 0,
-      token_paid: 0,
-      applied: 0,
-      interviewed: 0,
-      offered: 0,
-      enrolled: 0,
-      confirmed: 0,
-      declined: 0,
-      withdrew: 0,
-      expired: 0,
-      lost: 0,
-      dormant: 0
+      new: 0, contacted: 0, not_reachable: 0, interested: 0,
+      follow_up_scheduled: 0, engaged: 0, qualified: 0,
+      application_started: 0, application_submitted: 0,
+      documents_pending: 0, documents_verified: 0,
+      interview_scheduled: 0, interview_completed: 0,
+      offer_sent: 0, offer_accepted: 0, token_paid: 0,
+      applied: 0, interviewed: 0, offered: 0,
+      enrolled: 0, confirmed: 0, declined: 0,
+      withdrew: 0, expired: 0, lost: 0, dormant: 0,
     };
-
-    let hotLeads = 0;
-    let priorityLeads = 0;
-
-    leads.forEach((lead: any) => {
-      const leadStage = lead.stage || lead.funnel_stage;
-      if (leadStage && byStage[leadStage as FunnelStage] !== undefined) {
-        byStage[leadStage as FunnelStage]++;
+    for (const [k, v] of Object.entries(byStageRaw)) {
+      if (k in byStage) {
+        byStage[k as FunnelStage] = Number(v) || 0;
       }
-      if (lead.is_hot_lead) {
-        hotLeads++;
-        priorityLeads++;
-      } else if (lead.is_priority) {
-        priorityLeads++;
-      }
-    });
+    }
 
     // Build stages array for funnel visualization
     const stages = Object.entries(byStage).map(([stage, count]) => ({
       stage,
       count,
-      percentage: leads.length > 0 ? (count / leads.length) * 100 : 0
+      percentage: totalLeads > 0 ? (count / totalLeads) * 100 : 0,
     }));
 
-    // activeTotal excludes terminal lifecycle stages — rows that are no longer
-    // in active pipeline (lost, dormant, enrolled, confirmed, declined, withdrew,
-    // expired). This is what the "Total Active Leads" KPI should reflect.
-    // See docs/diagnostics/admission-active-leads-reconciliation-2026-05-08.md.
+    // activeTotal excludes terminal lifecycle stages.
     const TERMINAL_STAGES: FunnelStage[] = [
-      'lost', 'dormant', 'enrolled', 'confirmed', 'declined', 'withdrew', 'expired'
+      'lost', 'dormant', 'enrolled', 'confirmed', 'declined', 'withdrew', 'expired',
     ];
     const terminalCount = TERMINAL_STAGES.reduce((sum, s) => sum + (byStage[s] || 0), 0);
-    const activeTotal = leads.length - terminalCount;
+    const activeTotal = totalLeads - terminalCount;
 
     return {
-      total: leads.length,
+      total: totalLeads,
       activeTotal,
       byStage,
       hotLeads,
       priorityLeads,
-      stages
+      stages,
     };
   }
 
@@ -1257,74 +1232,32 @@ export class LeadService {
    * the authenticated user can access (controlled by RLS).
    */
   static async getDashboardSummary(institutionId?: string): Promise<any> {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
-    // Get all leads - select both stage (enum) and funnel_stage (legacy).
-    // learner_profile_id is the proxy for "Application Started" — when a
-    // counselor advances a lead, a learner_profile row is created and linked.
-    // PR #790 diagnosed that stage='enrolled' has zero rows ever, so the
-    // legacy "Conversion Rate" KPI was structurally impossible. Director
-    // chose Path A: replace with "Application Start Rate" using the
-    // learner-profile linkage as numerator.
-    let leadsQuery = (this.supabase as any).from('admission_leads')
-      .select('stage, funnel_stage, created_at, is_hot_lead, is_priority, last_contact_at, next_followup_at, learner_profile_id');
-    if (institutionId) {
-      leadsQuery = leadsQuery.eq('institution_id', institutionId);
-    }
-    const { data: leads, error } = await leadsQuery;
+    // Server-side aggregate via RPC. The previous implementation fetched
+    // every lead row and counted client-side, which was silently capped at
+    // PostgREST's max_rows (10,000) — so /admission/analytics showed
+    // "Total Leads: 10,000" exactly for any institution with more leads.
+    // The RPC returns COUNT(*) results which are unaffected by row caps.
+    const { data, error } = await (this.supabase as any).rpc(
+      'get_admission_dashboard_summary_aggregate',
+      { p_institution_id: institutionId ?? null }
+    );
 
     if (error) {
       console.error('[LeadService] Error fetching dashboard summary:', error);
       throw new Error(`Failed to fetch dashboard summary: ${error.message}`);
     }
 
-    const allLeads = leads || [];
-
-    const totalLeads = allLeads.length;
-    const newLeads = allLeads.filter((l: any) =>
-      new Date(l.created_at) >= today
-    ).length;
-    // Legacy "converted" metric — kept for backwards compat with older
-    // consumers, but the dashboard KPI now uses applicationStartedLeads below.
-    const convertedLeads = allLeads.filter((l: any) => {
-      const s = l.stage || l.funnel_stage;
-      return s === 'enrolled';
-    }).length;
-    // New: Application Started — leads that have been advanced into the
-    // learner_profiles table. The honest, currently-measurable signal.
-    const applicationStartedLeads = allLeads.filter((l: any) =>
-      l.learner_profile_id != null
-    ).length;
-    // Count leads with overdue or pending followups
-    const pendingFollowups = allLeads.filter((l: any) => {
-      const s = l.stage || l.funnel_stage;
-      return l.next_followup_at && new Date(l.next_followup_at) <= new Date() &&
-        s !== 'enrolled' && s !== 'lost';
-    }).length;
-    const todayFollowups = allLeads.filter((l: any) => {
-      const s = l.stage || l.funnel_stage;
-      return l.next_followup_at &&
-        new Date(l.next_followup_at).toDateString() === today.toDateString() &&
-        s !== 'enrolled' && s !== 'lost';
-    }).length;
-
-    const conversionRate = totalLeads > 0
-      ? (convertedLeads / totalLeads) * 100
-      : 0;
-    const applicationStartRate = totalLeads > 0
-      ? (applicationStartedLeads / totalLeads) * 100
-      : 0;
-
-    return {
-      totalLeads,
-      newLeads,
-      convertedLeads,
-      applicationStartedLeads,
-      pendingFollowups,
-      todayFollowups,
-      conversionRate: Math.round(conversionRate * 10) / 10,
-      applicationStartRate: Math.round(applicationStartRate * 10) / 10
+    // The RPC already returns the canonical shape (camelCase keys, rounded
+    // rates) — no client-side reshaping needed.
+    return data ?? {
+      totalLeads: 0,
+      newLeads: 0,
+      convertedLeads: 0,
+      applicationStartedLeads: 0,
+      pendingFollowups: 0,
+      todayFollowups: 0,
+      conversionRate: 0,
+      applicationStartRate: 0,
     };
   }
 }

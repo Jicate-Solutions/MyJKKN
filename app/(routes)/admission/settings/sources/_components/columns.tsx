@@ -4,7 +4,7 @@ import { ColumnDef } from '@tanstack/react-table';
 import Link from 'next/link';
 import { DataTableColumnHeader } from '@/components/data-table/column-header';
 import { Badge } from '@/components/ui/badge';
-import { Globe, Building2, Users, Activity } from 'lucide-react';
+import { Globe, Building2, Users, Activity, UserCheck, UserX } from 'lucide-react';
 import type { SourceMaster } from '@/lib/services/admission/source-master-service';
 import { SourceRowActions } from './row-actions';
 
@@ -69,13 +69,58 @@ export const columns: ColumnDef<SourceMaster>[] = [
   },
   {
     accessorKey: 'lead_count',
-    header: ({ column }) => <DataTableColumnHeader column={column} title="Leads" />,
+    header: ({ column }) => <DataTableColumnHeader column={column} title="Total Leads" />,
     cell: ({ row }) => (
       <div className="flex items-center gap-1.5">
         <Activity className="h-3.5 w-3.5 text-muted-foreground" />
-        <span className="font-medium">{(row.original.lead_count ?? 0).toLocaleString()}</span>
+        <span className="font-medium tabular-nums">{(row.original.lead_count ?? 0).toLocaleString()}</span>
       </div>
     ),
+  },
+  {
+    accessorKey: 'assigned_count',
+    header: ({ column }) => <DataTableColumnHeader column={column} title="Assigned" />,
+    cell: ({ row }) => {
+      const total = row.original.lead_count ?? 0;
+      const assigned = row.original.assigned_count ?? 0;
+      const pct = total > 0 ? Math.round((assigned / total) * 100) : 0;
+      return (
+        <div className="flex items-center gap-1.5">
+          <UserCheck className="h-3.5 w-3.5 text-green-600" />
+          <span className="font-medium tabular-nums text-green-700">
+            {assigned.toLocaleString()}
+          </span>
+          {total > 0 && (
+            <span className="text-[10px] text-muted-foreground tabular-nums">
+              ({pct}%)
+            </span>
+          )}
+        </div>
+      );
+    },
+  },
+  {
+    accessorKey: 'unassigned_count',
+    header: ({ column }) => <DataTableColumnHeader column={column} title="Unassigned" />,
+    cell: ({ row }) => {
+      const total = row.original.lead_count ?? 0;
+      const unassigned = row.original.unassigned_count ?? 0;
+      const pct = total > 0 ? Math.round((unassigned / total) * 100) : 0;
+      const isHighBacklog = unassigned > 0 && pct >= 25;
+      return (
+        <div className="flex items-center gap-1.5">
+          <UserX className={`h-3.5 w-3.5 ${unassigned > 0 ? 'text-orange-600' : 'text-muted-foreground'}`} />
+          <span className={`font-medium tabular-nums ${isHighBacklog ? 'text-orange-700' : unassigned > 0 ? 'text-orange-600' : 'text-muted-foreground'}`}>
+            {unassigned.toLocaleString()}
+          </span>
+          {total > 0 && (
+            <span className="text-[10px] text-muted-foreground tabular-nums">
+              ({pct}%)
+            </span>
+          )}
+        </div>
+      );
+    },
   },
   {
     accessorKey: 'is_active',

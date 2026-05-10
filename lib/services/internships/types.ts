@@ -22,25 +22,72 @@ export type ServiceListResult<T> = {
 // ---------------------------------------------------------------------------
 // internship_posting_cycles
 // ---------------------------------------------------------------------------
-export type CycleStatus = 'draft' | 'open' | 'closed' | 'archived';
+// Live enum from internship_cycle_status_enum (substrate migration 20260509_v3).
+// Hand-authored spec-time enum was {draft|open|closed|archived} — drifted from
+// what Agent A actually shipped. Reconciled 2026-05-10.
+export type CycleStatus =
+  | 'draft'
+  | 'pending_approval'
+  | 'approved'
+  | 'fee_checking'
+  | 'assignments_ready'
+  | 'active'
+  | 'completed'
+  | 'cancelled';
+
+export type CycleTemporalMode = 'fixed' | 'rolling' | 'batch_aligned';
+export type CyclePostingType = 'standard' | 'community' | 'industrial' | 'research' | 'virtual';
 
 export interface InternshipCycle {
   id: string;
   institution_id: string;
-  name: string;
-  academic_year: string;
+  college_id: string | null;
+  cycle_name: string;
+  batch_id: string | null;
+  batch_label: string | null;
+  program_ids: string[];
   start_date: string;
   end_date: string;
   status: CycleStatus;
-  total_seats: number | null;
+  approval_chain_id: string | null;
+  current_approval_step: number;
+  fee_compliance_threshold: number;
+  fee_check_deadline: string | null;
+  temporal_mode: CycleTemporalMode;
+  posting_type: CyclePostingType;
+  escalate_after_hours: number;
+  delegated_to: string | null;
+  sites_count: number;
+  learners_count: number;
+  approved_by: string | null;
+  approved_at: string | null;
   notes: string | null;
-  created_by: string | null;
   created_at: string;
   updated_at: string;
+  created_by: string | null;
+  updated_by: string | null;
 }
 
-export type CreateCycleInput = Omit<InternshipCycle, 'id' | 'created_at' | 'updated_at'>;
-export type UpdateCycleInput = Partial<Omit<InternshipCycle, 'id' | 'created_at' | 'updated_at'>>;
+// Required-on-create per live schema NOT NULL columns without defaults:
+//   institution_id, cycle_name, start_date, end_date.
+// All other fields are either NULLABLE or have DB defaults — represent as
+// optional so callers can omit them.
+export type CreateCycleInput = {
+  institution_id: string;
+  cycle_name: string;
+  start_date: string;
+  end_date: string;
+} & Partial<Omit<InternshipCycle,
+  'id' | 'institution_id' | 'cycle_name' | 'start_date' | 'end_date'
+  | 'created_at' | 'updated_at'
+  | 'sites_count' | 'learners_count' | 'current_approval_step'
+  | 'approved_by' | 'approved_at'
+>>;
+
+export type UpdateCycleInput = Partial<Omit<InternshipCycle,
+  'id' | 'institution_id' | 'created_at' | 'updated_at'
+  | 'sites_count' | 'learners_count' | 'approved_by' | 'approved_at'
+>>;
 
 // ---------------------------------------------------------------------------
 // internship_assignments
@@ -123,30 +170,116 @@ export type CreateEvaluationInput = Omit<InternshipEvaluation, 'id' | 'created_a
 export type UpdateEvaluationInput = Partial<Omit<InternshipEvaluation, 'id' | 'created_at' | 'updated_at'>>;
 
 // ---------------------------------------------------------------------------
-// internship_external_sites
+// internship_site_types — lookup table for site_type_id FK (config-driven).
+// Hand-authored spec-time SiteType enum {hospital|clinic|community|industry|other}
+// was a fictional placeholder; substrate v3 ships a proper lookup table. Kept
+// the SiteType alias only as a deprecation hook for any straggler imports.
 // ---------------------------------------------------------------------------
-export type SiteType = 'hospital' | 'clinic' | 'community' | 'industry' | 'other';
-
-export interface InternshipExternalSite {
+export interface InternshipSiteType {
   id: string;
-  institution_id: string;
-  name: string;
-  site_type: SiteType;
-  address: string | null;
-  city: string | null;
-  state: string | null;
-  pincode: string | null;
-  mou_signed: boolean;
-  mou_expiry_date: string | null;
-  capacity: number | null;
+  institution_id: string | null;
+  config_key: string;
+  display_name: string;
+  description: string | null;
+  is_system: boolean;
   is_active: boolean;
-  notes: string | null;
+  sort_order: number;
   created_at: string;
   updated_at: string;
 }
 
-export type CreateSiteInput = Omit<InternshipExternalSite, 'id' | 'created_at' | 'updated_at'>;
-export type UpdateSiteInput = Partial<Omit<InternshipExternalSite, 'id' | 'created_at' | 'updated_at'>>;
+/** @deprecated The substrate ships a lookup table; use site_type_id + InternshipSiteType. */
+export type SiteType = string;
+
+// ---------------------------------------------------------------------------
+// internship_external_sites
+// Live schema columns (substrate v3, migration 20260509). The recovered thin
+// types declared name/address/site_type/mou_signed/capacity which never existed
+// on the shipped table. Reconciled 2026-05-10.
+// ---------------------------------------------------------------------------
+export type SiteOwnershipType =
+  | 'private'
+  | 'government'
+  | 'university_affiliated'
+  | 'trust'
+  | 'corporate'
+  | 'ngo';
+
+export interface InternshipExternalSite {
+  id: string;
+  institution_id: string;
+  site_type_id: string | null;
+  site_name: string;
+  hospital_code: string;
+  address_line1: string;
+  address_line2: string | null;
+  city: string;
+  district: string;
+  state: string;
+  pincode: string;
+  latitude: number;
+  longitude: number;
+  geofence_radius_meters: number;
+  max_learners_per_cycle: number | null;
+  departments_available: string[];
+  posting_fee_per_learner: number | null;
+  contract_start_date: string | null;
+  contract_end_date: string | null;
+  operates_weekends: boolean;
+  emergency_contact_name: string | null;
+  emergency_contact_phone: string | null;
+  emergency_contact_role: string | null;
+  nearest_emergency_ward: string | null;
+  ambulance_number: string | null;
+  ownership_type: SiteOwnershipType;
+  is_active: boolean;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+  created_by: string | null;
+  updated_by: string | null;
+}
+
+// Required-on-create per live schema NOT-NULL columns without DB defaults:
+//   institution_id, site_name, hospital_code, address_line1, city, district,
+//   pincode, latitude, longitude.
+// All other fields are either NULLABLE or carry a DB default — modelled as
+// optional so callers can omit them.
+export type CreateExternalSiteInput = {
+  institution_id: string;
+  site_name: string;
+  hospital_code: string;
+  address_line1: string;
+  city: string;
+  district: string;
+  pincode: string;
+  latitude: number;
+  longitude: number;
+} & Partial<Omit<InternshipExternalSite,
+  | 'id'
+  | 'institution_id'
+  | 'site_name'
+  | 'hospital_code'
+  | 'address_line1'
+  | 'city'
+  | 'district'
+  | 'pincode'
+  | 'latitude'
+  | 'longitude'
+  | 'created_at'
+  | 'updated_at'
+  | 'created_by'
+  | 'updated_by'
+>>;
+
+export type UpdateExternalSiteInput = Partial<Omit<InternshipExternalSite,
+  'id' | 'institution_id' | 'created_at' | 'updated_at' | 'created_by' | 'updated_by'
+>>;
+
+/** @deprecated Old aliases kept while consumers migrate; prefer the External-prefixed names. */
+export type CreateSiteInput = CreateExternalSiteInput;
+/** @deprecated */
+export type UpdateSiteInput = UpdateExternalSiteInput;
 
 // ---------------------------------------------------------------------------
 // internship_site_contacts
@@ -168,23 +301,52 @@ export type UpdateSiteContactInput = Partial<Omit<InternshipSiteContact, 'id' | 
 
 // ---------------------------------------------------------------------------
 // internship_preceptors
+// Live schema columns (substrate v3). Recovered types used name/phone/max_trainees
+// which all renamed on shipped substrate. Reconciled 2026-05-10.
 // ---------------------------------------------------------------------------
+export type PreceptorScopeType = 'cycle' | 'site' | 'institution';
+
 export interface InternshipPreceptor {
   id: string;
+  institution_id: string;
   site_id: string;
-  name: string;
+  profile_id: string | null;
+  full_name: string;
+  designation: string | null;
   qualification: string | null;
   specialization: string | null;
-  phone: string | null;
+  mobile: string | null;
   email: string | null;
+  max_students: number;
   is_active: boolean;
-  max_trainees: number | null;
+  scope_type: PreceptorScopeType;
   created_at: string;
   updated_at: string;
+  created_by: string | null;
+  updated_by: string | null;
 }
 
-export type CreatePreceptorInput = Omit<InternshipPreceptor, 'id' | 'created_at' | 'updated_at'>;
-export type UpdatePreceptorInput = Partial<Omit<InternshipPreceptor, 'id' | 'created_at' | 'updated_at'>>;
+// Required-on-create per live schema NOT-NULL columns without defaults:
+//   institution_id, site_id, full_name. Everything else has either NULL
+//   or a DB default (max_students=6, is_active=true, scope_type='cycle').
+export type CreatePreceptorInput = {
+  institution_id: string;
+  site_id: string;
+  full_name: string;
+} & Partial<Omit<InternshipPreceptor,
+  | 'id'
+  | 'institution_id'
+  | 'site_id'
+  | 'full_name'
+  | 'created_at'
+  | 'updated_at'
+  | 'created_by'
+  | 'updated_by'
+>>;
+
+export type UpdatePreceptorInput = Partial<Omit<InternshipPreceptor,
+  'id' | 'institution_id' | 'created_at' | 'updated_at' | 'created_by' | 'updated_by'
+>>;
 
 // ---------------------------------------------------------------------------
 // internship_incidents

@@ -5,6 +5,7 @@
 // Reads admission_counselor_institutions + admission_counselor_sources.
 // Both junction tables may be empty pre-Phase-7 — empty state handled gracefully.
 
+import { useState } from 'react';
 import {
   useCounselorMembers,
   useCounselorInstitutions,
@@ -12,9 +13,11 @@ import {
 } from '@/hooks/admission/use-counselor-team-data';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Building2, Globe, AlertCircle } from 'lucide-react';
+import { Building2, Globe, AlertCircle, Pencil, AlertTriangle } from 'lucide-react';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { AllocationEditSheet } from './allocation-edit-sheet';
 
 function initials(name: string) {
   return name
@@ -36,6 +39,11 @@ export function AllocationTab({ institutionId }: AllocationTabProps) {
 
   const isLoading = loadingMembers || loadingInst || loadingSrc;
   const error = instError || srcError;
+
+  // Edit Sheet state — opens when admin clicks the pencil on a counselor card.
+  const [editing, setEditing] = useState<{ id: string; name: string } | null>(
+    null
+  );
 
   if (isLoading) {
     return (
@@ -98,11 +106,22 @@ export function AllocationTab({ institutionId }: AllocationTabProps) {
           return (
             <Card key={m.id}>
               <CardHeader className="pb-3">
-                <CardTitle className="flex items-center gap-2 text-sm font-semibold">
-                  <Avatar className="h-7 w-7">
-                    <AvatarFallback className="text-xs">{initials(m.name)}</AvatarFallback>
-                  </Avatar>
-                  {m.name}
+                <CardTitle className="flex items-center justify-between gap-2 text-sm font-semibold">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <Avatar className="h-7 w-7">
+                      <AvatarFallback className="text-xs">{initials(m.name)}</AvatarFallback>
+                    </Avatar>
+                    <span className="truncate">{m.name}</span>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7 flex-shrink-0"
+                    onClick={() => setEditing({ id: m.id, name: m.name })}
+                    aria-label={`Edit allocation for ${m.name}`}
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                  </Button>
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
@@ -121,7 +140,10 @@ export function AllocationTab({ institutionId }: AllocationTabProps) {
                       ))}
                     </div>
                   ) : (
-                    <p className="text-xs text-muted-foreground italic">None assigned</p>
+                    <div className="inline-flex items-center gap-1.5 rounded-md border border-yellow-200 bg-yellow-50 px-2 py-1 text-xs text-yellow-800">
+                      <AlertTriangle className="h-3.5 w-3.5 flex-shrink-0" />
+                      <span>No institutions — won&apos;t receive leads</span>
+                    </div>
                   )}
                 </div>
 
@@ -148,6 +170,17 @@ export function AllocationTab({ institutionId }: AllocationTabProps) {
           );
         })}
       </div>
+
+      {editing && (
+        <AllocationEditSheet
+          open={!!editing}
+          onOpenChange={(o) => {
+            if (!o) setEditing(null);
+          }}
+          counselorId={editing.id}
+          counselorName={editing.name}
+        />
+      )}
     </div>
   );
 }

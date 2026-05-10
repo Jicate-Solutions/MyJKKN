@@ -50,6 +50,7 @@ import { ActivityTab } from './_components/tabs/activity-tab';
 import { CallsTab } from './_components/tabs/calls-tab';
 import { CommunicationTab } from './_components/tabs/communication-tab';
 import { DetailsTab } from './_components/tabs/details-tab';
+import { JourneyTab } from './_components/tabs/journey-tab';
 import { LogCallDialog } from '@/components/admission/log-call-dialog';
 import { ShowStudentQRButton } from '@/components/admission/show-student-qr-button';
 import { QuickActionsBar } from '@/components/admission/quick-actions-bar';
@@ -1387,6 +1388,7 @@ function LeadDetailPageContent() {
                   <TabsTrigger value="calls">Calls</TabsTrigger>
                   <TabsTrigger value="communication">Communication</TabsTrigger>
                   <TabsTrigger value="details">Details</TabsTrigger>
+                  <TabsTrigger value="journey">Journey</TabsTrigger>
                 </TabsList>
 
                 <TabsContent value="activity" className="mt-4">
@@ -1436,6 +1438,13 @@ function LeadDetailPageContent() {
                     leadAttributions={leadAttributions}
                     openEditDialog={openEditDialog}
                     setShowAssignCounselorDialog={setShowAssignCounselorDialog}
+                  />
+                </TabsContent>
+
+                <TabsContent value="journey" className="mt-4">
+                  <JourneyTab
+                    leadId={lead.id}
+                    institutionId={lead.institution_id || userInstitutionId || ''}
                   />
                 </TabsContent>
               </Tabs>

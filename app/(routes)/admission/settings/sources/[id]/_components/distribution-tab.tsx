@@ -13,14 +13,7 @@ import {
   Tooltip,
   Legend,
 } from 'recharts';
-import {
-  Activity,
-  CheckCircle2,
-  Hourglass,
-  Inbox,
-  TrendingUp,
-  Users,
-} from 'lucide-react';
+import { Activity } from 'lucide-react';
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -41,7 +34,6 @@ import {
   type CounselorDistribution,
 } from '@/lib/services/admission/lead-distribution-service';
 import type { LeadSourceEnum } from '@/lib/services/admission/source-master-service';
-import { DistributePanel } from './distribute/distribute-panel';
 
 const ROLE_LABEL: Record<string, string> = {
   admission_counselor: 'Admission',
@@ -153,51 +145,10 @@ export function DistributionTab({
             </div>
           </div>
           <p className="text-[11px] text-muted-foreground">
-            KPIs and the per-counselor breakdown below filter by lead <strong>creation</strong> date in this window.
-            The <strong>Distribute Unassigned Leads</strong> panel at the bottom of this tab shows lifetime unassigned counts (not date-filtered) — it can show leads even when the KPIs above show 0 (they were created outside this window).
+            The chart and per-counselor breakdown below filter by lead <strong>creation</strong> date in this window. The status cards at the top of the page show <strong>lifetime</strong> stats (not date-filtered).
           </p>
         </CardContent>
       </Card>
-
-      {/* Summary KPIs */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-        <KpiCard
-          icon={<Inbox className="h-4 w-4" />}
-          label="Total leads"
-          value={data?.summary.totalLeads ?? 0}
-          loading={isLoading}
-        />
-        <KpiCard
-          icon={<Users className="h-4 w-4" />}
-          label="Counselors"
-          value={data?.summary.uniqueCounselors ?? 0}
-          loading={isLoading}
-        />
-        <KpiCard
-          icon={<Hourglass className="h-4 w-4" />}
-          label="Unassigned"
-          value={data?.summary.totalUnassigned ?? 0}
-          accent={
-            (data?.summary.totalUnassigned ?? 0) > 0
-              ? 'text-orange-600'
-              : 'text-muted-foreground'
-          }
-          loading={isLoading}
-        />
-        <KpiCard
-          icon={<TrendingUp className="h-4 w-4" />}
-          label="Progression rate"
-          value={`${(data?.summary.progressionRate ?? 0).toFixed(1)}%`}
-          loading={isLoading}
-        />
-        <KpiCard
-          icon={<CheckCircle2 className="h-4 w-4" />}
-          label="Conversion rate"
-          value={`${(data?.summary.conversionRate ?? 0).toFixed(1)}%`}
-          accent="text-green-600"
-          loading={isLoading}
-        />
-      </div>
 
       {/* Chart */}
       <Card>
@@ -292,46 +243,7 @@ export function DistributionTab({
         </CardContent>
       </Card>
 
-      <DistributePanel
-        sourceId={sourceId}
-        sourceEnum={sourceEnum}
-        institutionId={institutionId}
-      />
     </div>
-  );
-}
-
-function KpiCard({
-  icon,
-  label,
-  value,
-  accent,
-  loading,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: number | string;
-  accent?: string;
-  loading?: boolean;
-}) {
-  return (
-    <Card>
-      <CardContent className="pt-4 pb-3">
-        <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-1">
-          {icon}
-          <span>{label}</span>
-        </div>
-        {loading ? (
-          <Skeleton className="h-7 w-16" />
-        ) : (
-          <div
-            className={`text-2xl font-semibold tabular-nums ${accent ?? ''}`}
-          >
-            {typeof value === 'number' ? value.toLocaleString() : value}
-          </div>
-        )}
-      </CardContent>
-    </Card>
   );
 }
 

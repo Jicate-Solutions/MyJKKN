@@ -34,8 +34,15 @@ import {
   type CounselorSourceAssignment,
 } from '@/lib/services/admission/counselor-source-service';
 import { usePermissions } from '@/hooks/use-permissions';
+import {
+  useCounselorsHoldingSourceLeads,
+  type CounselorHoldingSourceLeads,
+} from '@/hooks/admission/use-counselors-holding-source-leads';
+import type { LeadSourceEnum } from '@/lib/services/admission/source-master-service';
 import { CounselorPickerDialog } from './counselor-picker-dialog';
 import { CounselorConfigDialog } from './counselor-config-dialog';
+import { ReassignLeadsDialog } from './reassign-leads-dialog';
+import { ArrowLeftRight, CheckCircle2, Activity, Link2 } from 'lucide-react';
 
 const ROLE_LABEL: Record<string, string> = {
   admission_counselor: 'Admission',
@@ -53,10 +60,15 @@ const ROLE_BADGE: Record<string, string> = {
 
 interface CounselorsTabProps {
   sourceId: string;
+  sourceEnum: LeadSourceEnum;
   institutionId?: string | null;
 }
 
-export function CounselorsTab({ sourceId, institutionId }: CounselorsTabProps) {
+export function CounselorsTab({
+  sourceId,
+  sourceEnum,
+  institutionId,
+}: CounselorsTabProps) {
   const queryClient = useQueryClient();
   const { canAccess, isSuperAdmin } = usePermissions();
   const canManage =
@@ -65,6 +77,13 @@ export function CounselorsTab({ sourceId, institutionId }: CounselorsTabProps) {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [editing, setEditing] = useState<CounselorSourceAssignment | null>(null);
   const [removing, setRemoving] = useState<CounselorSourceAssignment | null>(null);
+  const [reassigning, setReassigning] = useState<CounselorHoldingSourceLeads | null>(null);
+
+  const { data: holdingCounselors, isLoading: holdingLoading } =
+    useCounselorsHoldingSourceLeads({
+      sourceEnum,
+      institutionId,
+    });
 
   const {
     data: assignments,
@@ -114,13 +133,14 @@ export function CounselorsTab({ sourceId, institutionId }: CounselorsTabProps) {
   };
 
   return (
+    <div className="space-y-4">
     <Card>
       <CardContent className="pt-6 space-y-4">
         <div className="flex items-start justify-between gap-3">
           <div>
             <h3 className="text-base font-semibold flex items-center gap-2">
               <Users className="h-4 w-4" />
-              Counselors assigned ({assignments?.length ?? 0})
+              Mapped counselors ({assignments?.length ?? 0})
             </h3>
             <p className="text-sm text-muted-foreground mt-0.5">
               Counselors here receive auto-assigned leads from this source. You can
@@ -325,5 +345,115 @@ export function CounselorsTab({ sourceId, institutionId }: CounselorsTabProps) {
         </AlertDialogContent>
       </AlertDialog>
     </Card>
+
+    {/* Counselors holding leads from this source — current state, not config.
+        Captures counselors assigned individually to leads from this source
+        even if they aren't formally mapped above. */}
+    <Card>
+      <CardContent className="pt-6 space-y-4">
+        <div>
+          <h3 className="text-base font-semibold flex items-center gap-2">
+            <Activity className="h-4 w-4" />
+            Counselors holding leads from this source
+            {' '}({holdingCounselors?.length ?? 0})
+          </h3>
+          <p className="text-sm text-muted-foreground mt-0.5">
+            Every counselor with at least one {sourceEnum} lead currently
+            assigned. The badge shows whether they're also mapped above for
+            future auto-routing. Use <strong>Reassign</strong> to bulk-move
+            their leads to another counselor.
+          </p>
+        </div>
+
+        {holdingLoading && (
+          <div className="space-y-2">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <Skeleton key={i} className="h-12 w-full" />
+            ))}
+          </div>
+        )}
+
+        {!holdingLoading && (holdingCounselors?.length ?? 0) === 0 && (
+          <div className="rounded-md border border-dashed py-8 text-center text-sm text-muted-foreground">
+            No counselors hold {sourceEnum} leads yet.
+          </div>
+        )}
+
+        {!holdingLoading && (holdingCounselors?.length ?? 0) > 0 && (
+          <div className="rounded-md border overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Counselor</TableHead>
+                  <TableHead>Mapped?</TableHead>
+                  <TableHead className="text-right">Leads from this source</TableHead>
+                  <TableHead className="hidden md:table-cell text-right">Total load</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {(holdingCounselors ?? []).map((c) => (
+                  <TableRow key={c.counselor_id}>
+                    <TableCell>
+                      <div className="flex flex-col">
+                        <span className="font-medium">{c.name}</span>
+                        <span className="text-xs text-muted-foreground">
+                          {c.designation ? `${c.designation} · ` : ''}
+                          {c.email}
+                        </span>
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      {c.is_mapped ? (
+                        <Badge className="bg-blue-100 text-blue-700 hover:bg-blue-100 border-blue-200 gap-1">
+                          <CheckCircle2 className="h-3 w-3" />
+                          Mapped
+                        </Badge>
+                      ) : (
+                        <Badge variant="outline" className="gap-1 text-orange-700 border-orange-200">
+                          <Link2 className="h-3 w-3" />
+                          Not mapped
+                        </Badge>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums font-semibold">
+                      {c.source_lead_count.toLocaleString()}
+                    </TableCell>
+                    <TableCell className="hidden md:table-cell text-right tabular-nums text-sm">
+                      {c.current_leads ?? 0}
+                      {c.max_leads ? ` / ${c.max_leads}` : ''}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={!canManage}
+                        onClick={() => setReassigning(c)}
+                      >
+                        <ArrowLeftRight className="mr-1.5 h-3.5 w-3.5" />
+                        Reassign
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+
+    {reassigning && (
+      <ReassignLeadsDialog
+        open={!!reassigning}
+        onOpenChange={(o) => !o && setReassigning(null)}
+        sourceEnum={sourceEnum}
+        institutionId={institutionId}
+        fromCounselorId={reassigning.counselor_id}
+        fromCounselorName={reassigning.name}
+        fromLeadCount={reassigning.source_lead_count}
+      />
+    )}
+    </div>
   );
 }

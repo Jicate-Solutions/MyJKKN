@@ -521,7 +521,11 @@ export class SubCategoryService {
         id: cat.id,
         name: cat.name,
         parent_category_id: cat.parent_category_id,
-        parent_category_name: cat.parent_category?.[0]?.name
+        // Supabase FK join on a single relationship returns an object, not an array.
+        // Defensive: handle both shapes (older Supabase versions / view-backed selects can be array).
+        parent_category_name: Array.isArray(cat.parent_category)
+          ? cat.parent_category[0]?.name
+          : cat.parent_category?.name
       }));
     } catch (error) {
       console.error('Error fetching sub categories for select:', error);

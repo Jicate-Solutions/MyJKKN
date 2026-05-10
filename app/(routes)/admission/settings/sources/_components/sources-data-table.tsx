@@ -1,10 +1,11 @@
 'use client';
 
-import { createContext, useCallback, useContext, useState } from 'react';
-import { Plus } from 'lucide-react';
+import { createContext, useCallback, useContext, useMemo, useState } from 'react';
+import { Plus, Activity, UserCheck, UserX, Users, Layers } from 'lucide-react';
 
 import { DataTable, type DataFetchParams } from '@/components/data-table/data-table';
 import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
 import { useAuth } from '@/hooks/use-auth';
 import { usePermissions } from '@/hooks/use-permissions';
 import { SourceMasterService } from '@/lib/services/admission/source-master-service';
@@ -33,6 +34,9 @@ export function SourcesDataTable() {
 
   const [refetchKey, setRefetchKey] = useState(0);
   const [createOpen, setCreateOpen] = useState(false);
+  // Aggregate analytics strip: lifted from the latest fetched data so it
+  // re-aggregates whenever the table refetches (search, sort, refetchKey bump).
+  const [latestSources, setLatestSources] = useState<SourceMaster[] | null>(null);
   const bumpRefetch = useCallback(() => setRefetchKey((k) => k + 1), []);
 
   const fetchData = useCallback(
@@ -57,6 +61,9 @@ export function SourcesDataTable() {
           )
         : data;
 
+      // Capture for the aggregate KPI strip above the table.
+      setLatestSources(filtered);
+
       return {
         success: true,
         data: filtered,
@@ -70,6 +77,32 @@ export function SourcesDataTable() {
     },
     [institutionId]
   );
+
+  const aggregate = useMemo(() => {
+    const sources = latestSources ?? [];
+    let totalLeads = 0,
+      assignedLeads = 0,
+      unassignedLeads = 0,
+      totalCounselors = 0,
+      activeSources = 0;
+    for (const s of sources) {
+      totalLeads += s.lead_count ?? 0;
+      assignedLeads += s.assigned_count ?? 0;
+      unassignedLeads += s.unassigned_count ?? 0;
+      totalCounselors += s.counselor_count ?? 0;
+      if (s.is_active) activeSources += 1;
+    }
+    const assignedPct = totalLeads > 0 ? Math.round((assignedLeads / totalLeads) * 100) : 0;
+    return {
+      totalSources: sources.length,
+      activeSources,
+      totalLeads,
+      assignedLeads,
+      unassignedLeads,
+      totalCounselors,
+      assignedPct,
+    };
+  }, [latestSources]);
 
   const renderToolbar = (props: {
     selectedRows: any[];
@@ -89,6 +122,59 @@ export function SourcesDataTable() {
 
   return (
     <SourcesRefreshContext.Provider value={bumpRefetch}>
+      {/* Aggregate analytics strip — sums per-source counts across all visible
+          sources so admins see the full picture at a glance. Reflects the
+          current filter (search). Re-renders on every fetchData call. */}
+      {latestSources && latestSources.length > 0 && (
+        <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+          <KpiTile
+            icon={<Layers className="h-4 w-4" />}
+            label="Sources"
+            value={aggregate.totalSources}
+            sublabel={`${aggregate.activeSources} active`}
+          />
+          <KpiTile
+            icon={<Users className="h-4 w-4" />}
+            label="Counselors mapped"
+            value={aggregate.totalCounselors}
+          />
+          <KpiTile
+            icon={<Activity className="h-4 w-4" />}
+            label="Total leads"
+            value={aggregate.totalLeads}
+          />
+          <KpiTile
+            icon={<UserCheck className="h-4 w-4 text-green-600" />}
+            label="Assigned"
+            value={aggregate.assignedLeads}
+            sublabel={
+              aggregate.totalLeads > 0 ? `${aggregate.assignedPct}% of total` : undefined
+            }
+            valueClass="text-green-700"
+          />
+          <KpiTile
+            icon={<UserX className="h-4 w-4 text-orange-600" />}
+            label="Unassigned"
+            value={aggregate.unassignedLeads}
+            sublabel={
+              aggregate.totalLeads > 0
+                ? `${100 - aggregate.assignedPct}% of total`
+                : undefined
+            }
+            valueClass={
+              aggregate.unassignedLeads > 0 ? 'text-orange-700' : 'text-muted-foreground'
+            }
+          />
+          <KpiTile
+            icon={<Activity className="h-4 w-4 text-blue-600" />}
+            label="Coverage rate"
+            value={`${aggregate.assignedPct}%`}
+            sublabel="leads with a counselor"
+            valueClass="text-blue-700"
+          />
+        </div>
+      )}
+
       <DataTable
         fetchDataFn={fetchData as any}
         getColumns={() => columns as any}
@@ -100,7 +186,9 @@ export function SourcesDataTable() {
             key: 'Key',
             enum_value: 'Routes To',
             counselor_count: 'Counselors',
-            lead_count: 'Leads',
+            lead_count: 'Total Leads',
+            assigned_count: 'Assigned',
+            unassigned_count: 'Unassigned',
             is_active: 'Active',
           },
           columnWidths: [
@@ -108,10 +196,12 @@ export function SourcesDataTable() {
             { wch: 20 },
             { wch: 20 },
             { wch: 12 },
+            { wch: 14 },
             { wch: 12 },
+            { wch: 14 },
             { wch: 10 },
           ],
-          headers: ['Label', 'Key', 'Routes To', 'Counselors', 'Leads', 'Active'],
+          headers: ['Label', 'Key', 'Routes To', 'Counselors', 'Total Leads', 'Assigned', 'Unassigned', 'Active'],
         }}
         idField="id"
         config={{
@@ -133,5 +223,36 @@ export function SourcesDataTable() {
         onSaved={bumpRefetch}
       />
     </SourcesRefreshContext.Provider>
+  );
+}
+
+function KpiTile({
+  icon,
+  label,
+  value,
+  sublabel,
+  valueClass,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: number | string;
+  sublabel?: string;
+  valueClass?: string;
+}) {
+  return (
+    <Card>
+      <CardContent className="px-3 py-2.5">
+        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          {icon}
+          <span>{label}</span>
+        </div>
+        <div className={`mt-0.5 text-xl font-semibold tabular-nums ${valueClass ?? ''}`}>
+          {typeof value === 'number' ? value.toLocaleString() : value}
+        </div>
+        {sublabel && (
+          <div className="text-[11px] text-muted-foreground tabular-nums">{sublabel}</div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
