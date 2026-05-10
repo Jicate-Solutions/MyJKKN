@@ -1,7 +1,6 @@
 'use client';
 
 import { createContext, useContext, useEffect, useState } from 'react';
-import { InstallPrompt } from './install-prompt';
 import { UpdatePrompt } from './update-prompt';
 
 interface BeforeInstallPromptEvent extends Event {
@@ -272,7 +271,6 @@ export function PWAProvider({ children }: { children: React.ReactNode }) {
   return (
     <PWAContext.Provider value={value}>
       {children}
-      <InstallPrompt />
       <UpdatePrompt />
     </PWAContext.Provider>
   );
