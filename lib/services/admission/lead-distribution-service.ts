@@ -40,6 +40,18 @@ export interface DistributionResult {
   perCounselor: CounselorDistribution[];
 }
 
+export interface UnassignedLead {
+  id: string;
+  name: string;
+  email: string | null;
+  phone: string | null;
+  funnel_stage: string | null;
+  is_hot_lead: boolean | null;
+  created_at: string;
+  source: string;
+  institution_id: string | null;
+}
+
 interface GetDistributionInput {
   sourceEnum: LeadSourceEnum;
   fromDate?: Date | null;
@@ -181,6 +193,53 @@ export class LeadDistributionService {
       },
       perCounselor,
     };
+  }
+
+  // -------------------------------------------------------------------------
+  // listUnassigned — paginated list of unassigned leads from a specific
+  // source for the Distribute Unassigned Leads panel. Filters: stage, hot,
+  // search. Reuses RLS on admission_leads — no new policies needed.
+  // -------------------------------------------------------------------------
+  static async listUnassigned(input: {
+    sourceEnum: LeadSourceEnum;
+    institutionId?: string | null;
+    filters?: {
+      stage?: string;
+      hot?: boolean;
+      search?: string;
+    };
+    limit?: number;
+    offset?: number;
+  }): Promise<{ leads: UnassignedLead[]; totalCount: number }> {
+    const supabase = this.supabase;
+    const { sourceEnum, institutionId, filters = {}, limit = 200, offset = 0 } = input;
+
+    let q = (supabase as any)
+      .from('admission_leads')
+      .select(
+        'id, name, email, phone, funnel_stage, is_hot_lead, created_at, source, institution_id',
+        { count: 'exact' }
+      )
+      .eq('source', sourceEnum)
+      .is('counselor_id', null);
+
+    if (institutionId) q = q.eq('institution_id', institutionId);
+    if (filters.stage) q = q.eq('funnel_stage', filters.stage);
+    if (filters.hot) q = q.eq('is_hot_lead', true);
+    if (filters.search) {
+      q = q.or(
+        `name.ilike.%${filters.search}%,email.ilike.%${filters.search}%,phone.ilike.%${filters.search}%`
+      );
+    }
+
+    q = q.order('created_at', { ascending: false }).range(offset, offset + limit - 1);
+
+    const { data, error, count } = await q;
+    if (error) {
+      logger.error('admissions', 'Error listing unassigned leads', error);
+      throw error;
+    }
+    return { leads: (data ?? []) as UnassignedLead[], totalCount: count ?? 0 };
   }
 
   private static async getRoleKeysByUserIds(
