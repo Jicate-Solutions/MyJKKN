@@ -14,6 +14,10 @@ export const learnerHosteliteKeys = {
     ['learner-hostelites', 'list', institutionId ?? null, filters ?? null] as const,
   candidates: (institutionId: string | undefined, search: string) =>
     ['learner-hostelites', 'candidates', institutionId ?? null, search] as const,
+  blocks: (institutionId: string | undefined) =>
+    ['learner-hostelites', 'blocks', institutionId ?? null] as const,
+  detail: (learnerId: string | null) =>
+    ['learner-hostelites', 'detail', learnerId] as const,
 };
 
 export function useLearnerHostelites(
@@ -26,6 +30,30 @@ export function useLearnerHostelites(
     queryFn: () => LearnerHosteliteService.listHostelites(institutionId, filters),
     enabled: options?.enabled ?? true,
     staleTime: 2 * 60 * 1000,
+  });
+}
+
+// Detail bundle for the click-anywhere-on-row drawer (BUG-003326).
+// 5-min stale window per /assumption-thrash Round 3 #3 (lineage decision —
+// stale-cache pattern, no realtime).
+export function useLearnerDetailBundle(learnerId: string | null) {
+  return useQuery({
+    queryKey: learnerHosteliteKeys.detail(learnerId),
+    queryFn: () =>
+      learnerId
+        ? LearnerHosteliteService.getLearnerDetailBundle(learnerId)
+        : Promise.reject(new Error('learnerId required')),
+    enabled: !!learnerId,
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+// Block list for the Block filter dropdown.
+export function useHostelBlocksForFilter(institutionId?: string) {
+  return useQuery({
+    queryKey: learnerHosteliteKeys.blocks(institutionId),
+    queryFn: () => LearnerHosteliteService.listBlocksForFilter(institutionId),
+    staleTime: 5 * 60 * 1000,
   });
 }
 
