@@ -21,10 +21,12 @@ import { ShiftService } from '@/lib/services/hr/shift-service';
 import type {
   HRShiftAssignmentInsert,
   HRShiftAssignmentUpdate,
+  HRShiftSwapRequestInsert,
   HRShiftTemplateInsert,
   HRShiftTemplateUpdate,
   ShiftAssignmentFilters,
   ShiftTemplateFilters,
+  SwapRequestFilters,
 } from '@/types/hr-shifts';
 
 // ---------------------------------------------------------------------------
@@ -136,6 +138,101 @@ export function useDeleteShiftAssignment() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['hr-shift-assignments'] });
       qc.invalidateQueries({ queryKey: ['hr-shift-assignment'] });
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Swap Requests (Phase 2b)
+// ---------------------------------------------------------------------------
+
+/**
+ * Generic swap request listing — filter by status / requester / counterparty
+ * / hrReviewQueue / date range. Used by all three queue surfaces.
+ */
+export function useSwapRequests(filters: SwapRequestFilters = {}) {
+  const supabase = createClientSupabaseClient();
+  return useQuery({
+    queryKey: ['hr-shift-swap-requests', filters],
+    queryFn: () => ShiftService.listSwapRequests(supabase, filters),
+  });
+}
+
+/**
+ * Outbox: requests this employee submitted.
+ */
+export function useSwapRequestsAsRequester(staffId: string | undefined) {
+  return useSwapRequests(staffId ? { requesterStaffId: staffId } : {});
+}
+
+/**
+ * Inbox: requests where this employee is the named counterparty.
+ */
+export function useSwapRequestsAsCounterparty(staffId: string | undefined) {
+  return useSwapRequests(staffId ? { counterpartyStaffId: staffId } : {});
+}
+
+/**
+ * HR review queue (pending OR counterparty_accepted, ordered by swap_date asc).
+ */
+export function useSwapRequestsForHRReview(extra: SwapRequestFilters = {}) {
+  return useSwapRequests({ ...extra, hrReviewQueue: true });
+}
+
+export function useSubmitSwapRequest() {
+  const qc = useQueryClient();
+  const supabase = createClientSupabaseClient();
+  return useMutation({
+    mutationFn: (payload: HRShiftSwapRequestInsert) =>
+      ShiftService.submitSwapRequest(supabase, payload),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['hr-shift-swap-requests'] });
+    },
+  });
+}
+
+export function useAcceptSwapRequest() {
+  const qc = useQueryClient();
+  const supabase = createClientSupabaseClient();
+  return useMutation({
+    mutationFn: (id: string) => ShiftService.acceptSwapRequest(supabase, id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['hr-shift-swap-requests'] });
+    },
+  });
+}
+
+export function useApproveSwapRequest() {
+  const qc = useQueryClient();
+  const supabase = createClientSupabaseClient();
+  return useMutation({
+    mutationFn: ({ id, hrProfileId, notes }: { id: string; hrProfileId: string; notes?: string }) =>
+      ShiftService.approveSwapRequest(supabase, id, hrProfileId, notes),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['hr-shift-swap-requests'] });
+    },
+  });
+}
+
+export function useRejectSwapRequest() {
+  const qc = useQueryClient();
+  const supabase = createClientSupabaseClient();
+  return useMutation({
+    mutationFn: ({ id, hrProfileId, notes }: { id: string; hrProfileId: string; notes: string }) =>
+      ShiftService.rejectSwapRequest(supabase, id, hrProfileId, notes),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['hr-shift-swap-requests'] });
+    },
+  });
+}
+
+export function useCancelSwapRequest() {
+  const qc = useQueryClient();
+  const supabase = createClientSupabaseClient();
+  return useMutation({
+    mutationFn: (id: string) => ShiftService.cancelSwapRequest(supabase, id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['hr-shift-swap-requests'] });
     },
   });
 }
