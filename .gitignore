@@ -37,11 +37,12 @@ yarn-error.log*
 
 # env files (can opt-in for commiting if needed)
 .env*
-!.env.example
-!.env.import.example
 
 # Import script env (Phase 7 staff extended fields)
 .env.import
+
+# MCP server config — contains Supabase management bearer token
+.mcp.json
 
 # Import script run logs
 scripts/import/runs/*.log
