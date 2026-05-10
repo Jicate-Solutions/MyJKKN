@@ -99,6 +99,17 @@ export class BulkAssignService {
     const results: PerLeadResult[] = [];
     const supabase = BulkAssignService.supabase;
 
+    // Look up the counselor's auth user_id ONCE so each per-lead assignCounselor
+    // call can populate assigned_counselor_id (profiles.id). Without this the
+    // RLS direct-assignment branch and the get_source_distribution analytics
+    // RPC both miss the lead — KPIs show 0 even after a successful assignment.
+    const { data: counselorRow } = await (supabase as any)
+      .from('admission_counselors')
+      .select('user_id')
+      .eq('id', input.counselorId)
+      .single();
+    const counselorProfileId: string | undefined = counselorRow?.user_id ?? undefined;
+
     for (const leadId of input.leadIds) {
       // Pre-check: lead may have been claimed by another user since the panel loaded
       const { data: cur, error: precheckErr } = await (supabase as any)
@@ -122,7 +133,7 @@ export class BulkAssignService {
       }
 
       try {
-        await LeadService.assignCounselor(leadId, input.counselorId, undefined, {
+        await LeadService.assignCounselor(leadId, input.counselorId, counselorProfileId, {
           reason: input.reason,
           override: input.override,
         });
