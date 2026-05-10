@@ -54,11 +54,15 @@ export async function getCounselorScope(
   supabase: SupabaseClient,
   userId: string
 ): Promise<CounselorScope> {
-  // 1. Detect strict-counselor — same logic as _user_is_strict_counselor()
-  //    SQL helper, replicated client-side to avoid an extra round trip.
+  // 1. Detect strict-counselor — mirrors _user_is_strict_counselor()
+  //    SQL helper. Counselor key must be the user's PRIMARY role
+  //    (is_primary=true) so multi-role executives (e.g. hr_admin +
+  //    secondary admission_counselor) are NOT demoted to strict-only
+  //    visibility. Override roles (admission / administrator) suppress
+  //    strict-counselor regardless of which row is primary.
   const { data: roleRows, error: roleErr } = await supabase
     .from('user_roles')
-    .select('custom_roles!inner(role_key)')
+    .select('is_primary, custom_roles!inner(role_key)')
     .eq('user_id', userId);
 
   if (roleErr) {
@@ -67,18 +71,21 @@ export async function getCounselorScope(
     return { isStrictCounselor: true, myAdmissionCounselorId: null };
   }
 
-  const roleKeys = (roleRows ?? [])
-    .map((r: any) => r.custom_roles?.role_key)
-    .filter((k: any): k is string => typeof k === 'string');
+  type RoleRow = { is_primary: boolean | null; custom_roles?: { role_key?: string } | null };
+  const rows = (roleRows ?? []) as RoleRow[];
 
-  const hasCounselorRole = roleKeys.some((k) =>
-    (COUNSELOR_ROLE_KEYS as readonly string[]).includes(k)
-  );
-  const hasOverrideRole = roleKeys.some((k) =>
-    (NON_COUNSELOR_OVERRIDE_ROLE_KEYS as readonly string[]).includes(k)
-  );
+  const hasPrimaryCounselorRole = rows.some((r) => {
+    const k = r.custom_roles?.role_key;
+    return r.is_primary === true && typeof k === 'string'
+      && (COUNSELOR_ROLE_KEYS as readonly string[]).includes(k);
+  });
+  const hasOverrideRole = rows.some((r) => {
+    const k = r.custom_roles?.role_key;
+    return typeof k === 'string'
+      && (NON_COUNSELOR_OVERRIDE_ROLE_KEYS as readonly string[]).includes(k);
+  });
 
-  const isStrictCounselor = hasCounselorRole && !hasOverrideRole;
+  const isStrictCounselor = hasPrimaryCounselorRole && !hasOverrideRole;
   if (!isStrictCounselor) {
     return { isStrictCounselor: false, myAdmissionCounselorId: null };
   }
