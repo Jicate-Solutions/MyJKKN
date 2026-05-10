@@ -323,6 +323,16 @@ export default function GroupDashboardPage() {
 
             {/* Tab: Overview */}
             <TabsContent value="overview" className="space-y-4">
+              {/*
+                Subtitle clarifies which cohort the numbers describe.
+                Companion to the leads-only RPC rewrite (PR #847) — once that
+                lands, every metric on this tab traces to admission_leads only.
+                Direct-admission students who never entered the leads pipeline
+                live on the Seat Analytics tab instead.
+              */}
+              <p className="text-xs text-muted-foreground">
+                <span className="font-medium text-foreground">Lead funnel</span> — this admission cycle's prospects walking through the CRM. Counts come from the leads pipeline only.
+              </p>
               {data && (
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                   <GroupFunnelChart data={data} />
@@ -334,7 +344,17 @@ export default function GroupDashboardPage() {
             </TabsContent>
 
             {/* Tab: Seat Analytics */}
-            <TabsContent value="seats">
+            <TabsContent value="seats" className="space-y-4">
+              {/*
+                Subtitle clarifies which cohort the numbers describe — this tab
+                is operational seat occupation across ALL admission paths
+                (including legacy direct admissions that never touched the leads
+                pipeline). The Filled count here will not match the Filled count
+                on the Overview tab post-PR-#847 by design.
+              */}
+              <p className="text-xs text-muted-foreground">
+                <span className="font-medium text-foreground">Seat fills</span> — actual student enrollments across all admission paths, including legacy direct admissions.
+              </p>
               <SeatAnalyticsDashboard
                 institutionIds={scopedInstitutionIds}
                 programStartYear={selectedYear}

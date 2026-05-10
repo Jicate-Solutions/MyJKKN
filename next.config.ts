@@ -1,17 +1,10 @@
 import { withSentryConfig } from '@sentry/nextjs';
-import withSerwistInit from "@serwist/next";
 import type { NextConfig } from 'next';
 
-const withSerwist = withSerwistInit({
-  swSrc: "app/sw.ts",
-  swDest: "public/sw.js",
-  reloadOnOnline: true,
-  cacheOnNavigation: true,
-  disable: process.env.NODE_ENV !== "production",
-  additionalPrecacheEntries: [
-    { url: "/offline", revision: "1" },
-  ],
-});
+// Service worker (PWA) is built by `serwist build` after `next build` —
+// see serwist.config.mjs and the `build` script in package.json.
+// Configurator-mode replaces the previous webpack-only `withSerwistInit`
+// wrapper that silently no-op'd under Turbopack.
 
 const nextConfig: NextConfig = {
   // Cache Components disabled — codebase has 422+ dynamic routes using
@@ -59,11 +52,6 @@ const nextConfig: NextConfig = {
     'web-push',
     '@react-pdf/renderer',
   ],
-
-  // Turbopack is the default bundler in Next.js 16. The @serwist/next plugin
-  // injects a webpack config for SW compilation (production only). This empty
-  // turbopack key tells Next.js we're aware and silences the mismatch error.
-  turbopack: {},
 
   // TEMPORARY: Skip type checking during build (pre-existing type errors from
   // Next.js 16 migration — searchParams must be Promise<> in App Router).
@@ -300,9 +288,7 @@ const nextConfig: NextConfig = {
 // build-time wrapper. Local builds just lose source-map remapping for
 // minified stack traces, which only matters when uploading to Sentry
 // (which requires SENTRY_AUTH_TOKEN that local devs don't have anyway).
-const baseConfig = withSerwist(nextConfig);
-
-export default process.env.CI ? withSentryConfig(baseConfig, {
+export default process.env.CI ? withSentryConfig(nextConfig, {
   // For all available options, see:
   // https://www.npmjs.com/package/@sentry/webpack-plugin#options
 
@@ -338,4 +324,4 @@ export default process.env.CI ? withSentryConfig(baseConfig, {
       removeDebugLogging: true,
     },
   }
-}) : baseConfig;
+}) : nextConfig;
