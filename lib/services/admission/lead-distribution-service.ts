@@ -188,26 +188,22 @@ export class LeadDistributionService {
   ): Promise<Map<string, string>> {
     const out = new Map<string, string>();
     if (userIds.length === 0) return out;
-    const { data, error } = await (this.supabase as any)
-      .from('user_roles')
-      .select(`user_id, role:custom_roles!role_id ( role_key )`)
-      .in('user_id', userIds);
+    // SECURITY DEFINER RPC bypasses RLS on user_roles/custom_roles. Same fix
+    // pattern as use-eligible-counselors and counselor-source-service —
+    // admission-office users can read their own role memberships, not other
+    // users', so a client-side join silently produced empty role badges.
+    // Introduced in migration 20260509170000_admission_counselor_role_lookup_helper.sql.
+    const { data, error } = await (this.supabase as any).rpc(
+      'get_counselor_role_keys_for_users',
+      { p_user_ids: userIds }
+    );
     if (error) return out;
-    const COUNSELOR_KEYS = new Set([
-      'admission_counselor',
-      'expo_counselor',
-      'learner_counselor',
-      'staff_counselor',
-    ]);
     for (const row of (data ?? []) as {
       user_id: string;
-      role: { role_key: string } | null;
+      role_key: string;
+      role_name: string;
     }[]) {
-      const k = row.role?.role_key;
-      if (!k) continue;
-      if (COUNSELOR_KEYS.has(k) || !out.has(row.user_id)) {
-        out.set(row.user_id, k);
-      }
+      if (row.user_id && row.role_key) out.set(row.user_id, row.role_key);
     }
     return out;
   }

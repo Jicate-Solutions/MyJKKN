@@ -28,18 +28,25 @@ import {
 } from '@/hooks/admission/use-eligible-counselors';
 import { CounselorSourceService } from '@/lib/services/admission/counselor-source-service';
 
-const ROLE_BADGE_VARIANT: Record<CounselorRoleKey, string> = {
+// 'other' is a fallback bucket for counselors whose role lookup didn't
+// resolve (e.g. RLS on user_roles blocks the admin user from seeing other
+// users' role memberships). We still want them pickable in the dialog.
+type GroupKey = CounselorRoleKey | 'other';
+
+const ROLE_BADGE_VARIANT: Record<GroupKey, string> = {
   admission_counselor: 'bg-blue-100 text-blue-700 border-blue-200',
   expo_counselor: 'bg-purple-100 text-purple-700 border-purple-200',
   learner_counselor: 'bg-amber-100 text-amber-700 border-amber-200',
   staff_counselor: 'bg-emerald-100 text-emerald-700 border-emerald-200',
+  other: 'bg-slate-100 text-slate-700 border-slate-200',
 };
 
-const ROLE_SHORT_LABEL: Record<CounselorRoleKey, string> = {
+const ROLE_SHORT_LABEL: Record<GroupKey, string> = {
   admission_counselor: 'Admission',
   expo_counselor: 'Expo',
   learner_counselor: 'Learner',
   staff_counselor: 'Staff',
+  other: 'Other',
 };
 
 interface CounselorPickerDialogProps {
@@ -75,12 +82,15 @@ export function CounselorPickerDialog({
   });
 
   const grouped = useMemo(() => {
-    const map = new Map<CounselorRoleKey, EligibleCounselor[]>();
+    const map = new Map<GroupKey, EligibleCounselor[]>();
     for (const c of counselors ?? []) {
-      if (!c.role_key) continue;
-      const list = map.get(c.role_key) ?? [];
+      // Fall back to 'other' when the role didn't resolve so the counselor
+      // still appears in the picker. Without this, RLS-blocked role lookups
+      // would silently drop the user.
+      const key: GroupKey = c.role_key ?? 'other';
+      const list = map.get(key) ?? [];
       list.push(c);
-      map.set(c.role_key, list);
+      map.set(key, list);
     }
     return map;
   }, [counselors]);
@@ -94,7 +104,7 @@ export function CounselorPickerDialog({
     });
   };
 
-  const toggleGroup = (role: CounselorRoleKey, ids: string[]) => {
+  const toggleGroup = (role: GroupKey, ids: string[]) => {
     setSelected((prev) => {
       const next = new Set(prev);
       const allChecked = ids.every((id) => next.has(id));
@@ -178,7 +188,7 @@ export function CounselorPickerDialog({
               <span className="text-xs font-medium text-muted-foreground mr-1">
                 Assign by role:
               </span>
-              {(Object.keys(ROLE_SHORT_LABEL) as CounselorRoleKey[]).map((roleKey) => {
+              {(Object.keys(ROLE_SHORT_LABEL) as GroupKey[]).map((roleKey) => {
                 const groupUsers = grouped.get(roleKey) ?? [];
                 if (groupUsers.length === 0) {
                   return (

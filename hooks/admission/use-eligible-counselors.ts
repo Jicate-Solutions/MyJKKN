@@ -72,50 +72,51 @@ export function useEligibleCounselors({
       const rows = (counselors ?? []) as EligibleCounselor[];
       if (rows.length === 0) return [];
 
-      // Step 2: pull role_keys for these users via user_roles → custom_roles
+      // Step 2: resolve role_keys via SECURITY DEFINER RPC. The previous
+      // client-side join through user_roles → custom_roles was blocked by
+      // RLS for admin users picking from other counselors' rows, which
+      // produced an empty role-badge map and dropped every row. The RPC
+      // bypasses RLS for this read-only lookup; if it fails we fall back to
+      // showing counselors WITHOUT a role badge rather than dropping them.
       const userIds = Array.from(
         new Set(rows.map((r) => r.user_id).filter((u): u is string => !!u))
       );
 
-      const { data: userRoles } = await (supabase as any)
-        .from('user_roles')
-        .select(
-          `
-          user_id,
-          role:custom_roles!role_id ( role_key, role_name )
-        `
-        )
-        .in('user_id', userIds);
-
       const roleMap = new Map<string, { key: CounselorRoleKey; name: string }>();
-      for (const row of (userRoles ?? []) as Array<{
-        user_id: string;
-        role: { role_key: string; role_name: string } | null;
-      }>) {
-        if (!row.role) continue;
-        if (
-          (COUNSELOR_ROLE_KEYS as readonly string[]).includes(row.role.role_key)
-        ) {
-          // Prefer counselor role over any other if multiple roles exist
-          roleMap.set(row.user_id, {
-            key: row.role.role_key as CounselorRoleKey,
-            name: row.role.role_name,
-          });
+      if (userIds.length > 0) {
+        const { data: roleRows, error: roleErr } = await (supabase as any).rpc(
+          'get_counselor_role_keys_for_users',
+          { p_user_ids: userIds }
+        );
+        if (!roleErr && Array.isArray(roleRows)) {
+          for (const row of roleRows as Array<{
+            user_id: string;
+            role_key: string;
+            role_name: string;
+          }>) {
+            if (
+              (COUNSELOR_ROLE_KEYS as readonly string[]).includes(row.role_key)
+            ) {
+              roleMap.set(row.user_id, {
+                key: row.role_key as CounselorRoleKey,
+                name: row.role_name,
+              });
+            }
+          }
         }
       }
 
-      const enriched = rows
-        .map((r) => {
-          const meta = r.user_id ? roleMap.get(r.user_id) : null;
-          return {
-            ...r,
-            role_key: meta?.key ?? null,
-            role_name: meta?.name ?? null,
-          };
-        })
-        // Drop counselors with no eligible role (they exist in admission_counselors
-        // but no longer hold any of the 4 counselor role_keys)
-        .filter((r) => r.role_key !== null);
+      // Don't drop counselors whose role didn't resolve — they're real rows
+      // in admission_counselors and the admin needs to be able to pick them.
+      // role_key=null just means we couldn't determine which badge to show.
+      const enriched = rows.map((r) => {
+        const meta = r.user_id ? roleMap.get(r.user_id) : null;
+        return {
+          ...r,
+          role_key: meta?.key ?? null,
+          role_name: meta?.name ?? null,
+        };
+      });
 
       const excluded = new Set(excludeCounselorIds ?? []);
       return enriched.filter((r) => !excluded.has(r.id));
