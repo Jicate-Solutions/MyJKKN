@@ -7,9 +7,17 @@
 //   - internship_college_notification_overrides
 //   - All 8 internship config tables (for row-count dashboard)
 //
+// EXPORT SHAPE — TWO APIS BY DESIGN:
+//   1. Functional API (server-side) — used by API routes and server components.
+//      Each function takes an explicit SupabaseClient. Trivially testable.
+//   2. Class shim (`InternshipPolicyService`) + key constant (`INTERNSHIP_POLICY_KEYS`)
+//      + `PolicyRow` type — used by the admin UI (Agent C). Created on top of
+//      the functional API so both worlds compose without duplicating logic.
+//
 // TODO: Replace InternshipPolicyRow / InternshipCollegeNotificationOverride types
 //       with generated DB types after Agent A migration + types regen.
 
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type {
   InternshipPolicyRow,
@@ -18,6 +26,10 @@ import type {
   ServiceResult,
   ServiceListResult,
 } from '@/lib/services/internships/types';
+import type {
+  CascadePreviewData,
+  ProposedChange,
+} from '@/components/shared/cascade-preview/types';
 
 const POLICY_PREFIX = 'internship.policy.' as const;
 const PLATFORM_POLICIES_TABLE = 'platform_policies' as const;
@@ -203,4 +215,153 @@ export async function deleteCollegeOverride(
     data: null,
     error: error ? new Error(error.message) : null,
   };
+}
+
+// ===========================================================================
+// Backward-compat shim for the admin UI (Agent C)
+// ---------------------------------------------------------------------------
+// Agent C's pages and PolicyField component expect a class-based API plus a
+// constant key map. The shim below delegates to the functional API above so we
+// keep one source of truth for the actual database calls.
+//
+// Key mapping below resolves UPPER_SNAKE constants -> the actual seeded
+// `internship.policy.*` keys in platform_policies. Where the seeded key has
+// a different historical name, we point at it explicitly. Where no seed exists
+// yet, we use the lowercase equivalent so the row will appear empty until the
+// key is seeded — UI handles missing rows gracefully.
+// ===========================================================================
+
+/** Re-export of `InternshipPolicyRow` under the short name the admin UI uses. */
+export type PolicyRow = InternshipPolicyRow;
+
+/**
+ * UPPER_SNAKE constant → actual `internship.policy.*` key seeded in
+ * platform_policies. Used by all 6 category pages + page.tsx landing.
+ */
+export const INTERNSHIP_POLICY_KEYS = {
+  // Eligibility / Fees
+  FEE_COMPLIANCE_THRESHOLD: 'internship.policy.fee_compliance_threshold_pct',
+  REGISTRATION_CUTOFF_DAYS: 'internship.policy.registration_cutoff_days',
+  LOGBOOK_LATE_PENALTY_PCT: 'internship.policy.logbook_late_penalty_pct',
+  // Attendance / GPS
+  ATTENDANCE_FLAG_BELOW_PCT: 'internship.policy.attendance_warn_below_pct',
+  GPS_STRICT_MODE: 'internship.policy.gps_geofence_strict_block',
+  // Evaluation / Approvals
+  APPROVAL_ESCALATE_AFTER_HOURS: 'internship.policy.approval_escalate_after_hours',
+  LOGBOOK_SUBMIT_WITHIN_HOURS: 'internship.policy.logbook_submit_within_hours',
+  LOGBOOK_EDIT_WINDOW_HOURS: 'internship.policy.logbook_late_edit_window_hours',
+  // Cycle
+  ROSTER_REMINDER_D_MINUS: 'internship.policy.roster_reminder_d_minus',
+  VEHICLE_LEAD_TIME_DAYS: 'internship.policy.vehicle_lead_time_days',
+  // Notifications
+  NOTIFY_ROSTER_REMINDER_D_MINUS: 'internship.policy.notify_roster_reminder_d_minus',
+  NOTIFY_FACULTY_SCHEDULE_D_MINUS: 'internship.policy.notify_faculty_schedule_d_minus',
+  NOTIFY_LOGBOOK_REMINDER_AFTER_HOURS: 'internship.policy.notify_logbook_reminder_after_hours',
+  NOTIFY_EVALUATION_REMINDER_AFTER_HOURS: 'internship.policy.notify_evaluation_reminder_after_hours',
+  // Incidents
+  INCIDENT_MINOR_NOTIFY_WITHIN_HOURS: 'internship.policy.incident_escalation_tier1_hours',
+  INCIDENT_MAJOR_NOTIFY_WITHIN_HOURS: 'internship.policy.incident_escalation_tier2_hours',
+  INCIDENT_CRITICAL_NOTIFY_WITHIN_HOURS: 'internship.policy.incident_escalation_critical_hours',
+} as const;
+
+export type InternshipPolicyKey =
+  (typeof INTERNSHIP_POLICY_KEYS)[keyof typeof INTERNSHIP_POLICY_KEYS];
+
+/**
+ * Class shim — wraps the functional API so the admin UI's class-based call
+ * sites compile. Each method creates a browser-side Supabase client on demand,
+ * which matches the pattern used by other admin services
+ * (counselor-routing-config-service, landing-page-policies-service, etc.).
+ */
+export class InternshipPolicyService {
+  /**
+   * Fetch many policy rows by key in a single round-trip.
+   * Returns a map keyed by policy key. Missing keys are simply absent from
+   * the returned object — callers should treat absence as "not yet seeded".
+   */
+  static async getMany(keys: string[]): Promise<Record<string, PolicyRow>> {
+    if (!keys.length) return {};
+
+    const supabase = createClientSupabaseClient();
+    const { data, error } = await supabase
+      .from(PLATFORM_POLICIES_TABLE)
+      .select('key, value, description, college_id, updated_at, updated_by')
+      .in('key', keys);
+
+    if (error) {
+      console.error('[InternshipPolicyService.getMany]', error.message);
+      return {};
+    }
+
+    const out: Record<string, PolicyRow> = {};
+    for (const row of (data ?? []) as PolicyRow[]) {
+      out[row.key] = row;
+    }
+    return out;
+  }
+
+  /**
+   * Compute a cascade preview for a set of proposed policy changes.
+   * Calls fn_internship_cascade_preview RPC. On failure returns an empty
+   * preview with an error message so the UI can render the panel without
+   * crashing.
+   */
+  static async computeCascadePreview(
+    changes: ProposedChange[]
+  ): Promise<CascadePreviewData> {
+    const supabase = createClientSupabaseClient();
+    const { data, error } = await supabase.rpc('fn_internship_cascade_preview', {
+      p_changes: changes.map((c) => ({
+        key: c.key,
+        new_value: String(c.proposedValue),
+      })),
+    });
+
+    if (error) {
+      return {
+        consequences: [],
+        computedAt: new Date().toISOString(),
+        isLoading: false,
+        error: error.message,
+      };
+    }
+
+    // The RPC returns a JSONB array of consequence rows. We tolerate both
+    // {consequences: [...]} and [...] shapes for forward-compat.
+    const rows = Array.isArray(data) ? data : data?.consequences ?? [];
+
+    return {
+      consequences: rows,
+      computedAt: new Date().toISOString(),
+      isLoading: false,
+    };
+  }
+
+  /**
+   * Upsert a single policy value. Returns a UI-friendly { ok, error } envelope
+   * so call sites can `if (!res.ok) toast.error(res.error)` without unwrapping
+   * the Error object.
+   */
+  static async upsert(
+    key: string,
+    value: unknown
+  ): Promise<{ ok: boolean; error?: string }> {
+    const supabase = createClientSupabaseClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    const result = await updatePolicyValue(
+      supabase,
+      key,
+      typeof value === 'string' ? value : JSON.stringify(value),
+      'Updated via /admin/internship-policy',
+      user?.id ?? 'system'
+    );
+
+    if (result.error) {
+      return { ok: false, error: result.error.message };
+    }
+    return { ok: true };
+  }
 }
