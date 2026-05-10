@@ -5,6 +5,9 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { AlertTriangle, RefreshCw, BarChart3, Users } from 'lucide-react';
 
+// Re-export Source Coverage analytics dashboard
+export { SourceCoverageDashboard } from './source-coverage-dashboard';
+
 // Re-export AI response components
 export { AISuggestedResponses } from './ai-suggested-responses';
 export { ResponsePersonalizer, QuickPersonalizer } from './response-personalizer';

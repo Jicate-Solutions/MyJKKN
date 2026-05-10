@@ -1117,10 +1117,17 @@ export function useFunnelAnalyticsDashboard(filtersOrId?: string | any) {
         'confirmed', 'declined', 'withdrew', 'expired'
       ];
 
-      // Fetch leads with stage info + counselor name
+      // Fetch leads with stage info + counselor name.
+      // .range(0, 99999) busts PostgREST's default max_rows cap (typically
+      // 1000 or 10000 in this project) — without it, large institutions had
+      // their funnel analytics silently truncated to the cap so stages
+      // beyond the cap were under-counted. 100K is enough headroom for any
+      // single institution today; if data grows past that we should switch
+      // to a server-side aggregate RPC (single COUNT(*) GROUP BY stage).
       let leadsQuery = (supabase as any)
         .from('admission_leads')
-        .select('id, stage, funnel_stage, stage_changed_at, created_at, is_hot_lead, combined_score, counselor_id, counselor:admission_counselors(name)');
+        .select('id, stage, funnel_stage, stage_changed_at, created_at, is_hot_lead, combined_score, counselor_id, counselor:admission_counselors(name)')
+        .range(0, 99999);
       if (institutionId) leadsQuery = leadsQuery.eq('institution_id', institutionId);
       const { data: leads } = await leadsQuery;
 

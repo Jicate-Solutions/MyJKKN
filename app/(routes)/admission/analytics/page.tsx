@@ -57,7 +57,7 @@ import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import Link from 'next/link';
 import { toast } from 'sonner';
-import { AdmissionErrorBoundary, CounselorPerformanceDashboard, SourceROIDashboard, ProgramFunnelCard, DropoffAnalysisCard } from '@/components/admission';
+import { AdmissionErrorBoundary, CounselorPerformanceDashboard, SourceROIDashboard, ProgramFunnelCard, DropoffAnalysisCard, SourceCoverageDashboard } from '@/components/admission';
 
 const FUNNEL_STAGES = [
   { key: 'new', label: 'New', color: 'bg-blue-500' },
@@ -606,6 +606,7 @@ function AdmissionAnalyticsPageContent() {
                 <TabsTrigger value="programs">Programs</TabsTrigger>
                 <TabsTrigger value="counselors">Leaderboard</TabsTrigger>
                 <TabsTrigger value="sources">Source ROI</TabsTrigger>
+                <TabsTrigger value="source-coverage">Source Coverage</TabsTrigger>
               </TabsList>
             </div>
 
@@ -661,6 +662,10 @@ function AdmissionAnalyticsPageContent() {
               {(isSuperAdmin || !!institutionId) && (
                 <SourceROIDashboard institutionId={institutionId} />
               )}
+            </TabsContent>
+
+            <TabsContent value="source-coverage" className="mt-4">
+              <SourceCoverageDashboard institutionId={institutionId} />
             </TabsContent>
           </Tabs>
         </div>
