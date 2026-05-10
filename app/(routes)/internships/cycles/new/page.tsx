@@ -2,6 +2,13 @@
 
 // app/(routes)/internships/cycles/new/page.tsx
 // Create a new internship_posting_cycle (status='draft' by default).
+//
+// Fields aligned to live `internship_posting_cycles` schema (substrate v3):
+//   - cycle_name (replaces spec-time `name`)
+//   - posting_type, temporal_mode, fee_compliance_threshold, escalate_after_hours
+//     all surfaced for explicit Director control rather than relying on DB defaults
+//   - academic_year + total_seats removed — neither column exists in live DB
+//   - program_ids deferred — needs program multi-select picker (follow-up)
 
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
@@ -22,41 +29,67 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { useCreateCycle } from '@/hooks/internships/useCycles';
 import { CollegeSelect } from '../_components/college-select';
+import type { CyclePostingType, CycleTemporalMode } from '@/lib/services/internships/types';
 
 interface FormState {
-  name: string;
+  cycle_name: string;
   institution_id: string;
-  academic_year: string;
   start_date: string;
   end_date: string;
-  total_seats: string;
+  posting_type: CyclePostingType;
+  temporal_mode: CycleTemporalMode;
+  fee_compliance_threshold: string;
+  escalate_after_hours: string;
   notes: string;
 }
 
 const INITIAL_STATE: FormState = {
-  name: '',
+  cycle_name: '',
   institution_id: '',
-  academic_year: '',
   start_date: '',
   end_date: '',
-  total_seats: '',
+  posting_type: 'standard',
+  temporal_mode: 'fixed',
+  fee_compliance_threshold: '70',
+  escalate_after_hours: '72',
   notes: '',
 };
 
-const ACADEMIC_YEAR_PATTERN = /^\d{4}-\d{4}$/;
+const POSTING_TYPE_OPTIONS: { value: CyclePostingType; label: string; helper: string }[] = [
+  { value: 'standard', label: 'Standard', helper: 'Routine clinical / supervised industry posting' },
+  { value: 'community', label: 'Community', helper: 'Community/rural/PHC outreach posting' },
+  { value: 'industrial', label: 'Industrial', helper: 'Industry placement / OJT' },
+  { value: 'research', label: 'Research', helper: 'Research project / lab attachment' },
+  { value: 'virtual', label: 'Virtual', helper: 'Remote / simulation-based' },
+];
+
+const TEMPORAL_MODE_OPTIONS: { value: CycleTemporalMode; label: string; helper: string }[] = [
+  { value: 'fixed', label: 'Fixed', helper: 'All learners follow a single window' },
+  { value: 'rolling', label: 'Rolling', helper: 'Learners stagger start dates within window' },
+  { value: 'batch_aligned', label: 'Batch-aligned', helper: 'Aligns to a specific batch calendar' },
+];
 
 export default function NewCyclePage() {
   const router = useRouter();
   const [form, setForm] = useState<FormState>(INITIAL_STATE);
   const [touched, setTouched] = useState<Record<keyof FormState, boolean>>({
-    name: false,
+    cycle_name: false,
     institution_id: false,
-    academic_year: false,
     start_date: false,
     end_date: false,
-    total_seats: false,
+    posting_type: false,
+    temporal_mode: false,
+    fee_compliance_threshold: false,
+    escalate_after_hours: false,
     notes: false,
   });
 
@@ -76,32 +109,32 @@ export default function NewCyclePage() {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
 
-    // Force-mark all fields touched on submit so any pending error surfaces.
     setTouched({
-      name: true,
+      cycle_name: true,
       institution_id: true,
-      academic_year: true,
       start_date: true,
       end_date: true,
-      total_seats: true,
+      posting_type: true,
+      temporal_mode: true,
+      fee_compliance_threshold: true,
+      escalate_after_hours: true,
       notes: true,
     });
 
     if (hasErrors) return;
 
-    const totalSeats = form.total_seats.trim() ? parseInt(form.total_seats.trim(), 10) : null;
-
     createCycle.mutate(
       {
-        name: form.name.trim(),
+        cycle_name: form.cycle_name.trim(),
         institution_id: form.institution_id,
-        academic_year: form.academic_year.trim(),
         start_date: form.start_date,
         end_date: form.end_date,
-        total_seats: totalSeats,
+        posting_type: form.posting_type,
+        temporal_mode: form.temporal_mode,
+        fee_compliance_threshold: Number(form.fee_compliance_threshold) || 70,
+        escalate_after_hours: Number(form.escalate_after_hours) || 72,
         notes: form.notes.trim() || null,
         status: 'draft',
-        created_by: null,
       },
       {
         onSuccess: (cycle) => {
@@ -136,9 +169,8 @@ export default function NewCyclePage() {
             Create posting cycle
           </h1>
           <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-            New cycles start in <strong>Draft</strong>. You can edit fields freely until you
-            activate. Activation locks the approval chain, posting type, fee threshold, and
-            geofence per the policy spec.
+            New cycles start in <strong>Draft</strong>. You can edit fields freely until you submit
+            for approval. Approval locks the structural fields per Decision #4 of the spec.
           </p>
         </div>
         <Button asChild variant="outline" size="sm" className="gap-1.5">
@@ -160,20 +192,20 @@ export default function NewCyclePage() {
           <CardContent className="space-y-5">
             <FieldRow>
               <div className="space-y-1.5">
-                <Label htmlFor="name">
-                  Name <Required />
+                <Label htmlFor="cycle_name">
+                  Cycle name <Required />
                 </Label>
                 <Input
-                  id="name"
-                  value={form.name}
-                  onChange={(e) => update('name', e.target.value)}
-                  onBlur={() => markTouched('name')}
+                  id="cycle_name"
+                  value={form.cycle_name}
+                  onChange={(e) => update('cycle_name', e.target.value)}
+                  onBlur={() => markTouched('cycle_name')}
                   placeholder="e.g. CRRI Batch 2026 — Aug intake"
                   disabled={isSubmitting}
-                  aria-invalid={touched.name && !!errors.name}
-                  aria-describedby="name-error"
+                  aria-invalid={touched.cycle_name && !!errors.cycle_name}
+                  aria-describedby="cycle_name-error"
                 />
-                <FieldError id="name-error" show={touched.name} message={errors.name} />
+                <FieldError id="cycle_name-error" show={touched.cycle_name} message={errors.cycle_name} />
               </div>
 
               <div className="space-y-1.5">
@@ -200,51 +232,6 @@ export default function NewCyclePage() {
 
             <FieldRow>
               <div className="space-y-1.5">
-                <Label htmlFor="academic_year">
-                  Academic year <Required />
-                </Label>
-                <Input
-                  id="academic_year"
-                  value={form.academic_year}
-                  onChange={(e) => update('academic_year', e.target.value)}
-                  onBlur={() => markTouched('academic_year')}
-                  placeholder="2026-2027"
-                  inputMode="numeric"
-                  disabled={isSubmitting}
-                  aria-invalid={touched.academic_year && !!errors.academic_year}
-                  aria-describedby="academic_year-error"
-                />
-                <FieldError
-                  id="academic_year-error"
-                  show={touched.academic_year}
-                  message={errors.academic_year}
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <Label htmlFor="total_seats">Total seats</Label>
-                <Input
-                  id="total_seats"
-                  type="number"
-                  min={1}
-                  value={form.total_seats}
-                  onChange={(e) => update('total_seats', e.target.value)}
-                  onBlur={() => markTouched('total_seats')}
-                  placeholder="Optional"
-                  disabled={isSubmitting}
-                  aria-invalid={touched.total_seats && !!errors.total_seats}
-                  aria-describedby="total_seats-error"
-                />
-                <FieldError
-                  id="total_seats-error"
-                  show={touched.total_seats}
-                  message={errors.total_seats}
-                />
-              </div>
-            </FieldRow>
-
-            <FieldRow>
-              <div className="space-y-1.5">
                 <Label htmlFor="start_date">
                   Start date <Required />
                 </Label>
@@ -256,13 +243,8 @@ export default function NewCyclePage() {
                   onBlur={() => markTouched('start_date')}
                   disabled={isSubmitting}
                   aria-invalid={touched.start_date && !!errors.start_date}
-                  aria-describedby="start_date-error"
                 />
-                <FieldError
-                  id="start_date-error"
-                  show={touched.start_date}
-                  message={errors.start_date}
-                />
+                <FieldError id="start_date-error" show={touched.start_date} message={errors.start_date} />
               </div>
 
               <div className="space-y-1.5">
@@ -277,12 +259,97 @@ export default function NewCyclePage() {
                   onBlur={() => markTouched('end_date')}
                   disabled={isSubmitting}
                   aria-invalid={touched.end_date && !!errors.end_date}
-                  aria-describedby="end_date-error"
+                />
+                <FieldError id="end_date-error" show={touched.end_date} message={errors.end_date} />
+              </div>
+            </FieldRow>
+
+            <FieldRow>
+              <div className="space-y-1.5">
+                <Label htmlFor="posting_type">Posting type</Label>
+                <Select
+                  value={form.posting_type}
+                  onValueChange={(v) => update('posting_type', v as CyclePostingType)}
+                  disabled={isSubmitting}
+                >
+                  <SelectTrigger id="posting_type">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {POSTING_TYPE_OPTIONS.map((opt) => (
+                      <SelectItem key={opt.value} value={opt.value}>
+                        <div className="flex flex-col">
+                          <span>{opt.label}</span>
+                          <span className="text-xs text-muted-foreground">{opt.helper}</span>
+                        </div>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="temporal_mode">Temporal mode</Label>
+                <Select
+                  value={form.temporal_mode}
+                  onValueChange={(v) => update('temporal_mode', v as CycleTemporalMode)}
+                  disabled={isSubmitting}
+                >
+                  <SelectTrigger id="temporal_mode">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {TEMPORAL_MODE_OPTIONS.map((opt) => (
+                      <SelectItem key={opt.value} value={opt.value}>
+                        <div className="flex flex-col">
+                          <span>{opt.label}</span>
+                          <span className="text-xs text-muted-foreground">{opt.helper}</span>
+                        </div>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </FieldRow>
+
+            <FieldRow>
+              <div className="space-y-1.5">
+                <Label htmlFor="fee_compliance_threshold">Fee compliance threshold (%)</Label>
+                <Input
+                  id="fee_compliance_threshold"
+                  type="number"
+                  min={0}
+                  max={100}
+                  step={0.5}
+                  value={form.fee_compliance_threshold}
+                  onChange={(e) => update('fee_compliance_threshold', e.target.value)}
+                  onBlur={() => markTouched('fee_compliance_threshold')}
+                  disabled={isSubmitting}
+                  aria-invalid={touched.fee_compliance_threshold && !!errors.fee_compliance_threshold}
                 />
                 <FieldError
-                  id="end_date-error"
-                  show={touched.end_date}
-                  message={errors.end_date}
+                  id="fee_compliance_threshold-error"
+                  show={touched.fee_compliance_threshold}
+                  message={errors.fee_compliance_threshold}
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="escalate_after_hours">Escalate after (hours)</Label>
+                <Input
+                  id="escalate_after_hours"
+                  type="number"
+                  min={1}
+                  value={form.escalate_after_hours}
+                  onChange={(e) => update('escalate_after_hours', e.target.value)}
+                  onBlur={() => markTouched('escalate_after_hours')}
+                  disabled={isSubmitting}
+                  aria-invalid={touched.escalate_after_hours && !!errors.escalate_after_hours}
+                />
+                <FieldError
+                  id="escalate_after_hours-error"
+                  show={touched.escalate_after_hours}
+                  message={errors.escalate_after_hours}
                 />
               </div>
             </FieldRow>
@@ -329,23 +396,22 @@ export default function NewCyclePage() {
 function validate(form: FormState): Partial<Record<keyof FormState, string>> {
   const errors: Partial<Record<keyof FormState, string>> = {};
 
-  if (!form.name.trim()) errors.name = 'Cycle name is required.';
+  if (!form.cycle_name.trim()) errors.cycle_name = 'Cycle name is required.';
   if (!form.institution_id) errors.institution_id = 'Select the college this cycle belongs to.';
-  if (!form.academic_year.trim()) {
-    errors.academic_year = 'Academic year is required.';
-  } else if (!ACADEMIC_YEAR_PATTERN.test(form.academic_year.trim())) {
-    errors.academic_year = 'Use YYYY-YYYY format, e.g. 2026-2027.';
-  }
   if (!form.start_date) errors.start_date = 'Start date is required.';
   if (!form.end_date) errors.end_date = 'End date is required.';
   if (form.start_date && form.end_date && form.end_date <= form.start_date) {
     errors.end_date = 'End date must be after start date.';
   }
-  if (form.total_seats.trim()) {
-    const n = Number(form.total_seats.trim());
-    if (!Number.isFinite(n) || !Number.isInteger(n) || n <= 0) {
-      errors.total_seats = 'Seats must be a positive whole number.';
-    }
+
+  const threshold = Number(form.fee_compliance_threshold);
+  if (!Number.isFinite(threshold) || threshold < 0 || threshold > 100) {
+    errors.fee_compliance_threshold = 'Enter a value between 0 and 100.';
+  }
+
+  const escalateHours = Number(form.escalate_after_hours);
+  if (!Number.isFinite(escalateHours) || !Number.isInteger(escalateHours) || escalateHours < 1) {
+    errors.escalate_after_hours = 'Must be a positive whole number.';
   }
 
   return errors;

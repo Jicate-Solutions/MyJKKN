@@ -51,9 +51,13 @@ import { CollegeSelect, useCollegeNameMap } from './_components/college-select';
 const STATUS_OPTIONS: Array<{ value: 'all' | CycleStatus; label: string }> = [
   { value: 'all', label: 'All statuses' },
   { value: 'draft', label: 'Draft' },
-  { value: 'open', label: 'Open' },
-  { value: 'closed', label: 'Closed' },
-  { value: 'archived', label: 'Archived' },
+  { value: 'pending_approval', label: 'Pending approval' },
+  { value: 'approved', label: 'Approved' },
+  { value: 'fee_checking', label: 'Fee checking' },
+  { value: 'assignments_ready', label: 'Assignments ready' },
+  { value: 'active', label: 'Active' },
+  { value: 'completed', label: 'Completed' },
+  { value: 'cancelled', label: 'Cancelled' },
 ];
 
 function formatDate(iso: string | null | undefined): string {
@@ -74,17 +78,18 @@ export default function InternshipCyclesPage() {
   const institutionFilter = collegeFilter === 'all' ? undefined : collegeFilter;
   const { data: cycles = [], isLoading, error, refetch } = useCycles(institutionFilter);
 
-  // Derive the unique academic_year set for the year filter chip.
-  const yearOptions = useMemo(() => {
+  // Derive the unique posting_type set for the type filter chip
+  // (replaces academic_year — which doesn't exist on live schema).
+  const typeOptions = useMemo(() => {
     const set = new Set<string>();
-    for (const c of cycles) if (c.academic_year) set.add(c.academic_year);
-    return Array.from(set).sort().reverse();
+    for (const c of cycles) if (c.posting_type) set.add(c.posting_type);
+    return Array.from(set).sort();
   }, [cycles]);
 
   const filtered = useMemo(() => {
     return cycles.filter((c) => {
       if (statusFilter !== 'all' && c.status !== statusFilter) return false;
-      if (yearFilter !== 'all' && c.academic_year !== yearFilter) return false;
+      if (yearFilter !== 'all' && c.posting_type !== yearFilter) return false;
       return true;
     });
   }, [cycles, statusFilter, yearFilter]);
@@ -175,20 +180,20 @@ export default function InternshipCyclesPage() {
 
           <div className="min-w-[180px] flex-1">
             <label
-              htmlFor="filter-year"
+              htmlFor="filter-type"
               className="mb-1 block text-xs font-medium uppercase tracking-wide text-muted-foreground"
             >
-              Academic year
+              Posting type
             </label>
             <Select value={yearFilter} onValueChange={setYearFilter}>
-              <SelectTrigger id="filter-year">
+              <SelectTrigger id="filter-type">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All years</SelectItem>
-                {yearOptions.map((y) => (
-                  <SelectItem key={y} value={y}>
-                    {y}
+                <SelectItem value="all">All types</SelectItem>
+                {typeOptions.map((t) => (
+                  <SelectItem key={t} value={t}>
+                    {t.charAt(0).toUpperCase() + t.slice(1)}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -250,10 +255,10 @@ function CyclesTable({
             <TableHead className="min-w-[220px]">Cycle</TableHead>
             <TableHead className="min-w-[180px]">College</TableHead>
             <TableHead>Status</TableHead>
-            <TableHead>Academic year</TableHead>
+            <TableHead>Type</TableHead>
             <TableHead>Start</TableHead>
             <TableHead>End</TableHead>
-            <TableHead className="text-right">Seats</TableHead>
+            <TableHead className="text-right">Learners</TableHead>
             <TableHead className="w-[110px] text-right">Actions</TableHead>
           </TableRow>
         </TableHeader>
@@ -265,7 +270,7 @@ function CyclesTable({
                   href={`/internships/cycles/${cycle.id}`}
                   className="hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm"
                 >
-                  {cycle.name}
+                  {cycle.cycle_name}
                 </Link>
                 {cycle.notes && (
                   <p className="mt-0.5 line-clamp-1 text-xs text-muted-foreground">
@@ -283,11 +288,13 @@ function CyclesTable({
               <TableCell>
                 <CycleStatusBadge status={cycle.status} />
               </TableCell>
-              <TableCell className="text-sm tabular-nums">{cycle.academic_year}</TableCell>
+              <TableCell className="text-sm">
+                <span className="capitalize">{cycle.posting_type}</span>
+              </TableCell>
               <TableCell className="text-sm tabular-nums">{formatDate(cycle.start_date)}</TableCell>
               <TableCell className="text-sm tabular-nums">{formatDate(cycle.end_date)}</TableCell>
               <TableCell className="text-right text-sm tabular-nums">
-                {cycle.total_seats?.toLocaleString('en-IN') ?? '—'}
+                {cycle.learners_count?.toLocaleString('en-IN') ?? '—'}
               </TableCell>
               <TableCell className="text-right">
                 <Button asChild variant="ghost" size="sm">
