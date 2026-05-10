@@ -904,6 +904,7 @@ export const PERMISSION_CATEGORIES = [
       // .manage gates schedule edits, source/institution mappings, reassignments, emergency-off forced toggles.
       { key: 'admission.counselors.team.view', label: 'View Counselor Team Page' },
       { key: 'admission.counselors.team.manage', label: 'Manage Counselor Team (reassign, schedule, allocate)' },
+      { key: 'admission.counselors.team.bulk_override', label: 'Override Pause/Cap When Bulk Assigning' },
       { key: 'admission.counselors.director_pulse', label: 'View Director Pulse (live counselor activity dashboard)' },
       { key: 'admission.counselors.lead_mood', label: 'View Lead Mood Digest (sentiment + anxious-lead drilldown)' },
 
