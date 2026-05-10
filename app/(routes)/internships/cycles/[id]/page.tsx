@@ -59,47 +59,55 @@ import type { CycleStatus, InternshipCycle } from '@/lib/services/internships/ty
 import { CycleStatusBadge } from '../_components/cycle-status-badge';
 import { CollegeSelect, useCollegeNameMap } from '../_components/college-select';
 
-type LifecycleAction = 'activate' | 'close' | 'archive' | null;
+type LifecycleAction = 'submit_approval' | 'approve' | 'cancel' | null;
 
-const ACADEMIC_YEAR_PATTERN = /^\d{4}-\d{4}$/;
+import type {
+  CyclePostingType,
+  CycleTemporalMode,
+} from '@/lib/services/internships/types';
 
 interface DraftForm {
-  name: string;
+  cycle_name: string;
   institution_id: string;
-  academic_year: string;
   start_date: string;
   end_date: string;
-  total_seats: string;
+  posting_type: CyclePostingType;
+  temporal_mode: CycleTemporalMode;
+  fee_compliance_threshold: string;
+  escalate_after_hours: string;
   notes: string;
 }
 
 function fromCycle(cycle: InternshipCycle): DraftForm {
   return {
-    name: cycle.name,
+    cycle_name: cycle.cycle_name,
     institution_id: cycle.institution_id,
-    academic_year: cycle.academic_year,
     start_date: cycle.start_date,
     end_date: cycle.end_date,
-    total_seats: cycle.total_seats != null ? String(cycle.total_seats) : '',
+    posting_type: cycle.posting_type,
+    temporal_mode: cycle.temporal_mode,
+    fee_compliance_threshold: String(cycle.fee_compliance_threshold ?? 70),
+    escalate_after_hours: String(cycle.escalate_after_hours ?? 72),
     notes: cycle.notes ?? '',
   };
 }
 
 function validate(form: DraftForm): Partial<Record<keyof DraftForm, string>> {
   const errors: Partial<Record<keyof DraftForm, string>> = {};
-  if (!form.name.trim()) errors.name = 'Cycle name is required.';
+  if (!form.cycle_name.trim()) errors.cycle_name = 'Cycle name is required.';
   if (!form.institution_id) errors.institution_id = 'College is required.';
-  if (!form.academic_year.trim()) errors.academic_year = 'Academic year is required.';
-  else if (!ACADEMIC_YEAR_PATTERN.test(form.academic_year.trim()))
-    errors.academic_year = 'Use YYYY-YYYY format.';
   if (!form.start_date) errors.start_date = 'Start date is required.';
   if (!form.end_date) errors.end_date = 'End date is required.';
   if (form.start_date && form.end_date && form.end_date <= form.start_date)
     errors.end_date = 'End date must be after start date.';
-  if (form.total_seats.trim()) {
-    const n = Number(form.total_seats.trim());
-    if (!Number.isFinite(n) || !Number.isInteger(n) || n <= 0)
-      errors.total_seats = 'Seats must be a positive whole number.';
+
+  const threshold = Number(form.fee_compliance_threshold);
+  if (!Number.isFinite(threshold) || threshold < 0 || threshold > 100) {
+    errors.fee_compliance_threshold = 'Enter a value between 0 and 100.';
+  }
+  const hours = Number(form.escalate_after_hours);
+  if (!Number.isFinite(hours) || !Number.isInteger(hours) || hours < 1) {
+    errors.escalate_after_hours = 'Must be a positive whole number.';
   }
   return errors;
 }
@@ -136,12 +144,14 @@ export default function CycleDetailPage() {
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState<DraftForm | null>(null);
   const [touched, setTouched] = useState<Record<keyof DraftForm, boolean>>({
-    name: false,
+    cycle_name: false,
     institution_id: false,
-    academic_year: false,
     start_date: false,
     end_date: false,
-    total_seats: false,
+    posting_type: false,
+    temporal_mode: false,
+    fee_compliance_threshold: false,
+    escalate_after_hours: false,
     notes: false,
   });
   const [pendingAction, setPendingAction] = useState<LifecycleAction>(null);
@@ -206,10 +216,19 @@ export default function CycleDetailPage() {
     );
   }
 
+  // Lifecycle phase derived from live 8-state enum.
+  // - editable: only `draft` allows form edits (per Decision #4 hybrid lineage)
+  // - in-flight: pending_approval | approved | fee_checking | assignments_ready
+  // - active: cycle has started; no structural edits allowed
+  // - terminal: completed | cancelled
   const isDraft = cycle.status === 'draft';
-  const isOpen = cycle.status === 'open';
-  const isClosed = cycle.status === 'closed';
-  const isArchived = cycle.status === 'archived';
+  const isInFlight =
+    cycle.status === 'pending_approval' ||
+    cycle.status === 'approved' ||
+    cycle.status === 'fee_checking' ||
+    cycle.status === 'assignments_ready';
+  const isActive = cycle.status === 'active';
+  const isTerminal = cycle.status === 'completed' || cycle.status === 'cancelled';
 
   const collegeName = collegeNameMap[cycle.institution_id];
 
@@ -223,42 +242,43 @@ export default function CycleDetailPage() {
     setEditing(false);
     setForm(fromCycle(cycle));
     setTouched({
-      name: false,
+      cycle_name: false,
       institution_id: false,
-      academic_year: false,
       start_date: false,
       end_date: false,
-      total_seats: false,
+      posting_type: false,
+      temporal_mode: false,
+      fee_compliance_threshold: false,
+      escalate_after_hours: false,
       notes: false,
     });
   };
 
   const saveEdit = () => {
     setTouched({
-      name: true,
+      cycle_name: true,
       institution_id: true,
-      academic_year: true,
       start_date: true,
       end_date: true,
-      total_seats: true,
+      posting_type: true,
+      temporal_mode: true,
+      fee_compliance_threshold: true,
+      escalate_after_hours: true,
       notes: true,
     });
     if (hasErrors || !form) return;
-
-    const totalSeats = form.total_seats.trim()
-      ? parseInt(form.total_seats.trim(), 10)
-      : null;
 
     updateCycle.mutate(
       {
         id: cycle.id,
         updates: {
-          name: form.name.trim(),
-          institution_id: form.institution_id,
-          academic_year: form.academic_year.trim(),
+          cycle_name: form.cycle_name.trim(),
           start_date: form.start_date,
           end_date: form.end_date,
-          total_seats: totalSeats,
+          posting_type: form.posting_type,
+          temporal_mode: form.temporal_mode,
+          fee_compliance_threshold: Number(form.fee_compliance_threshold) || 70,
+          escalate_after_hours: Number(form.escalate_after_hours) || 72,
           notes: form.notes.trim() || null,
         },
       },
@@ -274,7 +294,7 @@ export default function CycleDetailPage() {
   };
 
   return (
-    <ContentLayout title={cycle.name}>
+    <ContentLayout title={cycle.cycle_name}>
       <Breadcrumb className="mb-4">
         <BreadcrumbList>
           <BreadcrumbItem>
@@ -285,7 +305,7 @@ export default function CycleDetailPage() {
             <BreadcrumbLink href="/internships/cycles">Cycles</BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator />
-          <BreadcrumbPage className="line-clamp-1 max-w-[40ch]">{cycle.name}</BreadcrumbPage>
+          <BreadcrumbPage className="line-clamp-1 max-w-[40ch]">{cycle.cycle_name}</BreadcrumbPage>
         </BreadcrumbList>
       </Breadcrumb>
 
@@ -294,11 +314,11 @@ export default function CycleDetailPage() {
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <CalendarRange className="h-6 w-6 flex-shrink-0 text-orange-600" />
-            <h1 className="truncate text-2xl font-semibold">{cycle.name}</h1>
+            <h1 className="truncate text-2xl font-semibold">{cycle.cycle_name}</h1>
             <CycleStatusBadge status={cycle.status} />
           </div>
           <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-            {collegeName ?? cycle.institution_id} · {cycle.academic_year}
+            {collegeName ?? cycle.institution_id} · {cycle.posting_type} · {cycle.temporal_mode}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -323,52 +343,51 @@ export default function CycleDetailPage() {
               </Button>
               <Button
                 size="sm"
-                onClick={() => setPendingAction('activate')}
+                onClick={() => setPendingAction('submit_approval')}
                 disabled={isMutating}
                 className="gap-1.5 bg-emerald-600 text-white hover:bg-emerald-700"
               >
                 <PlayCircle className="h-4 w-4" />
-                Activate
+                Submit for approval
               </Button>
             </>
           )}
 
-          {isOpen && (
+          {cycle.status === 'pending_approval' && (
             <Button
-              variant="outline"
               size="sm"
-              onClick={() => setPendingAction('close')}
+              onClick={() => setPendingAction('approve')}
               disabled={isMutating}
-              className="gap-1.5"
+              className="gap-1.5 bg-blue-600 text-white hover:bg-blue-700"
             >
               <CheckCircle2 className="h-4 w-4" />
-              Close cycle
+              Approve
             </Button>
           )}
 
-          {isClosed && (
+          {(isInFlight || isActive) && cycle.status !== 'pending_approval' && (
             <Button
               variant="outline"
               size="sm"
-              onClick={() => setPendingAction('archive')}
+              onClick={() => setPendingAction('cancel')}
               disabled={isMutating}
-              className="gap-1.5"
+              className="gap-1.5 border-rose-200 text-rose-700 hover:bg-rose-50"
             >
               <Archive className="h-4 w-4" />
-              Archive
+              Cancel cycle
             </Button>
           )}
         </div>
       </div>
 
       {/* Locked-after-activation banner */}
-      {!isDraft && (
+      {!isDraft && !isTerminal && (
         <Alert className="mb-4 border-blue-200 bg-blue-50 text-blue-900">
           <Lock className="h-4 w-4" />
           <AlertTitle className="text-sm font-semibold">Structural fields locked</AlertTitle>
           <AlertDescription className="text-sm leading-snug">
-            This cycle has been activated. Approval chain, posting type, fee threshold, and
-            geofence are now read-only. Threshold tweaks (logbook deadline, attendance flag %)
+            This cycle has been submitted/approved. Approval chain, posting type, fee threshold,
+            and geofence are now read-only. Threshold tweaks (logbook deadline, attendance flag %)
             remain editable via{' '}
             <Link
               className="underline underline-offset-2 hover:no-underline"
@@ -381,12 +400,14 @@ export default function CycleDetailPage() {
         </Alert>
       )}
 
-      {isArchived && (
+      {isTerminal && (
         <Alert className="mb-4 border-zinc-200 bg-zinc-50 text-zinc-700">
           <Archive className="h-4 w-4" />
-          <AlertTitle className="text-sm font-semibold">Archived</AlertTitle>
+          <AlertTitle className="text-sm font-semibold">
+            {cycle.status === 'cancelled' ? 'Cancelled' : 'Completed'}
+          </AlertTitle>
           <AlertDescription className="text-sm leading-snug">
-            This cycle has been archived and no longer accepts changes.
+            This cycle is in a terminal state and no longer accepts changes.
           </AlertDescription>
         </Alert>
       )}
@@ -436,58 +457,20 @@ export default function CycleDetailPage() {
             {editing ? (
               <div className="space-y-5">
                 <FieldRow>
-                  <FormField label="Name" required error={touched.name ? errors.name : undefined}>
-                    <Input
-                      value={form.name}
-                      onChange={(e) => update('name', e.target.value)}
-                      onBlur={() => markTouched('name')}
-                      disabled={isMutating}
-                    />
-                  </FormField>
                   <FormField
-                    label="College"
+                    label="Cycle name"
                     required
-                    error={touched.institution_id ? errors.institution_id : undefined}
+                    error={touched.cycle_name ? errors.cycle_name : undefined}
                   >
-                    <CollegeSelect
-                      value={form.institution_id}
-                      onChange={(v) => {
-                        update('institution_id', v);
-                        markTouched('institution_id');
-                      }}
-                      triggerClassName="w-full"
+                    <Input
+                      value={form.cycle_name}
+                      onChange={(e) => update('cycle_name', e.target.value)}
+                      onBlur={() => markTouched('cycle_name')}
                       disabled={isMutating}
                     />
                   </FormField>
-                </FieldRow>
-
-                <FieldRow>
-                  <FormField
-                    label="Academic year"
-                    required
-                    error={touched.academic_year ? errors.academic_year : undefined}
-                  >
-                    <Input
-                      value={form.academic_year}
-                      placeholder="2026-2027"
-                      onChange={(e) => update('academic_year', e.target.value)}
-                      onBlur={() => markTouched('academic_year')}
-                      disabled={isMutating}
-                    />
-                  </FormField>
-                  <FormField
-                    label="Total seats"
-                    error={touched.total_seats ? errors.total_seats : undefined}
-                  >
-                    <Input
-                      type="number"
-                      min={1}
-                      value={form.total_seats}
-                      onChange={(e) => update('total_seats', e.target.value)}
-                      onBlur={() => markTouched('total_seats')}
-                      placeholder="Optional"
-                      disabled={isMutating}
-                    />
+                  <FormField label="College" required>
+                    <Input value={collegeName ?? cycle.institution_id} disabled />
                   </FormField>
                 </FieldRow>
 
@@ -520,6 +503,56 @@ export default function CycleDetailPage() {
                   </FormField>
                 </FieldRow>
 
+                <FieldRow>
+                  <FormField label="Posting type">
+                    <Input
+                      value={form.posting_type}
+                      onChange={(e) => update('posting_type', e.target.value as CyclePostingType)}
+                      placeholder="standard | community | industrial | research | virtual"
+                      disabled={isMutating}
+                    />
+                  </FormField>
+                  <FormField label="Temporal mode">
+                    <Input
+                      value={form.temporal_mode}
+                      onChange={(e) => update('temporal_mode', e.target.value as CycleTemporalMode)}
+                      placeholder="fixed | rolling | batch_aligned"
+                      disabled={isMutating}
+                    />
+                  </FormField>
+                </FieldRow>
+
+                <FieldRow>
+                  <FormField
+                    label="Fee compliance threshold (%)"
+                    error={touched.fee_compliance_threshold ? errors.fee_compliance_threshold : undefined}
+                  >
+                    <Input
+                      type="number"
+                      min={0}
+                      max={100}
+                      step={0.5}
+                      value={form.fee_compliance_threshold}
+                      onChange={(e) => update('fee_compliance_threshold', e.target.value)}
+                      onBlur={() => markTouched('fee_compliance_threshold')}
+                      disabled={isMutating}
+                    />
+                  </FormField>
+                  <FormField
+                    label="Escalate after (hours)"
+                    error={touched.escalate_after_hours ? errors.escalate_after_hours : undefined}
+                  >
+                    <Input
+                      type="number"
+                      min={1}
+                      value={form.escalate_after_hours}
+                      onChange={(e) => update('escalate_after_hours', e.target.value)}
+                      onBlur={() => markTouched('escalate_after_hours')}
+                      disabled={isMutating}
+                    />
+                  </FormField>
+                </FieldRow>
+
                 <FormField label="Notes">
                   <Textarea
                     value={form.notes}
@@ -542,15 +575,35 @@ export default function CycleDetailPage() {
                 <SummaryRow icon={Building2} label="College" value={collegeName ?? cycle.institution_id} />
                 <SummaryRow
                   icon={GraduationCap}
-                  label="Academic year"
-                  value={cycle.academic_year}
+                  label="Posting type"
+                  value={<span className="capitalize">{cycle.posting_type}</span>}
                 />
                 <SummaryRow icon={CalendarRange} label="Start date" value={formatDate(cycle.start_date)} />
                 <SummaryRow icon={CalendarRange} label="End date" value={formatDate(cycle.end_date)} />
                 <SummaryRow
                   icon={Users2}
-                  label="Total seats"
-                  value={cycle.total_seats != null ? cycle.total_seats.toLocaleString('en-IN') : 'Not set'}
+                  label="Learners assigned"
+                  value={cycle.learners_count.toLocaleString('en-IN')}
+                />
+                <SummaryRow
+                  icon={Users2}
+                  label="Sites assigned"
+                  value={cycle.sites_count.toLocaleString('en-IN')}
+                />
+                <SummaryRow
+                  icon={GraduationCap}
+                  label="Fee compliance threshold"
+                  value={`${cycle.fee_compliance_threshold}%`}
+                />
+                <SummaryRow
+                  icon={Clock}
+                  label="Escalate after"
+                  value={`${cycle.escalate_after_hours} hours`}
+                />
+                <SummaryRow
+                  icon={CalendarRange}
+                  label="Temporal mode"
+                  value={<span className="capitalize">{cycle.temporal_mode.replace('_', ' ')}</span>}
                 />
                 <SummaryRow
                   icon={CalendarRange}
@@ -732,27 +785,27 @@ function LifecycleDialog({
           <AlertDialogDescription asChild>
             <div className="space-y-2 pt-1 text-sm">
               <p>
-                <span className="font-medium text-foreground">{cycle.name}</span>
+                <span className="font-medium text-foreground">{cycle.cycle_name}</span>
               </p>
               <p>{config.body}</p>
-              {action === 'activate' && (
+              {action === 'submit_approval' && (
                 <div className="rounded-md border border-amber-200 bg-amber-50 p-3">
                   <div className="flex items-start gap-2">
                     <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-600" />
                     <div className="space-y-1.5">
                       <p className="text-sm font-medium text-amber-900">
-                        Activation locks the following until close:
+                        Submitting for approval locks the following:
                       </p>
                       <ul className="ml-1 list-disc pl-4 text-sm text-amber-900/90">
                         <li>Approval chain</li>
-                        <li>Posting type (internal vs external)</li>
+                        <li>Posting type</li>
                         <li>Fee compliance threshold</li>
                         <li>Geofence (GPS strict mode)</li>
                       </ul>
                       <p className="mt-1.5 text-xs text-amber-900/80">
                         Threshold tweaks (logbook deadline, attendance flag %) remain editable
                         via <span className="font-mono">/admin/internship-policy</span> after
-                        activation.
+                        approval.
                       </p>
                     </div>
                   </div>
@@ -795,35 +848,35 @@ function getLifecycleConfig(action: Exclude<LifecycleAction, null>): {
   confirmLabel: string;
   confirmClass: string;
 } {
-  if (action === 'activate') {
+  if (action === 'submit_approval') {
     return {
-      title: 'Activate this cycle?',
-      body: 'Once activated, this cycle moves to "Open" and learners assigned to it can begin posting allocation. Structural policy fields will lock.',
+      title: 'Submit cycle for approval?',
+      body: 'Once submitted, this cycle moves to "Pending approval". Structural policy fields will lock pending approver review.',
       icon: PlayCircle,
       iconClass: 'text-emerald-600',
-      nextStatus: 'open',
-      confirmLabel: 'Activate cycle',
+      nextStatus: 'pending_approval',
+      confirmLabel: 'Submit for approval',
       confirmClass: 'bg-emerald-600 text-white hover:bg-emerald-700 focus:ring-emerald-500',
     };
   }
-  if (action === 'close') {
+  if (action === 'approve') {
     return {
-      title: 'Close this cycle?',
-      body: 'Closing this cycle stops new posting allocations. In-flight assignments are unaffected, but new assignments cannot be created until the cycle is reopened or replaced.',
+      title: 'Approve this cycle?',
+      body: 'Approval moves the cycle into the fee-checking phase. Once fee compliance verifies, learners become eligible for assignment allocation.',
       icon: CheckCircle2,
       iconClass: 'text-blue-600',
-      nextStatus: 'closed',
-      confirmLabel: 'Close cycle',
+      nextStatus: 'approved',
+      confirmLabel: 'Approve cycle',
       confirmClass: 'bg-blue-600 text-white hover:bg-blue-700 focus:ring-blue-500',
     };
   }
   return {
-    title: 'Archive this cycle?',
-    body: 'Archived cycles are hidden from the default lists but remain referenced by historical assignments and audit records.',
+    title: 'Cancel this cycle?',
+    body: 'Cancelling this cycle is a terminal action. Existing assignments retain audit history but no new operations can be performed against this cycle.',
     icon: Archive,
-    iconClass: 'text-zinc-600',
-    nextStatus: 'archived',
-    confirmLabel: 'Archive cycle',
-    confirmClass: 'bg-zinc-700 text-white hover:bg-zinc-800 focus:ring-zinc-500',
+    iconClass: 'text-rose-600',
+    nextStatus: 'cancelled',
+    confirmLabel: 'Cancel cycle',
+    confirmClass: 'bg-rose-700 text-white hover:bg-rose-800 focus:ring-rose-500',
   };
 }
