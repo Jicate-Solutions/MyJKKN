@@ -13,17 +13,7 @@ import {
   Tooltip,
   Legend,
 } from 'recharts';
-import {
-  Activity,
-  AlertCircle,
-  CheckCircle2,
-  Hourglass,
-  Inbox,
-  TrendingUp,
-  UserCheck,
-  UserX,
-  Users,
-} from 'lucide-react';
+import { Activity } from 'lucide-react';
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -44,7 +34,6 @@ import {
   type CounselorDistribution,
 } from '@/lib/services/admission/lead-distribution-service';
 import type { LeadSourceEnum } from '@/lib/services/admission/source-master-service';
-import { DistributePanel } from './distribute/distribute-panel';
 
 const ROLE_LABEL: Record<string, string> = {
   admission_counselor: 'Admission',
@@ -130,16 +119,6 @@ export function DistributionTab({
 
   return (
     <div className="space-y-4">
-      {/* Distribute Unassigned Leads — placed at the TOP for visibility.
-          Styled with a danger accent when there are unassigned leads so it
-          reads as "needs attention" the moment the tab opens. The panel
-          self-hides into an informational empty state at zero unassigned. */}
-      <DistributePanel
-        sourceId={sourceId}
-        sourceEnum={sourceEnum}
-        institutionId={institutionId}
-      />
-
       {/* Date range controls */}
       <Card>
         <CardContent className="flex flex-col gap-3 pt-6">
@@ -166,95 +145,10 @@ export function DistributionTab({
             </div>
           </div>
           <p className="text-[11px] text-muted-foreground">
-            KPIs and the per-counselor breakdown below filter by lead <strong>creation</strong> date in this window.
-            The <strong>Distribute Unassigned Leads</strong> panel above this card shows lifetime unassigned counts (not date-filtered) — it can show leads even when the KPIs below show 0 (they were created outside this window).
+            The chart and per-counselor breakdown below filter by lead <strong>creation</strong> date in this window. The status cards at the top of the page show <strong>lifetime</strong> stats (not date-filtered).
           </p>
         </CardContent>
       </Card>
-
-      {/* Summary KPIs — six cards in two semantic groups:
-            ROW 1 (Lead Status):  Total | Assigned | Unassigned (with action signal)
-            ROW 2 (Capacity + Outcomes): Counselors | Progression | Conversion
-          Each card has icon, value, sub-stat (denominator/% where useful),
-          and a status pill that encodes the "needs action" signal. */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-        <StatusKpiCard
-          icon={<Inbox className="h-4 w-4" />}
-          tone="info"
-          label="Total leads"
-          value={data?.summary.totalLeads ?? 0}
-          subStat="in selected window"
-          loading={isLoading}
-        />
-        <StatusKpiCard
-          icon={<UserCheck className="h-4 w-4" />}
-          tone="success"
-          label="Assigned"
-          value={data?.summary.totalAssigned ?? 0}
-          subStat={(() => {
-            const total = data?.summary.totalLeads ?? 0;
-            const assigned = data?.summary.totalAssigned ?? 0;
-            if (total === 0) return '—';
-            return `${Math.round((assigned / total) * 100)}% of total`;
-          })()}
-          progressPct={(() => {
-            const total = data?.summary.totalLeads ?? 0;
-            const assigned = data?.summary.totalAssigned ?? 0;
-            return total > 0 ? Math.round((assigned / total) * 100) : 0;
-          })()}
-          status={
-            (data?.summary.totalLeads ?? 0) > 0 &&
-            (data?.summary.totalAssigned ?? 0) === (data?.summary.totalLeads ?? 0)
-              ? { label: 'Fully covered', kind: 'success' }
-              : null
-          }
-          loading={isLoading}
-        />
-        <StatusKpiCard
-          icon={<UserX className="h-4 w-4" />}
-          tone={(data?.summary.totalUnassigned ?? 0) > 0 ? 'danger' : 'muted'}
-          label="Unassigned"
-          value={data?.summary.totalUnassigned ?? 0}
-          subStat={(() => {
-            const total = data?.summary.totalLeads ?? 0;
-            const unassigned = data?.summary.totalUnassigned ?? 0;
-            if (total === 0) return '—';
-            return `${Math.round((unassigned / total) * 100)}% of total`;
-          })()}
-          status={
-            (data?.summary.totalUnassigned ?? 0) > 0
-              ? { label: 'Needs action', kind: 'danger' }
-              : { label: 'All clear', kind: 'success' }
-          }
-          loading={isLoading}
-        />
-        <StatusKpiCard
-          icon={<Users className="h-4 w-4" />}
-          tone="info"
-          label="Counselors"
-          value={data?.summary.uniqueCounselors ?? 0}
-          subStat="active on this source"
-          loading={isLoading}
-        />
-        <StatusKpiCard
-          icon={<TrendingUp className="h-4 w-4" />}
-          tone="info"
-          label="Progression rate"
-          value={`${(data?.summary.progressionRate ?? 0).toFixed(1)}%`}
-          subStat="moving past 'new'"
-          progressPct={data?.summary.progressionRate ?? 0}
-          loading={isLoading}
-        />
-        <StatusKpiCard
-          icon={<CheckCircle2 className="h-4 w-4" />}
-          tone="success"
-          label="Conversion rate"
-          value={`${(data?.summary.conversionRate ?? 0).toFixed(1)}%`}
-          subStat="leads → enrolled / confirmed"
-          progressPct={data?.summary.conversionRate ?? 0}
-          loading={isLoading}
-        />
-      </div>
 
       {/* Chart */}
       <Card>
@@ -350,92 +244,6 @@ export function DistributionTab({
       </Card>
 
     </div>
-  );
-}
-
-type KpiTone = 'info' | 'success' | 'danger' | 'muted';
-
-const TONE_CLASSES: Record<
-  KpiTone,
-  { card: string; icon: string; value: string; progress: string; iconBg: string }
-> = {
-  info:    { card: 'border-blue-200/60',    icon: 'text-blue-600',    value: 'text-blue-900',    progress: 'bg-blue-500',    iconBg: 'bg-blue-100' },
-  success: { card: 'border-green-200/60',   icon: 'text-green-600',   value: 'text-green-900',   progress: 'bg-green-500',   iconBg: 'bg-green-100' },
-  danger:  { card: 'border-red-300 bg-red-50/40 ring-1 ring-red-200/60', icon: 'text-red-600', value: 'text-red-900', progress: 'bg-red-500', iconBg: 'bg-red-100' },
-  muted:   { card: 'border-muted',          icon: 'text-muted-foreground', value: 'text-foreground/80', progress: 'bg-muted-foreground/40', iconBg: 'bg-muted' },
-};
-
-function StatusKpiCard({
-  icon,
-  tone,
-  label,
-  value,
-  subStat,
-  progressPct,
-  status,
-  loading,
-}: {
-  icon: React.ReactNode;
-  tone: KpiTone;
-  label: string;
-  value: number | string;
-  subStat?: string;
-  /** 0-100. When provided, renders a thin progress bar at the bottom of the card. */
-  progressPct?: number;
-  /** Optional status pill in the top-right (e.g., "Needs action"). */
-  status?: { label: string; kind: 'success' | 'danger' | 'info' } | null;
-  loading?: boolean;
-}) {
-  const tw = TONE_CLASSES[tone];
-  const statusKindClass: Record<'success' | 'danger' | 'info', string> = {
-    success: 'bg-green-100 text-green-700 border-green-200',
-    danger: 'bg-red-100 text-red-700 border-red-200',
-    info: 'bg-blue-100 text-blue-700 border-blue-200',
-  };
-  return (
-    <Card className={tw.card}>
-      <CardContent className="px-4 pt-3 pb-3">
-        <div className="flex items-start justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <span
-              className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${tw.iconBg} ${tw.icon}`}
-            >
-              {icon}
-            </span>
-            <span className="text-xs font-medium text-muted-foreground">{label}</span>
-          </div>
-          {status && (
-            <span
-              className={`inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] font-medium ${statusKindClass[status.kind]}`}
-            >
-              {status.kind === 'danger' && <AlertCircle className="h-2.5 w-2.5" />}
-              {status.kind === 'success' && <CheckCircle2 className="h-2.5 w-2.5" />}
-              {status.label}
-            </span>
-          )}
-        </div>
-        {loading ? (
-          <Skeleton className="mt-2 h-8 w-24" />
-        ) : (
-          <div className={`mt-1.5 text-2xl font-bold leading-none tabular-nums ${tw.value}`}>
-            {typeof value === 'number' ? value.toLocaleString() : value}
-          </div>
-        )}
-        {subStat && !loading && (
-          <div className="mt-1 text-[11px] text-muted-foreground tabular-nums">
-            {subStat}
-          </div>
-        )}
-        {typeof progressPct === 'number' && !loading && (
-          <div className="mt-2 h-1 overflow-hidden rounded-full bg-muted">
-            <div
-              className={`h-full rounded-full transition-all ${tw.progress}`}
-              style={{ width: `${Math.max(0, Math.min(100, progressPct))}%` }}
-            />
-          </div>
-        )}
-      </CardContent>
-    </Card>
   );
 }
 

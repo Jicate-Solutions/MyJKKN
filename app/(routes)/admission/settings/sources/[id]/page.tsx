@@ -25,6 +25,8 @@ import { PermissionGuard } from '@/components/auth/permission-guard';
 import { SourceMasterService } from '@/lib/services/admission/source-master-service';
 import { CounselorsTab } from './_components/counselors-tab';
 import { DistributionTab } from './_components/distribution-tab';
+import { SourceStatusCards } from './_components/source-status-cards';
+import { DistributePanel } from './_components/distribute/distribute-panel';
 
 interface SourceDetailPageProps {
   params: Promise<{ id: string }>;
@@ -140,6 +142,23 @@ function SourceDetailContent({ id }: { id: string }) {
                 )}
               </CardContent>
             </Card>
+
+            {/* Page-level status cards — visible regardless of which tab is
+                active. Lifetime stats (no date filter) so they don't drift
+                with the Distribution tab's window control. */}
+            <SourceStatusCards
+              sourceEnum={source.enum_value}
+              institutionId={source.institution_id}
+            />
+
+            {/* Page-level distribute panel — collapsed-by-default; renders the
+                danger banner + count when the source has unassigned leads.
+                Available from any tab so admins don't need to hunt for it. */}
+            <DistributePanel
+              sourceId={source.id}
+              sourceEnum={source.enum_value}
+              institutionId={source.institution_id}
+            />
 
             <Tabs defaultValue="counselors" className="space-y-4">
               <TabsList>
