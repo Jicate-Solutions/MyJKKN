@@ -82,7 +82,7 @@ export function UnassignedLeadList({
             />
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
-                <span className="truncate font-medium">{lead.name}</span>
+                <span className="truncate font-medium">{lead.full_name}</span>
                 {lead.is_hot_lead && (
                   <Flame className="h-3 w-3 shrink-0 text-orange-500" />
                 )}

@@ -42,7 +42,7 @@ export interface DistributionResult {
 
 export interface UnassignedLead {
   id: string;
-  name: string;
+  full_name: string;
   email: string | null;
   phone: string | null;
   funnel_stage: string | null;
@@ -217,7 +217,7 @@ export class LeadDistributionService {
     let q = (supabase as any)
       .from('admission_leads')
       .select(
-        'id, name, email, phone, funnel_stage, is_hot_lead, created_at, source, institution_id',
+        'id, full_name, email, phone, funnel_stage, is_hot_lead, created_at, source, institution_id',
         { count: 'exact' }
       )
       .eq('source', sourceEnum)
@@ -228,7 +228,7 @@ export class LeadDistributionService {
     if (filters.hot) q = q.eq('is_hot_lead', true);
     if (filters.search) {
       q = q.or(
-        `name.ilike.%${filters.search}%,email.ilike.%${filters.search}%,phone.ilike.%${filters.search}%`
+        `full_name.ilike.%${filters.search}%,email.ilike.%${filters.search}%,phone.ilike.%${filters.search}%`
       );
     }
 
