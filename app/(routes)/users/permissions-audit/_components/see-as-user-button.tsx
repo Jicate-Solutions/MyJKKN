@@ -146,7 +146,7 @@ export function SeeAsUserButton({
               <li>This tab will reload showing <b>exactly</b> what {targetName} sees — the real dashboard, real RLS-filtered data.</li>
               <li>Your admin session is safely backed up and restored automatically when you exit.</li>
               <li>A coloured banner stays visible the whole time.</li>
-              <li>Session auto-expires in 15 minutes.</li>
+              <li>Session auto-expires in 60 minutes.</li>
               <li>Every action is logged in the audit trail.</li>
             </ul>
           </div>
