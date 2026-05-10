@@ -912,28 +912,32 @@ export function useCounselorPerformance(institutionId?: string, dateRange?: any,
         }
       });
 
-      // 3. Fetch leads grouped by counselor
-      let leadsQuery = (supabase as any)
-        .from('admission_leads')
-        .select('counselor_id, stage, funnel_stage, score, is_hot_lead, total_messages_sent, created_at')
-        .not('counselor_id', 'is', null);
-      if (institutionId) leadsQuery = leadsQuery.eq('institution_id', institutionId);
-      if (dateRange?.from) leadsQuery = leadsQuery.gte('created_at', dateRange.from);
-      if (dateRange?.to) leadsQuery = leadsQuery.lte('created_at', dateRange.to);
-      const { data: leads, error } = await leadsQuery;
+      // 3. Per-counselor lead aggregates via SQL function. The previous
+      //    implementation fetched admission_leads rows and grouped client-side,
+      //    which was silently capped at PostgREST max_rows (10,000) so the
+      //    counselors page leaderboard under-counted any institution with more
+      //    leads than the cap. The RPC does GROUP BY in SQL — single round-
+      //    trip, no row-cap exposure.
+      const { data: leadStats, error } = await (supabase as any).rpc(
+        'get_admission_counselor_performance_aggregate',
+        {
+          p_institution_id: institutionId ?? null,
+          p_from: dateRange?.from ?? null,
+          p_to: dateRange?.to ?? null,
+        }
+      );
       if (error) throw new Error(error.message);
 
-      // 4. Aggregate lead stats into counselor entries
-      (leads || []).forEach((lead: any) => {
-        const cId = lead.counselor_id;
+      // 4. Merge aggregate stats into the counselor entries built in steps 1+2
+      (leadStats || []).forEach((row: any) => {
+        const cId = row.counselor_id;
         if (counselorMap[cId]) {
           const c = counselorMap[cId];
-          c.totalLeads++;
-          const leadStage = lead.stage || lead.funnel_stage;
-          if (['enrolled', 'offer_accepted', 'token_paid'].includes(leadStage)) c.convertedLeads++;
-          if (lead.is_hot_lead) c.hotLeads++;
-          c.scoreSum += lead.score || 0;
-          c.messagesSent += lead.total_messages_sent || 0;
+          c.totalLeads = Number(row.total_leads) || 0;
+          c.convertedLeads = Number(row.converted_leads) || 0;
+          c.hotLeads = Number(row.hot_leads) || 0;
+          c.scoreSum = Number(row.score_sum) || 0;
+          c.messagesSent = Number(row.messages_sent) || 0;
         }
       });
 
