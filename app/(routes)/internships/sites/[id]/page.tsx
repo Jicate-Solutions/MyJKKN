@@ -10,7 +10,6 @@
 
 import Link from 'next/link';
 import { use, useMemo, useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
   Breadcrumb,
@@ -36,8 +35,11 @@ import {
   CalendarClock,
   UserCircle,
   Plus,
+  Radar,
+  Ambulance,
+  IndianRupee,
 } from 'lucide-react';
-import { useSite, useUpdateSite } from '@/hooks/internships/useSites';
+import { useSite, useUpdateSite, useSiteTypes } from '@/hooks/internships/useSites';
 import { usePreceptors } from '@/hooks/internships/usePreceptors';
 import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
 import {
@@ -46,14 +48,22 @@ import {
   formValuesToCreatePayload,
   type SiteFormValues,
 } from '../../_components/sites/site-form';
-import { SITE_TYPE_LABELS } from '../../_components/sites/site-type-options';
+
+const OWNERSHIP_LABELS: Record<string, string> = {
+  private: 'Private',
+  government: 'Government',
+  university_affiliated: 'University-affiliated',
+  trust: 'Trust',
+  corporate: 'Corporate',
+  ngo: 'NGO',
+};
 
 export default function SiteDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
-  const router = useRouter();
   const { data: site, isLoading, error } = useSite(id);
   const update = useUpdateSite();
   const { data: preceptors = [], isLoading: preceptorsLoading } = usePreceptors(id);
+  const { data: siteTypes = [] } = useSiteTypes();
   const { institutions } = useUserInstitutionAccess();
   const [isEditing, setIsEditing] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -63,6 +73,12 @@ export default function SiteDetailPage({ params }: { params: Promise<{ id: strin
     institutions.forEach((i) => m.set(i.institution_id, i.institution_name));
     return m;
   }, [institutions]);
+
+  const siteTypeLookup = useMemo(() => {
+    const m = new Map<string, string>();
+    siteTypes.forEach((t) => m.set(t.id, t.display_name));
+    return m;
+  }, [siteTypes]);
 
   const handleSubmit = async (values: SiteFormValues) => {
     setSubmitError(null);
@@ -75,7 +91,7 @@ export default function SiteDetailPage({ params }: { params: Promise<{ id: strin
   };
 
   return (
-    <ContentLayout title={site ? `Sites — ${site.name}` : 'Site'}>
+    <ContentLayout title={site ? `Sites — ${site.site_name}` : 'Site'}>
       <Breadcrumb>
         <BreadcrumbList>
           <BreadcrumbItem>
@@ -91,7 +107,7 @@ export default function SiteDetailPage({ params }: { params: Promise<{ id: strin
           </BreadcrumbItem>
           <BreadcrumbSeparator />
           <BreadcrumbItem>
-            <BreadcrumbPage>{site?.name ?? '…'}</BreadcrumbPage>
+            <BreadcrumbPage>{site?.site_name ?? '…'}</BreadcrumbPage>
           </BreadcrumbItem>
         </BreadcrumbList>
       </Breadcrumb>
@@ -156,11 +172,19 @@ export default function SiteDetailPage({ params }: { params: Promise<{ id: strin
                   <div className="space-y-1">
                     <CardTitle className="text-xl flex items-center gap-2">
                       <Building2 className="h-5 w-5" />
-                      {site.name}
+                      {site.site_name}
                     </CardTitle>
                     <div className="flex flex-wrap items-center gap-2">
-                      <Badge variant="secondary">
-                        {SITE_TYPE_LABELS[site.site_type] ?? site.site_type}
+                      <Badge variant="secondary" className="font-mono text-xs">
+                        {site.hospital_code}
+                      </Badge>
+                      {site.site_type_id && (
+                        <Badge variant="secondary">
+                          {siteTypeLookup.get(site.site_type_id) ?? 'Unknown type'}
+                        </Badge>
+                      )}
+                      <Badge variant="outline">
+                        {OWNERSHIP_LABELS[site.ownership_type] ?? site.ownership_type}
                       </Badge>
                       {site.is_active ? (
                         <Badge variant="outline" className="bg-green-50 text-green-700 border-green-300">
@@ -171,9 +195,9 @@ export default function SiteDetailPage({ params }: { params: Promise<{ id: strin
                           Inactive
                         </Badge>
                       )}
-                      {site.mou_signed && (
+                      {site.operates_weekends && (
                         <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-300">
-                          MoU signed{site.mou_expiry_date ? ` · expires ${site.mou_expiry_date}` : ''}
+                          Weekend rotations
                         </Badge>
                       )}
                     </div>
@@ -188,17 +212,45 @@ export default function SiteDetailPage({ params }: { params: Promise<{ id: strin
                 />
                 <DetailRow
                   icon={<Building2 className="h-4 w-4" />}
-                  label="Capacity"
-                  value={site.capacity != null ? `${site.capacity} concurrent learners` : '—'}
+                  label="Max learners per cycle"
+                  value={site.max_learners_per_cycle != null ? `${site.max_learners_per_cycle}` : '—'}
                 />
                 <DetailRow
                   icon={<MapPin className="h-4 w-4" />}
                   label="Address"
-                  value={[site.address, site.city, site.state, site.pincode]
+                  value={[site.address_line1, site.address_line2, site.city, site.district, site.state, site.pincode]
                     .filter(Boolean)
-                    .join(', ') || '—'}
+                    .join(', ')}
                   className="md:col-span-2"
                 />
+                <DetailRow
+                  icon={<Radar className="h-4 w-4" />}
+                  label="Geofence"
+                  value={`${site.latitude}, ${site.longitude} · ${site.geofence_radius_meters}m radius`}
+                  className="md:col-span-2"
+                />
+                {site.departments_available?.length > 0 && (
+                  <DetailRow
+                    icon={<Building2 className="h-4 w-4" />}
+                    label="Departments available"
+                    value={site.departments_available.join(', ')}
+                    className="md:col-span-2"
+                  />
+                )}
+                {site.posting_fee_per_learner != null && (
+                  <DetailRow
+                    icon={<IndianRupee className="h-4 w-4" />}
+                    label="Posting fee per learner"
+                    value={`₹${Number(site.posting_fee_per_learner).toLocaleString('en-IN')}`}
+                  />
+                )}
+                {(site.contract_start_date || site.contract_end_date) && (
+                  <DetailRow
+                    icon={<CalendarClock className="h-4 w-4" />}
+                    label="Contract window"
+                    value={`${site.contract_start_date ?? '—'} → ${site.contract_end_date ?? '—'}`}
+                  />
+                )}
                 {site.notes && (
                   <DetailRow
                     icon={<CalendarClock className="h-4 w-4" />}
@@ -219,6 +271,51 @@ export default function SiteDetailPage({ params }: { params: Promise<{ id: strin
                 />
               </CardContent>
             </Card>
+
+            {(site.emergency_contact_name
+              || site.emergency_contact_phone
+              || site.ambulance_number
+              || site.nearest_emergency_ward) && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <Ambulance className="h-4 w-4 text-red-600" />
+                    Emergency contact
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="grid gap-3 md:grid-cols-2 text-sm">
+                  {site.emergency_contact_name && (
+                    <DetailRow
+                      icon={<UserCircle className="h-4 w-4" />}
+                      label="Contact name"
+                      value={`${site.emergency_contact_name}${site.emergency_contact_role ? ` (${site.emergency_contact_role})` : ''}`}
+                    />
+                  )}
+                  {site.emergency_contact_phone && (
+                    <DetailRow
+                      icon={<Phone className="h-4 w-4" />}
+                      label="Phone"
+                      value={site.emergency_contact_phone}
+                    />
+                  )}
+                  {site.ambulance_number && (
+                    <DetailRow
+                      icon={<Ambulance className="h-4 w-4" />}
+                      label="Ambulance"
+                      value={site.ambulance_number}
+                    />
+                  )}
+                  {site.nearest_emergency_ward && (
+                    <DetailRow
+                      icon={<MapPin className="h-4 w-4" />}
+                      label="Nearest emergency ward"
+                      value={site.nearest_emergency_ward}
+                      className="md:col-span-2"
+                    />
+                  )}
+                </CardContent>
+              </Card>
+            )}
 
             <Card>
               <CardHeader>
@@ -259,15 +356,16 @@ export default function SiteDetailPage({ params }: { params: Promise<{ id: strin
                             href={`/internships/preceptors/${p.id}`}
                             className="font-medium hover:underline"
                           >
-                            {p.name}
+                            {p.full_name}
                           </Link>
                           <div className="text-xs text-muted-foreground flex flex-wrap items-center gap-x-3 gap-y-0.5">
+                            {p.designation && <span>{p.designation}</span>}
                             {p.specialization && <span>{p.specialization}</span>}
                             {p.qualification && <span>{p.qualification}</span>}
-                            {p.phone && (
+                            {p.mobile && (
                               <span className="inline-flex items-center gap-1">
                                 <Phone className="h-3 w-3" />
-                                {p.phone}
+                                {p.mobile}
                               </span>
                             )}
                             {p.email && (
@@ -279,6 +377,9 @@ export default function SiteDetailPage({ params }: { params: Promise<{ id: strin
                           </div>
                         </div>
                         <div className="flex items-center gap-2">
+                          <Badge variant="outline" className="text-xs capitalize">
+                            {p.scope_type}
+                          </Badge>
                           {p.is_active ? (
                             <Badge variant="outline" className="bg-green-50 text-green-700 border-green-300">Active</Badge>
                           ) : (

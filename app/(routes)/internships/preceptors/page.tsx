@@ -38,13 +38,16 @@ import { usePreceptors } from '@/hooks/internships/usePreceptors';
 import { useSites } from '@/hooks/internships/useSites';
 import { useAssignments } from '@/hooks/internships/useAssignments';
 import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
+import type { PreceptorScopeType } from '@/lib/services/internships/types';
 
 type ActiveFilter = 'all' | 'active' | 'inactive';
+type ScopeFilter = PreceptorScopeType | 'all';
 
 export default function InternshipPreceptorsPage() {
   const { institutions, loading: institutionsLoading } = useUserInstitutionAccess();
   const [collegeFilter, setCollegeFilter] = useState<string>('all');
   const [siteFilter, setSiteFilter] = useState<string>('all');
+  const [scopeFilter, setScopeFilter] = useState<ScopeFilter>('all');
   const [activeFilter, setActiveFilter] = useState<ActiveFilter>('active');
   const [search, setSearch] = useState('');
 
@@ -55,7 +58,7 @@ export default function InternshipPreceptorsPage() {
 
   const siteLookup = useMemo(() => {
     const m = new Map<string, { name: string; institution_id: string }>();
-    sites.forEach((s) => m.set(s.id, { name: s.name, institution_id: s.institution_id }));
+    sites.forEach((s) => m.set(s.id, { name: s.site_name, institution_id: s.institution_id }));
     return m;
   }, [sites]);
 
@@ -85,18 +88,18 @@ export default function InternshipPreceptorsPage() {
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase();
     return preceptors.filter((p) => {
-      const site = siteLookup.get(p.site_id);
-      if (collegeFilter !== 'all' && site?.institution_id !== collegeFilter) return false;
+      if (collegeFilter !== 'all' && p.institution_id !== collegeFilter) return false;
       if (siteFilter !== 'all' && p.site_id !== siteFilter) return false;
+      if (scopeFilter !== 'all' && p.scope_type !== scopeFilter) return false;
       if (activeFilter === 'active' && !p.is_active) return false;
       if (activeFilter === 'inactive' && p.is_active) return false;
       if (term) {
-        const blob = `${p.name} ${p.phone ?? ''} ${p.email ?? ''} ${p.specialization ?? ''}`.toLowerCase();
+        const blob = `${p.full_name} ${p.mobile ?? ''} ${p.email ?? ''} ${p.specialization ?? ''} ${p.designation ?? ''}`.toLowerCase();
         if (!blob.includes(term)) return false;
       }
       return true;
     });
-  }, [preceptors, search, collegeFilter, siteFilter, activeFilter, siteLookup]);
+  }, [preceptors, search, collegeFilter, siteFilter, scopeFilter, activeFilter]);
 
   return (
     <ContentLayout title="Internships — Preceptors">
@@ -136,11 +139,11 @@ export default function InternshipPreceptorsPage() {
 
         <Card>
           <CardContent className="pt-6 space-y-3">
-            <div className="grid gap-3 md:grid-cols-4">
+            <div className="grid gap-3 md:grid-cols-5">
               <div className="md:col-span-1 relative">
                 <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
-                  placeholder="Name, phone, email"
+                  placeholder="Name, mobile, email"
                   className="pl-8"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
@@ -173,8 +176,22 @@ export default function InternshipPreceptorsPage() {
                 <SelectContent>
                   <SelectItem value="all">All sites</SelectItem>
                   {filteredSites.map((s) => (
-                    <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                    <SelectItem key={s.id} value={s.id}>{s.site_name}</SelectItem>
                   ))}
+                </SelectContent>
+              </Select>
+              <Select
+                value={scopeFilter}
+                onValueChange={(v) => setScopeFilter(v as ScopeFilter)}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Scope" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All scopes</SelectItem>
+                  <SelectItem value="cycle">Cycle</SelectItem>
+                  <SelectItem value="site">Site</SelectItem>
+                  <SelectItem value="institution">Institution</SelectItem>
                 </SelectContent>
               </Select>
               <Select
@@ -238,11 +255,12 @@ export default function InternshipPreceptorsPage() {
                   <thead className="border-b">
                     <tr className="text-left text-muted-foreground">
                       <th className="py-2 pr-3">Name</th>
-                      <th className="py-2 pr-3">Specialization</th>
+                      <th className="py-2 pr-3">Designation</th>
                       <th className="py-2 pr-3">Site</th>
                       <th className="py-2 pr-3">College</th>
                       <th className="py-2 pr-3">Contact</th>
-                      <th className="py-2 pr-3">Active learners</th>
+                      <th className="py-2 pr-3">Scope</th>
+                      <th className="py-2 pr-3">Students</th>
                       <th className="py-2 pr-3">Status</th>
                       <th className="py-2 pr-3 text-right">Actions</th>
                     </tr>
@@ -258,14 +276,16 @@ export default function InternshipPreceptorsPage() {
                               href={`/internships/preceptors/${p.id}`}
                               className="font-medium hover:underline"
                             >
-                              {p.name}
+                              {p.full_name}
                             </Link>
                             {p.qualification && (
                               <div className="text-xs text-muted-foreground">{p.qualification}</div>
                             )}
                           </td>
                           <td className="py-2 pr-3 text-xs">
-                            {p.specialization || <span className="text-muted-foreground">—</span>}
+                            {p.designation || p.specialization || (
+                              <span className="text-muted-foreground">—</span>
+                            )}
                           </td>
                           <td className="py-2 pr-3 text-xs">
                             {site ? (
@@ -278,13 +298,13 @@ export default function InternshipPreceptorsPage() {
                             ) : '—'}
                           </td>
                           <td className="py-2 pr-3 text-xs text-muted-foreground">
-                            {site ? institutionLookup.get(site.institution_id) ?? '—' : '—'}
+                            {institutionLookup.get(p.institution_id) ?? '—'}
                           </td>
                           <td className="py-2 pr-3 text-xs space-y-0.5">
-                            {p.phone && (
+                            {p.mobile && (
                               <div className="inline-flex items-center gap-1">
                                 <Phone className="h-3 w-3" />
-                                {p.phone}
+                                {p.mobile}
                               </div>
                             )}
                             {p.email && (
@@ -293,14 +313,18 @@ export default function InternshipPreceptorsPage() {
                                 <span className="truncate max-w-[180px]">{p.email}</span>
                               </div>
                             )}
-                            {!p.phone && !p.email && (
+                            {!p.mobile && !p.email && (
                               <span className="text-muted-foreground">—</span>
                             )}
                           </td>
                           <td className="py-2 pr-3">
+                            <Badge variant="outline" className="text-xs capitalize">
+                              {p.scope_type}
+                            </Badge>
+                          </td>
+                          <td className="py-2 pr-3">
                             <Badge variant="outline">
-                              {learnerCount}
-                              {p.max_trainees != null ? ` / ${p.max_trainees}` : ''}
+                              {learnerCount} / {p.max_students}
                             </Badge>
                           </td>
                           <td className="py-2 pr-3">

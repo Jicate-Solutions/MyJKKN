@@ -5,8 +5,9 @@
  *
  * Surfaces all internship_external_sites the current user can reach. Filter by
  * college (institution_id, restricted to user's accessible institutions), site
- * type, and active/inactive. Free-text search runs client-side over the loaded
- * page (the substrate doesn't yet expose a server-side ilike query).
+ * type (FK to internship_site_types), and active/inactive. Free-text search runs
+ * client-side over the loaded page (the substrate doesn't yet expose a
+ * server-side ilike query).
  */
 
 import Link from 'next/link';
@@ -32,19 +33,17 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { BeatLoader } from 'react-spinners';
-import { Building2, Plus, AlertCircle, Search, MapPin } from 'lucide-react';
-import { useSites } from '@/hooks/internships/useSites';
+import { Building2, Plus, AlertCircle, Search, MapPin, Radar } from 'lucide-react';
+import { useSites, useSiteTypes } from '@/hooks/internships/useSites';
 import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
-import type { SiteType } from '@/lib/services/internships/types';
-import { SITE_TYPE_LABELS, SITE_TYPE_OPTIONS } from '../_components/sites/site-type-options';
 
-type SiteTypeFilter = SiteType | 'all';
 type ActiveFilter = 'all' | 'active' | 'inactive';
 
 export default function InternshipSitesPage() {
   const { institutions, loading: institutionsLoading } = useUserInstitutionAccess();
+  const { data: siteTypes = [] } = useSiteTypes();
   const [institutionFilter, setInstitutionFilter] = useState<string>('all');
-  const [siteTypeFilter, setSiteTypeFilter] = useState<SiteTypeFilter>('all');
+  const [siteTypeFilter, setSiteTypeFilter] = useState<string>('all');
   const [activeFilter, setActiveFilter] = useState<ActiveFilter>('active');
   const [search, setSearch] = useState('');
 
@@ -52,15 +51,21 @@ export default function InternshipSitesPage() {
   const activeOnly = activeFilter === 'active';
   const { data: sites = [], isLoading, error } = useSites(institutionId, activeOnly);
 
+  const siteTypeLookup = useMemo(() => {
+    const m = new Map<string, string>();
+    siteTypes.forEach((t) => m.set(t.id, t.display_name));
+    return m;
+  }, [siteTypes]);
+
   // The hook's `activeOnly` only filters when true. For 'inactive' we keep it
   // false (return all) and filter client-side; for 'all' we also keep false.
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase();
     return sites.filter((s) => {
-      if (siteTypeFilter !== 'all' && s.site_type !== siteTypeFilter) return false;
+      if (siteTypeFilter !== 'all' && s.site_type_id !== siteTypeFilter) return false;
       if (activeFilter === 'inactive' && s.is_active) return false;
       if (term) {
-        const blob = `${s.name} ${s.address ?? ''} ${s.city ?? ''}`.toLowerCase();
+        const blob = `${s.site_name} ${s.hospital_code} ${s.address_line1} ${s.city} ${s.district}`.toLowerCase();
         if (!blob.includes(term)) return false;
       }
       return true;
@@ -115,7 +120,7 @@ export default function InternshipSitesPage() {
               <div className="md:col-span-1 relative">
                 <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
-                  placeholder="Search name or address"
+                  placeholder="Search name, code, address"
                   className="pl-8"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
@@ -140,15 +145,15 @@ export default function InternshipSitesPage() {
               </Select>
               <Select
                 value={siteTypeFilter}
-                onValueChange={(v) => setSiteTypeFilter(v as SiteTypeFilter)}
+                onValueChange={(v) => setSiteTypeFilter(v)}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="Site type" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All site types</SelectItem>
-                  {SITE_TYPE_OPTIONS.map((opt) => (
-                    <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                  {siteTypes.map((t) => (
+                    <SelectItem key={t.id} value={t.id}>{t.display_name}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -213,11 +218,12 @@ export default function InternshipSitesPage() {
                   <thead className="border-b">
                     <tr className="text-left text-muted-foreground">
                       <th className="py-2 pr-3">Name</th>
+                      <th className="py-2 pr-3">Code</th>
                       <th className="py-2 pr-3">Type</th>
                       <th className="py-2 pr-3">College</th>
                       <th className="py-2 pr-3">Location</th>
+                      <th className="py-2 pr-3">Geofence</th>
                       <th className="py-2 pr-3">Capacity</th>
-                      <th className="py-2 pr-3">MoU</th>
                       <th className="py-2 pr-3">Status</th>
                       <th className="py-2 pr-3 text-right">Actions</th>
                     </tr>
@@ -230,41 +236,40 @@ export default function InternshipSitesPage() {
                             href={`/internships/sites/${site.id}`}
                             className="font-medium hover:underline"
                           >
-                            {site.name}
+                            {site.site_name}
                           </Link>
                         </td>
+                        <td className="py-2 pr-3 font-mono text-xs">{site.hospital_code}</td>
                         <td className="py-2 pr-3">
-                          <Badge variant="secondary">
-                            {SITE_TYPE_LABELS[site.site_type] ?? site.site_type}
-                          </Badge>
+                          {site.site_type_id ? (
+                            <Badge variant="secondary">
+                              {siteTypeLookup.get(site.site_type_id) ?? '—'}
+                            </Badge>
+                          ) : (
+                            <span className="text-muted-foreground text-xs">—</span>
+                          )}
                         </td>
                         <td className="py-2 pr-3 text-xs text-muted-foreground">
                           {institutionLookup.get(site.institution_id) ?? '—'}
                         </td>
                         <td className="py-2 pr-3 max-w-[260px]">
-                          {site.address || site.city ? (
-                            <div className="flex items-start gap-1 text-xs">
-                              <MapPin className="h-3 w-3 mt-0.5 text-muted-foreground shrink-0" />
-                              <span className="truncate" title={[site.address, site.city, site.state].filter(Boolean).join(', ')}>
-                                {[site.address, site.city].filter(Boolean).join(', ') || '—'}
-                              </span>
-                            </div>
-                          ) : (
-                            <span className="text-muted-foreground">—</span>
-                          )}
+                          <div className="flex items-start gap-1 text-xs">
+                            <MapPin className="h-3 w-3 mt-0.5 text-muted-foreground shrink-0" />
+                            <span
+                              className="truncate"
+                              title={[site.address_line1, site.address_line2, site.city, site.district, site.state].filter(Boolean).join(', ')}
+                            >
+                              {[site.city, site.district].filter(Boolean).join(', ') || '—'}
+                            </span>
+                          </div>
                         </td>
-                        <td className="py-2 pr-3">{site.capacity ?? '—'}</td>
                         <td className="py-2 pr-3">
-                          {site.mou_signed ? (
-                            <Badge variant="outline" className="bg-green-50 text-green-700 border-green-300">
-                              Signed
-                            </Badge>
-                          ) : (
-                            <Badge variant="outline" className="bg-gray-50 text-gray-600">
-                              Pending
-                            </Badge>
-                          )}
+                          <Badge variant="outline" className="text-xs">
+                            <Radar className="h-3 w-3 mr-1" />
+                            {site.geofence_radius_meters}m
+                          </Badge>
                         </td>
+                        <td className="py-2 pr-3">{site.max_learners_per_cycle ?? '—'}</td>
                         <td className="py-2 pr-3">
                           {site.is_active ? (
                             <Badge variant="outline" className="bg-green-50 text-green-700 border-green-300">Active</Badge>

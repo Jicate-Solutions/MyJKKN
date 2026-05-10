@@ -9,8 +9,7 @@
  * Surfaces:
  *   - Preceptor profile (read-only with Edit toggle, non-auth fields)
  *   - Currently assigned learners (active or pending assignments)
- *   - Recent sign-off activity (logbook entries approved + evaluations submitted
- *     by this preceptor, last 10 of each)
+ *   - Recent completed rotations (history snapshot)
  *   - Audit trail (created/updated timestamps)
  */
 
@@ -43,6 +42,7 @@ import {
   ClipboardCheck,
   CalendarClock,
   UserCircle,
+  ShieldCheck,
 } from 'lucide-react';
 import { usePreceptor, useUpdatePreceptor } from '@/hooks/internships/usePreceptors';
 import { useSite } from '@/hooks/internships/useSites';
@@ -54,6 +54,12 @@ import {
   formValuesToCreatePayload,
   type PreceptorFormValues,
 } from '../../_components/preceptors/preceptor-form';
+
+const SCOPE_HINT: Record<string, string> = {
+  cycle: 'Authority limited to current cycle',
+  site: 'Authority across all learners at this site',
+  institution: 'Authority across the whole institution',
+};
 
 export default function PreceptorDetailPage({
   params,
@@ -101,7 +107,7 @@ export default function PreceptorDetailPage({
   };
 
   return (
-    <ContentLayout title={preceptor ? `Preceptors — ${preceptor.name}` : 'Preceptor'}>
+    <ContentLayout title={preceptor ? `Preceptors — ${preceptor.full_name}` : 'Preceptor'}>
       <Breadcrumb>
         <BreadcrumbList>
           <BreadcrumbItem>
@@ -119,7 +125,7 @@ export default function PreceptorDetailPage({
           </BreadcrumbItem>
           <BreadcrumbSeparator />
           <BreadcrumbItem>
-            <BreadcrumbPage>{preceptor?.name ?? '…'}</BreadcrumbPage>
+            <BreadcrumbPage>{preceptor?.full_name ?? '…'}</BreadcrumbPage>
           </BreadcrumbItem>
         </BreadcrumbList>
       </Breadcrumb>
@@ -185,7 +191,7 @@ export default function PreceptorDetailPage({
                 <div className="space-y-1">
                   <CardTitle className="text-xl flex items-start gap-2">
                     <Stethoscope className="h-5 w-5 mt-1 shrink-0" />
-                    <span className="break-words">{preceptor.name}</span>
+                    <span className="break-words">{preceptor.full_name}</span>
                   </CardTitle>
                   <div className="flex flex-wrap items-center gap-2">
                     {preceptor.is_active ? (
@@ -197,6 +203,10 @@ export default function PreceptorDetailPage({
                         Inactive
                       </Badge>
                     )}
+                    <Badge variant="outline" className="capitalize">
+                      <ShieldCheck className="h-3 w-3 mr-1" />
+                      {preceptor.scope_type} scope
+                    </Badge>
                     {preceptor.qualification && (
                       <Badge variant="secondary">{preceptor.qualification}</Badge>
                     )}
@@ -204,6 +214,13 @@ export default function PreceptorDetailPage({
                 </div>
               </CardHeader>
               <CardContent className="space-y-3 text-sm">
+                {preceptor.designation && (
+                  <DetailRow
+                    icon={<UserCircle className="h-4 w-4" />}
+                    label="Designation"
+                    value={preceptor.designation}
+                  />
+                )}
                 {preceptor.specialization && (
                   <DetailRow
                     icon={<GraduationCap className="h-4 w-4" />}
@@ -220,24 +237,31 @@ export default function PreceptorDetailPage({
                         href={`/internships/sites/${site.id}`}
                         className="hover:underline"
                       >
-                        {site.name}
+                        {site.site_name}
                       </Link>
                     }
                     secondary={institutionLookup.get(site.institution_id)}
                   />
                 )}
+                {!site && (
+                  <DetailRow
+                    icon={<Building2 className="h-4 w-4" />}
+                    label="College"
+                    value={institutionLookup.get(preceptor.institution_id) ?? preceptor.institution_id}
+                  />
+                )}
                 <div className="grid gap-3 sm:grid-cols-2">
-                  {preceptor.phone && (
+                  {preceptor.mobile && (
                     <a
-                      href={`tel:${preceptor.phone.replace(/\s+/g, '')}`}
+                      href={`tel:${preceptor.mobile.replace(/\s+/g, '')}`}
                       className="flex items-center gap-2 rounded-md border p-3 hover:bg-muted/40"
                     >
                       <Phone className="h-4 w-4 text-muted-foreground shrink-0" />
                       <div className="min-w-0">
                         <div className="text-xs uppercase tracking-wide text-muted-foreground">
-                          Phone
+                          Mobile
                         </div>
-                        <div className="font-medium truncate">{preceptor.phone}</div>
+                        <div className="font-medium truncate">{preceptor.mobile}</div>
                       </div>
                     </a>
                   )}
@@ -256,13 +280,17 @@ export default function PreceptorDetailPage({
                     </a>
                   )}
                 </div>
-                {preceptor.max_trainees != null && (
-                  <DetailRow
-                    icon={<UserCircle className="h-4 w-4" />}
-                    label="Max concurrent trainees"
-                    value={`${preceptor.max_trainees}`}
-                  />
-                )}
+                <DetailRow
+                  icon={<UserCircle className="h-4 w-4" />}
+                  label="Max concurrent students"
+                  value={`${preceptor.max_students}`}
+                />
+                <DetailRow
+                  icon={<ShieldCheck className="h-4 w-4" />}
+                  label="Sign-off scope"
+                  value={`${preceptor.scope_type}`}
+                  secondary={SCOPE_HINT[preceptor.scope_type]}
+                />
               </CardContent>
             </Card>
 
