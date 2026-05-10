@@ -17,6 +17,8 @@ import {
 } from '@/components/ui/dialog';
 import { AlertCircle, AlertTriangle } from 'lucide-react';
 import { useCandidates, useApproveCandidate, useRejectCandidate } from '@/hooks/hr/use-recruitment';
+import { useAlumniSignalBulk } from '@/hooks/hr/use-alumni-signal-bulk';
+import { AlumniSignalLine } from '../_components/alumni-signal-line';
 import { usePermissions } from '@/hooks/use-permissions';
 import {
   CANDIDATE_STATUS_LABELS,
@@ -68,6 +70,11 @@ export default function RecruitmentApprovalsPage() {
   });
 
   const displayCandidates = viewMode === 'mine' ? myPending : allPending;
+
+  // T8.5 — bulk-fetch alumni signals for all displayed candidates so each
+  // row can show JKKN history inline without N detail fetches.
+  const candidateEmails = displayCandidates.map((c) => c.email);
+  const { data: alumniMap } = useAlumniSignalBulk(candidateEmails);
 
   // Approve flow
   const approveMutation = useApproveCandidate();
@@ -220,6 +227,11 @@ export default function RecruitmentApprovalsPage() {
                       <p className="text-xs text-muted-foreground mt-0.5">
                         {c.role_title}
                       </p>
+
+                      {/* T8.5 — JKKN history badge (renders nothing when no match) */}
+                      <AlumniSignalLine
+                        signal={alumniMap ? alumniMap[c.email.toLowerCase().trim()] : null}
+                      />
 
                       {currentStep && (
                         <p className="text-xs text-muted-foreground mt-0.5">
