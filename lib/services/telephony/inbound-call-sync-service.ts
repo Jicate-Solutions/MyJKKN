@@ -407,6 +407,55 @@ export class InboundCallSyncService {
       throw new Error(error.message);
     }
 
+    // Write a timeline breadcrumb to admission_lead_activities so the lead
+    // detail Activity tab shows the inbound call. Manual logs (logManualCall)
+    // and outbound webhook handlers already do this; pre-fix, the inbound CDR
+    // path skipped it, leaving inbound prospects with "no activity recorded yet"
+    // even when the call_logs row had full transcript + sentiment.
+    //
+    // Skip when no lead matched — don't pollute the timeline with anonymous calls.
+    // Best-effort: failure here MUST NOT roll back the call_logs upsert (CDR sync
+    // must remain resilient to RLS hiccups, transient FK errors, etc.).
+    // Idempotency: the existing-record short-circuit above (call_sid lookup)
+    // ensures this block only fires on genuinely new rows, so re-runs over the
+    // same Exotel page won't double-insert breadcrumbs.
+    if (leadId) {
+      const durationSec = record.Duration ? parseInt(record.Duration, 10) || 0 : 0;
+      const mappedStatus = InboundCallSyncService.mapExotelStatus(record.Status);
+      const descriptionParts = [
+        `Direction: inbound`,
+        `Status: ${mappedStatus}`,
+        durationSec > 0 ? `Duration: ${durationSec}s` : null,
+        record.From ? `From: ${record.From}` : null,
+      ].filter(Boolean);
+
+      await supabase
+        .from('admission_lead_activities')
+        .insert({
+          lead_id: leadId,
+          activity_type: 'call',
+          subject: `Inbound call ${mappedStatus}`,
+          description: descriptionParts.join(' | '),
+          outcome: mappedStatus,
+          created_by: counselorId ?? null,
+        })
+        .then(({ error: actErr }: { error: any }) => {
+          if (actErr) {
+            logger.warn(MODULE, 'Failed to insert lead_activities breadcrumb', {
+              callSid: record.Sid,
+              leadId,
+              error: actErr.message,
+            });
+          }
+        }, (err: unknown) => {
+          logger.warn(MODULE, 'Failed to insert lead_activities breadcrumb', {
+            callSid: record.Sid,
+            leadId,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        });
+    }
+
     // Run the call pipeline (intelligence submit + auto-SMS + callback queue)
     // on the newly-inserted row. Pre-fix, only the real-time StatusCallback
     // webhook path triggered the pipeline — cron-path inserts skipped it
