@@ -139,6 +139,8 @@ export interface LearnerHostelite {
   current_room_id?: string | null;
   current_bed_id?: string | null;
   current_allocation_id?: string | null;
+  /** Which date source produced year_of_study. NULL when no source available. PR #823. */
+  year_source?: 'admission_year' | 'batch' | 'enquiry' | null;
 }
 
 // Sentinel for the "Unassigned" block filter chip. Matches LEFT JOIN ... IS NULL
