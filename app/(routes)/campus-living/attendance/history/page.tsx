@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { toast } from 'sonner';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
@@ -34,6 +35,8 @@ import {
 
 export default function AttendanceHistoryPage() {
   const { profile } = useAuth();
+  const searchParams = useSearchParams();
+  const learnerId = searchParams.get('learner') ?? undefined;
   const [selectedBlock, setSelectedBlock] = useState('all');
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
@@ -43,6 +46,7 @@ export default function AttendanceHistoryPage() {
   const filters = {
     ...(selectedBlock !== 'all' ? { block_id: selectedBlock } : {}),
     ...(fromDate ? { date: fromDate } : {}),
+    ...(learnerId ? { learner_id: learnerId } : {}),
   };
   const { data: rawData, isLoading } = useHostelAttendance(profile?.institution_id ?? '', filters);
   // Defensive: service returns {data: HostelAttendance[], count: number} — the page used to
