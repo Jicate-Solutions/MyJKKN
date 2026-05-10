@@ -78,6 +78,7 @@ export function PolicyForm() {
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [savingKey, setSavingKey] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [initializing, setInitializing] = useState(false);
 
   async function load() {
     setLoadError(null);
@@ -114,6 +115,34 @@ export function PolicyForm() {
   useEffect(() => {
     void load();
   }, []);
+
+  async function handleInitialize() {
+    setInitializing(true);
+    try {
+      const res = await fetch('/api/admin/voice-memo-monitor-config/seed', {
+        method: 'POST',
+        credentials: 'include'
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast.error(json?.error ?? `Initialize failed (${res.status})`);
+        return;
+      }
+      const inserted = json?.inserted_count ?? 0;
+      const skipped = json?.skipped_count ?? 0;
+      if (inserted === 0 && skipped > 0) {
+        toast.success(`All ${skipped} policy rows already exist. Refreshing.`);
+      } else {
+        toast.success(`Initialized ${inserted} policy rows${skipped ? ` (${skipped} already existed)` : ''}.`);
+      }
+      await load();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Network error';
+      toast.error(msg);
+    } finally {
+      setInitializing(false);
+    }
+  }
 
   async function save(row: PolicyRow) {
     setSavingKey(row.policy_key);
@@ -171,16 +200,31 @@ export function PolicyForm() {
   if (rows.length === 0) {
     return (
       <Card>
-        <CardContent className="p-6 text-sm text-muted-foreground">
+        <CardContent className="p-6 space-y-3">
           {loadError ? (
-            <>Could not load policies: {loadError}</>
+            <p className="text-sm text-muted-foreground">Could not load policies: {loadError}</p>
           ) : (
             <>
-              No policy rows found. Has the migration{' '}
-              <code className="rounded bg-muted px-1 py-0.5 text-xs">
-                20260513120000_voice_memo_monitor_policies.sql
-              </code>{' '}
-              been applied?
+              <p className="text-sm text-muted-foreground">
+                No policy rows found. The seed migration{' '}
+                <code className="rounded bg-muted px-1 py-0.5 text-xs">
+                  20260513120000_voice_memo_monitor_policies.sql
+                </code>{' '}
+                hasn&apos;t been applied yet.
+              </p>
+              <Button onClick={handleInitialize} disabled={initializing} size="sm">
+                {initializing ? (
+                  <>
+                    <Loader2 className="h-3 w-3 animate-spin mr-2" />
+                    Initializing…
+                  </>
+                ) : (
+                  'Initialize with defaults'
+                )}
+              </Button>
+              <p className="text-xs text-muted-foreground">
+                Inserts 8 default rows you can tweak via the form. Safe to re-click — idempotent.
+              </p>
             </>
           )}
         </CardContent>
