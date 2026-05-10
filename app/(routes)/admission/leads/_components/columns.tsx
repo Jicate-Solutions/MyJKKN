@@ -98,7 +98,8 @@ export function getLeadColumns(
     ),
     maxSize: 50,
     enableSorting: false,
-    enableHiding: false
+    enableHiding: false,
+    enableResizing: false,
   },
   {
     accessorKey: 'full_name',
