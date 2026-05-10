@@ -46,6 +46,8 @@ export interface SourceMaster {
   // Aggregations (joined client-side)
   counselor_count?: number;
   lead_count?: number;
+  assigned_count?: number;
+  unassigned_count?: number;
 }
 
 export interface SourceMasterListFilters {
@@ -137,11 +139,16 @@ export class SourceMasterService {
       this.getLeadCountsByEnumValue(sources.map((s) => s.enum_value)),
     ]);
 
-    return sources.map((s) => ({
-      ...s,
-      counselor_count: counselorCounts.get(s.id) ?? 0,
-      lead_count: leadCounts.get(s.enum_value) ?? 0,
-    }));
+    return sources.map((s) => {
+      const counts = leadCounts.get(s.enum_value);
+      return {
+        ...s,
+        counselor_count: counselorCounts.get(s.id) ?? 0,
+        lead_count: counts?.total ?? 0,
+        assigned_count: counts?.assigned ?? 0,
+        unassigned_count: counts?.unassigned ?? 0,
+      };
+    });
   }
 
   static async getById(id: string): Promise<SourceMaster | null> {
@@ -293,12 +300,15 @@ export class SourceMasterService {
   /**
    * Server-side aggregate via SQL function (avoids the PostgREST 1000-row cap
    * that the previous client-side fetch+count was hitting silently).
-   * Returns counts ONLY for the requested enum values to keep the surface tidy.
+   * Returns total / assigned / unassigned counts per enum value.
    */
   private static async getLeadCountsByEnumValue(
     enumValues: LeadSourceEnum[]
-  ): Promise<Map<LeadSourceEnum, number>> {
-    const out = new Map<LeadSourceEnum, number>();
+  ): Promise<Map<LeadSourceEnum, { total: number; assigned: number; unassigned: number }>> {
+    const out = new Map<
+      LeadSourceEnum,
+      { total: number; assigned: number; unassigned: number }
+    >();
     if (enumValues.length === 0) return out;
     const wanted = new Set(enumValues);
     const { data, error } = await (this.supabase as any)
@@ -310,9 +320,15 @@ export class SourceMasterService {
     for (const row of (data ?? []) as Array<{
       source: LeadSourceEnum;
       lead_count: number | string;
+      assigned_count: number | string;
+      unassigned_count: number | string;
     }>) {
       if (!wanted.has(row.source)) continue;
-      out.set(row.source, Number(row.lead_count) || 0);
+      out.set(row.source, {
+        total: Number(row.lead_count) || 0,
+        assigned: Number(row.assigned_count) || 0,
+        unassigned: Number(row.unassigned_count) || 0,
+      });
     }
     return out;
   }
