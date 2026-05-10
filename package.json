@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "npm run gen:routes && npm run check:sidebar && npm run check:reachability && npm run check:audit-coverage && cross-env NODE_OPTIONS=\"--max-old-space-size=12288 --max-semi-space-size=128\" next build --turbopack",
+    "build": "npm run gen:routes && npm run check:sidebar && npm run check:reachability && npm run check:audit-coverage && cross-env NODE_OPTIONS=\"--max-old-space-size=12288 --max-semi-space-size=128\" next build --turbopack && serwist build serwist.config.mjs",
     "start": "next start",
     "lint": "next lint",
     "check:sidebar": "tsx scripts/check-sidebar-health.ts",
@@ -21,7 +21,7 @@
     "check:audit-coverage": "tsx scripts/check-permission-audit-coverage.ts",
     "check:menus": "npm run check:permissions && npm run check:menu-coverage && npm run check:tier2-coverage && npm run check:audit-coverage",
     "check:admission-counselor-membership": "node scripts/check-admission-counselor-membership.mjs",
-    "check:nav": "echo '[deprecated] check:nav retired \u2014 superseded by check:reachability (#441, #442). Script retained for historical/debug; removed from build gate 2026-04-24.' && node scripts/assert-nav-coverage.mjs --max-unverified 99 --max-orphans 99 || true",
+    "check:nav": "echo '[deprecated] check:nav retired — superseded by check:reachability (#441, #442). Script retained for historical/debug; removed from build gate 2026-04-24.' && node scripts/assert-nav-coverage.mjs --max-unverified 99 --max-orphans 99 || true",
     "check:reachability": "tsx scripts/check-nav-reachability.ts --max-unreachable 280",
     "check:attention-bar": "tsx scripts/check-attention-bar-coverage.ts",
     "check:attention-bar-layer2": "tsx scripts/check-attention-bar-layer2-rules.ts",
@@ -160,6 +160,7 @@
     "zustand": "^5.0.0"
   },
   "devDependencies": {
+    "@serwist/cli": "^9.5.6",
     "@types/archiver": "^7.0.0",
     "@types/canvas-confetti": "^1.9.0",
     "@types/dom-to-image": "^2.6.7",
