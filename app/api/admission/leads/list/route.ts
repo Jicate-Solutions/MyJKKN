@@ -200,27 +200,31 @@ export async function GET(request: NextRequest) {
       query = query.eq('institution_id', profile.institution_id);
     }
 
-    // 5b. Counselor source-scoping — mirrors the RLS in
-    // supabase/migrations/20260509130000_admission_leads_source_scoped_rls.sql.
+    // 5b. Counselor visibility — mirrors the RLS in
+    // supabase/migrations/20260510210000_admission_leads_strict_counselor_visibility.sql
+    // and 20260510220000_admission_leads_exclude_referral_for_counselors.sql.
     // For users who hold one of the 4 counselor role_keys without a broader
     // admission/admin role, restrict visibility to:
     //   - leads where counselor_id = user's admission_counselors.id, OR
-    //   - leads where assigned_counselor_id = user.id, OR
-    //   - leads where source ∈ user's currently-mapped source enum_values
-    // (Active mappings only: not paused, within effective_from/to window.)
+    //   - leads where assigned_counselor_id = user.id
+    // AND
+    //   - source <> 'referral' (referrals belong to consultants, not counselors)
     if (!isAdmissionGlobalUser) {
       const scope = await getCounselorScope(supabase, user.id);
       if (scope.isStrictCounselor) {
         const orClause = buildLeadVisibilityOr(scope, user.id);
         if (!orClause) {
-          // Counselor has no admission_counselors row AND no source mappings.
+          // Counselor has no admission_counselors row.
           // Strict-mode: nothing visible.
           return NextResponse.json({
             data: [],
             metadata: { total: 0, page, limit, totalPages: 0 },
           });
         }
-        query = query.or(orClause);
+        // Apply OR (assigned_counselor_id OR counselor_id matches) AND
+        // source <> 'referral'. PostgREST's chained .or().neq() builds
+        // exactly that conjunction.
+        query = query.or(orClause).neq('source', 'referral');
       }
     }
 
