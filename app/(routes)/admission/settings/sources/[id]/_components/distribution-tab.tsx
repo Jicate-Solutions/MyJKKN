@@ -76,8 +76,13 @@ export function DistributionTab({
   institutionId,
 }: DistributionTabProps) {
   const [range, setRange] = useState<{ from: Date; to: Date }>(() => {
+    // Default to 30 days. Many sources (expos, fairs, term-start campaigns)
+    // produce leads in monthly bursts, so 7 days frequently shows 0 even when
+    // the source has hundreds of unassigned/assigned leads — confusing for
+    // admins who came here to check their work. 30 days is a better default
+    // for the typical admission lead lifecycle.
     const to = new Date();
-    const from = subDays(to, 7);
+    const from = subDays(to, 30);
     return { from, to };
   });
 
@@ -124,27 +129,33 @@ export function DistributionTab({
     <div className="space-y-4">
       {/* Date range controls */}
       <Card>
-        <CardContent className="flex flex-wrap items-center gap-3 pt-6">
-          <div className="text-sm font-medium">Window:</div>
-          <DatePickerWithRange
-            value={{ from: range.from, to: range.to }}
-            onChange={(r) =>
-              r?.from && r?.to ? setRange({ from: r.from, to: r.to }) : undefined
-            }
-          />
-          <div className="flex items-center gap-1 ml-auto">
-            {PRESETS.map((p) => (
-              <Button
-                key={p.days}
-                size="sm"
-                variant="outline"
-                className="h-7 text-xs"
-                onClick={() => setPreset(p.days)}
-              >
-                {p.label}
-              </Button>
-            ))}
+        <CardContent className="flex flex-col gap-3 pt-6">
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="text-sm font-medium">Window:</div>
+            <DatePickerWithRange
+              value={{ from: range.from, to: range.to }}
+              onChange={(r) =>
+                r?.from && r?.to ? setRange({ from: r.from, to: r.to }) : undefined
+              }
+            />
+            <div className="flex items-center gap-1 ml-auto">
+              {PRESETS.map((p) => (
+                <Button
+                  key={p.days}
+                  size="sm"
+                  variant="outline"
+                  className="h-7 text-xs"
+                  onClick={() => setPreset(p.days)}
+                >
+                  {p.label}
+                </Button>
+              ))}
+            </div>
           </div>
+          <p className="text-[11px] text-muted-foreground">
+            KPIs and the per-counselor breakdown below filter by lead <strong>creation</strong> date in this window.
+            The <strong>Distribute Unassigned Leads</strong> panel at the bottom of this tab shows lifetime unassigned counts (not date-filtered) — it can show leads even when the KPIs above show 0 (they were created outside this window).
+          </p>
         </CardContent>
       </Card>
 
