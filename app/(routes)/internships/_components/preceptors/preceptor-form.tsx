@@ -1,12 +1,9 @@
 'use client';
 
 // PreceptorForm — shared by /internships/preceptors/new and /preceptors/[id] edit.
-// Maps to InternshipPreceptor as shipped in lib/services/internships/types.ts.
-//
-// Spec line 247 mentions tying preceptors to a `custom_roles` row for OTP auth.
-// The shipped useCreatePreceptor hook only writes to internship_preceptors today;
-// the auth/role binding is wired in a follow-up substrate change. We expose all
-// columns the row supports.
+// Maps to substrate v3 internship_preceptors columns. Recovered thin types
+// (name/phone/max_trainees) drifted from live schema (full_name/mobile/max_students
+// + institution_id + designation + scope_type). Reconciled 2026-05-10.
 
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -22,55 +19,75 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useSites } from '@/hooks/internships/useSites';
+import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
 import type {
   InternshipPreceptor,
   CreatePreceptorInput,
+  PreceptorScopeType,
 } from '@/lib/services/internships/types';
 
+const SCOPE_OPTIONS: { value: PreceptorScopeType; label: string; hint: string }[] = [
+  { value: 'cycle', label: 'Cycle', hint: 'Sign-off authority limited to assigned cycle' },
+  { value: 'site', label: 'Site', hint: 'Authority over all learners at this site' },
+  { value: 'institution', label: 'Institution', hint: 'Authority across the whole institution' },
+];
+
 export type PreceptorFormValues = {
+  institution_id: string;
   site_id: string;
-  name: string;
+  full_name: string;
+  designation: string;
   qualification: string;
   specialization: string;
-  phone: string;
+  mobile: string;
   email: string;
-  max_trainees: string; // form-local; serialized to number on submit
+  max_students: string; // form-local; serialized to number on submit
+  scope_type: PreceptorScopeType;
   is_active: boolean;
 };
 
 export const EMPTY_PRECEPTOR_FORM: PreceptorFormValues = {
+  institution_id: '',
   site_id: '',
-  name: '',
+  full_name: '',
+  designation: '',
   qualification: '',
   specialization: '',
-  phone: '',
+  mobile: '',
   email: '',
-  max_trainees: '',
+  max_students: '6',
+  scope_type: 'cycle',
   is_active: true,
 };
 
 export function preceptorToFormValues(p: InternshipPreceptor): PreceptorFormValues {
   return {
+    institution_id: p.institution_id,
     site_id: p.site_id,
-    name: p.name,
+    full_name: p.full_name,
+    designation: p.designation ?? '',
     qualification: p.qualification ?? '',
     specialization: p.specialization ?? '',
-    phone: p.phone ?? '',
+    mobile: p.mobile ?? '',
     email: p.email ?? '',
-    max_trainees: p.max_trainees?.toString() ?? '',
+    max_students: (p.max_students ?? 6).toString(),
+    scope_type: p.scope_type,
     is_active: p.is_active,
   };
 }
 
 export function formValuesToCreatePayload(v: PreceptorFormValues): CreatePreceptorInput {
   return {
+    institution_id: v.institution_id,
     site_id: v.site_id,
-    name: v.name.trim(),
+    full_name: v.full_name.trim(),
+    designation: v.designation.trim() || null,
     qualification: v.qualification.trim() || null,
     specialization: v.specialization.trim() || null,
-    phone: v.phone.trim() || null,
+    mobile: v.mobile.trim() || null,
     email: v.email.trim() || null,
-    max_trainees: v.max_trainees ? Number(v.max_trainees) : null,
+    max_students: v.max_students ? Number(v.max_students) : 6,
+    scope_type: v.scope_type,
     is_active: v.is_active,
   };
 }
@@ -98,18 +115,41 @@ export function PreceptorForm({
   submitting = false,
   lockSite = false,
 }: PreceptorFormProps) {
-  const { data: sites = [], isLoading: sitesLoading } = useSites(undefined, true);
+  const { institutions, loading: institutionsLoading } = useUserInstitutionAccess();
   const [values, setValues] = useState<PreceptorFormValues>(
     initialValues ?? { ...EMPTY_PRECEPTOR_FORM, site_id: defaultSiteId ?? '' }
   );
+
+  // Sites filtered by selected institution to keep the site dropdown sane.
+  const institutionScope = values.institution_id || undefined;
+  const { data: sites = [], isLoading: sitesLoading } = useSites(institutionScope, true);
+
   const [errors, setErrors] = useState<Partial<Record<keyof PreceptorFormValues, string>>>({});
 
-  // Auto-pick first active site if none chosen and no defaultSiteId.
+  // Default to the first accessible institution once loaded.
+  useEffect(() => {
+    if (!values.institution_id && institutions.length > 0) {
+      setValues((v) => ({ ...v, institution_id: institutions[0].institution_id }));
+    }
+  }, [institutions, values.institution_id]);
+
+  // Auto-pick first active site for the institution once sites load.
   useEffect(() => {
     if (!values.site_id && sites.length > 0) {
       setValues((v) => ({ ...v, site_id: sites[0].id }));
     }
   }, [sites, values.site_id]);
+
+  // If institution changes and the currently-picked site doesn't belong to it,
+  // clear the site choice. Avoids RLS write-rejections on submit.
+  useEffect(() => {
+    if (lockSite) return;
+    if (!values.site_id) return;
+    const ok = sites.some((s) => s.id === values.site_id);
+    if (!sitesLoading && !ok) {
+      setValues((v) => ({ ...v, site_id: '' }));
+    }
+  }, [sites, sitesLoading, values.site_id, lockSite]);
 
   const update = <K extends keyof PreceptorFormValues>(key: K, val: PreceptorFormValues[K]) => {
     setValues((v) => ({ ...v, [key]: val }));
@@ -117,19 +157,18 @@ export function PreceptorForm({
 
   const validate = (): boolean => {
     const next: Partial<Record<keyof PreceptorFormValues, string>> = {};
+    if (!values.institution_id) next.institution_id = 'Pick a college';
     if (!values.site_id) next.site_id = 'Pick a site';
-    if (!values.name.trim()) next.name = 'Name required';
-    if (!values.phone.trim()) {
-      next.phone = 'Phone required (preceptors log in by phone OTP)';
-    } else if (!PHONE_REGEX.test(values.phone.trim())) {
-      next.phone = 'Phone format looks off — use digits, +, -, spaces, ()';
+    if (!values.full_name.trim()) next.full_name = 'Full name required';
+    if (values.mobile && !PHONE_REGEX.test(values.mobile.trim())) {
+      next.mobile = 'Phone format looks off — use digits, +, -, spaces, ()';
     }
     if (values.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(values.email.trim())) {
       next.email = 'Email format looks off';
     }
-    if (values.max_trainees) {
-      const n = Number(values.max_trainees);
-      if (Number.isNaN(n) || n < 0) next.max_trainees = 'Must be 0 or greater';
+    if (values.max_students) {
+      const n = Number(values.max_students);
+      if (Number.isNaN(n) || n < 0) next.max_students = 'Must be 0 or greater';
     }
     setErrors(next);
     return Object.keys(next).length === 0;
@@ -142,6 +181,7 @@ export function PreceptorForm({
   };
 
   const isDisabled = submitting;
+  const activeScope = SCOPE_OPTIONS.find((s) => s.value === values.scope_type);
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
@@ -150,12 +190,35 @@ export function PreceptorForm({
           <CardTitle className="text-base">Preceptor details</CardTitle>
         </CardHeader>
         <CardContent className="grid gap-4 md:grid-cols-2">
-          <div className="space-y-1.5 md:col-span-2">
+          <div className="space-y-1.5">
+            <Label htmlFor="prec-institution">College <span className="text-red-600">*</span></Label>
+            <Select
+              value={values.institution_id}
+              onValueChange={(v) => update('institution_id', v)}
+              disabled={isDisabled || institutionsLoading || lockSite}
+            >
+              <SelectTrigger id="prec-institution">
+                <SelectValue placeholder={institutionsLoading ? 'Loading…' : 'Select college'} />
+              </SelectTrigger>
+              <SelectContent>
+                {institutions.map((inst) => (
+                  <SelectItem key={inst.institution_id} value={inst.institution_id}>
+                    {inst.institution_name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {errors.institution_id && (
+              <p className="text-xs text-red-600">{errors.institution_id}</p>
+            )}
+          </div>
+
+          <div className="space-y-1.5">
             <Label htmlFor="prec-site">Primary site <span className="text-red-600">*</span></Label>
             <Select
               value={values.site_id}
               onValueChange={(v) => update('site_id', v)}
-              disabled={isDisabled || sitesLoading || lockSite}
+              disabled={isDisabled || sitesLoading || lockSite || !values.institution_id}
             >
               <SelectTrigger id="prec-site">
                 <SelectValue placeholder={sitesLoading ? 'Loading sites…' : 'Select a site'} />
@@ -163,7 +226,7 @@ export function PreceptorForm({
               <SelectContent>
                 {sites.map((s) => (
                   <SelectItem key={s.id} value={s.id}>
-                    {s.name}
+                    {s.site_name}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -180,12 +243,23 @@ export function PreceptorForm({
             <Label htmlFor="prec-name">Full name <span className="text-red-600">*</span></Label>
             <Input
               id="prec-name"
-              value={values.name}
-              onChange={(e) => update('name', e.target.value)}
+              value={values.full_name}
+              onChange={(e) => update('full_name', e.target.value)}
               disabled={isDisabled}
               placeholder="Dr. Priya Ramanathan"
             />
-            {errors.name && <p className="text-xs text-red-600">{errors.name}</p>}
+            {errors.full_name && <p className="text-xs text-red-600">{errors.full_name}</p>}
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="prec-designation">Designation</Label>
+            <Input
+              id="prec-designation"
+              value={values.designation}
+              onChange={(e) => update('designation', e.target.value)}
+              disabled={isDisabled}
+              placeholder="Senior Consultant"
+            />
           </div>
 
           <div className="space-y-1.5">
@@ -199,28 +273,29 @@ export function PreceptorForm({
             />
           </div>
 
-          <div className="space-y-1.5">
-            <Label htmlFor="prec-specialization">Specialization / role</Label>
+          <div className="space-y-1.5 md:col-span-2">
+            <Label htmlFor="prec-specialization">Specialization</Label>
             <Input
               id="prec-specialization"
               value={values.specialization}
               onChange={(e) => update('specialization', e.target.value)}
               disabled={isDisabled}
-              placeholder="Pediatrics consultant"
+              placeholder="Pediatrics"
             />
           </div>
 
           <div className="space-y-1.5">
-            <Label htmlFor="prec-phone">Phone <span className="text-red-600">*</span></Label>
+            <Label htmlFor="prec-mobile">Mobile</Label>
             <Input
-              id="prec-phone"
+              id="prec-mobile"
               type="tel"
-              value={values.phone}
-              onChange={(e) => update('phone', e.target.value)}
+              value={values.mobile}
+              onChange={(e) => update('mobile', e.target.value)}
               disabled={isDisabled}
               placeholder="+91 98765 43210"
             />
-            {errors.phone && <p className="text-xs text-red-600">{errors.phone}</p>}
+            <p className="text-xs text-muted-foreground">Used for OTP sign-in on the hospital portal.</p>
+            {errors.mobile && <p className="text-xs text-red-600">{errors.mobile}</p>}
           </div>
 
           <div className="space-y-1.5">
@@ -237,17 +312,38 @@ export function PreceptorForm({
           </div>
 
           <div className="space-y-1.5">
-            <Label htmlFor="prec-trainees">Max concurrent trainees</Label>
+            <Label htmlFor="prec-max">Max concurrent students</Label>
             <Input
-              id="prec-trainees"
+              id="prec-max"
               type="number"
               min={0}
-              value={values.max_trainees}
-              onChange={(e) => update('max_trainees', e.target.value)}
+              value={values.max_students}
+              onChange={(e) => update('max_students', e.target.value)}
               disabled={isDisabled}
-              placeholder="e.g. 4"
+              placeholder="6"
             />
-            {errors.max_trainees && <p className="text-xs text-red-600">{errors.max_trainees}</p>}
+            {errors.max_students && <p className="text-xs text-red-600">{errors.max_students}</p>}
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="prec-scope">Sign-off scope</Label>
+            <Select
+              value={values.scope_type}
+              onValueChange={(v) => update('scope_type', v as PreceptorScopeType)}
+              disabled={isDisabled}
+            >
+              <SelectTrigger id="prec-scope">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {SCOPE_OPTIONS.map((opt) => (
+                  <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {activeScope && (
+              <p className="text-xs text-muted-foreground">{activeScope.hint}</p>
+            )}
           </div>
 
           <div className="flex items-center justify-between rounded-md border p-3 md:col-span-2">
