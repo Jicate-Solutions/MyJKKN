@@ -97,7 +97,7 @@ export class BulkAssignService {
     logger.info('bulk-assign', 'Run started', { mode: 'bulk-one', leadCount: input.leadIds.length });
     const startedAt = Date.now();
     const results: PerLeadResult[] = [];
-    const supabase = this.supabase;
+    const supabase = BulkAssignService.supabase;
 
     for (const leadId of input.leadIds) {
       // Pre-check: lead may have been claimed by another user since the panel loaded
@@ -174,7 +174,7 @@ export class BulkAssignService {
     });
     const startedAt = Date.now();
 
-    const { data, error } = await (this.supabase as any).rpc('bulk_route_unassigned_leads', {
+    const { data, error } = await (BulkAssignService.supabase as any).rpc('bulk_route_unassigned_leads', {
       p_lead_ids: input.leadIds,
       p_dry_run: input.dryRun ?? false,
       p_override: input.override ?? false,
@@ -235,7 +235,7 @@ export class BulkAssignService {
     });
     const startedAt = Date.now();
 
-    const { data, error } = await (this.supabase as any).rpc('bulk_round_robin_assign', {
+    const { data, error } = await (BulkAssignService.supabase as any).rpc('bulk_round_robin_assign', {
       p_lead_ids: input.leadIds,
       p_counselor_ids: input.counselorIds,
       p_dry_run: input.dryRun ?? false,
