@@ -40,6 +40,15 @@ export const GET = withAuth(async (request, auth) => {
 /**
  * POST /api/api-management/campus-living/blocks
  * Create a new hostel block.
+ *
+ * Mirrors the PR #746 pattern from `lib/services/campus-living/hostel-block-service.ts`:
+ * after inserting into `hostel_blocks`, also write the matching row to
+ * `hostel_block_institutions` with `is_primary=true`. Without the junction row,
+ * non-super-admin readers cannot see the block (the junction-aware
+ * `role_has_hostel_block_scope()` RLS helper returns false). The two writes
+ * are NOT in a transaction (PostgREST limitation); if the M2M insert fails,
+ * the block exists but is RLS-invisible. We surface that failure as 500
+ * and rely on the audit-doc backfill SQL for recovery.
  */
 export const POST = withAuth(async (request, auth) => {
   const institutionId = auth.institutionId;
@@ -54,6 +63,24 @@ export const POST = withAuth(async (request, auth) => {
     .single();
 
   if (error) throw error;
+
+  // Mirror to M2M with is_primary=true (PR #746 pattern).
+  if (data?.id && data?.institution_id) {
+    const { error: m2mError } = await (auth.supabase as any)
+      .from('hostel_block_institutions')
+      .insert({
+        block_id: data.id,
+        institution_id: data.institution_id,
+        is_primary: true,
+      });
+    if (m2mError) {
+      // Block already exists in hostel_blocks at this point. We surface the
+      // error so the API consumer knows the create failed end-to-end; the
+      // orphan parent row is recoverable via the backfill SQL in
+      // .claude/scratch/m2m-audit-2026-05-10.md §5.1.
+      throw m2mError;
+    }
+  }
 
   return createdResponse(data);
 }, { allowApiKey: true, requiredPermission: 'write' });
