@@ -66,7 +66,16 @@ jobs:
           # scripts, migration helpers — zero UI rendering surface (no
           # React imports, no Page exports). PR #770 nav-reachability fix
           # surfaced the gap.
-          NON_UI_REGEX='^(supabase/|scripts/|docs/|specs/|\.claude/|\.github/|README\.md|CHANGELOG\.md|LICENSE|\.gitignore|package-lock\.json|pnpm-lock\.yaml|yarn\.lock|tsconfig\.json|tsconfig\..*\.json)'
+          # `lib/services/`, `lib/utils/`, `lib/db/`, `lib/auth/`, `lib/api/`,
+          # `types/` added 2026-05-10 (PR #820): pure backend layers — service
+          # classes, utility functions, database adapters, server-side auth,
+          # API helpers, TypeScript type defs. Zero rendering surface. Adding
+          # these lets backend-only PRs auto-skip without needing the manual
+          # `visual-proof-skip` label. Surfaced by PR #824 (lib/services/
+          # backend recovery shim) which had to use the manual skip path.
+          # Deliberately NOT added: `lib/hooks/` (React hooks tie to UI) and
+          # `lib/components/` (obviously UI).
+          NON_UI_REGEX='^(supabase/|scripts/|docs/|specs/|\.claude/|\.github/|lib/services/|lib/utils/|lib/db/|lib/auth/|lib/api/|types/|README\.md|CHANGELOG\.md|LICENSE|\.gitignore|package-lock\.json|pnpm-lock\.yaml|yarn\.lock|tsconfig\.json|tsconfig\..*\.json)'
 
           # Anything outside the non-UI set means the gate applies.
           UI_TOUCHING=$(echo "$CHANGED" | grep -vE "$NON_UI_REGEX" || true)
@@ -77,7 +86,7 @@ jobs:
             {
               echo "## ✅ Visual Proof Gate — not applicable"
               echo ""
-              echo "All changed files are SQL/docs/config (no UI rendering surface). Gate skipped."
+              echo "All changed files are non-rendering (SQL, docs, config, scripts, backend layers under lib/services|utils|db|auth|api, or types). Gate skipped — no visual proof required."
               echo ""
               echo "**Files in this PR:**"
               echo '```'
