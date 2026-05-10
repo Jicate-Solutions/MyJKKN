@@ -1,8 +1,13 @@
 'use client';
 
 // app/(routes)/internships/cycles/_components/college-select.tsx
-// Institution (college) dropdown backed by useJkknInstitutions hook.
-// Used by both the list filter chip and the create form.
+// Institution (college) dropdown backed by `useInstitutionsWithAccess`.
+//
+// IMPORTANT: This source is the local Supabase `public.institutions` table,
+// which keys rows by UUID. The previous implementation used
+// `useJkknInstitutions` (proxy to JKKN central API) — that proxy returns
+// numeric `counselling_code` as `id`, which 400'd against
+// `internship_*.institution_id` UUID FK columns. Reconciled 2026-05-10.
 
 import {
   Select,
@@ -11,7 +16,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { useJkknInstitutions } from '@/hooks/use-jkkn-institutions';
+import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 
 interface CollegeSelectProps {
   value: string;
@@ -33,14 +38,12 @@ export function CollegeSelect({
   triggerClassName,
   ariaLabel = 'College',
 }: CollegeSelectProps) {
-  // Fetch a single page large enough to cover all 8 colleges.
-  const { data, isLoading } = useJkknInstitutions({ page: 1, limit: 50, isActive: true });
-  const institutions = data?.data ?? [];
+  const { institutions, loading } = useInstitutionsWithAccess({ isActive: true });
 
   return (
-    <Select value={value} onValueChange={onChange} disabled={disabled || isLoading}>
+    <Select value={value} onValueChange={onChange} disabled={disabled || loading}>
       <SelectTrigger className={triggerClassName} aria-label={ariaLabel}>
-        <SelectValue placeholder={isLoading ? 'Loading colleges...' : placeholder} />
+        <SelectValue placeholder={loading ? 'Loading colleges...' : placeholder} />
       </SelectTrigger>
       <SelectContent>
         {includeAll && <SelectItem value="all">All colleges</SelectItem>}
@@ -59,9 +62,9 @@ export function CollegeSelect({
  * Returns an empty record while loading; consumer should fall back to the raw id.
  */
 export function useCollegeNameMap(): Record<string, string> {
-  const { data } = useJkknInstitutions({ page: 1, limit: 50, isActive: true });
+  const { institutions } = useInstitutionsWithAccess({ isActive: true });
   const result: Record<string, string> = {};
-  for (const inst of data?.data ?? []) {
+  for (const inst of institutions) {
     result[inst.id] = inst.name;
   }
   return result;
