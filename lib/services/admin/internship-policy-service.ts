@@ -53,54 +53,118 @@ const INTERNSHIP_CONFIG_TABLES = [
 
 /**
  * Returns all platform_policies rows whose key starts with "internship.policy.*".
+ *
+ * Real columns: policy_key, scope_type, scope_id, value (JSONB), description,
+ *   updated_at, updated_by. We map into PolicyRow {key, college_id} for the UI
+ *   (matches the pattern in `InternshipPolicyService.getMany` from PR #832).
+ *   Filters scope_type='global' so college-scoped overrides do not bleed in.
  */
 export async function listPolicyKeys(
   supabase: SupabaseClient
 ): Promise<ServiceListResult<InternshipPolicyRow>> {
   const { data, error } = await supabase
     .from(PLATFORM_POLICIES_TABLE)
-    .select('key, value, description, college_id, updated_at, updated_by')
-    .like('key', `${POLICY_PREFIX}%`)
-    .order('key', { ascending: true });
+    .select('policy_key, value, description, scope_id, updated_at, updated_by')
+    .like('policy_key', `${POLICY_PREFIX}%`)
+    .eq('scope_type', 'global')
+    .order('policy_key', { ascending: true });
 
-  return {
-    data: (data as InternshipPolicyRow[]) ?? [],
-    error: error ? new Error(error.message) : null,
-  };
+  if (error) {
+    return { data: [], error: new Error(error.message) };
+  }
+
+  // Map raw DB rows → UI-shape PolicyRow. Coerce JSONB scalar to string.
+  const rows: InternshipPolicyRow[] = (data ?? []).map((raw: any) => {
+    let scalar: string | null = null;
+    const v = raw.value;
+    if (v === null || v === undefined) scalar = null;
+    else if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') scalar = String(v);
+    else scalar = JSON.stringify(v);
+    return {
+      key: raw.policy_key,
+      value: scalar,
+      description: raw.description,
+      college_id: raw.scope_id,
+      updated_at: raw.updated_at,
+      updated_by: raw.updated_by,
+    };
+  });
+
+  return { data: rows, error: null };
 }
 
 /**
- * Upsert a single policy value with an audit reason.
- * Uses platform_policies upsert on (key, college_id).
+ * Upsert a single policy value at scope_type='global'.
+ *
+ * Real columns: policy_key, scope_type, scope_id, value (JSONB), data_type,
+ *   updated_at, updated_by. There is NO `change_reason` column — audit trail
+ *   is `updated_by` + `updated_at` only. The `changeReason` parameter is
+ *   accepted for API stability but currently dropped on write; if a future
+ *   migration adds an audit-log table, callers can stay unchanged.
+ *
+ * Conflict target matches the unique index `uq_platform_policies_key_scope`:
+ *   (policy_key, scope_type, COALESCE(scope_id, '00000000-...'::uuid)).
+ *
+ * The `value` parameter arrives as a string; it's wrapped as a JSONB primitive
+ * (number for numeric strings, boolean for "true"/"false", quoted string
+ * otherwise) so the DB stores `70` not `"70"`.
  */
 export async function updatePolicyValue(
   supabase: SupabaseClient,
   key: string,
   value: string,
-  changeReason: string,
+  _changeReason: string, // kept for API stability; column doesn't exist
   updatedBy: string
 ): Promise<ServiceResult<InternshipPolicyRow>> {
   // Enforce the prefix so callers cannot accidentally mutate other policy domains.
   const safeKey = key.startsWith(POLICY_PREFIX) ? key : `${POLICY_PREFIX}${key}`;
 
+  // Wrap the string into a JSONB primitive matching the seed format.
+  let jsonbValue: unknown = value;
+  if (value === 'true') jsonbValue = true;
+  else if (value === 'false') jsonbValue = false;
+  else if (value !== '' && !isNaN(Number(value))) jsonbValue = Number(value);
+  // else keep as string; PostgREST will store it as JSONB string
+
   const { data, error } = await supabase
     .from(PLATFORM_POLICIES_TABLE)
     .upsert(
       {
-        key: safeKey,
-        value,
-        change_reason: changeReason,
+        policy_key: safeKey,
+        scope_type: 'global',
+        scope_id: null,
+        value: jsonbValue,
+        // data_type stays unchanged on update; required only on first insert.
+        // Seeded rows already have it populated.
         updated_by: updatedBy,
         updated_at: new Date().toISOString(),
       },
-      { onConflict: 'key' }
+      { onConflict: 'policy_key,scope_type' }
     )
-    .select('key, value, description, college_id, updated_at, updated_by')
+    .select('policy_key, value, description, scope_id, updated_at, updated_by')
     .single();
 
+  if (error || !data) {
+    return { data: null, error: error ? new Error(error.message) : new Error('upsert returned no row') };
+  }
+
+  // Map back into PolicyRow shape (same boundary mapping as listPolicyKeys).
+  let scalar: string | null = null;
+  const v = (data as any).value;
+  if (v === null || v === undefined) scalar = null;
+  else if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') scalar = String(v);
+  else scalar = JSON.stringify(v);
+
   return {
-    data: (data as InternshipPolicyRow) ?? null,
-    error: error ? new Error(error.message) : null,
+    data: {
+      key: (data as any).policy_key,
+      value: scalar,
+      description: (data as any).description,
+      college_id: (data as any).scope_id,
+      updated_at: (data as any).updated_at,
+      updated_by: (data as any).updated_by,
+    },
+    error: null,
   };
 }
 
@@ -147,6 +211,15 @@ export async function listConfigTables(
 
 /**
  * Returns all college-level notification overrides.
+ *
+ * TODO (v1.1): The `internship_college_notification_overrides` table requires
+ *   `institution_id` (NOT NULL), and the value column is `override_value` not
+ *   `value`. These three CRUD functions still hold the old shape. v1 admin UI
+ *   does not call them (only the service file and the hook reference each
+ *   other), so they remain unfixed here. When a college-overrides UI ships,
+ *   align column names: `key` → `policy_key`, `value` → `override_value`,
+ *   add `institution_id` parameter to upsert, and use unique key
+ *   (institution_id, college_id, policy_key) as conflict target.
  */
 export async function listCollegeOverrides(
   supabase: SupabaseClient,
