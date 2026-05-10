@@ -29,6 +29,7 @@ import {
   User,
 } from 'lucide-react';
 import { useLeadCallLogs, formatDuration } from '@/hooks/admission';
+import { VoiceMemoPanel } from '@/components/admission/leads/voice-memo-panel';
 
 interface CallHistoryCardProps {
   leadId: string;
@@ -116,51 +117,77 @@ export function CallHistoryCard({ leadId, institutionId }: CallHistoryCardProps)
               const dispositionLabel = c.call_disposition
                 ? DISPOSITION_LABELS[c.call_disposition] || c.call_disposition
                 : null;
+              const hasMemo = !!c.memo_audio_url;
               return (
-                <Link
-                  key={c.id}
-                  href={`/admission/counselors/calls/${c.id}`}
-                  className="flex items-center justify-between gap-3 p-2.5 rounded-md hover:bg-muted/50 transition-colors border border-transparent hover:border-border"
-                >
-                  <div className="flex items-center gap-2 min-w-0 flex-1">
-                    {isInbound ? (
-                      <PhoneIncoming className="h-4 w-4 text-green-600 shrink-0" />
-                    ) : (
-                      <PhoneOutgoing className="h-4 w-4 text-blue-600 shrink-0" />
-                    )}
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        <Badge
-                          variant="outline"
-                          className={`${status.className} text-[10px] px-1.5 py-0`}
-                        >
-                          {status.label}
-                        </Badge>
-                        {dispositionLabel && (
-                          <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-muted">
-                            {dispositionLabel}
+                <div key={c.id} className="space-y-1">
+                  <Link
+                    href={`/admission/counselors/calls/${c.id}`}
+                    className="flex items-center justify-between gap-3 p-2.5 rounded-md hover:bg-muted/50 transition-colors border border-transparent hover:border-border"
+                  >
+                    <div className="flex items-center gap-2 min-w-0 flex-1">
+                      {isInbound ? (
+                        <PhoneIncoming className="h-4 w-4 text-green-600 shrink-0" />
+                      ) : (
+                        <PhoneOutgoing className="h-4 w-4 text-blue-600 shrink-0" />
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <Badge
+                            variant="outline"
+                            className={`${status.className} text-[10px] px-1.5 py-0`}
+                          >
+                            {status.label}
                           </Badge>
-                        )}
+                          {dispositionLabel && (
+                            <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-muted">
+                              {dispositionLabel}
+                            </Badge>
+                          )}
+                          {hasMemo && (
+                            <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-blue-50 text-blue-700 border-blue-200">
+                              Voice memo
+                            </Badge>
+                          )}
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-0.5 truncate">
+                          {formatTimestampIST(c.started_at || c.created_at)}
+                          {c.counselor?.full_name && (
+                            <span className="ml-1">
+                              <User className="h-3 w-3 inline mx-0.5" />
+                              {c.counselor.full_name}
+                            </span>
+                          )}
+                        </p>
                       </div>
-                      <p className="text-xs text-muted-foreground mt-0.5 truncate">
-                        {formatTimestampIST(c.started_at || c.created_at)}
-                        {c.counselor?.full_name && (
-                          <span className="ml-1">
-                            <User className="h-3 w-3 inline mx-0.5" />
-                            {c.counselor.full_name}
-                          </span>
-                        )}
-                      </p>
                     </div>
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <span className="text-xs font-mono tabular-nums text-muted-foreground flex items-center gap-1">
-                      <Clock className="h-3 w-3" />
-                      {formatDuration(c.duration_seconds)}
-                    </span>
-                    <ExternalLink className="h-3.5 w-3.5 text-muted-foreground" />
-                  </div>
-                </Link>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className="text-xs font-mono tabular-nums text-muted-foreground flex items-center gap-1">
+                        <Clock className="h-3 w-3" />
+                        {formatDuration(c.duration_seconds)}
+                      </span>
+                      <ExternalLink className="h-3.5 w-3.5 text-muted-foreground" />
+                    </div>
+                  </Link>
+                  {hasMemo && (
+                    <VoiceMemoPanel
+                      callLogId={c.id}
+                      institutionId={institutionId}
+                      memo={{
+                        audio_url: c.memo_audio_url ?? null,
+                        audio_duration_seconds: c.memo_audio_duration_seconds ?? null,
+                        transcript: c.memo_transcript ?? null,
+                        transcript_language: c.memo_transcript_language ?? null,
+                        sentiment: c.memo_sentiment ?? null,
+                        sentiment_score: c.memo_sentiment_score ?? null,
+                        summary: c.memo_summary ?? null,
+                        categories: c.memo_categories ?? null,
+                        analyze_status: c.memo_analyze_status ?? null,
+                        analyzed_at: c.memo_analyzed_at ?? null,
+                      }}
+                      defaultExpanded={false}
+                    />
+                  )}
+                </div>
               );
             })}
             {total > visible.length && (

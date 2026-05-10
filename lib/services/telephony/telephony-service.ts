@@ -73,6 +73,19 @@ export interface CallLog {
   created_at: string;
   updated_at: string;
 
+  // Voice-memo pipeline (admission_call_logs.memo_* — written by analyze-voice-memos cron)
+  // Already selected via select('*') in getCallLogs / details routes.
+  memo_audio_url?: string | null;
+  memo_audio_duration_seconds?: number | null;
+  memo_transcript?: string | null;
+  memo_transcript_language?: string | null;
+  memo_sentiment?: string | null;
+  memo_sentiment_score?: number | null;
+  memo_summary?: string | null;
+  memo_categories?: string[] | null;
+  memo_analyze_status?: string | null;
+  memo_analyzed_at?: string | null;
+
   // Relationships (optional populated)
   lead?: { id: string; full_name: string; phone: string };
   counselor?: { id: string; full_name: string };
