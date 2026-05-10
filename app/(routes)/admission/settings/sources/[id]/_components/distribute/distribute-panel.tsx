@@ -117,14 +117,20 @@ export function DistributePanel({ sourceId, sourceEnum, institutionId }: Distrib
 
   const [s, dispatch] = useReducer(reducer, initial);
 
+  // Eager fetch (gated only by permission, not by expand) so the panel header
+  // can show the live unassigned count even before the user clicks to expand.
+  // Previously this was `enabled: s.expanded`, which caused a chicken-and-egg
+  // bug: the panel hid itself based on totalCount=0, and totalCount stayed 0
+  // because the query never fired until expand — but expand had no CTA to
+  // click because the panel was hidden. Result: panel invisible forever.
   const { data: leadsData, isLoading: leadsLoading } = useUnassignedLeads({
     sourceEnum,
     institutionId,
     filters: s.filters,
-    enabled: s.expanded,
+    enabled: canDistribute,
   });
 
-  const { data: counselors } = useSourceCounselorsWithLoad(sourceId, s.expanded);
+  const { data: counselors } = useSourceCounselorsWithLoad(sourceId, canDistribute);
   const counselorPool = useMemo(
     () => (counselors ?? []).filter((a) => s.override || !a.is_paused),
     [counselors, s.override]
@@ -144,7 +150,10 @@ export function DistributePanel({ sourceId, sourceEnum, institutionId }: Distrib
   const visibleLeads = leadsData?.leads ?? [];
 
   if (!canDistribute) return null;
-  if (totalCount === 0 && !s.expanded) return null;
+  // Always render the panel when the user can distribute — even at zero
+  // unassigned leads. Previously this returned null at zero, which hid the
+  // panel entirely and confused users who had just mapped counselors and
+  // expected to see the distribution surface.
 
   const handlePreview = async () => {
     dispatch({ type: 'SET_PHASE', phase: 'previewing' });
@@ -227,21 +236,27 @@ export function DistributePanel({ sourceId, sourceEnum, institutionId }: Distrib
         ? s.pickerIds.length > 0
         : true /* auto-route needs no picker */);
 
+  const hasUnassigned = totalCount > 0;
+
   return (
     <Card>
       <CardContent className="p-0">
         <button
           type="button"
-          onClick={() => dispatch({ type: 'TOGGLE_EXPAND' })}
-          className="flex w-full items-center justify-between gap-2 px-4 py-3 text-left hover:bg-muted/30"
+          onClick={() => hasUnassigned && dispatch({ type: 'TOGGLE_EXPAND' })}
+          disabled={!hasUnassigned}
+          className="flex w-full items-center justify-between gap-2 px-4 py-3 text-left hover:bg-muted/30 disabled:cursor-default disabled:hover:bg-transparent"
         >
           <span className="flex items-center gap-2">
-            <Send className="h-4 w-4 text-blue-600" />
+            <Send className={`h-4 w-4 ${hasUnassigned ? 'text-blue-600' : 'text-muted-foreground'}`} />
             <span className="text-sm font-semibold">
-              Distribute {totalCount} unassigned leads
+              {hasUnassigned
+                ? `Distribute ${totalCount} unassigned leads`
+                : 'No unassigned leads to distribute — new leads from this source will auto-route via your counselor mapping'}
             </span>
           </span>
-          {s.expanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+          {hasUnassigned &&
+            (s.expanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />)}
         </button>
 
         {s.expanded && (
