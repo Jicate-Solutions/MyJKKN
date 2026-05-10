@@ -41,6 +41,7 @@ import {
   type CounselorDistribution,
 } from '@/lib/services/admission/lead-distribution-service';
 import type { LeadSourceEnum } from '@/lib/services/admission/source-master-service';
+import { DistributePanel } from './distribute/distribute-panel';
 
 const ROLE_LABEL: Record<string, string> = {
   admission_counselor: 'Admission',
@@ -70,6 +71,7 @@ interface DistributionTabProps {
 }
 
 export function DistributionTab({
+  sourceId,
   sourceEnum,
   institutionId,
 }: DistributionTabProps) {
@@ -278,6 +280,12 @@ export function DistributionTab({
           )}
         </CardContent>
       </Card>
+
+      <DistributePanel
+        sourceId={sourceId}
+        sourceEnum={sourceEnum}
+        institutionId={institutionId}
+      />
     </div>
   );
 }
