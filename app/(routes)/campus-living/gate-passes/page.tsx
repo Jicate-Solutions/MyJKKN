@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { toast } from 'sonner';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
@@ -82,16 +83,25 @@ function formatDateTime(dateStr: string | null) {
 
 export default function GatePassesPage() {
   const { profile } = useAuth();
+  const searchParams = useSearchParams();
+  const learnerId = searchParams.get('learner') ?? undefined;
   const institutionId = profile?.institution_id ?? '';
-  const { data: passesRaw, isLoading } = useGatePasses(institutionId);
+  const { data: passesRaw, isLoading } = useGatePasses(
+    institutionId,
+    learnerId ? { learner_id: learnerId } : undefined,
+  );
   const { data: pendingRequests } = usePendingGatePassRequests(institutionId);
   const approveGatePass = useApproveGatePass();
   const rejectGatePass = useRejectGatePass();
 
   const passes = ((passesRaw as any)?.data ?? []) as any[];
-  const pending = (pendingRequests ?? []) as any[];
+  // When deep-linked from ?learner=<id>, the learner-filtered passes belong on the
+  // "All" tab — the Pending tab pulls from a separate institution-wide request hook.
+  const pending = learnerId
+    ? []
+    : ((pendingRequests ?? []) as any[]);
   const [searchQuery, setSearchQuery] = useState('');
-  const [activeTab, setActiveTab] = useState('pending');
+  const [activeTab, setActiveTab] = useState(learnerId ? 'all' : 'pending');
 
   // Reject dialog state
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
