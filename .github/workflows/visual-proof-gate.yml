@@ -73,9 +73,15 @@ jobs:
           # these lets backend-only PRs auto-skip without needing the manual
           # `visual-proof-skip` label. Surfaced by PR #824 (lib/services/
           # backend recovery shim) which had to use the manual skip path.
-          # Deliberately NOT added: `lib/hooks/` (React hooks tie to UI) and
-          # `lib/components/` (obviously UI).
-          NON_UI_REGEX='^(supabase/|scripts/|docs/|specs/|\.claude/|\.github/|lib/services/|lib/utils/|lib/db/|lib/auth/|lib/api/|types/|README\.md|CHANGELOG\.md|LICENSE|\.gitignore|package-lock\.json|pnpm-lock\.yaml|yarn\.lock|tsconfig\.json|tsconfig\..*\.json)'
+          # `app/api/` added same day after PR #834 (vmm/cron URL normalizer
+          # fix) was caught by the live PR monitor. Next.js App Router
+          # convention: files under `app/api/**/route.ts` are server-side HTTP
+          # handlers (REST endpoints, cron triggers, webhook receivers). They
+          # return Response objects, not JSX. Zero rendering surface.
+          # Deliberately NOT added: `lib/hooks/` (React hooks tie to UI),
+          # `lib/components/` (obviously UI), and the rest of `app/` outside
+          # `app/api/` (page.tsx, layout.tsx, components — all rendering).
+          NON_UI_REGEX='^(supabase/|scripts/|docs/|specs/|\.claude/|\.github/|lib/services/|lib/utils/|lib/db/|lib/auth/|lib/api/|types/|app/api/|README\.md|CHANGELOG\.md|LICENSE|\.gitignore|package-lock\.json|pnpm-lock\.yaml|yarn\.lock|tsconfig\.json|tsconfig\..*\.json)'
 
           # Anything outside the non-UI set means the gate applies.
           UI_TOUCHING=$(echo "$CHANGED" | grep -vE "$NON_UI_REGEX" || true)
