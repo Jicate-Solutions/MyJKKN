@@ -132,12 +132,95 @@ export interface LearnerHostelite {
   institution_id: string;
   department_id: string | null;
   program_id: string | null;
+  // Surfaced from v_learner_hostelites (PR pending — bugs BUG-003325 + BUG-003326).
+  // Optional so callers reading via legacy paths still type-check.
+  year_of_study?: number | null;
+  current_block_id?: string | null;
+  current_room_id?: string | null;
+  current_bed_id?: string | null;
+  current_allocation_id?: string | null;
 }
+
+// Sentinel for the "Unassigned" block filter chip. Matches LEFT JOIN ... IS NULL
+// in the service. Locked 2026-05-10 by /assumption-thrash Round 1 #1.
+export const UNASSIGNED_BLOCK = 'unassigned' as const;
+export type BlockFilterValue = string | typeof UNASSIGNED_BLOCK;
 
 export interface LearnerHostelitesFilters {
   institution_id?: string;
   hostel_type?: LearnerHostelType;
   search?: string;  // matches roll_number OR first_name OR last_name OR email
+  // NEW (BUG-003325): institution + year + gender + block filters via v_learner_hostelites view
+  year_of_study?: number;
+  gender?: 'Male' | 'Female' | 'Other';
+  block_id?: BlockFilterValue;
+}
+
+// ─── Detail drawer bundle (BUG-003326) ────────────────────────────────
+// Bundled fetch for the click-anywhere-on-row detail drawer. 4 parallel
+// queries — learner record, hostel profile, current allocation, recent
+// activity (last 5 each of gate-passes + attendance + open vacate). Leaves
+// dropped per /assumption-thrash Round 1 #2 (no UI route exists yet).
+
+export interface LearnerHostelProfile {
+  id: string;
+  learner_id: string;
+  hostel_emergency_contact_name: string | null;
+  hostel_emergency_contact_phone: string | null;
+  hostel_emergency_contact_relation: string | null;
+  hostel_medical_notes: string | null;
+  hostel_parent_phone: string | null;
+  updated_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface LearnerCurrentAllocation {
+  id: string;
+  block_id: string;
+  block_name: string | null;
+  block_code: string | null;
+  room_id: string;
+  room_number: string | null;
+  bed_id: string;
+  bed_number: string | null;
+  allocation_date: string;
+  expected_vacate_date: string | null;
+  status: AllocationStatus;
+}
+
+export interface LearnerGatePassSummary {
+  id: string;
+  pass_number: string | null;
+  status: string;
+  out_time: string | null;
+  in_time: string | null;
+  purpose: string | null;
+  created_at: string;
+}
+
+export interface LearnerAttendanceSummary {
+  id: string;
+  date: string;
+  status: string;
+  marked_at: string | null;
+}
+
+export interface LearnerVacateRequestSummary {
+  id: string;
+  status: string;
+  reason: string | null;
+  effective_date: string | null;
+  created_at: string;
+}
+
+export interface LearnerDetailBundle {
+  learner: LearnerHostelite;
+  hostelProfile: LearnerHostelProfile | null;
+  currentAllocation: LearnerCurrentAllocation | null;
+  recentGatePasses: LearnerGatePassSummary[];
+  recentAttendance: LearnerAttendanceSummary[];
+  openVacateRequest: LearnerVacateRequestSummary | null;
 }
 
 // ─── Hostel leave (mirrors migration 20260222000015 + 20260424 approval-chain rewire) ───
