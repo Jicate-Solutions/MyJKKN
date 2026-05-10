@@ -150,6 +150,7 @@ function SourceDetailContent({ id }: { id: string }) {
               <TabsContent value="counselors">
                 <CounselorsTab
                   sourceId={source.id}
+                  sourceEnum={source.enum_value}
                   institutionId={source.institution_id}
                 />
               </TabsContent>
