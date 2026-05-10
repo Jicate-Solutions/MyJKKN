@@ -989,7 +989,12 @@ export class LeadService {
   /**
    * Assign counselor to lead
    */
-  static async assignCounselor(leadId: string, counselorId: string, profileId?: string): Promise<AdmissionLead> {
+  static async assignCounselor(
+    leadId: string,
+    counselorId: string,
+    profileId?: string,
+    opts?: { reason?: string; override?: boolean }
+  ): Promise<AdmissionLead> {
     const { data: { user } } = await (this.supabase as any).auth.getUser();
 
     // Read current counselor_id to detect reassignment
@@ -1029,7 +1034,7 @@ export class LeadService {
         lead_id: leadId,
         activity_type: 'note',
         subject: 'Counselor Assigned',
-        description: `Counselor "${counselorName}" assigned to this lead`,
+        description: `${opts?.override ? '[Override] ' : ''}Counselor "${counselorName}" assigned to this lead${opts?.reason ? ` — Reason: ${opts.reason}` : ''}`,
         created_by: user?.id || null,
       });
 
