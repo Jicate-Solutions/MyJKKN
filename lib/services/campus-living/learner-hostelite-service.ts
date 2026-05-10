@@ -339,6 +339,30 @@ export class LearnerHosteliteService {
     }
   }
 
+  // ── Available year_of_study values for dynamic Year chips ────────────
+  // Returns sorted distinct year_of_study values currently present in
+  // v_learner_hostelites (NULL excluded). Used by the Year filter to render
+  // dynamic chips instead of hardcoded 1..4. Cohort drift (Year 5+, gap years)
+  // surfaces automatically.
+  static async listAvailableYears(institutionId?: string): Promise<number[]> {
+    const supabase = createClientSupabaseClient();
+    let query = supabase
+      .from('v_learner_hostelites')
+      .select('year_of_study')
+      .not('year_of_study', 'is', null);
+    if (institutionId) query = query.eq('institution_id', institutionId);
+    const { data, error } = await query;
+    if (error) {
+      logger.error('campus-living/learner-hostelite', 'listAvailableYears failed', error);
+      throw error;
+    }
+    const set = new Set<number>();
+    (data ?? []).forEach((r: { year_of_study: number | null }) => {
+      if (r.year_of_study !== null) set.add(r.year_of_study);
+    });
+    return Array.from(set).sort((a, b) => a - b);
+  }
+
   // ── Search candidate learners for the "Add to Hostel" picker ─────────
   // Reads from learners_profiles (NOT the view) since candidates are by
   // definition non-HOSTEL learners who aren't in the view's WHERE clause.
