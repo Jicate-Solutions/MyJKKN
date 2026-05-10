@@ -202,3 +202,149 @@ export const SHIFT_CATEGORY_OPTIONS = [
   { value: 'admin', label: 'Admin / Office' },
   { value: 'general', label: 'General' },
 ] as const;
+
+// ---------------------------------------------------------------------------
+// Swap Requests (T1.6 Phase 2b)
+// ---------------------------------------------------------------------------
+
+/**
+ * Lifecycle state of a swap request. See migration COMMENT for transitions.
+ *
+ *   pending                 — requester filed; waiting on counterparty
+ *   counterparty_accepted   — counterparty agreed; queued for HR review
+ *   approved                — HR approved (per-day override on swap_date)
+ *   rejected                — HR rejected (terminal)
+ *   cancelled               — requester cancelled (terminal)
+ *   expired                 — swap_date passed without resolution (terminal)
+ */
+export type HRShiftSwapStatus =
+  | 'pending'
+  | 'counterparty_accepted'
+  | 'approved'
+  | 'rejected'
+  | 'cancelled'
+  | 'expired';
+
+export interface HRShiftSwapRequest {
+  id: string;
+  requester_assignment_id: string;
+  requester_staff_id: string;
+  /** Null when both counterparty fields are null (an "open swap" awaiting any willing partner). */
+  counterparty_assignment_id: string | null;
+  counterparty_staff_id: string | null;
+  /** ISO date 'YYYY-MM-DD'. Single calendar date the swap applies to. */
+  swap_date: string;
+  reason: string | null;
+  status: HRShiftSwapStatus;
+  counterparty_consent_at: string | null;
+  hr_approved_by: string | null;
+  hr_approved_at: string | null;
+  hr_review_notes: string | null;
+  requested_at: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface HRShiftSwapRequestInsert {
+  requester_assignment_id: string;
+  requester_staff_id: string;
+  counterparty_assignment_id?: string | null;
+  counterparty_staff_id?: string | null;
+  swap_date: string;
+  reason?: string | null;
+}
+
+/** Joined display shape for queues (HR review, employee inbox, employee outbox). */
+export interface HRShiftSwapRequestWithStaff extends HRShiftSwapRequest {
+  requester_name: string | null;
+  requester_staff_no: string | null;
+  counterparty_name: string | null;
+  counterparty_staff_no: string | null;
+}
+
+export interface SwapRequestFilters {
+  /** Filter by status. Omit to return all. Pass an array to combine. */
+  status?: HRShiftSwapStatus | HRShiftSwapStatus[];
+  /** Filter by requester staff. */
+  requesterStaffId?: string;
+  /** Filter by counterparty staff. */
+  counterpartyStaffId?: string;
+  /**
+   * HR review queue helper: when true, returns rows in 'pending' or
+   * 'counterparty_accepted' status (anything awaiting HR action), and
+   * orders by swap_date ascending (soonest first).
+   */
+  hrReviewQueue?: boolean;
+  /** ISO date inclusive lower bound on swap_date. */
+  swapDateFrom?: string;
+  /** ISO date inclusive upper bound on swap_date. */
+  swapDateTo?: string;
+  /** Pagination cap (defaults to 200 in service). */
+  limit?: number;
+}
+
+/**
+ * Plain-English label for a status badge. Lives next to the type so all
+ * surfaces (HR queue, employee inbox/outbox) render consistently.
+ */
+export const SWAP_STATUS_LABEL: Record<HRShiftSwapStatus, string> = {
+  pending: 'Pending counterparty',
+  counterparty_accepted: 'Awaiting HR review',
+  approved: 'Approved',
+  rejected: 'Rejected',
+  cancelled: 'Cancelled',
+  expired: 'Expired',
+};
+
+/**
+ * Multi-week rotation pattern entry — one per week in a 1..4 cycle.
+ * Stored as jsonb on hr_shift_assignments.rotation_pattern.
+ */
+export interface RotationPatternEntry {
+  /** 1-indexed week number within the rotation. */
+  week: number;
+  /** Template id applied that week. */
+  template_id: string;
+}
+
+/**
+ * Validate a rotation_pattern jsonb against a declared rotation_weeks count.
+ * Returns null when valid; error string when invalid. Used by both the form
+ * validator (immediate UX) and the service (defense in depth).
+ */
+export function validateRotationPattern(
+  rotationWeeks: number,
+  pattern: unknown,
+): string | null {
+  if (rotationWeeks <= 1) {
+    if (pattern == null) return null;
+    return 'Rotation pattern must be empty when rotation_weeks=1.';
+  }
+  if (!Array.isArray(pattern)) {
+    return `Rotation pattern must be a list of ${rotationWeeks} entries when rotation_weeks=${rotationWeeks}.`;
+  }
+  if (pattern.length !== rotationWeeks) {
+    return `Rotation pattern needs exactly ${rotationWeeks} entries — got ${pattern.length}.`;
+  }
+  const seen = new Set<number>();
+  for (const raw of pattern) {
+    if (
+      !raw ||
+      typeof raw !== 'object' ||
+      typeof (raw as { week?: unknown }).week !== 'number' ||
+      typeof (raw as { template_id?: unknown }).template_id !== 'string'
+    ) {
+      return 'Each rotation pattern entry needs {week: number, template_id: string}.';
+    }
+    const w = (raw as { week: number }).week;
+    if (w < 1 || w > rotationWeeks || !Number.isInteger(w)) {
+      return `Week numbers must be 1..${rotationWeeks}.`;
+    }
+    if (seen.has(w)) return `Week ${w} appears more than once in the rotation pattern.`;
+    seen.add(w);
+    if (!(raw as { template_id: string }).template_id.trim()) {
+      return `Week ${w} is missing a template selection.`;
+    }
+  }
+  return null;
+}

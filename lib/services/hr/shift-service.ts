@@ -26,15 +26,21 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import {
   computeEffectiveHours,
+  validateRotationPattern,
   type HRShiftAssignment,
   type HRShiftAssignmentInsert,
   type HRShiftAssignmentUpdate,
   type HRShiftAssignmentWithTemplate,
+  type HRShiftSwapRequest,
+  type HRShiftSwapRequestInsert,
+  type HRShiftSwapRequestWithStaff,
+  type HRShiftSwapStatus,
   type HRShiftTemplate,
   type HRShiftTemplateInsert,
   type HRShiftTemplateUpdate,
   type ShiftAssignmentFilters,
   type ShiftTemplateFilters,
+  type SwapRequestFilters,
 } from '@/types/hr-shifts';
 
 export class ShiftService {
@@ -208,6 +214,10 @@ export class ShiftService {
     if (rotationWeeks < 1 || rotationWeeks > 4) {
       throw new Error('rotation_weeks must be between 1 and 4.');
     }
+    if (rotationWeeks > 1) {
+      const err = validateRotationPattern(rotationWeeks, payload.rotation_pattern ?? null);
+      if (err) throw new Error(err);
+    }
     if (
       payload.effective_until &&
       payload.effective_until < payload.effective_from
@@ -243,6 +253,10 @@ export class ShiftService {
   ): Promise<HRShiftAssignment> {
     if (patch.rotation_weeks != null && (patch.rotation_weeks < 1 || patch.rotation_weeks > 4)) {
       throw new Error('rotation_weeks must be between 1 and 4.');
+    }
+    if (patch.rotation_weeks != null && patch.rotation_weeks > 1) {
+      const err = validateRotationPattern(patch.rotation_weeks, patch.rotation_pattern ?? null);
+      if (err) throw new Error(err);
     }
     if (
       patch.effective_until != null &&
@@ -412,5 +426,306 @@ export class ShiftService {
       });
     }
     return enriched;
+  }
+
+  // -------------------------------------------------------------------------
+  // Swap Requests (Phase 2b)
+  // -------------------------------------------------------------------------
+
+  /**
+   * List swap requests with optional filters and (best-effort) staff display
+   * fields joined. Used by:
+   *   - HR review queue (status in pending|counterparty_accepted, hrReviewQueue=true)
+   *   - employee outbox (requesterStaffId)
+   *   - employee inbox (counterpartyStaffId)
+   */
+  static async listSwapRequests(
+    supabase: SupabaseClient,
+    filters: SwapRequestFilters = {}
+  ): Promise<HRShiftSwapRequestWithStaff[]> {
+    const limit = filters.limit ?? 200;
+
+    let q = supabase.from('hr_shift_swap_requests').select('*').limit(limit);
+
+    if (filters.hrReviewQueue) {
+      q = q
+        .in('status', ['pending', 'counterparty_accepted'])
+        .order('swap_date', { ascending: true });
+    } else {
+      q = q.order('requested_at', { ascending: false });
+    }
+
+    if (filters.status) {
+      const statuses = Array.isArray(filters.status) ? filters.status : [filters.status];
+      // hrReviewQueue already applied an .in() — additional status filter narrows it.
+      q = q.in('status', statuses);
+    }
+    if (filters.requesterStaffId) {
+      q = q.eq('requester_staff_id', filters.requesterStaffId);
+    }
+    if (filters.counterpartyStaffId) {
+      q = q.eq('counterparty_staff_id', filters.counterpartyStaffId);
+    }
+    if (filters.swapDateFrom) {
+      q = q.gte('swap_date', filters.swapDateFrom);
+    }
+    if (filters.swapDateTo) {
+      q = q.lte('swap_date', filters.swapDateTo);
+    }
+
+    const { data, error } = await q;
+    if (error) throw error;
+    const rows = (data ?? []) as HRShiftSwapRequest[];
+    if (rows.length === 0) return [];
+
+    // Best-effort staff display lookup. RLS may block staff joins for
+    // counterparty rows when the caller is unrelated; we render '—' in that case.
+    const staffIds = Array.from(
+      new Set(
+        rows.flatMap((r) => [r.requester_staff_id, r.counterparty_staff_id].filter(Boolean) as string[])
+      )
+    );
+    const staffById: Record<string, { name: string | null; staff_no: string | null }> = {};
+    if (staffIds.length > 0) {
+      const { data: staffRows } = await supabase
+        .from('staff')
+        .select('id, first_name, last_name, staff_id')
+        .in('id', staffIds);
+      for (const s of (staffRows ?? []) as Array<{
+        id: string;
+        first_name: string | null;
+        last_name: string | null;
+        staff_id: string | null;
+      }>) {
+        const fullName = [s.first_name, s.last_name].filter(Boolean).join(' ').trim();
+        staffById[s.id] = {
+          name: fullName || null,
+          staff_no: s.staff_id,
+        };
+      }
+    }
+
+    return rows.map((r) => ({
+      ...r,
+      requester_name: staffById[r.requester_staff_id]?.name ?? null,
+      requester_staff_no: staffById[r.requester_staff_id]?.staff_no ?? null,
+      counterparty_name: r.counterparty_staff_id
+        ? staffById[r.counterparty_staff_id]?.name ?? null
+        : null,
+      counterparty_staff_no: r.counterparty_staff_id
+        ? staffById[r.counterparty_staff_id]?.staff_no ?? null
+        : null,
+    }));
+  }
+
+  /**
+   * Submit a new swap request. Defaults to status='pending'. The DB-level
+   * counterparty_pair_chk enforces that counterparty_assignment_id and
+   * counterparty_staff_id are set together (or both null for "open swap").
+   */
+  static async submitSwapRequest(
+    supabase: SupabaseClient,
+    payload: HRShiftSwapRequestInsert,
+  ): Promise<HRShiftSwapRequest> {
+    if (!payload.requester_assignment_id) {
+      throw new Error('requester_assignment_id is required.');
+    }
+    if (!payload.requester_staff_id) {
+      throw new Error('requester_staff_id is required.');
+    }
+    if (!payload.swap_date || !/^\d{4}-\d{2}-\d{2}$/.test(payload.swap_date)) {
+      throw new Error('swap_date must be in YYYY-MM-DD format.');
+    }
+    const cpStaffSet = !!payload.counterparty_staff_id;
+    const cpAsgSet = !!payload.counterparty_assignment_id;
+    if (cpStaffSet !== cpAsgSet) {
+      throw new Error(
+        'Counterparty staff and counterparty assignment must be set together (or both omitted for an open swap).'
+      );
+    }
+    if (cpStaffSet && payload.counterparty_staff_id === payload.requester_staff_id) {
+      throw new Error('Cannot swap with yourself — pick a different counterparty.');
+    }
+
+    // Forbid past swap_date.
+    const today = new Date().toISOString().slice(0, 10);
+    if (payload.swap_date < today) {
+      throw new Error('Swap date cannot be in the past.');
+    }
+
+    const insertPayload: Record<string, unknown> = {
+      requester_assignment_id: payload.requester_assignment_id,
+      requester_staff_id: payload.requester_staff_id,
+      counterparty_assignment_id: payload.counterparty_assignment_id ?? null,
+      counterparty_staff_id: payload.counterparty_staff_id ?? null,
+      swap_date: payload.swap_date,
+      reason: payload.reason ?? null,
+      status: 'pending',
+    };
+
+    const { data, error } = await supabase
+      .from('hr_shift_swap_requests')
+      .insert(insertPayload)
+      .select()
+      .single();
+    if (error) throw error;
+    return data as HRShiftSwapRequest;
+  }
+
+  /**
+   * Counterparty accepts the request. RLS allows update only for super_admin /
+   * admin / requester / counterparty; we still defensively check status.
+   * Transitions: pending → counterparty_accepted.
+   */
+  static async acceptSwapRequest(
+    supabase: SupabaseClient,
+    id: string,
+  ): Promise<HRShiftSwapRequest> {
+    // Read first to validate transition (defense in depth — RLS already bounded who can write).
+    const { data: existing, error: readErr } = await supabase
+      .from('hr_shift_swap_requests')
+      .select('*')
+      .eq('id', id)
+      .maybeSingle();
+    if (readErr) throw readErr;
+    if (!existing) throw new Error('Swap request not found (or you do not have access).');
+    const cur = existing as HRShiftSwapRequest;
+    if (cur.status !== 'pending') {
+      throw new Error(
+        `Cannot accept — request is currently "${cur.status}". Only pending requests can be accepted.`
+      );
+    }
+
+    const { data, error } = await supabase
+      .from('hr_shift_swap_requests')
+      .update({
+        status: 'counterparty_accepted' satisfies HRShiftSwapStatus,
+        counterparty_consent_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', id)
+      .select()
+      .single();
+    if (error) throw error;
+    return data as HRShiftSwapRequest;
+  }
+
+  /**
+   * HR approves. Transitions: counterparty_accepted | pending → approved.
+   * (We allow approval directly from 'pending' for the open-swap case where
+   * HR may approve without a counterparty being named — useful for "swap to
+   * day off" patterns.)
+   */
+  static async approveSwapRequest(
+    supabase: SupabaseClient,
+    id: string,
+    hrProfileId: string,
+    notes?: string,
+  ): Promise<HRShiftSwapRequest> {
+    const { data: existing, error: readErr } = await supabase
+      .from('hr_shift_swap_requests')
+      .select('*')
+      .eq('id', id)
+      .maybeSingle();
+    if (readErr) throw readErr;
+    if (!existing) throw new Error('Swap request not found (or you do not have access).');
+    const cur = existing as HRShiftSwapRequest;
+    if (cur.status !== 'pending' && cur.status !== 'counterparty_accepted') {
+      throw new Error(
+        `Cannot approve — request is currently "${cur.status}". Only pending or counterparty_accepted requests can be approved.`
+      );
+    }
+
+    const { data, error } = await supabase
+      .from('hr_shift_swap_requests')
+      .update({
+        status: 'approved' satisfies HRShiftSwapStatus,
+        hr_approved_by: hrProfileId,
+        hr_approved_at: new Date().toISOString(),
+        hr_review_notes: notes ?? null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', id)
+      .select()
+      .single();
+    if (error) throw error;
+    return data as HRShiftSwapRequest;
+  }
+
+  /**
+   * HR rejects. Allowed from any non-terminal state.
+   */
+  static async rejectSwapRequest(
+    supabase: SupabaseClient,
+    id: string,
+    hrProfileId: string,
+    notes: string,
+  ): Promise<HRShiftSwapRequest> {
+    if (!notes || !notes.trim()) {
+      throw new Error('A rejection reason is required.');
+    }
+    const { data: existing, error: readErr } = await supabase
+      .from('hr_shift_swap_requests')
+      .select('status')
+      .eq('id', id)
+      .maybeSingle();
+    if (readErr) throw readErr;
+    if (!existing) throw new Error('Swap request not found (or you do not have access).');
+    const cur = (existing as { status: HRShiftSwapStatus }).status;
+    if (cur === 'approved' || cur === 'rejected' || cur === 'cancelled' || cur === 'expired') {
+      throw new Error(
+        `Cannot reject — request is already in terminal state "${cur}".`
+      );
+    }
+
+    const { data, error } = await supabase
+      .from('hr_shift_swap_requests')
+      .update({
+        status: 'rejected' satisfies HRShiftSwapStatus,
+        hr_approved_by: hrProfileId,
+        hr_approved_at: new Date().toISOString(),
+        hr_review_notes: notes.trim(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', id)
+      .select()
+      .single();
+    if (error) throw error;
+    return data as HRShiftSwapRequest;
+  }
+
+  /**
+   * Requester cancels their own request. Allowed only when status='pending'
+   * or 'counterparty_accepted' — once HR has approved/rejected we lock it.
+   */
+  static async cancelSwapRequest(
+    supabase: SupabaseClient,
+    id: string,
+  ): Promise<HRShiftSwapRequest> {
+    const { data: existing, error: readErr } = await supabase
+      .from('hr_shift_swap_requests')
+      .select('status')
+      .eq('id', id)
+      .maybeSingle();
+    if (readErr) throw readErr;
+    if (!existing) throw new Error('Swap request not found (or you do not have access).');
+    const cur = (existing as { status: HRShiftSwapStatus }).status;
+    if (cur !== 'pending' && cur !== 'counterparty_accepted') {
+      throw new Error(
+        `Cannot cancel — request is currently "${cur}". Only pending or counterparty_accepted requests can be cancelled.`
+      );
+    }
+
+    const { data, error } = await supabase
+      .from('hr_shift_swap_requests')
+      .update({
+        status: 'cancelled' satisfies HRShiftSwapStatus,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', id)
+      .select()
+      .single();
+    if (error) throw error;
+    return data as HRShiftSwapRequest;
   }
 }

@@ -1,6 +1,6 @@
 // ============================================================================
-// HR — Shift Assignments (T1.6 Phase 2a from specs/hr-module-decomposition-2026-05-09.md)
-// Created: 2026-05-10.
+// HR — Shift Assignments (T1.6 Phase 2a + Phase 2b multi-week rotation UI)
+// Created: 2026-05-10. Updated 2026-05-10 (Phase 2b).
 //
 // HR officer / admin CRUD on `hr_shift_assignments`. HR officers pick a staff
 // member, a template (or freeform override), an effective_from date — and the
@@ -11,9 +11,11 @@
 // per Q-lock #1: template provides defaults; per-employee override stored on
 // the assignment row.
 //
-// PHASE 2a SCOPE: only single-week assignments (rotation_weeks=1) are
-// surfaced. The rotation_pattern jsonb input is hidden — it's stored in DB
-// for Phase 2b without rendering UI yet (per Q-lock #3).
+// Phase 2a: single-week (rotation_weeks=1) was the only UI surface.
+// Phase 2b: multi-week rotation UI activated. When rotation_weeks > 1, the
+//   form surfaces N rows of "Week X template" pickers, persisted as
+//   rotation_pattern jsonb [{week, template_id}]. Single-week stays the
+//   default — multi-week is opt-in per department per Q-lock #3.
 //
 // Permission gate: admin_or_super_admin.
 // ============================================================================
@@ -32,7 +34,9 @@ import { ShiftService } from '@/lib/services/hr/shift-service';
 import type {
   HRShiftAssignmentWithTemplate,
   HRShiftTemplate,
+  RotationPatternEntry,
 } from '@/types/hr-shifts';
+import { validateRotationPattern } from '@/types/hr-shifts';
 
 // ---------------------------------------------------------------------------
 // Form schema
@@ -103,12 +107,48 @@ function buildFormSchema(
     },
     {
       name: 'rotation_weeks',
-      kind: 'number',
+      kind: 'enum',
       englishLabel: 'Rotation weeks',
       englishHint:
-        'How many weeks the shift cycle spans. Phase 2a supports single-week (1) only — multi-week rotation UI lands in Phase 2b. Storage is ready now.',
-      min: 1,
-      step: 1,
+        'How many weeks the shift cycle spans. 1 = single-week (default). 2-4 = multi-week opt-in: pick a different template per week below. The cycle repeats from week 1 once it ends.',
+      options: [
+        { value: '1', label: '1 — single week (default)' },
+        { value: '2', label: '2 — fortnightly rotation' },
+        { value: '3', label: '3 — three-week rotation' },
+        { value: '4', label: '4 — four-week rotation' },
+      ],
+    },
+    {
+      name: 'rotation_week_1_template_id',
+      kind: 'enum',
+      englishLabel: 'Week 1 template',
+      englishHint: 'Template applied during week 1 of the rotation cycle.',
+      options: templateOptions,
+      visibleWhen: (vals) => Number(vals.rotation_weeks ?? 1) >= 2,
+    },
+    {
+      name: 'rotation_week_2_template_id',
+      kind: 'enum',
+      englishLabel: 'Week 2 template',
+      englishHint: 'Template applied during week 2 of the rotation cycle.',
+      options: templateOptions,
+      visibleWhen: (vals) => Number(vals.rotation_weeks ?? 1) >= 2,
+    },
+    {
+      name: 'rotation_week_3_template_id',
+      kind: 'enum',
+      englishLabel: 'Week 3 template',
+      englishHint: 'Template applied during week 3 of the rotation cycle.',
+      options: templateOptions,
+      visibleWhen: (vals) => Number(vals.rotation_weeks ?? 1) >= 3,
+    },
+    {
+      name: 'rotation_week_4_template_id',
+      kind: 'enum',
+      englishLabel: 'Week 4 template',
+      englishHint: 'Template applied during week 4 of the rotation cycle.',
+      options: templateOptions,
+      visibleWhen: (vals) => Number(vals.rotation_weeks ?? 1) >= 4,
     },
     {
       name: 'notes',
@@ -117,6 +157,27 @@ function buildFormSchema(
       englishHint: 'Optional context — why the override, special arrangements, handover instructions.',
     },
   ];
+}
+
+/**
+ * Build rotation_pattern jsonb from the form's per-week template fields.
+ * Returns null when rotation_weeks=1 (single-week, no pattern needed).
+ */
+function buildRotationPattern(
+  rotationWeeks: number,
+  values: Record<string, unknown>,
+): RotationPatternEntry[] | null {
+  if (rotationWeeks <= 1) return null;
+  const entries: RotationPatternEntry[] = [];
+  for (let w = 1; w <= rotationWeeks; w++) {
+    const raw = values[`rotation_week_${w}_template_id`];
+    const tplId = typeof raw === 'string' ? raw.trim() : '';
+    if (!tplId) {
+      throw new Error(`Pick a template for week ${w} of the rotation.`);
+    }
+    entries.push({ week: w, template_id: tplId });
+  }
+  return entries;
 }
 
 // ---------------------------------------------------------------------------
@@ -138,9 +199,9 @@ function buildConfig(
         </p>
         <p className="mt-2">
           Use <strong>Effective from</strong> + <strong>Effective until</strong>{' '}
-          to roll an assignment forward without deleting history. Phase 2a
-          surfaces single-week assignments only — multi-week rotation UI ships
-          in Phase 2b.
+          to roll an assignment forward without deleting history. Single-week
+          is the default; pick 2-4 in the rotation field to opt into a
+          multi-week cycle (e.g. fortnightly Morning/Night flip).
         </p>
       </>
     ),
@@ -214,7 +275,7 @@ function buildConfig(
     ],
     rowHint: (row) =>
       row.rotation_weeks > 1
-        ? 'Multi-week rotation — UI surface arrives in Phase 2b. Pattern stored in rotation_pattern.'
+        ? `${row.rotation_weeks}-week rotation — see rotation_pattern in the edit form for the per-week template.`
         : !row.template_id
         ? 'Freeform assignment (no template). Both override times must stay set.'
         : null,
@@ -309,6 +370,12 @@ export default function HRShiftAssignmentsPage() {
         );
       }
 
+      const rotationPattern = buildRotationPattern(rotationWeeks, values);
+      // Defense in depth — service runs the same validation, but surfacing
+      // here gives an immediate, clear form error.
+      const rpErr = validateRotationPattern(rotationWeeks, rotationPattern);
+      if (rpErr) throw new Error(rpErr);
+
       const payload = {
         staff_id: staffId,
         template_id: templateId,
@@ -317,6 +384,7 @@ export default function HRShiftAssignmentsPage() {
         effective_from: effectiveFrom,
         effective_until: effectiveUntil,
         rotation_weeks: rotationWeeks,
+        rotation_pattern: rotationPattern,
         notes: optionalText(values.notes),
       };
 
@@ -351,20 +419,41 @@ export default function HRShiftAssignmentsPage() {
     end_time_override: '',
     effective_from: new Date().toISOString().slice(0, 10),
     effective_until: '',
-    rotation_weeks: 1,
+    // rotation_weeks is rendered as an enum — string values (the form shell
+    // dispatches strings through enum fields).
+    rotation_weeks: '1',
+    rotation_week_1_template_id: '',
+    rotation_week_2_template_id: '',
+    rotation_week_3_template_id: '',
+    rotation_week_4_template_id: '',
     notes: '',
   };
 
-  const rowToFormValues = (row: HRShiftAssignmentWithTemplate) => ({
-    staff_id: row.staff_id,
-    template_id: row.template_id ?? '',
-    start_time_override: row.start_time_override?.slice(0, 5) ?? '',
-    end_time_override: row.end_time_override?.slice(0, 5) ?? '',
-    effective_from: row.effective_from,
-    effective_until: row.effective_until ?? '',
-    rotation_weeks: row.rotation_weeks,
-    notes: row.notes ?? '',
-  });
+  const rowToFormValues = (row: HRShiftAssignmentWithTemplate) => {
+    const pattern = Array.isArray(row.rotation_pattern)
+      ? (row.rotation_pattern as RotationPatternEntry[])
+      : [];
+    const byWeek: Record<number, string> = {};
+    for (const entry of pattern) {
+      if (entry && typeof entry.week === 'number' && typeof entry.template_id === 'string') {
+        byWeek[entry.week] = entry.template_id;
+      }
+    }
+    return {
+      staff_id: row.staff_id,
+      template_id: row.template_id ?? '',
+      start_time_override: row.start_time_override?.slice(0, 5) ?? '',
+      end_time_override: row.end_time_override?.slice(0, 5) ?? '',
+      effective_from: row.effective_from,
+      effective_until: row.effective_until ?? '',
+      rotation_weeks: String(row.rotation_weeks),
+      rotation_week_1_template_id: byWeek[1] ?? '',
+      rotation_week_2_template_id: byWeek[2] ?? '',
+      rotation_week_3_template_id: byWeek[3] ?? '',
+      rotation_week_4_template_id: byWeek[4] ?? '',
+      notes: row.notes ?? '',
+    };
+  };
 
   return (
     <PolicyPageShell
