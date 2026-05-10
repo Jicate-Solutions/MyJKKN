@@ -253,24 +253,59 @@ export function DistributePanel({ sourceId, sourceEnum, institutionId }: Distrib
   const hasUnassigned = totalCount > 0;
 
   return (
-    <Card>
+    <Card
+      className={
+        hasUnassigned
+          ? 'border-red-300 bg-red-50/50 shadow-sm ring-1 ring-red-200'
+          : ''
+      }
+    >
       <CardContent className="p-0">
         <button
           type="button"
           onClick={() => hasUnassigned && dispatch({ type: 'TOGGLE_EXPAND' })}
           disabled={!hasUnassigned}
-          className="flex w-full items-center justify-between gap-2 px-4 py-3 text-left hover:bg-muted/30 disabled:cursor-default disabled:hover:bg-transparent"
+          className={
+            hasUnassigned
+              ? 'flex w-full items-center justify-between gap-2 px-4 py-3.5 text-left transition-colors hover:bg-red-100/50'
+              : 'flex w-full items-center justify-between gap-2 px-4 py-3 text-left disabled:cursor-default disabled:hover:bg-transparent'
+          }
         >
           <span className="flex items-center gap-2">
-            <Send className={`h-4 w-4 ${hasUnassigned ? 'text-blue-600' : 'text-muted-foreground'}`} />
-            <span className="text-sm font-semibold">
-              {hasUnassigned
-                ? `Distribute ${totalCount} unassigned leads`
-                : 'No unassigned leads to distribute — new leads from this source will auto-route via your counselor mapping'}
+            <span
+              className={
+                hasUnassigned
+                  ? 'flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-red-600 text-white shadow-sm'
+                  : 'flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground'
+              }
+            >
+              <Send className="h-3.5 w-3.5" />
+            </span>
+            <span className="flex flex-col text-left">
+              <span
+                className={
+                  hasUnassigned
+                    ? 'text-sm font-bold text-red-900'
+                    : 'text-sm font-semibold'
+                }
+              >
+                {hasUnassigned
+                  ? `${totalCount.toLocaleString()} unassigned leads — needs attention`
+                  : 'No unassigned leads to distribute — new leads from this source will auto-route via your counselor mapping'}
+              </span>
+              {hasUnassigned && (
+                <span className="text-[11px] text-red-700/80">
+                  Click to expand and distribute now
+                </span>
+              )}
             </span>
           </span>
           {hasUnassigned &&
-            (s.expanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />)}
+            (s.expanded ? (
+              <ChevronUp className="h-5 w-5 text-red-700" />
+            ) : (
+              <ChevronDown className="h-5 w-5 text-red-700" />
+            ))}
         </button>
 
         {s.expanded && (

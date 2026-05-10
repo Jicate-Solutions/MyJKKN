@@ -127,6 +127,16 @@ export function DistributionTab({
 
   return (
     <div className="space-y-4">
+      {/* Distribute Unassigned Leads — placed at the TOP for visibility.
+          Styled with a danger accent when there are unassigned leads so it
+          reads as "needs attention" the moment the tab opens. The panel
+          self-hides into an informational empty state at zero unassigned. */}
+      <DistributePanel
+        sourceId={sourceId}
+        sourceEnum={sourceEnum}
+        institutionId={institutionId}
+      />
+
       {/* Date range controls */}
       <Card>
         <CardContent className="flex flex-col gap-3 pt-6">
@@ -154,7 +164,7 @@ export function DistributionTab({
           </div>
           <p className="text-[11px] text-muted-foreground">
             KPIs and the per-counselor breakdown below filter by lead <strong>creation</strong> date in this window.
-            The <strong>Distribute Unassigned Leads</strong> panel at the bottom of this tab shows lifetime unassigned counts (not date-filtered) — it can show leads even when the KPIs above show 0 (they were created outside this window).
+            The <strong>Distribute Unassigned Leads</strong> panel above this card shows lifetime unassigned counts (not date-filtered) — it can show leads even when the KPIs below show 0 (they were created outside this window).
           </p>
         </CardContent>
       </Card>
@@ -292,11 +302,6 @@ export function DistributionTab({
         </CardContent>
       </Card>
 
-      <DistributePanel
-        sourceId={sourceId}
-        sourceEnum={sourceEnum}
-        institutionId={institutionId}
-      />
     </div>
   );
 }
