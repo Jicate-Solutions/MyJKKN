@@ -1,0 +1,97 @@
+
+> my-jkkn@0.1.0 build
+> npm run gen:routes && npm run check:sidebar && npm run check:reachability && npm run check:audit-coverage && cross-env NODE_OPTIONS="--max-old-space-size=12288 --max-semi-space-size=128" next build --webpack
+
+
+> my-jkkn@0.1.0 gen:routes
+> tsx scripts/generate-route-manifest.ts
+
+✓ Route manifest unchanged (646 pages)
+
+> my-jkkn@0.1.0 check:sidebar
+> tsx scripts/check-sidebar-health.ts
+
+
+=== Sidebar Health Check ===
+Groups analyzed: 30
+Errors: 0
+Warnings: 2
+
+⚠  WARNINGS (non-blocking):
+   Academic: Group "Academic" has 10 top-level items (suggested max: 8). Collapse this module to a single sidebar entry and move section tabs IN-PAGE — see Campus Living or Learners Council (lc-nav.tsx / cl-nav.tsx + SectionSubNav).
+   Admission CRM: Group "Admission CRM" has 12 top-level items (suggested max: 8). Collapse this module to a single sidebar entry and move section tabs IN-PAGE — see Campus Living or Learners Council (lc-nav.tsx / cl-nav.tsx + SectionSubNav).
+
+=== Route Folder page.tsx Scan ===
+Seed landings tracked: 21
+Sidebar hrefs extracted: 170
+Errors: 0
+Warnings: 8
+
+⚠  WARNINGS (non-blocking — scaffold-only folders):
+   accreditation/manage: Folder has 2 child route(s) but no page.tsx at its own level. If this path is meant to be reachable, add a landing page.
+   admin/config: Folder has 1 child route(s) but no page.tsx at its own level. If this path is meant to be reachable, add a landing page.
+   admin/counselors: Folder has 5 child route(s) but no page.tsx at its own level. If this path is meant to be reachable, add a landing page.
+   admin/hr: Folder has 2 child route(s) but no page.tsx at its own level. If this path is meant to be reachable, add a landing page.
+   admin/whatsapp-byow: Folder has 1 child route(s) but no page.tsx at its own level. If this path is meant to be reachable, add a landing page.
+   ai-pulse/admin: Folder has 3 child route(s) but no page.tsx at its own level. If this path is meant to be reachable, add a landing page.
+   ai-pulse/evidence: Folder has 1 child route(s) but no page.tsx at its own level. If this path is meant to be reachable, add a landing page.
+   audit/finding-types: Folder has 1 child route(s) but no page.tsx at its own level. If this path is meant to be reachable, add a landing page.
+
+✓ Sidebar structure is healthy (no blocking issues).
+
+> my-jkkn@0.1.0 check:reachability
+> tsx scripts/check-nav-reachability.ts --max-unreachable 280
+
+[nav-reachability] Static pages:          638
+[nav-reachability] Seed hrefs (sidebar):  171
+[nav-reachability] Reachable via chips:   547
+[nav-reachability] NAV_EXCLUDE allowlist: 100
+[nav-reachability] Unreachable count:     6
+[nav-reachability] Max-unreachable gate:  280
+
+UNREACHABLE PAGES — no chip/sidebar click sequence from / leads here:
+  /admin/config/ai-pulse     (closest reachable: /admin/config)
+  /admission/counselors/voice-memos     (closest reachable: /admission/counselors)
+  /ai-pulse/evidence/naac     (closest reachable: /ai-pulse/evidence)
+  /events/marathon/new     (closest reachable: /events/marathon)
+  /hr/shifts/my     (closest reachable: /hr/shifts)
+  /ims/sales/history     (closest reachable: /ims/sales)
+
+Fix options for each unreachable page:
+  1. Add it as a literal `href` in a `children[]` under the appropriate
+     group in that module's nav-config.ts. This is the real fix —
+     AutoTabNav renders the child as a clickable chip.
+  2. If it should be a top-level sidebar entry, add it to lib/sidebarMenuLink.ts.
+  3. If it is genuinely a button-invoked / callback / redirect page with
+     no user-facing chip surface, add it to NAV_EXCLUDE in this script.
+
+NOTE: matchPaths and navMeta.invokedFrom are IGNORED by this check —
+only actual chip-click reachability counts. That's the point.
+
+PASS (with baseline) — 6 unreachable within max-unreachable=280.
+Tighten by lowering --max-unreachable in package.json as sweep PRs land.
+
+> my-jkkn@0.1.0 check:audit-coverage
+> tsx scripts/check-permission-audit-coverage.ts
+
+
+Warnings:
+  [unused-prefix] "/admin/pde" matches no current MENU_PERMISSIONS entry. Likely future-proofing — fine to keep, but worth a glance.
+  [unused-prefix] "/admin/page-metadata" matches no current MENU_PERMISSIONS entry. Likely future-proofing — fine to keep, but worth a glance.
+  [unused-prefix] "/admin/saml" matches no current MENU_PERMISSIONS entry. Likely future-proofing — fine to keep, but worth a glance.
+  [unused-prefix] "/admin/reset-driver-passwords" matches no current MENU_PERMISSIONS entry. Likely future-proofing — fine to keep, but worth a glance.
+  [unused-prefix] "/documents" matches no current MENU_PERMISSIONS entry. Likely future-proofing — fine to keep, but worth a glance.
+
+Permissions Audit coverage gate PASSED. 28 modules, 265 routes, 46 prefixes, 3 no-catalog allowlist entries.
+▲ Next.js 16.2.2 (webpack)
+- Environments: .env
+- Experiments (use with caution):
+  · clientTraceMetadata
+  · optimizePackageImports
+  ✓ webpackMemoryOptimizations
+
+  Creating an optimized production build ...
+[webpack-cfg] cache disabled in production — Stream C 2026-04-26
+[webpack-cfg] cache disabled in production — Stream C 2026-04-26
+[webpack-cfg] cache disabled in production — Stream C 2026-04-26
+✓ (serwist) Bundling the service worker script with the URL '/sw.js' and the scope '/'...
