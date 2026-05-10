@@ -74,10 +74,39 @@ export default function CandidateDetailPage() {
   const withdraw = useWithdrawCandidate();
   const updateStatus = useUpdateCandidateStatus();
 
+  // Salary breakdown is captured as 5 typed number fields (Basic / HRA / DA /
+  // Special / Other) instead of a raw JSON textarea. On submit we fold the
+  // non-zero fields into a Record<string, number> for the existing API.
+  type SalaryBreakdown = {
+    basic: string;
+    hra: string;
+    da: string;
+    special: string;
+    other: string;
+  };
+  const EMPTY_BREAKDOWN: SalaryBreakdown = { basic: '', hra: '', da: '', special: '', other: '' };
+  const BREAKDOWN_FIELDS: Array<{ key: keyof SalaryBreakdown; label: string }> = [
+    { key: 'basic',   label: 'Basic' },
+    { key: 'hra',     label: 'HRA' },
+    { key: 'da',      label: 'DA' },
+    { key: 'special', label: 'Special Allowance' },
+    { key: 'other',   label: 'Other' },
+  ];
+  const breakdownToJson = (b: SalaryBreakdown): Record<string, number> | null => {
+    const out: Record<string, number> = {};
+    for (const { key } of BREAKDOWN_FIELDS) {
+      const raw = b[key].trim();
+      if (!raw) continue;
+      const n = parseFloat(raw);
+      if (!isNaN(n) && n > 0) out[key] = n;
+    }
+    return Object.keys(out).length > 0 ? out : null;
+  };
+
   // Propose package dialog
   const [proposeOpen, setProposeOpen] = useState(false);
   const [proposeSalary, setProposeCtc] = useState('');
-  const [proposeBreakdown, setProposeBreakdown] = useState('');
+  const [proposeBreakdown, setProposeBreakdown] = useState<SalaryBreakdown>(EMPTY_BREAKDOWN);
   const [proposeIsCounter, setProposeIsCounter] = useState(false);
   const [proposeParentId, setProposeParentId] = useState('');
   const [proposeNotes, setProposeNotes] = useState('');
@@ -90,15 +119,7 @@ export default function CandidateDetailPage() {
       return;
     }
 
-    let breakdown: Record<string, number> | null = null;
-    if (proposeBreakdown.trim()) {
-      try {
-        breakdown = JSON.parse(proposeBreakdown.trim());
-      } catch {
-        toast.error('Breakdown must be valid JSON (e.g. {"basic":300000,"hra":120000})');
-        return;
-      }
-    }
+    const breakdown = breakdownToJson(proposeBreakdown);
 
     try {
       await propose.mutateAsync({
@@ -114,7 +135,7 @@ export default function CandidateDetailPage() {
       toast.success('Package proposed');
       setProposeOpen(false);
       setProposeCtc('');
-      setProposeBreakdown('');
+      setProposeBreakdown(EMPTY_BREAKDOWN);
       setProposeIsCounter(false);
       setProposeParentId('');
       setProposeNotes('');
@@ -126,7 +147,7 @@ export default function CandidateDetailPage() {
   // Counter offer dialog
   const [counterPackageId, setCounterPackageId] = useState<string | null>(null);
   const [counterCtc, setCounterCtc] = useState('');
-  const [counterBreakdown, setCounterBreakdown] = useState('');
+  const [counterBreakdown, setCounterBreakdown] = useState<SalaryBreakdown>(EMPTY_BREAKDOWN);
   const [counterNotes, setCounterNotes] = useState('');
 
   const onCounter = async (e: React.FormEvent) => {
@@ -138,15 +159,7 @@ export default function CandidateDetailPage() {
       return;
     }
 
-    let breakdown: Record<string, number> | null = null;
-    if (counterBreakdown.trim()) {
-      try {
-        breakdown = JSON.parse(counterBreakdown.trim());
-      } catch {
-        toast.error('Breakdown must be valid JSON');
-        return;
-      }
-    }
+    const breakdown = breakdownToJson(counterBreakdown);
 
     try {
       await counterPackage.mutateAsync({
@@ -160,7 +173,7 @@ export default function CandidateDetailPage() {
       toast.success('Counter offer submitted');
       setCounterPackageId(null);
       setCounterCtc('');
-      setCounterBreakdown('');
+      setCounterBreakdown(EMPTY_BREAKDOWN);
       setCounterNotes('');
     } catch (err) {
       toast.error((err as Error).message);
@@ -618,15 +631,31 @@ export default function CandidateDetailPage() {
                 min="1"
               />
             </div>
-            <div>
-              <Label htmlFor="proposeBreakdown">Breakdown (JSON, optional)</Label>
-              <Textarea
-                id="proposeBreakdown"
-                value={proposeBreakdown}
-                onChange={(e) => setProposeBreakdown(e.target.value)}
-                rows={3}
-                placeholder={'{"basic":300000,"hra":120000,"da":60000}'}
-              />
+            <div className="space-y-2">
+              <Label>Salary Breakdown (optional)</Label>
+              <p className="text-xs text-muted-foreground">
+                Split the monthly salary into components. Leave a row blank or
+                zero to skip it.
+              </p>
+              <div className="grid grid-cols-2 gap-2">
+                {BREAKDOWN_FIELDS.map(({ key, label }) => (
+                  <div key={key}>
+                    <Label htmlFor={`proposeBreakdown_${key}`} className="text-xs font-normal text-muted-foreground">
+                      {label}
+                    </Label>
+                    <Input
+                      id={`proposeBreakdown_${key}`}
+                      type="number"
+                      min="0"
+                      value={proposeBreakdown[key]}
+                      onChange={(e) =>
+                        setProposeBreakdown((b) => ({ ...b, [key]: e.target.value }))
+                      }
+                      placeholder="0"
+                    />
+                  </div>
+                ))}
+              </div>
             </div>
             <div>
               <Label htmlFor="proposeNotes">Notes</Label>
@@ -697,15 +726,31 @@ export default function CandidateDetailPage() {
                 min="1"
               />
             </div>
-            <div>
-              <Label htmlFor="counterBreakdown">Breakdown (JSON, optional)</Label>
-              <Textarea
-                id="counterBreakdown"
-                value={counterBreakdown}
-                onChange={(e) => setCounterBreakdown(e.target.value)}
-                rows={3}
-                placeholder={'{"basic":280000,"hra":110000}'}
-              />
+            <div className="space-y-2">
+              <Label>Salary Breakdown (optional)</Label>
+              <p className="text-xs text-muted-foreground">
+                Split the counter-offer monthly salary into components. Leave a
+                row blank or zero to skip it.
+              </p>
+              <div className="grid grid-cols-2 gap-2">
+                {BREAKDOWN_FIELDS.map(({ key, label }) => (
+                  <div key={key}>
+                    <Label htmlFor={`counterBreakdown_${key}`} className="text-xs font-normal text-muted-foreground">
+                      {label}
+                    </Label>
+                    <Input
+                      id={`counterBreakdown_${key}`}
+                      type="number"
+                      min="0"
+                      value={counterBreakdown[key]}
+                      onChange={(e) =>
+                        setCounterBreakdown((b) => ({ ...b, [key]: e.target.value }))
+                      }
+                      placeholder="0"
+                    />
+                  </div>
+                ))}
+              </div>
             </div>
             <div>
               <Label htmlFor="counterNotes">Notes</Label>
