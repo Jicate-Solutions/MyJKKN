@@ -79,6 +79,17 @@ export const POLICY_KEYS = {
   // we can detect silent inbound-webhook drops. Director flips after dry-run.
   // Consumed by app/api/cron/whatsapp-byow-synthetic-audit/route.ts.
   WA_BYOW_SYNTHETIC_AUDIT_ENABLED: 'wa_byow.synthetic_audit_enabled',
+
+  // Voice Memo Monitor (2026-05-10) — runtime-tunable thresholds for
+  // /admission/counselors/voice-memos. Director-tweakable via /admin/voice-memo-monitor.
+  VOICE_MEMO_MONITOR_WINDOW_HOURS: 'voice_memo_monitor.window_hours',
+  VOICE_MEMO_MONITOR_STUCK_THRESHOLD_MINUTES: 'voice_memo_monitor.stuck_threshold_minutes',
+  VOICE_MEMO_MONITOR_FAILURE_RATE_RED_PCT: 'voice_memo_monitor.failure_rate_red_pct',
+  VOICE_MEMO_MONITOR_FAILURE_RATE_AMBER_PCT: 'voice_memo_monitor.failure_rate_amber_pct',
+  VOICE_MEMO_MONITOR_RECENT_ROWS_LIMIT: 'voice_memo_monitor.recent_rows_limit',
+  VOICE_MEMO_MONITOR_REFRESH_INTERVAL_SECONDS: 'voice_memo_monitor.refresh_interval_seconds',
+  VOICE_MEMO_MONITOR_COST_ALERT_DAILY_INR: 'voice_memo_monitor.cost_alert_daily_inr',
+  VOICE_MEMO_MONITOR_DIRECTOR_DIGEST_CATEGORIES: 'voice_memo_monitor.director_digest_categories',
 } as const;
 
 export type PolicyKey = typeof POLICY_KEYS[keyof typeof POLICY_KEYS];

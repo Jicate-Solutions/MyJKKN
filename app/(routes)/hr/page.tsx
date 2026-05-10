@@ -41,6 +41,8 @@ import { useHRDashboard, logDashboardAccess } from '@/hooks/hr/use-hr-dashboard'
 import { QuadrantCard, QuadrantCardSkeleton } from '@/features/hr/dashboard/quadrant-card';
 import { InstitutionGrid, InstitutionGridSkeleton } from '@/features/hr/dashboard/institution-grid';
 import { DashboardBanners } from '@/features/hr/dashboard/banners';
+import { RecentActivitiesFeed } from '@/features/hr/dashboard/recent-activities-feed';
+import { EmployeeDistributionDonut } from '@/features/hr/dashboard/employee-distribution-donut';
 import type { DashboardMode } from '@/types/hr-dashboard';
 
 function formatGeneratedAt(iso: string): string {
@@ -245,6 +247,21 @@ export default function HRCommandCenterPage() {
             </div>
           )
         ) : null}
+
+        {/* --- Insights row: distribution donut (T3.5) + activity feed (T3.3) --- */}
+        {/* Renders below the quadrant grid for all roles. Donut + feed are
+            independent of the dashboard payload — they pull their own queries
+            and fail soft if either backend route errors. */}
+        {data && (
+          <div className="grid gap-4 lg:grid-cols-3">
+            <div className="lg:col-span-1">
+              <EmployeeDistributionDonut />
+            </div>
+            <div className="lg:col-span-2">
+              <RecentActivitiesFeed />
+            </div>
+          </div>
+        )}
       </div>
     </ContentLayout>
   );

@@ -13,6 +13,7 @@ import type { AdmissionLead } from '@/types/admission';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useAuth } from '@/hooks/use-auth';
 import { useExpoEvents, useCounselorsList } from '@/hooks/admission';
+import { useActiveLeadSources } from '@/hooks/admission/use-active-lead-sources';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import { useState, useCallback, useRef, useEffect } from 'react';
 import {
@@ -34,20 +35,8 @@ import {
 } from '@/components/ui/select';
 import toast from 'react-hot-toast';
 
-const LEAD_SOURCES = [
-  { value: 'walk_in', label: 'Walk-in' },
-  { value: 'education_fair', label: 'Edu Fair' },
-  { value: 'referral', label: 'Referral' },
-  { value: 'website', label: 'Website' },
-  { value: 'admission_form', label: 'Form' },
-  { value: 'facebook_ads', label: 'Facebook' },
-  { value: 'google_ads', label: 'Google' },
-  { value: 'social_media', label: 'Social' },
-  { value: 'newspaper', label: 'Press' },
-  { value: 'agent', label: 'Agent' },
-  { value: 'publisher', label: 'Publisher' },
-  { value: 'other', label: 'Other' },
-];
+// Source dropdown options now come from useActiveLeadSources() — admin-curated
+// rows in admission_lead_sources_master replace this once-static list.
 
 export function LeadsDataTable() {
   const router = useRouter();
@@ -57,6 +46,9 @@ export function LeadsDataTable() {
     || canAccess('admission', 'leads.delete')
     || canAccess('admission', 'leads.edit');
   const { profile } = useAuth();
+  const { options: leadSources } = useActiveLeadSources({
+    institutionId: profile?.institution_id ?? null,
+  });
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [selectedForDelete, setSelectedForDelete] = useState<AdmissionLead[]>(
     []
@@ -559,8 +551,8 @@ export function LeadsDataTable() {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="_all">All Sources</SelectItem>
-              {LEAD_SOURCES.map((src) => (
-                <SelectItem key={src.value} value={src.value}>
+              {leadSources.map((src) => (
+                <SelectItem key={src.masterId} value={src.value}>
                   {src.label}
                 </SelectItem>
               ))}

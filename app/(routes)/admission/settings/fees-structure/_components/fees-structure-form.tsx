@@ -11,7 +11,7 @@
 // All mutations destructure {error} via the service layer (see
 // fee-structure-service.ts) and surface errors via react-hot-toast.
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
@@ -270,12 +270,23 @@ const newSchema = z
   );
 type NewFormValues = z.infer<typeof newSchema>;
 
-function NewStructureForm({
+/**
+ * Exported so the [id]/clone page can reuse this exact form, pre-filled from
+ * the source structure. The clone flow needs full per-field editability —
+ * passing `initialValues` overrides the defaults below without forcing the
+ * caller to reach into react-hook-form.
+ */
+export function NewStructureForm({
   dims,
   leafCommunityId,
   categories,
   communityOptions,
   onCreated,
+  onCancel,
+  initialValues,
+  heading,
+  description,
+  primaryActionLabel,
 }: {
   dims: FeeStructureMatrixDimensions;
   /** Tree-rail leaf community — pre-fills the multi-select. Null on /new. */
@@ -283,24 +294,50 @@ function NewStructureForm({
   categories: BillingCategory[];
   communityOptions: Community[];
   onCreated: () => void;
+  /**
+   * Optional Cancel handler — when supplied, a Cancel button is rendered to
+   * the LEFT of the submit cluster. Used by the clone page so operators have
+   * an explicit "bail out without creating" path. Without it, users were
+   * mistaking the outline-styled "Save as Draft" button for Cancel and
+   * accidentally creating draft clones on the way out.
+   */
+  onCancel?: () => void;
+  /** Optional prefill — used by the clone flow. */
+  initialValues?: Partial<NewFormValues>;
+  /** Optional heading override (default 'New Fee Structure'). */
+  heading?: string;
+  /** Optional description override. */
+  description?: string;
+  /** Optional override for the activate button label (default 'Save & Activate'). */
+  primaryActionLabel?: string;
 }) {
   const [submitting, setSubmitting] = useState(false);
+  // Synchronous lock to defeat the React-state lag double-click race: two
+  // clicks within a single render frame both see submitting=false in the
+  // closure and queue two FeeStructureService.create() calls, producing
+  // duplicate fee structures with the same dimensions. The ref mutates
+  // immediately so the second invocation's guard sees the lock.
+  const submittingRef = useRef(false);
 
   const form = useForm<NewFormValues>({
     resolver: zodResolver(newSchema),
     defaultValues: {
-      name: '',
-      status: 'draft',
-      notes: '',
-      effective_from: '',
-      effective_to: '',
+      name: initialValues?.name ?? '',
+      // Clone flow defaults to 'draft' so operators can review the prefilled
+      // copy before activating; that's also the safe default for plain /new.
+      status: initialValues?.status ?? 'draft',
+      notes: initialValues?.notes ?? '',
+      effective_from: initialValues?.effective_from ?? '',
+      effective_to: initialValues?.effective_to ?? '',
       // Pre-fill with the tree-leaf community when one is provided, so the
       // structure created here covers the leaf the user just clicked. The
       // user can add more communities before saving — the whole point of
       // this multi-select is letting them declare "BC, MBC, OBC all share
       // these fees" in one create flow.
-      community_category_ids: leafCommunityId ? [leafCommunityId] : [],
-      items: [],
+      community_category_ids:
+        initialValues?.community_category_ids ??
+        (leafCommunityId ? [leafCommunityId] : []),
+      items: initialValues?.items ?? [],
     },
   });
 
@@ -341,7 +378,10 @@ function NewStructureForm({
   };
 
   const onSubmit = async (values: NewFormValues) => {
+    if (submittingRef.current) return;
+    submittingRef.current = true;
     setSubmitting(true);
+    let succeeded = false;
     try {
       await FeeStructureService.create({
         ...dims,
@@ -363,12 +403,20 @@ function NewStructureForm({
           ? 'Fee structure created'
           : `Fee structure created for ${values.community_category_ids.length} communities`,
       );
+      succeeded = true;
       onCreated();
     } catch (err) {
       console.error(err);
       toast.error(err instanceof Error ? err.message : 'Failed to create fee structure');
     } finally {
-      setSubmitting(false);
+      submittingRef.current = false;
+      // On success, keep the buttons disabled — the parent navigates away
+      // and the form unmounts, so re-enabling would just create a brief
+      // window where a frantic user could trigger a duplicate create
+      // before the route change lands.
+      if (!succeeded) {
+        setSubmitting(false);
+      }
     }
   };
 
@@ -378,10 +426,10 @@ function NewStructureForm({
     <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
         <div className="border-b pb-2 mb-2">
-          <h2 className="text-lg font-semibold">New Fee Structure</h2>
+          <h2 className="text-lg font-semibold">{heading ?? 'New Fee Structure'}</h2>
           <p className="text-xs text-muted-foreground">
-            Pick the communities this fee schedule covers — the same fees
-            often apply to multiple communities (BC + MBC + OBC, etc.).
+            {description ??
+              'Pick the communities this fee schedule covers — the same fees often apply to multiple communities (BC + MBC + OBC, etc.).'}
           </p>
         </div>
 
@@ -473,6 +521,16 @@ function NewStructureForm({
             Total: <span className="font-semibold">₹{total.toLocaleString('en-IN')}</span>
           </p>
           <div className="flex gap-2">
+            {onCancel && (
+              <Button
+                type="button"
+                variant="ghost"
+                disabled={submitting}
+                onClick={onCancel}
+              >
+                Cancel
+              </Button>
+            )}
             <Button
               type="button"
               variant="outline"
@@ -494,7 +552,7 @@ function NewStructureForm({
               }}
             >
               {submitting ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : null}
-              Save & Activate
+              {primaryActionLabel ?? 'Save & Activate'}
             </Button>
           </div>
         </div>

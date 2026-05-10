@@ -39,53 +39,47 @@ import {
   useActiveTemplates,
   useTemplateVariables
 } from '@/hooks/admission';
+import { useSourceMappedCounselorIds } from '@/hooks/admission/use-source-mapped-counselor-ids';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
 import { useDegrees } from '@/hooks/organization/use-degrees';
 import { useDepartments } from '@/hooks/organization/use-departments';
 import { usePrograms } from '@/hooks/organization/use-programs';
 import { ConsultantAttributionCard } from './_components/consultant-attribution-card';
-import { SourcesCapturedCard } from './_components/sources-captured-card';
-import { CallHistoryCard } from './_components/call-history-card';
+import { ActivityTab } from './_components/tabs/activity-tab';
+import { CallsTab } from './_components/tabs/calls-tab';
+import { CommunicationTab } from './_components/tabs/communication-tab';
+import { DetailsTab } from './_components/tabs/details-tab';
+import { JourneyTab } from './_components/tabs/journey-tab';
 import { LogCallDialog } from '@/components/admission/log-call-dialog';
 import { ShowStudentQRButton } from '@/components/admission/show-student-qr-button';
 import { QuickActionsBar } from '@/components/admission/quick-actions-bar';
 import { useExpoEvent } from '@/hooks/admission/use-expos';
+import { useActiveLeadSources } from '@/hooks/admission/use-active-lead-sources';
 import { useConsultantsForDropdown, useLeadAttributions } from '@/hooks/admission/use-consultants';
 import { useStudentsForDropdown, useFacultyForDropdown } from '@/hooks/admission/use-referral-dropdowns';
 import { ConsultantService } from '@/lib/services/admission/consultant-service';
 import type { ReferralType } from '@/types/admission';
 import { CounselorDailyViewService } from '@/lib/services/admission/counselor-daily-view-service';
-import type { TimelineEntry } from '@/lib/services/admission/activity-service';
 import {
   ArrowLeft,
   Flame,
   Star,
-  Mail,
   Phone,
-  MapPin,
   Calendar,
   Clock,
   MessageSquare,
   Activity,
   Send,
   User,
-  Target,
-  TrendingUp,
   Tag,
   MoreHorizontal,
   Edit,
   Trash2,
   Loader2,
   ExternalLink,
-  Info,
   UserPlus,
-  Image as ImageIcon,
-  Film,
-  FileText as FileTextIcon,
-  Paperclip,
   X,
-  XCircle,
   MessageCircle,
   ScanLine,
 } from 'lucide-react';
@@ -108,12 +102,6 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from '@/components/ui/tooltip';
 import toast from 'react-hot-toast';
 import { AdmissionErrorBoundary } from '@/components/admission';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
@@ -128,12 +116,14 @@ import { LeadInlineConnectionIndicator } from '@/components/whatsapp/lead-inline
 import { showSendErrorToast } from '@/lib/whatsapp/show-send-error-toast';
 import { usePersonalWhatsAppStatus } from '@/hooks/admission/use-whatsapp-personal';
 import { HandoverBanner } from '@/components/admission/leads/handover-banner';
+import { LeadHeader } from '@/components/admission/leads/lead-header';
+import { LeadScoreCards } from '@/components/admission/leads/lead-score-cards';
 import { useLeadCascadeHistory } from '@/hooks/admission/use-lead-cascade-history';
 // BUG-003016: centralised DD/MM/YYYY formatter — replaces bare
 // toLocaleDateString() calls that were rendering ambiguously depending
 // on the runtime locale. Extended 2026-04-16 to also route the timeline,
 // message, and follow-up dates on the detail page through the helpers.
-import { formatDateDMY, formatDateShort, formatDateTimeDMY } from '@/lib/utils/date-format';
+import { formatDateDMY, formatDateTimeDMY } from '@/lib/utils/date-format';
 
 const FUNNEL_STAGES = [
   { value: 'new', label: 'New' },
@@ -163,20 +153,8 @@ const FUNNEL_STAGES = [
   { value: 'dormant', label: 'Dormant' },
 ];
 
-const LEAD_SOURCES = [
-  { value: 'website', label: 'Website' },
-  { value: 'admission_form', label: 'Admission Form' },
-  { value: 'walk_in', label: 'Walk-in' },
-  { value: 'referral', label: 'Referral' },
-  { value: 'social_media', label: 'Social Media' },
-  { value: 'newspaper', label: 'Newspaper' },
-  { value: 'education_fair', label: 'Education Fair' },
-  { value: 'agent', label: 'Agent/Partner' },
-  { value: 'publisher', label: 'Publisher' },
-  { value: 'google_ads', label: 'Google Ads' },
-  { value: 'facebook_ads', label: 'Facebook Ads' },
-  { value: 'other', label: 'Other' }
-];
+// Source options now come from useActiveLeadSources() — admin-curated rows
+// in admission_lead_sources_master replace this once-static list.
 
 const GENDERS = [
   { value: 'male', label: 'Male' },
@@ -247,152 +225,8 @@ function LeadDetailSkeleton() {
   );
 }
 
-const timelineIcons: Record<string, typeof Activity> = {
-  phone: Phone,
-  mail: Mail,
-  calendar: Calendar,
-  'file-text': Activity,
-  'message-square': MessageSquare,
-  'message-circle': MessageSquare,
-  'git-branch': TrendingUp,
-  'check-circle': Target,
-  activity: Activity
-};
-
-const timelineColors: Record<string, string> = {
-  green: 'bg-green-100 text-green-700',
-  blue: 'bg-blue-100 text-blue-700',
-  purple: 'bg-purple-100 text-purple-700',
-  gray: 'bg-gray-100 text-gray-700',
-  orange: 'bg-orange-100 text-orange-700',
-  indigo: 'bg-indigo-100 text-indigo-700',
-  emerald: 'bg-emerald-100 text-emerald-700'
-};
-
-function TimelineItem({ entry }: { entry: TimelineEntry }) {
-  const IconComponent = timelineIcons[entry.icon || 'activity'] || Activity;
-  const colorClass = timelineColors[entry.color || 'gray'] || timelineColors.gray;
-
-  return (
-    <div className="flex gap-3 pb-4 border-b last:border-0 last:pb-0">
-      <div className="flex-shrink-0">
-        <div className={`h-8 w-8 rounded-full flex items-center justify-center ${colorClass}`}>
-          <IconComponent className="h-4 w-4" />
-        </div>
-      </div>
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2">
-          <p className="text-sm font-medium">{entry.title}</p>
-          <Badge variant="outline" className="text-xs">
-            {entry.type === 'stage_change' ? 'Stage' : 'Activity'}
-          </Badge>
-        </div>
-        {entry.description && (
-          <p className="text-sm text-muted-foreground mt-1">{entry.description}</p>
-        )}
-        <p className="text-xs text-muted-foreground mt-1">
-          {formatDateTimeDMY(entry.timestamp)}
-        </p>
-      </div>
-    </div>
-  );
-}
-
-function CommunicationItem({
-  message
-}: {
-  message: {
-    id: string;
-    content: string;
-    status: string | null;
-    sentAt?: string | null;
-    sent_at?: string | null;
-    createdAt?: string | null;
-    channel?: string | { channel_name: string; channel_type: string } | null;
-    phone?: string | null;
-    direction?: 'inbound' | 'outbound';
-    senderName?: string | null;
-  };
-}) {
-  const channelLabel = typeof message.channel === 'string'
-    ? (message.channel === 'personal_whatsapp' ? 'Personal WhatsApp'
-      : message.channel === 'whatsapp' ? 'WhatsApp'
-      : message.channel.toUpperCase())
-    : message.channel?.channel_name || 'Message';
-  const isWhatsApp = typeof message.channel === 'string'
-    ? (message.channel === 'whatsapp' || message.channel === 'personal_whatsapp')
-    : false;
-  const isPersonalWA = typeof message.channel === 'string' && message.channel === 'personal_whatsapp';
-  const isInbound = message.direction === 'inbound';
-
-  const statusColor: Record<string, string> = {
-    delivered: 'bg-green-50 text-green-700 border-green-200',
-    sent: 'bg-blue-50 text-blue-700 border-blue-200',
-    read: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-    failed: 'bg-red-50 text-red-700 border-red-200',
-    pending: 'bg-yellow-50 text-yellow-700 border-yellow-200',
-  };
-
-  const timeStr = (message.sentAt || message.sent_at)
-    ? formatDateTimeDMY(message.sentAt || message.sent_at)
-    : message.createdAt
-      ? formatDateTimeDMY(message.createdAt)
-      : '-';
-
-  // Chat bubble layout for Personal WhatsApp messages
-  if (isPersonalWA) {
-    return (
-      <div className={`flex ${isInbound ? 'justify-start' : 'justify-end'} mb-2`}>
-        <div className={`max-w-[75%] rounded-lg px-3 py-2 ${
-          isInbound
-            ? 'bg-muted text-foreground rounded-tl-none'
-            : 'bg-[#25D366] text-white rounded-tr-none'
-        }`}>
-          {isInbound && message.senderName && (
-            <p className={`text-xs font-medium mb-0.5 ${isInbound ? 'text-green-700' : 'text-green-100'}`}>
-              {message.senderName}
-            </p>
-          )}
-          <p className="text-sm whitespace-pre-wrap break-words">{message.content}</p>
-          <div className={`flex items-center justify-end gap-1.5 mt-1 ${isInbound ? 'text-muted-foreground' : 'text-green-100'}`}>
-            <span className="text-[10px]">{timeStr}</span>
-            {!isInbound && message.status && (
-              <span className="text-[10px]">
-                {message.status === 'read' ? '✓✓' : message.status === 'delivered' ? '✓✓' : message.status === 'sent' ? '✓' : message.status === 'failed' ? '!' : '⏳'}
-              </span>
-            )}
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // Default flat layout for SMS and Business WhatsApp
-  return (
-    <div className="flex gap-3 pb-4 border-b last:border-0 last:pb-0">
-      <div className="flex-shrink-0">
-        <div className={`h-8 w-8 rounded-full flex items-center justify-center ${isWhatsApp ? 'bg-green-100' : 'bg-blue-100'}`}>
-          <MessageSquare className={`h-4 w-4 ${isWhatsApp ? 'text-green-600' : 'text-blue-600'}`} />
-        </div>
-      </div>
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2">
-          <p className="text-sm font-medium">{channelLabel}</p>
-          {message.phone && (
-            <span className="text-xs text-muted-foreground">{message.phone}</span>
-          )}
-          <Badge variant="outline" className={`text-xs ${statusColor[message.status || 'sent'] || ''}`}>
-            {message.status || 'sent'}
-          </Badge>
-        </div>
-        <p className="text-sm text-muted-foreground mt-1 line-clamp-2">{message.content}</p>
-        <p className="text-xs text-muted-foreground mt-1">{timeStr}</p>
-      </div>
-    </div>
-  );
-}
-
 function LeadDetailPageContent() {
+  const { options: leadSources } = useActiveLeadSources();
   const params = useParams();
   const router = useRouter();
   const leadId = params.id as string;
@@ -979,6 +813,15 @@ function LeadDetailPageContent() {
   const { data: counselorProfiles, isLoading: counselorsLoading } = useCounselorProfiles(null);
   const counselors = counselorProfiles || [];
 
+  // Source-mapped counselor IDs for this lead's source. Used by the
+  // Assign Counselor dialog to group source-appropriate counselors at
+  // the top of the picker so admins can see who's already configured
+  // to receive leads from this source.
+  const { data: sourceMappedIds } = useSourceMappedCounselorIds({
+    sourceEnum: (lead?.source as any) ?? null,
+    institutionId: lead?.institution_id ?? null,
+  });
+
   // Consultants for dropdown (referral leads) — global across all institutions
   const { data: consultantsDropdown = [] } = useConsultantsForDropdown();
   const { data: studentsDropdown = [] } = useStudentsForDropdown(lead?.institution_id || undefined);
@@ -1236,13 +1079,7 @@ function LeadDetailPageContent() {
       <PermissionGuard module="admission" action="leads.view">
         <ContentLayout title="Lead Details">
           <LeadDetailSkeleton />
-          <LogCallDialog
-          open={showLogCallDialog}
-          onOpenChange={setShowLogCallDialog}
-          lead={lead ? { id: lead.id, full_name: lead.full_name, phone: lead.phone, funnel_stage: lead.funnel_stage, institution_id: lead.institution_id } : null}
-          onSendWhatsApp={() => { setShowLogCallDialog(false); setPersonalMsgOpen(true); }}
-        />
-      </ContentLayout>
+        </ContentLayout>
       </PermissionGuard>
     );
   }
@@ -1388,123 +1225,31 @@ function LeadDetailPageContent() {
     <PermissionGuard module="admission" action="leads.view">
       <ContentLayout title="Lead Details">
         <div className="space-y-6">
-          {/* Breadcrumb */}
-          <Breadcrumb>
-            <BreadcrumbList>
-              <BreadcrumbItem>
-                <BreadcrumbLink href="/">Dashboard</BreadcrumbLink>
-              </BreadcrumbItem>
-              <BreadcrumbSeparator />
-              <BreadcrumbItem>
-                <BreadcrumbLink href="/admission/dashboard">Admission</BreadcrumbLink>
-              </BreadcrumbItem>
-              <BreadcrumbSeparator />
-              <BreadcrumbItem>
-                <BreadcrumbLink href="/admission/leads">Leads</BreadcrumbLink>
-              </BreadcrumbItem>
-              <BreadcrumbSeparator />
-              <BreadcrumbItem>
-                <BreadcrumbPage>{lead.full_name || 'Unknown'}</BreadcrumbPage>
-              </BreadcrumbItem>
-            </BreadcrumbList>
-          </Breadcrumb>
+          {/* Compact mobile-first header (PR-A 2026-05-10):
+              Single breadcrumb showing lead's full_name (not UUID), h1 name on its
+              own row, tappable phone/email, and Mark Hot / Mark Priority chips.
+              Replaces 5-stacked-row legacy header. */}
+          <LeadHeader
+            lead={lead}
+            isHot={!!lead.is_hot_lead}
+            onMarkHot={() => toggleHotLead.mutate({ leadId, isHot: !lead.is_hot_lead })}
+            isPriority={!!lead.is_priority}
+            onMarkPriority={() => togglePriority.mutate({ leadId, isPriority: !lead.is_priority })}
+            isReadonlyCascadedView={isReadonlyCascadedView}
+            readonlyReassignedTo={readonlyReassignedTo}
+          />
 
           {/* Phase 6: Handover history banner (spec #13, #14) — renders only when history exists */}
           <HandoverBanner leadId={leadId} />
 
-          {/* Header */}
+          {/* Header — secondary action row (Convert to Admitted, More dropdown).
+              PR-B owns the action-hierarchy redesign of this region. */}
           <div className="flex items-start justify-between">
-            <div className="flex items-center gap-4">
-              <Button variant="outline" size="icon" asChild>
-                <Link href="/admission/leads">
-                  <ArrowLeft className="h-4 w-4" />
-                </Link>
-              </Button>
-              <div>
-                <div className="flex items-center gap-3">
-                  <h1 className="text-2xl font-bold">{lead.full_name || 'Unknown'}</h1>
-                  <div className="flex gap-1 flex-wrap">
-                    {lead.is_hot_lead && (
-                      <Badge variant="outline" className="bg-orange-50 text-orange-700 border-orange-200">
-                        <Flame className="h-3 w-3 mr-1" />
-                        Hot
-                      </Badge>
-                    )}
-                    {lead.is_priority && !lead.is_hot_lead && (
-                      <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-200">
-                        <Star className="h-3 w-3 mr-1 fill-current" />
-                        Priority
-                      </Badge>
-                    )}
-                    {/* Came-via-Gate badge (2026-05-07). Visible when this lead
-                     *  was captured at the institution gate. Tooltip would
-                     *  show timestamp if shadcn Tooltip were imported here —
-                     *  for now, the timestamp is in the title attribute. */}
-                    {lead.first_gate_entry_at && (
-                      <Badge
-                        variant="outline"
-                        className="bg-emerald-50 text-emerald-700 border-emerald-200"
-                        title={`First gate entry: ${new Date(lead.first_gate_entry_at).toLocaleString('en-IN')}${
-                          (lead.gate_entry_count ?? 0) > 1
-                            ? ` · Visits: ${lead.gate_entry_count}`
-                            : ''
-                        }`}
-                      >
-                        <ScanLine className="h-3 w-3 mr-1" />
-                        Came via Gate
-                        {(lead.gate_entry_count ?? 0) > 1 && (
-                          <span className="ml-1 text-[10px] font-normal">
-                            ×{lead.gate_entry_count}
-                          </span>
-                        )}
-                      </Badge>
-                    )}
-                    {/* Phase 6 spec #14: readonly badge when this user is the FROM-counselor */}
-                    {isReadonlyCascadedView && (
-                      <Badge variant="outline" className="bg-slate-100 text-slate-700 border-slate-300">
-                        Reassigned to {readonlyReassignedTo} — read-only
-                      </Badge>
-                    )}
-                  </div>
-                </div>
-                <div className="flex items-center gap-4 mt-1 text-sm text-muted-foreground">
-                  {lead.email && (
-                    <span className="flex items-center gap-1">
-                      <Mail className="h-3 w-3" />
-                      {lead.email}
-                    </span>
-                  )}
-                  {lead.phone && (
-                    <span className="flex items-center gap-1">
-                      <Phone className="h-3 w-3" />
-                      {lead.phone}
-                    </span>
-                  )}
-                  <LeadInlineConnectionIndicator departmentId={lead.department_id} />
-                </div>
-              </div>
-            </div>
-
+            <div />
             {/* Phase 6 spec #14: disable all write-actions for the cascaded-away FROM-counselor.
                 pointer-events-none + opacity-50 communicate read-only visually.
                 No data-level enforcement here — that lives in RLS. */}
             <div className={`flex items-center gap-2 ${isReadonlyCascadedView ? 'pointer-events-none opacity-50' : ''}`}>
-              <Button
-                variant={lead.is_hot_lead ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => toggleHotLead.mutate({ leadId, isHot: !lead.is_hot_lead })}
-              >
-                <Flame className="h-4 w-4 mr-1" />
-                {lead.is_hot_lead ? 'Hot' : 'Mark Hot'}
-              </Button>
-              <Button
-                variant={lead.is_priority ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => togglePriority.mutate({ leadId, isPriority: !lead.is_priority })}
-              >
-                <Star className="h-4 w-4 mr-1" />
-                {lead.is_priority ? 'Priority' : 'Mark Priority'}
-              </Button>
               {/* Convert to Admitted — shows "View Learner Profile" once converted */}
               {lead.learner_profile_id ? (
                 <>
@@ -1567,6 +1312,25 @@ function LeadDetailPageContent() {
             </div>
           </div>
 
+          {/* Quick Actions Bar — Call, Log Call, WhatsApp, SMS, Note, Follow-up.
+              Renders post-loading so Log Call is reachable on lead detail. */}
+          <div className={isReadonlyCascadedView ? 'pointer-events-none opacity-50' : ''}>
+            <QuickActionsBar
+              lead={{
+                phone: lead.phone || '',
+                alternate_phone: lead.alternate_phone,
+                parent_phone: lead.parent_phone,
+                parent_name: lead.parent_name,
+                email: lead.email,
+              }}
+              onLogCall={() => setShowLogCallDialog(true)}
+              onWhatsApp={() => setPersonalMsgOpen(true)}
+              onSMS={() => {/* TODO: wire to SMS dialog when added */}}
+              onNote={() => setShowActivityDialog(true)}
+              onFollowUp={() => setShowFollowupDialog(true)}
+            />
+          </div>
+
           {/* Stage Selector — disabled for cascaded-away FROM-counselor */}
           <Card className={isReadonlyCascadedView ? 'pointer-events-none opacity-60' : ''}>
             <CardContent className="py-4">
@@ -1611,136 +1375,11 @@ function LeadDetailPageContent() {
             {/* Left Column - Details & Tabs */}
             <div className="lg:col-span-2 space-y-6">
               {/* Score Cards */}
-              <TooltipProvider delayDuration={200}>
-              <div className="grid grid-cols-4 gap-4">
-                {/* Overall Score */}
-                <Card>
-                  <CardContent className="py-4">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <div className="flex items-center gap-1">
-                          <p className="text-xs text-muted-foreground">Score</p>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Info className="h-3 w-3 text-muted-foreground cursor-help" />
-                            </TooltipTrigger>
-                            <TooltipContent side="bottom" className="max-w-[260px] text-xs space-y-1.5 p-3">
-                              <p className="font-semibold">Overall Lead Score</p>
-                              <p>Weighted average of Engagement and Quality:</p>
-                              <p className="font-mono text-[11px]">Score = (Engagement × 50%) + (Quality × 50%)</p>
-                              <div className="border-t pt-1.5 mt-1.5 space-y-0.5">
-                                <p>Engagement: <span className="font-medium">{computedScores.engagement}</span> pts</p>
-                                <p>Quality: <span className="font-medium">{computedScores.quality}</span> pts</p>
-                              </div>
-                            </TooltipContent>
-                          </Tooltip>
-                        </div>
-                        <p className="text-2xl font-bold">{computedScores.score}</p>
-                      </div>
-                      <Target className="h-8 w-8 text-primary opacity-50" />
-                    </div>
-                  </CardContent>
-                </Card>
-
-                {/* Category */}
-                <Card>
-                  <CardContent className="py-4">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <div className="flex items-center gap-1">
-                          <p className="text-xs text-muted-foreground">Category</p>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Info className="h-3 w-3 text-muted-foreground cursor-help" />
-                            </TooltipTrigger>
-                            <TooltipContent side="bottom" className="max-w-[220px] text-xs space-y-1 p-3">
-                              <p className="font-semibold">Score Category Thresholds</p>
-                              <p className={`${computedScores.category === 'hot' ? 'font-bold' : 'opacity-70'} text-red-300`}>Hot: 75 – 100</p>
-                              <p className={`${computedScores.category === 'warm' ? 'font-bold' : 'opacity-70'} text-orange-300`}>Warm: 50 – 74</p>
-                              <p className={`${computedScores.category === 'cool' ? 'font-bold' : 'opacity-70'} text-cyan-300`}>Cool: 25 – 49</p>
-                              <p className={`${computedScores.category === 'cold' ? 'font-bold' : 'opacity-70'} text-blue-300`}>Cold: 0 – 24</p>
-                              <p className="border-t pt-1 mt-1">Current score: <span className="font-medium">{computedScores.score}</span></p>
-                            </TooltipContent>
-                          </Tooltip>
-                        </div>
-                        <p className={`text-2xl font-bold capitalize ${
-                          computedScores.category === 'hot' ? 'text-red-600' :
-                          computedScores.category === 'warm' ? 'text-orange-600' :
-                          computedScores.category === 'cool' ? 'text-cyan-600' :
-                          computedScores.category === 'cold' ? 'text-blue-600' : 'text-muted-foreground'
-                        }`}>
-                          {computedScores.category}
-                        </p>
-                      </div>
-                      <Flame className="h-8 w-8 text-orange-500 opacity-50" />
-                    </div>
-                  </CardContent>
-                </Card>
-
-                {/* Engagement */}
-                <Card>
-                  <CardContent className="py-4">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <div className="flex items-center gap-1">
-                          <p className="text-xs text-muted-foreground">Engagement</p>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Info className="h-3 w-3 text-muted-foreground cursor-help" />
-                            </TooltipTrigger>
-                            <TooltipContent side="bottom" className="max-w-[260px] text-xs space-y-1.5 p-3">
-                              <p className="font-semibold">Engagement Score</p>
-                              <p>Based on activity interactions with this lead:</p>
-                              {Object.keys(computedScores.engagementBreakdown).length > 0 ? (
-                                <div className="border-t pt-1.5 mt-1.5 space-y-0.5">
-                                  {Object.entries(computedScores.engagementBreakdown).map(([label, data]) => (
-                                    <p key={label}>{label}: {data.count}× = <span className="font-medium">{data.points} pts</span></p>
-                                  ))}
-                                </div>
-                              ) : (
-                                <p className="text-muted-foreground italic border-t pt-1.5 mt-1.5">No activities recorded yet</p>
-                              )}
-                            </TooltipContent>
-                          </Tooltip>
-                        </div>
-                        <p className="text-2xl font-bold">{computedScores.engagement}</p>
-                      </div>
-                      <TrendingUp className="h-8 w-8 text-blue-500 opacity-50" />
-                    </div>
-                  </CardContent>
-                </Card>
-
-                {/* Quality */}
-                <Card>
-                  <CardContent className="py-4">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <div className="flex items-center gap-1">
-                          <p className="text-xs text-muted-foreground">Quality</p>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Info className="h-3 w-3 text-muted-foreground cursor-help" />
-                            </TooltipTrigger>
-                            <TooltipContent side="bottom" className="max-w-[240px] text-xs space-y-1.5 p-3">
-                              <p className="font-semibold">Profile Quality ({computedScores.qualityFilledCount}/{computedScores.qualityTotalFields} fields)</p>
-                              <div className="border-t pt-1.5 mt-1.5 grid grid-cols-2 gap-x-3 gap-y-0.5">
-                                {Object.entries(computedScores.qualityBreakdown).map(([field, filled]) => (
-                                  <p key={field} className={filled ? 'text-green-300' : 'text-red-300/70'}>
-                                    {filled ? '✓' : '✗'} {field}
-                                  </p>
-                                ))}
-                              </div>
-                            </TooltipContent>
-                          </Tooltip>
-                        </div>
-                        <p className="text-2xl font-bold">{computedScores.quality}</p>
-                      </div>
-                      <Star className="h-8 w-8 text-yellow-500 opacity-50" />
-                    </div>
-                  </CardContent>
-                </Card>
-              </div>
-              </TooltipProvider>
+              <LeadScoreCards
+                scores={computedScores}
+                hasActivities={(timeline?.filter((t: any) => t.type === 'activity').length ?? 0) > 0 || (communicationHistory?.length ?? 0) > 0}
+                hasProfile={!!(lead?.full_name && lead?.phone)}
+              />
 
               {/* Tabs */}
               <Tabs defaultValue="activity" className="w-full">
@@ -1749,555 +1388,64 @@ function LeadDetailPageContent() {
                   <TabsTrigger value="calls">Calls</TabsTrigger>
                   <TabsTrigger value="communication">Communication</TabsTrigger>
                   <TabsTrigger value="details">Details</TabsTrigger>
+                  <TabsTrigger value="journey">Journey</TabsTrigger>
                 </TabsList>
 
                 <TabsContent value="activity" className="mt-4">
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="text-base">Activity Timeline</CardTitle>
-                      <CardDescription>Recent activities for this lead</CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                      {timelineLoading ? (
-                        <div className="space-y-4">
-                          {[1, 2, 3].map((i) => (
-                            <Skeleton key={i} className="h-16 w-full" />
-                          ))}
-                        </div>
-                      ) : timeline.length === 0 ? (
-                        <div className="text-center py-8 text-muted-foreground">
-                          <Activity className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                          <p>No activity recorded yet</p>
-                        </div>
-                      ) : (
-                        <div className="space-y-4">
-                          {timeline.map((entry) => (
-                            <TimelineItem key={entry.id} entry={entry} />
-                          ))}
-                        </div>
-                      )}
-                    </CardContent>
-                  </Card>
+                  <ActivityTab timeline={timeline} timelineLoading={timelineLoading} />
                 </TabsContent>
 
                 <TabsContent value="calls" className="mt-4">
-                  <CallHistoryCard
+                  <CallsTab
                     leadId={lead.id}
                     institutionId={lead.institution_id || userInstitutionId || ''}
                   />
                 </TabsContent>
 
                 <TabsContent value="communication" className="mt-4">
-                  <Card className="flex flex-col" style={{ height: 'calc(100vh - 320px)', minHeight: '500px' }}>
-                    {/* Chat Header */}
-                    <CardHeader className="shrink-0 pb-3 border-b">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                          <div className="h-9 w-9 rounded-full bg-[#25D366] flex items-center justify-center">
-                            <MessageCircle className="h-4.5 w-4.5 text-white" />
-                          </div>
-                          <div>
-                            <CardTitle className="text-base">{lead?.full_name || 'Chat'}</CardTitle>
-                            <CardDescription className="text-xs">{lead?.phone || ''}</CardDescription>
-                          </div>
-                        </div>
-                        {waStatus?.connected && (
-                          <Badge className="bg-[#25D366] text-white text-xs">Connected</Badge>
-                        )}
-                      </div>
-                    </CardHeader>
-
-                    {/* Chat Messages Area */}
-                    <CardContent className="flex-1 overflow-y-auto p-4" style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg width=\'60\' height=\'60\' viewBox=\'0 0 60 60\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cg fill=\'none\' fill-rule=\'evenodd\'%3E%3Cg fill=\'%239C92AC\' fill-opacity=\'0.03\'%3E%3Cpath d=\'M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z\'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")' }}>
-                      {commLoading ? (
-                        <div className="space-y-4">
-                          {[1, 2, 3].map((i) => (
-                            <Skeleton key={i} className="h-12 w-3/4" />
-                          ))}
-                        </div>
-                      ) : communicationHistory.length === 0 ? (
-                        <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
-                          <MessageSquare className="h-12 w-12 mb-3 opacity-30" />
-                          <p className="font-medium">No messages yet</p>
-                          <p className="text-sm mt-1">Start a conversation below</p>
-                        </div>
-                      ) : (
-                        <div className="space-y-1">
-                          {[...communicationHistory].reverse().map((message) => (
-                            <CommunicationItem key={message.id} message={message as any} />
-                          ))}
-                        </div>
-                      )}
-                    </CardContent>
-
-                    {/* Attachment Preview */}
-                    {templateAttachment && (
-                      <div className="shrink-0 px-4 py-2 border-t bg-muted/30">
-                        <div className="flex items-center gap-2">
-                          {templateAttachment.type === 'image' ? (
-                            <img src={templateAttachment.url} alt="Attachment" className="h-12 w-12 rounded object-cover" />
-                          ) : (
-                            <div className="h-12 w-12 rounded bg-muted flex items-center justify-center">
-                              {templateAttachment.type === 'video' ? <Film className="h-5 w-5 text-purple-500" /> : <FileTextIcon className="h-5 w-5 text-orange-500" />}
-                            </div>
-                          )}
-                          <div className="flex-1 min-w-0">
-                            <p className="text-xs font-medium capitalize">{templateAttachment.type} attached</p>
-                            <p className="text-xs text-muted-foreground truncate">{templateAttachment.url.split('/').pop()}</p>
-                          </div>
-                          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setTemplateAttachment(null)}>
-                            <XCircle className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Chat Input Bar — defaults to Personal WhatsApp */}
-                    <div className="shrink-0 border-t p-3">
-                      {/* Template selector row (only if templates available) */}
-                      {channelTemplates.length > 0 && (
-                        <div className="flex items-center gap-2 mb-2">
-                          <Select
-                            value={selectedTemplateId}
-                            onValueChange={(id) => {
-                              setSelectedTemplateId(id);
-                              setSendChannel('personal_whatsapp');
-                              const tmpl = channelTemplates.find((t) => t.id === id);
-                              if (tmpl) {
-                                setSendMessage(
-                                  replaceVariables(tmpl.content, {
-                                    first_name: lead?.full_name?.split(' ')[0] || '',
-                                    last_name: lead?.full_name?.split(' ').slice(1).join(' ') || '',
-                                    full_name: lead?.full_name || '',
-                                    phone: lead?.phone || '',
-                                    email: lead?.email || '',
-                                    program: lead?.program?.program_name || '',
-                                  })
-                                );
-                                setTemplateAttachment(
-                                  tmpl.attachment_type && tmpl.attachment_url
-                                    ? { type: tmpl.attachment_type, url: tmpl.attachment_url }
-                                    : null
-                                );
-                              }
-                            }}
-                          >
-                            <SelectTrigger className="h-8 text-xs w-auto max-w-[200px]">
-                              <Paperclip className="h-3 w-3 mr-1.5" />
-                              <SelectValue placeholder="Use template..." />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {channelTemplates.map((t) => (
-                                <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-                      )}
-
-                      {/* Message input + send */}
-                      <div className="flex items-end gap-2">
-                        <Textarea
-                          value={sendMessage}
-                          onChange={(e) => setSendMessage(e.target.value)}
-                          placeholder="Type a message..."
-                          rows={1}
-                          className="min-h-[40px] max-h-[120px] resize-none text-sm"
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter' && !e.shiftKey) {
-                              e.preventDefault();
-                              if (sendMessage.trim() && !isSending) handleSendPersonalWA();
-                            }
-                          }}
-                        />
-                        <Button
-                          size="icon"
-                          className="shrink-0 h-10 w-10 bg-[#25D366] hover:bg-[#1da851] text-white rounded-full"
-                          onClick={handleSendPersonalWA}
-                          disabled={isSending || !sendMessage.trim()}
-                        >
-                          {isSending ? (
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                          ) : (
-                            <Send className="h-4 w-4" />
-                          )}
-                        </Button>
-                      </div>
-                    </div>
-                  </Card>
+                  <CommunicationTab
+                    leadFullName={lead?.full_name}
+                    leadPhone={lead?.phone}
+                    leadEmail={lead?.email}
+                    leadFirstNamePart={lead?.full_name?.split(' ')[0] || ''}
+                    leadLastNamePart={lead?.full_name?.split(' ').slice(1).join(' ') || ''}
+                    leadProgramName={lead?.program?.program_name || ''}
+                    waConnected={!!waStatus?.connected}
+                    commLoading={commLoading}
+                    communicationHistory={communicationHistory}
+                    templateAttachment={templateAttachment}
+                    setTemplateAttachment={setTemplateAttachment}
+                    channelTemplates={channelTemplates}
+                    selectedTemplateId={selectedTemplateId}
+                    setSelectedTemplateId={setSelectedTemplateId}
+                    setSendChannel={setSendChannel}
+                    setSendMessage={setSendMessage}
+                    sendMessage={sendMessage}
+                    isSending={isSending}
+                    handleSendPersonalWA={handleSendPersonalWA}
+                    replaceVariables={replaceVariables}
+                  />
                 </TabsContent>
 
                 <TabsContent value="details" className="mt-4 space-y-4">
-                  {/* Personal Information */}
-                  <Card>
-                    <CardHeader className="pb-3">
-                      <div className="flex items-center justify-between">
-                        <CardTitle className="text-base">Personal Information</CardTitle>
-                        <Button variant="outline" size="sm" onClick={openEditDialog}>
-                          <Edit className="h-3.5 w-3.5 mr-1.5" />
-                          Edit
-                        </Button>
-                      </div>
-                    </CardHeader>
-                    <CardContent>
-                      <dl className="grid grid-cols-2 gap-4">
-                        <div>
-                          <dt className="text-sm text-muted-foreground">Full Name</dt>
-                          <dd className="font-medium">{lead.full_name || '-'}</dd>
-                        </div>
-                        <div>
-                          <dt className="text-sm text-muted-foreground">Email</dt>
-                          <dd className="font-medium">{lead.email || '-'}</dd>
-                        </div>
-                        <div>
-                          <dt className="text-sm text-muted-foreground">Phone</dt>
-                          <dd className="font-medium">{lead.phone || '-'}</dd>
-                        </div>
-                        <div>
-                          <dt className="text-sm text-muted-foreground">Alternate Phone</dt>
-                          <dd className="font-medium">{lead.alternate_phone || '-'}</dd>
-                        </div>
-                        <div>
-                          <dt className="text-sm text-muted-foreground">Date of Birth</dt>
-                          <dd className="font-medium">
-                            {formatDateDMY(lead.date_of_birth)}
-                          </dd>
-                        </div>
-                        <div>
-                          <dt className="text-sm text-muted-foreground">Gender</dt>
-                          <dd className="font-medium capitalize">{lead.gender || '-'}</dd>
-                        </div>
-                      </dl>
-                    </CardContent>
-                  </Card>
+                  <DetailsTab
+                    lead={lead}
+                    institutionName={institutionName}
+                    primaryProgramName={primaryProgramName}
+                    alternativeProgramNames={alternativeProgramNames}
+                    programsLoading={programsLoading}
+                    gateEntryByName={gateEntryByName}
+                    leadAttributions={leadAttributions}
+                    openEditDialog={openEditDialog}
+                    setShowAssignCounselorDialog={setShowAssignCounselorDialog}
+                  />
+                </TabsContent>
 
-                  {/* Sources Captured — full multi-source touch timeline */}
-                  <SourcesCapturedCard leadId={lead.id} />
-
-                  {/* Academic Details */}
-                  <Card>
-                    <CardHeader className="pb-3">
-                      <CardTitle className="text-base">Academic Details</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <dl className="grid grid-cols-2 gap-4">
-                        <div>
-                          <dt className="text-sm text-muted-foreground">Institution</dt>
-                          <dd className="font-medium">{institutionName || '-'}</dd>
-                        </div>
-                        <div>
-                          <dt className="text-sm text-muted-foreground">Entry Date</dt>
-                          <dd className="font-medium">
-                            {formatDateDMY(lead.entry_date ?? lead.created_at)}
-                          </dd>
-                        </div>
-                        <div>
-                          <dt className="text-sm text-muted-foreground">Admission Year</dt>
-                          <dd className="font-medium">
-                            {lead.admission_year?.admission_year_name
-                              ? `${lead.admission_year.admission_year_name} (${lead.admission_year.program_start_year}–${lead.admission_year.program_end_year})`
-                              : lead.academic_year /* legacy fallback for historical rows */
-                                || '-'}
-                          </dd>
-                        </div>
-                       
-                        <div>
-                          <dt className="text-sm text-muted-foreground">Student Interest Level</dt>
-                          <dd className="font-medium capitalize">{(lead.student_interest_level || '-').replace(/_/g, ' ')}</dd>
-                        </div>
-                        <div>
-                          <dt className="text-sm text-muted-foreground">Parent Decision Status</dt>
-                          <dd className="font-medium capitalize">{(lead.parent_decision_status || '-').replace(/_/g, ' ')}</dd>
-                        </div>
-                        <div>
-                          <dt className="text-sm text-muted-foreground">Interested Program</dt>
-                          <dd className="font-medium">
-                            {programsLoading ? (
-                              <span className="text-muted-foreground text-sm">Loading...</span>
-                            ) : primaryProgramName ? (
-                              <Badge variant="default">{primaryProgramName}</Badge>
-                            ) : '-'}
-                          </dd>
-                        </div>
-                        <div className="col-span-2">
-                          <dt className="text-sm text-muted-foreground">Alternative Programs</dt>
-                          <dd className="font-medium">
-                            {programsLoading ? (
-                              <span className="text-muted-foreground text-sm">Loading...</span>
-                            ) : alternativeProgramNames.length > 0 ? (
-                              <div className="flex flex-wrap gap-1.5 mt-1">
-                                {alternativeProgramNames.map((name: string, i: number) => (
-                                  <Badge key={i} variant="secondary">{name}</Badge>
-                                ))}
-                              </div>
-                            ) : '-'}
-                          </dd>
-                        </div>
-                      </dl>
-                    </CardContent>
-                  </Card>
-
-                  {/* Address */}
-                  <Card>
-                    <CardHeader className="pb-3">
-                      <CardTitle className="text-base">Address</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <dl className="grid grid-cols-2 gap-4">
-                        <div className="col-span-2">
-                          <dt className="text-sm text-muted-foreground">Address Line</dt>
-                          <dd className="font-medium">{lead.address_line1 || '-'}</dd>
-                        </div>
-                        <div>
-                          <dt className="text-sm text-muted-foreground">State</dt>
-                          <dd className="font-medium">{lead.state || '-'}</dd>
-                        </div>
-                        <div>
-                          <dt className="text-sm text-muted-foreground">District</dt>
-                          <dd className="font-medium">{lead.district || '-'}</dd>
-                        </div>
-                        <div>
-                          <dt className="text-sm text-muted-foreground">City / Town</dt>
-                          <dd className="font-medium">{lead.city || '-'}</dd>
-                        </div>
-                        <div>
-                          <dt className="text-sm text-muted-foreground">Pincode</dt>
-                          <dd className="font-medium">{lead.pincode || '-'}</dd>
-                        </div>
-                      </dl>
-                    </CardContent>
-                  </Card>
-
-                  {/* Parent / Guardian */}
-                  <Card>
-                    <CardHeader className="pb-3">
-                      <CardTitle className="text-base">Parent / Guardian</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <dl className="grid grid-cols-2 gap-4">
-                        <div>
-                          <dt className="text-sm text-muted-foreground">Parent Name</dt>
-                          <dd className="font-medium">{lead.parent_name || '-'}</dd>
-                        </div>
-                        <div>
-                          <dt className="text-sm text-muted-foreground">Parent Phone</dt>
-                          <dd className="font-medium">{lead.parent_phone || '-'}</dd>
-                        </div>
-                        <div>
-                          <dt className="text-sm text-muted-foreground">Parent Email</dt>
-                          <dd className="font-medium">{lead.parent_email || '-'}</dd>
-                        </div>
-                      </dl>
-                    </CardContent>
-                  </Card>
-
-                  {/* Source & Timestamps */}
-                  <Card>
-                    <CardHeader className="pb-3">
-                      <CardTitle className="text-base">Source & Timeline</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <dl className="grid grid-cols-2 gap-4">
-                        <div>
-                          <dt className="text-sm text-muted-foreground">Lead Source</dt>
-                          <dd className="font-medium capitalize">
-                            {/* Display the lead's underlying channel category
-                             *  verbatim — gate-entry leads stay 'walk_in' here
-                             *  by design (per operator request 2026-05-07);
-                             *  gate-specific context lives in the dedicated
-                             *  Gate Entry block below. */}
-                            {(lead.source || '-').replace(/_/g, ' ')}
-                          </dd>
-                        </div>
-                        {/* Referral details render whenever the lead carries a
-                         *  referral_type — independent of lead.source. The
-                         *  prior gate `lead.source === 'referral'` silently
-                         *  hid these for gate-entry leads (whose source stays
-                         *  'walk_in' even when the visitor was referred). */}
-                        {lead.referral_type && (
-                          <>
-                            <div>
-                              <dt className="text-sm text-muted-foreground">Referral Type</dt>
-                              <dd className="font-medium capitalize">{lead.referral_type}</dd>
-                            </div>
-                            {lead.referred_by_name && (
-                              <div>
-                                <dt className="text-sm text-muted-foreground">Referred By</dt>
-                                <dd className="font-medium">{lead.referred_by_name}</dd>
-                              </div>
-                            )}
-                          </>
-                        )}
-                        {/* Gate Entry metadata block — visible only when this
-                         *  lead was first captured at the institution gate.
-                         *  Shows when, who entered them, and the visit count. */}
-                        {lead.first_gate_entry_at && (
-                          <>
-                            <div>
-                              <dt className="text-sm text-muted-foreground">Gate Entry Time</dt>
-                              <dd className="font-medium">
-                                {formatDateTimeDMY(lead.first_gate_entry_at)}
-                              </dd>
-                            </div>
-                            <div>
-                              <dt className="text-sm text-muted-foreground">Logged By</dt>
-                              <dd className="font-medium">
-                                {gateEntryByName ?? '—'}
-                              </dd>
-                            </div>
-                            {(lead.gate_entry_count ?? 0) > 0 && (
-                              <div>
-                                <dt className="text-sm text-muted-foreground">Total Visits</dt>
-                                <dd className="font-medium tabular-nums">
-                                  {lead.gate_entry_count}
-                                </dd>
-                              </div>
-                            )}
-                          </>
-                        )}
-                        <div>
-                          <dt className="text-sm text-muted-foreground">Preferred Channel</dt>
-                          <dd className="font-medium capitalize">{(lead.preferred_channel || '-').replace(/_/g, ' ')}</dd>
-                        </div>
-                        <div>
-                          <dt className="text-sm text-muted-foreground">Created</dt>
-                          <dd className="font-medium">
-                            {formatDateTimeDMY(lead.created_at)}
-                          </dd>
-                        </div>
-                        <div>
-                          <dt className="text-sm text-muted-foreground">Last Activity</dt>
-                          <dd className="font-medium">
-                            {formatDateTimeDMY(lead.last_contact_at)}
-                          </dd>
-                        </div>
-                      </dl>
-                    </CardContent>
-                  </Card>
-
-                  {/* Assignment Details — source-based: referral → consultant, others → counselor */}
-                  <Card>
-                    <CardHeader className="pb-3">
-                      <CardTitle className="text-base flex items-center gap-2">
-                        <User className="h-4 w-4" />
-                        {lead.source === 'referral' ? 'Consultant Details' : 'Assigned Counselor'}
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      {lead.source === 'referral' ? (
-                        /* Consultant section for referral leads */
-                        leadAttributions.length > 0 ? (
-                          <div className="space-y-2">
-                            {leadAttributions.map((attr: any) => (
-                              <div key={attr.id} className="rounded-md border p-3">
-                                <div className="flex items-center justify-between">
-                                  <p className="font-medium">{attr.consultant?.name || 'Unknown'}</p>
-                                  <div className="flex items-center gap-1.5">
-                                    <Badge variant="outline" className="text-xs capitalize">
-                                      {attr.attribution_type}
-                                    </Badge>
-                                    {attr.is_verified ? (
-                                      <Badge className="text-xs bg-green-100 text-green-800">Verified</Badge>
-                                    ) : (
-                                      <Badge className="text-xs bg-yellow-100 text-yellow-800">Pending</Badge>
-                                    )}
-                                  </div>
-                                </div>
-                                {(attr.consultant?.email || attr.consultant?.phone || attr.attribution_percentage != null) && (
-                                  <dl className="grid grid-cols-2 gap-2 text-sm mt-2">
-                                    {attr.consultant?.email && (
-                                      <div>
-                                        <dt className="text-muted-foreground">Email</dt>
-                                        <dd>{attr.consultant.email}</dd>
-                                      </div>
-                                    )}
-                                    {attr.consultant?.phone && (
-                                      <div>
-                                        <dt className="text-muted-foreground">Phone</dt>
-                                        <dd>{attr.consultant.phone}</dd>
-                                      </div>
-                                    )}
-                                    {attr.attribution_percentage != null && (
-                                      <div>
-                                        <dt className="text-muted-foreground">Commission</dt>
-                                        <dd>{attr.attribution_percentage}%</dd>
-                                      </div>
-                                    )}
-                                  </dl>
-                                )}
-                              </div>
-                            ))}
-                          </div>
-                        ) : (
-                          <div className="rounded-md border border-dashed p-3 text-center">
-                            <p className="text-sm text-muted-foreground">No consultant linked</p>
-                          </div>
-                        )
-                      ) : (
-                        /* Counselor section for non-referral leads */
-                        lead.counselor_id && lead.counselor ? (
-                          <div className="rounded-md border p-3 space-y-2">
-                            <div className="flex items-center justify-between">
-                              <p className="font-medium">{lead.counselor.name}</p>
-                              <Badge variant="outline" className="text-xs bg-green-50 text-green-700 border-green-200">
-                                Active
-                              </Badge>
-                            </div>
-                            <dl className="grid grid-cols-2 gap-2 text-sm">
-                              {lead.counselor.email && (
-                                <div>
-                                  <dt className="text-muted-foreground">Email</dt>
-                                  <dd>{lead.counselor.email}</dd>
-                                </div>
-                              )}
-                              {lead.counselor.phone && (
-                                <div>
-                                  <dt className="text-muted-foreground">Phone</dt>
-                                  <dd>{lead.counselor.phone}</dd>
-                                </div>
-                              )}
-                              {lead.counselor.designation && (
-                                <div>
-                                  <dt className="text-muted-foreground">Designation</dt>
-                                  <dd className="capitalize">{lead.counselor.designation}</dd>
-                                </div>
-                              )}
-                              {lead.assigned_at && (
-                                <div>
-                                  <dt className="text-muted-foreground">Assigned On</dt>
-                                  <dd>{formatDateShort(lead.assigned_at)}</dd>
-                                </div>
-                              )}
-                            </dl>
-                          </div>
-                        ) : (
-                          <div className="rounded-md border border-dashed p-3 text-center">
-                            <p className="text-sm text-muted-foreground">No counselor assigned</p>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="mt-2"
-                              onClick={() => setShowAssignCounselorDialog(true)}
-                            >
-                              Assign Counselor
-                            </Button>
-                          </div>
-                        )
-                      )}
-                    </CardContent>
-                  </Card>
-
-                  {/* Notes */}
-                  {lead.notes && (
-                    <Card>
-                      <CardHeader className="pb-3">
-                        <CardTitle className="text-base">Notes</CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <p className="text-sm whitespace-pre-wrap">{lead.notes}</p>
-                      </CardContent>
-                    </Card>
-                  )}
+                <TabsContent value="journey" className="mt-4">
+                  <JourneyTab
+                    leadId={lead.id}
+                    institutionId={lead.institution_id || userInstitutionId || ''}
+                  />
                 </TabsContent>
               </Tabs>
             </div>
@@ -2606,15 +1754,56 @@ function LeadDetailPageContent() {
                                   <SelectItem value="_loading" disabled>Loading counselors...</SelectItem>
                                 ) : counselors.length === 0 ? (
                                   <SelectItem value="_none" disabled>No counselors found</SelectItem>
-                                ) : (
-                                  counselors.map((c) => (
-                                    <SelectItem key={c.profile_id} value={c.profile_id}>
-                                      {c.name}{c.designation ? ` (${c.designation})` : ''}
-                                    </SelectItem>
-                                  ))
-                                )}
+                                ) : (() => {
+                                  // Split into source-mapped vs other so admins can pick a
+                                  // source-appropriate counselor without scanning the whole list.
+                                  const mapped = sourceMappedIds ?? new Set<string>();
+                                  const mappedList = counselors.filter((c) => mapped.has(c.profile_id));
+                                  const otherList  = counselors.filter((c) => !mapped.has(c.profile_id));
+                                  return (
+                                    <>
+                                      {mappedList.length > 0 && (
+                                        <>
+                                          <div className="px-2 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                                            Mapped to {lead.source ?? 'this source'} ({mappedList.length})
+                                          </div>
+                                          {mappedList.map((c) => (
+                                            <SelectItem key={c.profile_id} value={c.profile_id}>
+                                              <span className="inline-flex items-center gap-1.5">
+                                                <span className="h-1.5 w-1.5 rounded-full bg-blue-500" aria-hidden="true" />
+                                                {c.name}{c.designation ? ` (${c.designation})` : ''}
+                                              </span>
+                                            </SelectItem>
+                                          ))}
+                                        </>
+                                      )}
+                                      {otherList.length > 0 && (
+                                        <>
+                                          <div className="mt-1 border-t px-2 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                                            Other counselors ({otherList.length})
+                                          </div>
+                                          {otherList.map((c) => (
+                                            <SelectItem key={c.profile_id} value={c.profile_id}>
+                                              {c.name}{c.designation ? ` (${c.designation})` : ''}
+                                            </SelectItem>
+                                          ))}
+                                        </>
+                                      )}
+                                    </>
+                                  );
+                                })()}
                               </SelectContent>
                             </Select>
+                            {sourceMappedIds && sourceMappedIds.size > 0 && (
+                              <p className="mt-1 text-[11px] text-muted-foreground">
+                                The blue dot marks counselors mapped to <span className="font-medium">{lead.source}</span> via source configuration. You can still pick anyone from "Other counselors" if needed.
+                              </p>
+                            )}
+                            {sourceMappedIds && sourceMappedIds.size === 0 && lead.source && (
+                              <p className="mt-1 text-[11px] text-orange-700">
+                                No counselors are currently mapped to <span className="font-medium">{lead.source}</span>. Configure mappings on the source detail page to enable auto-routing for this source.
+                              </p>
+                            )}
                           </div>
                         </div>
                         <DialogFooter>
@@ -3246,8 +2435,8 @@ function LeadDetailPageContent() {
                         <SelectValue placeholder="Select source" />
                       </SelectTrigger>
                       <SelectContent>
-                        {LEAD_SOURCES.map((s) => (
-                          <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
+                        {leadSources.map((s) => (
+                          <SelectItem key={s.masterId} value={s.value}>{s.label}</SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
@@ -3360,6 +2549,14 @@ function LeadDetailPageContent() {
           defaultPhone={lead?.phone || ''}
           leadId={lead?.id}
           recipientName={lead?.full_name || ''}
+        />
+
+        {/* Log Call Dialog (with voice memo recorder from PR #795) */}
+        <LogCallDialog
+          open={showLogCallDialog}
+          onOpenChange={setShowLogCallDialog}
+          lead={lead ? { id: lead.id, full_name: lead.full_name, phone: lead.phone, funnel_stage: lead.funnel_stage, institution_id: lead.institution_id } : null}
+          onSendWhatsApp={() => { setShowLogCallDialog(false); setPersonalMsgOpen(true); }}
         />
       </ContentLayout>
     </PermissionGuard>

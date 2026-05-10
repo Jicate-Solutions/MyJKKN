@@ -144,7 +144,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // a plain text shadow with no triggers attached, so it stays here.
     referred_by_name: lead.referred_by_name || null,
     // Required fields with safe defaults
-    lifecycle_status: 'enquiry',
+    // 2026-05-09: reverted from 'enquiry' back to 'admitted'. The 'enquiry'
+    // value was added by the 2026-05-08 student-self-fill plan and dropped
+    // again in the same week — it produced rows invisible to every tab on
+    // /learners/enquiries (which filters by admitted/pending/account/rejected/
+    // waitlisted). The enum value has been removed from the DB.
+    lifecycle_status: 'admitted',
     accommodation_type: 'DAY SCHOLAR',
     entry_type: 'FIRST YEAR',
     last_school: '',

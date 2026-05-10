@@ -8,6 +8,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { toast } from 'sonner';
+import { CounselorAllocationService } from '@/lib/services/admission/counselor-allocation-service';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -351,5 +352,44 @@ export function useToggleScheduleSlot() {
       toast.success('Schedule updated');
     },
     onError: (err: Error) => toast.error(err.message || 'Failed to update schedule'),
+  });
+}
+
+/**
+ * Mutation: replace the institution allocation set for a counselor.
+ * Used by AllocationEditSheet (Allocation tab → Edit pencil).
+ * Diff-based upsert — see CounselorAllocationService.setCounselorInstitutions.
+ *
+ * The hook does NOT toast on success (the sheet fires both inst+source mutations
+ * in parallel and shows a single combined toast on completion).
+ */
+export function useUpdateCounselorInstitutions(counselorId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (institutionIds: string[]) =>
+      CounselorAllocationService.setCounselorInstitutions(
+        counselorId,
+        institutionIds
+      ),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: counselorTeamKeys.all });
+    },
+  });
+}
+
+/**
+ * Mutation: replace the source-master allocation set for a counselor.
+ * Used by AllocationEditSheet (Allocation tab → Edit pencil).
+ * Accepts admission_lead_sources_master.id values, not enum strings.
+ * Diff-based upsert — see CounselorAllocationService.setCounselorSources.
+ */
+export function useUpdateCounselorSources(counselorId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (sourceIds: string[]) =>
+      CounselorAllocationService.setCounselorSources(counselorId, sourceIds),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: counselorTeamKeys.all });
+    },
   });
 }

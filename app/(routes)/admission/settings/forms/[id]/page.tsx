@@ -67,25 +67,9 @@ import type {
   LeadSource,
 } from '@/types/admission';
 
-// Channel attribution options shown in the form-settings panel. Keep in
-// sync with LEAD_SOURCE_OPTIONS in app/(routes)/admission/settings/forms/
-// page.tsx and the lead_source enum in supabase/migrations.
-const LEAD_SOURCE_OPTIONS: { value: LeadSource; label: string }[] = [
-  { value: 'website', label: 'Website' },
-  { value: 'whatsapp', label: 'WhatsApp' },
-  { value: 'social_media', label: 'Social Media' },
-  { value: 'education_fair', label: 'Education Fair' },
-  { value: 'newspaper', label: 'Newspaper' },
-  { value: 'google_ads', label: 'Google Ads' },
-  { value: 'facebook_ads', label: 'Facebook Ads' },
-  { value: 'referral', label: 'Referral' },
-  { value: 'agent', label: 'Agent' },
-  { value: 'publisher', label: 'Publisher' },
-  { value: 'walk_in', label: 'Walk-in' },
-  { value: 'inbound_call', label: 'Inbound Call' },
-  { value: 'gate_entry', label: 'Gate Entry' },
-  { value: 'other', label: 'Other' },
-];
+// Channel attribution options come from useActiveLeadSources() — admin-curated
+// rows in admission_lead_sources_master replace this once-static list.
+import { useActiveLeadSources } from '@/hooks/admission/use-active-lead-sources';
 import { FormPreviewDialog } from './_components/form-preview-dialog';
 import { ImageUploadField } from './_components/image-upload-field';
 import {
@@ -522,6 +506,7 @@ function FormSettingsPanel({
   onPersist?: (updates: any) => void;
   formId: string;
 }) {
+  const { options: leadSourceOptions } = useActiveLeadSources();
   return (
     <div className="space-y-4 text-sm">
       <div>
@@ -551,8 +536,8 @@ function FormSettingsPanel({
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            {LEAD_SOURCE_OPTIONS.map((opt) => (
-              <SelectItem key={opt.value} value={opt.value}>
+            {leadSourceOptions.map((opt) => (
+              <SelectItem key={opt.masterId} value={opt.value}>
                 {opt.label}
               </SelectItem>
             ))}

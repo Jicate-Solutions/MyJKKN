@@ -1,17 +1,10 @@
 import { withSentryConfig } from '@sentry/nextjs';
-import withSerwistInit from "@serwist/next";
 import type { NextConfig } from 'next';
 
-const withSerwist = withSerwistInit({
-  swSrc: "app/sw.ts",
-  swDest: "public/sw.js",
-  reloadOnOnline: true,
-  cacheOnNavigation: true,
-  disable: process.env.NODE_ENV !== "production",
-  additionalPrecacheEntries: [
-    { url: "/offline", revision: "1" },
-  ],
-});
+// Service worker (PWA) is built by `serwist build` after `next build` —
+// see serwist.config.mjs and the `build` script in package.json.
+// Configurator-mode replaces the previous webpack-only `withSerwistInit`
+// wrapper that silently no-op'd under Turbopack.
 
 const nextConfig: NextConfig = {
   // Cache Components disabled — codebase has 422+ dynamic routes using
@@ -19,34 +12,18 @@ const nextConfig: NextConfig = {
   // migration to use cache / connection() / Suspense before enabling.
   // cacheComponents: true,
 
-  // Exclude heavy runtime libraries from the Next.js module-trace graph.
-  //
-  // Original rationale (jspdf + fflate): jspdf depends on fflate which uses
-  // Node.js Worker via a dynamic `new Worker()` call that Turbopack cannot
-  // resolve at build time — even with `await import('jspdf')` inside a
-  // function, Turbopack still statically traces and bundles the module for
-  // SSR. Marking them as external tells Next.js to skip bundling entirely
-  // and resolve them at runtime via require() — which is never called on
-  // the server anyway.
-  //
-  // 2026-04-24 — extended to cover the remaining heavy libs (docx, exceljs,
-  // xlsx). Context: three consecutive prod deploys (`swa3v92ih`, `hw8vezub8`,
-  // `ctuwp7xm2`) failed with `FATAL ERROR: heap out of memory` at ~4m 40s
-  // into webpack compile — container had 60 GB RAM, Node heap cap 48 GB,
-  // still exhausted. The tipping point was PR #420 (adding `docx` on top of
-  // existing `jspdf`) plus a 354-LOC `bulk-capture-dialog.tsx` growth
-  // landed direct-to-main that inflated static ExcelJS usage. Per-file
-  // `await import()` conversions (#437, #438) chipped at the bundle but
-  // weren't the right layer — the webpack module-trace graph still held
-  // these packages during compile regardless of dynamic-import usage. The
-  // existing jspdf pattern in this array was the right answer — extending
-  // it to the other three libs is the systemic fix.
-  // 2026-05-03 — IMS module port. The IMS merge added enough bundle weight to
-  // tip Vercel's 8 GB build container into OOM during the webpack pass. The
-  // fix: externalize the heavy SSR-imported libs that were already present on
-  // main (samlify, web-push, @react-pdf/renderer) and the new IMS-introduced
-  // qrcode (used by lib/services/ims/payment-service.ts for UPI QR generation).
-  // jszip, html2canvas, @tiptap/*, react-pdf are client-only — not added.
+  // Externalize heavy SSR-imported libs so they're not bundled into the
+  // module-trace graph. Two reasons this matters under Turbopack:
+  //   1. jspdf depends on fflate, which uses a dynamic `new Worker()` call
+  //      that Turbopack can't resolve at build time even when wrapped in
+  //      `await import()`. Marking it external skips bundling entirely;
+  //      Next.js resolves it via require() at runtime (which never fires on
+  //      the server for these libs anyway).
+  //   2. Keeps the static module trace small. Originally added as a webpack
+  //      OOM workaround (PR #420 docx + #437/#438 ExcelJS chained heap
+  //      crashes); still load-bearing under Turbopack for build-graph size.
+  // Client-only libs (jszip, html2canvas, @tiptap/*, react-pdf) are NOT
+  // listed here — they need to ship to the browser.
   serverExternalPackages: [
     'jspdf',
     'jspdf-autotable',
@@ -59,11 +36,6 @@ const nextConfig: NextConfig = {
     'web-push',
     '@react-pdf/renderer',
   ],
-
-  // Turbopack is the default bundler in Next.js 16. The @serwist/next plugin
-  // injects a webpack config for SW compilation (production only). This empty
-  // turbopack key tells Next.js we're aware and silences the mismatch error.
-  turbopack: {},
 
   // TEMPORARY: Skip type checking during build (pre-existing type errors from
   // Next.js 16 migration — searchParams must be Promise<> in App Router).
@@ -79,18 +51,6 @@ const nextConfig: NextConfig = {
   transpilePackages: ['@supabase/ssr', '@supabase/supabase-js'],
 
   experimental: {
-    // 2026-04-26 — webpackMemoryOptimizations rewrites webpack's internal
-    // structures to use less heap during compile. Source:
-    // https://nextjs.org/docs/app/guides/memory-usage
-    //
-    // 2026-04-26 (revised) — webpackBuildWorker REMOVED. It runs webpack in
-    // a worker thread which cannot receive function-typed config from the
-    // main thread (functions don't survive postMessage). That bypasses the
-    // user's `webpack: (config) => {...}` callback below, so cache-control
-    // overrides silently no-op. Empirical evidence: PR #503 set
-    // config.cache = false, build still hit PackFileCacheStrategy crash.
-    webpackMemoryOptimizations: true,
-
     // Optimize large barrel-file packages — tree-shake unused exports.
     // NOTE: Only list barrel-file packages here (ones with a large index.js
     // re-exporting many things). Native ESM packages like @supabase/* belong
@@ -109,35 +69,6 @@ const nextConfig: NextConfig = {
       'motion',         // 110 import sites
       'recharts',       // 67 import sites
     ]
-  },
-
-  // 2026-04-26 — Disable webpack persistent (filesystem) cache for production
-  // builds. webpack's PackFileCacheStrategy serializes its internal cache
-  // state to a single JSON string at end of build; once compiled output
-  // crosses a threshold, that string exceeds V8's ~512 MB max-string-length
-  // and JSON.stringify throws `RangeError: Invalid string length` even on a
-  // FRESH build with no cache restore (verified 2026-04-26 with
-  // VERCEL_FORCE_NO_BUILD_CACHE=1 — same crash, no restore involved).
-  //
-  // Setting `cache = false` disables both reads AND writes, preventing
-  // PackFileCacheStrategy from running at all. Tradeoff: no incremental
-  // build benefit, but production builds are infrequent so this is fine.
-  // Reference: https://github.com/webpack/webpack/issues/14914
-  //
-  // NOTE: this callback only takes effect because `experimental.webpackBuildWorker`
-  // is OFF — that flag spawns webpack in a worker thread that doesn't
-  // receive function-typed config from the main thread.
-  webpack: (config, { dev }) => {
-    // Step 2.6 (myjkkn-chain): console.log at top of webpack callback proves
-    // this function is actually running — i.e. webpackBuildWorker is OFF.
-    // If this line does NOT appear in the Vercel build log, the callback is
-    // being silently dropped (worker-thread postMessage strips functions).
-    // See memory: feedback_webpack_build_worker_bypasses_user_callback.md
-    console.log('[webpack-cfg] cache disabled in production — Stream C 2026-04-26');
-    if (!dev) {
-      config.cache = false;
-    }
-    return config;
   },
 
   images: {
@@ -289,7 +220,18 @@ const nextConfig: NextConfig = {
   }
 };
 
-export default withSentryConfig(withSerwist(nextConfig), {
+// Local builds (CI unset) skip Sentry's webpack plugin entirely. The plugin
+// generates source maps + instruments every module for 646 client pages,
+// pushing local Windows builds past 12 GB heap. Vercel's 8 GB container
+// completes fine because Linux webpack uses less memory and the build
+// container has fewer competing processes than a 16 GB dev laptop.
+//
+// Runtime Sentry is unaffected — Sentry.init / captureException are wired
+// in sentry.*.config.ts / instrumentation.ts and don't depend on the
+// build-time wrapper. Local builds just lose source-map remapping for
+// minified stack traces, which only matters when uploading to Sentry
+// (which requires SENTRY_AUTH_TOKEN that local devs don't have anyway).
+export default process.env.CI ? withSentryConfig(nextConfig, {
   // For all available options, see:
   // https://www.npmjs.com/package/@sentry/webpack-plugin#options
 
@@ -325,4 +267,4 @@ export default withSentryConfig(withSerwist(nextConfig), {
       removeDebugLogging: true,
     },
   }
-});
+}) : nextConfig;

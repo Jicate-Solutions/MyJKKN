@@ -13,6 +13,8 @@ import {
   Activity,
   ChevronRight,
 } from 'lucide-react';
+// BUG-003922: avoid bare toLocaleDateString() (US-default on Vercel runtime).
+import { formatDateDMY } from '@/lib/utils/date-format';
 
 // ---------------------------------------------------------------------------
 // Props
@@ -58,7 +60,7 @@ function timeAgo(dateStr: string): string {
   if (days === 1) return 'yesterday';
   if (days < 7) return `${days}d ago`;
   if (weeks < 5) return `${weeks}w ago`;
-  return new Date(dateStr).toLocaleDateString();
+  return formatDateDMY(dateStr);
 }
 
 // ---------------------------------------------------------------------------

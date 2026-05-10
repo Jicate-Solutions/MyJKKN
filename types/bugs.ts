@@ -11,7 +11,8 @@ export type BugReportCategory =
   | 'ui_design'
   | 'performance'
   | 'security'
-  | 'other';
+  | 'other'
+  | 'question';
 
 export interface BugReport {
   id: string;

@@ -9,6 +9,10 @@ import { Flame, Star } from 'lucide-react';
 import type { AdmissionLead } from '@/types/admission';
 import { DataTableRowActions } from './row-actions';
 import { SourceBadge, OverdueBadge } from './source-badge';
+// BUG-003922 (Isvarya, Joint MD): the "Created" column was rendering MM/DD/YYYY
+// because bare toLocaleDateString() inherits the runtime locale (en-US on Vercel).
+// Route through the canonical DD/MM/YYYY helper.
+import { formatDateDMY } from '@/lib/utils/date-format';
 
 export const FUNNEL_STAGES = [
   { value: 'new', label: 'New' },
@@ -98,7 +102,8 @@ export function getLeadColumns(
     ),
     maxSize: 50,
     enableSorting: false,
-    enableHiding: false
+    enableHiding: false,
+    enableResizing: false,
   },
   {
     accessorKey: 'full_name',
@@ -251,7 +256,7 @@ export function getLeadColumns(
     ),
     cell: ({ row }) => {
       const date = row.getValue('created_at') as string;
-      return date ? new Date(date).toLocaleDateString() : '-';
+      return formatDateDMY(date);
     }
   },
 

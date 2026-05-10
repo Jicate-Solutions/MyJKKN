@@ -41,6 +41,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import { AdmissionErrorBoundary } from '@/components/admission';
 import { useAuth } from '@/hooks/use-auth';
+import { useActiveLeadSources } from '@/hooks/admission/use-active-lead-sources';
 import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
 import { usePermissions } from '@/hooks/use-permissions';
 import {
@@ -57,29 +58,15 @@ import type { AdmissionForm, LeadSource } from '@/types/admission';
 import { Plus, FileText, BarChart3, Link2, Pencil, Trash2, Copy } from 'lucide-react';
 import toast from 'react-hot-toast';
 
-// Channel attribution choices shown in the duplicate-form dialog. Order
-// matches the lead_source enum in supabase migrations; labels are
-// admin-facing prose.
-const LEAD_SOURCE_OPTIONS: { value: LeadSource; label: string }[] = [
-  { value: 'website', label: 'Website' },
-  { value: 'whatsapp', label: 'WhatsApp' },
-  { value: 'social_media', label: 'Social Media' },
-  { value: 'education_fair', label: 'Education Fair' },
-  { value: 'newspaper', label: 'Newspaper' },
-  { value: 'google_ads', label: 'Google Ads' },
-  { value: 'facebook_ads', label: 'Facebook Ads' },
-  { value: 'referral', label: 'Referral' },
-  { value: 'agent', label: 'Agent' },
-  { value: 'publisher', label: 'Publisher' },
-  { value: 'walk_in', label: 'Walk-in' },
-  { value: 'inbound_call', label: 'Inbound Call' },
-  { value: 'gate_entry', label: 'Gate Entry' },
-  { value: 'other', label: 'Other' },
-];
+// Channel attribution options come from useActiveLeadSources() — admin-curated
+// rows in admission_lead_sources_master replace this once-static list.
 
 function FormsListContent() {
   const router = useRouter();
   const { profile } = useAuth();
+  const { options: leadSourceOptions } = useActiveLeadSources({
+    institutionId: profile?.institution_id ?? null,
+  });
   const { selectedInstitutionId, getAccessibleInstitutionIds } =
     useUserInstitutionAccess();
   const { isSuperAdmin, canAccess } = usePermissions();
@@ -541,8 +528,8 @@ function FormsListContent() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {LEAD_SOURCE_OPTIONS.map((opt) => (
-                      <SelectItem key={opt.value} value={opt.value}>
+                    {leadSourceOptions.map((opt) => (
+                      <SelectItem key={opt.masterId} value={opt.value}>
                         {opt.label}
                       </SelectItem>
                     ))}

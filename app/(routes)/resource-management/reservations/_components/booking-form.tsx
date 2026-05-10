@@ -1,13 +1,12 @@
 'use client';
 // app/(routes)/resource-management/reservations/_components/booking-form.tsx
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import {
   Loader2,
   Calendar,
-  Clock,
   FileText,
   MessageSquare,
   AlertCircle
@@ -61,8 +60,7 @@ export function BookingForm({
   resource,
   selectedDate,
   selectedStartTime,
-  selectedEndTime,
-  userId
+  selectedEndTime
 }: BookingFormProps) {
   const [quantity, setQuantity] = useState(1);
 
@@ -96,14 +94,14 @@ export function BookingForm({
   });
 
   // Update form when time changes
-  useState(() => {
+  useEffect(() => {
     if (selectedStartTime) {
       form.setValue('start_time', selectedStartTime);
     }
     if (selectedEndTime) {
       form.setValue('end_time', selectedEndTime);
     }
-  });
+  }, [selectedStartTime, selectedEndTime, form]);
 
   const onSubmit = async (data: CreateReservationDto) => {
     try {

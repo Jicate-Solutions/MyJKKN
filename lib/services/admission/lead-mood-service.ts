@@ -1,12 +1,26 @@
 // lib/services/admission/lead-mood-service.ts
-// Lead Mood Digest Service — surfaces aggregate sentiment of today's admission calls
-// from admission_call_intelligence rows populated by the analyze cron (PR #776).
+// Lead Mood Digest Service — surfaces aggregate sentiment of today's
+// counselor voice memos.
 //
-// Empirical motivation (2026-05-08): the analyze cron just deployed; will populate
-// admission_call_intelligence.sentiment / sentiment_score / categories / summary
-// every 15 min for ~50 calls/run. Director needs a single page showing the mood
-// of today's leads + drilldown to anxious leads. Page must render an empty state
-// gracefully because at the moment of ship, ZERO calls have been analyzed yet.
+// 2026-05-09 DATA-SOURCE SWAP (Build #4 voice-memo backend):
+//   Previously read from `admission_call_intelligence` (Exotel ExoVoice
+//   pipeline) — that table is empty because the auto-transcribe feature
+//   flag was off and historical 3,229 calls were never analyzed.
+//
+//   Director's Path A pivots the sentiment-capture mechanism: counselors
+//   record 30-second English voice memos after each call, OpenAI Whisper
+//   transcribes (English-forced + language guardrail), GPT-4o-mini
+//   extracts sentiment + summary + categories. All written to memo_*
+//   columns ON `admission_call_logs` itself — no join required.
+//
+//   This file now reads admission_call_logs.memo_sentiment / memo_summary /
+//   memo_categories / memo_analyze_status. UI hooks (PR #779) consume the
+//   same return shapes (MoodKPIs, MoodDistribution, TopConcern,
+//   AnxiousLeadRow) — no UI change needed.
+//
+//   Filter: only `memo_analyze_status = 'completed'` rows count.
+//   Rejected non-English memos are excluded from aggregation but still
+//   counted in `total_calls_today`.
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 
@@ -43,7 +57,7 @@ export interface TopConcern {
 }
 
 export interface AnxiousLeadRow {
-  intelligence_id: string;
+  intelligence_id: string;   // kept for UI compat — now equals call_log_id
   call_log_id: string;
   call_sid: string;
   lead_id: string | null;
@@ -65,7 +79,7 @@ export interface AnxiousLeadRow {
 function classifySentiment(sentiment: string | null, score: number | null): 'positive' | 'neutral' | 'negative' {
   const s = (sentiment || '').toLowerCase();
   if (['positive', 'happy', 'enthusiastic'].includes(s)) return 'positive';
-  if (['negative', 'concerned', 'anxious', 'angry', 'frustrated'].includes(s)) return 'negative';
+  if (['negative', 'concerned', 'anxious', 'angry', 'frustrated', 'hostile'].includes(s)) return 'negative';
   if (s === 'neutral') return 'neutral';
   // Fall back to score if sentiment string is unrecognized or null
   if (score != null) {
@@ -77,7 +91,7 @@ function classifySentiment(sentiment: string | null, score: number | null): 'pos
 
 function isConcerned(sentiment: string | null, score: number | null): boolean {
   const s = (sentiment || '').toLowerCase();
-  if (['negative', 'concerned', 'anxious', 'angry', 'frustrated'].includes(s)) return true;
+  if (['negative', 'concerned', 'anxious', 'angry', 'frustrated', 'hostile'].includes(s)) return true;
   if (score != null && score < 0.3) return true;
   return false;
 }
@@ -88,7 +102,7 @@ function isConcerned(sentiment: string | null, score: number | null): boolean {
 
 export class LeadMoodService {
   /**
-   * KPI strip — total calls today, analyzed count, sentiment distribution.
+   * KPI strip — total calls today, analyzed memo count, sentiment distribution.
    * Returns zeros gracefully when nothing has been analyzed yet.
    */
   static async getTodayKPIs(institutionId?: string): Promise<MoodKPIs> {
@@ -104,20 +118,22 @@ export class LeadMoodService {
     if (institutionId) totalQuery = totalQuery.eq('institution_id', institutionId);
     const { count: totalCallsToday } = await totalQuery;
 
-    // Analyzed intelligence rows whose underlying call was created today
-    // We join via call_log_id → admission_call_logs.created_at
-    let intelQuery = supabase
-      .from('admission_call_intelligence')
-      .select('id, sentiment, sentiment_score, admission_call_logs!inner(created_at)')
-      .gte('admission_call_logs.created_at', todayStart)
-      .not('sentiment', 'is', null);
-    if (institutionId) intelQuery = intelQuery.eq('institution_id', institutionId);
-    const { data: analyzed } = await intelQuery;
+    // Analyzed memo rows from call_logs created today.
+    // Only memo_analyze_status='completed' counts toward sentiment buckets;
+    // 'rejected_non_english' and other statuses don't poison the metric.
+    let memoQuery = supabase
+      .from('admission_call_logs')
+      .select('id, memo_sentiment, memo_sentiment_score')
+      .gte('created_at', todayStart)
+      .eq('memo_analyze_status', 'completed')
+      .not('memo_sentiment', 'is', null);
+    if (institutionId) memoQuery = memoQuery.eq('institution_id', institutionId);
+    const { data: analyzed } = await memoQuery;
 
     const rows = (analyzed || []) as Array<{
       id: string;
-      sentiment: string | null;
-      sentiment_score: number | null;
+      memo_sentiment: string | null;
+      memo_sentiment_score: number | null;
     }>;
 
     let positive = 0;
@@ -125,11 +141,11 @@ export class LeadMoodService {
     let negative = 0;
     let concerned = 0;
     rows.forEach((r) => {
-      const cls = classifySentiment(r.sentiment, r.sentiment_score);
+      const cls = classifySentiment(r.memo_sentiment, r.memo_sentiment_score);
       if (cls === 'positive') positive++;
       else if (cls === 'neutral') neutral++;
       else negative++;
-      if (isConcerned(r.sentiment, r.sentiment_score)) concerned++;
+      if (isConcerned(r.memo_sentiment, r.memo_sentiment_score)) concerned++;
     });
 
     const analyzedTotal = rows.length;
@@ -162,23 +178,21 @@ export class LeadMoodService {
     const now = new Date();
     const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
 
-    // Pull intelligence rows joined with call logs (for counselor_id + created_at filter)
     let q = supabase
-      .from('admission_call_intelligence')
-      .select(
-        'id, sentiment, sentiment_score, institution_id, admission_call_logs!inner(counselor_id, created_at)',
-      )
-      .gte('admission_call_logs.created_at', todayStart)
-      .not('sentiment', 'is', null);
+      .from('admission_call_logs')
+      .select('id, memo_sentiment, memo_sentiment_score, institution_id, counselor_id')
+      .gte('created_at', todayStart)
+      .eq('memo_analyze_status', 'completed')
+      .not('memo_sentiment', 'is', null);
     if (institutionId) q = q.eq('institution_id', institutionId);
     const { data: rows } = await q;
 
     const flat = (rows || []) as Array<{
       id: string;
-      sentiment: string | null;
-      sentiment_score: number | null;
+      memo_sentiment: string | null;
+      memo_sentiment_score: number | null;
       institution_id: string | null;
-      admission_call_logs: { counselor_id: string | null; created_at: string } | null;
+      counselor_id: string | null;
     }>;
 
     if (flat.length === 0) return [];
@@ -188,10 +202,10 @@ export class LeadMoodService {
     flat.forEach((r) => {
       const bucketKey =
         groupBy === 'counselor'
-          ? r.admission_call_logs?.counselor_id || 'unassigned'
+          ? r.counselor_id || 'unassigned'
           : r.institution_id || 'unknown';
       const existing = buckets.get(bucketKey) || { positive: 0, neutral: 0, negative: 0, total: 0 };
-      const cls = classifySentiment(r.sentiment, r.sentiment_score);
+      const cls = classifySentiment(r.memo_sentiment, r.memo_sentiment_score);
       if (cls === 'positive') existing.positive++;
       else if (cls === 'neutral') existing.neutral++;
       else existing.negative++;
@@ -240,26 +254,27 @@ export class LeadMoodService {
   }
 
   /**
-   * Top concern categories aggregated from `categories` array column over the last N days.
+   * Top concern categories aggregated from `memo_categories` array column over the last N days.
    */
   static async getTopConcerns(days = 1, institutionId?: string): Promise<TopConcern[]> {
     const supabase = createClientSupabaseClient();
     const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
 
     let q = supabase
-      .from('admission_call_intelligence')
-      .select('categories, admission_call_logs!inner(created_at)')
-      .gte('admission_call_logs.created_at', cutoff)
-      .not('categories', 'is', null);
+      .from('admission_call_logs')
+      .select('memo_categories')
+      .gte('created_at', cutoff)
+      .eq('memo_analyze_status', 'completed')
+      .not('memo_categories', 'is', null);
     if (institutionId) q = q.eq('institution_id', institutionId);
     const { data } = await q;
 
-    const flat = (data || []) as Array<{ categories: string[] | null }>;
+    const flat = (data || []) as Array<{ memo_categories: string[] | null }>;
     if (flat.length === 0) return [];
 
     const counts = new Map<string, number>();
     flat.forEach((r) => {
-      (r.categories || []).forEach((cat) => {
+      (r.memo_categories || []).forEach((cat) => {
         if (!cat) return;
         const key = cat.trim();
         if (!key) return;
@@ -274,61 +289,58 @@ export class LeadMoodService {
   }
 
   /**
-   * Anxious leads — most-recent analyzed call had negative sentiment OR score < 0.3.
+   * Anxious leads — most-recent analyzed memo had negative sentiment OR score < 0.3.
    * Sorted by call recency desc.
    */
   static async getAnxiousLeads(limit = 50, institutionId?: string): Promise<AnxiousLeadRow[]> {
     const supabase = createClientSupabaseClient();
 
-    // Pull recent intelligence rows with negative-leaning sentiment, joined with call log + lead
+    // Pull recent call_logs with completed memos and negative-leaning sentiment.
     let q = supabase
-      .from('admission_call_intelligence')
+      .from('admission_call_logs')
       .select(
         `
         id,
-        call_log_id,
         call_sid,
-        sentiment,
-        sentiment_score,
-        summary,
+        memo_sentiment,
+        memo_sentiment_score,
+        memo_summary,
         institution_id,
-        admission_call_logs!inner (
+        created_at,
+        counselor_id,
+        lead_id,
+        to_number,
+        admission_leads (
           id,
-          created_at,
-          counselor_id,
-          lead_id,
-          to_number,
-          admission_leads (
-            id,
-            full_name,
-            first_name,
-            phone
-          )
+          full_name,
+          first_name,
+          phone
         )
       `,
       )
-      .or('sentiment.in.(negative,concerned,anxious,angry,frustrated),sentiment_score.lt.0.3')
-      .order('id', { ascending: false })
+      .eq('memo_analyze_status', 'completed')
+      .or(
+        'memo_sentiment.in.(negative,concerned,anxious,angry,frustrated,hostile),memo_sentiment_score.lt.0.3',
+      )
+      .order('created_at', { ascending: false })
       .limit(limit);
     if (institutionId) q = q.eq('institution_id', institutionId);
     const { data } = await q;
 
     type Joined = {
       id: string;
-      call_log_id: string;
       call_sid: string;
-      sentiment: string | null;
-      sentiment_score: number | null;
-      summary: string | null;
+      memo_sentiment: string | null;
+      memo_sentiment_score: number | null;
+      memo_summary: string | null;
       institution_id: string | null;
-      admission_call_logs: {
-        id: string;
-        created_at: string;
-        counselor_id: string | null;
-        lead_id: string | null;
-        to_number: string | null;
-        admission_leads: { id: string; full_name: string | null; first_name: string | null; phone: string | null } | null;
-      } | null;
+      created_at: string;
+      counselor_id: string | null;
+      lead_id: string | null;
+      to_number: string | null;
+      admission_leads:
+        | { id: string; full_name: string | null; first_name: string | null; phone: string | null }
+        | null;
     };
 
     const rows = (data || []) as Joined[];
@@ -336,11 +348,7 @@ export class LeadMoodService {
 
     // Resolve counselor names
     const counselorIds = Array.from(
-      new Set(
-        rows
-          .map((r) => r.admission_call_logs?.counselor_id)
-          .filter(Boolean) as string[],
-      ),
+      new Set(rows.map((r) => r.counselor_id).filter(Boolean) as string[]),
     );
     const nameMap = new Map<string, string>();
     if (counselorIds.length > 0) {
@@ -354,23 +362,21 @@ export class LeadMoodService {
     }
 
     return rows
-      .filter((r) => r.admission_call_logs) // drop orphaned (shouldn't happen given !inner)
       .map((r) => {
-        const log = r.admission_call_logs!;
-        const lead = log.admission_leads || null;
+        const lead = r.admission_leads || null;
         return {
-          intelligence_id: r.id,
-          call_log_id: r.call_log_id,
+          intelligence_id: r.id, // alias call_log_id for UI compatibility
+          call_log_id: r.id,
           call_sid: r.call_sid,
-          lead_id: log.lead_id,
+          lead_id: r.lead_id,
           lead_name: lead?.full_name || lead?.first_name || null,
-          lead_phone: lead?.phone || log.to_number || null,
-          counselor_id: log.counselor_id,
-          counselor_name: log.counselor_id ? nameMap.get(log.counselor_id) || null : null,
-          sentiment: r.sentiment,
-          sentiment_score: r.sentiment_score,
-          summary_excerpt: r.summary ? r.summary.slice(0, 100) : null,
-          call_created_at: log.created_at,
+          lead_phone: lead?.phone || r.to_number || null,
+          counselor_id: r.counselor_id,
+          counselor_name: r.counselor_id ? nameMap.get(r.counselor_id) || null : null,
+          sentiment: r.memo_sentiment,
+          sentiment_score: r.memo_sentiment_score,
+          summary_excerpt: r.memo_summary ? r.memo_summary.slice(0, 100) : null,
+          call_created_at: r.created_at,
           institution_id: r.institution_id,
         };
       })
