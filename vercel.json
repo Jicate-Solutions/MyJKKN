@@ -122,6 +122,10 @@
     {
       "path": "/api/cron/analyze-voice-memos?secret=${CRON_SECRET}",
       "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/hr/document-expiry-reminders?secret=${CRON_SECRET}",
+      "schedule": "0 7 * * *"
     }
   ]
 }

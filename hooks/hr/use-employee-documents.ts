@@ -14,9 +14,10 @@
  *   useUploadDocument        — mutation that uploads + invalidates the lists
  *   useGetSignedDownloadUrl  — convenience mutation for one-shot signed URLs
  *
- * Phase 2b additions (NOT in this PR):
- *   useVerifyDocument        — HR officer verification mutation
- *   useExpiringDocuments     — expiry queue for cron + dashboard widget
+ * Phase 2b hooks (T1.5b Phase 2b — added 2026-05-10):
+ *   useDocumentsForVerification — HR queue, paginated + filterable by status
+ *   useVerifyDocument           — mutation that flips status to 'verified'
+ *   useRejectDocument           — mutation that flips status to 'rejected' + notes
  */
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -26,10 +27,12 @@ import { createClientSupabaseClient } from '@/lib/supabase/client';
 import {
   EmployeeDocumentsService,
   type UploadDocumentArgs,
+  type EmployeeDocumentVerificationRow,
 } from '@/lib/services/hr/employee-documents-service';
 import type {
   HRDocumentChecklistItem,
   HREmployeeDocument,
+  EmployeeDocumentVerificationStatus,
 } from '@/types/hr';
 
 // =====================================================================================
@@ -43,6 +46,11 @@ export const employeeDocumentKeys = {
     ['hr-employee-documents', 'mine', staffId] as const,
   checklist: (staffId: string) =>
     ['hr-employee-documents', 'checklist', staffId] as const,
+  verifyList: (
+    status: EmployeeDocumentVerificationStatus | 'all',
+    institutionId?: string | null,
+  ) =>
+    ['hr-employee-documents', 'verify', status, institutionId ?? null] as const,
 };
 
 // =====================================================================================
@@ -141,6 +149,94 @@ export function useGetSignedDownloadUrl() {
     },
     onError: (error: Error) => {
       toast.error(error.message || 'Could not open document.');
+    },
+  });
+}
+
+// =====================================================================================
+// Phase 2b — HR officer verification queue
+// =====================================================================================
+
+/**
+ * Paginated, status-filtered list of documents for the HR verification page.
+ * Returns rows joined with the uploading employee's identity columns.
+ */
+export function useDocumentsForVerification(args: {
+  status: EmployeeDocumentVerificationStatus | 'all';
+  institutionId?: string | null;
+  limit?: number;
+  offset?: number;
+}) {
+  const { status, institutionId = null, limit = 50, offset = 0 } = args;
+  return useQuery({
+    queryKey: [
+      ...employeeDocumentKeys.verifyList(status, institutionId),
+      limit,
+      offset,
+    ] as const,
+    queryFn: async (): Promise<EmployeeDocumentVerificationRow[]> => {
+      const supabase = createClientSupabaseClient();
+      return EmployeeDocumentsService.listForVerification(supabase, {
+        status,
+        institutionId,
+        limit,
+        offset,
+      });
+    },
+    // Fresh queue is more useful than cache hits — HR officers want to see
+    // newly uploaded items quickly, but we still cache for 30s to avoid
+    // hammering on tab focus.
+    staleTime: 30 * 1000,
+  });
+}
+
+/**
+ * Mark a document verified. Pass the verifier's profile id (auth.uid()).
+ * Invalidates verification queues on success.
+ */
+export function useVerifyDocument() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (args: {
+      documentId: string;
+      verifierProfileId: string;
+    }) => {
+      const supabase = createClientSupabaseClient();
+      return EmployeeDocumentsService.verifyDocument(supabase, args);
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: employeeDocumentKeys.all });
+      toast.success(`Verified "${data.document_name}"`);
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Could not verify document.');
+    },
+  });
+}
+
+/**
+ * Reject a document with required notes (employee-visible). Caller is
+ * responsible for collecting the note via a confirmation dialog.
+ */
+export function useRejectDocument() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (args: {
+      documentId: string;
+      verifierProfileId: string;
+      notes: string;
+    }) => {
+      const supabase = createClientSupabaseClient();
+      return EmployeeDocumentsService.rejectDocument(supabase, args);
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: employeeDocumentKeys.all });
+      toast.success(`Rejected "${data.document_name}"`);
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Could not reject document.');
     },
   });
 }

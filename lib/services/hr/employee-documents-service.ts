@@ -20,6 +20,10 @@
  *   listMyDocuments           — list rows for a staff_id (live = not replaced)
  *   getRequiredChecklistForStaff — required-docs joined with latest live upload per code
  *   getSignedDownloadUrl      — short-lived signed URL for retrieval
+ *   listForVerification       — HR officer queue: paginated, filterable, with employee join (Phase 2b)
+ *   verifyDocument            — HR officer marks status=verified (Phase 2b)
+ *   rejectDocument            — HR officer marks status=rejected with required note (Phase 2b)
+ *   signedUrlFor              — signed URL by storage_path (used by cron + verification page) (Phase 2b)
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -27,11 +31,51 @@ import type {
   HREmployeeDocument,
   HRDocumentChecklistItem,
   EmployeeDocumentMimeType,
+  EmployeeDocumentVerificationStatus,
 } from '@/types/hr';
 import {
   EMPLOYEE_DOCUMENT_ALLOWED_MIME,
   EMPLOYEE_DOCUMENT_MAX_BYTES,
 } from '@/types/hr';
+
+// =====================================================================================
+// Phase 2b types — exported for the verification page + hooks to consume.
+// =====================================================================================
+
+/**
+ * A single row in the HR officer's verification queue: a document plus the
+ * relevant fields from the employee (staff) that uploaded it. Joined via
+ * staff_id FK.
+ */
+export interface EmployeeDocumentVerificationRow {
+  id: string;
+  staff_id: string;
+  institution_id: string;
+  document_code: string;
+  document_name: string;
+  storage_path: string;
+  file_name: string;
+  file_size_bytes: number;
+  mime_type: EmployeeDocumentMimeType;
+  verification_status: EmployeeDocumentVerificationStatus;
+  verification_notes: string | null;
+  verified_by: string | null;
+  verified_at: string | null;
+  expires_at: string | null;
+  replaces_document_id: string | null;
+  uploaded_at: string;
+  uploaded_by: string;
+  /** Raw join field from the supabase select; consumers should read `employee` instead. */
+  staff?: unknown;
+  /** Joined employee snapshot. NULL when staff record was deleted (rare). */
+  employee: {
+    id: string;
+    first_name: string | null;
+    last_name: string | null;
+    email: string | null;
+    designation: string | null;
+  } | null;
+}
 
 const BUCKET_ID = 'hr-employee-documents';
 
@@ -396,6 +440,225 @@ export class EmployeeDocumentsService {
       throw new Error(`Could not create signed URL: ${error?.message ?? 'unknown error'}`);
     }
 
+    return data.signedUrl;
+  }
+
+  // =====================================================================================
+  // Phase 2b — HR officer verification queue
+  // =====================================================================================
+
+  /**
+   * List documents for the HR verification queue, filtered by status and
+   * scoped by RLS (HR officers see within institution; super_admin sees all).
+   *
+   * Joins the staff record so the UI can show employee name + email +
+   * designation alongside the document. We deliberately exclude rows that
+   * have themselves been replaced (the latest upload per chain wins) so HR
+   * doesn't waste time on superseded versions.
+   *
+   * Pagination is offset-based (page-size 50) — for v1 simplicity. If the
+   * queue gets large enough to bog down, swap to keyset pagination later.
+   */
+  static async listForVerification(
+    supabase: SupabaseClient,
+    args: {
+      institutionId?: string | null;
+      status: EmployeeDocumentVerificationStatus | 'all';
+      limit?: number;
+      offset?: number;
+    }
+  ): Promise<EmployeeDocumentVerificationRow[]> {
+    const { institutionId = null, status, limit = 50, offset = 0 } = args;
+
+    let query = supabase
+      .from('hr_employee_documents')
+      .select(
+        `
+        id,
+        staff_id,
+        institution_id,
+        document_code,
+        document_name,
+        storage_path,
+        file_name,
+        file_size_bytes,
+        mime_type,
+        verification_status,
+        verification_notes,
+        verified_by,
+        verified_at,
+        expires_at,
+        replaces_document_id,
+        uploaded_at,
+        uploaded_by,
+        staff:staff!hr_employee_documents_staff_id_fkey (
+          id,
+          first_name,
+          last_name,
+          email,
+          designation
+        )
+        `
+      )
+      .order('uploaded_at', { ascending: false })
+      .range(offset, offset + limit - 1);
+
+    if (status !== 'all') {
+      query = query.eq('verification_status', status);
+    }
+    if (institutionId) {
+      query = query.eq('institution_id', institutionId);
+    }
+
+    const { data, error } = await query;
+    if (error) {
+      throw new Error(`Failed to list documents for verification: ${error.message}`);
+    }
+
+    const rows = (data ?? []) as unknown as Array<
+      Omit<EmployeeDocumentVerificationRow, 'employee'> & {
+        staff: {
+          id: string;
+          first_name: string | null;
+          last_name: string | null;
+          email: string | null;
+          designation: string | null;
+        } | null;
+      }
+    >;
+
+    // Filter out rows that have been superseded by a newer upload. We do this
+    // in JS rather than SQL because we'd otherwise need a NOT EXISTS subquery
+    // against the same table, which the PostgREST builder doesn't expose
+    // cleanly. The page sizes are small (≤50) so the overhead is negligible.
+    const idsInPage = rows.map((r) => r.id);
+    let supersededIds = new Set<string>();
+    if (idsInPage.length > 0) {
+      const { data: replaceRows } = await supabase
+        .from('hr_employee_documents')
+        .select('replaces_document_id')
+        .in('replaces_document_id', idsInPage)
+        .not('replaces_document_id', 'is', null);
+      supersededIds = new Set(
+        (replaceRows ?? [])
+          .map((r: any) => r.replaces_document_id as string | null)
+          .filter((v): v is string => !!v)
+      );
+    }
+
+    return rows
+      .filter((r) => !supersededIds.has(r.id))
+      .map((r): EmployeeDocumentVerificationRow => {
+        const staff = r.staff;
+        return {
+          ...r,
+          staff: undefined,
+          employee: staff
+            ? {
+                id: staff.id,
+                first_name: staff.first_name,
+                last_name: staff.last_name,
+                email: staff.email,
+                designation: staff.designation,
+              }
+            : null,
+        };
+      });
+  }
+
+  /**
+   * HR officer verifies a document. Sets status='verified', verified_by,
+   * verified_at. RLS enforces institution scope — caller does not need to
+   * pass institution_id.
+   *
+   * Returns the canonical updated row so the caller can update its cache.
+   */
+  static async verifyDocument(
+    supabase: SupabaseClient,
+    args: { documentId: string; verifierProfileId: string }
+  ): Promise<HREmployeeDocument> {
+    const { documentId, verifierProfileId } = args;
+    if (!documentId) throw new Error('documentId is required.');
+    if (!verifierProfileId) throw new Error('verifierProfileId is required.');
+
+    const { data, error } = await supabase
+      .from('hr_employee_documents')
+      .update({
+        verification_status: 'verified' as const,
+        verification_notes: null,
+        verified_by: verifierProfileId,
+        verified_at: new Date().toISOString(),
+        updated_by: verifierProfileId,
+      })
+      .eq('id', documentId)
+      .select('*')
+      .single();
+
+    if (error) {
+      throw new Error(`Could not verify document: ${error.message}`);
+    }
+    return data as HREmployeeDocument;
+  }
+
+  /**
+   * HR officer rejects a document. Notes are required (employee will see them).
+   */
+  static async rejectDocument(
+    supabase: SupabaseClient,
+    args: {
+      documentId: string;
+      verifierProfileId: string;
+      notes: string;
+    }
+  ): Promise<HREmployeeDocument> {
+    const { documentId, verifierProfileId, notes } = args;
+    if (!documentId) throw new Error('documentId is required.');
+    if (!verifierProfileId) throw new Error('verifierProfileId is required.');
+    const trimmed = (notes ?? '').trim();
+    if (trimmed.length === 0) {
+      throw new Error('Rejection notes are required so the employee knows what to fix.');
+    }
+
+    const { data, error } = await supabase
+      .from('hr_employee_documents')
+      .update({
+        verification_status: 'rejected' as const,
+        verification_notes: trimmed,
+        verified_by: verifierProfileId,
+        verified_at: new Date().toISOString(),
+        updated_by: verifierProfileId,
+      })
+      .eq('id', documentId)
+      .select('*')
+      .single();
+
+    if (error) {
+      throw new Error(`Could not reject document: ${error.message}`);
+    }
+    return data as HREmployeeDocument;
+  }
+
+  /**
+   * Generate a signed URL given a known storage_path (skips the table lookup
+   * that getSignedDownloadUrl does). Used by the verification page (already
+   * has the path from the row) and by the cron (needs URLs in emails).
+   *
+   * RLS on storage.objects still gates whether the caller can actually fetch
+   * the underlying object — the cron uses service-role client so this works.
+   */
+  static async signedUrlFor(
+    supabase: SupabaseClient,
+    storagePath: string,
+    expiresInSec: number = SIGNED_URL_TTL_SEC
+  ): Promise<string> {
+    if (!storagePath) throw new Error('storagePath is required.');
+    const { data, error } = await supabase.storage
+      .from(BUCKET_ID)
+      .createSignedUrl(storagePath, expiresInSec);
+
+    if (error || !data?.signedUrl) {
+      throw new Error(`Could not create signed URL: ${error?.message ?? 'unknown error'}`);
+    }
     return data.signedUrl;
   }
 }
