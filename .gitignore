@@ -34,14 +34,16 @@ certs/saml/*.pem
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+/.build*.log
 
 # env files (can opt-in for commiting if needed)
 .env*
-!.env.example
-!.env.import.example
 
 # Import script env (Phase 7 staff extended fields)
 .env.import
+
+# MCP server config — contains Supabase management bearer token
+.mcp.json
 
 # Import script run logs
 scripts/import/runs/*.log
@@ -77,3 +79,8 @@ public/swe-worker-*.js.map
 
 # Sentry Config File
 .env.sentry-build-plugin
+
+# Agent worktrees (created by parallel sub-agent runs in interactive sessions)
+.claude/worktrees/
+
+.screenshots/

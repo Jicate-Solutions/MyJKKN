@@ -1,5 +1,15 @@
 // lib/services/telephony/telephony-service.ts
 // Telephony service for call management in the Admission module
+//
+// Writers paired with their readers (do not collapse without checking both ends):
+//   * admission_call_logs writes here are read by /admission/counselors/calls list
+//     and the call detail page. Idempotency is keyed on call_sid.
+//   * admission_lead_activities writes here are read by the lead detail Activity
+//     tab via lib/services/admission/activity-service.ts. Schema authority lives
+//     in activity-service.ts:5-6 — keep columns aligned (subject/created_by/no extras).
+//   * Outbound logManualCall path and inbound webhook path BOTH write activities;
+//     these are direction-specific event classes, NOT redundant — never collapse.
+//
 // NOTE: This service does NOT import any Supabase client — callers must inject one.
 // API routes should pass createServiceRoleClient(); client components are not
 // expected to call this service directly (they go through API routes).
@@ -73,6 +83,19 @@ export interface CallLog {
   created_at: string;
   updated_at: string;
 
+  // Voice-memo pipeline (admission_call_logs.memo_* — written by analyze-voice-memos cron)
+  // Already selected via select('*') in getCallLogs / details routes.
+  memo_audio_url?: string | null;
+  memo_audio_duration_seconds?: number | null;
+  memo_transcript?: string | null;
+  memo_transcript_language?: string | null;
+  memo_sentiment?: string | null;
+  memo_sentiment_score?: number | null;
+  memo_summary?: string | null;
+  memo_categories?: string[] | null;
+  memo_analyze_status?: string | null;
+  memo_analyzed_at?: string | null;
+
   // Relationships (optional populated)
   lead?: { id: string; full_name: string; phone: string };
   counselor?: { id: string; full_name: string };
@@ -90,6 +113,12 @@ export interface CallLogFilters {
   to_date?: string;
   has_notes?: boolean;
   admission_only?: boolean;
+  /**
+   * When provided, restricts results to call logs whose lead_id is in this set.
+   * Used by the API route to mirror admission_leads source-scoping for strict
+   * counselor users. Empty array = no results.
+   */
+  lead_id_in?: string[];
   page?: number;
   limit?: number;
   sort_by?: string;
@@ -237,6 +266,16 @@ export class TelephonyService {
     if (filters.institution_id) query = query.eq('institution_id', filters.institution_id);
     if (filters.lead_id) query = query.eq('lead_id', filters.lead_id);
     if (filters.counselor_id) query = query.eq('counselor_id', filters.counselor_id);
+    // lead_id_in: counselor-visibility scope from the API route. Empty array
+    // means "no accessible leads" — return no rows rather than ignoring the
+    // filter (which would be a permission leak).
+    if (filters.lead_id_in) {
+      if (filters.lead_id_in.length === 0) {
+        query = query.eq('id', '00000000-0000-0000-0000-000000000000');
+      } else {
+        query = query.in('lead_id', filters.lead_id_in);
+      }
+    }
     if (filters.direction) query = query.eq('direction', filters.direction);
     // Use started_at (actual call time) not created_at (DB sync time)
     if (filters.from_date) query = query.gte('started_at', filters.from_date);
@@ -635,7 +674,8 @@ export class TelephonyService {
     const { mapOutcomeToDisposition } = await import('@/lib/utils/admission/stage-suggestions');
     const disposition = mapOutcomeToDisposition(input.call_outcome, input.interest_level);
     const followUpDateTime = input.follow_up_date ? (input.follow_up_time ? `${input.follow_up_date}T${input.follow_up_time}:00` : `${input.follow_up_date}T09:00:00`) : null;
-    const { data: callLog, error: callError } = await supabase.from('admission_call_logs').insert({ institution_id: input.institution_id, lead_id: input.lead_id, counselor_id: input.counselor_id || null, direction: 'outbound', status: 'completed', call_disposition: disposition, from_number: 'manual', to_number: input.phone_called, duration_seconds: 0, call_notes: input.call_notes || null, follow_up_date: followUpDateTime, is_admission_call: true }).select().single();
+    const manualCallSid = `manual-${crypto.randomUUID()}`;
+    const { data: callLog, error: callError } = await supabase.from('admission_call_logs').insert({ call_sid: manualCallSid, institution_id: input.institution_id, lead_id: input.lead_id, counselor_id: input.counselor_id || null, direction: 'outbound', status: 'completed', call_disposition: disposition, from_number: 'manual', to_number: input.phone_called, duration_seconds: 0, call_notes: input.call_notes || null, follow_up_date: followUpDateTime, is_admission_call: true }).select().single();
     if (callError) throw new Error(`Failed to log call: ${callError.message}`);
     let leadUpdated = false;
     const leadUpdate: Record<string, any> = { last_contact_at: new Date().toISOString(), updated_at: new Date().toISOString() };
@@ -1189,28 +1229,35 @@ export class TelephonyService {
     }
 
     if (finalLeadId) {
-      const activityTitle = isConnected
+      const mappedStatus = isConnected ? 'connected' : 'missed';
+      const activitySubject = isConnected
         ? `Inbound call — ${Math.floor(durationSec / 60)}m ${durationSec % 60}s with ${callContext.agentName || 'agent'}`
         : `Missed inbound call (attempt #${callCount} in 7 days)`;
 
-      await supabase.from('admission_lead_activities').insert({
-        lead_id: finalLeadId,
-        institution_id: institutionId,
-        activity_type: 'call',
-        title: activityTitle,
-        description: isMissed
+      // Bake what was previously the metadata object into a pipe-delimited
+      // description string — match inbound-call-sync-service style. Production
+      // schema for admission_lead_activities has no metadata/title/performed_by/
+      // institution_id columns; writing them silently failed pre-fix.
+      const descriptionParts = [
+        isMissed
           ? `Caller tried to reach ${callContext.department}${callContext.college ? ` (${callContext.college})` : ''}. No one answered.`
           : `Connected with ${callContext.agentName || 'agent'} in ${callContext.department}${callContext.college ? ` (${callContext.college})` : ''}.`,
-        performed_by: counselorId || null,
-        metadata: {
-          call_log_id: callLogId,
-          direction: 'inbound',
-          duration_seconds: durationSec,
-          department: callContext.department,
-          college: callContext.college,
-          call_number_today: callCount,
-          missed_count_today: missedCount,
-        },
+        `Direction: inbound`,
+        durationSec > 0 ? `Duration: ${durationSec}s` : null,
+        callContext.department ? `Department: ${callContext.department}` : null,
+        callContext.college ? `College: ${callContext.college}` : null,
+        `Call #${callCount} today`,
+        missedCount > 0 ? `Missed today: ${missedCount}` : null,
+        `call_log_id: ${callLogId}`,
+      ].filter(Boolean);
+
+      await supabase.from('admission_lead_activities').insert({
+        lead_id: finalLeadId,
+        activity_type: 'call',
+        subject: activitySubject,
+        description: descriptionParts.join(' | '),
+        outcome: mappedStatus,
+        created_by: counselorId || null,
       });
 
       // ── 5. Update lead: last_contacted_at + priority boost ──

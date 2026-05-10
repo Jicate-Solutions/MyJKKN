@@ -1,8 +1,7 @@
 'use client';
 // app/(routes)/resource-management/maintenance/_components/maintenance-filters.tsx
 
-import { Search, Filter, X } from 'lucide-react';
-import { Input } from '@/components/ui/input';
+import { Filter, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -14,13 +13,10 @@ import {
 } from '@/components/ui/select';
 import {
   MaintenanceType,
-  MaintenanceStatus,
-  MaintenancePriority
+  MaintenanceStatus
 } from '@/types/maintenance';
 
 interface MaintenanceFiltersProps {
-  searchQuery: string;
-  onSearchChange: (value: string) => void;
   typeFilter: string;
   onTypeChange: (value: string) => void;
   statusFilter: string;
@@ -31,8 +27,6 @@ interface MaintenanceFiltersProps {
 }
 
 export function MaintenanceFilters({
-  searchQuery,
-  onSearchChange,
   typeFilter,
   onTypeChange,
   statusFilter,
@@ -41,25 +35,14 @@ export function MaintenanceFilters({
   onPriorityChange,
   onClearFilters
 }: MaintenanceFiltersProps) {
+  // Search is provided by the DataTable's own toolbar, not here.
   const hasActiveFilters =
-    searchQuery ||
     typeFilter !== 'all' ||
     statusFilter !== 'all' ||
     priorityFilter !== 'all';
 
   return (
     <div className='space-y-4'>
-      {/* Search Bar */}
-      <div className='relative'>
-        <Search className='absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground' />
-        <Input
-          placeholder='Search by title or description...'
-          value={searchQuery}
-          onChange={(e) => onSearchChange(e.target.value)}
-          className='pl-10'
-        />
-      </div>
-
       {/* Filter Row */}
       <div className='grid gap-4 md:grid-cols-4'>
         {/* Type Filter */}
@@ -147,12 +130,6 @@ export function MaintenanceFilters({
       {/* Active Filters Display */}
       {hasActiveFilters && (
         <div className='flex items-center gap-2 flex-wrap'>
-          {searchQuery && (
-            <Badge variant='secondary' className='gap-1'>
-              <Filter className='h-3 w-3' />
-              Search: {searchQuery}
-            </Badge>
-          )}
           {typeFilter !== 'all' && (
             <Badge variant='secondary' className='gap-1'>
               <Filter className='h-3 w-3' />

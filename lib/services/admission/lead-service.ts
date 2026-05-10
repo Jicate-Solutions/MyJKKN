@@ -15,6 +15,8 @@ import type {
   CaptureMetaInput,
   CaptureAction,
   CaptureLeadResult,
+  GateEntryInput,
+  GateEntryResult,
 } from '@/types/admission';
 
 import { AssignmentRulesService, type LeadDataForAssignment } from './assignment-rules-service';
@@ -194,14 +196,14 @@ export class LeadService {
       query = query.eq('institution_id', institutionId);
     }
 
-    const { data, error } = await query.single();
+    const { data, error } = await query.maybeSingle();
 
     if (error) {
       console.error('[LeadService] Error fetching lead:', error);
-      if (error.code === 'PGRST116') {
-        throw new Error('Lead not found');
-      }
       throw new Error(`Failed to fetch lead: ${error.message}`);
+    }
+    if (!data) {
+      throw new Error('Lead not found');
     }
 
     return this.normalizeLead(data);
@@ -219,6 +221,35 @@ export class LeadService {
   static async createLead(leadData: CreateLeadInput, user?: User, supabaseOverride?: any): Promise<AdmissionLead> {
     const result = await this.captureLead(leadData, undefined, user, supabaseOverride);
     return result.lead;
+  }
+
+  /**
+   * Gate-entry kiosk capture. Calls the dedicated `capture_gate_entry_lead`
+   * RPC (which wraps `capture_admission_lead` and adds the gate_entry source
+   * capture row + permission gate). Returns the RPC's raw result so the UI
+   * can show "Welcome back" on `action: 'merged'`.
+   *
+   * The RPC is the single permission boundary — `admission.gate_entry.create`
+   * (granted to gate_security) — so a kiosk-only role can use this without
+   * being granted broader `admission.leads.create`.
+   */
+  static async createGateEntry(input: GateEntryInput): Promise<GateEntryResult> {
+    const supabase = createClientSupabaseClient();
+    const { data, error } = await supabase.rpc('capture_gate_entry_lead', {
+      p_first_name:       input.first_name,
+      p_phone:            input.phone,
+      p_institution_id:   input.institution_id,
+      p_last_name:        input.last_name ?? null,
+      p_program_id:       input.program_id ?? null,
+      p_referral_type:    input.source === 'referral' ? input.referral_type ?? null : null,
+      p_referred_by_id:   input.source === 'referral' ? input.referred_by_id ?? null : null,
+      p_referred_by_name: input.source === 'referral' ? input.referred_by_name ?? null : null,
+    });
+
+    if (error) {
+      throw new Error(error.message || 'Failed to log gate entry');
+    }
+    return data as GateEntryResult;
   }
 
   /**
@@ -958,7 +989,12 @@ export class LeadService {
   /**
    * Assign counselor to lead
    */
-  static async assignCounselor(leadId: string, counselorId: string, profileId?: string): Promise<AdmissionLead> {
+  static async assignCounselor(
+    leadId: string,
+    counselorId: string,
+    profileId?: string,
+    opts?: { reason?: string; override?: boolean }
+  ): Promise<AdmissionLead> {
     const { data: { user } } = await (this.supabase as any).auth.getUser();
 
     // Read current counselor_id to detect reassignment
@@ -998,7 +1034,7 @@ export class LeadService {
         lead_id: leadId,
         activity_type: 'note',
         subject: 'Counselor Assigned',
-        description: `Counselor "${counselorName}" assigned to this lead`,
+        description: `${opts?.override ? '[Override] ' : ''}Counselor "${counselorName}" assigned to this lead${opts?.reason ? ` — Reason: ${opts.reason}` : ''}`,
         created_by: user?.id || null,
       });
 
@@ -1128,79 +1164,65 @@ export class LeadService {
    * the authenticated user can access (controlled by RLS).
    */
   static async getFunnelSummary(institutionId?: string): Promise<any> {
-    let query = (this.supabase as any).from('admission_leads')
-      .select('stage, funnel_stage, is_hot_lead, is_priority');
-    if (institutionId) {
-      query = query.eq('institution_id', institutionId);
-    }
-    const { data, error } = await query;
+    // Server-side aggregate via RPC. Replaces a row-fetch+client-count
+    // that was silently truncated by PostgREST max_rows = 10000. The RPC
+    // returns { totalLeads, hotLeads, priorityLeads, byStage } as jsonb.
+    const { data, error } = await (this.supabase as any).rpc(
+      'get_admission_funnel_summary_aggregate',
+      { p_institution_id: institutionId ?? null }
+    );
 
     if (error) {
       console.error('[LeadService] Error fetching funnel summary:', error);
       throw new Error(`Failed to fetch funnel summary: ${error.message}`);
     }
 
-    const leads = data || [];
+    const totalLeads = Number(data?.totalLeads ?? 0);
+    const hotLeads = Number(data?.hotLeads ?? 0);
+    const priorityLeads = Number(data?.priorityLeads ?? 0);
+    const byStageRaw: Record<string, number | string> = data?.byStage ?? {};
 
-    // Count by stage — all 22 stages from admission_lead_stage enum
+    // Normalize byStage to the typed Record<FunnelStage, number> shape that
+    // existing consumers expect, with all 26 stages present (zeros for those
+    // not represented in the RPC response).
     const byStage: Record<FunnelStage, number> = {
-      new: 0,
-      contacted: 0,
-      not_reachable: 0,
-      interested: 0,
-      follow_up_scheduled: 0,
-      engaged: 0,
-      qualified: 0,
-      application_started: 0,
-      application_submitted: 0,
-      documents_pending: 0,
-      documents_verified: 0,
-      interview_scheduled: 0,
-      interview_completed: 0,
-      offer_sent: 0,
-      offer_accepted: 0,
-      token_paid: 0,
-      applied: 0,
-      interviewed: 0,
-      offered: 0,
-      enrolled: 0,
-      confirmed: 0,
-      declined: 0,
-      withdrew: 0,
-      expired: 0,
-      lost: 0,
-      dormant: 0
+      new: 0, contacted: 0, not_reachable: 0, interested: 0,
+      follow_up_scheduled: 0, engaged: 0, qualified: 0,
+      application_started: 0, application_submitted: 0,
+      documents_pending: 0, documents_verified: 0,
+      interview_scheduled: 0, interview_completed: 0,
+      offer_sent: 0, offer_accepted: 0, token_paid: 0,
+      applied: 0, interviewed: 0, offered: 0,
+      enrolled: 0, confirmed: 0, declined: 0,
+      withdrew: 0, expired: 0, lost: 0, dormant: 0,
     };
-
-    let hotLeads = 0;
-    let priorityLeads = 0;
-
-    leads.forEach((lead: any) => {
-      const leadStage = lead.stage || lead.funnel_stage;
-      if (leadStage && byStage[leadStage as FunnelStage] !== undefined) {
-        byStage[leadStage as FunnelStage]++;
+    for (const [k, v] of Object.entries(byStageRaw)) {
+      if (k in byStage) {
+        byStage[k as FunnelStage] = Number(v) || 0;
       }
-      if (lead.is_hot_lead) {
-        hotLeads++;
-        priorityLeads++;
-      } else if (lead.is_priority) {
-        priorityLeads++;
-      }
-    });
+    }
 
     // Build stages array for funnel visualization
     const stages = Object.entries(byStage).map(([stage, count]) => ({
       stage,
       count,
-      percentage: leads.length > 0 ? (count / leads.length) * 100 : 0
+      percentage: totalLeads > 0 ? (count / totalLeads) * 100 : 0,
     }));
 
+    // activeTotal excludes terminal lifecycle stages.
+    const TERMINAL_STAGES: FunnelStage[] = [
+      'lost', 'dormant', 'enrolled', 'confirmed', 'declined', 'withdrew', 'expired',
+    ];
+    const terminalCount = TERMINAL_STAGES.reduce((sum, s) => sum + (byStage[s] || 0), 0);
+    const activeTotal = totalLeads - terminalCount;
+
     return {
-      total: leads.length,
+      total: totalLeads,
+      activeTotal,
       byStage,
       hotLeads,
       priorityLeads,
-      stages
+      stages,
     };
   }
 
@@ -1210,56 +1232,32 @@ export class LeadService {
    * the authenticated user can access (controlled by RLS).
    */
   static async getDashboardSummary(institutionId?: string): Promise<any> {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
-    // Get all leads - select both stage (enum) and funnel_stage (legacy)
-    let leadsQuery = (this.supabase as any).from('admission_leads')
-      .select('stage, funnel_stage, created_at, is_hot_lead, is_priority, last_contact_at, next_followup_at');
-    if (institutionId) {
-      leadsQuery = leadsQuery.eq('institution_id', institutionId);
-    }
-    const { data: leads, error } = await leadsQuery;
+    // Server-side aggregate via RPC. The previous implementation fetched
+    // every lead row and counted client-side, which was silently capped at
+    // PostgREST's max_rows (10,000) — so /admission/analytics showed
+    // "Total Leads: 10,000" exactly for any institution with more leads.
+    // The RPC returns COUNT(*) results which are unaffected by row caps.
+    const { data, error } = await (this.supabase as any).rpc(
+      'get_admission_dashboard_summary_aggregate',
+      { p_institution_id: institutionId ?? null }
+    );
 
     if (error) {
       console.error('[LeadService] Error fetching dashboard summary:', error);
       throw new Error(`Failed to fetch dashboard summary: ${error.message}`);
     }
 
-    const allLeads = leads || [];
-
-    const totalLeads = allLeads.length;
-    const newLeads = allLeads.filter((l: any) =>
-      new Date(l.created_at) >= today
-    ).length;
-    const convertedLeads = allLeads.filter((l: any) => {
-      const s = l.stage || l.funnel_stage;
-      return s === 'enrolled';
-    }).length;
-    // Count leads with overdue or pending followups
-    const pendingFollowups = allLeads.filter((l: any) => {
-      const s = l.stage || l.funnel_stage;
-      return l.next_followup_at && new Date(l.next_followup_at) <= new Date() &&
-        s !== 'enrolled' && s !== 'lost';
-    }).length;
-    const todayFollowups = allLeads.filter((l: any) => {
-      const s = l.stage || l.funnel_stage;
-      return l.next_followup_at &&
-        new Date(l.next_followup_at).toDateString() === today.toDateString() &&
-        s !== 'enrolled' && s !== 'lost';
-    }).length;
-
-    const conversionRate = totalLeads > 0
-      ? (convertedLeads / totalLeads) * 100
-      : 0;
-
-    return {
-      totalLeads,
-      newLeads,
-      convertedLeads,
-      pendingFollowups,
-      todayFollowups,
-      conversionRate: Math.round(conversionRate * 10) / 10
+    // The RPC already returns the canonical shape (camelCase keys, rounded
+    // rates) — no client-side reshaping needed.
+    return data ?? {
+      totalLeads: 0,
+      newLeads: 0,
+      convertedLeads: 0,
+      applicationStartedLeads: 0,
+      pendingFollowups: 0,
+      todayFollowups: 0,
+      conversionRate: 0,
+      applicationStartRate: 0,
     };
   }
 }

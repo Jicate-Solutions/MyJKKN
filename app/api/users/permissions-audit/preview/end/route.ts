@@ -1,7 +1,6 @@
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-import { createServerClient } from '@supabase/ssr';
 import { createClient } from '@supabase/supabase-js';
 import { cookies } from 'next/headers';
 import { NextResponse, connection } from 'next/server';
@@ -16,25 +15,25 @@ import { PREVIEW_ADMIN_BACKUP_COOKIE } from '../start/route';
 // ============================================================================
 // POST /api/users/permissions-audit/preview/end
 //
-// Ends the current preview by RE-ISSUING a fresh Supabase session for the
-// admin — not restoring one from a cookie backup.
+// Ends the preview session by performing a CLEAN LOGOUT — clears the target's
+// Supabase auth cookies and the preview marker cookie, then returns. The
+// client navigates to /auth/login afterwards so the admin signs back in fresh.
 //
-// Why re-issue instead of restore?
-//   Earlier versions backed up admin's sb-*-auth-token.* cookies into a
-//   single sb-preview-admin-backup cookie as JSON. Supabase tokens are ~2KB
-//   each chunk; two chunks serialized often exceed the browser's ~4KB single-
-//   cookie limit, are silently truncated, and /end reads garbage. Admin
-//   lands on the login page with no session.
+// Why a clean logout instead of regenerating the admin's session?
+//   Prior implementations tried two approaches and both had reliability issues:
+//     1. Cookie backup: stored admin's sb-*-auth-token.* cookies as JSON in
+//        a single sb-preview-admin-backup cookie. Two chunks × ~2KB each
+//        often exceeded the browser's ~4KB single-cookie limit, got silently
+//        truncated, and /end read garbage.
+//     2. admin.generateLink + verifyOtp: minted a fresh admin session at exit.
+//        Worked most of the time but failed at three points (generateLink,
+//        verifyOtp, setSession) — when any failed, the admin landed on the
+//        login page anyway with confusing partial-state cookies still set.
 //
-//   Fix: don't store cookies. Use admin.generateLink + verifyOtp with the
-//   admin's email (from the signed preview JWT's originator_email claim) to
-//   mint a brand-new session. Same primitive we used to impersonate the
-//   target on /start — just pointed at the admin this time. Zero cookie-size
-//   ceiling, no stale-token drift, no collision with supabase-ssr's adapter.
-//
-// Security: admin.generateLink doesn't email the user (admin.* skips
-// delivery). originator_email is signed by us, so an attacker can't swap
-// emails without the signing secret.
+// The cleaner model: always log the admin out at exit. Single failure mode
+// (cookies don't get cleared → user re-tries), no surprise session swaps,
+// and matches the refresh-during-preview behavior so users are never confused
+// about which identity is active.
 // ============================================================================
 
 export async function POST() {
@@ -43,24 +42,23 @@ export async function POST() {
   try {
     const cookieStore = await cookies();
 
-    // Step 1 — read preview claims first (before any cookie mutation).
+    // Step 1 — read preview claims (so we can audit the end event before
+    // touching cookies). Failure here is non-fatal; cookies still get cleared.
     const claims = await getPreviewClaimsFromCookies();
 
-    // Service-role client used for both the DB lookups and the regen flow.
-    const serviceClient = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!,
-      { auth: { autoRefreshToken: false, persistSession: false } },
-    );
-
-    let adminEmail: string | null = null;
-    let actorName = 'Unknown';
-    let actorRole: string | null = null;
-    let targetEmail: string | null = null;
-
-    // Step 2 — audit end event + gather admin email for regen.
+    // Step 2 — audit end event. Best-effort; never blocks the cookie clear.
     if (claims) {
+      let actorName = 'Unknown';
+      let actorEmail: string | null = claims.originator_email ?? null;
+      let actorRole: string | null = null;
+      let targetEmail: string | null = null;
+
       try {
+        const serviceClient = createClient(
+          process.env.NEXT_PUBLIC_SUPABASE_URL!,
+          process.env.SUPABASE_SERVICE_ROLE_KEY!,
+          { auth: { autoRefreshToken: false, persistSession: false } },
+        );
         const [{ data: adminProfile }, { data: targetProfile }] = await Promise.all([
           serviceClient
             .from('profiles')
@@ -74,8 +72,8 @@ export async function POST() {
             .single(),
         ]);
         if (adminProfile) {
-          adminEmail = adminProfile.email ?? null;
           actorName = adminProfile.full_name || adminProfile.email || 'Unknown';
+          actorEmail = adminProfile.email ?? actorEmail;
           actorRole = adminProfile.role ?? null;
         }
         if (targetProfile) {
@@ -88,26 +86,21 @@ export async function POST() {
         );
       }
 
-      // Fall back to JWT claim if DB lookup returned nothing.
-      if (!adminEmail && claims.originator_email) {
-        adminEmail = claims.originator_email;
-      }
-
       await writePreviewAudit({
         actionType: 'preview_session_ended',
         actorUserId: claims.originator,
         actorName,
-        actorEmail: adminEmail,
+        actorEmail,
         actorRole,
         targetUserId: claims.sub,
         targetEmail,
         mode: claims.mode,
         sessionId: claims.sessionId,
-        description: `${actorName} ended preview session`,
+        description: `${actorName} ended preview session (clean logout)`,
       });
     }
 
-    // Step 3 — build response; all cookie mutations staged on it.
+    // Step 3 — build response with all cookie deletions staged.
     const res = NextResponse.json({ ok: true });
     const secureFlag = process.env.NODE_ENV === 'production';
     const baseOpts = {
@@ -117,96 +110,15 @@ export async function POST() {
       path: '/',
     };
 
-    // Step 4 — re-issue admin session via magic-link exchange.
-    let adminSessionInstalled = false;
-    if (adminEmail) {
-      try {
-        const { data: linkData, error: linkError } =
-          await serviceClient.auth.admin.generateLink({
-            type: 'magiclink',
-            email: adminEmail,
-          });
-
-        if (linkError || !linkData?.properties?.hashed_token) {
-          console.error(
-            '[preview/end] admin.generateLink failed — Admin will need to re-login',
-            linkError,
-          );
-        } else {
-          const exchangeClient = createClient(
-            process.env.NEXT_PUBLIC_SUPABASE_URL!,
-            process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-            { auth: { autoRefreshToken: false, persistSession: false } },
-          );
-          const { data: otpData, error: otpError } =
-            await exchangeClient.auth.verifyOtp({
-              token_hash: linkData.properties.hashed_token,
-              type: 'magiclink',
-            });
-
-          if (otpError || !otpData?.session) {
-            console.error(
-              '[preview/end] verifyOtp for admin failed — Admin will need to re-login',
-              otpError,
-            );
-          } else {
-            // Install admin's fresh session cookies on the response.
-            const adminSupabase = createServerClient(
-              process.env.NEXT_PUBLIC_SUPABASE_URL!,
-              process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-              {
-                cookies: {
-                  get(name: string) {
-                    return cookieStore.get(name)?.value;
-                  },
-                  set(name: string, value: string, options: any) {
-                    res.cookies.set(name, value, { ...options, ...baseOpts });
-                  },
-                  remove(name: string, options: any) {
-                    res.cookies.set(name, '', {
-                      ...options,
-                      ...baseOpts,
-                      maxAge: 0,
-                    });
-                  },
-                },
-              },
-            );
-            const { error: setSessionError } = await adminSupabase.auth.setSession({
-              access_token: otpData.session.access_token,
-              refresh_token: otpData.session.refresh_token,
-            });
-
-            if (setSessionError) {
-              console.error(
-                '[preview/end] setSession for admin failed — Admin will need to re-login',
-                setSessionError,
-              );
-            } else {
-              adminSessionInstalled = true;
-            }
-          }
-        }
-      } catch (regenErr) {
-        console.error(
-          '[preview/end] Admin session regeneration threw — Admin will need to re-login',
-          regenErr,
-        );
+    // Step 4 — wipe ALL Supabase auth-token cookies (target's session). The
+    // browser may have multiple chunks (sb-<project>-auth-token.0, .1, etc).
+    for (const c of cookieStore.getAll()) {
+      if (c.name.startsWith('sb-') && c.name.includes('-auth-token')) {
+        res.cookies.set(c.name, '', { ...baseOpts, maxAge: 0 });
       }
     }
 
-    // Step 5 — if regen failed, wipe target's session so browser ends up clean.
-    // Otherwise supabase-ssr's setSession above already overwrote them with
-    // the admin's fresh session.
-    if (!adminSessionInstalled) {
-      for (const c of cookieStore.getAll()) {
-        if (c.name.startsWith('sb-') && c.name.includes('-auth-token')) {
-          res.cookies.set(c.name, '', { ...baseOpts, maxAge: 0 });
-        }
-      }
-    }
-
-    // Step 6 — delete preview marker + legacy backup cookies.
+    // Step 5 — delete preview marker + legacy backup cookies.
     res.cookies.set(PREVIEW_COOKIE_NAME, '', { ...baseOpts, maxAge: 0 });
     res.cookies.set(PREVIEW_ADMIN_BACKUP_COOKIE, '', { ...baseOpts, maxAge: 0 });
 

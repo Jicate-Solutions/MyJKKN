@@ -9613,9 +9613,15 @@ GRANT EXECUTE ON FUNCTION public.mirror_staff_role_to_user_roles(uuid, text) TO 
 -- admission_counselor. The 2-arg signature was DROPped to avoid overload
 -- ambiguity — every caller now resolves to this 3-arg version with p_role_key
 -- defaulting when omitted.
+-- Updated 2026-05-08 (phase 3.2): p_is_primary default flipped from true to
+-- NULL (auto-decide). Auto rule: stay primary ONLY if user has no other
+-- primary user_roles row. Prevents accidental overwrite of profiles.role
+-- via sync_primary_role_to_profile() AFTER-INSERT trigger when an admin
+-- adds a counselor on a user who already has a primary identity (e.g.
+-- 'student' on a learner).
 CREATE OR REPLACE FUNCTION public.assign_counselor_role(
     p_user_id    uuid,
-    p_is_primary boolean DEFAULT true,
+    p_is_primary boolean DEFAULT NULL,
     p_role_key   text    DEFAULT 'admission_counselor'
 ) RETURNS void
 LANGUAGE plpgsql
@@ -9623,9 +9629,11 @@ SECURITY DEFINER
 SET search_path = public
 AS $$
 DECLARE
-    v_role_id      uuid;
-    v_caller       uuid := auth.uid();
-    v_allowed_keys text[] := ARRAY[
+    v_role_id        uuid;
+    v_caller         uuid := auth.uid();
+    v_has_primary    boolean;
+    v_make_primary   boolean;
+    v_allowed_keys   text[] := ARRAY[
       'admission_counselor',
       'expo_counselor',
       'learner_counselor',
@@ -9667,10 +9675,25 @@ BEGIN
         RETURN;
     END IF;
 
-    -- Demote any existing primary first to avoid the partial unique index
-    -- idx_user_roles_primary_unique firing before sync_primary_role_trigger
-    -- can do its own AFTER-INSERT demotion.
-    IF COALESCE(p_is_primary, true) = true THEN
+    -- Decide is_primary:
+    --   - explicit TRUE  → caller forces primary (demote-then-insert)
+    --   - explicit FALSE → caller forces additive (no demote, never primary)
+    --   - NULL (default) → auto: primary only if user has no other primary yet
+    SELECT EXISTS (
+        SELECT 1 FROM user_roles
+         WHERE user_id = p_user_id AND is_primary = true
+    ) INTO v_has_primary;
+
+    v_make_primary := CASE
+        WHEN p_is_primary IS TRUE  THEN true
+        WHEN p_is_primary IS FALSE THEN false
+        ELSE NOT v_has_primary
+    END;
+
+    -- Only demote when this insert will actually be primary. Required to
+    -- satisfy the partial unique index idx_user_roles_primary_unique
+    -- before the AFTER-INSERT trigger sync_primary_role_to_profile fires.
+    IF v_make_primary THEN
         UPDATE user_roles
         SET is_primary = false
         WHERE user_id = p_user_id
@@ -9678,7 +9701,7 @@ BEGIN
     END IF;
 
     INSERT INTO user_roles (user_id, role_id, is_primary, assigned_by)
-    VALUES (p_user_id, v_role_id, COALESCE(p_is_primary, true), v_caller);
+    VALUES (p_user_id, v_role_id, v_make_primary, v_caller);
 END;
 $$;
 
@@ -13803,3 +13826,95 @@ $$;
 
 REVOKE ALL ON FUNCTION public.admission_adopt_structure_for_lead(uuid) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.admission_adopt_structure_for_lead(uuid) TO authenticated;
+
+-- ============================================================================
+-- 2026-05-11 — Admission leads RLS gap closure
+--   Migration: 20260511000000_admission_leads_close_rls_asymmetry_and_primary_role_strict_check.sql
+--   Bugs:     BUG-003934, BUG-003933, BUG-003932, BUG-003928
+--
+--   - _user_owns_lead_via_counselor_id (NEW): mirrors the API helper at
+--     lib/api-helpers/admission-counselor-scope.ts so RLS can grant
+--     visibility via the legacy admission_leads.counselor_id column,
+--     not just assigned_counselor_id. Closes list-vs-detail asymmetry.
+--   - _user_is_strict_counselor (REWRITTEN): require is_primary on the
+--     counselor branch so multi-role executives (hr_admin + secondary
+--     admission_counselor) keep their broader visibility.
+--   - _user_can_view_lead_for_call (REWRITTEN): adopts the OR-both-columns
+--     visibility model used by the leads policies.
+--
+--   The adm_leads_select / adm_leads_update policies that consume these
+--   functions live in the migration above (no canonical setup/03 file
+--   for admission_leads policies — they're migration-only by convention).
+-- ============================================================================
+
+CREATE OR REPLACE FUNCTION public._user_owns_lead_via_counselor_id(p_uid uuid, p_counselor_id uuid)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT p_counselor_id IS NOT NULL
+     AND EXISTS (
+       SELECT 1 FROM admission_counselors
+        WHERE id = p_counselor_id AND user_id = p_uid
+     );
+$$;
+
+COMMENT ON FUNCTION public._user_owns_lead_via_counselor_id(uuid, uuid) IS
+  'Closes RLS gap where lib/api-helpers/admission-counselor-scope.ts grants list visibility via counselor_id but RLS does not. Added 2026-05-11.';
+
+CREATE OR REPLACE FUNCTION public._user_is_strict_counselor(p_uid uuid)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT
+    EXISTS (
+      SELECT 1
+        FROM user_roles ur
+        JOIN custom_roles cr ON cr.id = ur.role_id
+       WHERE ur.user_id = p_uid
+         AND ur.is_primary = TRUE
+         AND cr.role_key IN (
+           'admission_counselor',
+           'expo_counselor',
+           'learner_counselor',
+           'staff_counselor'
+         )
+    )
+    AND NOT EXISTS (
+      SELECT 1
+        FROM user_roles ur
+        JOIN custom_roles cr ON cr.id = ur.role_id
+       WHERE ur.user_id = p_uid
+         AND cr.role_key IN ('admission', 'administrator')
+    );
+$$;
+
+COMMENT ON FUNCTION public._user_is_strict_counselor(uuid) IS
+  'TRUE iff the user PRIMARILY identifies as a counselor (counselor key is is_primary=true) AND holds no admission/administrator override. Updated 2026-05-11 to require is_primary so multi-role executives are not demoted.';
+
+CREATE OR REPLACE FUNCTION public._user_can_view_lead_for_call(p_uid uuid, p_lead_id uuid)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT EXISTS (
+    SELECT 1
+      FROM admission_leads l
+     WHERE l.id = p_lead_id
+       AND l.source <> 'referral'
+       AND (
+         l.assigned_counselor_id = p_uid
+         OR _user_owns_lead_via_counselor_id(p_uid, l.counselor_id)
+       )
+  );
+$$;
+
+COMMENT ON FUNCTION public._user_can_view_lead_for_call(uuid, uuid) IS
+  'SECURITY DEFINER lookup: does this user own this NON-REFERRAL lead via assigned_counselor_id OR counselor_id? Updated 2026-05-11 to close RLS asymmetry.';

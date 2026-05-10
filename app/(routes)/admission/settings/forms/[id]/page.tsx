@@ -61,7 +61,15 @@ import { PermissionGuard } from '@/components/auth/permission-guard';
 import { AdmissionErrorBoundary } from '@/components/admission';
 import { useAdmissionForm, useFormMutations } from '@/hooks/admission/use-admission-forms';
 import { FormBuilderService } from '@/lib/services/admission/form-builder-service';
-import type { FormFieldType, AdmissionFormField } from '@/types/admission';
+import type {
+  FormFieldType,
+  AdmissionFormField,
+  LeadSource,
+} from '@/types/admission';
+
+// Channel attribution options come from useActiveLeadSources() — admin-curated
+// rows in admission_lead_sources_master replace this once-static list.
+import { useActiveLeadSources } from '@/hooks/admission/use-active-lead-sources';
 import { FormPreviewDialog } from './_components/form-preview-dialog';
 import { ImageUploadField } from './_components/image-upload-field';
 import {
@@ -498,6 +506,7 @@ function FormSettingsPanel({
   onPersist?: (updates: any) => void;
   formId: string;
 }) {
+  const { options: leadSourceOptions } = useActiveLeadSources();
   return (
     <div className="space-y-4 text-sm">
       <div>
@@ -516,6 +525,29 @@ function FormSettingsPanel({
           value={form.description ?? ''}
           onChange={(e) => onUpdate({ description: e.target.value })}
         />
+      </div>
+      <div>
+        <Label htmlFor="set-lead-source">Lead Source</Label>
+        <Select
+          value={(form.lead_source as LeadSource) || 'website'}
+          onValueChange={(v) => onUpdate({ lead_source: v as LeadSource })}
+        >
+          <SelectTrigger id="set-lead-source">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {leadSourceOptions.map((opt) => (
+              <SelectItem key={opt.masterId} value={opt.value}>
+                {opt.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <p className="text-xs text-muted-foreground mt-1">
+          Submissions from this form attribute leads to this source in the
+          leads module. The website form keeps the default <em>Website</em>;
+          a WhatsApp-campaign form should use <em>WhatsApp</em>.
+        </p>
       </div>
       <div>
         <Label htmlFor="set-color">Primary Color</Label>
@@ -791,6 +823,7 @@ function FormBuilderContent({ formId }: { formId: string }) {
         thank_you_message: localFormState.thank_you_message,
         auto_whatsapp: localFormState.auto_whatsapp,
         allow_duplicate: localFormState.allow_duplicate,
+        lead_source: localFormState.lead_source,
       },
     });
     // react-hot-toast's promise helper gives inline loading/success/error states
@@ -815,6 +848,7 @@ function FormBuilderContent({ formId }: { formId: string }) {
             thank_you_message: localFormState.thank_you_message,
             auto_whatsapp: localFormState.auto_whatsapp,
             allow_duplicate: localFormState.allow_duplicate,
+            lead_source: localFormState.lead_source,
           },
         });
       }

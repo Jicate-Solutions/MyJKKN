@@ -38,7 +38,6 @@ function NewFeeStructurePageContent() {
     && selectedDims.programme_id
     && selectedDims.admission_year_id
     && selectedDims.quota_id
-    && selectedDims.community_category_id
     && selectedDims.accommodation_type_id
   );
 

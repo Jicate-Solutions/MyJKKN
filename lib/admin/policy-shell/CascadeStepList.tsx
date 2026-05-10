@@ -46,6 +46,12 @@ interface CascadeStepListProps<TRow extends { id: string; is_active?: boolean }>
   rowToFormValues?: (row: TRow) => Record<string, unknown>;
   /** Field name that determines is_active (toggle target). Default: 'is_active'. */
   activeFieldName?: keyof TRow;
+  /**
+   * Hide the "Add" button. Pages that read globally (no scope picked, e.g.
+   * super_admin without an institution) set this true to avoid surfacing a
+   * create affordance that would error on submit.
+   */
+  hideAddButton?: boolean;
 }
 
 export function CascadeStepList<
@@ -57,6 +63,7 @@ export function CascadeStepList<
   newRowDefaults,
   rowToFormValues,
   activeFieldName,
+  hideAddButton,
 }: CascadeStepListProps<TRow>) {
   const [rows, setRows] = useState<TRow[] | null>(null);
   const [loading, setLoading] = useState(true);
@@ -182,10 +189,12 @@ export function CascadeStepList<
             <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
             Refresh
           </Button>
-          <Button size="sm" onClick={handleNew} className="gap-2">
-            <Plus className="h-4 w-4" />
-            {config.addLabel}
-          </Button>
+          {!hideAddButton && (
+            <Button size="sm" onClick={handleNew} className="gap-2">
+              <Plus className="h-4 w-4" />
+              {config.addLabel}
+            </Button>
+          )}
         </div>
       </div>
 
