@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useQueryClient } from '@tanstack/react-query';
-import { useGroupDashboard, groupDashboardKeys } from '@/hooks/admission/use-group-dashboard';
+import { useGroupDashboard, useSeatAnalytics, groupDashboardKeys } from '@/hooks/admission/use-group-dashboard';
 import { admissionAccreditationKeys } from '@/hooks/admission/use-admission-accreditation-report';
 import { InstitutionComparisonTable } from './_components/institution-comparison-table';
 import { GroupFunnelChart, InstitutionPerformanceChart } from './_components/overview-charts';
@@ -150,6 +150,31 @@ export default function GroupDashboardPage() {
     selectedYear
   );
 
+  // Top KPI strip is leads-sourced by default; on the Seats tab we re-source
+  // Filled / Total Seats / Fill Rate from the seat_analytics RPC so the strip
+  // and the inner tab can never disagree. useSeatAnalytics takes a *singular*
+  // institutionId; passing undefined requests the all-institution rollup
+  // (super-admin / multi-institution path).
+  const singleInstitutionId =
+    scopedInstitutionIds && scopedInstitutionIds.length === 1
+      ? scopedInstitutionIds[0]
+      : undefined;
+  const { data: seatRows } = useSeatAnalytics(singleInstitutionId, selectedYear);
+  const seatTotals = useMemo(() => {
+    if (!seatRows || seatRows.length === 0) return null;
+    let totalSeats = 0;
+    let filledSeats = 0;
+    for (const r of seatRows) {
+      totalSeats += r.total_seats;
+      filledSeats += Number(r.filled_seats);
+    }
+    return {
+      totalSeats,
+      filledSeats,
+      fillPct: totalSeats > 0 ? Math.round((filledSeats / totalSeats) * 100) : 0,
+    };
+  }, [seatRows]);
+
   const handleRefresh = () => {
     queryClient.invalidateQueries({ queryKey: groupDashboardKeys.all });
     queryClient.invalidateQueries({ queryKey: admissionAccreditationKeys.all });
@@ -258,14 +283,26 @@ export default function GroupDashboardPage() {
           {!isLoading && data?.totals && (
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
               {(() => {
+                // On the Seats tab, Filled and Fill Rate switch to seat-occupancy
+                // sourcing (same RPC the inner tab uses) so the strip can't
+                // disagree with the table beneath it. Other cards stay
+                // leads-sourced because they have no seat-side equivalent.
+                const useSeatSource = activeTab === 'seats' && seatTotals !== null;
                 const valueByMetric: Record<DrilldownMetric, string | number> = {
                   total_leads: data.totals.total_leads,
                   applied: data.totals.total_applied,
-                  filled: data.totals.total_filled,
+                  filled: useSeatSource
+                    ? seatTotals!.filledSeats
+                    : data.totals.total_filled,
                   rejected: data.totals.total_rejected,
-                  total_seats: data.totals.total_seats || '—',
-                  fill_rate:
-                    data.totals.total_seats > 0
+                  total_seats: useSeatSource
+                    ? seatTotals!.totalSeats || '—'
+                    : data.totals.total_seats || '—',
+                  fill_rate: useSeatSource
+                    ? seatTotals!.totalSeats > 0
+                      ? `${seatTotals!.fillPct}%`
+                      : '—'
+                    : data.totals.total_seats > 0
                       ? `${data.totals.overall_fill_percentage}%`
                       : '—',
                   // unused on top row but typed-record needs values
