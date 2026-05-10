@@ -79,7 +79,6 @@ import {
   Trash2,
   Loader2,
   ExternalLink,
-  Info,
   UserPlus,
   Image as ImageIcon,
   Film,
@@ -109,12 +108,6 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from '@/components/ui/tooltip';
 import toast from 'react-hot-toast';
 import { AdmissionErrorBoundary } from '@/components/admission';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
@@ -130,6 +123,7 @@ import { showSendErrorToast } from '@/lib/whatsapp/show-send-error-toast';
 import { usePersonalWhatsAppStatus } from '@/hooks/admission/use-whatsapp-personal';
 import { HandoverBanner } from '@/components/admission/leads/handover-banner';
 import { LeadHeader } from '@/components/admission/leads/lead-header';
+import { LeadScoreCards } from '@/components/admission/leads/lead-score-cards';
 import { useLeadCascadeHistory } from '@/hooks/admission/use-lead-cascade-history';
 // BUG-003016: centralised DD/MM/YYYY formatter — replaces bare
 // toLocaleDateString() calls that were rendering ambiguously depending
@@ -1523,136 +1517,11 @@ function LeadDetailPageContent() {
             {/* Left Column - Details & Tabs */}
             <div className="lg:col-span-2 space-y-6">
               {/* Score Cards */}
-              <TooltipProvider delayDuration={200}>
-              <div className="grid grid-cols-4 gap-4">
-                {/* Overall Score */}
-                <Card>
-                  <CardContent className="py-4">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <div className="flex items-center gap-1">
-                          <p className="text-xs text-muted-foreground">Score</p>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Info className="h-3 w-3 text-muted-foreground cursor-help" />
-                            </TooltipTrigger>
-                            <TooltipContent side="bottom" className="max-w-[260px] text-xs space-y-1.5 p-3">
-                              <p className="font-semibold">Overall Lead Score</p>
-                              <p>Weighted average of Engagement and Quality:</p>
-                              <p className="font-mono text-[11px]">Score = (Engagement × 50%) + (Quality × 50%)</p>
-                              <div className="border-t pt-1.5 mt-1.5 space-y-0.5">
-                                <p>Engagement: <span className="font-medium">{computedScores.engagement}</span> pts</p>
-                                <p>Quality: <span className="font-medium">{computedScores.quality}</span> pts</p>
-                              </div>
-                            </TooltipContent>
-                          </Tooltip>
-                        </div>
-                        <p className="text-2xl font-bold">{computedScores.score}</p>
-                      </div>
-                      <Target className="h-8 w-8 text-primary opacity-50" />
-                    </div>
-                  </CardContent>
-                </Card>
-
-                {/* Category */}
-                <Card>
-                  <CardContent className="py-4">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <div className="flex items-center gap-1">
-                          <p className="text-xs text-muted-foreground">Category</p>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Info className="h-3 w-3 text-muted-foreground cursor-help" />
-                            </TooltipTrigger>
-                            <TooltipContent side="bottom" className="max-w-[220px] text-xs space-y-1 p-3">
-                              <p className="font-semibold">Score Category Thresholds</p>
-                              <p className={`${computedScores.category === 'hot' ? 'font-bold' : 'opacity-70'} text-red-300`}>Hot: 75 – 100</p>
-                              <p className={`${computedScores.category === 'warm' ? 'font-bold' : 'opacity-70'} text-orange-300`}>Warm: 50 – 74</p>
-                              <p className={`${computedScores.category === 'cool' ? 'font-bold' : 'opacity-70'} text-cyan-300`}>Cool: 25 – 49</p>
-                              <p className={`${computedScores.category === 'cold' ? 'font-bold' : 'opacity-70'} text-blue-300`}>Cold: 0 – 24</p>
-                              <p className="border-t pt-1 mt-1">Current score: <span className="font-medium">{computedScores.score}</span></p>
-                            </TooltipContent>
-                          </Tooltip>
-                        </div>
-                        <p className={`text-2xl font-bold capitalize ${
-                          computedScores.category === 'hot' ? 'text-red-600' :
-                          computedScores.category === 'warm' ? 'text-orange-600' :
-                          computedScores.category === 'cool' ? 'text-cyan-600' :
-                          computedScores.category === 'cold' ? 'text-blue-600' : 'text-muted-foreground'
-                        }`}>
-                          {computedScores.category}
-                        </p>
-                      </div>
-                      <Flame className="h-8 w-8 text-orange-500 opacity-50" />
-                    </div>
-                  </CardContent>
-                </Card>
-
-                {/* Engagement */}
-                <Card>
-                  <CardContent className="py-4">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <div className="flex items-center gap-1">
-                          <p className="text-xs text-muted-foreground">Engagement</p>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Info className="h-3 w-3 text-muted-foreground cursor-help" />
-                            </TooltipTrigger>
-                            <TooltipContent side="bottom" className="max-w-[260px] text-xs space-y-1.5 p-3">
-                              <p className="font-semibold">Engagement Score</p>
-                              <p>Based on activity interactions with this lead:</p>
-                              {Object.keys(computedScores.engagementBreakdown).length > 0 ? (
-                                <div className="border-t pt-1.5 mt-1.5 space-y-0.5">
-                                  {Object.entries(computedScores.engagementBreakdown).map(([label, data]) => (
-                                    <p key={label}>{label}: {data.count}× = <span className="font-medium">{data.points} pts</span></p>
-                                  ))}
-                                </div>
-                              ) : (
-                                <p className="text-muted-foreground italic border-t pt-1.5 mt-1.5">No activities recorded yet</p>
-                              )}
-                            </TooltipContent>
-                          </Tooltip>
-                        </div>
-                        <p className="text-2xl font-bold">{computedScores.engagement}</p>
-                      </div>
-                      <TrendingUp className="h-8 w-8 text-blue-500 opacity-50" />
-                    </div>
-                  </CardContent>
-                </Card>
-
-                {/* Quality */}
-                <Card>
-                  <CardContent className="py-4">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <div className="flex items-center gap-1">
-                          <p className="text-xs text-muted-foreground">Quality</p>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Info className="h-3 w-3 text-muted-foreground cursor-help" />
-                            </TooltipTrigger>
-                            <TooltipContent side="bottom" className="max-w-[240px] text-xs space-y-1.5 p-3">
-                              <p className="font-semibold">Profile Quality ({computedScores.qualityFilledCount}/{computedScores.qualityTotalFields} fields)</p>
-                              <div className="border-t pt-1.5 mt-1.5 grid grid-cols-2 gap-x-3 gap-y-0.5">
-                                {Object.entries(computedScores.qualityBreakdown).map(([field, filled]) => (
-                                  <p key={field} className={filled ? 'text-green-300' : 'text-red-300/70'}>
-                                    {filled ? '✓' : '✗'} {field}
-                                  </p>
-                                ))}
-                              </div>
-                            </TooltipContent>
-                          </Tooltip>
-                        </div>
-                        <p className="text-2xl font-bold">{computedScores.quality}</p>
-                      </div>
-                      <Star className="h-8 w-8 text-yellow-500 opacity-50" />
-                    </div>
-                  </CardContent>
-                </Card>
-              </div>
-              </TooltipProvider>
+              <LeadScoreCards
+                scores={computedScores}
+                hasActivities={(timeline?.filter((t: any) => t.type === 'activity').length ?? 0) > 0 || (communicationHistory?.length ?? 0) > 0}
+                hasProfile={!!(lead?.full_name && lead?.phone)}
+              />
 
               {/* Tabs */}
               <Tabs defaultValue="activity" className="w-full">
