@@ -526,6 +526,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "iconName": "FileText",
         "children": [
           {
+            "path": "/admin/hr/onboarding-checklists",
+            "label": "Onboarding Checklists",
+            "iconName": "UserPlus",
+            "children": []
+          },
+          {
             "path": "/admin/hr/required-documents",
             "label": "Required Documents",
             "iconName": "FileText",
@@ -2402,10 +2408,37 @@ export const ROUTE_MANIFEST: RouteNode[] = [
     "iconName": "FileText",
     "children": [
       {
+        "path": "/hr/attendance",
+        "label": "Attendance",
+        "iconName": "CheckSquare",
+        "children": [
+          {
+            "path": "/hr/attendance/regularize",
+            "label": "Regularize",
+            "iconName": "CheckSquare",
+            "children": [
+              {
+                "path": "/hr/attendance/regularize/approvals",
+                "label": "Approvals",
+                "iconName": "CheckSquare",
+                "children": []
+              }
+            ]
+          }
+        ]
+      },
+      {
         "path": "/hr/documents",
         "label": "Documents",
         "iconName": "FileText",
-        "children": []
+        "children": [
+          {
+            "path": "/hr/documents/verify",
+            "label": "Verify",
+            "iconName": "FileText",
+            "children": []
+          }
+        ]
       },
       {
         "path": "/hr/employees",
@@ -2462,6 +2495,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           }
         ]
+      },
+      {
+        "path": "/hr/onboarding",
+        "label": "Onboarding",
+        "iconName": "UserPlus",
+        "children": []
       },
       {
         "path": "/hr/policies",
@@ -2700,6 +2739,39 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "label": "Transfers",
         "iconName": "FileText",
         "children": []
+      }
+    ]
+  },
+  {
+    "path": "/internships",
+    "label": "Internships",
+    "iconName": "FileText",
+    "children": [
+      {
+        "path": "/internships/preceptors",
+        "label": "Preceptors",
+        "iconName": "FileText",
+        "children": [
+          {
+            "path": "/internships/preceptors/new",
+            "label": "New",
+            "iconName": "Plus",
+            "children": []
+          }
+        ]
+      },
+      {
+        "path": "/internships/sites",
+        "label": "Sites",
+        "iconName": "FileText",
+        "children": [
+          {
+            "path": "/internships/sites/new",
+            "label": "New",
+            "iconName": "Plus",
+            "children": []
+          }
+        ]
       }
     ]
   },

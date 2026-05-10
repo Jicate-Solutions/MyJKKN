@@ -5,8 +5,8 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type {
   InternshipExternalSite,
-  CreateSiteInput,
-  UpdateSiteInput,
+  CreateExternalSiteInput,
+  UpdateExternalSiteInput,
   InternshipSiteContact,
   CreateSiteContactInput,
   UpdateSiteContactInput,
@@ -29,7 +29,7 @@ export async function listSites(
   let query = supabase
     .from(SITES_TABLE)
     .select('*')
-    .order('name', { ascending: true });
+    .order('site_name', { ascending: true });
 
   if (institutionId) query = query.eq('institution_id', institutionId);
   if (activeOnly) query = query.eq('is_active', true);
@@ -59,7 +59,7 @@ export async function getSiteById(
 
 export async function createSite(
   supabase: SupabaseClient,
-  input: CreateSiteInput
+  input: CreateExternalSiteInput
 ): Promise<ServiceResult<InternshipExternalSite>> {
   const { data, error } = await supabase
     .from(SITES_TABLE)
@@ -76,7 +76,7 @@ export async function createSite(
 export async function updateSite(
   supabase: SupabaseClient,
   id: string,
-  updates: UpdateSiteInput
+  updates: UpdateExternalSiteInput
 ): Promise<ServiceResult<InternshipExternalSite>> {
   const { data, error } = await supabase
     .from(SITES_TABLE)
