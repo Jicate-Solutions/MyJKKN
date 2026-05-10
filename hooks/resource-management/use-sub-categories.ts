@@ -211,9 +211,16 @@ export function useSubCategoryOperations() {
         const result = await SubCategoryService.bulkDeleteSubCategories(ids);
 
         if (result.success) {
+          toast.success(
+            `Successfully deleted ${result.processedCount} subcategor${
+              result.processedCount === 1 ? 'y' : 'ies'
+            }`
+          );
         } else {
           toast.error(
-            `Deleted ${result.processedCount} categories, but ${result.errors.length} failed`
+            `Deleted ${result.processedCount} subcategor${
+              result.processedCount === 1 ? 'y' : 'ies'
+            }, but ${result.errors.length} failed`
           );
         }
 

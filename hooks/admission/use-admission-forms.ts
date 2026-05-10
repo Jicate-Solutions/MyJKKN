@@ -4,7 +4,7 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { FormBuilderService } from '@/lib/services/admission/form-builder-service';
-import type { CreateAdmissionFormInput } from '@/types/admission';
+import type { CreateAdmissionFormInput, LeadSource } from '@/types/admission';
 import toast from 'react-hot-toast';
 
 export function useAdmissionForms(institutionIdOrIds?: string | string[]) {
@@ -92,6 +92,28 @@ export function useFormMutations() {
     onError: (err: any) => toast.error(err?.message || 'Failed to delete form'),
   });
 
+  const duplicateForm = useMutation({
+    mutationFn: ({
+      sourceFormId,
+      overrides,
+      userId,
+    }: {
+      sourceFormId: string;
+      overrides: {
+        name: string;
+        slug: string;
+        lead_source?: LeadSource;
+        description?: string | null;
+      };
+      userId: string;
+    }) => FormBuilderService.duplicateForm(sourceFormId, overrides, userId),
+    onSuccess: () => {
+      invalidate();
+      toast.success('Form duplicated');
+    },
+    onError: (err: any) => toast.error(err?.message || 'Failed to duplicate form'),
+  });
+
   const createSection = useMutation({
     mutationFn: ({
       formId,
@@ -152,6 +174,7 @@ export function useFormMutations() {
     createFromTemplate,
     updateForm,
     deleteForm,
+    duplicateForm,
     createSection,
     updateSection,
     deleteSection,

@@ -529,6 +529,8 @@ export const PERMISSION_CATEGORIES = [
     name: 'HR Management',
     key: 'hr',
     permissions: [
+      // Module-root visibility — gates the HR sidebar section.
+      { key: 'hr.view', label: 'View HR Module' },
       // Recruitment (Phase 1A+1B shipped 2026-04-15) —
       // RLS keys referenced in supabase/setup/03_policies.sql for hr_recruitment_*
       { key: 'hr.recruitment.view', label: 'View Recruitment Candidates' },
@@ -876,6 +878,9 @@ export const PERMISSION_CATEGORIES = [
       { key: 'admission.leads.create', label: 'Create Leads' },
       { key: 'admission.leads.edit', label: 'Edit Leads' },
       { key: 'admission.leads.delete', label: 'Delete Leads' },
+      { key: 'admission.leads.student_form.generate', label: 'Generate Student Self-Fill QR' },
+      { key: 'admission.leads.student_form.revoke',   label: 'Revoke Active Student Form Token' },
+      { key: 'learners.profile.student_section.override', label: 'Override Student-Filled Sections' },
       { key: 'admission.leads.assign', label: 'Assign Leads to Counselors' },
       { key: 'admission.leads.bulk_upload', label: 'Bulk Upload Leads' },
       { key: 'admission.leads.bulk_status_update', label: 'Bulk Update Lead Status' },
@@ -899,6 +904,9 @@ export const PERMISSION_CATEGORIES = [
       // .manage gates schedule edits, source/institution mappings, reassignments, emergency-off forced toggles.
       { key: 'admission.counselors.team.view', label: 'View Counselor Team Page' },
       { key: 'admission.counselors.team.manage', label: 'Manage Counselor Team (reassign, schedule, allocate)' },
+      { key: 'admission.counselors.team.bulk_override', label: 'Override Pause/Cap When Bulk Assigning' },
+      { key: 'admission.counselors.director_pulse', label: 'View Director Pulse (live counselor activity dashboard)' },
+      { key: 'admission.counselors.lead_mood', label: 'View Lead Mood Digest (sentiment + anxious-lead drilldown)' },
 
       // Consultant Management
       { key: 'admission.consultants.view', label: 'View Education Consultants' },
@@ -950,7 +958,17 @@ export const PERMISSION_CATEGORIES = [
       { key: 'admission.settings.years.view', label: 'View Admission Years' },
       { key: 'admission.settings.years.create', label: 'Create Admission Years' },
       { key: 'admission.settings.years.edit', label: 'Edit Admission Years' },
-      { key: 'admission.settings.years.delete', label: 'Delete Admission Years' }
+      { key: 'admission.settings.years.delete', label: 'Delete Admission Years' },
+
+      // Gate Entry (2026-05-07) — kiosk capture flow for gate security
+      { key: 'admission.gate_entry.create', label: 'Log Gate Entry (kiosk)' },
+      { key: 'admission.gate_entry.view',   label: "View Today's Gate Entries" },
+      { key: 'admission.gate_entry.manage', label: 'Manage Gate Entry Settings' },
+
+      // Voice Memo (2026-05-09) — counselor records 30s English memo on call log;
+      // Whisper cron analyzes for sentiment/summary/categories that flow into the
+      // Lead Mood Digest (PR #779).
+      { key: 'admission.voice_memo', label: 'Record Voice Memo on Call Log' }
     ]
   },
   // Admission Fees (2026-05-07) — matrix-driven fee-structure module
@@ -1179,6 +1197,8 @@ export const PERMISSION_CATEGORIES = [
     name: 'Solutions Hub',
     key: 'solutions',
     permissions: [
+      // Module-root visibility — gates the Solution Hub sidebar section.
+      { key: 'solutions.view', label: 'View Solution Hub Module' },
       // Dashboard
       { key: 'solutions.dashboard.view', label: 'View Solutions Dashboard' },
 
@@ -1508,6 +1528,8 @@ export const PERMISSION_CATEGORIES = [
     name: 'Value-Added Courses',
     key: 'vac',
     permissions: [
+      // Module-root visibility — gates the VAC sidebar section.
+      { key: 'vac.view', label: 'View Value-Added Courses Module' },
       // Learner-facing
       { key: 'vac.courses.view', label: 'View VAC Catalogue' },
       { key: 'vac.my_courses.view', label: 'View My Courses' },
@@ -1618,6 +1640,8 @@ export const PERMISSION_CATEGORIES = [
     name: 'Health & Wellness',
     key: 'health',
     permissions: [
+      // Module-root visibility — gates the Health & Wellness sidebar section.
+      { key: 'health.view', label: 'View Health & Wellness Module' },
       { key: 'health.dashboard.view', label: 'View Health Dashboard' },
       { key: 'health.profile.view', label: 'View My Health Profile' },
       { key: 'health.leaderboard.view', label: 'View Health Leaderboard' },
@@ -1732,6 +1756,8 @@ export const PERMISSION_CATEGORIES = [
     name: 'AI Pulse',
     key: 'ai_pulse',
     permissions: [
+      // Module-root visibility — gates the AI Pulse sidebar section.
+      { key: 'ai_pulse.view', label: 'View AI Pulse Module' },
       // Learner self-service
       { key: 'aiPulse:view.self', label: 'View own AI Pulse cycle status' },
       { key: 'aiPulse:submit.domain_sync', label: 'Submit Domain-Sync artifact' },
@@ -1762,6 +1788,103 @@ export const PERMISSION_CATEGORIES = [
       // Super Admin
       { key: 'aiPulse:policies.manage', label: 'Manage AI Pulse policies' },
       { key: 'aiPulse:value_lists.manage', label: 'Manage AI Pulse value-list master tables' }
+    ]
+  },
+  {
+    // HR/Appraisal Program — Phase 0 prerequisites (2026-05-07)
+    // Spec set: specs/{SAMS-SLICE-1,HR-LEAVE-ACTIVATION,HR-ATTENDANCE-LIVE,
+    // PROMOTION-RULEBOOK,VERIFIED-PUBLICATIONS,STUDENT-FEEDBACK}-SPEC.md
+    // Plan set: docs/plans/2026-05-07-{module}-plan.md (6 modules + coordination)
+    // 23 keys gated by this PR (#TBD); module pages land in subsequent PRs.
+    name: 'Staff Appraisal & Performance (SAMS)',
+    key: 'sams',
+    permissions: [
+      { key: 'sams.appraisal.self.read', label: 'Read own appraisal' },
+      { key: 'sams.appraisal.self.write', label: 'Write own appraisal (before submit)' },
+      { key: 'sams.appraisal.review', label: 'Review and approve appraisals (HoD/Principal)' },
+      { key: 'sams.cycle.manage', label: 'Create / manage appraisal cycles' },
+      { key: 'sams.metric.config', label: 'Configure metric definitions' },
+      { key: 'sams.threshold.write', label: 'Tune metric thresholds (super-admin)' }
+    ]
+  },
+  {
+    name: 'Promotion & Career',
+    key: 'hr_promotion',
+    permissions: [
+      { key: 'hr.promotion.criteria.write', label: 'Configure promotion criteria' },
+      { key: 'hr.promotion.case.create', label: 'Create promotion case for candidate' },
+      { key: 'hr.promotion.case.view', label: 'View promotion case-sheet' },
+      { key: 'hr.promotion.case.decide', label: 'Director decision on promotion (approve / reject)' }
+    ]
+  },
+  {
+    name: 'Student Feedback (Course × Faculty)',
+    key: 'feedback',
+    permissions: [
+      { key: 'feedback.student_course_faculty.respond', label: 'Submit feedback response (student)' },
+      { key: 'feedback.student_course_faculty.template.write', label: 'Configure feedback question template' },
+      { key: 'feedback.student_course_faculty.faculty_view', label: 'View own ratings (faculty)' },
+      { key: 'feedback.student_course_faculty.aggregate.view', label: 'View department aggregates (HoD)' }
+    ]
+  },
+  {
+    name: 'Research & Publications',
+    key: 'research_publications',
+    permissions: [
+      { key: 'sh.publications.enrich', label: 'Enrich own publication entries (faculty)' },
+      { key: 'sh.publications.verify', label: 'Verify publication entries (research-cell)' },
+      { key: 'sh.publications.dashboard', label: 'Director progress dashboard' }
+    ]
+  },
+  {
+    // Phase 0 add-ons to existing HR scope (attendance config + leave dispute)
+    name: 'HR Configuration (Phase 0)',
+    key: 'hr_phase_0_config',
+    permissions: [
+      { key: 'hr.attendance.status_types.write', label: 'Configure attendance status types' },
+      { key: 'hr.attendance.thresholds.write', label: 'Configure attendance thresholds' },
+      { key: 'hr.leave.policies.write', label: 'Configure leave cadre policies' },
+      { key: 'hr.leave.balance.dispute', label: 'Submit leave balance correction request' },
+      { key: 'hr.leave.dispute.approve', label: 'Approve leave balance correction' },
+      { key: 'admin.departments.hod.write', label: 'Assign Head of Department to a department' }
+    ]
+  },
+  {
+    // Platform Configuration — super_admin scope today (sidebar gates via 'super_admin'),
+    // granular keys registered for forward-compat so admin-cell roles can be granted
+    // ai_models.view without a sidebar rewrite. 2026-05-09.
+    name: 'Platform Configuration',
+    key: 'platform_config',
+    permissions: [
+      { key: 'platform.ai_models.view', label: 'View AI Model Config (provider/model + usage)' },
+      { key: 'platform.ai_models.write', label: 'Change AI Model Config (provider/model + spend caps)' }
+    ]
+  },
+  // ======================================================================
+  // Module-root visibility for sections that have no other catalog entry.
+  // These keys gate sidebar sections only — granular permissions for
+  // sub-pages live in their respective module categories where applicable.
+  // Added 2026-05-09 to close catalog gaps surfaced by the sidebar audit.
+  // ======================================================================
+  {
+    name: 'Faculty',
+    key: 'faculty',
+    permissions: [
+      { key: 'faculty.view', label: 'View Faculty Module' }
+    ]
+  },
+  {
+    name: 'Learning',
+    key: 'learn',
+    permissions: [
+      { key: 'learn.view', label: 'View Learning Module' }
+    ]
+  },
+  {
+    name: 'Meetings',
+    key: 'meetings',
+    permissions: [
+      { key: 'meetings.view', label: 'View Meetings Module' }
     ]
   }
 ];

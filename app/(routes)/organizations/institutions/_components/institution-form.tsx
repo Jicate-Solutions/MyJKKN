@@ -56,6 +56,11 @@ const contactSchema = z
 const institutionSchema = z.object({
   entity_type: z.enum(['institution', 'admin_office', 'company', 'school']).default('institution'),
   name: z.string().min(2, 'Name must be at least 2 characters'),
+  display_name: z
+    .string()
+    .max(255, 'Display name must be at most 255 characters')
+    .optional()
+    .or(z.literal('')),
   counselling_code: z
     .string()
     .min(2, 'Code must be at least 2 characters')
@@ -115,6 +120,7 @@ export function InstitutionForm({
     defaultValues: {
       entity_type: institution?.entity_type || 'institution',
       name: institution?.name || '',
+      display_name: institution?.display_name || '',
       counselling_code: institution?.counselling_code || '',
       institution_type: institution?.institution_type || 'self',
       category: institution?.category || 'ug',
@@ -246,6 +252,24 @@ export function InstitutionForm({
                       <Input
                         placeholder={isInstitution ? 'Enter institution name' : 'Enter organization name'}
                         {...field}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name='display_name'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Display Name</FormLabel>
+                    <FormControl>
+                      <Input
+                        placeholder='Optional friendly label (defaults to name)'
+                        {...field}
+                        value={field.value ?? ''}
                       />
                     </FormControl>
                     <FormMessage />

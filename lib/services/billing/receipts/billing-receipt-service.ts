@@ -1055,4 +1055,145 @@ export class BillingReceiptService {
       // Don't throw error to avoid breaking the main payment flow
     }
   }
+
+  /**
+   * Fetch outstanding bills for the bulk-receipt template.
+   *
+   * Always restricts to receiptable statuses (unpaid + partially_paid) — bills
+   * already paid / cancelled / refunded are silently dropped because there's
+   * nothing to receipt against them.
+   *
+   * The filter shape intentionally mirrors the schedule-page query params so
+   * the dialog can pass through the user's current view 1:1.
+   *
+   * @param supabaseClient — REQUIRED for server-side calls. The default
+   *   browser client doesn't apply when the API route runs.
+   */
+  static async getOutstandingBillsForBulk(
+    filters: {
+      institution_id?: string;
+      item_category_id?: string;
+      degree_id?: string;
+      department_id?: string;
+      program_id?: string;
+      semester_id?: string;
+      section_id?: string;
+      academic_year_id?: string;
+      due_date_from?: string;
+      due_date_to?: string;
+    },
+    supabaseClient?: SupabaseClient
+  ): Promise<
+    Array<{
+      bill_id: string;
+      student_id: string;
+      institution_id: string;
+      roll_number: string;
+      student_name: string;
+      bill_description: string | null;
+      category: string | null;
+      balance_amount: number;
+    }>
+  > {
+    const client = this.getClient(supabaseClient);
+
+    // Note: balance_amount can be NULL for legacy rows. The .gt('balance_amount', 0)
+    // filter would silently exclude those — we want them too because their
+    // final_amount is still owed. Using .or(...) keeps both paths.
+    let query = client
+      .from('billing_student_bills')
+      .select(
+        `
+        id,
+        student_id,
+        institution_id,
+        item_category_id,
+        bill_description,
+        balance_amount,
+        final_amount,
+        due_date,
+        status,
+        student:learners_profiles!inner (
+          id,
+          first_name,
+          last_name,
+          roll_number,
+          degree_id,
+          department_id,
+          program_id,
+          semester_id,
+          section_id,
+          academic_year_id
+        ),
+        item_category:billing_categories (
+          id,
+          category_name
+        )
+        `
+      )
+      .in('status', ['unpaid', 'partially_paid']);
+
+    if (filters.institution_id) {
+      query = query.eq('institution_id', filters.institution_id);
+    }
+    if (filters.item_category_id) {
+      query = query.eq('item_category_id', filters.item_category_id);
+    }
+    if (filters.due_date_from) {
+      query = query.gte('due_date', filters.due_date_from);
+    }
+    if (filters.due_date_to) {
+      query = query.lte('due_date', filters.due_date_to);
+    }
+    // Academic hierarchy filters apply on the joined learner row
+    if (filters.degree_id) {
+      query = query.eq('student.degree_id', filters.degree_id);
+    }
+    if (filters.department_id) {
+      query = query.eq('student.department_id', filters.department_id);
+    }
+    if (filters.program_id) {
+      query = query.eq('student.program_id', filters.program_id);
+    }
+    if (filters.semester_id) {
+      query = query.eq('student.semester_id', filters.semester_id);
+    }
+    if (filters.section_id) {
+      query = query.eq('student.section_id', filters.section_id);
+    }
+    if (filters.academic_year_id) {
+      query = query.eq('student.academic_year_id', filters.academic_year_id);
+    }
+
+    // Cap result size — a single Excel sheet over 5000 rows becomes unwieldy
+    // for a human to fill, and Excel itself slows down with validation rules
+    // applied row-by-row. The dialog warns when the cap is hit.
+    const { data, error } = await query
+      .order('due_date', { ascending: true })
+      .limit(5000);
+
+    if (error) {
+      logger.error('billing/receipts', 'getOutstandingBillsForBulk failed', error);
+      throw error;
+    }
+
+    return (data ?? []).map((bill: any) => {
+      const balance =
+        bill.balance_amount && Number(bill.balance_amount) > 0
+          ? Number(bill.balance_amount)
+          : Number(bill.final_amount);
+      const firstName = bill.student?.first_name ?? '';
+      const lastName = bill.student?.last_name ?? '';
+      return {
+        bill_id: bill.id as string,
+        student_id: bill.student_id as string,
+        institution_id: bill.institution_id as string,
+        roll_number: (bill.student?.roll_number ?? '') as string,
+        student_name: `${firstName} ${lastName}`.trim(),
+        bill_description: (bill.bill_description ?? null) as string | null,
+        category: (bill.item_category?.category_name ?? null) as string | null,
+        balance_amount: balance
+      };
+    });
+  }
 }

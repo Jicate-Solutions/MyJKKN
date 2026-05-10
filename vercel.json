@@ -114,6 +114,18 @@
     {
       "path": "/api/cron/form-abandon-recovery?secret=${CRON_SECRET}",
       "schedule": "*/30 * * * *"
+    },
+    {
+      "path": "/api/cron/analyze-calls?secret=${CRON_SECRET}",
+      "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/cron/analyze-voice-memos?secret=${CRON_SECRET}",
+      "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/hr/document-expiry-reminders?secret=${CRON_SECRET}",
+      "schedule": "0 7 * * *"
     }
   ]
 }

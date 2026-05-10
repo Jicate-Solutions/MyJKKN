@@ -60,8 +60,10 @@ export class FormSubmissionService {
     }
 
     // 3. Extract lead data via lead_field_map
+    // Source is per-form (admission_forms.lead_source); existing rows default
+    // to 'website' at the DB level, so legacy forms keep prior behavior.
     const leadData: Partial<CreateLeadInput> = {
-      source: 'website' as LeadSource,
+      source: (form.lead_source ?? 'website') as LeadSource,
       tags: [`form:${form.slug}`],
       notes: `Submitted via public form: ${form.name}`,
     };

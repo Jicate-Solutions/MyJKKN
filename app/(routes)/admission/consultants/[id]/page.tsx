@@ -296,7 +296,14 @@ function ConsultantDetailContent() {
             <Users className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{stats?.stats?.total_leads || consultant.total_leads_referred || 0}</div>
+            <div className="text-2xl font-bold">
+              {/* BUG-003877: prefer live attribution count from stats over the
+                  cached counter (stats.total_leads is now the authoritative
+                  source of truth — see ConsultantService.getConsultantPortalDashboard).
+                  Use ?? not || so a legitimate 0 is preserved instead of falling
+                  back to a possibly-stale cached counter. */}
+              {stats?.stats?.total_leads ?? consultant.total_leads_referred ?? 0}
+            </div>
             <p className="text-xs text-muted-foreground">
               {consultant.total_conversions || 0} enrolled
             </p>

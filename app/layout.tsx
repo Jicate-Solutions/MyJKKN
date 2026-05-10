@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from 'next';
 import { Poppins } from 'next/font/google';
 import './globals.css';
 import { PushNotificationProvider } from '@/components/notifications/push-notification-provider';
+import { InstallPromptBanner } from '@/components/pwa/install-prompt-banner';
 import { PWAProvider } from '@/components/pwa/pwa-provider';
 import { ThemeProvider } from '@/providers/theme-provider';
 import { AuthProvider } from '@/hooks/use-auth-provider';
@@ -16,11 +17,14 @@ const poppins = Poppins({
   variable: '--font-poppins'
 });
 
+// Allow pinch-zoom for accessibility (WCAG 2.5.5 target size, 1.4.4 resize text).
+// Locking userScalable / maximumScale soft-fails low-vision users and is widely
+// considered an anti-pattern; we trust the responsive layout to behave well at
+// any zoom level instead of disabling the gesture.
 export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
-  maximumScale: 1,
-  userScalable: false,
+  userScalable: true,
   viewportFit: 'cover'
 };
 
@@ -196,6 +200,7 @@ export default function RootLayout({
                   cookie is active. Non-dismissible by design. */}
               <PreviewBanner />
               <PushNotificationProvider>{children}</PushNotificationProvider>
+              <InstallPromptBanner />
               <SpeedInsights />
             </PWAProvider>
           </AuthProvider>

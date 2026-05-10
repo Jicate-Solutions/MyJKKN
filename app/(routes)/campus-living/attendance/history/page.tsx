@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { toast } from 'sonner';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
@@ -34,6 +35,8 @@ import {
 
 export default function AttendanceHistoryPage() {
   const { profile } = useAuth();
+  const searchParams = useSearchParams();
+  const learnerId = searchParams.get('learner') ?? undefined;
   const [selectedBlock, setSelectedBlock] = useState('all');
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
@@ -43,6 +46,7 @@ export default function AttendanceHistoryPage() {
   const filters = {
     ...(selectedBlock !== 'all' ? { block_id: selectedBlock } : {}),
     ...(fromDate ? { date: fromDate } : {}),
+    ...(learnerId ? { learner_id: learnerId } : {}),
   };
   const { data: rawData, isLoading } = useHostelAttendance(profile?.institution_id ?? '', filters);
   // Defensive: service returns {data: HostelAttendance[], count: number} — the page used to
@@ -202,8 +206,27 @@ export default function AttendanceHistoryPage() {
                 ))}
                 {records.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
-                      No attendance records found
+                    <TableCell colSpan={8} className="py-10">
+                      {(selectedBlock !== 'all' || fromDate || toDate || searchQuery) ? (
+                        <div className="text-center text-muted-foreground space-y-1">
+                          <p className="font-medium text-foreground">No matching records</p>
+                          <p className="text-sm">
+                            Clear the filters or pick a different date range to see all attendance history.
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="flex flex-col items-center text-center space-y-3">
+                          <p className="font-medium text-foreground">No attendance history yet</p>
+                          <p className="text-sm text-muted-foreground max-w-md">
+                            History appears here once attendance has been marked. Mark attendance for a block first, then return here to view and filter past records.
+                          </p>
+                          <Button asChild size="sm" className="mt-1">
+                            <Link href="/campus-living/attendance/mark">
+                              Mark attendance
+                            </Link>
+                          </Button>
+                        </div>
+                      )}
                     </TableCell>
                   </TableRow>
                 )}
