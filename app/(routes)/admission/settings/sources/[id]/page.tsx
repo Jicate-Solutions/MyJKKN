@@ -18,7 +18,17 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Building2, Globe } from 'lucide-react';
+import {
+  ArrowLeft,
+  Building2,
+  Globe,
+  KeyRound,
+  Send,
+  ListOrdered,
+  ShieldCheck,
+  Sparkles,
+  FileText,
+} from 'lucide-react';
 
 import { AdmissionErrorBoundary } from '@/components/admission';
 import { PermissionGuard } from '@/components/auth/permission-guard';
@@ -102,45 +112,111 @@ function SourceDetailContent({ id }: { id: string }) {
 
         {source && (
           <>
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="flex items-center gap-2">
-                  {source.label}
-                  {source.is_active ? (
-                    <Badge className="bg-green-100 text-green-700 hover:bg-green-100 border-green-200">
-                      Active
+            {/* Source info card — hero header with title + status pills,
+                fact-row of metadata with icon-led labels, optional
+                description in a muted bottom strip. */}
+            <Card className="overflow-hidden border-blue-200/60">
+              <div className="border-b bg-gradient-to-r from-blue-50/70 via-background to-background px-6 pb-5 pt-6">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="flex items-start gap-3">
+                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-blue-600 text-white shadow-sm">
+                      <Send className="h-5 w-5" />
+                    </span>
+                    <div className="min-w-0">
+                      <h2 className="text-xl font-bold leading-tight text-foreground">
+                        {source.label}
+                      </h2>
+                      <div className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
+                        <KeyRound className="h-3 w-3" />
+                        <code className="font-mono">{source.key}</code>
+                        <span className="opacity-50">·</span>
+                        <span>routes to</span>
+                        <code className="rounded bg-muted px-1 py-0.5 font-mono text-[10px]">
+                          {source.enum_value}
+                        </code>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {source.is_active ? (
+                      <Badge className="bg-green-100 text-green-700 hover:bg-green-100 border-green-200 gap-1">
+                        <ShieldCheck className="h-3 w-3" />
+                        Active
+                      </Badge>
+                    ) : (
+                      <Badge variant="outline" className="text-muted-foreground">
+                        Inactive
+                      </Badge>
+                    )}
+                    {source.is_system ? (
+                      <Badge
+                        variant="outline"
+                        className="border-blue-200 bg-blue-50 text-blue-700 gap-1"
+                      >
+                        <Sparkles className="h-3 w-3" />
+                        System
+                      </Badge>
+                    ) : (
+                      <Badge
+                        variant="outline"
+                        className="border-purple-200 bg-purple-50 text-purple-700"
+                      >
+                        Custom
+                      </Badge>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <CardContent className="grid grid-cols-2 gap-x-6 gap-y-4 px-6 py-4 sm:grid-cols-4">
+                <FactCell
+                  icon={<KeyRound className="h-3.5 w-3.5" />}
+                  label="Source key"
+                  value={<code className="font-mono text-sm">{source.key}</code>}
+                />
+                <FactCell
+                  icon={<Send className="h-3.5 w-3.5" />}
+                  label="Routes to"
+                  value={
+                    <Badge variant="outline" className="font-mono">
+                      {source.enum_value}
                     </Badge>
-                  ) : (
-                    <Badge variant="outline">Inactive</Badge>
-                  )}
-                  {source.is_system && <Badge variant="outline">System</Badge>}
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 text-sm">
-                <Field label="Key">
-                  <span className="font-mono">{source.key}</span>
-                </Field>
-                <Field label="Routes To">
-                  <Badge variant="outline" className="font-mono">{source.enum_value}</Badge>
-                </Field>
-                <Field label="Scope">
-                  {source.institution_id === null ? (
-                    <span className="inline-flex items-center gap-1.5">
-                      <Globe className="h-3.5 w-3.5" /> Global
+                  }
+                />
+                <FactCell
+                  icon={
+                    source.institution_id === null ? (
+                      <Globe className="h-3.5 w-3.5" />
+                    ) : (
+                      <Building2 className="h-3.5 w-3.5" />
+                    )
+                  }
+                  label="Scope"
+                  value={
+                    source.institution_id === null
+                      ? 'Global (all institutions)'
+                      : 'Institution-scoped'
+                  }
+                />
+                <FactCell
+                  icon={<ListOrdered className="h-3.5 w-3.5" />}
+                  label="Display order"
+                  value={
+                    <span className="font-semibold tabular-nums">
+                      {source.display_order}
                     </span>
-                  ) : (
-                    <span className="inline-flex items-center gap-1.5">
-                      <Building2 className="h-3.5 w-3.5" /> Institution-scoped
-                    </span>
-                  )}
-                </Field>
-                <Field label="Display order">{source.display_order}</Field>
-                {source.description && (
-                  <Field label="Description" className="sm:col-span-2 lg:col-span-4">
-                    <span className="text-muted-foreground">{source.description}</span>
-                  </Field>
-                )}
+                  }
+                />
               </CardContent>
+
+              {source.description && (
+                <div className="border-t bg-muted/30 px-6 py-3">
+                  <div className="flex items-start gap-2 text-sm">
+                    <FileText className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                    <p className="text-muted-foreground">{source.description}</p>
+                  </div>
+                </div>
+              )}
             </Card>
 
             {/* Page-level status cards — visible regardless of which tab is
@@ -189,21 +265,22 @@ function SourceDetailContent({ id }: { id: string }) {
   );
 }
 
-function Field({
+function FactCell({
+  icon,
   label,
-  children,
-  className,
+  value,
 }: {
+  icon: React.ReactNode;
   label: string;
-  children: React.ReactNode;
-  className?: string;
+  value: React.ReactNode;
 }) {
   return (
-    <div className={className}>
-      <div className="text-xs uppercase tracking-wide text-muted-foreground mb-1">
+    <div className="flex flex-col">
+      <div className="flex items-center gap-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+        <span className="text-muted-foreground/70">{icon}</span>
         {label}
       </div>
-      <div>{children}</div>
+      <div className="mt-1 text-sm">{value}</div>
     </div>
   );
 }
