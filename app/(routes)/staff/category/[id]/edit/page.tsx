@@ -28,7 +28,11 @@ interface EditCategoryPageProps {
 export default function EditCategoryPage({ params }: EditCategoryPageProps) {
   const { id } = use(params);
   const router = useRouter();
-  const { canAccess, isSuperAdmin } = usePermissions();
+  const {
+    canAccess,
+    isSuperAdmin,
+    isLoading: permissionsLoading,
+  } = usePermissions();
 
   // Use the new React Query hook
   const { data: category, isLoading, isError, error } = useCategory(id);
@@ -37,11 +41,33 @@ export default function EditCategoryPage({ params }: EditCategoryPageProps) {
   const canEditCategories =
     isSuperAdmin || canAccess('staff.categories', 'edit');
 
+  // Wait for permissions to load before deciding redirect — otherwise
+  // super_admins (who land with isSuperAdmin=false during initial fetch)
+  // get bounced to /unauthorized at t+~1.5s before user_roles is read.
+  // This pattern matches the 6 sibling routes (e.g. staff/list/[id]/edit,
+  // staff/category/new) which already gate on permissionsLoading.
   useEffect(() => {
-    if (!canEditCategories) {
+    if (!permissionsLoading && !canEditCategories) {
       router.push('/unauthorized');
     }
-  }, [canEditCategories, router]);
+  }, [permissionsLoading, canEditCategories, router]);
+
+  // While permissions resolve, show a brief loader instead of the
+  // "Access Denied" card (which would flash for ~1s every page load).
+  if (permissionsLoading) {
+    return (
+      <ContentLayout title='Edit Category'>
+        <div className='flex items-center justify-center min-h-[400px]'>
+          <div className='text-center'>
+            <BeatLoader color='#2563eb' size={8} />
+            <p className='text-sm text-muted-foreground mt-2'>
+              Verifying permissions…
+            </p>
+          </div>
+        </div>
+      </ContentLayout>
+    );
+  }
 
   if (!canEditCategories) {
     return (

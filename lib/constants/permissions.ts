@@ -529,6 +529,8 @@ export const PERMISSION_CATEGORIES = [
     name: 'HR Management',
     key: 'hr',
     permissions: [
+      // Module-root visibility — gates the HR sidebar section.
+      { key: 'hr.view', label: 'View HR Module' },
       // Recruitment (Phase 1A+1B shipped 2026-04-15) —
       // RLS keys referenced in supabase/setup/03_policies.sql for hr_recruitment_*
       { key: 'hr.recruitment.view', label: 'View Recruitment Candidates' },
@@ -876,6 +878,9 @@ export const PERMISSION_CATEGORIES = [
       { key: 'admission.leads.create', label: 'Create Leads' },
       { key: 'admission.leads.edit', label: 'Edit Leads' },
       { key: 'admission.leads.delete', label: 'Delete Leads' },
+      { key: 'admission.leads.student_form.generate', label: 'Generate Student Self-Fill QR' },
+      { key: 'admission.leads.student_form.revoke',   label: 'Revoke Active Student Form Token' },
+      { key: 'learners.profile.student_section.override', label: 'Override Student-Filled Sections' },
       { key: 'admission.leads.assign', label: 'Assign Leads to Counselors' },
       { key: 'admission.leads.bulk_upload', label: 'Bulk Upload Leads' },
       { key: 'admission.leads.bulk_status_update', label: 'Bulk Update Lead Status' },
@@ -899,6 +904,9 @@ export const PERMISSION_CATEGORIES = [
       // .manage gates schedule edits, source/institution mappings, reassignments, emergency-off forced toggles.
       { key: 'admission.counselors.team.view', label: 'View Counselor Team Page' },
       { key: 'admission.counselors.team.manage', label: 'Manage Counselor Team (reassign, schedule, allocate)' },
+      { key: 'admission.counselors.team.bulk_override', label: 'Override Pause/Cap When Bulk Assigning' },
+      { key: 'admission.counselors.director_pulse', label: 'View Director Pulse (live counselor activity dashboard)' },
+      { key: 'admission.counselors.lead_mood', label: 'View Lead Mood Digest (sentiment + anxious-lead drilldown)' },
 
       // Consultant Management
       { key: 'admission.consultants.view', label: 'View Education Consultants' },
@@ -950,7 +958,32 @@ export const PERMISSION_CATEGORIES = [
       { key: 'admission.settings.years.view', label: 'View Admission Years' },
       { key: 'admission.settings.years.create', label: 'Create Admission Years' },
       { key: 'admission.settings.years.edit', label: 'Edit Admission Years' },
-      { key: 'admission.settings.years.delete', label: 'Delete Admission Years' }
+      { key: 'admission.settings.years.delete', label: 'Delete Admission Years' },
+
+      // Gate Entry (2026-05-07) — kiosk capture flow for gate security
+      { key: 'admission.gate_entry.create', label: 'Log Gate Entry (kiosk)' },
+      { key: 'admission.gate_entry.view',   label: "View Today's Gate Entries" },
+      { key: 'admission.gate_entry.manage', label: 'Manage Gate Entry Settings' },
+
+      // Voice Memo (2026-05-09) — counselor records 30s English memo on call log;
+      // Whisper cron analyzes for sentiment/summary/categories that flow into the
+      // Lead Mood Digest (PR #779).
+      { key: 'admission.voice_memo', label: 'Record Voice Memo on Call Log' }
+    ]
+  },
+  // Admission Fees (2026-05-07) — matrix-driven fee-structure module
+  // Keys are flat under `admission_fees.*` (not `admission.fees.*`) because
+  // RLS policies + service code reference them that way.
+  {
+    name: 'Admission Fees',
+    key: 'admission_fees',
+    permissions: [
+      { key: 'admission_fees.read', label: 'View Fee Structures' },
+      { key: 'admission_fees.manage', label: 'Create / Edit Fee Structures' },
+      { key: 'admission_fees.delete', label: 'Delete Fee Structures' },
+      { key: 'admission_fees.manage_adjustments', label: 'Manage Per-Learner Fee Adjustments' },
+      { key: 'admission_fees.approve_change_event', label: 'Approve Fee Change Events' },
+      { key: 'admission_fees.override', label: 'Override Resolved Fee Items' }
     ]
   },
   {
@@ -1164,6 +1197,8 @@ export const PERMISSION_CATEGORIES = [
     name: 'Solutions Hub',
     key: 'solutions',
     permissions: [
+      // Module-root visibility — gates the Solution Hub sidebar section.
+      { key: 'solutions.view', label: 'View Solution Hub Module' },
       // Dashboard
       { key: 'solutions.dashboard.view', label: 'View Solutions Dashboard' },
 
@@ -1493,6 +1528,8 @@ export const PERMISSION_CATEGORIES = [
     name: 'Value-Added Courses',
     key: 'vac',
     permissions: [
+      // Module-root visibility — gates the VAC sidebar section.
+      { key: 'vac.view', label: 'View Value-Added Courses Module' },
       // Learner-facing
       { key: 'vac.courses.view', label: 'View VAC Catalogue' },
       { key: 'vac.my_courses.view', label: 'View My Courses' },
@@ -1603,6 +1640,8 @@ export const PERMISSION_CATEGORIES = [
     name: 'Health & Wellness',
     key: 'health',
     permissions: [
+      // Module-root visibility — gates the Health & Wellness sidebar section.
+      { key: 'health.view', label: 'View Health & Wellness Module' },
       { key: 'health.dashboard.view', label: 'View Health Dashboard' },
       { key: 'health.profile.view', label: 'View My Health Profile' },
       { key: 'health.leaderboard.view', label: 'View Health Leaderboard' },
@@ -1645,6 +1684,207 @@ export const PERMISSION_CATEGORIES = [
       { key: 'hr.attendance.regularize_approve', label: 'Approve regularization (HR officer)' },
       // Compliance / audit
       { key: 'hr.attendance.audit_export', label: 'Export attendance for audit/compliance' }
+    ]
+  },
+  // IMS (Inventory Management System) — Module-level granularity (~28 keys)
+  // following Admission CRM precedent, plus critical action keys for
+  // financial/audit separation: indents.approve, stock.adjust, sales.refund,
+  // grn.receive, transfers.{dispatch,receive}. The lowercase 'ims' key maps
+  // to module display name 'IMS' via module-mappings.ts derivation rule.
+  {
+    name: 'IMS',
+    key: 'ims',
+    permissions: [
+      // Gateway — required for any access to /ims/*
+      { key: 'ims.view', label: 'Access IMS Module' },
+
+      // Dashboard & Financial overview
+      { key: 'ims.dashboard.view', label: 'View IMS Dashboard' },
+      { key: 'ims.financial.view', label: 'View IMS Financial Audit' },
+
+      // Indents (request -> approval workflow)
+      { key: 'ims.indents.view', label: 'View Indent Requests' },
+      { key: 'ims.indents.create', label: 'Create Indent Requests' },
+      { key: 'ims.indents.edit', label: 'Edit Indent Requests' },
+      { key: 'ims.indents.delete', label: 'Delete Indent Requests' },
+      { key: 'ims.indents.approve', label: 'Approve / Reject Indent Requests' },
+
+      // Inventory (items + categories)
+      { key: 'ims.inventory.view', label: 'View Inventory Items' },
+      { key: 'ims.inventory.create', label: 'Create Inventory Items' },
+      { key: 'ims.inventory.edit', label: 'Edit Inventory Items' },
+      { key: 'ims.inventory.delete', label: 'Delete Inventory Items' },
+      { key: 'ims.inventory.bulk_import', label: 'Bulk Import Inventory (Excel)' },
+      { key: 'ims.inventory.categories.manage', label: 'Manage Item Categories' },
+
+      // Stock (visibility + adjustments + GRN lifecycle)
+      { key: 'ims.stock.view', label: 'View Stock (Summary, Batches, Department)' },
+      { key: 'ims.stock.adjust', label: 'Adjust Stock (Write-off, Correction)' },
+      { key: 'ims.stock.grn.view', label: 'View Goods Received Notes' },
+      { key: 'ims.stock.grn.create', label: 'Create Goods Received Notes' },
+      { key: 'ims.stock.grn.edit', label: 'Edit Goods Received Notes' },
+      { key: 'ims.stock.grn.receive', label: 'Receive / Post Goods Received Notes' },
+
+      // Sales (POS + refunds)
+      { key: 'ims.sales.view', label: 'View Sales & History' },
+      { key: 'ims.sales.create', label: 'Create Sales (POS)' },
+      { key: 'ims.sales.refund', label: 'Refund / Void Sales' },
+
+      // Inter-store / Inter-institution Transfers (supply shipments)
+      { key: 'ims.transfers.view', label: 'View Supply Shipments / Transfers' },
+      { key: 'ims.transfers.dispatch', label: 'Dispatch Supply Shipments' },
+      { key: 'ims.transfers.receive', label: 'Receive Supply Shipments' },
+
+      // Reports
+      { key: 'ims.reports.view', label: 'View IMS Reports (Stock / Sales / Consumption / Indents / UPI)' },
+
+      // Settings (master data)
+      { key: 'ims.settings.view', label: 'View IMS Settings' },
+      { key: 'ims.settings.stores.manage', label: 'Manage IMS Stores' },
+      { key: 'ims.settings.suppliers.manage', label: 'Manage Suppliers' },
+      { key: 'ims.settings.units.manage', label: 'Manage Units & Unit Conversions' }
+    ]
+  },
+  {
+    // Added 2026-05-04 — AI Pulse module v3 (events-extension)
+    // Spec: specs/myjkkn-ai-pulse-spec.md (PR #641, merged)
+    // Substrate: PR #644 (wave-a1/ai-pulse-events-extension)
+    // RLS hardening: PR #715 (wave-a1.1/ai-pulse-rls-hardening)
+    //
+    // Champion = Krishnaveni; Co-Champion = Ranjith (Ranjith@jkkn.ac.in)
+    // Class Incharge reuses existing class_incharges table — no new role.
+    name: 'AI Pulse',
+    key: 'ai_pulse',
+    permissions: [
+      // Module-root visibility — gates the AI Pulse sidebar section.
+      { key: 'ai_pulse.view', label: 'View AI Pulse Module' },
+      // Learner self-service
+      { key: 'aiPulse:view.self', label: 'View own AI Pulse cycle status' },
+      { key: 'aiPulse:submit.domain_sync', label: 'Submit Domain-Sync artifact' },
+      { key: 'aiPulse:submit.quiz', label: 'Submit live or async quiz' },
+      { key: 'aiPulse:submit.publication', label: 'Submit IG/GitHub publication URLs' },
+      { key: 'aiPulse:opt_out.leaderboard_individual', label: 'Opt out of leaderboard individual appearance' },
+      // Class Incharge (reuses class_incharges table for section scoping)
+      { key: 'aiPulse:rotation.manage', label: 'Manage section team rotation' },
+      { key: 'aiPulse:attendance.mark', label: 'Mark live + async attendance' },
+      { key: 'aiPulse:absence.escalate', label: 'Escalate Domain-Sync absence' },
+      // Faculty (Lab Judge)
+      { key: 'aiPulse:lab.score', label: 'Score Monday Lab presentation' },
+      { key: 'aiPulse:gold.select', label: 'Select Gold Standard team' },
+      { key: 'aiPulse:absence.excuse', label: 'Approve excused absence' },
+      // Department Head
+      { key: 'aiPulse:dept.heatmap', label: 'View department heatmap' },
+      { key: 'aiPulse:dept.intervene', label: 'Trigger HOD-chat intervention' },
+      // AI Pulse Champion + Co-Champion
+      { key: 'aiPulse:cycles.manage', label: 'Manage weekly cycles (create/cancel/postpone)' },
+      { key: 'aiPulse:topics.set', label: 'Set briefing topic per cycle' },
+      { key: 'aiPulse:tool.feature', label: 'Pick featured tool per cycle + manage master list' },
+      { key: 'aiPulse:anomaly.review', label: 'Review algorithmic anomaly flags monthly' },
+      { key: 'aiPulse:quiz.author', label: 'Author bilingual quiz per cycle' },
+      // External Judge (quarterly)
+      { key: 'aiPulse:gold.judge_quarterly', label: 'Judge Gold Standard quarterly' },
+      // IQAC
+      { key: 'aiPulse:naac.evidence_export', label: 'Export NAAC evidence pack' },
+      // Super Admin
+      { key: 'aiPulse:policies.manage', label: 'Manage AI Pulse policies' },
+      { key: 'aiPulse:value_lists.manage', label: 'Manage AI Pulse value-list master tables' }
+    ]
+  },
+  {
+    // HR/Appraisal Program — Phase 0 prerequisites (2026-05-07)
+    // Spec set: specs/{SAMS-SLICE-1,HR-LEAVE-ACTIVATION,HR-ATTENDANCE-LIVE,
+    // PROMOTION-RULEBOOK,VERIFIED-PUBLICATIONS,STUDENT-FEEDBACK}-SPEC.md
+    // Plan set: docs/plans/2026-05-07-{module}-plan.md (6 modules + coordination)
+    // 23 keys gated by this PR (#TBD); module pages land in subsequent PRs.
+    name: 'Staff Appraisal & Performance (SAMS)',
+    key: 'sams',
+    permissions: [
+      { key: 'sams.appraisal.self.read', label: 'Read own appraisal' },
+      { key: 'sams.appraisal.self.write', label: 'Write own appraisal (before submit)' },
+      { key: 'sams.appraisal.review', label: 'Review and approve appraisals (HoD/Principal)' },
+      { key: 'sams.cycle.manage', label: 'Create / manage appraisal cycles' },
+      { key: 'sams.metric.config', label: 'Configure metric definitions' },
+      { key: 'sams.threshold.write', label: 'Tune metric thresholds (super-admin)' }
+    ]
+  },
+  {
+    name: 'Promotion & Career',
+    key: 'hr_promotion',
+    permissions: [
+      { key: 'hr.promotion.criteria.write', label: 'Configure promotion criteria' },
+      { key: 'hr.promotion.case.create', label: 'Create promotion case for candidate' },
+      { key: 'hr.promotion.case.view', label: 'View promotion case-sheet' },
+      { key: 'hr.promotion.case.decide', label: 'Director decision on promotion (approve / reject)' }
+    ]
+  },
+  {
+    name: 'Student Feedback (Course × Faculty)',
+    key: 'feedback',
+    permissions: [
+      { key: 'feedback.student_course_faculty.respond', label: 'Submit feedback response (student)' },
+      { key: 'feedback.student_course_faculty.template.write', label: 'Configure feedback question template' },
+      { key: 'feedback.student_course_faculty.faculty_view', label: 'View own ratings (faculty)' },
+      { key: 'feedback.student_course_faculty.aggregate.view', label: 'View department aggregates (HoD)' }
+    ]
+  },
+  {
+    name: 'Research & Publications',
+    key: 'research_publications',
+    permissions: [
+      { key: 'sh.publications.enrich', label: 'Enrich own publication entries (faculty)' },
+      { key: 'sh.publications.verify', label: 'Verify publication entries (research-cell)' },
+      { key: 'sh.publications.dashboard', label: 'Director progress dashboard' }
+    ]
+  },
+  {
+    // Phase 0 add-ons to existing HR scope (attendance config + leave dispute)
+    name: 'HR Configuration (Phase 0)',
+    key: 'hr_phase_0_config',
+    permissions: [
+      { key: 'hr.attendance.status_types.write', label: 'Configure attendance status types' },
+      { key: 'hr.attendance.thresholds.write', label: 'Configure attendance thresholds' },
+      { key: 'hr.leave.policies.write', label: 'Configure leave cadre policies' },
+      { key: 'hr.leave.balance.dispute', label: 'Submit leave balance correction request' },
+      { key: 'hr.leave.dispute.approve', label: 'Approve leave balance correction' },
+      { key: 'admin.departments.hod.write', label: 'Assign Head of Department to a department' }
+    ]
+  },
+  {
+    // Platform Configuration — super_admin scope today (sidebar gates via 'super_admin'),
+    // granular keys registered for forward-compat so admin-cell roles can be granted
+    // ai_models.view without a sidebar rewrite. 2026-05-09.
+    name: 'Platform Configuration',
+    key: 'platform_config',
+    permissions: [
+      { key: 'platform.ai_models.view', label: 'View AI Model Config (provider/model + usage)' },
+      { key: 'platform.ai_models.write', label: 'Change AI Model Config (provider/model + spend caps)' }
+    ]
+  },
+  // ======================================================================
+  // Module-root visibility for sections that have no other catalog entry.
+  // These keys gate sidebar sections only — granular permissions for
+  // sub-pages live in their respective module categories where applicable.
+  // Added 2026-05-09 to close catalog gaps surfaced by the sidebar audit.
+  // ======================================================================
+  {
+    name: 'Faculty',
+    key: 'faculty',
+    permissions: [
+      { key: 'faculty.view', label: 'View Faculty Module' }
+    ]
+  },
+  {
+    name: 'Learning',
+    key: 'learn',
+    permissions: [
+      { key: 'learn.view', label: 'View Learning Module' }
+    ]
+  },
+  {
+    name: 'Meetings',
+    key: 'meetings',
+    permissions: [
+      { key: 'meetings.view', label: 'View Meetings Module' }
     ]
   }
 ];

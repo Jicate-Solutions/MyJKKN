@@ -8063,14 +8063,18 @@ GRANT EXECUTE ON FUNCTION public.transfer_learner_enquiry(
 -- ============================================================================
 
 -- RPC A: Seat fill stats per institution → degree → department → program → admission year
--- Updated: 2026-04-24 - Switched from academic_years to admission_years (per-institution-per-program
---   cohort table). Filled count now includes 'admitted', 'active', and 'graduated' statuses.
---   Dual-join strategy: prefers admission_year_id FK; falls back to integer year match for
---   learners where admission_year_id is still NULL (pre-backfill rows).
+-- Updated 2026-05-02 (Phase C): Added p_program_start_year param so the Group
+--   Dashboard's Summary cards can scope by selected admission year. Dropped
+--   the OR-fallback on lp.admission_year integer — Phase A 2026-05-02 backfill
+--   ensured every linkable learner has admission_year_id populated, so the FK
+--   alone is sufficient. When p_program_start_year is set, the is_active=true
+--   filter is bypassed so historical (now-inactive) cohorts remain queryable.
+DROP FUNCTION IF EXISTS public.get_seat_analytics(uuid);
 DROP FUNCTION IF EXISTS public.get_seat_analytics(uuid, uuid);
 
 CREATE OR REPLACE FUNCTION public.get_seat_analytics(
-  p_institution_id uuid DEFAULT NULL
+  p_institution_id     uuid    DEFAULT NULL,
+  p_program_start_year integer DEFAULT NULL
 )
 RETURNS TABLE (
   institution_id      uuid,
@@ -8124,18 +8128,15 @@ AS $$
   JOIN degrees d        ON d.id    = p.degree_id
   JOIN institutions i   ON i.id    = ay.institution_id
   LEFT JOIN learners_profiles lp
-    ON (
-      lp.admission_year_id = ay.id
-      OR (
-        lp.admission_year_id IS NULL
-        AND lp.program_id     = ay.program_id
-        AND lp.institution_id = ay.institution_id
-        AND lp.admission_year = ay.program_start_year
-      )
+    ON  lp.admission_year_id = ay.id
+    AND lp.lifecycle_status IN ('admitted', 'active', 'graduated', 'account')
+  WHERE
+    (
+      (p_program_start_year IS NULL     AND ay.is_active = true)
+      OR (p_program_start_year IS NOT NULL AND ay.program_start_year = p_program_start_year)
     )
-    AND lp.lifecycle_status IN ('admitted', 'active', 'graduated')
-  WHERE ay.is_active = true
     AND (p_institution_id IS NULL OR ay.institution_id = p_institution_id)
+    AND role_has_institution_access(ay.institution_id)
   GROUP BY
     i.id, i.name,
     d.id, d.degree_name,
@@ -8145,7 +8146,7 @@ AS $$
   ORDER BY i.name, d.degree_name, dept.department_name, p.program_name, ay.program_start_year DESC;
 $$;
 
-GRANT EXECUTE ON FUNCTION public.get_seat_analytics(uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.get_seat_analytics(uuid, integer) TO authenticated;
 
 -- RPC B: Source/referral breakdown (consultant/direct/student/faculty) by institution
 CREATE OR REPLACE FUNCTION public.get_source_analytics(
@@ -8941,7 +8942,8 @@ BEGIN
   INSERT INTO notifications (
     id, title, body, category, kind, priority, requires_acknowledgment,
     acknowledgment_deadline_hours, action_type, action_config, idempotency_key,
-    created_by, targeting, created_at, updated_at
+    created_by, targeting, created_at, updated_at,
+    is_layer_0
   ) VALUES (
     -- 2026-04-23 decoupling: requires_acknowledgment=FALSE so work items don't
     -- trigger the Mandatory Acknowledgment blocking modal. Queue filter uses
@@ -8949,6 +8951,12 @@ BEGIN
     -- 2026-04-24 split: kind='work_item' keeps these out of /admin/notifications
     -- (which filters to kind='announcement'). Work items surface via dashboard
     -- widgets + super-admin digest instead.
+    -- Wave B.4 (2026-04-29): is_layer_0 is the new dedicated Attention Bar
+    -- Layer 0 signal. Setting it for urgent priorities makes urgent work
+    -- items eligible for the bar's split-rendering path WITHOUT coupling to
+    -- the gate's ack semantics — gate stays untouched (kind='announcement'
+    -- remains its scope), Layer 0 surfaces both work items and ack-required
+    -- announcements via the single is_layer_0 column.
     gen_random_uuid(), p_title, p_body, p_category, 'work_item', p_priority, FALSE,
     p_deadline_hours, 'open_url', p_action_config, p_idempotency_key,
     -- Updated: 2026-04-27 (Bug B) — canonical targeting shape is
@@ -8956,7 +8964,8 @@ BEGIN
     -- (singular) is still accepted by fn_notification_is_for_user
     -- for unmigrated rows. Writers should ALWAYS use the array shape.
     p_target_user, jsonb_build_object('type','user','user_ids', jsonb_build_array(p_target_user)),
-    NOW(), NOW()
+    NOW(), NOW(),
+    (p_priority = 'urgent')
   ) RETURNING id INTO v_notif_id;
   INSERT INTO user_notifications (id, notification_id, user_id, created_at)
   VALUES (gen_random_uuid(), v_notif_id, p_target_user, NOW());
@@ -9604,9 +9613,15 @@ GRANT EXECUTE ON FUNCTION public.mirror_staff_role_to_user_roles(uuid, text) TO 
 -- admission_counselor. The 2-arg signature was DROPped to avoid overload
 -- ambiguity — every caller now resolves to this 3-arg version with p_role_key
 -- defaulting when omitted.
+-- Updated 2026-05-08 (phase 3.2): p_is_primary default flipped from true to
+-- NULL (auto-decide). Auto rule: stay primary ONLY if user has no other
+-- primary user_roles row. Prevents accidental overwrite of profiles.role
+-- via sync_primary_role_to_profile() AFTER-INSERT trigger when an admin
+-- adds a counselor on a user who already has a primary identity (e.g.
+-- 'student' on a learner).
 CREATE OR REPLACE FUNCTION public.assign_counselor_role(
     p_user_id    uuid,
-    p_is_primary boolean DEFAULT true,
+    p_is_primary boolean DEFAULT NULL,
     p_role_key   text    DEFAULT 'admission_counselor'
 ) RETURNS void
 LANGUAGE plpgsql
@@ -9614,9 +9629,11 @@ SECURITY DEFINER
 SET search_path = public
 AS $$
 DECLARE
-    v_role_id      uuid;
-    v_caller       uuid := auth.uid();
-    v_allowed_keys text[] := ARRAY[
+    v_role_id        uuid;
+    v_caller         uuid := auth.uid();
+    v_has_primary    boolean;
+    v_make_primary   boolean;
+    v_allowed_keys   text[] := ARRAY[
       'admission_counselor',
       'expo_counselor',
       'learner_counselor',
@@ -9658,10 +9675,25 @@ BEGIN
         RETURN;
     END IF;
 
-    -- Demote any existing primary first to avoid the partial unique index
-    -- idx_user_roles_primary_unique firing before sync_primary_role_trigger
-    -- can do its own AFTER-INSERT demotion.
-    IF COALESCE(p_is_primary, true) = true THEN
+    -- Decide is_primary:
+    --   - explicit TRUE  → caller forces primary (demote-then-insert)
+    --   - explicit FALSE → caller forces additive (no demote, never primary)
+    --   - NULL (default) → auto: primary only if user has no other primary yet
+    SELECT EXISTS (
+        SELECT 1 FROM user_roles
+         WHERE user_id = p_user_id AND is_primary = true
+    ) INTO v_has_primary;
+
+    v_make_primary := CASE
+        WHEN p_is_primary IS TRUE  THEN true
+        WHEN p_is_primary IS FALSE THEN false
+        ELSE NOT v_has_primary
+    END;
+
+    -- Only demote when this insert will actually be primary. Required to
+    -- satisfy the partial unique index idx_user_roles_primary_unique
+    -- before the AFTER-INSERT trigger sync_primary_role_to_profile fires.
+    IF v_make_primary THEN
         UPDATE user_roles
         SET is_primary = false
         WHERE user_id = p_user_id
@@ -9669,7 +9701,7 @@ BEGIN
     END IF;
 
     INSERT INTO user_roles (user_id, role_id, is_primary, assigned_by)
-    VALUES (p_user_id, v_role_id, COALESCE(p_is_primary, true), v_caller);
+    VALUES (p_user_id, v_role_id, v_make_primary, v_caller);
 END;
 $$;
 
@@ -12133,18 +12165,31 @@ STABLE
 SECURITY DEFINER
 SET search_path = public
 AS $$
+  -- Updated 2026-05-02 (Phase C-6):
+  --   * 'account' added to filled bucket (matches Summary + Daily Pivot tabs).
+  --   * lp.admission_year integer OR-fallback dropped (Phase A backfilled FK).
+  --   * ay.is_active filter only applies in all-time mode; explicit cohort year
+  --     queries return historical (now-inactive) cohorts too.
+  --   * role_has_institution_access(i.id) now filters the outer SELECT.
   WITH ay_scope AS (
-    SELECT id, ay.institution_id, program_id, program_start_year, sanctioned_intake
+    SELECT ay.id, ay.institution_id, ay.program_id, ay.program_start_year, ay.sanctioned_intake
     FROM admission_years ay
-    WHERE ay.is_active = true
-      AND ay.institution_id = ANY(p_institution_ids)
+    WHERE ay.institution_id = ANY(p_institution_ids)
       AND (
             (p_admission_year_id IS NOT NULL AND ay.id = p_admission_year_id)
          OR (p_admission_year_id IS NULL AND p_program_start_year IS NOT NULL
              AND ay.program_start_year = p_program_start_year)
-         OR (p_admission_year_id IS NULL AND p_program_start_year IS NULL)
+         OR (p_admission_year_id IS NULL AND p_program_start_year IS NULL
+             AND ay.is_active = true)
           )
   ),
+  -- Updated 2026-05-02 (Phase C-9): restored EXTRACT(year FROM al.created_at)
+  -- fallback for leads only. 15,195 of 15,628 admission_leads rows have NULL
+  -- admission_year_id (early-stage CRM entries with no program_id yet) and
+  -- can't be backfilled. Keeping the fallback preserves the historical
+  -- "pipeline volume" semantics for the top-of-page Total Leads card while
+  -- learner_counts stays strictly FK-scoped (Phase A backfilled all linkable
+  -- learners).
   lead_counts AS (
     SELECT
       al.institution_id,
@@ -12170,7 +12215,7 @@ AS $$
       COUNT(*) FILTER (WHERE lp.lifecycle_status::text IN ('admitted','pending','approved','account','waitlisted')) AS applied,
       COUNT(*) FILTER (WHERE lp.lifecycle_status::text = 'active')   AS active,
       COUNT(*) FILTER (WHERE lp.lifecycle_status::text = 'rejected') AS rejected,
-      COUNT(*) FILTER (WHERE lp.lifecycle_status::text IN ('admitted','active','graduated')) AS filled
+      COUNT(*) FILTER (WHERE lp.lifecycle_status::text IN ('admitted','active','graduated','account')) AS filled
     FROM learners_profiles lp
     WHERE lp.institution_id IS NOT NULL
       AND lp.institution_id = ANY(p_institution_ids)
@@ -12178,9 +12223,7 @@ AS $$
             (p_admission_year_id IS NOT NULL
              AND lp.admission_year_id = p_admission_year_id)
          OR (p_admission_year_id IS NULL AND p_program_start_year IS NOT NULL
-             AND ( lp.admission_year_id IN (SELECT id FROM ay_scope)
-                OR (lp.admission_year_id IS NULL
-                    AND lp.admission_year = p_program_start_year) ))
+             AND lp.admission_year_id IN (SELECT id FROM ay_scope))
          OR (p_admission_year_id IS NULL AND p_program_start_year IS NULL)
           )
     GROUP BY lp.institution_id
@@ -12209,6 +12252,7 @@ AS $$
   LEFT JOIN learner_counts lpc ON lpc.institution_id = i.id
   LEFT JOIN seat_totals    st  ON st.institution_id  = i.id
   WHERE i.id = ANY(p_institution_ids)
+    AND role_has_institution_access(i.id)
   ORDER BY i.name;
 $$;
 
@@ -12290,15 +12334,27 @@ AS $$
      AND base.program_id NOT LIKE '%-SH'
      AND base.id <> p.id
   ),
+  -- Updated 2026-05-02 (Phase C-3):
+  --   * Switched lp.admission_year integer match to admission_year_id FK (Phase A
+  --     backfill ensures every linkable learner has FK populated).
+  --   * Added 'account' to filled lifecycle set so Daily Pivot agrees with
+  --     Summary tab and the product directive.
+  --   * Dropped ay.is_active = true so historical cohorts (catalogued by Phase A
+  --     as inactive) remain queryable when a year is supplied.
+  target_ays AS (
+    SELECT
+      ay.id, ay.institution_id, ay.program_id,
+      ay.program_start_year, ay.program_end_year, ay.sanctioned_intake
+    FROM admission_years ay
+    WHERE ay.program_start_year = p_admission_year
+      AND ay.institution_id IN (SELECT id FROM eligible_institutions)
+  ),
   ay_anchor AS (
     SELECT DISTINCT ay.institution_id, pr.resolved_id AS program_id
-    FROM admission_years ay
+    FROM target_ays ay
     JOIN programs p           ON p.id = ay.program_id
     JOIN program_resolution pr ON pr.original_id = ay.program_id
-    WHERE ay.is_active = true
-      AND ay.institution_id IN (SELECT id FROM eligible_institutions)
-      AND ay.program_start_year = p_admission_year
-      AND COALESCE(p.is_active, true) = true
+    WHERE COALESCE(p.is_active, true) = true
   ),
   lp_anchor AS (
     SELECT DISTINCT lp.institution_id, pr.resolved_id AS program_id
@@ -12306,8 +12362,8 @@ AS $$
     JOIN programs p           ON p.id = lp.program_id
     JOIN program_resolution pr ON pr.original_id = lp.program_id
     WHERE lp.institution_id IN (SELECT id FROM eligible_institutions)
-      AND lp.admission_year = p_admission_year
-      AND lp.lifecycle_status::text IN ('admitted','active','graduated')
+      AND lp.admission_year_id IN (SELECT id FROM target_ays)
+      AND lp.lifecycle_status::text IN ('admitted','active','graduated','account')
       AND COALESCE(p.is_active, true) = true
   ),
   anchor AS (
@@ -12324,11 +12380,9 @@ AS $$
           < COALESCE(p.program_duration_yrs::int, 4)
       ) AS has_lateral_row,
       SUM(ay.sanctioned_intake)::int AS intake_total
-    FROM admission_years ay
+    FROM target_ays ay
     JOIN programs p           ON p.id = ay.program_id
     JOIN program_resolution pr ON pr.original_id = ay.program_id
-    WHERE ay.is_active = true
-      AND ay.program_start_year = p_admission_year
     GROUP BY ay.institution_id, pr.resolved_id
   ),
   filled_per_day AS (
@@ -12340,8 +12394,8 @@ AS $$
     FROM learners_profiles lp
     JOIN program_resolution pr ON pr.original_id = lp.program_id
     WHERE lp.institution_id IN (SELECT id FROM eligible_institutions)
-      AND lp.admission_year = p_admission_year
-      AND lp.lifecycle_status::text IN ('admitted','active','graduated')
+      AND lp.admission_year_id IN (SELECT id FROM target_ays)
+      AND lp.lifecycle_status::text IN ('admitted','active','graduated','account')
       AND (NOT p_exclude_bulk_migrated OR lp.migrated_at IS NULL)
     GROUP BY lp.institution_id, pr.resolved_id,
              (COALESCE(lp.activated_at, lp.created_at) AT TIME ZONE 'Asia/Kolkata')::date
@@ -12441,6 +12495,10 @@ STABLE
 SECURITY DEFINER
 SET search_path = public
 AS $$
+  -- Updated 2026-05-02 (Phase C-7): drop OR-fallback on lp.admission_year
+  -- integer and on EXTRACT(year FROM al.created_at). Phase A backfilled the
+  -- FK on both admission_leads and learners_profiles. Drop is_active=true
+  -- from cohort_ay_ids so historical cohorts are queryable.
   WITH eligible_institutions AS (
     SELECT id FROM institutions
     WHERE id = ANY(p_institution_ids) AND role_has_institution_access(id)
@@ -12449,7 +12507,6 @@ AS $$
     SELECT id FROM admission_years
     WHERE p_admission_year IS NOT NULL
       AND program_start_year = p_admission_year
-      AND is_active = true
   ),
   scoped_leads AS (
     SELECT
@@ -12460,12 +12517,7 @@ AS $$
       al.learner_profile_id
     FROM admission_leads al
     WHERE al.institution_id IN (SELECT id FROM eligible_institutions)
-      AND (
-        p_admission_year IS NULL
-        OR al.admission_year_id IN (SELECT id FROM cohort_ay_ids)
-        OR (al.admission_year_id IS NULL
-            AND EXTRACT(year FROM al.created_at)::int = p_admission_year)
-      )
+      AND (p_admission_year IS NULL OR al.admission_year_id IN (SELECT id FROM cohort_ay_ids))
   ),
   per_lead_status AS (
     SELECT
@@ -12476,22 +12528,24 @@ AS $$
     LEFT JOIN learners_profiles lp ON lp.id = sl.learner_profile_id
     WHERE sl.learner_profile_id IS NULL
        OR p_admission_year IS NULL
-       OR lp.admission_year = p_admission_year
-       OR lp.admission_year IS NULL
+       OR lp.admission_year_id IN (SELECT id FROM cohort_ay_ids)
+       OR lp.admission_year_id IS NULL
   )
+  -- Updated 2026-05-02 (Phase C-10): 'account' added to enrolled lifecycle
+  -- set so Source tab agrees with dashboard-wide Filled definition.
   SELECT
     pls.institution_id,
     i.name::text                                                    AS institution_name,
     pls.source,
     pls.referral_type,
     COUNT(*)::int                                                   AS lead_count,
-    COUNT(*) FILTER (WHERE pls.lp_status IN ('admitted','active','graduated'))::int AS enrolled_count,
+    COUNT(*) FILTER (WHERE pls.lp_status IN ('admitted','active','graduated','account'))::int AS enrolled_count,
     CASE WHEN COUNT(*) = 0 THEN 0::numeric
          ELSE ROUND(
-           COUNT(*) FILTER (WHERE pls.lp_status IN ('admitted','active','graduated'))::numeric
+           COUNT(*) FILTER (WHERE pls.lp_status IN ('admitted','active','graduated','account'))::numeric
              / COUNT(*)::numeric * 100, 2)
     END                                                             AS conversion_rate,
-    MAX(pls.activated_at) FILTER (WHERE pls.lp_status IN ('admitted','active','graduated'))
+    MAX(pls.activated_at) FILTER (WHERE pls.lp_status IN ('admitted','active','graduated','account'))
                                                                     AS last_enrolled_at
   FROM per_lead_status pls
   JOIN institutions i ON i.id = pls.institution_id
@@ -12526,9 +12580,16 @@ STABLE
 SECURITY DEFINER
 SET search_path = public
 AS $$
+  -- Updated 2026-05-02 (Phase C-7): switched lp.admission_year integer match
+  -- to admission_year_id FK; allows historical cohorts (Phase A is_active=false)
+  -- to be queried by explicit year.
   WITH eligible_institutions AS (
     SELECT id FROM institutions
     WHERE id = ANY(p_institution_ids) AND role_has_institution_access(id)
+  ),
+  cohort_ay_ids AS (
+    SELECT id FROM admission_years
+    WHERE p_admission_year IS NOT NULL AND program_start_year = p_admission_year
   ),
   normalized AS (
     SELECT
@@ -12540,11 +12601,13 @@ AS $$
     FROM learners_profiles lp
     WHERE lp.institution_id IS NOT NULL
       AND lp.institution_id IN (SELECT id FROM eligible_institutions)
-      AND lp.lifecycle_status::text IN ('admitted','active','graduated')
+      AND lp.lifecycle_status::text IN ('admitted','active','graduated','account')
       AND lp.permanent_address_district IS NOT NULL
       AND TRIM(lp.permanent_address_district) <> ''
-      AND (p_admission_year IS NULL OR lp.admission_year = p_admission_year)
+      AND (p_admission_year IS NULL OR lp.admission_year_id IN (SELECT id FROM cohort_ay_ids))
   )
+  -- Updated 2026-05-02 (Phase C-10): added 'account' to the lifecycle set so
+  -- the Geography tab's count matches dashboard-wide Filled = 183 for 2026.
   SELECT
     n.institution_id,
     i.name::text                       AS institution_name,
@@ -12592,6 +12655,12 @@ STABLE
 SECURITY DEFINER
 SET search_path = public
 AS $$
+  -- Updated 2026-05-02 (Phase C-7):
+  --   * Drop is_active=true from cohort_ay_ids and seat_totals so historical
+  --     cohorts (Phase A is_active=false) are queryable by explicit year.
+  --   * Drop OR-fallback on lp.admission_year integer and on EXTRACT(year FROM
+  --     al.created_at) — Phase A backfilled the FK.
+  --   * Add 'account' to the filled bucket (matches Summary tab); active stays.
   WITH eligible_institutions AS (
     SELECT id FROM institutions
     WHERE id = ANY(p_institution_ids) AND role_has_institution_access(id)
@@ -12600,37 +12669,33 @@ AS $$
     SELECT id FROM admission_years
     WHERE p_admission_year IS NOT NULL
       AND program_start_year = p_admission_year
-      AND is_active = true
   ),
   seat_totals AS (
     SELECT ay.institution_id, SUM(ay.sanctioned_intake)::int AS total_seats
     FROM admission_years ay
-    WHERE ay.is_active = true
-      AND ay.institution_id IN (SELECT id FROM eligible_institutions)
-      AND (p_admission_year IS NULL OR ay.program_start_year = p_admission_year)
+    WHERE ay.institution_id IN (SELECT id FROM eligible_institutions)
+      AND (
+        (p_admission_year IS NULL AND ay.is_active = true)
+        OR (p_admission_year IS NOT NULL AND ay.program_start_year = p_admission_year)
+      )
     GROUP BY ay.institution_id
   ),
   learner_aggs AS (
     SELECT
       lp.institution_id,
-      COUNT(*) FILTER (WHERE lp.lifecycle_status::text IN ('admitted','active','graduated'))::int AS filled,
+      COUNT(*) FILTER (WHERE lp.lifecycle_status::text IN ('admitted','active','graduated','account'))::int AS filled,
       COUNT(*) FILTER (WHERE lp.lifecycle_status::text = 'active')::int AS active
     FROM learners_profiles lp
     WHERE lp.institution_id IS NOT NULL
       AND lp.institution_id IN (SELECT id FROM eligible_institutions)
-      AND (p_admission_year IS NULL OR lp.admission_year = p_admission_year)
+      AND (p_admission_year IS NULL OR lp.admission_year_id IN (SELECT id FROM cohort_ay_ids))
     GROUP BY lp.institution_id
   ),
   lead_aggs AS (
     SELECT al.institution_id, COUNT(*)::int AS total
     FROM admission_leads al
     WHERE al.institution_id IN (SELECT id FROM eligible_institutions)
-      AND (
-        p_admission_year IS NULL
-        OR al.admission_year_id IN (SELECT id FROM cohort_ay_ids)
-        OR (al.admission_year_id IS NULL
-            AND EXTRACT(year FROM al.created_at)::int = p_admission_year)
-      )
+      AND (p_admission_year IS NULL OR al.admission_year_id IN (SELECT id FROM cohort_ay_ids))
     GROUP BY al.institution_id
   ),
   source_ranks AS (
@@ -12640,12 +12705,7 @@ AS $$
     FROM admission_leads al
     WHERE al.institution_id IN (SELECT id FROM eligible_institutions)
       AND al.source IS NOT NULL
-      AND (
-        p_admission_year IS NULL
-        OR al.admission_year_id IN (SELECT id FROM cohort_ay_ids)
-        OR (al.admission_year_id IS NULL
-            AND EXTRACT(year FROM al.created_at)::int = p_admission_year)
-      )
+      AND (p_admission_year IS NULL OR al.admission_year_id IN (SELECT id FROM cohort_ay_ids))
     GROUP BY al.institution_id, al.source
   ),
   district_ranks AS (
@@ -12658,10 +12718,10 @@ AS $$
     FROM learners_profiles lp
     WHERE lp.institution_id IS NOT NULL
       AND lp.institution_id IN (SELECT id FROM eligible_institutions)
-      AND lp.lifecycle_status::text IN ('admitted','active','graduated')
+      AND lp.lifecycle_status::text IN ('admitted','active','graduated','account')
       AND lp.permanent_address_district IS NOT NULL
       AND TRIM(lp.permanent_address_district) <> ''
-      AND (p_admission_year IS NULL OR lp.admission_year = p_admission_year)
+      AND (p_admission_year IS NULL OR lp.admission_year_id IN (SELECT id FROM cohort_ay_ids))
     GROUP BY lp.institution_id, INITCAP(TRIM(REGEXP_REPLACE(lp.permanent_address_district, '\s+', ' ', 'g')))
   )
   SELECT
@@ -13126,3 +13186,735 @@ BEGIN
 END;
 $fn_ngc_get$;
 GRANT EXECUTE ON FUNCTION public.fn_get_generator_config(TEXT, JSONB) TO authenticated, service_role;
+
+-- ============================================================================
+-- admission_resolve_fee_items_for_lead RPC (Plan 3 Task 4)
+-- ============================================================================
+-- Spec §7. Computes the resolved fee_items[] for a learner by:
+--   1. Looking up matching active fee_structure on the 8 dimensions
+--   2. Loading base items from the structure
+--   3. Applying active adjustments (per-category merged, global appended)
+--   4. Clamping negative resulting amounts to 0
+--   5. Persisting result into learners_profiles.fee_items
+--   6. Returning the JSONB array
+-- legacy_fee_mode short-circuit: returns existing fee_items unchanged.
+-- ============================================================================
+
+CREATE OR REPLACE FUNCTION public.admission_resolve_fee_items_for_lead(p_learner_id uuid)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+    v_lead              record;
+    v_structure_id      uuid;
+    v_resolved          jsonb;
+    v_base_items        jsonb;
+    v_adjustments       jsonb;
+    v_global_deltas_sum numeric(15,2) := 0;
+BEGIN
+    SELECT institution_id, degree_id, department_id, program_id,
+           quota_id, community_category_id, accommodation_type_id, admission_year_id,
+           legacy_fee_mode
+      INTO v_lead
+      FROM public.learners_profiles
+     WHERE id = p_learner_id;
+
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'learner_not_found: %', p_learner_id USING ERRCODE = 'P0002';
+    END IF;
+
+    IF v_lead.legacy_fee_mode = true THEN
+        RETURN COALESCE((SELECT fee_items FROM public.learners_profiles WHERE id = p_learner_id), '[]'::jsonb);
+    END IF;
+
+    SELECT id INTO v_structure_id
+      FROM public.admission_fee_structures
+     WHERE institution_id        = v_lead.institution_id
+       AND degree_id             = v_lead.degree_id
+       AND department_id         = v_lead.department_id
+       AND programme_id          = v_lead.program_id
+       AND quota_id              = v_lead.quota_id
+       AND community_category_id = v_lead.community_category_id
+       AND accommodation_type_id = v_lead.accommodation_type_id
+       AND admission_year_id     = v_lead.admission_year_id
+       AND status = 'active'
+     LIMIT 1;
+
+    IF v_structure_id IS NULL THEN
+        UPDATE public.learners_profiles SET fee_items = '[]'::jsonb WHERE id = p_learner_id;
+        RETURN '[]'::jsonb;
+    END IF;
+
+    SELECT jsonb_agg(jsonb_build_object(
+                'category_id',   fsi.billing_category_id,
+                'category_name', bc.category_name,
+                'amount',        fsi.amount,
+                'source',        'structure'))
+      INTO v_base_items
+      FROM public.admission_fee_structure_items fsi
+      JOIN public.billing_categories bc ON bc.id = fsi.billing_category_id
+     WHERE fsi.fee_structure_id = v_structure_id;
+
+    IF v_base_items IS NULL THEN
+        v_base_items := '[]'::jsonb;
+    END IF;
+
+    WITH per_cat AS (
+        SELECT billing_category_id, SUM(delta_amount) AS delta_sum
+          FROM public.admission_fee_adjustments
+         WHERE learner_id = p_learner_id
+           AND status = 'active'
+           AND billing_category_id IS NOT NULL
+         GROUP BY billing_category_id
+    )
+    SELECT jsonb_agg(
+             jsonb_build_object(
+               'category_id',   item->>'category_id',
+               'category_name', item->>'category_name',
+               'amount',        GREATEST(0, (item->>'amount')::numeric
+                                  + COALESCE(pc.delta_sum, 0)),
+               'source',        item->>'source'))
+      INTO v_resolved
+      FROM jsonb_array_elements(v_base_items) AS item
+      LEFT JOIN per_cat pc ON pc.billing_category_id = (item->>'category_id')::uuid;
+
+    IF v_resolved IS NULL THEN
+        v_resolved := '[]'::jsonb;
+    END IF;
+
+    SELECT COALESCE(SUM(delta_amount), 0)
+      INTO v_global_deltas_sum
+      FROM public.admission_fee_adjustments
+     WHERE learner_id = p_learner_id
+       AND status = 'active'
+       AND billing_category_id IS NULL;
+
+    IF v_global_deltas_sum <> 0 THEN
+        v_resolved := v_resolved || jsonb_build_array(
+            jsonb_build_object(
+                'category_id',   NULL,
+                'category_name', 'Global Adjustment',
+                'amount',        v_global_deltas_sum,
+                'source',        'adjustment_global'
+            )
+        );
+    END IF;
+
+    UPDATE public.learners_profiles
+       SET fee_items = v_resolved,
+           updated_at = now()
+     WHERE id = p_learner_id;
+
+    RETURN v_resolved;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.admission_resolve_fee_items_for_lead(uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.admission_resolve_fee_items_for_lead(uuid) TO authenticated;
+
+-- ============================================================================
+-- admission_account_transition_with_bills (Plan 4 Task 4)
+-- ============================================================================
+-- Spec §8.3.1. Atomic: documents persistence + status update + bill generation.
+-- Any RAISE EXCEPTION rolls back everything.
+--
+-- Bill INSERT column list mirrors OnboardingService.createBillsFromProfile
+-- (lib/services/billing/onboarding/onboarding-service.ts) exactly:
+--   student_id, institution_id, item_category_id, bill_description, due_date,
+--   quantity, unit_amount, total_amount, tax_amount, final_amount,
+--   balance_amount, status, remarks, created_by
+-- Other billing_student_bills columns (is_recurring, recurrence_pattern,
+-- number_of_recurrences, payment_date) keep their table defaults.
+-- ============================================================================
+
+CREATE OR REPLACE FUNCTION public.admission_account_transition_with_bills(
+    p_learner_id          uuid,
+    p_required_documents  jsonb,
+    p_received_documents  jsonb
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+    v_lead              record;
+    v_fee_items         jsonb;
+    v_required          text[];
+    v_received_types    text[];
+    v_missing           text[];
+    v_doc               jsonb;
+    v_bills_existing    integer;
+    v_bills_inserted    integer := 0;
+    v_item              jsonb;
+    v_due_date          date;
+    v_caller            uuid := auth.uid();
+BEGIN
+    IF NOT public.user_has_permission('admission_documents.manage') THEN
+        RAISE EXCEPTION 'permission_denied: admission_documents.manage required'
+            USING ERRCODE = '42501';
+    END IF;
+
+    SELECT id, institution_id, lifecycle_status, fee_items, legacy_fee_mode
+      INTO v_lead
+      FROM public.learners_profiles
+     WHERE id = p_learner_id
+     FOR UPDATE;
+
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'learner_not_found: %', p_learner_id USING ERRCODE = 'P0002';
+    END IF;
+
+    IF v_lead.lifecycle_status NOT IN ('admitted','pending','approved') THEN
+        RAISE EXCEPTION 'invalid_status_for_account_transition: current=%, allowed=admitted/pending/approved',
+            v_lead.lifecycle_status;
+    END IF;
+
+    IF v_lead.legacy_fee_mode = false THEN
+        v_fee_items := public.admission_resolve_fee_items_for_lead(p_learner_id);
+        IF jsonb_array_length(v_fee_items) = 0 THEN
+            RAISE EXCEPTION 'fee_structure_not_resolvable: no matching matrix combo';
+        END IF;
+    ELSE
+        v_fee_items := v_lead.fee_items;
+        IF v_fee_items IS NULL OR jsonb_array_length(v_fee_items) = 0 THEN
+            RAISE EXCEPTION 'legacy_fee_items_empty: cannot transition with no fees';
+        END IF;
+    END IF;
+
+    SELECT array_agg(value::text) INTO v_required
+      FROM jsonb_array_elements_text(p_required_documents);
+
+    SELECT array_agg(value->>'doc_type') INTO v_received_types
+      FROM jsonb_array_elements(p_received_documents) AS value;
+
+    SELECT array_agg(req) INTO v_missing
+      FROM unnest(COALESCE(v_required, ARRAY[]::text[])) AS req
+     WHERE req <> ALL (COALESCE(v_received_types, ARRAY[]::text[]));
+
+    IF array_length(v_missing, 1) > 0 THEN
+        RAISE EXCEPTION 'required_documents_missing: %', array_to_string(v_missing, ',');
+    END IF;
+
+    FOR v_doc IN SELECT * FROM jsonb_array_elements(p_received_documents)
+    LOOP
+        INSERT INTO public.learner_admission_documents
+            (learner_id, doc_type, is_received, received_at, received_by, received_via, document_ref)
+        VALUES
+            (p_learner_id,
+             v_doc->>'doc_type',
+             true,
+             now(),
+             v_caller,
+             v_doc->>'received_via',
+             v_doc->>'document_ref')
+        ON CONFLICT (learner_id, doc_type) DO UPDATE
+            SET is_received  = true,
+                received_at  = EXCLUDED.received_at,
+                received_by  = EXCLUDED.received_by,
+                received_via = EXCLUDED.received_via,
+                document_ref = EXCLUDED.document_ref,
+                updated_at   = now();
+    END LOOP;
+
+    UPDATE public.learners_profiles
+       SET lifecycle_status = 'account',
+           updated_at = now(),
+           updated_by = v_caller
+     WHERE id = p_learner_id;
+
+    SELECT count(*) INTO v_bills_existing
+      FROM public.billing_student_bills
+     WHERE student_id = p_learner_id;
+
+    IF v_bills_existing = 0 THEN
+        v_due_date := (now() + interval '30 days')::date;
+
+        FOR v_item IN SELECT * FROM jsonb_array_elements(v_fee_items)
+        LOOP
+            IF (v_item->>'amount')::numeric > 0 THEN
+                INSERT INTO public.billing_student_bills (
+                    student_id, institution_id, item_category_id,
+                    bill_description, due_date, quantity,
+                    unit_amount, total_amount, tax_amount, final_amount,
+                    balance_amount, status, remarks, created_by
+                ) VALUES (
+                    p_learner_id,
+                    v_lead.institution_id,
+                    NULLIF(v_item->>'category_id','')::uuid,
+                    COALESCE(v_item->>'category_name','Fee Item'),
+                    v_due_date,
+                    1,
+                    (v_item->>'amount')::numeric,
+                    (v_item->>'amount')::numeric,
+                    0,
+                    (v_item->>'amount')::numeric,
+                    (v_item->>'amount')::numeric,
+                    'unpaid',
+                    'Onboarding bill — auto-generated via account transition RPC',
+                    v_caller
+                );
+                v_bills_inserted := v_bills_inserted + 1;
+            END IF;
+        END LOOP;
+    END IF;
+
+    RETURN jsonb_build_object(
+        'success', true,
+        'learner_id', p_learner_id,
+        'lifecycle_status', 'account',
+        'documents_recorded', jsonb_array_length(p_received_documents),
+        'bills_existing', v_bills_existing,
+        'bills_generated', v_bills_inserted,
+        'fee_items_count', jsonb_array_length(v_fee_items)
+    );
+EXCEPTION
+    WHEN OTHERS THEN
+        RAISE;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.admission_account_transition_with_bills(uuid, jsonb, jsonb) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.admission_account_transition_with_bills(uuid, jsonb, jsonb) TO authenticated;
+-- ============================================================================
+-- 20260509100007 — admission_approve_fee_change_event RPC
+-- ============================================================================
+-- Spec §8.3.2. Atomic approval of fee_change_events with per-line decisions.
+-- Any RAISE EXCEPTION rolls back everything.
+-- ============================================================================
+
+CREATE OR REPLACE FUNCTION public.admission_approve_fee_change_event(
+    p_event_id        uuid,
+    p_line_decisions  jsonb,           -- [{billing_category_id, decision, reallocation_amount?, decision_notes?}]
+    p_refund_excess   boolean DEFAULT false
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+    v_event             record;
+    v_caller            uuid := auth.uid();
+    v_decision          jsonb;
+    v_line_cat_id       uuid;
+    v_decision_kind     text;
+    v_reallocate_amount numeric(15,2);
+    v_old_amount        numeric(15,2);
+    v_new_amount        numeric(15,2);
+    v_paid_so_far       numeric(15,2);
+    v_delta             numeric(15,2);
+    v_old_bill_id       uuid;
+    v_new_bill_id       uuid;
+    v_credit_balance_id uuid;
+    v_summary           jsonb := '{"new_bills":0,"superseded_bills":0,"credit_balances":0,"reallocations":0}'::jsonb;
+    v_due_date          date := (now() + interval '30 days')::date;
+    v_lead              record;
+BEGIN
+    -- 1. Permission
+    IF NOT public.user_has_permission('admission_fees.approve_change_event') THEN
+        RAISE EXCEPTION 'permission_denied: admission_fees.approve_change_event required'
+            USING ERRCODE = '42501';
+    END IF;
+
+    -- 2. Load event
+    SELECT * INTO v_event
+      FROM public.admission_fee_change_events
+     WHERE id = p_event_id FOR UPDATE;
+    IF NOT FOUND THEN RAISE EXCEPTION 'event_not_found: %', p_event_id USING ERRCODE = 'P0002';
+    END IF;
+    IF v_event.status <> 'pending_review' THEN
+        RAISE EXCEPTION 'event_not_pending: %', v_event.status;
+    END IF;
+
+    -- 3. Load lead (institution_id needed for new bills)
+    SELECT id, institution_id INTO v_lead
+      FROM public.learners_profiles
+     WHERE id = v_event.learner_id;
+
+    -- 4. For each decision in p_line_decisions, apply
+    FOR v_decision IN SELECT * FROM jsonb_array_elements(p_line_decisions)
+    LOOP
+        v_line_cat_id       := (v_decision->>'billing_category_id')::uuid;
+        v_decision_kind     := v_decision->>'decision';
+        v_reallocate_amount := COALESCE((v_decision->>'reallocation_amount')::numeric, 0);
+
+        -- Pull the event_line snapshot
+        SELECT old_amount, new_amount, paid_amount_so_far
+          INTO v_old_amount, v_new_amount, v_paid_so_far
+          FROM public.admission_fee_change_event_lines
+         WHERE event_id = p_event_id AND billing_category_id = v_line_cat_id;
+
+        v_delta := COALESCE(v_new_amount, 0) - COALESCE(v_old_amount, 0);
+
+        -- Pick the most recent active old bill in this category (for supersede / reallocate)
+        SELECT id INTO v_old_bill_id
+          FROM public.billing_student_bills
+         WHERE student_id = v_event.learner_id
+           AND item_category_id = v_line_cat_id
+           AND status <> 'superseded'
+         ORDER BY created_at DESC LIMIT 1;
+
+        CASE v_decision_kind
+        WHEN 'apply_supplemental' THEN
+            -- Only when delta > 0
+            IF v_delta > 0 THEN
+                INSERT INTO public.billing_student_bills (
+                    student_id, institution_id, item_category_id, bill_description,
+                    due_date, quantity, unit_amount, total_amount, tax_amount, final_amount,
+                    balance_amount, status, remarks, created_by
+                ) VALUES (
+                    v_event.learner_id, v_lead.institution_id, v_line_cat_id,
+                    'Supplemental — fee structure change',
+                    v_due_date, 1, v_delta, v_delta, 0, v_delta,
+                    v_delta, 'unpaid',
+                    'Supplemental bill for fee structure change event ' || p_event_id::text,
+                    v_caller
+                ) RETURNING id INTO v_new_bill_id;
+                v_summary := jsonb_set(v_summary, '{new_bills}',
+                    to_jsonb((v_summary->>'new_bills')::int + 1));
+            END IF;
+
+        WHEN 'issue_credit_note' THEN
+            -- Only when delta < 0 (parent owes less now); credit balance covers the delta
+            IF v_delta < 0 THEN
+                INSERT INTO public.student_credit_balances (
+                    student_id, amount, source, source_event_id, notes, created_by
+                ) VALUES (
+                    v_event.learner_id, ABS(v_delta), 'fee_structure_change', p_event_id,
+                    'Credit note for ' || v_line_cat_id::text || ' (delta ' || v_delta::text || ')',
+                    v_caller
+                ) RETURNING id INTO v_credit_balance_id;
+                v_summary := jsonb_set(v_summary, '{credit_balances}',
+                    to_jsonb((v_summary->>'credit_balances')::int + 1));
+            END IF;
+
+        WHEN 'refund_payment' THEN
+            -- Mark for manual refund — credit balance entry with notes
+            IF v_paid_so_far > 0 THEN
+                INSERT INTO public.student_credit_balances (
+                    student_id, amount, source, source_event_id, notes, created_by
+                ) VALUES (
+                    v_event.learner_id, v_paid_so_far, 'fee_structure_change', p_event_id,
+                    'REFUND REQUESTED — manual refund pending; original bill ' || COALESCE(v_old_bill_id::text,'(none)'),
+                    v_caller
+                ) RETURNING id INTO v_credit_balance_id;
+                v_summary := jsonb_set(v_summary, '{credit_balances}',
+                    to_jsonb((v_summary->>'credit_balances')::int + 1));
+            END IF;
+
+        WHEN 'reallocate_payment' THEN
+            -- Supersede old bill, create new bill, reallocate paid amount
+            IF v_old_bill_id IS NOT NULL THEN
+                UPDATE public.billing_student_bills
+                   SET status = 'superseded', updated_at = now()
+                 WHERE id = v_old_bill_id;
+                v_summary := jsonb_set(v_summary, '{superseded_bills}',
+                    to_jsonb((v_summary->>'superseded_bills')::int + 1));
+            END IF;
+            IF COALESCE(v_new_amount, 0) > 0 THEN
+                INSERT INTO public.billing_student_bills (
+                    student_id, institution_id, item_category_id, bill_description,
+                    due_date, quantity, unit_amount, total_amount, tax_amount, final_amount,
+                    balance_amount, status, remarks, created_by
+                ) VALUES (
+                    v_event.learner_id, v_lead.institution_id, v_line_cat_id,
+                    'Replacement — fee structure change',
+                    v_due_date, 1, v_new_amount, v_new_amount, 0, v_new_amount,
+                    GREATEST(0, v_new_amount - LEAST(v_paid_so_far, v_new_amount)),
+                    CASE
+                      WHEN v_paid_so_far >= v_new_amount THEN 'paid'
+                      WHEN v_paid_so_far > 0 THEN 'partially_paid'
+                      ELSE 'unpaid' END,
+                    'Replacement bill for fee structure change event ' || p_event_id::text,
+                    v_caller
+                ) RETURNING id INTO v_new_bill_id;
+                v_summary := jsonb_set(v_summary, '{new_bills}',
+                    to_jsonb((v_summary->>'new_bills')::int + 1));
+
+                -- Link supersede chain
+                IF v_old_bill_id IS NOT NULL THEN
+                    UPDATE public.billing_student_bills
+                       SET superseded_by_bill_id = v_new_bill_id
+                     WHERE id = v_old_bill_id;
+                END IF;
+
+                -- Reallocate prior payments: copy receipt_items rows pointing at old bill
+                -- into NEW rows pointing at the new bill (NEVER mutate originals)
+                IF v_paid_so_far > 0 AND v_old_bill_id IS NOT NULL THEN
+                    INSERT INTO public.billing_receipt_items (
+                        receipt_id, bill_id, amount_paid, allocation_reason
+                    )
+                    SELECT receipt_id,
+                           v_new_bill_id,
+                           LEAST(amount_paid, v_new_amount),
+                           'fee_structure_change_reallocation'
+                      FROM public.billing_receipt_items
+                     WHERE bill_id = v_old_bill_id
+                       AND allocation_reason = 'original_payment';
+                    -- Increment the reallocations counter (each line that runs reallocation
+                    -- counts once; the GET DIAGNOSTICS form was a draft mistake — never
+                    -- assign GET DIAGNOSTICS to v_summary because it would overwrite the
+                    -- JSONB with an integer).
+                    v_summary := jsonb_set(v_summary, '{reallocations}',
+                        to_jsonb((v_summary->>'reallocations')::int + 1));
+
+                    -- Excess (paid > new amount) → credit_balance
+                    IF v_paid_so_far > v_new_amount THEN
+                        INSERT INTO public.student_credit_balances (
+                            student_id, amount, source, source_event_id, notes, created_by
+                        ) VALUES (
+                            v_event.learner_id, v_paid_so_far - v_new_amount, 'fee_structure_change',
+                            p_event_id,
+                            CASE WHEN p_refund_excess
+                                 THEN 'EXCESS — refund flag set; manual refund pending'
+                                 ELSE 'EXCESS from reallocation; available against future bills' END,
+                            v_caller
+                        );
+                        v_summary := jsonb_set(v_summary, '{credit_balances}',
+                            to_jsonb((v_summary->>'credit_balances')::int + 1));
+                    END IF;
+                END IF;
+            END IF;
+
+        WHEN 'waive_delta', 'do_nothing' THEN
+            -- No artifact
+            NULL;
+
+        ELSE
+            RAISE EXCEPTION 'unknown_decision: %', v_decision_kind;
+        END CASE;
+
+        -- Persist the decision + artifact id back on the event_line
+        UPDATE public.admission_fee_change_event_lines
+           SET decision              = v_decision_kind,
+               generated_artifact_id = COALESCE(v_new_bill_id, v_credit_balance_id),
+               decision_notes        = v_decision->>'decision_notes'
+         WHERE event_id = p_event_id AND billing_category_id = v_line_cat_id;
+
+        v_new_bill_id := NULL;
+        v_credit_balance_id := NULL;
+    END LOOP;
+
+    -- 5. Refresh resolved fee_items snapshot
+    PERFORM public.admission_resolve_fee_items_for_lead(v_event.learner_id);
+
+    -- 6. Mark event approved
+    UPDATE public.admission_fee_change_events
+       SET status      = 'approved',
+           decided_by  = v_caller,
+           decided_at  = now(),
+           updated_at  = now()
+     WHERE id = p_event_id;
+
+    RETURN jsonb_build_object(
+        'success', true,
+        'event_id', p_event_id,
+        'summary', v_summary
+    );
+
+EXCEPTION
+    WHEN OTHERS THEN
+        RAISE;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.admission_approve_fee_change_event(uuid, jsonb, boolean) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.admission_approve_fee_change_event(uuid, jsonb, boolean) TO authenticated;
+
+-- ============================================================================
+-- set_legacy_fee_mode_default trigger function (Plan 6 Task 1)
+-- ============================================================================
+-- BEFORE INSERT trigger function on learners_profiles. Flips the row's
+-- legacy_fee_mode to false when the institution's
+-- admission_settings_per_institution.use_fee_structures flag is true.
+-- Flag false or missing → DDL default of true is preserved (fail-closed).
+-- Spec §12.1
+-- ============================================================================
+
+CREATE OR REPLACE FUNCTION public.set_legacy_fee_mode_default()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+    v_use_fee_structures boolean;
+BEGIN
+    IF NEW.institution_id IS NULL THEN
+        RETURN NEW;
+    END IF;
+
+    SELECT use_fee_structures INTO v_use_fee_structures
+      FROM public.admission_settings_per_institution
+     WHERE institution_id = NEW.institution_id;
+
+    IF v_use_fee_structures = true THEN
+        NEW.legacy_fee_mode := false;
+    END IF;
+    -- Flag false or missing → keep whatever was passed (defaults to true via DDL)
+
+    RETURN NEW;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.set_legacy_fee_mode_default() FROM PUBLIC;
+
+-- ============================================================================
+-- admission_adopt_structure_for_lead RPC (Plan 6 Task 6)
+-- ============================================================================
+-- Atomically: flip legacy_fee_mode=false, resolve fee_items via the existing
+-- resolution RPC, persist resolved items. Any RAISE EXCEPTION rolls back.
+--
+-- Replaces the Plan 3 service-level sequence (flip-flag + resolve + log) with
+-- a single SECURITY DEFINER call so the flag flip and fee resolution are
+-- transactionally atomic.
+--
+-- Permission gate: admission_fees.manage_adjustments
+-- (admin-tier; granted in 20260507100003)
+--
+-- Spec §12.1
+-- ============================================================================
+
+CREATE OR REPLACE FUNCTION public.admission_adopt_structure_for_lead(p_learner_id uuid)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+    v_resolved jsonb;
+    v_caller   uuid := auth.uid();
+BEGIN
+    IF NOT public.user_has_permission('admission_fees.manage_adjustments') THEN
+        RAISE EXCEPTION 'permission_denied: admission_fees.manage_adjustments required'
+            USING ERRCODE = '42501';
+    END IF;
+
+    -- Flip the flag
+    UPDATE public.learners_profiles
+       SET legacy_fee_mode = false,
+           updated_at = now(),
+           updated_by = v_caller
+     WHERE id = p_learner_id;
+
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'learner_not_found: %', p_learner_id USING ERRCODE = 'P0002';
+    END IF;
+
+    -- Resolve fee_items (this also writes them back to the row)
+    v_resolved := public.admission_resolve_fee_items_for_lead(p_learner_id);
+
+    -- Hard fail if no match — adoption shouldn't succeed silently into empty fees
+    IF jsonb_array_length(v_resolved) = 0 THEN
+        RAISE EXCEPTION 'adopt_structure_no_match: 8-dim lookup found no fee structure';
+    END IF;
+
+    RETURN jsonb_build_object(
+        'success', true,
+        'learner_id', p_learner_id,
+        'fee_items', v_resolved,
+        'item_count', jsonb_array_length(v_resolved)
+    );
+EXCEPTION
+    WHEN OTHERS THEN
+        RAISE;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.admission_adopt_structure_for_lead(uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.admission_adopt_structure_for_lead(uuid) TO authenticated;
+
+-- ============================================================================
+-- 2026-05-11 — Admission leads RLS gap closure
+--   Migration: 20260511000000_admission_leads_close_rls_asymmetry_and_primary_role_strict_check.sql
+--   Bugs:     BUG-003934, BUG-003933, BUG-003932, BUG-003928
+--
+--   - _user_owns_lead_via_counselor_id (NEW): mirrors the API helper at
+--     lib/api-helpers/admission-counselor-scope.ts so RLS can grant
+--     visibility via the legacy admission_leads.counselor_id column,
+--     not just assigned_counselor_id. Closes list-vs-detail asymmetry.
+--   - _user_is_strict_counselor (REWRITTEN): require is_primary on the
+--     counselor branch so multi-role executives (hr_admin + secondary
+--     admission_counselor) keep their broader visibility.
+--   - _user_can_view_lead_for_call (REWRITTEN): adopts the OR-both-columns
+--     visibility model used by the leads policies.
+--
+--   The adm_leads_select / adm_leads_update policies that consume these
+--   functions live in the migration above (no canonical setup/03 file
+--   for admission_leads policies — they're migration-only by convention).
+-- ============================================================================
+
+CREATE OR REPLACE FUNCTION public._user_owns_lead_via_counselor_id(p_uid uuid, p_counselor_id uuid)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT p_counselor_id IS NOT NULL
+     AND EXISTS (
+       SELECT 1 FROM admission_counselors
+        WHERE id = p_counselor_id AND user_id = p_uid
+     );
+$$;
+
+COMMENT ON FUNCTION public._user_owns_lead_via_counselor_id(uuid, uuid) IS
+  'Closes RLS gap where lib/api-helpers/admission-counselor-scope.ts grants list visibility via counselor_id but RLS does not. Added 2026-05-11.';
+
+CREATE OR REPLACE FUNCTION public._user_is_strict_counselor(p_uid uuid)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT
+    EXISTS (
+      SELECT 1
+        FROM user_roles ur
+        JOIN custom_roles cr ON cr.id = ur.role_id
+       WHERE ur.user_id = p_uid
+         AND ur.is_primary = TRUE
+         AND cr.role_key IN (
+           'admission_counselor',
+           'expo_counselor',
+           'learner_counselor',
+           'staff_counselor'
+         )
+    )
+    AND NOT EXISTS (
+      SELECT 1
+        FROM user_roles ur
+        JOIN custom_roles cr ON cr.id = ur.role_id
+       WHERE ur.user_id = p_uid
+         AND cr.role_key IN ('admission', 'administrator')
+    );
+$$;
+
+COMMENT ON FUNCTION public._user_is_strict_counselor(uuid) IS
+  'TRUE iff the user PRIMARILY identifies as a counselor (counselor key is is_primary=true) AND holds no admission/administrator override. Updated 2026-05-11 to require is_primary so multi-role executives are not demoted.';
+
+CREATE OR REPLACE FUNCTION public._user_can_view_lead_for_call(p_uid uuid, p_lead_id uuid)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT EXISTS (
+    SELECT 1
+      FROM admission_leads l
+     WHERE l.id = p_lead_id
+       AND l.source <> 'referral'
+       AND (
+         l.assigned_counselor_id = p_uid
+         OR _user_owns_lead_via_counselor_id(p_uid, l.counselor_id)
+       )
+  );
+$$;
+
+COMMENT ON FUNCTION public._user_can_view_lead_for_call(uuid, uuid) IS
+  'SECURITY DEFINER lookup: does this user own this NON-REFERRAL lead via assigned_counselor_id OR counselor_id? Updated 2026-05-11 to close RLS asymmetry.';

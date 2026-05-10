@@ -300,11 +300,16 @@ export const B2A_ENDPOINTS: B2AEndpointDef[] = [
   },
 
   // ── Staff ─────────────────────────────────────────────────────────────────
+  // List rows embed `category` (id, category_name, is_teaching,
+  // shows_extended_profile) so consumers can interpret the per-row
+  // `has_extended_profile` flag without a second call to fetch categories.
+  // The detail endpoint additionally returns the 29 extended-profile
+  // columns (experience_years, qualifications, publications, …).
   {
     id: 'staff-list',
     method: 'GET',
     path: '/api/b2a/staff',
-    description: 'List staff members',
+    description: 'List staff members (with category metadata + has_extended_profile)',
     module: 'staff',
     params: [
       {
@@ -313,7 +318,22 @@ export const B2A_ENDPOINTS: B2AEndpointDef[] = [
         type: 'select',
         options: ['faculty', 'admin', 'support', 'management'],
       },
+      { name: 'role_key', label: 'Role Key', type: 'text', placeholder: 'e.g. hod, principal, faculty (matches custom_roles.role_key)' },
       { name: 'department_id', label: 'Department ID', type: 'text', placeholder: 'UUID' },
+      { name: 'category_id', label: 'Category ID', type: 'text', placeholder: 'UUID (filter by employment_categories.id)' },
+      {
+        name: 'has_extended_profile',
+        label: 'Has Extended Profile',
+        type: 'select',
+        options: ['true', 'false'],
+      },
+      {
+        name: 'is_active',
+        label: 'Active Only',
+        type: 'select',
+        options: ['true', 'false'],
+      },
+      { name: 'designation', label: 'Designation (ilike)', type: 'text', placeholder: 'e.g. Professor' },
       { name: 'page', label: 'Page', type: 'number', defaultValue: '1' },
       { name: 'limit', label: 'Limit', type: 'number', defaultValue: '20' },
     ],
@@ -322,7 +342,7 @@ export const B2A_ENDPOINTS: B2AEndpointDef[] = [
     id: 'staff-single',
     method: 'GET',
     path: '/api/b2a/staff/:id',
-    description: 'Single staff member by UUID',
+    description: 'Single staff member by UUID — returns full record including extended faculty profile (29 fields)',
     module: 'staff',
     hasPathId: true,
   },

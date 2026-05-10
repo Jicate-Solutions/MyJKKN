@@ -68,6 +68,7 @@ const NAV_EXCLUDE = new Set<string>([
   // SSO / admin-only one-shots
   '/admin/saml',
   '/admin/reset-driver-passwords',
+  '/admin/whatsapp-byow/secret-rotation',
   '/system',
 
   // Module root landings — redirect-to-first-child pages
@@ -79,6 +80,7 @@ const NAV_EXCLUDE = new Set<string>([
   '/events',
   '/faculty',
   '/health',
+  '/ims', // IMS root — redirects to /ims/dashboard
   '/learn',
   '/learners',
   '/organizations',
@@ -116,6 +118,7 @@ const NAV_EXCLUDE = new Set<string>([
   '/admission/consultants/new',
   '/admission/gd-pi/new',
   '/admission/leads/new',
+  '/admission/settings/fees-structure/new',
   '/admission/settings/years/new',
 
   // Audit /new forms
@@ -134,6 +137,7 @@ const NAV_EXCLUDE = new Set<string>([
   // Campus-living /new forms
   '/campus-living/allocations/new',
   '/campus-living/blocks/new',
+  '/campus-living/gate-passes/new', // "Issue gate pass" form (button-invoked from /campus-living/gate-passes — added by PR #766 BUG-003897)
   '/campus-living/leave/new',
   '/campus-living/maintenance/new',
   '/campus-living/mess/caterers/new',
@@ -149,6 +153,9 @@ const NAV_EXCLUDE = new Set<string>([
 
   // HR /new forms
   '/hr/employees/new',
+
+  // IMS /new forms (invoked from list-page "+ New" buttons)
+  '/ims/stock/grn/new',
 
   // OKR /new + /create wizard forms
   '/okr/elective/new',

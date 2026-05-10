@@ -7,7 +7,7 @@
  */
 
 import { useState, useEffect } from 'react';
-import { motion } from 'framer-motion';
+import { motion } from 'motion/react';
 import { EnrichedTimetableSlot } from '@/types/student-portal';
 import { Period } from '@/types/academics';
 import { Card } from '@/components/ui/card';

@@ -466,14 +466,6 @@ export function EnquiryDetail({ enquiry }: EnquiryDetailProps) {
                         {enquiry.quota || 'Not specified'}
                       </p>
                     </div>
-                    <div className='space-y-1'>
-                      <h4 className='text-sm font-medium text-muted-foreground'>
-                        Category
-                      </h4>
-                      <p className='text-sm'>
-                        {enquiry.category || 'Not specified'}
-                      </p>
-                    </div>
                   </div>
                 </div>
               </CardContent>

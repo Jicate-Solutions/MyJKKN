@@ -57,6 +57,14 @@ export {
   assignmentRulesKeys,
 } from './use-assignment-rules';
 
+// Re-export rule-type registry hooks (assignment_rule_type_registry)
+export {
+  useRuleTypes,
+  useAllRuleTypes,
+  useRuleTypeMutations,
+  ruleTypesKeys,
+} from './use-rule-types';
+
 // Re-export communication templates hooks
 export {
   useCommunicationTemplates,
@@ -303,6 +311,23 @@ export function useAdmissionLeads(filters?: LeadFilters) {
   };
 }
 
+/**
+ * Cross-cache signal for the leads list. The leads-data-table uses a manual
+ * fetchData/refetchKey DataTable (not useQuery), so queryClient.invalidate-
+ * Queries doesn't reach it. We dispatch a window CustomEvent on every
+ * successful lead mutation; the table subscribes and bumps its refetchKey.
+ *
+ * Event name is shared with the listener in
+ * app/(routes)/admission/leads/_components/leads-data-table.tsx — keep them
+ * in sync if either side renames.
+ */
+const ADMISSION_LEADS_CHANGED_EVENT = 'admission-leads-changed';
+function emitLeadsChanged() {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent(ADMISSION_LEADS_CHANGED_EVENT));
+  }
+}
+
 export function useLeadMutations() {
   const queryClient = useQueryClient();
 
@@ -313,6 +338,7 @@ export function useLeadMutations() {
     onSuccess: (data) => {
       toast.success('Lead created successfully');
       queryClient.invalidateQueries({ queryKey: ['admission-leads'] });
+      emitLeadsChanged();
       queryClient.invalidateQueries({ queryKey: ['funnel-summary'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
       queryClient.invalidateQueries({ queryKey: ['admission-dashboard'] });
@@ -330,6 +356,7 @@ export function useLeadMutations() {
     onSuccess: () => {
       toast.success('Lead updated successfully');
       queryClient.invalidateQueries({ queryKey: ['admission-leads'] });
+      emitLeadsChanged();
       queryClient.invalidateQueries({ queryKey: ['admission-lead'] });
       queryClient.invalidateQueries({ queryKey: ['funnel-summary'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
@@ -346,15 +373,19 @@ export function useLeadMutations() {
       return LeadService.deleteLead(id);
     },
     onSuccess: () => {
-      toast.success('Lead deleted successfully');
+      // Soft-delete: row stays in admission_leads with funnel_stage='lost'.
+      // Toast wording matches the row-action label ("Mark as Lost") so users
+      // don't expect the row to vanish from the list.
+      toast.success('Lead marked as lost');
       queryClient.invalidateQueries({ queryKey: ['admission-leads'] });
+      emitLeadsChanged();
       queryClient.invalidateQueries({ queryKey: ['funnel-summary'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
       queryClient.invalidateQueries({ queryKey: ['admission-dashboard'] });
       queryClient.invalidateQueries({ queryKey: ['counselor-daily-view'] });
     },
     onError: (error: Error) => {
-      toast.error(error.message || 'Failed to delete lead');
+      toast.error(error.message || 'Failed to mark lead as lost');
     }
   });
 
@@ -365,6 +396,7 @@ export function useLeadMutations() {
     onSuccess: () => {
       toast.success('Lead permanently deleted');
       queryClient.invalidateQueries({ queryKey: ['admission-leads'] });
+      emitLeadsChanged();
       queryClient.invalidateQueries({ queryKey: ['funnel-summary'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
       queryClient.invalidateQueries({ queryKey: ['admission-dashboard'] });
@@ -382,6 +414,7 @@ export function useLeadMutations() {
     onSuccess: (_data, variables) => {
       toast.success('Lead stage updated');
       queryClient.invalidateQueries({ queryKey: ['admission-leads'] });
+      emitLeadsChanged();
       queryClient.invalidateQueries({ queryKey: ['admission-lead'] });
       queryClient.invalidateQueries({ queryKey: ['funnel-summary'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
@@ -405,6 +438,7 @@ export function useLeadMutations() {
     onSuccess: (_, variables) => {
       toast.success(variables.isHot ? 'Marked as hot lead' : 'Removed hot lead status');
       queryClient.invalidateQueries({ queryKey: ['admission-leads'] });
+      emitLeadsChanged();
       queryClient.invalidateQueries({ queryKey: ['admission-lead'] });
       queryClient.invalidateQueries({ queryKey: ['funnel-summary'] });
       queryClient.invalidateQueries({ queryKey: ['counselor-daily-view'] });
@@ -422,6 +456,7 @@ export function useLeadMutations() {
     onSuccess: (_, variables) => {
       toast.success(variables.isPriority ? 'Marked as priority' : 'Removed priority status');
       queryClient.invalidateQueries({ queryKey: ['admission-leads'] });
+      emitLeadsChanged();
       queryClient.invalidateQueries({ queryKey: ['admission-lead'] });
       queryClient.invalidateQueries({ queryKey: ['funnel-summary'] });
       queryClient.invalidateQueries({ queryKey: ['admission-dashboard'] });
@@ -440,6 +475,7 @@ export function useLeadMutations() {
       toast.success('Tag added');
       queryClient.invalidateQueries({ queryKey: ['admission-lead'] });
       queryClient.invalidateQueries({ queryKey: ['admission-leads'] });
+      emitLeadsChanged();
     },
     onError: (error: Error) => {
       toast.error(error.message || 'Failed to add tag');
@@ -454,6 +490,7 @@ export function useLeadMutations() {
       toast.success('Tag removed');
       queryClient.invalidateQueries({ queryKey: ['admission-lead'] });
       queryClient.invalidateQueries({ queryKey: ['admission-leads'] });
+      emitLeadsChanged();
     },
     onError: (error: Error) => {
       toast.error(error.message || 'Failed to remove tag');
@@ -468,6 +505,7 @@ export function useLeadMutations() {
     onSuccess: (data) => {
       // Toast is fired by the calling component's onSuccess callback — don't duplicate
       queryClient.invalidateQueries({ queryKey: ['admission-leads'] });
+      emitLeadsChanged();
       queryClient.invalidateQueries({ queryKey: ['funnel-summary'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
       queryClient.invalidateQueries({ queryKey: ['admission-dashboard'] });
@@ -486,6 +524,7 @@ export function useLeadMutations() {
     onSuccess: (_data, variables) => {
       toast.success('Counselor assigned');
       queryClient.invalidateQueries({ queryKey: ['admission-leads'] });
+      emitLeadsChanged();
       queryClient.invalidateQueries({ queryKey: ['admission-lead'] });
       queryClient.invalidateQueries({ queryKey: ['counselor-performance'] });
       queryClient.invalidateQueries({ queryKey: ['counselor-daily-view'] });
@@ -506,6 +545,7 @@ export function useLeadMutations() {
     onSuccess: (_data, variables) => {
       toast.success('Followup scheduled');
       queryClient.invalidateQueries({ queryKey: ['admission-leads'] });
+      emitLeadsChanged();
       queryClient.invalidateQueries({ queryKey: ['admission-lead'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
       queryClient.invalidateQueries({ queryKey: ['counselor-daily-view'] });
@@ -594,6 +634,7 @@ export function useApplicationMutations() {
       toast.success('Application created successfully');
       queryClient.invalidateQueries({ queryKey: ['admission-applications'] });
       queryClient.invalidateQueries({ queryKey: ['admission-leads'] });
+      emitLeadsChanged();
       queryClient.invalidateQueries({ queryKey: ['admission-lead'] });
       queryClient.invalidateQueries({ queryKey: ['lead-timeline'] });
       queryClient.invalidateQueries({ queryKey: ['lead-activities'] });
@@ -625,6 +666,7 @@ export function useApplicationMutations() {
       toast.success('Application status updated');
       queryClient.invalidateQueries({ queryKey: ['admission-applications'] });
       queryClient.invalidateQueries({ queryKey: ['admission-leads'] });
+      emitLeadsChanged();
       queryClient.invalidateQueries({ queryKey: ['admission-lead'] });
       queryClient.invalidateQueries({ queryKey: ['admission-application'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
@@ -644,6 +686,7 @@ export function useApplicationMutations() {
       toast.success('Application deleted successfully');
       queryClient.invalidateQueries({ queryKey: ['admission-applications'] });
       queryClient.invalidateQueries({ queryKey: ['admission-leads'] });
+      emitLeadsChanged();
       queryClient.invalidateQueries({ queryKey: ['admission-lead'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
       queryClient.invalidateQueries({ queryKey: ['admission-dashboard'] });
@@ -869,28 +912,32 @@ export function useCounselorPerformance(institutionId?: string, dateRange?: any,
         }
       });
 
-      // 3. Fetch leads grouped by counselor
-      let leadsQuery = (supabase as any)
-        .from('admission_leads')
-        .select('counselor_id, stage, funnel_stage, score, is_hot_lead, total_messages_sent, created_at')
-        .not('counselor_id', 'is', null);
-      if (institutionId) leadsQuery = leadsQuery.eq('institution_id', institutionId);
-      if (dateRange?.from) leadsQuery = leadsQuery.gte('created_at', dateRange.from);
-      if (dateRange?.to) leadsQuery = leadsQuery.lte('created_at', dateRange.to);
-      const { data: leads, error } = await leadsQuery;
+      // 3. Per-counselor lead aggregates via SQL function. The previous
+      //    implementation fetched admission_leads rows and grouped client-side,
+      //    which was silently capped at PostgREST max_rows (10,000) so the
+      //    counselors page leaderboard under-counted any institution with more
+      //    leads than the cap. The RPC does GROUP BY in SQL — single round-
+      //    trip, no row-cap exposure.
+      const { data: leadStats, error } = await (supabase as any).rpc(
+        'get_admission_counselor_performance_aggregate',
+        {
+          p_institution_id: institutionId ?? null,
+          p_from: dateRange?.from ?? null,
+          p_to: dateRange?.to ?? null,
+        }
+      );
       if (error) throw new Error(error.message);
 
-      // 4. Aggregate lead stats into counselor entries
-      (leads || []).forEach((lead: any) => {
-        const cId = lead.counselor_id;
+      // 4. Merge aggregate stats into the counselor entries built in steps 1+2
+      (leadStats || []).forEach((row: any) => {
+        const cId = row.counselor_id;
         if (counselorMap[cId]) {
           const c = counselorMap[cId];
-          c.totalLeads++;
-          const leadStage = lead.stage || lead.funnel_stage;
-          if (['enrolled', 'offer_accepted', 'token_paid'].includes(leadStage)) c.convertedLeads++;
-          if (lead.is_hot_lead) c.hotLeads++;
-          c.scoreSum += lead.score || 0;
-          c.messagesSent += lead.total_messages_sent || 0;
+          c.totalLeads = Number(row.total_leads) || 0;
+          c.convertedLeads = Number(row.converted_leads) || 0;
+          c.hotLeads = Number(row.hot_leads) || 0;
+          c.scoreSum = Number(row.score_sum) || 0;
+          c.messagesSent = Number(row.messages_sent) || 0;
         }
       });
 
@@ -1074,10 +1121,17 @@ export function useFunnelAnalyticsDashboard(filtersOrId?: string | any) {
         'confirmed', 'declined', 'withdrew', 'expired'
       ];
 
-      // Fetch leads with stage info + counselor name
+      // Fetch leads with stage info + counselor name.
+      // .range(0, 99999) busts PostgREST's default max_rows cap (typically
+      // 1000 or 10000 in this project) — without it, large institutions had
+      // their funnel analytics silently truncated to the cap so stages
+      // beyond the cap were under-counted. 100K is enough headroom for any
+      // single institution today; if data grows past that we should switch
+      // to a server-side aggregate RPC (single COUNT(*) GROUP BY stage).
       let leadsQuery = (supabase as any)
         .from('admission_leads')
-        .select('id, stage, funnel_stage, stage_changed_at, created_at, is_hot_lead, combined_score, counselor_id, counselor:admission_counselors(name)');
+        .select('id, stage, funnel_stage, stage_changed_at, created_at, is_hot_lead, combined_score, counselor_id, counselor:admission_counselors(name)')
+        .range(0, 99999);
       if (institutionId) leadsQuery = leadsQuery.eq('institution_id', institutionId);
       const { data: leads } = await leadsQuery;
 

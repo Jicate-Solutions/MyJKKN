@@ -52,6 +52,7 @@ export class OrganizationService {
       // Prepare institution data for database insert
       const institutionData: Database['public']['Tables']['institutions']['Insert'] = {
         name: data.name,
+        display_name: data.display_name?.trim() || null,
         counselling_code: data.counselling_code,
         institution_type: data.institution_type,
         category: data.category,
@@ -127,6 +128,7 @@ export class OrganizationService {
       // Prepare institution data for database update
       const institutionData: Database['public']['Tables']['institutions']['Update'] = {
         name: data.name,
+        display_name: data.display_name?.trim() || null,
         counselling_code: data.counselling_code,
         institution_type: data.institution_type,
         category: data.category,

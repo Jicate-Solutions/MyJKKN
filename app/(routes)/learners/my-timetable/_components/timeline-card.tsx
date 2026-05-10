@@ -6,7 +6,7 @@
  * Description: Individual class card in timeline view
  */
 
-import { motion } from 'framer-motion';
+import { motion } from 'motion/react';
 import { EnrichedTimetableSlot } from '@/types/student-portal';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';

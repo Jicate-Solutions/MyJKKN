@@ -11,10 +11,11 @@
 //   - my-profile:     "2026"                            (raw integer)
 // Centralizing here means future label tweaks happen in one place.
 //
-// Falls back gracefully:
-//   1. if admission_year_obj is set (FK row joined in), render rich label
-//   2. else if admission_year integer is set, render the integer
-//   3. else "Not specified"
+// 2026-05-02 (Phase D): admission_year integer column has been dropped.
+// The function still accepts an optional admission_year integer field for
+// transient form-state consumers (enquiry-form.tsx keeps it in memory while
+// the user is still picking a cohort) but DB-loaded rows only populate
+// admission_year_obj going forward.
 
 export interface AdmissionYearLike {
   admission_year?: number | null;

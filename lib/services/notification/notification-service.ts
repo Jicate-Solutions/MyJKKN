@@ -1,6 +1,7 @@
 // lib/services/notification/notification-service.ts
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import type { SupabaseClient } from '@supabase/supabase-js';
 
 const supabase = createClientSupabaseClient();
 import type {
@@ -26,18 +27,27 @@ import {
 // ==================== NOTIFICATION CRUD ====================
 
 export async function getNotifications(
-  filters: NotificationFilters = {}
+  filters: NotificationFilters = {},
+  client?: SupabaseClient
 ): Promise<Notification[]> {
-  let query = supabase
+  // When called from a Next.js API route, the route passes its cookie-scoped
+  // server client so the query runs as `authenticated` (RLS policies invoke
+  // fn_notification_is_for_user, which `anon` lacks EXECUTE on).
+  // When called from a browser-side React Query hook, the module-level singleton
+  // is correct because the browser attaches the user's session cookie.
+  const db = client ?? supabase;
+
+  let query = db
     .from('user_notifications')
     .select(
       `
       *,
-      notification:notifications!user_notifications_notification_id_fkey(
+      notification:notifications!user_notifications_notification_id_fkey!inner(
         id,
         title,
         body,
         url,
+        action_config,
         icon,
         category,
         priority,
@@ -67,6 +77,30 @@ export async function getNotifications(
 
   if (filters.to_date) {
     query = query.lte('created_at', filters.to_date);
+  }
+
+  // Filters on the embedded notifications table (the join).
+  // The `!inner` annotation in the select string makes these exclusionary —
+  // user_notifications without a matching notification row are dropped.
+  // Bug found 2026-05-04: the route accepted these params but the service
+  // ignored them, so /notifications tabs (Announcements, Reminders, Events,
+  // Alerts, General) ran client-side filters that produced 0 matches against
+  // dashboard:* category data, then triggered an infinite loadMore() loop.
+  if (filters.category) {
+    query = query.eq('notification.category', filters.category);
+  }
+
+  if (filters.priority) {
+    query = query.eq('notification.priority', filters.priority);
+  }
+
+  if (filters.search) {
+    // Search title or body. Embedded-table search uses foreignTable option.
+    const term = filters.search.replace(/[%_]/g, '\\$&');
+    query = query.or(
+      `title.ilike.%${term}%,body.ilike.%${term}%`,
+      { foreignTable: 'notification' }
+    );
   }
 
   // Use range() for pagination — it handles both offset and limit in one call.
@@ -101,7 +135,12 @@ export async function getNotifications(
         is_read: !!row.read_at,
         is_archived: false,
         read_at: row.read_at,
-        action_url: n.url,
+        // Dashboard work-item digests (cron-generated) write the destination
+        // URL into action_config.url, NOT notifications.url. Read both so
+        // every notification with any kind of routing target reaches the UI.
+        // Bug found 2026-05-04: dashboard:* digests had url=null on every
+        // row; clicks marked-as-read but never navigated.
+        action_url: n.url || n.action_config?.url || undefined,
         metadata: n.metadata,
         channels: ['in_app'],
         created_at: row.created_at,
@@ -120,11 +159,12 @@ export async function getNotification(
     .select(
       `
       *,
-      notification:notifications!user_notifications_notification_id_fkey(
+      notification:notifications!user_notifications_notification_id_fkey!inner(
         id,
         title,
         body,
         url,
+        action_config,
         icon,
         category,
         priority,
@@ -155,7 +195,9 @@ export async function getNotification(
     is_read: !!row.read_at,
     is_archived: false,
     read_at: row.read_at,
-    action_url: n.url,
+    // Same fallback as getNotifications — read URL from action_config when
+    // notifications.url is null (cron-generated dashboard digests).
+    action_url: n.url || n.action_config?.url || undefined,
     metadata: n.metadata,
     channels: ['in_app'],
     created_at: row.created_at,

@@ -2,6 +2,10 @@
 // Reservation Service - Handles all reservation operations
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import {
+  logActivityForCurrentUser,
+  ResourceManagementActivityTemplates,
+} from '@/lib/utils/activity-logger-client';
 import type {
   Reservation,
   CreateReservationDto,
@@ -193,7 +197,27 @@ export class ReservationService {
     // Update resource usage count
     await this.incrementResourceUsage(dto.resource_id);
 
-    return data as Reservation;
+    const reservation = data as Reservation;
+    const resourceName = (reservation as any).resource?.name || '';
+    const tpl = ResourceManagementActivityTemplates.reservationCreated(
+      resourceName,
+      reservation.start_time
+    );
+    await logActivityForCurrentUser({
+      actionType: tpl.actionType,
+      resourceType: tpl.resourceType,
+      resourceId: reservation.id,
+      resourceName,
+      description: tpl.description,
+      metadata: {
+        sub_type: tpl.sub_type,
+        reservation_id: reservation.id,
+        resource_id: reservation.resource_id,
+      },
+      institutionId: (reservation as any).institution_id,
+    });
+
+    return reservation;
   }
 
   /**
@@ -246,7 +270,24 @@ export class ReservationService {
       throw error;
     }
 
-    return data as Reservation;
+    const reservation = data as Reservation;
+    const resourceName = (reservation as any).resource?.name || '';
+    const tpl = ResourceManagementActivityTemplates.reservationUpdated(resourceName);
+    await logActivityForCurrentUser({
+      actionType: tpl.actionType,
+      resourceType: tpl.resourceType,
+      resourceId: reservation.id,
+      resourceName,
+      description: tpl.description,
+      metadata: {
+        sub_type: tpl.sub_type,
+        reservation_id: reservation.id,
+        resource_id: reservation.resource_id,
+      },
+      institutionId: (reservation as any).institution_id,
+    });
+
+    return reservation;
   }
 
   /**
@@ -254,6 +295,9 @@ export class ReservationService {
    */
   static async deleteReservation(id: string): Promise<void> {
     const supabase = createClientSupabaseClient();
+
+    // Fetch reservation first to capture resource_id and resource name for logging
+    const existing = await this.getReservation(id);
 
     const { error } = await supabase
       .from('resource_reservations')
@@ -263,6 +307,24 @@ export class ReservationService {
     if (error) {
       console.error('Error deleting reservation:', error);
       throw error;
+    }
+
+    if (existing) {
+      const resourceName = (existing as any).resource?.name || '';
+      const tpl = ResourceManagementActivityTemplates.reservationDeleted(resourceName);
+      await logActivityForCurrentUser({
+        actionType: tpl.actionType,
+        resourceType: tpl.resourceType,
+        resourceId: existing.id,
+        resourceName,
+        description: tpl.description,
+        metadata: {
+          sub_type: tpl.sub_type,
+          reservation_id: existing.id,
+          resource_id: existing.resource_id,
+        },
+        institutionId: (existing as any).institution_id,
+      });
     }
   }
 
@@ -568,7 +630,24 @@ export class ReservationService {
       .eq('reservation_id', dto.reservation_id)
       .eq('approver_user_id', approverId);
 
-    return data as Reservation;
+    const reservation = data as Reservation;
+    const resourceName = (reservation as any).resource?.name || '';
+    const tpl = ResourceManagementActivityTemplates.reservationApproved(resourceName);
+    await logActivityForCurrentUser({
+      actionType: tpl.actionType,
+      resourceType: tpl.resourceType,
+      resourceId: reservation.id,
+      resourceName,
+      description: tpl.description,
+      metadata: {
+        sub_type: tpl.sub_type,
+        reservation_id: reservation.id,
+        resource_id: reservation.resource_id,
+      },
+      institutionId: (reservation as any).institution_id,
+    });
+
+    return reservation;
   }
 
   /**
@@ -614,7 +693,28 @@ export class ReservationService {
       .eq('reservation_id', dto.reservation_id)
       .eq('approver_user_id', approverId);
 
-    return data as Reservation;
+    const reservation = data as Reservation;
+    const resourceName = (reservation as any).resource?.name || '';
+    const tpl = ResourceManagementActivityTemplates.reservationRejected(
+      resourceName,
+      dto.rejection_reason
+    );
+    await logActivityForCurrentUser({
+      actionType: tpl.actionType,
+      resourceType: tpl.resourceType,
+      resourceId: reservation.id,
+      resourceName,
+      description: tpl.description,
+      metadata: {
+        sub_type: tpl.sub_type,
+        reservation_id: reservation.id,
+        resource_id: reservation.resource_id,
+        rejection_reason: dto.rejection_reason,
+      },
+      institutionId: (reservation as any).institution_id,
+    });
+
+    return reservation;
   }
 
   /**
@@ -649,7 +749,24 @@ export class ReservationService {
       throw error;
     }
 
-    return data as Reservation;
+    const reservation = data as Reservation;
+    const resourceName = (reservation as any).resource?.name || '';
+    const tpl = ResourceManagementActivityTemplates.reservationCancelled(resourceName);
+    await logActivityForCurrentUser({
+      actionType: tpl.actionType,
+      resourceType: tpl.resourceType,
+      resourceId: reservation.id,
+      resourceName,
+      description: tpl.description,
+      metadata: {
+        sub_type: tpl.sub_type,
+        reservation_id: reservation.id,
+        resource_id: reservation.resource_id,
+      },
+      institutionId: (reservation as any).institution_id,
+    });
+
+    return reservation;
   }
 
   /**
@@ -685,7 +802,24 @@ export class ReservationService {
     // Log usage
     await this.logUsage(dto.reservation_id, 'check_in', userId);
 
-    return data as Reservation;
+    const reservation = data as Reservation;
+    const resourceName = (reservation as any).resource?.name || '';
+    const tpl = ResourceManagementActivityTemplates.reservationCheckedIn(resourceName);
+    await logActivityForCurrentUser({
+      actionType: tpl.actionType,
+      resourceType: tpl.resourceType,
+      resourceId: reservation.id,
+      resourceName,
+      description: tpl.description,
+      metadata: {
+        sub_type: tpl.sub_type,
+        reservation_id: reservation.id,
+        resource_id: reservation.resource_id,
+      },
+      institutionId: (reservation as any).institution_id,
+    });
+
+    return reservation;
   }
 
   /**
@@ -725,7 +859,24 @@ export class ReservationService {
     // Log usage
     await this.logUsage(dto.reservation_id, 'check_out', userId);
 
-    return data as Reservation;
+    const reservation = data as Reservation;
+    const resourceName = (reservation as any).resource?.name || '';
+    const tpl = ResourceManagementActivityTemplates.reservationCheckedOut(resourceName);
+    await logActivityForCurrentUser({
+      actionType: tpl.actionType,
+      resourceType: tpl.resourceType,
+      resourceId: reservation.id,
+      resourceName,
+      description: tpl.description,
+      metadata: {
+        sub_type: tpl.sub_type,
+        reservation_id: reservation.id,
+        resource_id: reservation.resource_id,
+      },
+      institutionId: (reservation as any).institution_id,
+    });
+
+    return reservation;
   }
 
   /**

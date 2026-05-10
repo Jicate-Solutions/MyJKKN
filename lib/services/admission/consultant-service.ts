@@ -400,8 +400,7 @@ export class ConsultantService {
     const {
       // institution_ids is accepted but ignored — associations managed separately
       institution_ids,
-      status,
-      tier,
+      // contract dates live on consultant_institutions junction, not the global row
       contract_start_date,
       contract_end_date,
       // strip form aliases before inserting into DB
@@ -412,6 +411,10 @@ export class ConsultantService {
       programs_handled,
       ...globalFields
     } = input as any;
+    // status and tier flow through to the INSERT — they're stored on
+    // education_consultants as the global default (per-institution overrides
+    // remain on consultant_institutions). See migration
+    // 20260506_add_status_and_tier_to_education_consultants.sql.
 
     // Step 1: Insert global consultant record
     const { data: consultant, error: consultantError } = await (supabase as any)
@@ -2448,6 +2451,33 @@ export class ConsultantService {
       .order('created_at', { ascending: false })
       .limit(5);
 
+    // BUG-003877: Get live attribution count (source of truth) so the consultant
+    // detail page shows the correct referral count even when the cached counter
+    // education_consultants.total_leads_referred is stale.
+    //
+    // The cached counter is maintained by an AFTER INSERT trigger on
+    // consultant_lead_attributions (see migration
+    // 20260506_fix_consultant_stats_security_definer.sql). However, that
+    // counter has historically drifted (RLS-scoped recompute, dual-source
+    // referral writes via admission_leads.referred_by_id, etc. — see
+    // 20260506_consultant_referral_dual_source_backfill_and_sync.sql) and any
+    // future drift will silently surface as an empty/zero count on this page.
+    //
+    // Querying the row count directly via .select(..., { count: 'exact', head: true })
+    // avoids transferring rows and gives us the authoritative number cheaply.
+    let liveAttributionCount: number | null = null;
+    {
+      const { count, error: countErr } = await (supabase as any)
+        .from('consultant_lead_attributions')
+        .select('id', { count: 'exact', head: true })
+        .eq('consultant_id', consultantId);
+      if (countErr) {
+        console.error('[admission/consultants] live attribution count failed:', countErr);
+      } else {
+        liveAttributionCount = count ?? 0;
+      }
+    }
+
     // Get recent transactions
     const { data: recentTransactions } = await (supabase as any)
       .from('consultant_commission_transactions')
@@ -2478,10 +2508,14 @@ export class ConsultantService {
       ? currentTierInfo.conversions - (consultant.total_conversions || 0)
       : null;
 
+    // Prefer the live attribution count over the cached counter (BUG-003877).
+    // Falls back to the cached counter if the live query failed for any reason.
+    const totalLeads = liveAttributionCount ?? consultant.total_leads_referred ?? 0;
+
     return {
       consultant,
       stats: {
-        total_leads: consultant.total_leads_referred || 0,
+        total_leads: totalLeads,
         leads_this_month: 0, // Would need separate query
         total_conversions: consultant.total_conversions || 0,
         conversion_rate: consultant.conversion_rate || 0,

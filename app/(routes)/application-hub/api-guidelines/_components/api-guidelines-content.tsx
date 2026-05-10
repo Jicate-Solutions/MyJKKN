@@ -16,6 +16,8 @@ import { ApiKeyGenerator } from './api-key-generator';
 import { CopyIcon } from '@/components/icons';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
+import { DownloadMarkdownButton } from '@/components/api-docs/shared/download-markdown-button';
+import { buildApiGuidelinesMarkdown } from './api-guidelines-content.markdown';
 
 export default function ApiGuidelinesContent() {
   const [copied, setCopied] = useState(false);
@@ -659,12 +661,26 @@ export default function CoursesList() {
 
   return (
     <div className='py-4 space-y-6'>
-      <div className='space-y-4'>
-        <h1 className='text-2xl font-bold'>API Documentation</h1>
-        <p className='text-muted-foreground'>
-          A comprehensive guide to access organization data through our API
-          system
-        </p>
+      <div className='space-y-4 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4'>
+        <div>
+          <h1 className='text-2xl font-bold'>API Documentation</h1>
+          <p className='text-muted-foreground'>
+            A comprehensive guide to access organization data through our API
+            system
+          </p>
+        </div>
+        <DownloadMarkdownButton
+          filename='api-guidelines-basic-guide.md'
+          content={() =>
+            buildApiGuidelinesMarkdown({
+              moduleFields,
+              basicExamples,
+              completeExamples,
+              aiPromptTemplate
+            })
+          }
+          className='w-full sm:w-auto flex-shrink-0'
+        />
       </div>
 
       <Alert>

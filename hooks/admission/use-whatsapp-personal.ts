@@ -24,14 +24,14 @@ export const personalWhatsAppKeys = {
 
 async function fetchPersonalStatus(departmentId: string) {
   const res = await fetch(
-    `/api/admission/whatsapp-personal/status?department_id=${departmentId}`
+    `/api/whatsapp-personal/status?department_id=${departmentId}`
   );
   if (!res.ok) throw new Error('Failed to fetch status');
   return res.json();
 }
 
 async function postPersonalConnect(departmentId: string) {
-  const res = await fetch('/api/admission/whatsapp-personal/connect', {
+  const res = await fetch('/api/whatsapp-personal/connect', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ department_id: departmentId }),
@@ -41,7 +41,7 @@ async function postPersonalConnect(departmentId: string) {
 }
 
 async function postPersonalDisconnect(departmentId: string) {
-  const res = await fetch('/api/admission/whatsapp-personal/disconnect', {
+  const res = await fetch('/api/whatsapp-personal/disconnect', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ department_id: departmentId }),
@@ -57,7 +57,7 @@ async function postPersonalSend(params: {
   lead_id?: string;
   recipient_name?: string;
 }) {
-  const res = await fetch('/api/admission/whatsapp-personal/send', {
+  const res = await fetch('/api/whatsapp-personal/send', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(params),
@@ -71,7 +71,7 @@ async function postPersonalSendBulk(params: {
   recipients: { phone: string; message: string }[];
   delay_ms?: number;
 }) {
-  const res = await fetch('/api/admission/whatsapp-personal/send-bulk', {
+  const res = await fetch('/api/whatsapp-personal/send-bulk', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(params),

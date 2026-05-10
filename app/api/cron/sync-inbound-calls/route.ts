@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { InboundCallSyncService } from '@/lib/services/telephony/inbound-call-sync-service';
 import { isExotelConfigured } from '@/lib/services/telephony/exotel-client';
+import { capturePipelineErrorAsync } from '@/lib/services/telephony/error-capture';
 import { logger } from '@/lib/utils/enhanced-logger';
 
 export const maxDuration = 300; // Allow up to 5 minutes for sync (Vercel Pro ceiling)
@@ -61,6 +62,10 @@ export async function GET(request: NextRequest) {
         };
       } catch (instError) {
         logger.error('cron/sync-inbound-calls', `Sync failed for institution ${institution.name}`, instError);
+        capturePipelineErrorAsync('cron', instError, {
+          institutionId: institution.id,
+          extra: { institution_name: institution.name, site: 'per_institution_sync' },
+        });
         results[institution.id] = {
           name: institution.name,
           error: instError instanceof Error ? instError.message : String(instError),
@@ -85,6 +90,9 @@ export async function GET(request: NextRequest) {
     });
   } catch (error) {
     logger.error('cron/sync-inbound-calls', 'Cron sync failed', error);
+    capturePipelineErrorAsync('cron', error, {
+      extra: { site: 'top_level_cron' },
+    });
     return NextResponse.json(
       { error: 'INTERNAL_ERROR', message: error instanceof Error ? error.message : 'Cron failed' },
       { status: 500 }

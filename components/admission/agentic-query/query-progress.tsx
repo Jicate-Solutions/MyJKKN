@@ -5,7 +5,7 @@
 
 import { Check, Loader2, AlertCircle, Brain, Route, Database, BarChart3, MessageSquare } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence } from 'motion/react';
 
 interface QueryStep {
   id: string;

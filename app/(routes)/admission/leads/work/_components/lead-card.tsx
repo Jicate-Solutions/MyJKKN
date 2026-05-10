@@ -10,6 +10,8 @@ import {
   User,
   GraduationCap,
 } from 'lucide-react';
+// BUG-003922: future-relative fallback used bare toLocaleDateString() (US default).
+import { formatDateDMY } from '@/lib/utils/date-format';
 
 // ---------------------------------------------------------------------------
 // Props
@@ -93,7 +95,7 @@ function timeUntil(dateStr: string): { label: string; overdue: boolean } {
   if (diffDays === 0) return { label: `Today ${timeStr}`, overdue: false };
   if (diffDays === 1) return { label: `Tomorrow ${timeStr}`, overdue: false };
   if (diffDays < 7) return { label: `In ${diffDays} days`, overdue: false };
-  return { label: target.toLocaleDateString(), overdue: false };
+  return { label: formatDateDMY(target), overdue: false };
 }
 
 /** Score badge background + text color. */

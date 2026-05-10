@@ -9,6 +9,7 @@ import { AuthService } from '@/lib/auth/auth-service';
 import { UserNav } from './user-nav';
 import { ModeToggle } from '../theme/mode-toggle';
 import { NotificationBell } from '../notifications/notification-bell';
+import { HeaderConnectionBadge } from '../whatsapp/header-connection-badge';
 import { FavoriteStar } from '../Favorites/FavoriteStar';
 import { derivePageInfo } from '@/lib/navigation/derive-page-info';
 
@@ -58,6 +59,7 @@ export function Navbar({ title }: NavbarProps) {
         <div className='flex items-center justify-between space-x-4'>
           {/* Desktop view */}
           <div className='hidden md:flex items-center space-x-2'>
+            <HeaderConnectionBadge />
             <NotificationBell />
             <ModeToggle />
             <UserNav />
@@ -65,6 +67,7 @@ export function Navbar({ title }: NavbarProps) {
 
           {/* Mobile view */}
           <div className='flex md:hidden items-center space-x-2'>
+            <HeaderConnectionBadge />
             <NotificationBell />
             <UserNav />
             <Button

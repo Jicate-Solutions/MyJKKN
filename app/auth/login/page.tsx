@@ -98,6 +98,24 @@ export default function LoginPage() {
         if (!error && data.user) {
           console.log('[Login Page] User authenticated');
 
+          // SAML SP-initiated SSO resume: if a samlReqId is present we MUST
+          // hand control back to /api/saml/sso so the IdP can emit the
+          // SAMLResponse and POST it to the SP ACS. Skipping this branch is
+          // what caused MathWorks first-login users to land on /dashboard
+          // (full-page navigation, not router.push, because /api/saml/sso
+          // returns an HTML auto-submit form, not a Next.js route).
+          const samlReqIdResume = params.get('samlReqId');
+          if (samlReqIdResume) {
+            console.log(
+              '[Login Page] 🔁 Resuming SAML SSO for already-authenticated user:',
+              samlReqIdResume
+            );
+            window.location.replace(
+              `/api/saml/sso?samlReqId=${encodeURIComponent(samlReqIdResume)}`
+            );
+            return;
+          }
+
           // User is authenticated, check their role
           const { data: profile } = await supabase
             .from('profiles')

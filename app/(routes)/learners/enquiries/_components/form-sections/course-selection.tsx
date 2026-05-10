@@ -5,7 +5,9 @@
 // Updated: 2025-01-19 - Added complete admission form fields
 // Purpose: Academic program and semester selection
 // Changes:
-// - Added Quota and Category fields (moved from Academic Information tab)
+// - Added Quota field (moved from Academic Information tab). Community is
+//   collected on the Basic Details tab; the redundant "Category" dropdown
+//   that lived here was removed 2026-05-07 along with the underlying column.
 // - Added Entry Type, Academic Year, Section (required)
 // - Added Roll Number, College Email, Register Number (optional)
 // - Added Regulation and Batch fields (optional)
@@ -247,9 +249,9 @@ export function CourseSelectionSection({ form, showLearnerType = false }: Course
 
   return (
     <div className="space-y-6">
-      {/* Quota & Category */}
+      {/* Quota */}
       <div className="space-y-4 pb-4 border-b">
-        <h3 className="text-lg font-semibold">Quota & Category</h3>
+        <h3 className="text-lg font-semibold">Quota</h3>
         <div className="grid gap-4 md:grid-cols-2">
           <FormField
             control={form.control}
@@ -269,37 +271,6 @@ export function CourseSelectionSection({ form, showLearnerType = false }: Course
                         {option.label}
                       </SelectItem>
                     ))}
-                  </SelectContent>
-                </Select>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-
-          <FormField
-            control={form.control}
-            name="category"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Category</FormLabel>
-                <Select onValueChange={field.onChange} value={field.value || ''}>
-                  <FormControl>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select category" />
-                    </SelectTrigger>
-                  </FormControl>
-                  <SelectContent>
-                  <SelectItem value='GENERAL'>GENERAL</SelectItem>
-                  <SelectItem value='BC'>BC</SelectItem>
-                  <SelectItem value='BCM'>BCM</SelectItem>
-                  <SelectItem value='MBC'>MBC</SelectItem>
-                  <SelectItem value='DNC'>DNC</SelectItem>
-                  <SelectItem value='BC-CC'>BC-CC</SelectItem>
-                  <SelectItem value='SC'>SC</SelectItem>
-                  <SelectItem value='ST'>ST</SelectItem>
-                  <SelectItem value='SCA'>SCA</SelectItem>
-                  <SelectItem value='MBC & DNC'>MBC & DNC</SelectItem>
-                  <SelectItem value='OC'>OC</SelectItem>
                   </SelectContent>
                 </Select>
                 <FormMessage />

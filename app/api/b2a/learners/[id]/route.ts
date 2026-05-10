@@ -110,6 +110,7 @@ export async function GET(
     student_photo_url: string | null;
     is_profile_complete: boolean;
     admission_year: number | null;
+    admission_year_id: string | null;
     blood_group: string | null;
     scholarship_type: string | null;
     industry_readiness_score: number | null;
@@ -138,7 +139,9 @@ export async function GET(
         'accommodation_type, hostel_type, food_type, ' +
         'institution_id, degree_id, department_id, program_id, semester_id, section_id, ' +
         'academic_year_id, regulation_id, batch_id, roll_number, register_number, ' +
-        'college_email, student_photo_url, is_profile_complete, admission_year, ' +
+        'college_email, student_photo_url, is_profile_complete, ' +
+        'admission_year_id, ' +
+        'admission_year_obj:admission_years!admission_year_id(program_start_year), ' +
         'blood_group, scholarship_type, industry_readiness_score, portfolio_url, ' +
         'created_at, updated_at'
       )
@@ -166,7 +169,14 @@ export async function GET(
         );
       }
     } else {
-      record = data as unknown as LearnerDetail;
+      // Derive legacy admission_year integer from FK join for back-compat.
+      const raw = data as unknown as Record<string, any>;
+      const ayObj = raw.admission_year_obj as { program_start_year?: number } | null;
+      delete raw.admission_year_obj;
+      record = {
+        ...raw,
+        admission_year: ayObj?.program_start_year ?? null,
+      } as LearnerDetail;
     }
   } catch {
     statusCode = 500;

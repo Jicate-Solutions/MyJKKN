@@ -8,6 +8,7 @@
 
 export type LeadSource =
   | 'website'
+  | 'whatsapp'
   | 'admission_form'
   | 'walk_in'
   | 'referral'
@@ -18,7 +19,41 @@ export type LeadSource =
   | 'publisher'
   | 'google_ads'
   | 'facebook_ads'
+  | 'inbound_call'
+  | 'gate_entry'
   | 'other';
+
+/**
+ * Gate Entry capture input — used by the kiosk form at /admission/gate-entry.
+ * The DB-level lead.source stays 'walk_in' (the channel category); the per-touch
+ * source on the source-capture row is 'gate_entry' (the specific touch).
+ */
+export interface GateEntryInput {
+  first_name: string;
+  phone: string;
+  institution_id: string;
+  last_name?: string | null;
+  program_id?: string | null;
+  /** UI radio: 'walk_in' = direct, 'referral' = show consultant picker. */
+  source: 'walk_in' | 'referral';
+  /** Only when source='referral' and a referrer was picked. */
+  referral_type?: ReferralType | null;
+  referred_by_id?: string | null;
+  /** Free-text fallback when the referrer wasn't in the consultant list. */
+  referred_by_name?: string | null;
+}
+
+/**
+ * Return shape from capture_gate_entry_lead RPC. Mirrors capture_admission_lead
+ * — `action: 'merged'` indicates a returning visitor (existing lead row was
+ * reused; the gate UI shows "Welcome back").
+ */
+export interface GateEntryResult {
+  lead_id: string;
+  capture_id: string;
+  action: 'created' | 'merged';
+  reactivated?: boolean;
+}
 
 export type FunnelStage =
   | 'new'
@@ -213,6 +248,13 @@ export interface AdmissionLead {
   created_at: string;
   updated_at: string;
   created_by: string | null;
+
+  // Gate Entry (2026-05-07) — denormalized columns maintained by trigger on
+  // admission_lead_source_captures with source='gate_entry'. See migration
+  // 20260507100017. first_* preserves the *earliest* visit; count is total.
+  first_gate_entry_at?: string | null;
+  first_gate_entry_by?: string | null;
+  gate_entry_count?: number;
 
   // Relationships (optional populated)
   counselor?: Counselor;
@@ -1217,6 +1259,13 @@ export interface AdmissionForm {
   max_submissions: number | null;
   starts_at: string | null;
   expires_at: string | null;
+  /**
+   * Channel attribution for leads created via this form. Read by
+   * FormSubmissionService.processSubmission to set lead.source. Existing
+   * forms default to 'website' (DB-level default), so legacy behavior is
+   * preserved without any data migration.
+   */
+  lead_source: LeadSource;
   created_by: string | null;
   created_at: string;
   updated_at: string;
@@ -1242,6 +1291,7 @@ export interface CreateAdmissionFormInput {
   max_submissions?: number | null;
   starts_at?: string | null;
   expires_at?: string | null;
+  lead_source?: LeadSource;
 }
 
 export interface AdmissionFormSubmission {
@@ -1441,3 +1491,403 @@ export interface UpdateExpoStallInput {
   notes?: string | null;
 }
 
+// ============================================================================
+// Admission Fee Structure module — Foundation types
+// ============================================================================
+// Spec: docs/superpowers/specs/2026-05-05-admission-fee-structure-automation-design.md §6.1, §6.6
+// Plan: docs/superpowers/plans/2026-05-05-admission-fees-plan-01-foundation.md Task 7
+//
+// NOTE: Names are prefixed with `AdmissionFee` because `Quota` and
+// `AccommodationType` are already exported from
+// `lib/constants/learner-dropdown-values.ts` (TEXT-union legacy values).
+// Tasks 8 and 9 must reference these prefixed names accordingly.
+
+export interface AdmissionFeeQuota {
+  id: string;
+  code: string;
+  name: string;
+  sort_order: number;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+  created_by: string | null;
+  updated_by: string | null;
+}
+
+export type CreateAdmissionFeeQuotaInput = Pick<AdmissionFeeQuota, 'code' | 'name'> & Partial<Pick<AdmissionFeeQuota, 'sort_order' | 'is_active'>>;
+export type UpdateAdmissionFeeQuotaInput = Partial<Pick<AdmissionFeeQuota, 'code' | 'name' | 'sort_order' | 'is_active'>>;
+
+export interface AdmissionFeeCommunityCategory {
+  id: string;
+  code: string;
+  name: string;
+  sort_order: number;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+  created_by: string | null;
+  updated_by: string | null;
+}
+
+export type CreateAdmissionFeeCommunityCategoryInput = Pick<AdmissionFeeCommunityCategory, 'code' | 'name'> &
+  Partial<Pick<AdmissionFeeCommunityCategory, 'sort_order' | 'is_active'>>;
+export type UpdateAdmissionFeeCommunityCategoryInput = Partial<Pick<AdmissionFeeCommunityCategory, 'code' | 'name' | 'sort_order' | 'is_active'>>;
+
+export interface AdmissionFeeAccommodationType {
+  id: string;
+  institution_id: string;
+  code: string;
+  name: string;
+  sort_order: number;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+  created_by: string | null;
+  updated_by: string | null;
+}
+
+export type CreateAdmissionFeeAccommodationTypeInput = Pick<AdmissionFeeAccommodationType, 'institution_id' | 'code' | 'name'> &
+  Partial<Pick<AdmissionFeeAccommodationType, 'sort_order' | 'is_active'>>;
+export type UpdateAdmissionFeeAccommodationTypeInput = Partial<
+  Pick<AdmissionFeeAccommodationType, 'code' | 'name' | 'sort_order' | 'is_active'>
+>;
+
+export interface AdmissionFeeAdmissionSettingsPerInstitution {
+  id: string;
+  institution_id: string;
+  use_fee_structures: boolean;
+  required_documents_for_account_transition: string[];
+  pre_submit_dialog_enabled: boolean;
+  status_change_dialog_enabled: boolean;
+  created_at: string;
+  updated_at: string;
+  created_by: string | null;
+  updated_by: string | null;
+}
+
+export type UpsertAdmissionFeeAdmissionSettingsInput = Partial<
+  Pick<
+    AdmissionFeeAdmissionSettingsPerInstitution,
+    | 'use_fee_structures'
+    | 'required_documents_for_account_transition'
+    | 'pre_submit_dialog_enabled'
+    | 'status_change_dialog_enabled'
+  >
+> & {
+  institution_id: string;
+};
+
+
+// ============================================================================
+// Admission Fee Structure module — Plan 2 types
+// ============================================================================
+// Spec: §6.2
+// Plan: docs/superpowers/plans/2026-05-05-admission-fees-plan-02-fee-structure-module.md Task 5
+
+export type AdmissionFeeStructureStatus = 'draft' | 'active' | 'archived';
+
+export interface AdmissionFeeStructure {
+  id: string;
+  institution_id: string;
+  degree_id: string;
+  department_id: string;
+  programme_id: string;
+  quota_id: string;
+  // Communities live in the admission_fee_structure_communities junction
+  // (migration 20260507120001). One structure → N communities. The list is
+  // surfaced on read shapes via `community_category_ids`. No single-community
+  // FK lives on this table any more.
+  accommodation_type_id: string;
+  admission_year_id: string;
+  name: string;
+  status: AdmissionFeeStructureStatus;
+  notes: string | null;
+  // Date-bounded applicability within an admission year. NULL on either
+  // side means "no specific bound" (always applicable from start / until
+  // end). Resolution RPC picks the latest effective_from that contains
+  // today's date when multiple structures overlap.
+  effective_from: string | null;
+  effective_to: string | null;
+  created_at: string;
+  updated_at: string;
+  created_by: string | null;
+  updated_by: string | null;
+  /**
+   * Communities this structure applies to (from the junction table).
+   * Always populated by the read-side service queries; non-null & may be
+   * empty if the structure is mid-creation.
+   */
+  community_category_ids: string[];
+}
+
+export interface AdmissionFeeStructureItem {
+  id: string;
+  fee_structure_id: string;
+  billing_category_id: string;
+  amount: number;
+  is_optional: boolean;
+  sort_order: number;
+}
+
+export interface AdmissionFeeStructureWithItems extends AdmissionFeeStructure {
+  items: AdmissionFeeStructureItem[];
+}
+
+export type CreateAdmissionFeeStructureInput =
+  Pick<
+    AdmissionFeeStructure,
+    | 'institution_id'
+    | 'degree_id'
+    | 'department_id'
+    | 'programme_id'
+    | 'quota_id'
+    | 'accommodation_type_id'
+    | 'admission_year_id'
+    | 'name'
+  > &
+  Partial<Pick<AdmissionFeeStructure, 'status' | 'notes' | 'effective_from' | 'effective_to'>> & {
+    /** N communities this structure applies to. Must contain at least one. */
+    community_category_ids: string[];
+    items: Array<Pick<AdmissionFeeStructureItem, 'billing_category_id' | 'amount'> &
+      Partial<Pick<AdmissionFeeStructureItem, 'is_optional' | 'sort_order'>>>;
+  };
+
+export type UpdateAdmissionFeeStructureInput =
+  Partial<Pick<
+    AdmissionFeeStructure,
+    | 'name' | 'status' | 'notes' | 'effective_from' | 'effective_to'
+    // 7 matrix dimensions — editing them is supported but risky. The
+    // overlap-prevention trigger on the junction will reject conflicting
+    // moves; the UI layer warns the admin before submit.
+    | 'institution_id' | 'degree_id' | 'department_id' | 'programme_id'
+    | 'quota_id' | 'accommodation_type_id' | 'admission_year_id'
+  >> & {
+    /** When provided, replaces the community set for this structure. */
+    community_category_ids?: string[];
+  };
+
+/**
+ * 7-dim matrix key. Community is no longer part of the matrix — it lives on
+ * the junction (admission_fee_structure_communities). The form's "find or
+ * create" lookup uses these 7 dims plus a list of communities.
+ */
+export interface FeeStructureMatrixDimensions {
+  institution_id: string;
+  degree_id: string;
+  department_id: string;
+  programme_id: string;
+  quota_id: string;
+  accommodation_type_id: string;
+  admission_year_id: string;
+}
+
+/** Coverage report row — one per (institution, academic_year) leaf in the tree */
+export interface FeeStructureCoverageReportRow {
+  institution_id: string;
+  degree_id: string;
+  department_id: string;
+  programme_id: string;
+  quota_id: string;
+  community_category_id: string;
+  accommodation_type_id: string;
+  admission_year_id: string;
+  has_structure: boolean;
+  item_count: number;
+}
+
+// ============================================================================
+// Admission Fee Adjustments + Resolution — Plan 3 types
+// ============================================================================
+// Spec §6.3, §7
+// Plan: docs/superpowers/plans/2026-05-05-admission-fees-plan-03-resolution-engine-finance-tab.md Task 5
+
+export type AdmissionFeeAdjustmentReasonCode =
+  | 'scholarship_merit'
+  | 'donor_seat'
+  | 'sibling_rebate'
+  | 'management_waiver'
+  | 'fee_concession'
+  | 'staff_ward'
+  | 'financial_hardship'
+  | 'other';
+
+export type AdmissionFeeAdjustmentStatus = 'active' | 'reversed';
+
+export interface AdmissionFeeAdjustment {
+  id: string;
+  learner_id: string;
+  billing_category_id: string | null;
+  reason_code: AdmissionFeeAdjustmentReasonCode;
+  reason_notes: string | null;
+  delta_amount: number;
+  applied_at: string;
+  approved_by: string | null;
+  evidence_documents: unknown[];
+  status: AdmissionFeeAdjustmentStatus;
+  created_at: string;
+  updated_at: string;
+  created_by: string | null;
+  updated_by: string | null;
+}
+
+export type CreateAdmissionFeeAdjustmentInput = Pick<
+  AdmissionFeeAdjustment,
+  'learner_id' | 'reason_code' | 'delta_amount'
+> &
+  Partial<
+    Pick<
+      AdmissionFeeAdjustment,
+      'billing_category_id' | 'reason_notes' | 'evidence_documents' | 'approved_by'
+    >
+  >;
+
+export type UpdateAdmissionFeeAdjustmentInput = Partial<
+  Pick<
+    AdmissionFeeAdjustment,
+    'reason_code' | 'reason_notes' | 'delta_amount' | 'evidence_documents' | 'approved_by' | 'status'
+  >
+>;
+
+/** Shape of a single resolved fee_items[] entry (after RPC merge) */
+export interface ResolvedFeeItem {
+  category_id: string | null;
+  category_name: string;
+  amount: number;
+  source: 'structure' | 'adjustment_global';
+}
+
+/** RPC return wrapper for UI consumers */
+export interface ResolveFeeItemsResult {
+  items: ResolvedFeeItem[];
+  matched: boolean;
+  total: number;
+}
+
+// ============================================================================
+// Atomic Account Transition — Plan 4 types
+// ============================================================================
+// Spec §6.6, §8.3.1
+// Plan: docs/superpowers/plans/2026-05-05-admission-fees-plan-04-atomic-account-transition.md Task 5
+
+export interface LearnerAdmissionDocument {
+  id: string;
+  learner_id: string;
+  doc_type: string;
+  is_received: boolean;
+  received_at: string | null;
+  received_by: string | null;
+  received_via: 'physical' | 'email' | 'upload' | null;
+  document_ref: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export type AccountTransitionDocumentEntry = {
+  doc_type: string;
+  received_via: 'physical' | 'email' | 'upload';
+  document_ref?: string;
+};
+
+export interface AccountTransitionPayload {
+  learner_id: string;
+  required_documents: string[];                          // doc_types from settings
+  received_documents: AccountTransitionDocumentEntry[];  // user-provided
+}
+
+export interface AccountTransitionResult {
+  success: boolean;
+  learner_id: string;
+  lifecycle_status: 'account';
+  documents_recorded: number;
+  bills_existing: number;
+  bills_generated: number;
+  fee_items_count: number;
+}
+
+// ============================================================================
+// Fee-Change Reconciliation — Plan 5 types
+// ============================================================================
+// Spec §6.4, §8.3.2
+// Plan: docs/superpowers/plans/2026-05-05-admission-fees-plan-05-fee-change-reconciliation.md Task 8
+
+export type AdmissionFeeChangeEventStatus = 'pending_review' | 'approved' | 'rejected';
+export type AdmissionFeeChangeEventTriggerField =
+  | 'program_id' | 'quota_id' | 'community_category_id'
+  | 'accommodation_type_id' | 'admission_year_id' | 'manual';
+export type AdmissionFeeChangeEventLineDecision =
+  | 'apply_supplemental' | 'issue_credit_note' | 'refund_payment'
+  | 'reallocate_payment' | 'waive_delta' | 'do_nothing';
+
+export interface AdmissionFeeChangeEvent {
+  id: string;
+  learner_id: string;
+  trigger_field: AdmissionFeeChangeEventTriggerField;
+  old_program_id: string | null;
+  old_quota_id: string | null;
+  old_community_category_id: string | null;
+  old_accommodation_type_id: string | null;
+  old_admission_year_id: string | null;
+  old_fee_structure_id: string | null;
+  new_fee_structure_id: string | null;
+  status: AdmissionFeeChangeEventStatus;
+  reason_notes: string | null;
+  requested_by: string | null;
+  decided_by: string | null;
+  requested_at: string;
+  decided_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AdmissionFeeChangeEventLine {
+  id: string;
+  event_id: string;
+  billing_category_id: string;
+  old_amount: number | null;
+  new_amount: number | null;
+  paid_amount_so_far: number;
+  decision: AdmissionFeeChangeEventLineDecision | null;
+  generated_artifact_id: string | null;
+  decision_notes: string | null;
+}
+
+export interface AdmissionFeeChangeEventWithLines extends AdmissionFeeChangeEvent {
+  lines: AdmissionFeeChangeEventLine[];
+}
+
+export interface ApproveFeeChangeEventDecisionInput {
+  billing_category_id: string;
+  decision: AdmissionFeeChangeEventLineDecision;
+  reallocation_amount?: number;
+  decision_notes?: string;
+}
+
+export interface ApproveFeeChangeEventResult {
+  success: boolean;
+  event_id: string;
+  summary: {
+    new_bills: number;
+    superseded_bills: number;
+    credit_balances: number;
+    reallocations: number;
+  };
+}
+
+export type StudentCreditBalanceSource =
+  | 'fee_structure_change' | 'overpayment' | 'refund_reversal' | 'manual';
+
+export interface StudentCreditBalance {
+  id: string;
+  student_id: string;
+  amount: number;
+  source: StudentCreditBalanceSource;
+  source_event_id: string | null;
+  is_consumed: boolean;
+  consumed_against_bill_id: string | null;
+  consumed_at: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+  created_by: string | null;
+}

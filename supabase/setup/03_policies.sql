@@ -1599,8 +1599,13 @@ CREATE POLICY "email_logs_select_admin" ON bug_report_email_logs
 -- SECTION 11: RESOURCE MANAGEMENT MODULE TABLES
 -- ================================================================================
 
--- RESOURCES TABLE (2 policies)
--- Updated: 2025-01-30 - Fixed to use profiles.institution_id instead of user_institution_access
+-- RESOURCES TABLE (4 policies)
+-- Updated: 2026-05-08 - Migrated INSERT/UPDATE/DELETE to canonical permission +
+--                       role_has_institution_access() pattern (see migration
+--                       20260509153000_resources_perm_based_rls.sql) so any
+--                       role granted resources.resources.* in the role catalog
+--                       can write within its institutional scope without
+--                       hardcoding profile.role values in policy SQL.
 ALTER TABLE resources ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "resources_select_institution" ON resources
@@ -1611,13 +1616,45 @@ CREATE POLICY "resources_select_institution" ON resources
         )
     );
 
-CREATE POLICY "resources_all_admin" ON resources
-    FOR ALL USING (
-        institution_id IN (
-            SELECT institution_id FROM profiles
-            WHERE id = auth.uid() AND institution_id IS NOT NULL
+CREATE POLICY "resources_insert_perm" ON resources
+    FOR INSERT
+    WITH CHECK (
+        is_super_admin()
+        OR is_admin(auth.uid())
+        OR (
+            role_has_institution_access(institution_id)
+            AND user_has_permission('resources.resources.create')
         )
-        AND user_has_permission('resources.manage')
+    );
+
+CREATE POLICY "resources_update_perm" ON resources
+    FOR UPDATE
+    USING (
+        is_super_admin()
+        OR is_admin(auth.uid())
+        OR (
+            role_has_institution_access(institution_id)
+            AND user_has_permission('resources.resources.edit')
+        )
+    )
+    WITH CHECK (
+        is_super_admin()
+        OR is_admin(auth.uid())
+        OR (
+            role_has_institution_access(institution_id)
+            AND user_has_permission('resources.resources.edit')
+        )
+    );
+
+CREATE POLICY "resources_delete_perm" ON resources
+    FOR DELETE
+    USING (
+        is_super_admin()
+        OR is_admin(auth.uid())
+        OR (
+            role_has_institution_access(institution_id)
+            AND user_has_permission('resources.resources.delete')
+        )
     );
 
 -- RESOURCE_RESERVATIONS TABLE (4 policies)
@@ -1743,14 +1780,18 @@ ALTER TABLE resource_parent_categories ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "parent_cat_select_all" ON resource_parent_categories
     FOR SELECT USING (true);
 
-CREATE POLICY "parent_cat_insert_admin" ON resource_parent_categories
-    FOR INSERT WITH CHECK (is_super_admin());
+-- Permission-driven write policies (see migration
+-- 20260509110001_resource_categories_perm_based_rls.sql).
+-- user_has_permission() bypasses for super_admin via is_super_admin=true,
+-- so no separate is_super_admin() OR clause is required.
+CREATE POLICY "parent_cat_insert_perm" ON resource_parent_categories
+    FOR INSERT WITH CHECK (user_has_permission('resources.categories.create'));
 
-CREATE POLICY "parent_cat_update_admin" ON resource_parent_categories
-    FOR UPDATE USING (is_super_admin());
+CREATE POLICY "parent_cat_update_perm" ON resource_parent_categories
+    FOR UPDATE USING (user_has_permission('resources.categories.edit'));
 
-CREATE POLICY "parent_cat_delete_admin" ON resource_parent_categories
-    FOR DELETE USING (is_super_admin());
+CREATE POLICY "parent_cat_delete_perm" ON resource_parent_categories
+    FOR DELETE USING (user_has_permission('resources.categories.delete'));
 
 CREATE POLICY "parent_cat_select_active" ON resource_parent_categories
     FOR SELECT USING (status = 'active');
@@ -1760,14 +1801,14 @@ ALTER TABLE resource_sub_categories ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "sub_cat_select_all" ON resource_sub_categories
     FOR SELECT USING (true);
 
-CREATE POLICY "sub_cat_insert_admin" ON resource_sub_categories
-    FOR INSERT WITH CHECK (is_super_admin());
+CREATE POLICY "sub_cat_insert_perm" ON resource_sub_categories
+    FOR INSERT WITH CHECK (user_has_permission('resources.subcategories.create'));
 
-CREATE POLICY "sub_cat_update_admin" ON resource_sub_categories
-    FOR UPDATE USING (is_super_admin());
+CREATE POLICY "sub_cat_update_perm" ON resource_sub_categories
+    FOR UPDATE USING (user_has_permission('resources.subcategories.edit'));
 
-CREATE POLICY "sub_cat_delete_admin" ON resource_sub_categories
-    FOR DELETE USING (is_super_admin());
+CREATE POLICY "sub_cat_delete_perm" ON resource_sub_categories
+    FOR DELETE USING (user_has_permission('resources.subcategories.delete'));
 
 ALTER TABLE resource_attribute_definitions ENABLE ROW LEVEL SECURITY;
 
@@ -5825,3 +5866,364 @@ CREATE POLICY notif_gen_cfg_audit_select ON public.notification_generator_config
 FOR SELECT USING (
   is_super_admin() OR is_admin() OR user_has_permission('attention_bar.rules.manage')
 );
+
+-- =====================================================================
+-- staff_import_unmatched RLS
+-- =====================================================================
+-- Service role inserts during import runs; users with the
+-- staff.manage_imports permission read/update for manual reconciliation.
+-- (super_admin role and is_super_admin = true users get bypass at the
+--  user_has_permission() function level.)
+
+ALTER TABLE public.staff_import_unmatched ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "super_admin_full_access" ON public.staff_import_unmatched;
+DROP POLICY IF EXISTS "staff_imports_manage_access" ON public.staff_import_unmatched;
+CREATE POLICY "staff_imports_manage_access"
+  ON public.staff_import_unmatched
+  FOR ALL
+  TO authenticated
+  USING (user_has_permission('staff.manage_imports'))
+  WITH CHECK (user_has_permission('staff.manage_imports'));
+
+DROP POLICY IF EXISTS "service_role_bypass" ON public.staff_import_unmatched;
+CREATE POLICY "service_role_bypass"
+  ON public.staff_import_unmatched
+  FOR ALL
+  TO service_role
+  USING (true)
+  WITH CHECK (true);
+
+-- Seed: grant staff.manage_imports to administrator role so the policy is
+-- not dead. Mirrors migration 20260503100004_staff_import_unmatched_amendments.sql.
+UPDATE custom_roles
+SET permissions = permissions || '{"staff.manage_imports": true}'::jsonb,
+    updated_at = now()
+WHERE role_key = 'administrator'
+  AND COALESCE((permissions->>'staff.manage_imports')::boolean, false) = false;
+
+-- =====================================================
+-- SECTION: ADMISSION FEE STRUCTURE - LOOKUP + SETTINGS RLS
+-- Added: 2026-05-05 — RLS for foundation lookup tables + per-institution settings
+-- Migration: supabase/migrations/20260505100006_lookup_tables_rls_policies.sql
+-- Spec: §10.2
+-- =====================================================
+
+ALTER TABLE public.quotas ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.community_categories ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.accommodation_types ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.admission_settings_per_institution ENABLE ROW LEVEL SECURITY;
+
+-- quotas — global read, gated write
+DROP POLICY IF EXISTS quotas_read ON public.quotas;
+CREATE POLICY quotas_read
+    ON public.quotas FOR SELECT
+    USING (auth.role() = 'authenticated');
+
+DROP POLICY IF EXISTS quotas_write ON public.quotas;
+CREATE POLICY quotas_write
+    ON public.quotas FOR ALL
+    USING (public.user_has_permission('admission_fees.manage'))
+    WITH CHECK (public.user_has_permission('admission_fees.manage'));
+
+-- community_categories — same pattern
+DROP POLICY IF EXISTS community_categories_read ON public.community_categories;
+CREATE POLICY community_categories_read
+    ON public.community_categories FOR SELECT
+    USING (auth.role() = 'authenticated');
+
+DROP POLICY IF EXISTS community_categories_write ON public.community_categories;
+CREATE POLICY community_categories_write
+    ON public.community_categories FOR ALL
+    USING (public.user_has_permission('admission_fees.manage'))
+    WITH CHECK (public.user_has_permission('admission_fees.manage'));
+
+-- accommodation_types — institution-scoped
+DROP POLICY IF EXISTS accommodation_types_read ON public.accommodation_types;
+CREATE POLICY accommodation_types_read
+    ON public.accommodation_types FOR SELECT
+    USING (public.role_has_institution_access(institution_id));
+
+DROP POLICY IF EXISTS accommodation_types_write ON public.accommodation_types;
+CREATE POLICY accommodation_types_write
+    ON public.accommodation_types FOR ALL
+    USING (
+        public.user_has_permission('admission_fees.manage')
+        AND public.role_has_institution_access(institution_id)
+    )
+    WITH CHECK (
+        public.user_has_permission('admission_fees.manage')
+        AND public.role_has_institution_access(institution_id)
+    );
+
+-- admission_settings_per_institution — institution-scoped
+DROP POLICY IF EXISTS admission_settings_read ON public.admission_settings_per_institution;
+CREATE POLICY admission_settings_read
+    ON public.admission_settings_per_institution FOR SELECT
+    USING (public.role_has_institution_access(institution_id));
+
+DROP POLICY IF EXISTS admission_settings_write ON public.admission_settings_per_institution;
+CREATE POLICY admission_settings_write
+    ON public.admission_settings_per_institution FOR ALL
+    USING (
+        public.user_has_permission('admission.settings.manage')
+        AND public.role_has_institution_access(institution_id)
+    )
+    WITH CHECK (
+        public.user_has_permission('admission.settings.manage')
+        AND public.role_has_institution_access(institution_id)
+    );
+-- ============================================================================
+-- 20260506100002 — RLS policies for admission_fee_structures + items
+-- ============================================================================
+ALTER TABLE public.admission_fee_structures ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.admission_fee_structure_items ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS fee_structures_read ON public.admission_fee_structures;
+CREATE POLICY fee_structures_read
+    ON public.admission_fee_structures FOR SELECT
+    USING (
+      public.user_has_permission('admission_fees.read')
+      AND public.role_has_institution_access(institution_id)
+    );
+
+DROP POLICY IF EXISTS fee_structures_write ON public.admission_fee_structures;
+CREATE POLICY fee_structures_write
+    ON public.admission_fee_structures FOR ALL
+    USING (
+      public.user_has_permission('admission_fees.manage')
+      AND public.role_has_institution_access(institution_id)
+    )
+    WITH CHECK (
+      public.user_has_permission('admission_fees.manage')
+      AND public.role_has_institution_access(institution_id)
+    );
+
+-- Items inherit via the parent's institution_id
+DROP POLICY IF EXISTS fee_structure_items_read ON public.admission_fee_structure_items;
+CREATE POLICY fee_structure_items_read
+    ON public.admission_fee_structure_items FOR SELECT
+    USING (
+      EXISTS (
+        SELECT 1 FROM public.admission_fee_structures fs
+         WHERE fs.id = admission_fee_structure_items.fee_structure_id
+           AND public.user_has_permission('admission_fees.read')
+           AND public.role_has_institution_access(fs.institution_id)
+      )
+    );
+
+DROP POLICY IF EXISTS fee_structure_items_write ON public.admission_fee_structure_items;
+CREATE POLICY fee_structure_items_write
+    ON public.admission_fee_structure_items FOR ALL
+    USING (
+      EXISTS (
+        SELECT 1 FROM public.admission_fee_structures fs
+         WHERE fs.id = admission_fee_structure_items.fee_structure_id
+           AND public.user_has_permission('admission_fees.manage')
+           AND public.role_has_institution_access(fs.institution_id)
+      )
+    )
+    WITH CHECK (
+      EXISTS (
+        SELECT 1 FROM public.admission_fee_structures fs
+         WHERE fs.id = admission_fee_structure_items.fee_structure_id
+           AND public.user_has_permission('admission_fees.manage')
+           AND public.role_has_institution_access(fs.institution_id)
+      )
+    );
+
+-- ============================================================================
+-- admission_fee_adjustments RLS (Plan 3 Task 2)
+-- ============================================================================
+-- Read: admission_fees.read + access to the parent learner's institution
+-- Write: admission_fees.manage_adjustments + same institution access
+-- Spec: §10.2
+-- ============================================================================
+
+ALTER TABLE public.admission_fee_adjustments ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS fee_adjustments_read ON public.admission_fee_adjustments;
+CREATE POLICY fee_adjustments_read
+    ON public.admission_fee_adjustments FOR SELECT
+    USING (
+      EXISTS (
+        SELECT 1 FROM public.learners_profiles lp
+         WHERE lp.id = admission_fee_adjustments.learner_id
+           AND public.user_has_permission('admission_fees.read')
+           AND public.role_has_institution_access(lp.institution_id)
+      )
+    );
+
+DROP POLICY IF EXISTS fee_adjustments_write ON public.admission_fee_adjustments;
+CREATE POLICY fee_adjustments_write
+    ON public.admission_fee_adjustments FOR ALL
+    USING (
+      EXISTS (
+        SELECT 1 FROM public.learners_profiles lp
+         WHERE lp.id = admission_fee_adjustments.learner_id
+           AND public.user_has_permission('admission_fees.manage_adjustments')
+           AND public.role_has_institution_access(lp.institution_id)
+      )
+    )
+    WITH CHECK (
+      EXISTS (
+        SELECT 1 FROM public.learners_profiles lp
+         WHERE lp.id = admission_fee_adjustments.learner_id
+           AND public.user_has_permission('admission_fees.manage_adjustments')
+           AND public.role_has_institution_access(lp.institution_id)
+      )
+    );
+
+-- ============================================================================
+-- learner_admission_documents RLS (Plan 4 Task 2)
+-- ============================================================================
+-- Spec §10.2. Read: admission_fees.read OR admission_documents.manage with
+-- institution access to parent learner. Write: admission_documents.manage only.
+-- ============================================================================
+
+ALTER TABLE public.learner_admission_documents ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS learner_admission_documents_read
+    ON public.learner_admission_documents;
+CREATE POLICY learner_admission_documents_read
+    ON public.learner_admission_documents FOR SELECT
+    USING (
+      EXISTS (
+        SELECT 1 FROM public.learners_profiles lp
+         WHERE lp.id = learner_admission_documents.learner_id
+           AND (
+             public.user_has_permission('admission_fees.read')
+             OR public.user_has_permission('admission_documents.manage')
+           )
+           AND public.role_has_institution_access(lp.institution_id)
+      )
+    );
+
+DROP POLICY IF EXISTS learner_admission_documents_write
+    ON public.learner_admission_documents;
+CREATE POLICY learner_admission_documents_write
+    ON public.learner_admission_documents FOR ALL
+    USING (
+      EXISTS (
+        SELECT 1 FROM public.learners_profiles lp
+         WHERE lp.id = learner_admission_documents.learner_id
+           AND public.user_has_permission('admission_documents.manage')
+           AND public.role_has_institution_access(lp.institution_id)
+      )
+    )
+    WITH CHECK (
+      EXISTS (
+        SELECT 1 FROM public.learners_profiles lp
+         WHERE lp.id = learner_admission_documents.learner_id
+           AND public.user_has_permission('admission_documents.manage')
+           AND public.role_has_institution_access(lp.institution_id)
+      )
+    );
+
+-- ============================================================================
+-- Plan 5 — RLS for fee_change_events, event_lines, student_credit_balances
+-- Spec §10.2
+-- ============================================================================
+
+ALTER TABLE public.admission_fee_change_events ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.admission_fee_change_event_lines ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.student_credit_balances ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS fee_change_events_read ON public.admission_fee_change_events;
+CREATE POLICY fee_change_events_read
+    ON public.admission_fee_change_events FOR SELECT
+    USING (
+      EXISTS (
+        SELECT 1 FROM public.learners_profiles lp
+         WHERE lp.id = admission_fee_change_events.learner_id
+           AND public.user_has_permission('admission_fees.read')
+           AND public.role_has_institution_access(lp.institution_id)
+      )
+    );
+
+DROP POLICY IF EXISTS fee_change_events_write ON public.admission_fee_change_events;
+CREATE POLICY fee_change_events_write
+    ON public.admission_fee_change_events FOR ALL
+    USING (
+      EXISTS (
+        SELECT 1 FROM public.learners_profiles lp
+         WHERE lp.id = admission_fee_change_events.learner_id
+           AND public.user_has_permission('admission_fees.approve_change_event')
+           AND public.role_has_institution_access(lp.institution_id)
+      )
+    )
+    WITH CHECK (
+      EXISTS (
+        SELECT 1 FROM public.learners_profiles lp
+         WHERE lp.id = admission_fee_change_events.learner_id
+           AND public.user_has_permission('admission_fees.approve_change_event')
+           AND public.role_has_institution_access(lp.institution_id)
+      )
+    );
+
+DROP POLICY IF EXISTS fee_change_event_lines_read ON public.admission_fee_change_event_lines;
+CREATE POLICY fee_change_event_lines_read
+    ON public.admission_fee_change_event_lines FOR SELECT
+    USING (
+      EXISTS (
+        SELECT 1 FROM public.admission_fee_change_events e
+         JOIN public.learners_profiles lp ON lp.id = e.learner_id
+         WHERE e.id = admission_fee_change_event_lines.event_id
+           AND public.user_has_permission('admission_fees.read')
+           AND public.role_has_institution_access(lp.institution_id)
+      )
+    );
+
+DROP POLICY IF EXISTS fee_change_event_lines_write ON public.admission_fee_change_event_lines;
+CREATE POLICY fee_change_event_lines_write
+    ON public.admission_fee_change_event_lines FOR ALL
+    USING (
+      EXISTS (
+        SELECT 1 FROM public.admission_fee_change_events e
+         JOIN public.learners_profiles lp ON lp.id = e.learner_id
+         WHERE e.id = admission_fee_change_event_lines.event_id
+           AND public.user_has_permission('admission_fees.approve_change_event')
+           AND public.role_has_institution_access(lp.institution_id)
+      )
+    )
+    WITH CHECK (
+      EXISTS (
+        SELECT 1 FROM public.admission_fee_change_events e
+         JOIN public.learners_profiles lp ON lp.id = e.learner_id
+         WHERE e.id = admission_fee_change_event_lines.event_id
+           AND public.user_has_permission('admission_fees.approve_change_event')
+           AND public.role_has_institution_access(lp.institution_id)
+      )
+    );
+
+DROP POLICY IF EXISTS student_credit_balances_read ON public.student_credit_balances;
+CREATE POLICY student_credit_balances_read
+    ON public.student_credit_balances FOR SELECT
+    USING (
+      EXISTS (
+        SELECT 1 FROM public.learners_profiles lp
+         WHERE lp.id = student_credit_balances.student_id
+           AND public.user_has_permission('admission_fees.read')
+           AND public.role_has_institution_access(lp.institution_id)
+      )
+    );
+
+DROP POLICY IF EXISTS student_credit_balances_write ON public.student_credit_balances;
+CREATE POLICY student_credit_balances_write
+    ON public.student_credit_balances FOR ALL
+    USING (
+      EXISTS (
+        SELECT 1 FROM public.learners_profiles lp
+         WHERE lp.id = student_credit_balances.student_id
+           AND public.user_has_permission('admission_fees.approve_change_event')
+           AND public.role_has_institution_access(lp.institution_id)
+      )
+    )
+    WITH CHECK (
+      EXISTS (
+        SELECT 1 FROM public.learners_profiles lp
+         WHERE lp.id = student_credit_balances.student_id
+           AND public.user_has_permission('admission_fees.approve_change_event')
+           AND public.role_has_institution_access(lp.institution_id)
+      )
+    );

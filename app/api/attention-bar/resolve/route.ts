@@ -16,6 +16,7 @@
 import { NextResponse } from 'next/server';
 import { getEnhancedUserProfile } from '@/lib/supabase/server';
 import { buildContext, resolve } from '@/lib/attention-bar/resolver';
+import { getEnabledLayersFromConfig } from '@/lib/attention-bar/layer-enabled-config';
 import type { Layer } from '@/lib/attention-bar/types';
 
 export const runtime = 'nodejs';
@@ -71,12 +72,19 @@ export async function GET(request: Request) {
   const layer3Consent = layer3Override === 'on';
   // Phase 1 default: 'off' or omitted both mean false (opt-in not yet collected).
 
+  // Layer kill switches: if the super_admin passed `?layers=` (sandbox),
+  // honour their override. Otherwise read from quick_action_config so flips
+  // on /system/attention-bar Tab 1 take effect within 60s (cache TTL).
+  const overrideLayers = parseLayers(layersOverride);
+  const enabledLayers =
+    overrideLayers.length > 0 ? overrideLayers : await getEnabledLayersFromConfig();
+
   const ctx = buildContext({
     userId: profile.id,
     role,
     page,
     layer3Consent,
-    enabledLayers: parseLayers(layersOverride),
+    enabledLayers,
   });
 
   // Resolver returns `{ primary, secondary, resolved }`. We surface all three
