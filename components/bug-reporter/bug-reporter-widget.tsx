@@ -14,22 +14,18 @@ import {
 import {
   Bug,
   X,
-  TestTube,
   Camera,
   Zap,
   Search,
   IndianRupee,
   Rocket,
-  ChevronRight,
   Trophy,
   Briefcase,
   Info,
   ChevronDown,
   AlertCircle,
   Lightbulb,
-  Palette,
-  Gauge,
-  Shield
+  HelpCircle
 } from 'lucide-react';
 import html2canvas from 'html2canvas';
 import {
@@ -342,6 +338,18 @@ export function BugReporterWidget() {
   const [description, setDescription] = useState('');
   const [category, setCategory] = useState<string>('bug');
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Persist / restore last-selected category across sessions
+  const CATEGORY_STORAGE_KEY = 'bug-reporter:last-category';
+  const VALID_TOP_CATEGORIES = ['question', 'feature_request', 'bug'] as const;
+  type TopCategory = typeof VALID_TOP_CATEGORIES[number];
+
+  const handleCategoryChange = (value: string) => {
+    setCategory(value);
+    try {
+      localStorage.setItem(CATEGORY_STORAGE_KEY, value);
+    } catch { /* ignore — private/incognito */ }
+  };
   const [isCapturingScreenshot, setIsCapturingScreenshot] = useState(false);
   const [capturedScreenshot, setCapturedScreenshot] = useState<string>(''); // Primary auto-captured screenshot
   const [additionalImages, setAdditionalImages] = useState<string[]>([]); // Additional uploaded images
@@ -354,6 +362,13 @@ export function BugReporterWidget() {
 
   useEffect(() => {
     setIsClient(true);
+    // Restore last-used category from localStorage (default: 'bug')
+    try {
+      const saved = localStorage.getItem(CATEGORY_STORAGE_KEY);
+      if (saved && VALID_TOP_CATEGORIES.includes(saved as TopCategory)) {
+        setCategory(saved);
+      }
+    } catch { /* ignore */ }
   }, []);
 
   // Prevent background scroll when modal is open
@@ -934,7 +949,7 @@ export function BugReporterWidget() {
       toast.success(result.message || 'Thank you for reporting this issue!');
 
       setDescription('');
-      setCategory('bug');
+      // keep category — persisted preference, do not reset to 'bug'
       setCapturedScreenshot('');
       setAdditionalImages([]);
       setIsOpen(false);
@@ -1029,23 +1044,26 @@ export function BugReporterWidget() {
                   <Bug className='w-5 h-5 text-red-600' />
                   <span className='text-green-600'>JKKN Bug Bounty</span>
                 </CardTitle>
-                <p className='text-sm mt-1 flex items-center gap-3'>
+                <p className='text-sm font-medium text-muted-foreground'>
+                  Tell us what&apos;s on your mind
+                </p>
+                <p className='text-xs mt-0.5 flex items-center gap-3'>
                   <span className='flex items-center gap-1'>
-                    <Search className='w-4 h-4 text-blue-500' />
+                    <Search className='w-3.5 h-3.5 text-blue-500' />
                     <span className='text-muted-foreground font-semibold'>
                       Find bugs
                     </span>
                   </span>
                   <span className='text-muted-foreground'>•</span>
                   <span className='flex items-center gap-1'>
-                    <IndianRupee className='w-4 h-4 text-yellow-600' />
+                    <IndianRupee className='w-3.5 h-3.5 text-yellow-600' />
                     <span className='text-muted-foreground font-semibold'>
                       Win Cash
                     </span>
                   </span>
                   <span className='text-muted-foreground'>•</span>
                   <span className='flex items-center gap-1'>
-                    <Rocket className='w-4 h-4 text-purple-500' />
+                    <Rocket className='w-3.5 h-3.5 text-purple-500' />
                     <span className='text-muted-foreground font-semibold'>
                       Launch Career
                     </span>
@@ -1060,7 +1078,7 @@ export function BugReporterWidget() {
                   setCapturedScreenshot('');
                   setAdditionalImages([]);
                   setDescription('');
-                  setCategory('bug');
+                  // keep category — user preference stays across opens
                 }}
               >
                 <X className='w-4 h-4' />
@@ -1208,148 +1226,116 @@ export function BugReporterWidget() {
                 </div>
               </div>
 
-              {/* Category Selection */}
-              <div>
-                <label className='text-sm font-medium mb-2 block'>
-                  Category *
-                </label>
-                <div className='grid grid-cols-2 gap-2'>
-                  <button
-                    type='button'
-                    onClick={() => setCategory('bug')}
-                    className={`p-3 rounded-lg border-2 transition-all ${
-                      category === 'bug'
-                        ? 'border-red-500 bg-red-50 dark:bg-red-950/20'
-                        : 'border-gray-200 dark:border-gray-700 hover:border-red-300'
+              {/* Category Selection — radio group, 3 options */}
+              <fieldset>
+                <legend className='text-sm font-medium mb-2'>
+                  What is this about? *
+                </legend>
+                <div className='flex flex-col gap-2 sm:flex-row sm:gap-3'>
+                  {/* Question */}
+                  <label
+                    className={`flex items-center gap-3 p-3 rounded-lg border-2 cursor-pointer transition-all flex-1 ${
+                      category === 'question'
+                        ? 'border-teal-500 bg-teal-50 dark:bg-teal-950/20'
+                        : 'border-gray-200 dark:border-gray-700 hover:border-teal-300'
                     }`}
                   >
-                    <div className='flex flex-col items-center gap-1'>
-                      <AlertCircle
-                        className={`w-5 h-5 ${
-                          category === 'bug'
-                            ? 'text-red-500'
-                            : 'text-muted-foreground'
-                        }`}
-                      />
-                      <span className='text-xs font-medium'>Bug/Issue</span>
+                    <input
+                      type='radio'
+                      name='bug-reporter-category'
+                      value='question'
+                      checked={category === 'question'}
+                      onChange={() => handleCategoryChange('question')}
+                      className='sr-only'
+                    />
+                    <HelpCircle
+                      className={`w-5 h-5 shrink-0 ${
+                        category === 'question' ? 'text-teal-500' : 'text-muted-foreground'
+                      }`}
+                      aria-hidden
+                    />
+                    <div>
+                      <p className='text-sm font-medium leading-none'>Question</p>
+                      <p className='text-xs text-muted-foreground mt-0.5'>I need help understanding something</p>
                     </div>
-                  </button>
+                  </label>
 
-                  <button
-                    type='button'
-                    onClick={() => setCategory('feature_request')}
-                    className={`p-3 rounded-lg border-2 transition-all ${
+                  {/* Feature suggestion */}
+                  <label
+                    className={`flex items-center gap-3 p-3 rounded-lg border-2 cursor-pointer transition-all flex-1 ${
                       category === 'feature_request'
                         ? 'border-blue-500 bg-blue-50 dark:bg-blue-950/20'
                         : 'border-gray-200 dark:border-gray-700 hover:border-blue-300'
                     }`}
                   >
-                    <div className='flex flex-col items-center gap-1'>
-                      <Lightbulb
-                        className={`w-5 h-5 ${
-                          category === 'feature_request'
-                            ? 'text-blue-500'
-                            : 'text-muted-foreground'
-                        }`}
-                      />
-                      <span className='text-xs font-medium'>New Feature</span>
+                    <input
+                      type='radio'
+                      name='bug-reporter-category'
+                      value='feature_request'
+                      checked={category === 'feature_request'}
+                      onChange={() => handleCategoryChange('feature_request')}
+                      className='sr-only'
+                    />
+                    <Lightbulb
+                      className={`w-5 h-5 shrink-0 ${
+                        category === 'feature_request' ? 'text-blue-500' : 'text-muted-foreground'
+                      }`}
+                      aria-hidden
+                    />
+                    <div>
+                      <p className='text-sm font-medium leading-none'>Feature suggestion</p>
+                      <p className='text-xs text-muted-foreground mt-0.5'>I have an idea for improvement</p>
                     </div>
-                  </button>
+                  </label>
 
-                  <button
-                    type='button'
-                    onClick={() => setCategory('ui_design')}
-                    className={`p-3 rounded-lg border-2 transition-all ${
-                      category === 'ui_design'
-                        ? 'border-purple-500 bg-purple-50 dark:bg-purple-950/20'
-                        : 'border-gray-200 dark:border-gray-700 hover:border-purple-300'
+                  {/* Bug */}
+                  <label
+                    className={`flex items-center gap-3 p-3 rounded-lg border-2 cursor-pointer transition-all flex-1 ${
+                      category === 'bug'
+                        ? 'border-red-500 bg-red-50 dark:bg-red-950/20'
+                        : 'border-gray-200 dark:border-gray-700 hover:border-red-300'
                     }`}
                   >
-                    <div className='flex flex-col items-center gap-1'>
-                      <Palette
-                        className={`w-5 h-5 ${
-                          category === 'ui_design'
-                            ? 'text-purple-500'
-                            : 'text-muted-foreground'
-                        }`}
-                      />
-                      <span className='text-xs font-medium'>UI/Design</span>
+                    <input
+                      type='radio'
+                      name='bug-reporter-category'
+                      value='bug'
+                      checked={category === 'bug'}
+                      onChange={() => handleCategoryChange('bug')}
+                      className='sr-only'
+                    />
+                    <AlertCircle
+                      className={`w-5 h-5 shrink-0 ${
+                        category === 'bug' ? 'text-red-500' : 'text-muted-foreground'
+                      }`}
+                      aria-hidden
+                    />
+                    <div>
+                      <p className='text-sm font-medium leading-none'>Bug</p>
+                      <p className='text-xs text-muted-foreground mt-0.5'>Something is not working</p>
                     </div>
-                  </button>
-
-                  <button
-                    type='button'
-                    onClick={() => setCategory('performance')}
-                    className={`p-3 rounded-lg border-2 transition-all ${
-                      category === 'performance'
-                        ? 'border-orange-500 bg-orange-50 dark:bg-orange-950/20'
-                        : 'border-gray-200 dark:border-gray-700 hover:border-orange-300'
-                    }`}
-                  >
-                    <div className='flex flex-col items-center gap-1'>
-                      <Gauge
-                        className={`w-5 h-5 ${
-                          category === 'performance'
-                            ? 'text-orange-500'
-                            : 'text-muted-foreground'
-                        }`}
-                      />
-                      <span className='text-xs font-medium'>Performance</span>
-                    </div>
-                  </button>
-
-                  <button
-                    type='button'
-                    onClick={() => setCategory('security')}
-                    className={`p-3 rounded-lg border-2 transition-all ${
-                      category === 'security'
-                        ? 'border-yellow-600 bg-yellow-50 dark:bg-yellow-950/20'
-                        : 'border-gray-200 dark:border-gray-700 hover:border-yellow-400'
-                    }`}
-                  >
-                    <div className='flex flex-col items-center gap-1'>
-                      <Shield
-                        className={`w-5 h-5 ${
-                          category === 'security'
-                            ? 'text-yellow-600'
-                            : 'text-muted-foreground'
-                        }`}
-                      />
-                      <span className='text-xs font-medium'>Security</span>
-                    </div>
-                  </button>
-
-                  <button
-                    type='button'
-                    onClick={() => setCategory('other')}
-                    className={`p-3 rounded-lg border-2 transition-all ${
-                      category === 'other'
-                        ? 'border-gray-500 bg-gray-50 dark:bg-gray-950/20'
-                        : 'border-gray-200 dark:border-gray-700 hover:border-gray-300'
-                    }`}
-                  >
-                    <div className='flex flex-col items-center gap-1'>
-                      <Bug
-                        className={`w-5 h-5 ${
-                          category === 'other'
-                            ? 'text-gray-500'
-                            : 'text-muted-foreground'
-                        }`}
-                      />
-                      <span className='text-xs font-medium'>Other</span>
-                    </div>
-                  </button>
+                  </label>
                 </div>
-              </div>
+              </fieldset>
 
               <div>
                 <label className='text-sm font-medium'>
-                  Describe the issue *
+                  {category === 'question'
+                    ? 'Your question *'
+                    : category === 'feature_request'
+                    ? 'Describe your idea *'
+                    : 'Describe the issue *'}
                 </label>
                 <Textarea
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
-                  placeholder='What went wrong? Please provide as much detail as possible...'
+                  placeholder={
+                    category === 'question'
+                      ? 'What are you trying to do? What is confusing?'
+                      : category === 'feature_request'
+                      ? 'What would you like the system to do?'
+                      : 'What went wrong? Please provide as much detail as possible...'
+                  }
                   className='mt-1'
                   rows={4}
                 />
