@@ -106,6 +106,29 @@ function CloneFeeStructurePageContent({ id }: { id: string }) {
           setLoading(false);
           return;
         }
+
+        // BUG-003920 — Reporter clicked Clone on rows that have zero items
+        // and/or zero communities (the "top two" duplicates in the list, both
+        // showing Items=0 and Community=—). The clone form's zod schema
+        // requires at least 1 community AND at least 1 item, so the user hit
+        // a validation wall on save with no idea why. Surface the empty-source
+        // condition explicitly here instead of silently rendering an empty
+        // form. The source row itself needs to be fixed (or used as the basis
+        // for a fresh structure via /new) — cloning nothing is a no-op.
+        const sourceItems = source.items ?? [];
+        const sourceCommunities = source.community_category_ids ?? [];
+        if (sourceItems.length === 0 || sourceCommunities.length === 0) {
+          const missing: string[] = [];
+          if (sourceItems.length === 0) missing.push('fee items');
+          if (sourceCommunities.length === 0) missing.push('communities');
+          setSourceName(source.name);
+          setError(
+            `This source fee structure has no ${missing.join(' and no ')} — there is nothing to clone. Open the source structure, add the missing ${missing.join(' and ')}, then try cloning again. Or create a fresh structure from scratch via "New Fee Structure".`,
+          );
+          setLoading(false);
+          return;
+        }
+
         setCategories(cats);
         setCommunityOptions(comms);
         setSourceName(source.name);
@@ -130,8 +153,8 @@ function CloneFeeStructurePageContent({ id }: { id: string }) {
           notes: source.notes ?? '',
           effective_from: source.effective_from ?? '',
           effective_to: source.effective_to ?? '',
-          community_category_ids: source.community_category_ids ?? [],
-          items: source.items
+          community_category_ids: sourceCommunities,
+          items: sourceItems
             .slice()
             .sort((a, b) => a.sort_order - b.sort_order)
             .map((it) => ({
@@ -243,11 +266,20 @@ function CloneFeeStructurePageContent({ id }: { id: string }) {
           {error && (
             <div className="border border-destructive/50 bg-destructive/5 rounded-md p-4">
               <p className="text-sm text-destructive">{error}</p>
-              <Button asChild variant="outline" size="sm" className="mt-2">
-                <Link href="/admission/settings/fees-structure">
-                  <ArrowLeft className="h-4 w-4 mr-1" /> Back to list
-                </Link>
-              </Button>
+              <div className="mt-2 flex flex-wrap gap-2">
+                <Button asChild variant="outline" size="sm">
+                  <Link href="/admission/settings/fees-structure">
+                    <ArrowLeft className="h-4 w-4 mr-1" /> Back to list
+                  </Link>
+                </Button>
+                {sourceName && (
+                  <Button asChild variant="outline" size="sm">
+                    <Link href={`/admission/settings/fees-structure/${id}?edit=1`}>
+                      Edit source: {sourceName}
+                    </Link>
+                  </Button>
+                )}
+              </div>
             </div>
           )}
 
