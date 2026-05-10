@@ -16,7 +16,7 @@ import { Badge } from '@/components/ui/badge';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from '@/components/ui/dialog';
-import { ExternalLink, AlertTriangle, ArrowRight, GraduationCap, Users, Lightbulb, Bug } from 'lucide-react';
+import { ExternalLink, AlertTriangle, ArrowRight, GraduationCap, Users, Lightbulb, Bug, Briefcase, Calendar } from 'lucide-react';
 import {
   useCandidate,
   usePackages,
@@ -343,20 +343,40 @@ export default function CandidateDetailPage() {
             </CardHeader>
             <CardContent>
               <ul className="space-y-2 text-sm">
-                {/* Academic record — always shown when alumniSignal is non-null */}
-                <li className="flex items-start gap-2">
-                  <GraduationCap className="h-4 w-4 mt-0.5 shrink-0 text-indigo-500" />
-                  <span>
-                    {[
-                      alumniSignal.course_name,
-                      alumniSignal.graduation_year
-                        ? String(alumniSignal.graduation_year)
-                        : null,
-                    ]
-                      .filter(Boolean)
-                      .join(' · ')}
-                  </span>
-                </li>
+                {/* Academic record — only when graduation_year is real (>0).
+                    For staff-only matches the service returns 0 here. */}
+                {alumniSignal.graduation_year > 0 && (
+                  <li className="flex items-start gap-2">
+                    <GraduationCap className="h-4 w-4 mt-0.5 shrink-0 text-indigo-500" />
+                    <span>
+                      {[
+                        alumniSignal.course_name,
+                        String(alumniSignal.graduation_year),
+                      ]
+                        .filter(Boolean)
+                        .join(' · ')}
+                    </span>
+                  </li>
+                )}
+
+                {/* T8.5 — Staff tenure (former / current JKKN staff) */}
+                {alumniSignal.staff_tenure && (
+                  <li className="flex items-start gap-2">
+                    <Briefcase className="h-4 w-4 mt-0.5 shrink-0 text-cyan-600" />
+                    <span>
+                      {alumniSignal.staff_tenure.still_active
+                        ? 'Current JKKN Staff'
+                        : 'Former JKKN Staff'}
+                      {alumniSignal.staff_tenure.years > 0 && (
+                        <> &mdash; {alumniSignal.staff_tenure.years} year
+                          {alumniSignal.staff_tenure.years === 1 ? '' : 's'}</>
+                      )}
+                      {alumniSignal.staff_tenure.designation && (
+                        <> &middot; {alumniSignal.staff_tenure.designation}</>
+                      )}
+                    </span>
+                  </li>
+                )}
 
                 {/* Learners Council role */}
                 {alumniSignal.council_role && (
@@ -366,6 +386,30 @@ export default function CandidateDetailPage() {
                       Learners Council &mdash;{' '}
                       {alumniSignal.council_role.position_title},{' '}
                       {alumniSignal.council_role.term_name}
+                    </span>
+                  </li>
+                )}
+
+                {/* T8.5 — LC committees served */}
+                {alumniSignal.lc_committee_count !== undefined && (
+                  <li className="flex items-start gap-2">
+                    <Users className="h-4 w-4 mt-0.5 shrink-0 text-fuchsia-500" />
+                    <span>
+                      LC Committees &mdash;{' '}
+                      {alumniSignal.lc_committee_count}{' '}
+                      {alumniSignal.lc_committee_count === 1 ? 'committee' : 'committees'}
+                    </span>
+                  </li>
+                )}
+
+                {/* T8.5 — LC events attended */}
+                {alumniSignal.lc_events_attended !== undefined && (
+                  <li className="flex items-start gap-2">
+                    <Calendar className="h-4 w-4 mt-0.5 shrink-0 text-teal-500" />
+                    <span>
+                      LC Events &mdash;{' '}
+                      {alumniSignal.lc_events_attended}{' '}
+                      {alumniSignal.lc_events_attended === 1 ? 'event' : 'events'}
                     </span>
                   </li>
                 )}
