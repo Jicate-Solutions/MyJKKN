@@ -69,15 +69,26 @@ export function FilterChips<T extends string | number | null>({
   );
 }
 
-// ─── Hardcoded value lists ─────────────────────────────────────────────
-// Per /assumption-thrash Round 2 #4. Year [1..4], Gender [Male/Female/Other].
-
-export const YEAR_OPTIONS: ChipOption<number>[] = [
+// ─── Year option helpers ───────────────────────────────────────────────
+// YEAR_OPTIONS_FALLBACK: static [1..4] used while the dynamic query loads or
+// if the view returns 0 rows (prevents empty chip row on first paint).
+export const YEAR_OPTIONS_FALLBACK: ChipOption<number>[] = [
   { value: 1, label: 'Year 1' },
   { value: 2, label: 'Year 2' },
   { value: 3, label: 'Year 3' },
   { value: 4, label: 'Year 4' },
 ];
+
+// Backward-compat re-export — callers that import YEAR_OPTIONS keep working.
+export const YEAR_OPTIONS = YEAR_OPTIONS_FALLBACK;
+
+// buildYearOptions: converts a dynamic year list (e.g. [1,2,3,4,5,6]) from
+// LearnerHosteliteService.listAvailableYears into chip options.
+export function buildYearOptions(years: number[]): ChipOption<number>[] {
+  return years.map((y) => ({ value: y, label: `Year ${y}` }));
+}
+
+// ─── Other hardcoded value lists ──────────────────────────────────────
 
 export const GENDER_OPTIONS: ChipOption<'Male' | 'Female' | 'Other'>[] = [
   { value: 'Male', label: 'Male' },

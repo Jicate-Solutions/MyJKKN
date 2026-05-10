@@ -18,6 +18,8 @@ export const learnerHosteliteKeys = {
     ['learner-hostelites', 'blocks', institutionId ?? null] as const,
   detail: (learnerId: string | null) =>
     ['learner-hostelites', 'detail', learnerId] as const,
+  availableYears: (institutionId: string | undefined) =>
+    ['learner-hostelites', 'available-years', institutionId ?? null] as const,
 };
 
 export function useLearnerHostelites(
@@ -54,6 +56,16 @@ export function useHostelBlocksForFilter(institutionId?: string) {
     queryKey: learnerHosteliteKeys.blocks(institutionId),
     queryFn: () => LearnerHosteliteService.listBlocksForFilter(institutionId),
     staleTime: 5 * 60 * 1000,
+  });
+}
+
+// Distinct year_of_study values for dynamic Year filter chips.
+// 10-min stale window — cohort years rarely change within a session.
+export function useAvailableYears(institutionId?: string) {
+  return useQuery({
+    queryKey: learnerHosteliteKeys.availableYears(institutionId),
+    queryFn: () => LearnerHosteliteService.listAvailableYears(institutionId),
+    staleTime: 10 * 60 * 1000,
   });
 }
 
