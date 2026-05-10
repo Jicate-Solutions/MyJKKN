@@ -38,6 +38,8 @@ interface State {
   pickerIds: string[];
   override: boolean;
   reason: string;
+  /** Round-robin only: cap each selected counselor at N leads per run. */
+  perCounselorLimit: string;
   phase: Phase;
   preview: BulkAssignReport | null;
   errors: PerLeadResult[] | null;
@@ -51,6 +53,7 @@ const initial: State = {
   pickerIds: [],
   override: false,
   reason: '',
+  perCounselorLimit: '',
   phase: 'ready',
   preview: null,
   errors: null,
@@ -66,6 +69,7 @@ type Action =
   | { type: 'SET_PICKER'; ids: string[] }
   | { type: 'SET_OVERRIDE'; value: boolean }
   | { type: 'SET_REASON'; value: string }
+  | { type: 'SET_PER_COUNSELOR_LIMIT'; value: string }
   | { type: 'SET_PHASE'; phase: Phase }
   | { type: 'SET_PREVIEW'; preview: BulkAssignReport | null }
   | { type: 'SET_ERRORS'; errors: PerLeadResult[] | null }
@@ -99,6 +103,8 @@ function reducer(s: State, a: Action): State {
       return { ...s, override: a.value };
     case 'SET_REASON':
       return { ...s, reason: a.value };
+    case 'SET_PER_COUNSELOR_LIMIT':
+      return { ...s, perCounselorLimit: a.value };
     case 'SET_PHASE':
       return { ...s, phase: a.phase };
     case 'SET_PREVIEW':
@@ -163,11 +169,15 @@ export function DistributePanel({ sourceId, sourceEnum, institutionId }: Distrib
         const r = await autoRoute.mutateAsync({ leadIds: ids, dryRun: true, override: s.override });
         dispatch({ type: 'SET_PREVIEW', preview: r });
       } else if (s.mode === 'round-robin') {
+        const limit = s.perCounselorLimit.trim()
+          ? Math.max(1, Math.floor(Number(s.perCounselorLimit)))
+          : null;
         const r = await roundRobin.mutateAsync({
           leadIds: ids,
           counselorIds: s.pickerIds,
           dryRun: true,
           override: s.override,
+          perCounselorLimit: limit,
         });
         dispatch({ type: 'SET_PREVIEW', preview: r });
       }
@@ -206,12 +216,16 @@ export function DistributePanel({ sourceId, sourceEnum, institutionId }: Distrib
           expectedPlanHash: s.preview?.planHash ?? null,
         });
       } else {
+        const limit = s.perCounselorLimit.trim()
+          ? Math.max(1, Math.floor(Number(s.perCounselorLimit)))
+          : null;
         report = await roundRobin.mutateAsync({
           leadIds: ids,
           counselorIds: s.pickerIds,
           dryRun: false,
           override: s.override,
           expectedPlanHash: s.preview?.planHash ?? null,
+          perCounselorLimit: limit,
         });
       }
 
@@ -287,6 +301,47 @@ export function DistributePanel({ sourceId, sourceEnum, institutionId }: Distrib
                 onChange={(ids) => dispatch({ type: 'SET_PICKER', ids })}
                 override={s.override}
               />
+            )}
+
+            {/* Round-robin only: per-counselor cap. When set, each selected
+                counselor receives at most this many leads in this run; the
+                rest stay unassigned for next round. Useful for batch
+                distribution like "give each counselor exactly 500 today". */}
+            {s.mode === 'round-robin' && (
+              <div className="rounded-md border bg-muted/20 p-3">
+                <Label htmlFor="per-counselor-limit" className="text-xs uppercase tracking-wide text-muted-foreground">
+                  Limit per counselor (optional)
+                </Label>
+                <div className="mt-1 flex items-center gap-2">
+                  <input
+                    id="per-counselor-limit"
+                    type="number"
+                    min={1}
+                    step={1}
+                    value={s.perCounselorLimit}
+                    onChange={(e) =>
+                      dispatch({ type: 'SET_PER_COUNSELOR_LIMIT', value: e.target.value })
+                    }
+                    placeholder="No cap"
+                    className="h-8 w-32 rounded-md border bg-background px-2 text-sm"
+                  />
+                  <span className="text-xs text-muted-foreground">
+                    {(() => {
+                      const limit = s.perCounselorLimit.trim()
+                        ? Math.max(1, Math.floor(Number(s.perCounselorLimit)))
+                        : null;
+                      const pickers = s.pickerIds.length;
+                      const total = s.selectedIds.size;
+                      if (limit && pickers > 0) {
+                        const willAssign = Math.min(limit * pickers, total);
+                        const willSkip = total - willAssign;
+                        return `Each of ${pickers} counselor${pickers === 1 ? '' : 's'} gets up to ${limit} leads → ${willAssign.toLocaleString()} assigned, ${willSkip.toLocaleString()} unassigned remain`;
+                      }
+                      return 'Leave blank to cycle through every selected lead';
+                    })()}
+                  </span>
+                </div>
+              </div>
             )}
 
             <div>
