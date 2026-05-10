@@ -7,6 +7,10 @@ import { NextRequest, NextResponse, connection } from 'next/server';
 import { getAuthUser, createServiceRoleClient } from '@/lib/supabase/server';
 import { TelephonyService, type CallLogFilters, type CallStatus, type CallDisposition, type CallDirection } from '@/lib/services/telephony/telephony-service';
 import { logger } from '@/lib/utils/enhanced-logger';
+import {
+  getCounselorScope,
+  buildLeadVisibilityOr,
+} from '@/lib/api-helpers/admission-counselor-scope';
 
 export async function GET(request: NextRequest) {
   try {
@@ -44,6 +48,46 @@ export async function GET(request: NextRequest) {
     };
 
     const supabase = createServiceRoleClient();
+
+    // Counselor source-scoping — mirrors the admission_call_logs RLS in
+    // 20260509130000_admission_leads_source_scoped_rls.sql. Strict counselors
+    // see only call logs for leads they can see (assigned-to-them OR via
+    // their currently-assigned source mappings). The service-role bypass on
+    // the leads endpoint applies here too, so we replicate the rule manually.
+    const scope = await getCounselorScope(supabase, user.id);
+    if (scope.isStrictCounselor) {
+      const orClause = buildLeadVisibilityOr(scope, user.id);
+      if (!orClause) {
+        // Strict counselor with zero accessible leads → empty result.
+        return NextResponse.json({
+          success: true,
+          data: [],
+          metadata: { total: 0, page: filters.page ?? 1, limit: filters.limit ?? 20, totalPages: 0 },
+        });
+      }
+      // Resolve user's home institution for the lead-id pre-fetch fallback.
+      const { data: scopeProfile } = await supabase
+        .from('profiles')
+        .select('institution_id')
+        .eq('id', user.id)
+        .single();
+      // Pre-compute visible lead_ids in the user's institution. We cap at
+      // 5000 to keep the IN-list manageable; for any institution that
+      // exceeds this, scaling concerns dominate the UX anyway.
+      let leadIdQuery = supabase
+        .from('admission_leads')
+        .select('id')
+        .or(orClause)
+        .limit(5000);
+      if (filters.institution_id) {
+        leadIdQuery = leadIdQuery.eq('institution_id', filters.institution_id);
+      } else if (scopeProfile?.institution_id) {
+        leadIdQuery = leadIdQuery.eq('institution_id', scopeProfile.institution_id);
+      }
+      const { data: leadIdRows } = await leadIdQuery;
+      filters.lead_id_in = (leadIdRows ?? []).map((r: any) => r.id as string);
+    }
+
     const result = await TelephonyService.getCallLogs(filters, supabase);
 
     return NextResponse.json({

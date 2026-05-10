@@ -8,6 +8,7 @@
 
 export type LeadSource =
   | 'website'
+  | 'whatsapp'
   | 'admission_form'
   | 'walk_in'
   | 'referral'
@@ -18,7 +19,41 @@ export type LeadSource =
   | 'publisher'
   | 'google_ads'
   | 'facebook_ads'
+  | 'inbound_call'
+  | 'gate_entry'
   | 'other';
+
+/**
+ * Gate Entry capture input — used by the kiosk form at /admission/gate-entry.
+ * The DB-level lead.source stays 'walk_in' (the channel category); the per-touch
+ * source on the source-capture row is 'gate_entry' (the specific touch).
+ */
+export interface GateEntryInput {
+  first_name: string;
+  phone: string;
+  institution_id: string;
+  last_name?: string | null;
+  program_id?: string | null;
+  /** UI radio: 'walk_in' = direct, 'referral' = show consultant picker. */
+  source: 'walk_in' | 'referral';
+  /** Only when source='referral' and a referrer was picked. */
+  referral_type?: ReferralType | null;
+  referred_by_id?: string | null;
+  /** Free-text fallback when the referrer wasn't in the consultant list. */
+  referred_by_name?: string | null;
+}
+
+/**
+ * Return shape from capture_gate_entry_lead RPC. Mirrors capture_admission_lead
+ * — `action: 'merged'` indicates a returning visitor (existing lead row was
+ * reused; the gate UI shows "Welcome back").
+ */
+export interface GateEntryResult {
+  lead_id: string;
+  capture_id: string;
+  action: 'created' | 'merged';
+  reactivated?: boolean;
+}
 
 export type FunnelStage =
   | 'new'
@@ -213,6 +248,13 @@ export interface AdmissionLead {
   created_at: string;
   updated_at: string;
   created_by: string | null;
+
+  // Gate Entry (2026-05-07) — denormalized columns maintained by trigger on
+  // admission_lead_source_captures with source='gate_entry'. See migration
+  // 20260507100017. first_* preserves the *earliest* visit; count is total.
+  first_gate_entry_at?: string | null;
+  first_gate_entry_by?: string | null;
+  gate_entry_count?: number;
 
   // Relationships (optional populated)
   counselor?: Counselor;
@@ -1217,6 +1259,13 @@ export interface AdmissionForm {
   max_submissions: number | null;
   starts_at: string | null;
   expires_at: string | null;
+  /**
+   * Channel attribution for leads created via this form. Read by
+   * FormSubmissionService.processSubmission to set lead.source. Existing
+   * forms default to 'website' (DB-level default), so legacy behavior is
+   * preserved without any data migration.
+   */
+  lead_source: LeadSource;
   created_by: string | null;
   created_at: string;
   updated_at: string;
@@ -1242,6 +1291,7 @@ export interface CreateAdmissionFormInput {
   max_submissions?: number | null;
   starts_at?: string | null;
   expires_at?: string | null;
+  lead_source?: LeadSource;
 }
 
 export interface AdmissionFormSubmission {
@@ -1543,7 +1593,10 @@ export interface AdmissionFeeStructure {
   department_id: string;
   programme_id: string;
   quota_id: string;
-  community_category_id: string;
+  // Communities live in the admission_fee_structure_communities junction
+  // (migration 20260507120001). One structure → N communities. The list is
+  // surfaced on read shapes via `community_category_ids`. No single-community
+  // FK lives on this table any more.
   accommodation_type_id: string;
   admission_year_id: string;
   name: string;
@@ -1559,6 +1612,12 @@ export interface AdmissionFeeStructure {
   updated_at: string;
   created_by: string | null;
   updated_by: string | null;
+  /**
+   * Communities this structure applies to (from the junction table).
+   * Always populated by the read-side service queries; non-null & may be
+   * empty if the structure is mid-creation.
+   */
+  community_category_ids: string[];
 }
 
 export interface AdmissionFeeStructureItem {
@@ -1582,12 +1641,13 @@ export type CreateAdmissionFeeStructureInput =
     | 'department_id'
     | 'programme_id'
     | 'quota_id'
-    | 'community_category_id'
     | 'accommodation_type_id'
     | 'admission_year_id'
     | 'name'
   > &
   Partial<Pick<AdmissionFeeStructure, 'status' | 'notes' | 'effective_from' | 'effective_to'>> & {
+    /** N communities this structure applies to. Must contain at least one. */
+    community_category_ids: string[];
     items: Array<Pick<AdmissionFeeStructureItem, 'billing_category_id' | 'amount'> &
       Partial<Pick<AdmissionFeeStructureItem, 'is_optional' | 'sort_order'>>>;
   };
@@ -1596,20 +1656,27 @@ export type UpdateAdmissionFeeStructureInput =
   Partial<Pick<
     AdmissionFeeStructure,
     | 'name' | 'status' | 'notes' | 'effective_from' | 'effective_to'
-    // 8 matrix dimensions — editing them is supported but risky. The UNIQUE
-    // constraint on (8 dims + effective_from) will reject collisions; the UI
-    // layer warns the admin before submit.
+    // 7 matrix dimensions — editing them is supported but risky. The
+    // overlap-prevention trigger on the junction will reject conflicting
+    // moves; the UI layer warns the admin before submit.
     | 'institution_id' | 'degree_id' | 'department_id' | 'programme_id'
-    | 'quota_id' | 'community_category_id' | 'accommodation_type_id' | 'admission_year_id'
-  >>;
+    | 'quota_id' | 'accommodation_type_id' | 'admission_year_id'
+  >> & {
+    /** When provided, replaces the community set for this structure. */
+    community_category_ids?: string[];
+  };
 
+/**
+ * 7-dim matrix key. Community is no longer part of the matrix — it lives on
+ * the junction (admission_fee_structure_communities). The form's "find or
+ * create" lookup uses these 7 dims plus a list of communities.
+ */
 export interface FeeStructureMatrixDimensions {
   institution_id: string;
   degree_id: string;
   department_id: string;
   programme_id: string;
   quota_id: string;
-  community_category_id: string;
   accommodation_type_id: string;
   admission_year_id: string;
 }

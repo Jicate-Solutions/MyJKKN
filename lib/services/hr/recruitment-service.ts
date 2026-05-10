@@ -302,7 +302,15 @@ export class RecruitmentService {
 
     const chain = [...(candidate.approval_chain ?? [])];
     const step = chain[candidate.current_step];
-    if (!step) throw new Error('Approval chain exhausted — no pending step found');
+    if (!step) {
+      // BUG-003310 / BUG-003302 — Friendlier wording when the chain is already complete
+      // (covers stale React Query cache showing the candidate as pending after a previous
+      // approver finished the chain, OR a re-click on an already-fully-approved candidate).
+      if (candidate.status === 'approved' || candidate.current_step >= chain.length) {
+        throw new Error('This candidate has already been fully approved.');
+      }
+      throw new Error('Approval chain exhausted — no pending step found');
+    }
 
     step.status = 'approved';
     step.decided_at = new Date().toISOString();

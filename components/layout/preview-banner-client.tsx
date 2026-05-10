@@ -4,7 +4,16 @@
 // ============================================================================
 // Client half of the preview banner. Shows a live countdown to expiry and
 // an "Exit Preview" button that POSTs /api/users/permissions-audit/preview/end
-// then hard-reloads the page so the user returns to their own session.
+// (which clears the impersonated session + preview marker cookie) then
+// hard-redirects to /auth/login so the admin signs back in cleanly.
+//
+// Why /auth/login and not /users/permissions-audit?
+//   Prior versions tried to re-issue the admin's session at /preview/end so
+//   the admin wouldn't have to log in again. That path had three failure
+//   modes (admin.generateLink, verifyOtp, setSession) — when any failed, the
+//   admin landed on the login page anyway with confusing partial state.
+//   The current model is: always log the admin out at exit. Single failure
+//   mode, matches refresh-during-preview behavior, simpler to reason about.
 // ============================================================================
 
 import { useEffect, useState } from 'react';
@@ -59,11 +68,12 @@ export function PreviewBannerClient({
     } catch (err) {
       // best effort — even if the call fails (timeout, network error, etc.)
       // we still do the hard redirect below so the user is never stuck.
-      console.error('[PreviewBanner] Exit request failed — Redirecting to permissions-audit anyway', err);
+      console.error('[PreviewBanner] Exit request failed — Redirecting to login anyway', err);
     } finally {
       clearTimeout(timeoutId);
-      // Hard reload so the server re-evaluates the session without the cookie.
-      window.location.href = '/users/permissions-audit';
+      // Hard reload to /auth/login so any cleared/leftover cookies are
+      // re-read fresh. The admin signs in again to resume their work.
+      window.location.href = '/auth/login';
     }
   }
 

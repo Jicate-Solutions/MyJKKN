@@ -181,7 +181,6 @@ export function FeesStructureCloneDialog({
       department_id: selectedSource.department_id,
       programme_id: selectedSource.programme_id,
       quota_id: selectedSource.quota_id,
-      community_category_id: selectedSource.community_category_id,
       accommodation_type_id: selectedSource.accommodation_type_id,
       admission_year_id: selectedSource.admission_year_id,
     });
@@ -414,14 +413,12 @@ export function FeesStructureCloneDialog({
                   onChange={(v) => setOverrides((prev) => ({ ...prev, quota_id: v }))}
                   options={quotas}
                 />
-                <DimensionSelect
-                  label="Community"
-                  value={overrides.community_category_id ?? ''}
-                  onChange={(v) =>
-                    setOverrides((prev) => ({ ...prev, community_category_id: v }))
-                  }
-                  options={communities}
-                />
+                {/*
+                  Community is no longer a single override — clone copies the
+                  source's full community list by default. Operators wanting a
+                  different community set should clone, then edit the new
+                  structure's community list in the editor.
+                */}
                 <DimensionSelect
                   label="Accommodation"
                   value={overrides.accommodation_type_id ?? ''}

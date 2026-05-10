@@ -36,12 +36,15 @@ function formatRelative(iso: string): string {
 }
 
 function formatAbsolute(iso: string): string {
-  return new Date(iso).toLocaleString(undefined, {
+  // BUG-003922: pin to en-GB so day-first ordering ("12 Apr 2026, 14:30") is
+  // stable regardless of the runtime locale.
+  return new Date(iso).toLocaleString('en-GB', {
     day: '2-digit',
     month: 'short',
     year: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
+    hour12: false,
   });
 }
 

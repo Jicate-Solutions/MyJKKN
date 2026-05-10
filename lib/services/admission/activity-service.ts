@@ -4,6 +4,13 @@
 //
 // DB table: admission_lead_activities
 // Actual columns: id, lead_id, activity_type, subject, description, outcome, scheduled_at, completed_at, created_by, created_at
+//
+// Writers across the codebase that target this table:
+//   * lib/services/telephony/telephony-service.ts — outbound logManualCall + inbound webhook
+//   * lib/services/telephony/inbound-call-sync-service.ts — cron CDR sync (PR #840)
+//   * counselor-daily-view-service.ts — daily-view aggregation reads/writes
+//   * application-service.ts — stage_change activity write on application creation
+// Keep them direction-specific. Each is a distinct event class, not redundancy.
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 
