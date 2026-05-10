@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
+import { useQueryClient } from '@tanstack/react-query';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
   Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator,
@@ -77,6 +78,7 @@ export default function RecruitmentApprovalsPage() {
   const { data: alumniMap } = useAlumniSignalBulk(candidateEmails);
 
   // Approve flow
+  const queryClient = useQueryClient();
   const approveMutation = useApproveCandidate();
   const [approveId, setApproveId] = useState<string | null>(null);
   const [approveComment, setApproveComment] = useState('');
@@ -89,7 +91,22 @@ export default function RecruitmentApprovalsPage() {
       setApproveId(null);
       setApproveComment('');
     } catch (err) {
-      toast.error((err as Error).message);
+      const message = (err as Error).message ?? '';
+      // BUG-003310 / BUG-003302 — When a different approver finished the chain (or
+      // the React Query cache was stale), the row in the list is no longer pending.
+      // Show an info toast instead of the scary red error, refresh the list, and
+      // dismiss the dialog.
+      if (
+        message.includes('already been fully approved') ||
+        message.includes('Approval chain exhausted')
+      ) {
+        toast.info('This candidate is no longer pending — refreshing the list.');
+        queryClient.invalidateQueries({ queryKey: ['hr-recruitment-candidates'] });
+        setApproveId(null);
+        setApproveComment('');
+        return;
+      }
+      toast.error(message);
     }
   };
 
@@ -262,6 +279,18 @@ export default function RecruitmentApprovalsPage() {
                       >
                         View
                       </Link>
+                      {/* BUG-003300 — Surface CVViz / candidate profile link inline so
+                          the approver can review the JD/CV before clicking Approve. */}
+                      {c.cvviz_url && (
+                        <a
+                          href={c.cvviz_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-xs text-primary hover:underline text-center"
+                        >
+                          View Profile
+                        </a>
+                      )}
                     </div>
                   </div>
                 </div>
