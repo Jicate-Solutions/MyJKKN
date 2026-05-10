@@ -39,6 +39,7 @@ import {
   useActiveTemplates,
   useTemplateVariables
 } from '@/hooks/admission';
+import { useSourceMappedCounselorIds } from '@/hooks/admission/use-source-mapped-counselor-ids';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
 import { useDegrees } from '@/hooks/organization/use-degrees';
@@ -810,6 +811,15 @@ function LeadDetailPageContent() {
   // Counselors from profiles (role IN admission_counselor / expo_counselor) — global across all institutions
   const { data: counselorProfiles, isLoading: counselorsLoading } = useCounselorProfiles(null);
   const counselors = counselorProfiles || [];
+
+  // Source-mapped counselor IDs for this lead's source. Used by the
+  // Assign Counselor dialog to group source-appropriate counselors at
+  // the top of the picker so admins can see who's already configured
+  // to receive leads from this source.
+  const { data: sourceMappedIds } = useSourceMappedCounselorIds({
+    sourceEnum: (lead?.source as any) ?? null,
+    institutionId: lead?.institution_id ?? null,
+  });
 
   // Consultants for dropdown (referral leads) — global across all institutions
   const { data: consultantsDropdown = [] } = useConsultantsForDropdown();
@@ -1735,15 +1745,56 @@ function LeadDetailPageContent() {
                                   <SelectItem value="_loading" disabled>Loading counselors...</SelectItem>
                                 ) : counselors.length === 0 ? (
                                   <SelectItem value="_none" disabled>No counselors found</SelectItem>
-                                ) : (
-                                  counselors.map((c) => (
-                                    <SelectItem key={c.profile_id} value={c.profile_id}>
-                                      {c.name}{c.designation ? ` (${c.designation})` : ''}
-                                    </SelectItem>
-                                  ))
-                                )}
+                                ) : (() => {
+                                  // Split into source-mapped vs other so admins can pick a
+                                  // source-appropriate counselor without scanning the whole list.
+                                  const mapped = sourceMappedIds ?? new Set<string>();
+                                  const mappedList = counselors.filter((c) => mapped.has(c.profile_id));
+                                  const otherList  = counselors.filter((c) => !mapped.has(c.profile_id));
+                                  return (
+                                    <>
+                                      {mappedList.length > 0 && (
+                                        <>
+                                          <div className="px-2 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                                            Mapped to {lead.source ?? 'this source'} ({mappedList.length})
+                                          </div>
+                                          {mappedList.map((c) => (
+                                            <SelectItem key={c.profile_id} value={c.profile_id}>
+                                              <span className="inline-flex items-center gap-1.5">
+                                                <span className="h-1.5 w-1.5 rounded-full bg-blue-500" aria-hidden="true" />
+                                                {c.name}{c.designation ? ` (${c.designation})` : ''}
+                                              </span>
+                                            </SelectItem>
+                                          ))}
+                                        </>
+                                      )}
+                                      {otherList.length > 0 && (
+                                        <>
+                                          <div className="mt-1 border-t px-2 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                                            Other counselors ({otherList.length})
+                                          </div>
+                                          {otherList.map((c) => (
+                                            <SelectItem key={c.profile_id} value={c.profile_id}>
+                                              {c.name}{c.designation ? ` (${c.designation})` : ''}
+                                            </SelectItem>
+                                          ))}
+                                        </>
+                                      )}
+                                    </>
+                                  );
+                                })()}
                               </SelectContent>
                             </Select>
+                            {sourceMappedIds && sourceMappedIds.size > 0 && (
+                              <p className="mt-1 text-[11px] text-muted-foreground">
+                                The blue dot marks counselors mapped to <span className="font-medium">{lead.source}</span> via source configuration. You can still pick anyone from "Other counselors" if needed.
+                              </p>
+                            )}
+                            {sourceMappedIds && sourceMappedIds.size === 0 && lead.source && (
+                              <p className="mt-1 text-[11px] text-orange-700">
+                                No counselors are currently mapped to <span className="font-medium">{lead.source}</span>. Configure mappings on the source detail page to enable auto-routing for this source.
+                              </p>
+                            )}
                           </div>
                         </div>
                         <DialogFooter>
