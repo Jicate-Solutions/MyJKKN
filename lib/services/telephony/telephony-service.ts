@@ -1,5 +1,15 @@
 // lib/services/telephony/telephony-service.ts
 // Telephony service for call management in the Admission module
+//
+// Writers paired with their readers (do not collapse without checking both ends):
+//   * admission_call_logs writes here are read by /admission/counselors/calls list
+//     and the call detail page. Idempotency is keyed on call_sid.
+//   * admission_lead_activities writes here are read by the lead detail Activity
+//     tab via lib/services/admission/activity-service.ts. Schema authority lives
+//     in activity-service.ts:5-6 — keep columns aligned (subject/created_by/no extras).
+//   * Outbound logManualCall path and inbound webhook path BOTH write activities;
+//     these are direction-specific event classes, NOT redundant — never collapse.
+//
 // NOTE: This service does NOT import any Supabase client — callers must inject one.
 // API routes should pass createServiceRoleClient(); client components are not
 // expected to call this service directly (they go through API routes).
