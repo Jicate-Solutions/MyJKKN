@@ -196,14 +196,14 @@ export class LeadService {
       query = query.eq('institution_id', institutionId);
     }
 
-    const { data, error } = await query.single();
+    const { data, error } = await query.maybeSingle();
 
     if (error) {
       console.error('[LeadService] Error fetching lead:', error);
-      if (error.code === 'PGRST116') {
-        throw new Error('Lead not found');
-      }
       throw new Error(`Failed to fetch lead: ${error.message}`);
+    }
+    if (!data) {
+      throw new Error('Lead not found');
     }
 
     return this.normalizeLead(data);
