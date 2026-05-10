@@ -107,7 +107,21 @@ export async function GET(
       .single();
     const isSuperAdmin = profile?.is_super_admin === true || profile?.role === 'super_admin';
     const sameInstitution = profile?.institution_id && profile.institution_id === row.institution_id;
-    const isAssignedCounselor = row.counselor_id && row.counselor_id === user.id;
+
+    // counselor_id on admission_call_logs has no FK declared — different writers
+    // populate it as either profiles.id (auth.uid()) OR admission_counselors.id.
+    // Check both conventions so a legitimately-assigned counselor isn't 403'd
+    // when their institution doesn't match (e.g. cross-institution coverage).
+    let isAssignedCounselor = !!(row.counselor_id && row.counselor_id === user.id);
+    if (!isAssignedCounselor && row.counselor_id) {
+      const { data: ac } = await supabase
+        .from('admission_counselors')
+        .select('user_id')
+        .eq('id', row.counselor_id)
+        .maybeSingle();
+      if (ac?.user_id === user.id) isAssignedCounselor = true;
+    }
+
     if (!isSuperAdmin && !sameInstitution && !isAssignedCounselor) {
       return NextResponse.json(
         { error: 'FORBIDDEN', message: 'You do not have access to this call memo' },
@@ -124,6 +138,35 @@ export async function GET(
       return NextResponse.json(
         { error: 'BAD_PATH', message: 'Voice memo URL could not be parsed' },
         { status: 500 },
+      );
+    }
+
+    // Verify the file actually exists in storage BEFORE signing. Supabase's
+    // createSignedUrl signs blindly regardless of object presence — if the
+    // upload silently failed but the DB write succeeded, the signed URL
+    // 404s when the audio element tries to load it, and the user sees
+    // nothing useful. Doing a list() lookup here lets us return a clear
+    // "file missing" error that surfaces in the player UI.
+    const lastSlash = path.lastIndexOf('/');
+    const folder = lastSlash >= 0 ? path.substring(0, lastSlash) : '';
+    const filename = lastSlash >= 0 ? path.substring(lastSlash + 1) : path;
+    const { data: files } = await supabase.storage
+      .from(STORAGE_BUCKET)
+      .list(folder, { search: filename, limit: 1 });
+    const fileExists = !!(files && files.some((f) => f.name === filename));
+    if (!fileExists) {
+      logger.warn('admission/calls/memo/signed-url', 'Audio file missing in storage', {
+        callLogId,
+        path,
+        memo_audio_url: row.memo_audio_url,
+      });
+      return NextResponse.json(
+        {
+          error: 'AUDIO_FILE_MISSING',
+          message:
+            'The recording file is missing from storage. The recording may have failed to upload. Try recording again.',
+        },
+        { status: 404 },
       );
     }
 

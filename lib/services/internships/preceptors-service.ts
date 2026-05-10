@@ -21,7 +21,7 @@ export async function listPreceptors(
   let query = supabase
     .from(TABLE)
     .select('*')
-    .order('name', { ascending: true });
+    .order('full_name', { ascending: true });
 
   if (siteId) query = query.eq('site_id', siteId);
   if (activeOnly) query = query.eq('is_active', true);

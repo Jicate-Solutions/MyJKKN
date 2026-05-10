@@ -37,6 +37,21 @@ interface ApprovalFlow {
   steps: ApprovalFlowStep[];
 }
 
+// Plain-English labels for approver role slugs surfaced in the routing preview.
+// Falls back to the raw slug if a role isn't mapped.
+const APPROVER_ROLE_LABELS: Record<string, string> = {
+  hod: 'HOD (Head of Department)',
+  principal: 'Principal',
+  coo: 'Chief Operating Officer',
+  cao: 'Chief Administrative Officer',
+  md: 'Managing Director (Final approval)',
+  hr_manager: 'HR Manager',
+  hr_admin: 'HR Admin',
+  finance_head: 'Finance Head',
+  director: 'Director',
+};
+const labelForRole = (role: string): string => APPROVER_ROLE_LABELS[role] ?? role;
+
 export default function SubmitCandidatePage() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -352,6 +367,12 @@ export default function SubmitCandidatePage() {
                 </div>
               ) : matchingFlow ? (
                 <div className="space-y-1 text-sm">
+                  <p className="text-sm text-muted-foreground mb-3">
+                    After you submit, the candidate enters this approval queue. Each
+                    step is reviewed in order &mdash; the next approver is only
+                    notified once the current one approves. You can track progress
+                    on the candidate detail page.
+                  </p>
                   <p className="text-muted-foreground text-xs mb-2">
                     Flow: <span className="font-medium text-foreground">{matchingFlow.flow_name}</span>
                   </p>
@@ -362,7 +383,7 @@ export default function SubmitCandidatePage() {
                         <span className="h-5 w-5 rounded-full bg-muted flex items-center justify-center text-xs font-medium">
                           {step.step_order ?? idx + 1}
                         </span>
-                        <span>{step.approver_role}</span>
+                        <span>{labelForRole(step.approver_role)}</span>
                       </li>
                     ))}
                   </ol>

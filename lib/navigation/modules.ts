@@ -79,7 +79,7 @@ export const MODULES: Module[] = [
   // Renamed from 'Facilitators Management' / 'Human Resources' on
   // 2026-05-09 per product decision to unify under "Employee Management".
   { slug: 'staff', label: 'Staff', icon: 'Briefcase', section: 'Employee Management', hasNavConfig: false },
-  { slug: 'hr', label: 'HR', icon: 'UsersRound', section: 'Employee Management', hasNavConfig: false },
+  { slug: 'hr', label: 'HR', icon: 'UsersRound', section: 'Employee Management', hasNavConfig: true },
 
   // ── Learners ──────────────────────────────────────────────────────────
   { slug: 'learners', label: 'Learners', icon: 'GraduationCap', section: 'Learners', hasNavConfig: false },

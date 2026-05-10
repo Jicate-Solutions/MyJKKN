@@ -18,6 +18,7 @@ import { useAuth } from '@/hooks/use-auth';
 import {
   useLearnerHostelites,
   useHostelBlocksForFilter,
+  useAvailableYears,
 } from '@/hooks/campus-living/use-learner-hostelites';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -48,7 +49,7 @@ import { RemoveHosteliteDialog } from './remove-hostelite-dialog';
 import { AddLearnerToHostelDialog } from './add-learner-to-hostel-dialog';
 import { EditHosteliteDrawer } from './edit-hostelite-drawer';
 import { LearnerDetailDrawer } from './learner-detail-drawer';
-import { FilterChips, YEAR_OPTIONS, GENDER_OPTIONS } from './filter-chips';
+import { FilterChips, YEAR_OPTIONS_FALLBACK, GENDER_OPTIONS, buildYearOptions } from './filter-chips';
 import {
   useResidentsFilterUrl,
   useReconcileBlockInstitution,
@@ -89,6 +90,9 @@ export function LearnersTab() {
 
   // Block dropdown options — scoped to accessible institutions
   const { data: blockList } = useHostelBlocksForFilter(effectiveInstitutionId);
+
+  // Dynamic year chips — falls back to YEAR_OPTIONS_FALLBACK [1..4] while loading
+  const { data: availableYears } = useAvailableYears(effectiveInstitutionId);
 
   // Conflict reconciliation: if URL has block_id ∉ selected institution, clear it
   const blockMap = useMemo(() => {
@@ -247,10 +251,14 @@ export function LearnersTab() {
         </div>
       </div>
 
-      {/* Row 3: Year chips (NEW) */}
+      {/* Row 3: Year chips — dynamic from view, falls back to [1..4] while loading */}
       <FilterChips
         label='Year'
-        options={YEAR_OPTIONS}
+        options={
+          availableYears && availableYears.length > 0
+            ? buildYearOptions(availableYears)
+            : YEAR_OPTIONS_FALLBACK
+        }
         value={state.year}
         onChange={(v) => setState({ year: v })}
       />

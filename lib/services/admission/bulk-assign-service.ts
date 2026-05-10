@@ -224,6 +224,13 @@ export class BulkAssignService {
     dryRun?: boolean;
     override?: boolean;
     expectedPlanHash?: string | null;
+    /**
+     * Optional per-run cap on how many leads each counselor receives.
+     * NULL/undefined = no cap (cycle until all leads assigned). When set,
+     * each counselor stops accepting new leads in this run after they hit
+     * the limit; remaining leads stay unassigned.
+     */
+    perCounselorLimit?: number | null;
   }): Promise<BulkAssignReport> {
     if (input.leadIds.length === 0) {
       throw new BulkAssignError('EMPTY_INPUT', 'No leads selected.');
@@ -252,6 +259,7 @@ export class BulkAssignService {
       p_dry_run: input.dryRun ?? false,
       p_override: input.override ?? false,
       p_expected_plan_hash: input.expectedPlanHash ?? null,
+      p_per_counselor_limit: input.perCounselorLimit ?? null,
     });
 
     if (error) {
