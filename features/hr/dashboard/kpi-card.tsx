@@ -31,6 +31,8 @@ import {
   Clock,
   Flame,
   Wallet,
+  FileCheck,
+  CalendarClock,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -52,6 +54,8 @@ const ICONS: Record<string, LucideIcon> = {
   Clock,
   Flame,
   Wallet,
+  FileCheck,
+  CalendarClock,
 };
 
 function resolveIcon(name?: string): LucideIcon {
