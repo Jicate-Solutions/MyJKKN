@@ -465,6 +465,33 @@ export function AddCounselorDialog({
     }
   }, [canFetchUsers, fetchUsers]);
 
+  // ---------- Helpers ----------
+  // Defined ABOVE filteredUsers / the JSX so the useMemo factory can reach
+  // them at render time. Previously they lived below filteredUsers, which
+  // tripped a Temporal Dead Zone ReferenceError ("Cannot access 'getUserName'
+  // before initialization") the moment a non-empty search result set met a
+  // non-empty search query — the predicate ran synchronously during render
+  // and resolved the identifier before the const initializer was reached.
+  const getUserName = (user: LearnerResult | FacilitatorResult) => {
+    if (userType === 'learner') {
+      const learner = user as LearnerResult;
+      return [learner.first_name, learner.last_name].filter(Boolean).join(' ') || '';
+    }
+    return (user as FacilitatorResult).full_name || '';
+  };
+
+  const getUserSubtext = (user: LearnerResult | FacilitatorResult) => {
+    if (userType === 'learner') {
+      const learner = user as LearnerResult;
+      const email = learner.college_email || learner.student_email || '';
+      const parts = [email, learner.roll_number].filter(Boolean);
+      return parts.join(' | ');
+    }
+    const fac = user as FacilitatorResult;
+    const parts = [fac.email, fac.role].filter(Boolean);
+    return parts.join(' | ');
+  };
+
   // ---------- Client-side search filter on loaded results ----------
   const filteredUsers = useMemo(() => {
     if (!userSearchFilter.trim()) return userResults;
@@ -615,27 +642,6 @@ export function AddCounselorDialog({
     } finally {
       setIsSubmitting(false);
     }
-  };
-
-  // ---------- Helpers ----------
-  const getUserName = (user: LearnerResult | FacilitatorResult) => {
-    if (userType === 'learner') {
-      const learner = user as LearnerResult;
-      return [learner.first_name, learner.last_name].filter(Boolean).join(' ') || '';
-    }
-    return (user as FacilitatorResult).full_name || '';
-  };
-
-  const getUserSubtext = (user: LearnerResult | FacilitatorResult) => {
-    if (userType === 'learner') {
-      const learner = user as LearnerResult;
-      const email = learner.college_email || learner.student_email || '';
-      const parts = [email, learner.roll_number].filter(Boolean);
-      return parts.join(' | ');
-    }
-    const fac = user as FacilitatorResult;
-    const parts = [fac.email, fac.role].filter(Boolean);
-    return parts.join(' | ');
   };
 
   // Whether the user has set enough filters to show the "select filters" empty state vs "no results"
