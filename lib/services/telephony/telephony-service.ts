@@ -1219,28 +1219,35 @@ export class TelephonyService {
     }
 
     if (finalLeadId) {
-      const activityTitle = isConnected
+      const mappedStatus = isConnected ? 'connected' : 'missed';
+      const activitySubject = isConnected
         ? `Inbound call — ${Math.floor(durationSec / 60)}m ${durationSec % 60}s with ${callContext.agentName || 'agent'}`
         : `Missed inbound call (attempt #${callCount} in 7 days)`;
 
-      await supabase.from('admission_lead_activities').insert({
-        lead_id: finalLeadId,
-        institution_id: institutionId,
-        activity_type: 'call',
-        title: activityTitle,
-        description: isMissed
+      // Bake what was previously the metadata object into a pipe-delimited
+      // description string — match inbound-call-sync-service style. Production
+      // schema for admission_lead_activities has no metadata/title/performed_by/
+      // institution_id columns; writing them silently failed pre-fix.
+      const descriptionParts = [
+        isMissed
           ? `Caller tried to reach ${callContext.department}${callContext.college ? ` (${callContext.college})` : ''}. No one answered.`
           : `Connected with ${callContext.agentName || 'agent'} in ${callContext.department}${callContext.college ? ` (${callContext.college})` : ''}.`,
-        performed_by: counselorId || null,
-        metadata: {
-          call_log_id: callLogId,
-          direction: 'inbound',
-          duration_seconds: durationSec,
-          department: callContext.department,
-          college: callContext.college,
-          call_number_today: callCount,
-          missed_count_today: missedCount,
-        },
+        `Direction: inbound`,
+        durationSec > 0 ? `Duration: ${durationSec}s` : null,
+        callContext.department ? `Department: ${callContext.department}` : null,
+        callContext.college ? `College: ${callContext.college}` : null,
+        `Call #${callCount} today`,
+        missedCount > 0 ? `Missed today: ${missedCount}` : null,
+        `call_log_id: ${callLogId}`,
+      ].filter(Boolean);
+
+      await supabase.from('admission_lead_activities').insert({
+        lead_id: finalLeadId,
+        activity_type: 'call',
+        subject: activitySubject,
+        description: descriptionParts.join(' | '),
+        outcome: mappedStatus,
+        created_by: counselorId || null,
       });
 
       // ── 5. Update lead: last_contacted_at + priority boost ──
