@@ -32,6 +32,7 @@ import { AdmissionErrorBoundary } from '@/components/admission';
 import { useCallLogs, formatDuration, type CallDisposition } from '@/hooks/admission';
 import { useAuth } from '@/hooks/use-auth';
 import { usePermissions } from '@/hooks/use-permissions';
+import { VoiceMemoPanel } from '@/components/admission/leads/voice-memo-panel';
 import {
   ArrowLeft,
   Phone,
@@ -69,6 +70,7 @@ import Link from 'next/link';
 interface CallDetail {
   id: string;
   call_sid: string;
+  institution_id: string;
   direction: 'inbound' | 'outbound';
   status: string;
   from_number: string;
@@ -94,6 +96,17 @@ interface CallDetail {
   caller_journey_context: string | null;
   caller_location: string | null;
   caller_attempt_number: number | null;
+  // Voice-memo pipeline (admission_call_logs.memo_*)
+  memo_audio_url: string | null;
+  memo_audio_duration_seconds: number | null;
+  memo_transcript: string | null;
+  memo_transcript_language: string | null;
+  memo_sentiment: string | null;
+  memo_sentiment_score: number | null;
+  memo_summary: string | null;
+  memo_categories: string[] | null;
+  memo_analyze_status: string | null;
+  memo_analyzed_at: string | null;
 }
 
 // Shape returned by GET /api/admission/calls/[id]/intelligence
@@ -850,9 +863,36 @@ function CallDetailContent() {
                 </CardContent>
               </Card>
 
-              {/* AI Intelligence — transcription, sentiment, summary, categories.
-                  Renders all three states (in-flight / completed / no-data) so
-                  counselors get correct feedback regardless of pipeline status. */}
+              {/* Voice Memo (new pipeline, 2026-05-09 onwards) — counselor's
+                  30-sec English memo recorded post-call → Whisper + Gemini.
+                  Reads the memo_* fields directly from this call log row.
+                  Renders nothing if memo_audio_url is null (graceful no-op).
+                  Sits ABOVE the legacy IntelligenceCard so current pipeline
+                  data is visible first; legacy ExoVoiceAnalyze rows still
+                  render below for historical Exotel calls. */}
+              {call.memo_audio_url && (
+                <VoiceMemoPanel
+                  callLogId={id}
+                  institutionId={call.institution_id}
+                  memo={{
+                    audio_url: call.memo_audio_url,
+                    audio_duration_seconds: call.memo_audio_duration_seconds,
+                    transcript: call.memo_transcript,
+                    transcript_language: call.memo_transcript_language,
+                    sentiment: call.memo_sentiment,
+                    sentiment_score: call.memo_sentiment_score,
+                    summary: call.memo_summary,
+                    categories: call.memo_categories,
+                    analyze_status: call.memo_analyze_status,
+                    analyzed_at: call.memo_analyzed_at,
+                  }}
+                  defaultExpanded={true}
+                />
+              )}
+
+              {/* AI Intelligence — legacy ExoVoiceAnalyze pipeline. Reads from
+                  admission_call_intelligence (rejected pipeline, 2026-05-09).
+                  Preserved so historical Exotel calls keep rendering. */}
               <IntelligenceCard callId={id} />
             </div>
 
