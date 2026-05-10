@@ -521,6 +521,25 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "children": []
       },
       {
+        "path": "/admin/hr",
+        "label": "Hr",
+        "iconName": "FileText",
+        "children": [
+          {
+            "path": "/admin/hr/required-documents",
+            "label": "Required Documents",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/admin/hr/shift-templates",
+            "label": "Shift Templates",
+            "iconName": "FileText",
+            "children": []
+          }
+        ]
+      },
+      {
         "path": "/admin/internship-policy",
         "label": "Internship Policy",
         "iconName": "FileText",
@@ -738,6 +757,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "children": []
       },
       {
+        "path": "/admin/voice-memo-monitor",
+        "label": "Voice Memo Monitor",
+        "iconName": "Mic",
+        "children": []
+      },
+      {
         "path": "/admin/whatsapp-byow",
         "label": "Whatsapp Byow",
         "iconName": "FileText",
@@ -765,8 +790,8 @@ export const ROUTE_MANIFEST: RouteNode[] = [
     "children": [
       {
         "path": "/admission/analytics",
-        "label": "Analytics",
-        "iconName": "BarChart",
+        "label": "Funnel Analytics",
+        "iconName": "TrendingUp",
         "children": []
       },
       {
@@ -895,13 +920,19 @@ export const ROUTE_MANIFEST: RouteNode[] = [
                 "children": []
               }
             ]
+          },
+          {
+            "path": "/admission/counselors/voice-memos",
+            "label": "Voice Memo Monitor",
+            "iconName": "Activity",
+            "children": []
           }
         ]
       },
       {
         "path": "/admission/dashboard",
-        "label": "Dashboard",
-        "iconName": "LayoutGrid",
+        "label": "Admission Dashboard",
+        "iconName": "LayoutDashboard",
         "children": []
       },
       {
@@ -963,7 +994,7 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       },
       {
         "path": "/admission/insights",
-        "label": "Insights",
+        "label": "AI Insights",
         "iconName": "Lightbulb",
         "children": [
           {
@@ -2371,6 +2402,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
     "iconName": "FileText",
     "children": [
       {
+        "path": "/hr/documents",
+        "label": "Documents",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
         "path": "/hr/employees",
         "label": "Employees",
         "iconName": "Users",
@@ -2444,6 +2481,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
+            "path": "/hr/recruitment/jobs",
+            "label": "Jobs",
+            "iconName": "UserSearch",
+            "children": []
+          },
+          {
             "path": "/hr/recruitment/my",
             "label": "My",
             "iconName": "UserSearch",
@@ -2453,6 +2496,25 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "path": "/hr/recruitment/submit",
             "label": "Submit",
             "iconName": "UserSearch",
+            "children": []
+          }
+        ]
+      },
+      {
+        "path": "/hr/shifts",
+        "label": "Shifts",
+        "iconName": "FileText",
+        "children": [
+          {
+            "path": "/hr/shifts/approvals",
+            "label": "Approvals",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/hr/shifts/my",
+            "label": "My",
+            "iconName": "FileText",
             "children": []
           }
         ]
