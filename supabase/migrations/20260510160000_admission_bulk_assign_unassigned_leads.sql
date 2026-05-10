@@ -13,15 +13,20 @@
 -- Both functions:
 --   - Check permission at function entry; SECURITY DEFINER skips RLS
 --     on admission_leads inside the body.
---   - Support p_dry_run=true to compute the plan without UPDATE-ing rows.
---   - Compute a SHA-256 plan hash; if the caller passes
---     p_expected_plan_hash and it differs, raise 40001 (serialization
---     failure) so the client can refresh its preview.
+--   - Use a two-pass design: pass 1 computes the plan (no writes), pass 2
+--     UPDATE-applies it. The plan hash is computed BETWEEN passes so that
+--     drift detection (40001) raises BEFORE any rows are mutated. The hash
+--     is returned in the plan_hash column of every result row so the
+--     client can pass it back as p_expected_plan_hash on the commit call.
+--   - Support p_dry_run=true to compute the plan without UPDATE-ing rows
+--     (only pass 1 runs).
 --
 -- Spec: docs/superpowers/specs/2026-05-10-distribute-unassigned-leads-design.md
 -- ============================================================================
 
 BEGIN;
+
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 -- ----------------------------------------------------------------------------
 -- bulk_route_unassigned_leads — Mode B (Auto-route via routing engine)
@@ -66,6 +71,14 @@ BEGIN
       USING ERRCODE = '42501';
   END IF;
 
+  -- Pass 1: collect decisions into a temp plan table without writing.
+  CREATE TEMP TABLE _bulk_route_plan (
+    lead_id      uuid,
+    counselor_id uuid,
+    status       text,
+    reason       text
+  ) ON COMMIT DROP;
+
   FOR v_lead IN
     SELECT id, source, institution_id
     FROM admission_leads
@@ -78,29 +91,37 @@ BEGIN
     ) INTO v_pick;
 
     IF v_pick IS NULL THEN
-      RETURN QUERY SELECT v_lead.id, NULL::uuid, 'no-candidate'::text,
-                          'No eligible counselor at engine eval'::text, NULL::text;
-      CONTINUE;
+      INSERT INTO _bulk_route_plan VALUES (
+        v_lead.id, NULL, 'no-candidate', 'No eligible counselor at engine eval'
+      );
+    ELSE
+      INSERT INTO _bulk_route_plan VALUES (v_lead.id, v_pick, 'assigned', NULL);
+      v_plan := v_plan || v_lead.id::text || '->' || v_pick::text || ';';
     END IF;
-
-    v_plan := v_plan || v_lead.id::text || '->' || v_pick::text || ';';
-
-    IF NOT p_dry_run THEN
-      UPDATE admission_leads
-        SET counselor_id = v_pick,
-            assigned_at  = now(),
-            assigned_by  = v_user_id
-        WHERE id = v_lead.id;
-    END IF;
-
-    RETURN QUERY SELECT v_lead.id, v_pick, 'assigned'::text, NULL::text, NULL::text;
   END LOOP;
 
+  -- Drift check BEFORE any writes.
   v_hash := encode(digest(v_plan, 'sha256'), 'hex');
   IF p_expected_plan_hash IS NOT NULL AND p_expected_plan_hash <> v_hash THEN
     RAISE EXCEPTION 'plan drift: expected % got %', p_expected_plan_hash, v_hash
       USING ERRCODE = '40001';
   END IF;
+
+  -- Pass 2: apply the plan unless dry-run.
+  IF NOT p_dry_run THEN
+    UPDATE admission_leads l
+       SET counselor_id = p.counselor_id,
+           assigned_at  = now(),
+           assigned_by  = v_user_id
+      FROM _bulk_route_plan p
+     WHERE l.id = p.lead_id AND p.status = 'assigned';
+  END IF;
+
+  -- Emit results, with plan_hash on every row so the client can read it.
+  RETURN QUERY
+    SELECT p.lead_id, p.counselor_id, p.status, p.reason, v_hash
+    FROM _bulk_route_plan p
+    ORDER BY p.lead_id;
 END;
 $$;
 
@@ -108,7 +129,7 @@ GRANT EXECUTE ON FUNCTION public.bulk_route_unassigned_leads(uuid[], boolean, bo
   TO authenticated;
 
 COMMENT ON FUNCTION public.bulk_route_unassigned_leads(uuid[], boolean, boolean, text) IS
-  'Bulk auto-route unassigned leads via the routing engine. Per-lead atomic with partial-success reporting. p_dry_run computes the plan without writing. p_override requires bulk_override permission.';
+  'Bulk auto-route unassigned leads via the routing engine. Two-pass design: pass 1 plans without writing, hash check raises 40001 on drift before pass 2 applies. plan_hash is returned in every result row.';
 
 -- ----------------------------------------------------------------------------
 -- bulk_round_robin_assign — Mode C (cyclic split across given counselors)
@@ -139,7 +160,6 @@ DECLARE
   v_target    uuid;
   v_paused    boolean;
   v_at_cap    boolean;
-  v_today_count int;
   v_plan      text := '';
   v_hash      text;
 BEGIN
@@ -163,6 +183,14 @@ BEGIN
     RAISE EXCEPTION 'counselor list cannot be empty';
   END IF;
 
+  -- Pass 1: collect decisions into a temp plan table without writing.
+  CREATE TEMP TABLE _bulk_rr_plan (
+    lead_id      uuid,
+    counselor_id uuid,
+    status       text,
+    reason       text
+  ) ON COMMIT DROP;
+
   FOR v_lead IN
     SELECT id FROM admission_leads
     WHERE id = ANY(p_lead_ids) AND counselor_id IS NULL
@@ -173,13 +201,8 @@ BEGIN
       v_target := p_counselor_ids[((v_idx + i) % v_n_pickers) + 1];
 
       SELECT acs.is_paused,
-             COALESCE(ac.current_leads, 0) >= COALESCE(ac.max_leads, 9999),
-             (
-               SELECT COUNT(*) FROM admission_leads l
-               WHERE l.counselor_id = v_target
-                 AND l.assigned_at::date = CURRENT_DATE
-             )
-        INTO v_paused, v_at_cap, v_today_count
+             COALESCE(ac.current_leads, 0) >= COALESCE(ac.max_leads, 9999)
+        INTO v_paused, v_at_cap
       FROM admission_counselor_sources acs
       LEFT JOIN admission_counselors ac ON ac.id = v_target
       WHERE acs.counselor_id = v_target
@@ -192,30 +215,37 @@ BEGIN
     END LOOP;
 
     IF v_target IS NULL THEN
-      RETURN QUERY SELECT v_lead.id, NULL::uuid, 'no-candidate'::text,
-                          'All targets paused or at cap'::text, NULL::text;
-      CONTINUE;
+      INSERT INTO _bulk_rr_plan VALUES (
+        v_lead.id, NULL, 'no-candidate', 'All targets paused or at cap'
+      );
+    ELSE
+      INSERT INTO _bulk_rr_plan VALUES (v_lead.id, v_target, 'assigned', NULL);
+      v_plan := v_plan || v_lead.id::text || '->' || v_target::text || ';';
+      v_idx := v_idx + 1;
     END IF;
-
-    v_idx := v_idx + 1;
-    v_plan := v_plan || v_lead.id::text || '->' || v_target::text || ';';
-
-    IF NOT p_dry_run THEN
-      UPDATE admission_leads
-        SET counselor_id = v_target,
-            assigned_at  = now(),
-            assigned_by  = v_user_id
-        WHERE id = v_lead.id;
-    END IF;
-
-    RETURN QUERY SELECT v_lead.id, v_target, 'assigned'::text, NULL::text, NULL::text;
   END LOOP;
 
+  -- Drift check BEFORE any writes.
   v_hash := encode(digest(v_plan, 'sha256'), 'hex');
   IF p_expected_plan_hash IS NOT NULL AND p_expected_plan_hash <> v_hash THEN
     RAISE EXCEPTION 'plan drift: expected % got %', p_expected_plan_hash, v_hash
       USING ERRCODE = '40001';
   END IF;
+
+  -- Pass 2: apply the plan unless dry-run.
+  IF NOT p_dry_run THEN
+    UPDATE admission_leads l
+       SET counselor_id = p.counselor_id,
+           assigned_at  = now(),
+           assigned_by  = v_user_id
+      FROM _bulk_rr_plan p
+     WHERE l.id = p.lead_id AND p.status = 'assigned';
+  END IF;
+
+  RETURN QUERY
+    SELECT p.lead_id, p.counselor_id, p.status, p.reason, v_hash
+    FROM _bulk_rr_plan p
+    ORDER BY p.lead_id;
 END;
 $$;
 
@@ -223,6 +253,6 @@ GRANT EXECUTE ON FUNCTION public.bulk_round_robin_assign(uuid[], uuid[], boolean
   TO authenticated;
 
 COMMENT ON FUNCTION public.bulk_round_robin_assign(uuid[], uuid[], boolean, boolean, text) IS
-  'Cyclic split of unassigned leads across an ordered counselor list. Skips paused/at-cap unless p_override. Per-lead atomic with partial-success reporting.';
+  'Cyclic split of unassigned leads across an ordered counselor list. Two-pass design: pass 1 plans (with paused/at-cap probe), hash check raises 40001 on drift before pass 2 applies. plan_hash returned in every result row.';
 
 COMMIT;
