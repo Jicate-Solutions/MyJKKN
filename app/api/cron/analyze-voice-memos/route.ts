@@ -65,6 +65,37 @@ import { getModel } from '@/lib/services/platform/ai-providers';
 const BATCH_LIMIT = 20; // rate-limit transcription API calls per run
 const STORAGE_BUCKET = 'call-memos';
 
+/**
+ * Extracts the storage path-relative form from a memo_audio_url that may be
+ * stored in any of THREE formats due to historical inconsistency between the
+ * recorder UI and downstream consumers:
+ *
+ *   1. Full Supabase public URL (recorder UI getPublicUrl().publicUrl):
+ *        https://{ref}.supabase.co/storage/v1/object/public/call-memos/{inst}/{id}.webm
+ *   2. Bucket-prefixed (legacy fallback in voice-memo-recorder.tsx:360):
+ *        call-memos/{inst}/{id}.webm
+ *   3. Bare path-relative:
+ *        {inst}/{id}.webm
+ *
+ * Returns the path that supabase.storage.from('call-memos').download(...) expects.
+ *
+ * Bug receipt (2026-05-10): the previous one-line `.replace(/^call-memos\//, '')`
+ * silently failed on format #1 — `.download()` got the full URL as path,
+ * triggered a 400, marked the row failed. 1 real counselor's memo from
+ * 2026-05-09 16:41 UTC was caught by this normalizer regression.
+ */
+function normalizeMemoStoragePath(memoUrl: string): string {
+  // Format 1: full URL — extract path after /object/{public,sign}/{bucket}/
+  const fullUrlMatch = memoUrl.match(
+    /\/object\/(?:public|sign)\/call-memos\/(.+?)(?:\?|$)/
+  );
+  if (fullUrlMatch) return fullUrlMatch[1];
+  // Format 2: bucket-prefixed
+  if (memoUrl.startsWith('call-memos/')) return memoUrl.slice('call-memos/'.length);
+  // Format 3: already path-relative
+  return memoUrl;
+}
+
 // Unicode regex ranges for non-Latin scripts that Whisper can mislabel as English.
 // Tamil: U+0B80–U+0BFF, Devanagari: U+0900–U+097F, Bengali: U+0980–U+09FF,
 // Arabic: U+0600–U+06FF, Telugu: U+0C00–U+0C7F, Kannada: U+0C80–U+0CFF,
@@ -192,10 +223,11 @@ export async function GET(request: NextRequest) {
         .update({ memo_analyze_status: 'transcribing' })
         .eq('id', c.id);
 
-      // Download audio from Supabase Storage.
+      // Download audio from Supabase Storage. Path normalization handles all
+      // 3 historical memo_audio_url formats (full URL / bucket-prefixed / bare).
       const { data: audioBlob, error: dlErr } = await supabase.storage
         .from(STORAGE_BUCKET)
-        .download(c.memo_audio_url.replace(/^call-memos\//, ''));
+        .download(normalizeMemoStoragePath(c.memo_audio_url));
 
       if (dlErr || !audioBlob) {
         throw new Error(`storage download: ${dlErr?.message || 'no blob'}`);
