@@ -184,20 +184,33 @@ export async function GET(request: NextRequest) {
         institution:institutions(id, name)
       `, { count: 'exact' });
 
-    // 5. Apply institution scoping (manual RLS replacement)
-    // Super admins and admission global users can see all institutions.
-    // Counselors and other users are scoped to their own institution.
-    if (institutionId) {
-      query = query.eq('institution_id', institutionId);
-    } else if (!isAdmissionGlobalUser) {
-      if (!profile.institution_id) {
-        // User has no institution assigned — return empty result
-        return NextResponse.json({
-          data: [],
-          metadata: { total: 0, page, limit, totalPages: 0 },
-        });
+    // 5. Compute counselor scope FIRST so its strict-counselor decision
+    //    can override the role-level institution_scope='all' flag.
+    //    The role-level "all institutions" was originally for admission
+    //    OFFICE staff. Strict counselors (counselor role with no
+    //    admin/admission override) must NEVER inherit cross-institution
+    //    visibility — they must see only their directly-assigned leads.
+    const scope = await getCounselorScope(supabase, user.id);
+
+    // 5a. Apply institution scoping for NON-strict-counselor users.
+    //     Strict counselors are intrinsically scoped via the OR filter
+    //     in 5b (counselor_id / assigned_counselor_id), which is much
+    //     tighter than any institution filter — they don't need a
+    //     redundant institution_id constraint and might legitimately
+    //     own leads across institutions if assigned that way.
+    if (!scope.isStrictCounselor) {
+      if (institutionId) {
+        query = query.eq('institution_id', institutionId);
+      } else if (!isAdmissionGlobalUser) {
+        if (!profile.institution_id) {
+          // User has no institution assigned — return empty result
+          return NextResponse.json({
+            data: [],
+            metadata: { total: 0, page, limit, totalPages: 0 },
+          });
+        }
+        query = query.eq('institution_id', profile.institution_id);
       }
-      query = query.eq('institution_id', profile.institution_id);
     }
 
     // 5b. Counselor visibility — mirrors the RLS in
@@ -209,23 +222,25 @@ export async function GET(request: NextRequest) {
     //   - leads where assigned_counselor_id = user.id
     // AND
     //   - source <> 'referral' (referrals belong to consultants, not counselors)
-    if (!isAdmissionGlobalUser) {
-      const scope = await getCounselorScope(supabase, user.id);
-      if (scope.isStrictCounselor) {
-        const orClause = buildLeadVisibilityOr(scope, user.id);
-        if (!orClause) {
-          // Counselor has no admission_counselors row.
-          // Strict-mode: nothing visible.
-          return NextResponse.json({
-            data: [],
-            metadata: { total: 0, page, limit, totalPages: 0 },
-          });
-        }
-        // Apply OR (assigned_counselor_id OR counselor_id matches) AND
-        // source <> 'referral'. PostgREST's chained .or().neq() builds
-        // exactly that conjunction.
-        query = query.or(orClause).neq('source', 'referral');
+    //
+    // CRITICAL: this branch is taken regardless of isAdmissionGlobalUser
+    // because admission_counselor role is configured institution_scope='all'
+    // in custom_roles — that flag is for admission OFFICE staff to see all
+    // institutions, NOT for counselors to bypass strict-visibility.
+    if (scope.isStrictCounselor) {
+      const orClause = buildLeadVisibilityOr(scope, user.id);
+      if (!orClause) {
+        // Counselor has no admission_counselors row.
+        // Strict-mode: nothing visible.
+        return NextResponse.json({
+          data: [],
+          metadata: { total: 0, page, limit, totalPages: 0 },
+        });
       }
+      // Apply OR (assigned_counselor_id OR counselor_id matches) AND
+      // source <> 'referral'. PostgREST's chained .or().neq() builds
+      // exactly that conjunction.
+      query = query.or(orClause).neq('source', 'referral');
     }
 
     // 6. Apply filters
