@@ -29,6 +29,10 @@ import {
   type DashboardMode,
   type TrendPoint,
   type DashboardAccessLogEntry,
+  type RecentActivityEntry,
+  type RecentActivitiesPayload,
+  type EmployeeDistributionSlice,
+  type EmployeeDistributionPayload,
 } from '@/types/hr-dashboard';
 
 // =====================================================================================
@@ -367,6 +371,27 @@ export class HRDashboardService {
     if (hrOrgId) flows = flows.eq('hr_organization_id', hrOrgId);
     const flowsCount = await safeCount(() => flows);
 
+    // T8.6 — documents pending verification (HR Officer view). Scoped via
+    // hr_organization_id when available; super admin (rolled-up) sees platform.
+    // Drill_url goes to the docs queue page (/hr/documents) which already
+    // surfaces verification_status='pending' rows for HR Officers.
+    let docsPending = supabase
+      .from('hr_employee_documents')
+      .select('id', { count: 'exact', head: true })
+      .eq('verification_status', 'pending');
+    // hr_employee_documents stores institution_id directly (not hr_organization_id).
+    // We resolve institution_id from hr_organizations when an hrOrgId filter is active.
+    if (hrOrgId) {
+      const { data: org } = await supabase
+        .from('hr_organizations')
+        .select('institution_id')
+        .eq('id', hrOrgId)
+        .maybeSingle();
+      const instId = (org as { institution_id: string | null } | null)?.institution_id ?? null;
+      if (instId) docsPending = docsPending.eq('institution_id', instId);
+    }
+    const docsPendingCount = await safeCount(() => docsPending);
+
     return [
       {
         name: 'active_leave_types',
@@ -381,6 +406,13 @@ export class HRDashboardService {
         value: flowsCount,
         drill_url: '/hr/policies/hr_approval_flows',
         icon: 'Workflow',
+      },
+      {
+        name: 'documents_pending_verification',
+        label: 'Documents Pending Verification',
+        value: docsPendingCount,
+        drill_url: '/hr/documents?status=pending',
+        icon: 'FileCheck',
       },
     ];
   }
@@ -493,6 +525,26 @@ export class HRDashboardService {
     if (hrOrgId) encashments = encashments.eq('hr_organization_id', hrOrgId);
     const encashmentCount = await safeCount(() => encashments);
 
+    // T8.6 — active shift assignments today (Director view). Counts shift
+    // assignments where today falls within [effective_from, effective_until]
+    // (effective_until null = ongoing). Scoped via institution_id resolved
+    // from hr_organization_id (assignments table has no hr_organization_id).
+    let shiftsToday = supabase
+      .from('hr_shift_assignments')
+      .select('id', { count: 'exact', head: true })
+      .lte('effective_from', today)
+      .or(`effective_until.is.null,effective_until.gte.${today}`);
+    if (hrOrgId) {
+      const { data: org } = await supabase
+        .from('hr_organizations')
+        .select('institution_id')
+        .eq('id', hrOrgId)
+        .maybeSingle();
+      const instId = (org as { institution_id: string | null } | null)?.institution_id ?? null;
+      if (instId) shiftsToday = shiftsToday.eq('institution_id', instId);
+    }
+    const shiftsTodayCount = await safeCount(() => shiftsToday);
+
     return [
       {
         name: 'active_blackouts_compliance',
@@ -507,6 +559,13 @@ export class HRDashboardService {
         value: encashmentCount,
         drill_url: '/hr/leave/encashment?status=pending',
         icon: 'Wallet',
+      },
+      {
+        name: 'active_shifts_today',
+        label: 'Active Shifts Today',
+        value: shiftsTodayCount,
+        drill_url: '/hr/shifts',
+        icon: 'CalendarClock',
       },
     ];
   }
@@ -794,6 +853,168 @@ export class HRDashboardService {
     }
 
     return banners;
+  }
+
+  // -------------------------------------------------------------------------
+  // T3.3 — Recent Activities feed
+  // -------------------------------------------------------------------------
+
+  /**
+   * Reads the dashboard audit log + joins profile names + institution names.
+   * Scoping mirrors the dashboard's role model:
+   *   - super_admin (hrOrgId=null, institutionId=null) → all activities
+   *   - HR Officer/Director (hrOrgId set) → entries with that hr_organization_id
+   *
+   * The log table records one row per KPI rendered, so a single dashboard
+   * view typically produces 8-15 rows. Limit defaults to 20 (~1-2 sessions).
+   */
+  static async getRecentActivities(
+    supabase: SupabaseClient,
+    opts: {
+      hoursBack?: number;
+      limit?: number;
+      hr_organization_id: string | null;
+      institution_id: string | null;
+    }
+  ): Promise<RecentActivitiesPayload> {
+    const hoursBack = opts.hoursBack ?? 24;
+    const limit = Math.min(opts.limit ?? 20, 50);
+    const cutoff = new Date(Date.now() - hoursBack * 60 * 60 * 1000).toISOString();
+
+    let q = supabase
+      .from('hr_dashboard_access_log')
+      .select('viewed_at, user_id, quadrant, kpi_name, hr_organization_id, institution_id')
+      .gte('viewed_at', cutoff)
+      .order('viewed_at', { ascending: false })
+      .limit(limit);
+    if (opts.hr_organization_id) q = q.eq('hr_organization_id', opts.hr_organization_id);
+
+    const { data, error } = await q;
+    if (error) throw error;
+
+    type Row = {
+      viewed_at: string;
+      user_id: string;
+      quadrant: string;
+      kpi_name: string;
+      hr_organization_id: string | null;
+      institution_id: string | null;
+    };
+    const rows = (data ?? []) as Row[];
+
+    if (rows.length === 0) {
+      return { entries: [], generated_at: new Date().toISOString() };
+    }
+
+    // Resolve unique user_ids → full_name (or email fallback)
+    const userIds = Array.from(new Set(rows.map((r) => r.user_id).filter(Boolean)));
+    const nameByUserId = new Map<string, string>();
+    if (userIds.length > 0) {
+      const { data: profs } = await supabase
+        .from('profiles')
+        .select('id, full_name, email')
+        .in('id', userIds);
+      for (const p of (profs ?? []) as Array<{ id: string; full_name: string | null; email: string | null }>) {
+        nameByUserId.set(p.id, p.full_name?.trim() || p.email || 'Unknown user');
+      }
+    }
+
+    // Resolve unique institution_ids → name
+    const institutionIds = Array.from(
+      new Set(rows.map((r) => r.institution_id).filter((v): v is string => !!v))
+    );
+    const nameByInstitutionId = new Map<string, string>();
+    if (institutionIds.length > 0) {
+      const { data: insts } = await supabase
+        .from('institutions')
+        .select('id, name')
+        .in('id', institutionIds);
+      for (const i of (insts ?? []) as Array<{ id: string; name: string }>) {
+        nameByInstitutionId.set(i.id, i.name);
+      }
+    }
+
+    const entries: RecentActivityEntry[] = rows.map((r) => ({
+      viewed_at: r.viewed_at,
+      user_id: r.user_id,
+      actor_name: nameByUserId.get(r.user_id) ?? 'Unknown user',
+      quadrant: r.quadrant,
+      kpi_name: r.kpi_name,
+      institution_name: r.institution_id ? nameByInstitutionId.get(r.institution_id) ?? null : null,
+    }));
+
+    return { entries, generated_at: new Date().toISOString() };
+  }
+
+  // -------------------------------------------------------------------------
+  // T3.5 — Employee distribution donut
+  // -------------------------------------------------------------------------
+
+  /**
+   * Aggregates active staff grouped by employment_categories.category_name.
+   * Top 5 categories rendered as discrete slices; remainder rolled into 'Others'.
+   *
+   * Scope:
+   *   - super_admin (institutionId=null) → all institutions
+   *   - others (institutionId set)       → that institution only
+   */
+  static async getEmployeeDistribution(
+    supabase: SupabaseClient,
+    opts: { institution_id: string | null }
+  ): Promise<EmployeeDistributionPayload> {
+    let q = supabase
+      .from('staff')
+      .select('category_id, employment_categories!inner(category_name)')
+      .eq('is_active', true);
+    if (opts.institution_id) q = q.eq('institution_id', opts.institution_id);
+
+    const { data, error } = await q;
+    if (error) throw error;
+
+    type Row = {
+      category_id: string | null;
+      employment_categories: { category_name: string } | { category_name: string }[] | null;
+    };
+    const rows = (data ?? []) as Row[];
+
+    // Bucket counts by category name
+    const counts = new Map<string, number>();
+    for (const r of rows) {
+      // PostgREST may return either object or array depending on join cardinality
+      const ec = Array.isArray(r.employment_categories)
+        ? r.employment_categories[0]
+        : r.employment_categories;
+      const name = ec?.category_name ?? 'Uncategorised';
+      counts.set(name, (counts.get(name) ?? 0) + 1);
+    }
+
+    // Sort descending, take top 5, roll remainder into 'Others'
+    const sorted = Array.from(counts.entries())
+      .map(([category_name, count]) => ({ category_name, count }))
+      .sort((a, b) => b.count - a.count);
+
+    const top = sorted.slice(0, 5);
+    const rest = sorted.slice(5);
+    const rolled_up_count = rest.reduce((acc, x) => acc + x.count, 0);
+
+    const palette = ['#3B82F6', '#10B981', '#F59E0B', '#8B5CF6', '#EF4444', '#6B7280'];
+    const slices: EmployeeDistributionSlice[] = top.map((s, i) => ({
+      category_name: s.category_name,
+      count: s.count,
+      color: palette[i] ?? '#6B7280',
+    }));
+    if (rolled_up_count > 0) {
+      slices.push({ category_name: 'Others', count: rolled_up_count, color: palette[5] });
+    }
+
+    const total = slices.reduce((acc, s) => acc + s.count, 0);
+
+    return {
+      slices,
+      total,
+      rolled_up_count,
+      generated_at: new Date().toISOString(),
+    };
   }
 
   // -------------------------------------------------------------------------
