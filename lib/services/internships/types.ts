@@ -22,25 +22,72 @@ export type ServiceListResult<T> = {
 // ---------------------------------------------------------------------------
 // internship_posting_cycles
 // ---------------------------------------------------------------------------
-export type CycleStatus = 'draft' | 'open' | 'closed' | 'archived';
+// Live enum from internship_cycle_status_enum (substrate migration 20260509_v3).
+// Hand-authored spec-time enum was {draft|open|closed|archived} — drifted from
+// what Agent A actually shipped. Reconciled 2026-05-10.
+export type CycleStatus =
+  | 'draft'
+  | 'pending_approval'
+  | 'approved'
+  | 'fee_checking'
+  | 'assignments_ready'
+  | 'active'
+  | 'completed'
+  | 'cancelled';
+
+export type CycleTemporalMode = 'fixed' | 'rolling' | 'batch_aligned';
+export type CyclePostingType = 'standard' | 'community' | 'industrial' | 'research' | 'virtual';
 
 export interface InternshipCycle {
   id: string;
   institution_id: string;
-  name: string;
-  academic_year: string;
+  college_id: string | null;
+  cycle_name: string;
+  batch_id: string | null;
+  batch_label: string | null;
+  program_ids: string[];
   start_date: string;
   end_date: string;
   status: CycleStatus;
-  total_seats: number | null;
+  approval_chain_id: string | null;
+  current_approval_step: number;
+  fee_compliance_threshold: number;
+  fee_check_deadline: string | null;
+  temporal_mode: CycleTemporalMode;
+  posting_type: CyclePostingType;
+  escalate_after_hours: number;
+  delegated_to: string | null;
+  sites_count: number;
+  learners_count: number;
+  approved_by: string | null;
+  approved_at: string | null;
   notes: string | null;
-  created_by: string | null;
   created_at: string;
   updated_at: string;
+  created_by: string | null;
+  updated_by: string | null;
 }
 
-export type CreateCycleInput = Omit<InternshipCycle, 'id' | 'created_at' | 'updated_at'>;
-export type UpdateCycleInput = Partial<Omit<InternshipCycle, 'id' | 'created_at' | 'updated_at'>>;
+// Required-on-create per live schema NOT NULL columns without defaults:
+//   institution_id, cycle_name, start_date, end_date.
+// All other fields are either NULLABLE or have DB defaults — represent as
+// optional so callers can omit them.
+export type CreateCycleInput = {
+  institution_id: string;
+  cycle_name: string;
+  start_date: string;
+  end_date: string;
+} & Partial<Omit<InternshipCycle,
+  'id' | 'institution_id' | 'cycle_name' | 'start_date' | 'end_date'
+  | 'created_at' | 'updated_at'
+  | 'sites_count' | 'learners_count' | 'current_approval_step'
+  | 'approved_by' | 'approved_at'
+>>;
+
+export type UpdateCycleInput = Partial<Omit<InternshipCycle,
+  'id' | 'institution_id' | 'created_at' | 'updated_at'
+  | 'sites_count' | 'learners_count' | 'approved_by' | 'approved_at'
+>>;
 
 // ---------------------------------------------------------------------------
 // internship_assignments
