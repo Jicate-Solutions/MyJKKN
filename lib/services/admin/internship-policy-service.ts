@@ -278,6 +278,18 @@ export class InternshipPolicyService {
    * Fetch many policy rows by key in a single round-trip.
    * Returns a map keyed by policy key. Missing keys are simply absent from
    * the returned object — callers should treat absence as "not yet seeded".
+   *
+   * Notes:
+   * - Real table columns are `policy_key`, `scope_type`, `scope_id`, `value` (JSONB),
+   *   `description`, `updated_at`, `updated_by` (per platform_policies substrate
+   *   migration). We map them into the PolicyRow shape (`key`, `college_id`)
+   *   for the admin UI.
+   * - We filter `scope_type = 'global'` so college-scoped overrides do not bleed
+   *   into the platform-level admin page.
+   * - `value` is JSONB. PostgREST deserializes it natively (number/bool/string).
+   *   We coerce to a UI-friendly scalar string so PolicyField's `String(value)`
+   *   produces "70" rather than "[object Object]" or "" when callers receive
+   *   the wrapped row.
    */
   static async getMany(keys: string[]): Promise<Record<string, PolicyRow>> {
     if (!keys.length) return {};
@@ -285,8 +297,9 @@ export class InternshipPolicyService {
     const supabase = createClientSupabaseClient();
     const { data, error } = await supabase
       .from(PLATFORM_POLICIES_TABLE)
-      .select('key, value, description, college_id, updated_at, updated_by')
-      .in('key', keys);
+      .select('policy_key, value, description, scope_id, updated_at, updated_by')
+      .in('policy_key', keys)
+      .eq('scope_type', 'global');
 
     if (error) {
       console.error('[InternshipPolicyService.getMany]', error.message);
@@ -294,8 +307,38 @@ export class InternshipPolicyService {
     }
 
     const out: Record<string, PolicyRow> = {};
-    for (const row of (data ?? []) as PolicyRow[]) {
-      out[row.key] = row;
+    for (const raw of (data ?? []) as Array<{
+      policy_key: string;
+      value: unknown;
+      description: string | null;
+      scope_id: string | null;
+      updated_at: string;
+      updated_by: string | null;
+    }>) {
+      // JSONB primitive → string for the input field.
+      // - number 70 → "70"
+      // - boolean true → "true"
+      // - string "x" → "x"
+      // - null → null
+      // - object/array → JSON.stringify (defensive; not expected for these keys)
+      let scalar: string | null = null;
+      const v = raw.value;
+      if (v === null || v === undefined) {
+        scalar = null;
+      } else if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') {
+        scalar = String(v);
+      } else {
+        scalar = JSON.stringify(v);
+      }
+
+      out[raw.policy_key] = {
+        key: raw.policy_key,
+        value: scalar,
+        description: raw.description,
+        college_id: raw.scope_id,
+        updated_at: raw.updated_at,
+        updated_by: raw.updated_by,
+      };
     }
     return out;
   }
