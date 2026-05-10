@@ -129,6 +129,7 @@ import { LeadInlineConnectionIndicator } from '@/components/whatsapp/lead-inline
 import { showSendErrorToast } from '@/lib/whatsapp/show-send-error-toast';
 import { usePersonalWhatsAppStatus } from '@/hooks/admission/use-whatsapp-personal';
 import { HandoverBanner } from '@/components/admission/leads/handover-banner';
+import { LeadHeader } from '@/components/admission/leads/lead-header';
 import { useLeadCascadeHistory } from '@/hooks/admission/use-lead-cascade-history';
 // BUG-003016: centralised DD/MM/YYYY formatter — replaces bare
 // toLocaleDateString() calls that were rendering ambiguously depending
@@ -1372,123 +1373,31 @@ function LeadDetailPageContent() {
     <PermissionGuard module="admission" action="leads.view">
       <ContentLayout title="Lead Details">
         <div className="space-y-6">
-          {/* Breadcrumb */}
-          <Breadcrumb>
-            <BreadcrumbList>
-              <BreadcrumbItem>
-                <BreadcrumbLink href="/">Dashboard</BreadcrumbLink>
-              </BreadcrumbItem>
-              <BreadcrumbSeparator />
-              <BreadcrumbItem>
-                <BreadcrumbLink href="/admission/dashboard">Admission</BreadcrumbLink>
-              </BreadcrumbItem>
-              <BreadcrumbSeparator />
-              <BreadcrumbItem>
-                <BreadcrumbLink href="/admission/leads">Leads</BreadcrumbLink>
-              </BreadcrumbItem>
-              <BreadcrumbSeparator />
-              <BreadcrumbItem>
-                <BreadcrumbPage>{lead.full_name || 'Unknown'}</BreadcrumbPage>
-              </BreadcrumbItem>
-            </BreadcrumbList>
-          </Breadcrumb>
+          {/* Compact mobile-first header (PR-A 2026-05-10):
+              Single breadcrumb showing lead's full_name (not UUID), h1 name on its
+              own row, tappable phone/email, and Mark Hot / Mark Priority chips.
+              Replaces 5-stacked-row legacy header. */}
+          <LeadHeader
+            lead={lead}
+            isHot={!!lead.is_hot_lead}
+            onMarkHot={() => toggleHotLead.mutate({ leadId, isHot: !lead.is_hot_lead })}
+            isPriority={!!lead.is_priority}
+            onMarkPriority={() => togglePriority.mutate({ leadId, isPriority: !lead.is_priority })}
+            isReadonlyCascadedView={isReadonlyCascadedView}
+            readonlyReassignedTo={readonlyReassignedTo}
+          />
 
           {/* Phase 6: Handover history banner (spec #13, #14) — renders only when history exists */}
           <HandoverBanner leadId={leadId} />
 
-          {/* Header */}
+          {/* Header — secondary action row (Convert to Admitted, More dropdown).
+              PR-B owns the action-hierarchy redesign of this region. */}
           <div className="flex items-start justify-between">
-            <div className="flex items-center gap-4">
-              <Button variant="outline" size="icon" asChild>
-                <Link href="/admission/leads">
-                  <ArrowLeft className="h-4 w-4" />
-                </Link>
-              </Button>
-              <div>
-                <div className="flex items-center gap-3">
-                  <h1 className="text-2xl font-bold">{lead.full_name || 'Unknown'}</h1>
-                  <div className="flex gap-1 flex-wrap">
-                    {lead.is_hot_lead && (
-                      <Badge variant="outline" className="bg-orange-50 text-orange-700 border-orange-200">
-                        <Flame className="h-3 w-3 mr-1" />
-                        Hot
-                      </Badge>
-                    )}
-                    {lead.is_priority && !lead.is_hot_lead && (
-                      <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-200">
-                        <Star className="h-3 w-3 mr-1 fill-current" />
-                        Priority
-                      </Badge>
-                    )}
-                    {/* Came-via-Gate badge (2026-05-07). Visible when this lead
-                     *  was captured at the institution gate. Tooltip would
-                     *  show timestamp if shadcn Tooltip were imported here —
-                     *  for now, the timestamp is in the title attribute. */}
-                    {lead.first_gate_entry_at && (
-                      <Badge
-                        variant="outline"
-                        className="bg-emerald-50 text-emerald-700 border-emerald-200"
-                        title={`First gate entry: ${new Date(lead.first_gate_entry_at).toLocaleString('en-IN')}${
-                          (lead.gate_entry_count ?? 0) > 1
-                            ? ` · Visits: ${lead.gate_entry_count}`
-                            : ''
-                        }`}
-                      >
-                        <ScanLine className="h-3 w-3 mr-1" />
-                        Came via Gate
-                        {(lead.gate_entry_count ?? 0) > 1 && (
-                          <span className="ml-1 text-[10px] font-normal">
-                            ×{lead.gate_entry_count}
-                          </span>
-                        )}
-                      </Badge>
-                    )}
-                    {/* Phase 6 spec #14: readonly badge when this user is the FROM-counselor */}
-                    {isReadonlyCascadedView && (
-                      <Badge variant="outline" className="bg-slate-100 text-slate-700 border-slate-300">
-                        Reassigned to {readonlyReassignedTo} — read-only
-                      </Badge>
-                    )}
-                  </div>
-                </div>
-                <div className="flex items-center gap-4 mt-1 text-sm text-muted-foreground">
-                  {lead.email && (
-                    <span className="flex items-center gap-1">
-                      <Mail className="h-3 w-3" />
-                      {lead.email}
-                    </span>
-                  )}
-                  {lead.phone && (
-                    <span className="flex items-center gap-1">
-                      <Phone className="h-3 w-3" />
-                      {lead.phone}
-                    </span>
-                  )}
-                  <LeadInlineConnectionIndicator departmentId={lead.department_id} />
-                </div>
-              </div>
-            </div>
-
+            <div />
             {/* Phase 6 spec #14: disable all write-actions for the cascaded-away FROM-counselor.
                 pointer-events-none + opacity-50 communicate read-only visually.
                 No data-level enforcement here — that lives in RLS. */}
             <div className={`flex items-center gap-2 ${isReadonlyCascadedView ? 'pointer-events-none opacity-50' : ''}`}>
-              <Button
-                variant={lead.is_hot_lead ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => toggleHotLead.mutate({ leadId, isHot: !lead.is_hot_lead })}
-              >
-                <Flame className="h-4 w-4 mr-1" />
-                {lead.is_hot_lead ? 'Hot' : 'Mark Hot'}
-              </Button>
-              <Button
-                variant={lead.is_priority ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => togglePriority.mutate({ leadId, isPriority: !lead.is_priority })}
-              >
-                <Star className="h-4 w-4 mr-1" />
-                {lead.is_priority ? 'Priority' : 'Mark Priority'}
-              </Button>
               {/* Convert to Admitted — shows "View Learner Profile" once converted */}
               {lead.learner_profile_id ? (
                 <>
