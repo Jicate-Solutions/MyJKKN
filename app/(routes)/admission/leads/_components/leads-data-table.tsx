@@ -2,7 +2,6 @@
 
 import { DataTable } from '@/components/data-table/data-table';
 import { getLeadColumns, FUNNEL_STAGES } from './columns';
-import { ProgramTabs } from './program-tabs';
 import { ConsultantService } from '@/lib/services/admission/consultant-service';
 import { Button } from '@/components/ui/button';
 import { Plus, TrashIcon, Flame, Star, Loader2, Filter, X, RefreshCw } from 'lucide-react';
@@ -57,6 +56,25 @@ export function LeadsDataTable() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [refetchKey, setRefetchKey] = useState(0);
   const [isRefreshing, setIsRefreshing] = useState(false);
+
+  // Filter changes need to (a) bump refetchKey so the DataTable refetches AND
+  // (b) reset the URL's ?page= param to 1. Without the page reset, switching
+  // a filter while on page 5 of unfiltered results lands the user on page 5
+  // of the filtered set — which is usually beyond the new last page, so the
+  // API returns an empty page and the table looks broken/unfiltered.
+  const bumpRefetchAndResetPage = useCallback(() => {
+    setRefetchKey((prev) => prev + 1);
+    // Use replaceState (not router.replace) to avoid a Next.js navigation
+    // round-trip — we just want to drop `page` from the URL bar; the
+    // DataTable's URL-state hook will pick up page=1 on its next read.
+    if (typeof window !== 'undefined') {
+      const url = new URL(window.location.href);
+      if (url.searchParams.has('page')) {
+        url.searchParams.delete('page');
+        window.history.replaceState(null, '', url.toString());
+      }
+    }
+  }, []);
 
   // Auto-refetch when page becomes visible (e.g., user navigates back from lead detail/create)
   useEffect(() => {
@@ -157,15 +175,12 @@ export function LeadsDataTable() {
     ? undefined
     : profile?.institution_id;
   const institutionId = collegeFilter || baseInstitutionId;
-  // Institution used by ProgramTabs — tabs only show when we have a single
-  // institution in focus. For global users without a college selected, tabs
-  // hide entirely.
-  const tabsInstitutionId = institutionId || null;
 
   // Programs list for the main-row Programs Select (promoted from the
   // secondary ProgramTabs strip on 2026-05-04 to make the dimension a
-  // discoverable filter chip alongside Stage / College / Source). Mirrors
-  // the data ProgramTabs already fetches; both components hit the same
+  // discoverable filter chip alongside Stage / College / Source). The
+  // secondary horizontal strip was retired entirely 2026-05-11 — the
+  // dropdown is the single source of truth for program filtering.
   // /api/admission/leads/program-counts endpoint, so the browser cache
   // absorbs the duplicate request and there is no observable extra cost.
   const [programOptions, setProgramOptions] = useState<
@@ -398,18 +413,18 @@ export function LeadsDataTable() {
     if (isSuperAdmin || isAdmissionGlobalUser) {
       setCollegeFilter(null);
     }
-    setRefetchKey((prev) => prev + 1);
-  }, [isSuperAdmin, isAdmissionGlobalUser]);
+    bumpRefetchAndResetPage();
+  }, [isSuperAdmin, isAdmissionGlobalUser, bumpRefetchAndResetPage]);
 
   const clearStaleFilter = useCallback(() => {
     setStaleMinDays(null);
-    setRefetchKey((prev) => prev + 1);
-  }, []);
+    bumpRefetchAndResetPage();
+  }, [bumpRefetchAndResetPage]);
 
   const handleProgramSelect = useCallback((programId: string | null) => {
     setProgramFilter(programId);
-    setRefetchKey((prev) => prev + 1);
-  }, []);
+    bumpRefetchAndResetPage();
+  }, [bumpRefetchAndResetPage]);
 
   const handleCollegeSelect = useCallback((value: string) => {
     const next = value === '_all' ? null : value;
@@ -417,8 +432,8 @@ export function LeadsDataTable() {
     // Changing the college invalidates the active program selection since
     // programs are institution-scoped.
     setProgramFilter(null);
-    setRefetchKey((prev) => prev + 1);
-  }, []);
+    bumpRefetchAndResetPage();
+  }, [bumpRefetchAndResetPage]);
 
   const renderCustomToolbar = (props: {
     selectedRows: any[];
@@ -466,18 +481,19 @@ export function LeadsDataTable() {
           </Button>
         </div>
 
-        {/* Filter dropdowns — wrap onto subsequent rows when the row is full.
-            Left-aligned at every breakpoint so a wrapped row doesn't show
-            unexplained empty space at the start of the line. */}
-        <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+        {/* Filter dropdowns — on mobile the chips form a 2-column grid so each
+            occupies half the row, no horizontal overflow. From sm+ they
+            collapse back to inline flex-wrap. flex-1 + min-w on each
+            SelectTrigger lets them share the row width gracefully. */}
+        <div className="grid grid-cols-2 gap-2 w-full sm:flex sm:flex-wrap sm:items-center sm:w-auto">
           <Select
             value={stageFilter}
             onValueChange={(value) => {
               setStageFilter(value);
-              setRefetchKey((prev) => prev + 1);
+              bumpRefetchAndResetPage();
             }}
           >
-            <SelectTrigger className="w-[130px] sm:w-[160px] h-8 text-xs shrink-0">
+            <SelectTrigger className="w-full min-w-[110px] sm:w-[160px] h-8 text-xs flex-1 sm:flex-none">
               <SelectValue placeholder="All Stages" />
             </SelectTrigger>
             <SelectContent>
@@ -499,7 +515,7 @@ export function LeadsDataTable() {
               value={collegeFilter ?? '_all'}
               onValueChange={handleCollegeSelect}
             >
-              <SelectTrigger className="w-[140px] sm:w-[200px] h-8 text-xs shrink-0">
+              <SelectTrigger className="w-full min-w-[120px] sm:w-[200px] h-8 text-xs flex-1 sm:flex-none">
                 <SelectValue placeholder="All Colleges" />
               </SelectTrigger>
               <SelectContent>
@@ -524,7 +540,7 @@ export function LeadsDataTable() {
             }
             disabled={!institutionId}
           >
-            <SelectTrigger className="w-[140px] sm:w-[180px] h-8 text-xs shrink-0">
+            <SelectTrigger className="w-full min-w-[120px] sm:w-[180px] h-8 text-xs flex-1 sm:flex-none">
               <SelectValue
                 placeholder={institutionId ? 'All Programs' : 'Pick college'}
               />
@@ -543,10 +559,10 @@ export function LeadsDataTable() {
             value={sourceFilter}
             onValueChange={(value) => {
               setSourceFilter(value);
-              setRefetchKey((prev) => prev + 1);
+              bumpRefetchAndResetPage();
             }}
           >
-            <SelectTrigger className="w-[120px] sm:w-[150px] h-8 text-xs shrink-0">
+            <SelectTrigger className="w-full min-w-[110px] sm:w-[150px] h-8 text-xs flex-1 sm:flex-none">
               <SelectValue placeholder="All Sources" />
             </SelectTrigger>
             <SelectContent>
@@ -568,7 +584,7 @@ export function LeadsDataTable() {
               onClick={() => {
                 const newVal = priorityFilter === 'hot' ? '_all' : 'hot';
                 setPriorityFilter(newVal);
-                setRefetchKey((prev) => prev + 1);
+                bumpRefetchAndResetPage();
               }}
             >
               <Flame className="h-3.5 w-3.5" />
@@ -582,7 +598,7 @@ export function LeadsDataTable() {
               onClick={() => {
                 const newVal = priorityFilter === 'warm' ? '_all' : 'warm';
                 setPriorityFilter(newVal);
-                setRefetchKey((prev) => prev + 1);
+                bumpRefetchAndResetPage();
               }}
             >
               <Star className="h-3.5 w-3.5" />
@@ -621,13 +637,13 @@ export function LeadsDataTable() {
         </div>
       </div>
 
-      {/* Course/Program tab strip — hidden until a single institution is in focus */}
-      <ProgramTabs
-        institutionId={tabsInstitutionId}
-        selectedProgramId={programFilter}
-        onSelect={handleProgramSelect}
-        refetchKey={refetchKey}
-      />
+      {/* Course/Program tab strip removed 2026-05-11 — the primary Programs
+          dropdown in the filter row already shows program names + lead
+          counts and is responsive on mobile. The horizontal strip used
+          overflow-x-auto which forced an awkward scroll on narrow viewports
+          and visually duplicated the dropdown. The dropdown reads
+          programOptions populated by the same /api/admission/leads/program-counts
+          endpoint that previously fed the strip. */}
 
       {/* Stale filter pill — visible whenever ?stale_min_days=N is active.
           Driven by the dashboard:rescue daily-digest deep-link. Click X to
@@ -682,7 +698,7 @@ export function LeadsDataTable() {
               value={counselorFilter}
               onValueChange={(value) => {
                 setCounselorFilter(value);
-                setRefetchKey((prev) => prev + 1);
+                bumpRefetchAndResetPage();
               }}
             >
               <SelectTrigger className="w-full sm:w-[180px] h-8 text-xs">
@@ -703,7 +719,7 @@ export function LeadsDataTable() {
                 value={expoFilter}
                 onValueChange={(value) => {
                   setExpoFilter(value);
-                  setRefetchKey((prev) => prev + 1);
+                  bumpRefetchAndResetPage();
                 }}
               >
                 <SelectTrigger className="w-full sm:w-[180px] h-8 text-xs">

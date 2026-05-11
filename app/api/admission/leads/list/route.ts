@@ -212,25 +212,33 @@ export async function GET(request: NextRequest) {
     //    visibility — they must see only their directly-assigned leads.
     const scope = await getCounselorScope(supabase, user.id);
 
-    // 5a. Apply institution scoping for NON-strict-counselor users.
-    //     Strict counselors are intrinsically scoped via the OR filter
-    //     in 5b (counselor_id / assigned_counselor_id), which is much
-    //     tighter than any institution filter — they don't need a
-    //     redundant institution_id constraint and might legitimately
-    //     own leads across institutions if assigned that way.
-    if (!scope.isStrictCounselor) {
-      if (institutionId) {
-        query = query.eq('institution_id', institutionId);
-      } else if (!isAdmissionGlobalUser) {
-        if (!profile.institution_id) {
-          // User has no institution assigned — return empty result
-          return NextResponse.json({
-            data: [],
-            metadata: { total: 0, page, limit, totalPages: 0 },
-          });
-        }
-        query = query.eq('institution_id', profile.institution_id);
+    // 5a. Institution scoping.
+    //
+    // Two flavours:
+    //   - EXPLICIT (user picked an institution from the College dropdown):
+    //     always honored, regardless of strict-counselor status. The user
+    //     wants to narrow further to that one institution.
+    //   - IMPLICIT (no UI selection): only applied for non-strict-counselor
+    //     non-global users — clamps them to their own profile.institution_id.
+    //     Strict counselors' visibility is governed entirely by the OR clause
+    //     in 5b (counselor_id / assigned_counselor_id), since they may
+    //     legitimately own leads across institutions if assigned that way.
+    //
+    // 2026-05-11: previously the EXPLICIT branch was nested inside
+    // `if (!scope.isStrictCounselor)`, so a counselor's College dropdown
+    // selection was silently dropped — they saw their full cross-institution
+    // scope despite picking one institution. Moved out so user intent wins.
+    if (institutionId) {
+      query = query.eq('institution_id', institutionId);
+    } else if (!scope.isStrictCounselor && !isAdmissionGlobalUser) {
+      if (!profile.institution_id) {
+        // User has no institution assigned — return empty result
+        return NextResponse.json({
+          data: [],
+          metadata: { total: 0, page, limit, totalPages: 0 },
+        });
       }
+      query = query.eq('institution_id', profile.institution_id);
     }
 
     // 5b. Counselor visibility — mirrors the RLS in
