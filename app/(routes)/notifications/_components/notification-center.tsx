@@ -222,6 +222,15 @@ export function NotificationCenter() {
           )}
         </div>
         <div className="flex items-center gap-2">
+          {/* Sent → outbox link (companion to inbox; closes the
+              "I broadcast something but can't verify it" audit gap) */}
+          <Link href="/notifications/sent">
+            <Button variant="ghost" size="sm" className="text-xs h-8">
+              <span className="hidden sm:inline">Sent</span>
+              <span className="sm:hidden">↗</span>
+              <span className="ml-1" aria-hidden>→</span>
+            </Button>
+          </Link>
           {unreadCount > 0 && (
             <Button
               variant="ghost"
