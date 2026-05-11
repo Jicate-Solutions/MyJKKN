@@ -494,7 +494,7 @@ function EditCounselorDialog({
       setName(counselor.name || '');
       setEmail(counselor.email || '');
       setPhone(counselor.phone || '');
-      setMaxLeads(counselor.max_leads || 50);
+      setMaxLeads(counselor.max_leads || 5000);
     }
   }, [counselor, open]);
 
@@ -1399,7 +1399,7 @@ export function CounselorList({ onRefresh, institutionId, isGlobalUser }: Counse
             email: profile.email,
             phone: profile.phone_number,
             is_active: true,
-            max_leads: 50,
+            max_leads: 5000,
             current_leads: 0,
             assigned_lead_count: 0,
             sources_count: 0,
