@@ -32,7 +32,6 @@
 // ============================================================================
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
-import { createServiceRoleClient } from '@/lib/supabase/server';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -172,7 +171,8 @@ interface PrincipalSnapshot {
 async function loadPrincipalSnapshot(
   profileId: string,
 ): Promise<PrincipalSnapshot> {
-  const supabase = createServiceRoleClient();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const supabase = createClientSupabaseClient() as any;
 
   const [profileResult, rolesResult, consultantResult] = await Promise.all([
     supabase
@@ -557,7 +557,8 @@ export async function setAccessRuleActive(
 async function fetchActiveRules(
   ruleType: PortalAccessRuleType,
 ): Promise<ConsultantPortalAccessRow[]> {
-  const supabase = createServiceRoleClient();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const supabase = createClientSupabaseClient() as any;
   const { data, error } = await supabase
     .from('consultant_portal_access_policy')
     .select('*')

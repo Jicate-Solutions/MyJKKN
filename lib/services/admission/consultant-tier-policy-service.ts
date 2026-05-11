@@ -23,7 +23,6 @@
 // ============================================================================
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
-import { createServiceRoleClient } from '@/lib/supabase/server';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -163,7 +162,8 @@ export async function getTierForConversions(
   if (cached) return cached;
 
   try {
-    const supabase = createServiceRoleClient();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const supabase = createClientSupabaseClient() as any;
     const { data, error } = await supabase.rpc(
       'fn_get_consultant_tier_for_conversions',
       {
