@@ -238,22 +238,24 @@ function CounselorRowActions({ counselor }: { counselor: CounselorRecord }) {
           <Pencil className="mr-2 h-4 w-4" />
           Edit
         </DropdownMenuItem>
-        <DropdownMenuItem
-          onSelect={() => openGuardrailDialog('toggle', counselor)}
-          disabled={busy}
-        >
-          {counselor.is_active ? (
-            <>
-              <ToggleRight className="mr-2 h-4 w-4" />
-              Deactivate
-            </>
-          ) : (
-            <>
-              <ToggleLeft className="mr-2 h-4 w-4" />
-              Activate
-            </>
-          )}
-        </DropdownMenuItem>
+        {canDelete && (
+          <DropdownMenuItem
+            onSelect={() => openGuardrailDialog('toggle', counselor)}
+            disabled={busy}
+          >
+            {counselor.is_active ? (
+              <>
+                <ToggleRight className="mr-2 h-4 w-4" />
+                Deactivate
+              </>
+            ) : (
+              <>
+                <ToggleLeft className="mr-2 h-4 w-4" />
+                Activate
+              </>
+            )}
+          </DropdownMenuItem>
+        )}
         {canDelete && (
           <>
             <DropdownMenuSeparator />
@@ -1929,22 +1931,24 @@ export function CounselorList({ onRefresh, institutionId, isGlobalUser }: Counse
             <ArrowRightCircle className="mr-1.5 h-3.5 w-3.5" />
             Assign to Sources
           </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            className="h-8"
-            onClick={() =>
-              setBulkDialog({
-                open: true,
-                mode: 'deactivate',
-                rows: props.selectedRows,
-                isRunning: false,
-              })
-            }
-          >
-            <ToggleRight className="mr-1.5 h-3.5 w-3.5" />
-            Deactivate
-          </Button>
+          {canDelete && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-8"
+              onClick={() =>
+                setBulkDialog({
+                  open: true,
+                  mode: 'deactivate',
+                  rows: props.selectedRows,
+                  isRunning: false,
+                })
+              }
+            >
+              <ToggleRight className="mr-1.5 h-3.5 w-3.5" />
+              Deactivate
+            </Button>
+          )}
           {canDelete && (
             <Button
               size="sm"

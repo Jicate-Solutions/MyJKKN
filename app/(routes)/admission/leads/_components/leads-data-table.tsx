@@ -41,9 +41,12 @@ export function LeadsDataTable() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { canAccess, isSuperAdmin, isAdmissionGlobalUser } = usePermissions();
-  const canBulkDelete = isSuperAdmin || isAdmissionGlobalUser
-    || canAccess('admission', 'leads.delete')
-    || canAccess('admission', 'leads.edit');
+  // 2026-05-11 fix: dropped `isAdmissionGlobalUser` (visibility scope, not a
+  // destructive-action gate) and `leads.edit` (orthogonal to delete) from this
+  // check. Both made the bulk Delete button visible to admission_counselor /
+  // expo_counselor users who have the .edit perm but never the .delete one.
+  // Now matches the per-row canDelete shape in row-actions.tsx.
+  const canBulkDelete = isSuperAdmin || canAccess('admission', 'leads.delete');
   const { profile } = useAuth();
   const { options: leadSources } = useActiveLeadSources({
     institutionId: profile?.institution_id ?? null,
