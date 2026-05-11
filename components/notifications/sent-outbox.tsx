@@ -252,13 +252,15 @@ export function SentOutbox() {
             const ink = getInk(row.priority);
             const readPct = formatPct(row.read_count, row.recipient_count);
             return (
-              <article
+              <Link
                 key={row.id}
-                className="group grid gap-3 px-6 py-4 border-b last:border-b-0"
+                href={`/admin/notifications/${row.id}`}
+                className="group grid gap-3 px-6 py-4 border-b last:border-b-0 transition-colors hover:bg-stone-100/40 dark:hover:bg-stone-900/40 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-inset"
                 style={{
                   borderBottomColor: 'rgba(13,13,13,0.08)',
                   gridTemplateColumns: 'auto 1fr auto'
                 }}
+                aria-label={`View details and recipient analytics for: ${row.title}`}
               >
                 {/* Severity ribbon */}
                 <div
@@ -345,7 +347,7 @@ export function SentOutbox() {
                     {readPct} read
                   </div>
                 </div>
-              </article>
+              </Link>
             );
           })}
         </div>
