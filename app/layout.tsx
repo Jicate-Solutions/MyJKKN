@@ -202,29 +202,12 @@ export default function RootLayout({
                     cookie is active. Non-dismissible by design. */}
                 <PreviewBanner />
                 <PushNotificationProvider>{children}</PushNotificationProvider>
+                <InstallPromptBanner />
                 <SpeedInsights />
               </PWAProvider>
             </AuthProvider>
           </ThemeProvider>
         </ReactQueryProvider>
-        <ThemeProvider
-          attribute='class'
-          defaultTheme='light'
-          enableSystem
-          disableTransitionOnChange
-          storageKey='theme-preference'
-        >
-          <AuthProvider>
-            <PWAProvider>
-              {/* Sticky preview banner — renders only when a preview session
-                  cookie is active. Non-dismissible by design. */}
-              <PreviewBanner />
-              <PushNotificationProvider>{children}</PushNotificationProvider>
-              <InstallPromptBanner />
-              <SpeedInsights />
-            </PWAProvider>
-          </AuthProvider>
-        </ThemeProvider>
         <Script
           src='https://accounts.google.com/gsi/client'
           strategy='lazyOnload'

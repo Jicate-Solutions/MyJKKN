@@ -352,13 +352,16 @@ export function BottomNavbar() {
     }
   }, [currentActivePage, setActivePage, isLoading, setMinimized]);
 
-  // Sync activeNavId with pathname when it changes (but not while user is browsing)
+  // Sync activeNavId with pathname when it changes (but not while user is browsing).
+  // Use the primitive id string as the dep — the group object reference changes on every
+  // render (filteredPages depends on pathname), which would cause an infinite setState loop
+  // if the full object were in the deps array.
+  const currentActiveGroupId = currentActiveGroup?.id ?? null;
   useEffect(() => {
-    // Only sync when not expanded - don't override user's manual selection while browsing
-    if (!isExpanded && currentActiveGroup && currentActiveGroup.id !== activeNavId) {
-      setActiveNav(currentActiveGroup.id);
+    if (!isExpanded && currentActiveGroupId && currentActiveGroupId !== activeNavId) {
+      setActiveNav(currentActiveGroupId);
     }
-  }, [currentActiveGroup, activeNavId, setActiveNav, isExpanded]);
+  }, [currentActiveGroupId, activeNavId, setActiveNav, isExpanded]);
 
   // Handle nav item click - simplified toggle logic with atomic state update
   const handleNavClick = useCallback(

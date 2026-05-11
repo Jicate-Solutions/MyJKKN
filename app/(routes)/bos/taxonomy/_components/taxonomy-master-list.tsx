@@ -73,11 +73,19 @@ export function TaxonomyMasterList() {
     ];
   }, [rows]);
 
-  // Client-side filter by name (matches all institution copies of the same taxonomy).
-  const displayedRows = useMemo(
-    () => (filterName ? rows.filter((r) => r.name === filterName) : rows),
-    [rows, filterName]
-  );
+  // Client-side filter by name, then deduplicate by (code, institution_name).
+  // Two institution records can share the same display_name (e.g. CAS Aided vs Self),
+  // causing identical system-taxonomy rows to appear twice in the All Institutions view.
+  const displayedRows = useMemo(() => {
+    const filtered = filterName ? rows.filter((r) => r.name === filterName) : rows;
+    const seen = new Set<string>();
+    return filtered.filter((r) => {
+      const key = `${r.code}::${r.institution_name ?? ''}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }, [rows, filterName]);
 
   const hasActiveFilters = !!institutionsId || !!filterName;
 
