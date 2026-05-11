@@ -811,12 +811,6 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "label": "Whatsapp Limits",
         "iconName": "FileText",
         "children": []
-      },
-      {
-        "path": "/admin/whatsapp-limits",
-        "label": "Whatsapp Limits",
-        "iconName": "FileText",
-        "children": []
       }
     ]
   },
@@ -1675,8 +1669,15 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       {
         "path": "/bos/courses",
         "label": "Courses",
-        "iconName": "FileText",
-        "children": []
+        "iconName": "BookOpen",
+        "children": [
+          {
+            "path": "/bos/courses/new",
+            "label": "New",
+            "iconName": "Plus",
+            "children": []
+          }
+        ]
       },
       {
         "path": "/bos/experts",
@@ -1709,6 +1710,19 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "label": "Reports",
         "iconName": "FileBarChart",
         "children": []
+      },
+      {
+        "path": "/bos/sop",
+        "label": "Sop",
+        "iconName": "FileText",
+        "children": [
+          {
+            "path": "/bos/sop/new",
+            "label": "New",
+            "iconName": "Plus",
+            "children": []
+          }
+        ]
       },
       {
         "path": "/bos/syllabus",
@@ -2817,6 +2831,19 @@ export const ROUTE_MANIFEST: RouteNode[] = [
     "iconName": "FileText",
     "children": [
       {
+        "path": "/internships/cycles",
+        "label": "Cycles",
+        "iconName": "RotateCw",
+        "children": [
+          {
+            "path": "/internships/cycles/new",
+            "label": "New",
+            "iconName": "Plus",
+            "children": []
+          }
+        ]
+      },
+      {
         "path": "/internships/preceptors",
         "label": "Preceptors",
         "iconName": "FileText",
@@ -2836,6 +2863,19 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "children": [
           {
             "path": "/internships/sites/new",
+            "label": "New",
+            "iconName": "Plus",
+            "children": []
+          }
+        ]
+      },
+      {
+        "path": "/internships/vehicles",
+        "label": "Vehicles",
+        "iconName": "FileText",
+        "children": [
+          {
+            "path": "/internships/vehicles/new",
             "label": "New",
             "iconName": "Plus",
             "children": []
@@ -2964,18 +3004,18 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       {
         "path": "/learners/my-marks",
         "label": "My Marks",
-        "iconName": "FileText",
+        "iconName": "GraduationCap",
         "children": [
           {
             "path": "/learners/my-marks/internal",
             "label": "Internal",
-            "iconName": "FileText",
+            "iconName": "GraduationCap",
             "children": []
           },
           {
             "path": "/learners/my-marks/result",
             "label": "Result",
-            "iconName": "FileText",
+            "iconName": "GraduationCap",
             "children": []
           }
         ]

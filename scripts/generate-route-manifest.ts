@@ -295,7 +295,17 @@ function walk(absDir: string, urlSoFar: string): RouteNode[] {
 
   // Stable sort: alphabetical by path
   out.sort((a, b) => a.path.localeCompare(b.path));
-  return out;
+
+  // Dedup by path — guards against the rare case where a route group
+  // passthrough (seg === '') merges children that already exist at this
+  // level, which would otherwise emit duplicate sibling entries and trip
+  // React's "two children with the same key" warning in <AutoTabNav>.
+  const seen = new Set<string>();
+  return out.filter((node) => {
+    if (seen.has(node.path)) return false;
+    seen.add(node.path);
+    return true;
+  });
 }
 
 function emit(tree: RouteNode[]): string {
