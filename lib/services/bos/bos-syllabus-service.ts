@@ -12,7 +12,7 @@ import {
 /**
  * Service for Course Syllabus Management.
  *
- * Uses fetch() to call MyJKKN's proxy API routes (app/api/bos/syllabi/).
+ * Uses fetch() to call MyJKKN's proxy API routes (app/api/bos/syllabus/).
  * The proxy routes authenticate the user, then query MyJKKN Supabase database.
  * This keeps business logic on the backend.
  *
@@ -24,7 +24,7 @@ import {
  * - Taxonomy management per regulation
  */
 export class BosSyllabusService {
-  private static baseUrl = '/api/bos/syllabi';
+  private static baseUrl = '/api/bos/syllabus';
 
   // ── CRUD Operations ─────────────────────────────────────────────────
 

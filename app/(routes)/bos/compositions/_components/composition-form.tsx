@@ -18,13 +18,7 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
+import { SearchableSelect } from '@/components/ui/searchable-select';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 
@@ -173,7 +167,7 @@ export function CompositionForm({
         if (!r.ok) throw new Error(`Boards fetch failed: ${r.status}`);
         return r.json();
       })
-      .then((list) => setBoards(Array.isArray(list) ? list : []))
+      .then((list) => setBoards(Array.isArray(list) ? list : (list?.data ?? [])))
       .catch((err) => {
         logger.error('academic/bos', 'Failed to fetch boards', err);
         setBoards([]);
@@ -225,20 +219,14 @@ export function CompositionForm({
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Institution <span className='text-destructive'>*</span></FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value}>
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder='Select institution first' />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {institutions.map((inst) => (
-                          <SelectItem key={inst.id} value={inst.id}>
-                            {inst.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <SearchableSelect
+                      value={field.value}
+                      onValueChange={field.onChange}
+                      options={institutions.map(inst => ({ value: inst.id, label: inst.name }))}
+                      placeholder='Select institution'
+                      searchPlaceholder='Search institution…'
+                      className='w-full'
+                    />
                     <FormMessage />
                   </FormItem>
                 )}
@@ -261,28 +249,16 @@ export function CompositionForm({
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>Board <span className='text-destructive'>*</span></FormLabel>
-                  <Select
-                    onValueChange={field.onChange}
+                  <SearchableSelect
                     value={field.value}
-                    disabled={!institutionsId || loadingBoards}
-                  >
-                    <FormControl>
-                      <SelectTrigger>
-                        <SelectValue placeholder={
-                          !institutionsId ? 'Select institution first'
-                          : loadingBoards ? 'Loading boards...'
-                          : 'Select board'
-                        } />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      {boards.map((b) => (
-                        <SelectItem key={b.id} value={b.id}>
-                          {b.board_name} ({b.board_code})
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                    onValueChange={field.onChange}
+                    options={boards.map(b => ({ value: b.id, label: `${b.board_name} (${b.board_code})` }))}
+                    placeholder={!institutionsId ? 'Select institution first' : loadingBoards ? 'Loading boards...' : 'Select board'}
+                    searchPlaceholder='Search board…'
+                    loading={loadingBoards}
+                    disabled={!institutionsId}
+                    className='w-full'
+                  />
                   <FormDescription>
                     The BoS board this composition belongs to.
                   </FormDescription>

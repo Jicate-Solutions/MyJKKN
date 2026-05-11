@@ -1,44 +1,69 @@
 'use client';
 
 import { useRouter, useParams } from 'next/navigation';
-import { useEffect, useState } from 'react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { useQuery } from '@tanstack/react-query';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Badge } from '@/components/ui/badge';
 import { ArrowLeft } from 'lucide-react';
 import { BosRegulationTaxonomy } from '@/types/bos';
 import { TaxonomyForm } from '../_components/taxonomy-form';
+import { ProgrammeOutcomesEditor } from '../_components/programme-outcomes-editor';
+
+interface Regulation {
+  id: string;
+  title: string;
+  regulation_year: string;
+  regulation_code: string;
+}
 
 export default function EditTaxonomyPage() {
   const router = useRouter();
   const params = useParams();
   const regulationId = params.regulationId as string;
 
-  const [regulation, setRegulation] = useState<{ id: string; name: string; code: string } | null>(null);
-  const [taxonomy, setTaxonomy] = useState<BosRegulationTaxonomy | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const regulationsQuery = useQuery<Regulation[]>({
+    queryKey: ['bos', 'regulations'],
+    queryFn: async () => {
+      const res = await fetch('/api/bos/regulations');
+      if (!res.ok) throw new Error('Failed to load regulations');
+      const json = await res.json();
+      return json.data ?? [];
+    },
+    staleTime: 5 * 60 * 1000,
+  });
 
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const taxRes = await fetch(`/api/bos/taxonomy/${regulationId}`);
-        if (!taxRes.ok && taxRes.status !== 404) {
-          throw new Error('Failed to fetch taxonomy');
-        }
-        const taxData = taxRes.status === 200 ? await taxRes.json() : null;
-        setTaxonomy(taxData);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to load taxonomy');
-      } finally {
-        setIsLoading(false);
+  const regulation = (regulationsQuery.data ?? []).find((r) => r.id === regulationId);
+  const regulationLabel = regulation
+    ? `${regulation.title} (${regulation.regulation_code})`
+    : regulationId;
+
+  const taxonomyQuery = useQuery<BosRegulationTaxonomy | null>({
+    // Distinct key from useBosTaxonomy (which shares ['bos','taxonomy',id]) to avoid
+    // key collision and unwanted error propagation between this page and the syllabus form.
+    queryKey: ['bos', 'regulation-taxonomy-config', regulationId],
+    queryFn: async () => {
+      const res = await fetch(`/api/bos/taxonomy/${regulationId}`);
+      if (res.status === 404) return null;
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Failed to load taxonomy');
       }
-    };
+      return res.json();
+    },
+    enabled: !!regulationId,
+    retry: false,
+  });
 
-    if (regulationId) {
-      fetchData();
-    }
-  }, [regulationId]);
+  const isLoading = taxonomyQuery.isLoading || regulationsQuery.isLoading;
+  const isConfigured = !!taxonomyQuery.data;
 
   if (isLoading) {
     return (
@@ -46,7 +71,8 @@ export default function EditTaxonomyPage() {
         <Skeleton className='h-10 w-32' />
         <Card>
           <CardHeader>
-            <Skeleton className='h-6 w-48' />
+            <Skeleton className='h-6 w-64' />
+            <Skeleton className='h-4 w-48' />
           </CardHeader>
           <CardContent>
             <div className='space-y-4'>
@@ -60,22 +86,20 @@ export default function EditTaxonomyPage() {
     );
   }
 
-  if (error) {
+  if (taxonomyQuery.error) {
     return (
       <div className='space-y-6'>
-        <Button
-          variant='ghost'
-          size='sm'
-          onClick={() => router.back()}
-          className='gap-2'
-        >
+        <Button variant='ghost' size='sm' onClick={() => router.back()} className='gap-2'>
           <ArrowLeft className='h-4 w-4' />
           Back
         </Button>
-
         <Card>
           <CardContent className='pt-6'>
-            <div className='text-center text-red-600'>{error}</div>
+            <p className='text-center text-destructive'>
+              {taxonomyQuery.error instanceof Error
+                ? taxonomyQuery.error.message
+                : 'Failed to load taxonomy'}
+            </p>
           </CardContent>
         </Card>
       </div>
@@ -84,27 +108,66 @@ export default function EditTaxonomyPage() {
 
   return (
     <div className='space-y-6'>
+      {/* Header */}
       <div className='flex items-center gap-2'>
         <Button
           variant='ghost'
           size='sm'
-          onClick={() => router.back()}
+          onClick={() => router.push('/bos/taxonomy')}
           className='gap-2'
         >
           <ArrowLeft className='h-4 w-4' />
-          Back
+          Back to Taxonomy
         </Button>
       </div>
 
+      {/* Step 1 — Framework & K-Values */}
       <Card>
         <CardHeader>
-          <CardTitle>Manage Regulation Taxonomy</CardTitle>
+          <div className='flex items-center gap-2'>
+            <CardTitle>Step 1 — Framework & K-Values</CardTitle>
+            <Badge variant='outline' className='text-xs'>
+              {regulationLabel}
+            </Badge>
+          </div>
           <CardDescription>
-            Configure learning outcome frameworks (K-values, Programme Outcomes, Programme Specific Outcomes)
+            Select a taxonomy framework and define the knowledge levels (K1, K2, …).
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <TaxonomyForm regulationId={regulationId} initialData={taxonomy} />
+          <TaxonomyForm
+            regulationId={regulationId}
+            initialData={taxonomyQuery.data ?? null}
+          />
+        </CardContent>
+      </Card>
+
+      {/* Step 2 — Programme Outcomes */}
+      <Card>
+        <CardHeader>
+          <div className='flex items-center gap-2'>
+            <CardTitle>Step 2 — Programme Outcomes</CardTitle>
+            {!isConfigured && (
+              <Badge variant='secondary' className='text-xs'>
+                Save Step 1 first
+              </Badge>
+            )}
+          </div>
+          <CardDescription>
+            Configure POs and PSOs per programme. Only the board chairman for each programme
+            can edit outcomes. Board members can view. Others have no access.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {isConfigured ? (
+            <ProgrammeOutcomesEditor regulationId={regulationId} />
+          ) : (
+            <div className='text-center py-8 border rounded-md border-dashed'>
+              <p className='text-sm text-muted-foreground'>
+                Save the taxonomy framework above before configuring programme outcomes.
+              </p>
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>

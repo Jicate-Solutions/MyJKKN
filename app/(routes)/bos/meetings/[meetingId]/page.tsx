@@ -440,7 +440,7 @@ export default function MeetingDetailPage({ params }: MeetingDetailPageProps) {
                 )}
               </TabsTrigger>
               <TabsTrigger value='documents'>Documents</TabsTrigger>
-              <TabsTrigger value='syllabi'>Syllabi</TabsTrigger>
+              <TabsTrigger value='syllabus'>Syllabus</TabsTrigger>
             </TabsList>
 
             <TabsContent value='agenda'>
@@ -463,7 +463,7 @@ export default function MeetingDetailPage({ params }: MeetingDetailPageProps) {
               />
             </TabsContent>
 
-            <TabsContent value='syllabi'>
+            <TabsContent value='syllabus'>
               <SyllabusTab
                 meetingId={meetingId}
                 regulationId={meeting.regulation_id}

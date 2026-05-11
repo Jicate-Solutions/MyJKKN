@@ -24,6 +24,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { SearchableSelect } from '@/components/ui/searchable-select';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
@@ -167,7 +168,7 @@ export function MeetingForm({ meeting, isSubmitting, onSubmit, onCancel }: Meeti
         if (!r.ok) throw new Error(`Boards fetch failed: ${r.status}`);
         return r.json();
       })
-      .then((list) => setBoards(Array.isArray(list) ? list : []))
+      .then((list) => setBoards(Array.isArray(list) ? list : (list?.data ?? [])))
       .catch((err) => {
         logger.error('academic/bos', 'Failed to fetch boards', err);
         setBoards([]);
@@ -246,20 +247,14 @@ export function MeetingForm({ meeting, isSubmitting, onSubmit, onCancel }: Meeti
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Institution <span className='text-destructive'>*</span></FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value}>
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder='Select institution first' />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {institutions.map((inst) => (
-                          <SelectItem key={inst.id} value={inst.id}>
-                            {inst.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <SearchableSelect
+                      value={field.value}
+                      onValueChange={field.onChange}
+                      options={institutions.map((inst) => ({ value: inst.id, label: inst.name }))}
+                      placeholder='Select institution'
+                      searchPlaceholder='Search institution…'
+                      className='w-full'
+                    />
                     <FormMessage />
                   </FormItem>
                 )}
@@ -282,28 +277,16 @@ export function MeetingForm({ meeting, isSubmitting, onSubmit, onCancel }: Meeti
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Board <span className='text-destructive'>*</span></FormLabel>
-                    <Select
-                      onValueChange={field.onChange}
+                    <SearchableSelect
                       value={field.value}
-                      disabled={!institutionsId || loadingBoards}
-                    >
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder={
-                            !institutionsId ? 'Select institution first'
-                            : loadingBoards ? 'Loading...'
-                            : 'Select board'
-                          } />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {boards.map((b) => (
-                          <SelectItem key={b.id} value={b.id}>
-                            {b.board_name} ({b.board_code})
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                      onValueChange={field.onChange}
+                      options={boards.map((b) => ({ value: b.id, label: `${b.board_name} (${b.board_code})` }))}
+                      placeholder={!institutionsId ? 'Select institution first' : loadingBoards ? 'Loading...' : 'Select board'}
+                      searchPlaceholder='Search board…'
+                      loading={loadingBoards}
+                      disabled={!institutionsId}
+                      className='w-full'
+                    />
                     <FormMessage />
                   </FormItem>
                 )}
@@ -316,35 +299,17 @@ export function MeetingForm({ meeting, isSubmitting, onSubmit, onCancel }: Meeti
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Composition <span className='text-destructive'>*</span></FormLabel>
-                    <Select
-                      onValueChange={field.onChange}
+                    <SearchableSelect
                       value={field.value}
-                      disabled={!boardId || loadingCompositions}
-                    >
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue
-                            placeholder={
-                              !boardId
-                                ? 'Select a board first'
-                                : loadingCompositions
-                                ? 'Loading...'
-                                : 'Select composition'
-                            }
-                          />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {compositions.map((c) => (
-                          <SelectItem key={c.id} value={c.id}>
-                            {c.composition_title} ({c.academic_year})
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <FormDescription>
-                      Only active compositions are listed.
-                    </FormDescription>
+                      onValueChange={field.onChange}
+                      options={compositions.map((c) => ({ value: c.id, label: `${c.composition_title} (${c.academic_year})` }))}
+                      placeholder={!boardId ? 'Select a board first' : loadingCompositions ? 'Loading...' : 'Select composition'}
+                      searchPlaceholder='Search composition…'
+                      loading={loadingCompositions}
+                      disabled={!boardId}
+                      className='w-full'
+                    />
+                    <FormDescription>Only active compositions are listed.</FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}

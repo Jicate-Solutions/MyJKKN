@@ -18,10 +18,19 @@ export async function GET(request: NextRequest) {
 
     // 2. Parse query params
     const { searchParams } = new URL(request.url);
+
+    // Cross-institution lookup mode for the BoS Composition "Add Member"
+    // picker. External experts are intentionally shareable across boards,
+    // so when this flag is set we drop the institution scope on read.
+    // Writes (POST/PUT/DELETE) still go through guardInstitutionWrite.
+    const allInstitutions = searchParams.get('allInstitutions') === 'true';
+
     const filters: BosExpertFilters = {
-      institutionsId: scope.isSuperAdmin
-        ? (searchParams.get('institutionsId') ?? undefined)
-        : (scope.institutionsId ?? undefined),
+      institutionsId: allInstitutions
+        ? undefined
+        : scope.isSuperAdmin
+          ? (searchParams.get('institutionsId') ?? undefined)
+          : (scope.institutionsId ?? undefined),
       category: searchParams.get('category') as BosExpertFilters['category'] ?? undefined,
       isActive: searchParams.has('isActive')
         ? searchParams.get('isActive') === 'true'

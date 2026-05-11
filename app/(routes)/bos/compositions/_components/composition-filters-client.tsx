@@ -1,8 +1,9 @@
 'use client';
 
 import { useRouter, useSearchParams } from 'next/navigation';
-import { useCallback } from 'react';
+import { useCallback, useEffect } from 'react';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useInstitutionContext } from '@/hooks/use-institution-context';
 import { CompositionFilters } from './composition-filters';
 import type { CompositionSearchParams } from './data-table-schema';
 
@@ -14,6 +15,16 @@ export function CompositionFiltersClient({ searchParams }: CompositionFiltersCli
   const router = useRouter();
   const currentSearchParams = useSearchParams();
   const { isSuperAdmin, userProfile } = usePermissions();
+  const { data: institutionCtx } = useInstitutionContext();
+
+  // Auto-seed institutionsId for regular users once institution context resolves.
+  useEffect(() => {
+    if (isSuperAdmin || !institutionCtx?.myjkkn_id) return;
+    if (currentSearchParams?.get('institutionsId')) return;
+    const params = new URLSearchParams(currentSearchParams?.toString() ?? '');
+    params.set('institutionsId', institutionCtx.myjkkn_id);
+    router.replace(`/bos/compositions?${params.toString()}`);
+  }, [isSuperAdmin, institutionCtx?.myjkkn_id, currentSearchParams, router]);
 
   const handleFilterChange = useCallback(
     (key: string, value: string | undefined) => {
@@ -43,6 +54,7 @@ export function CompositionFiltersClient({ searchParams }: CompositionFiltersCli
       onFilterChange={handleFilterChange}
       onClearFilters={handleClearFilters}
       isSuperAdmin={isSuperAdmin}
+      institutionContextId={institutionCtx?.myjkkn_id}
     />
   );
 }

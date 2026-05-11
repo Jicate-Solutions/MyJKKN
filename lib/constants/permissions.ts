@@ -264,8 +264,6 @@ export const PERMISSION_CATEGORIES = [
       { key: 'learners.my-profile.view', label: 'View My Profile (Students)' },
       { key: 'learners.my-profile.edit', label: 'Edit My Profile (Students)' },
       { key: 'learners.my-marks.view', label: 'View My Marks (Students)' },
-      { key: 'learners.my-marks.internal.view', label: 'View My Internal Marks (Students)' },
-      { key: 'learners.my-marks.result.view', label: 'View My Semester Result (Students)' },
 
       // Legacy permissions (deprecated - use my-* versions above)
       { key: 'learners.attendance.view', label: 'View Own Attendance (Students) - DEPRECATED: Use learners.my-attendance.view' },
@@ -1586,7 +1584,31 @@ export const PERMISSION_CATEGORIES = [
       { key: 'bos.courses.delete', label: 'Delete BoS Courses' },
       { key: 'bos.courses.import', label: 'Import BoS Courses (Excel)' },
       { key: 'bos.scheme.view', label: 'View BoS Course Scheme' },
-      { key: 'bos.scheme.edit', label: 'Edit BoS Course Scheme' }
+      { key: 'bos.scheme.edit', label: 'Edit BoS Course Scheme' },
+      // Added 2026-05-11 — Taxonomy (regulation → category → sub-category tree).
+      { key: 'bos.taxonomy.view', label: 'View BoS Taxonomy' },
+      { key: 'bos.taxonomy.create', label: 'Create BoS Taxonomy Entries' },
+      { key: 'bos.taxonomy.edit', label: 'Edit BoS Taxonomy Entries' },
+      { key: 'bos.taxonomy.delete', label: 'Delete BoS Taxonomy Entries' },
+      // Added 2026-05-11 — Syllabus (course syllabus versioning, replaces /syllabi).
+      { key: 'bos.syllabus.view', label: 'View BoS Syllabi' },
+      { key: 'bos.syllabus.create', label: 'Create BoS Syllabi' },
+      { key: 'bos.syllabus.edit', label: 'Edit BoS Syllabi' },
+      { key: 'bos.syllabus.delete', label: 'Delete BoS Syllabi' },
+      { key: 'bos.syllabus.approve', label: 'Approve BoS Syllabi' },
+      { key: 'bos.syllabus.export', label: 'Export BoS Syllabi' },
+      // Added 2026-05-08 — SOP (Standard Operating Procedure) document editor.
+      // 'approve' is a separate gate so a chair/dean can approve without owning
+      // edit rights, matching the meetings module's split (view/edit/approve).
+      // 'export' is a separate gate so we can give read-only viewers PDF/DOCX
+      // exports without granting edit access.
+      { key: 'bos.sop.view', label: 'View SOP Documents' },
+      { key: 'bos.sop.create', label: 'Create SOP Documents' },
+      { key: 'bos.sop.edit', label: 'Edit SOP Documents' },
+      { key: 'bos.sop.delete', label: 'Delete SOP Documents' },
+      { key: 'bos.sop.approve', label: 'Approve SOP Documents' },
+      { key: 'bos.sop.export', label: 'Export SOP Documents' },
+      { key: 'bos.sop.comment', label: 'Comment on SOP Documents' }
     ]
   },
   // Added 2026-04-27 — menu-coverage baseline cleanup (Failure 1 of #511/#515

@@ -313,7 +313,7 @@ export default async function EntitiesPage({
   return (
     <ContentLayout title='Entities'>
       <PageBreadcrumb items={[...]} />
-      <div className='space-y-6 mt-4'>
+      <div className='space-y-6 mt-4 w-full min-w-0 px-4 md:px-8'>
         <div>
           <h1 className='text-2xl font-bold py-1'>Entities</h1>
           <p className='text-sm sm:text-base text-muted-foreground'>Description</p>

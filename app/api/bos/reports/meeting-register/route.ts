@@ -31,6 +31,13 @@ export async function GET(request: NextRequest) {
     const { data: meetings, error } = await query;
     if (error) throw error;
 
+    // Batch-fetch boards for all distinct board_ids in the result set
+    const boardIds = [...new Set((meetings ?? []).map((m) => m.board_id).filter(Boolean))];
+    const { data: boards } = boardIds.length
+      ? await supabase.from('bos_boards').select('id, board_code, board_name, board_type').in('id', boardIds)
+      : { data: [] };
+    const boardMap = new Map((boards ?? []).map((b) => [b.id, b]));
+
     // For each meeting, get attendee count and agenda item count
     const enriched = await Promise.all(
       (meetings ?? []).map(async (m) => {
@@ -45,6 +52,7 @@ export async function GET(request: NextRequest) {
         ]);
         return {
           ...m,
+          board: boardMap.get(m.board_id) ?? null,
           attendee_count: attendeeCount ?? 0,
           agenda_item_count: agendaCount ?? 0,
         };

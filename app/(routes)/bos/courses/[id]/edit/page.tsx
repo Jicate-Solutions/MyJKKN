@@ -45,12 +45,12 @@ export default function EditCoursePage({ params }: { params: Promise<{ id: strin
               submitLabel='Save Changes'
               defaultValues={{
                 course_code: course.course_code,
-                course_name: course.course_name ?? '',
+                course_name: course.course_name ?? course.course_title ?? '',
                 course_category: course.course_category,
                 course_part_master: course.course_part_master ?? 'Part III',
                 course_type: (course.course_type as never) ?? 'Core',
                 exam_duration: course.exam_duration ?? 3,
-                credit: course.credit ?? 3,
+                credit: course.credit ?? course.credits ?? 3,
                 theory_hours: course.theory_hours ?? 0,
                 practical_hours: course.practical_hours ?? 0,
                 internal_max_mark: course.internal_max_mark ?? 25,

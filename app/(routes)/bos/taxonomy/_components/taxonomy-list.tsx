@@ -1,186 +1,158 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Button } from '@/components/ui/button';
-import { Skeleton } from '@/components/ui/skeleton';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { AlertCircle } from 'lucide-react';
-import { BosRegulationTaxonomy } from '@/types/bos';
+import { useQuery } from '@tanstack/react-query';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useInstitutionContext } from '@/hooks/use-institution-context';
+import { InstitutionPicker } from '@/app/(routes)/bos/_components/institution-picker';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Skeleton } from '@/components/ui/skeleton';
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
 
 interface Regulation {
   id: string;
   title: string;
+  regulation_year: string;
+  regulation_code: string;
 }
 
-interface Institution {
+interface TaxonomyAssignment {
   id: string;
-  name: string;
+  regulation_id: string;
+  taxonomy_type: string;
+  institutions_id: string;
 }
 
 export function TaxonomyList() {
   const router = useRouter();
-  const { isSuperAdmin, userProfile, isLoading: permissionsLoading } = usePermissions();
-  const [institutions, setInstitutions] = useState<Institution[]>([]);
-  const [selectedInstitution, setSelectedInstitution] = useState<string>('');
-  const [regulations, setRegulations] = useState<Regulation[]>([]);
-  const [syllabusCount, setSyllabusCount] = useState<Record<string, number>>({});
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const { isSuperAdmin } = usePermissions();
+  const { data: institutionCtx } = useInstitutionContext();
 
-  const isReady = !permissionsLoading && (isSuperAdmin ? !!selectedInstitution : true);
+  const [selectedInstitutionId, setSelectedInstitutionId] = useState<string | undefined>(undefined);
 
-  useEffect(() => {
-    if (isSuperAdmin && !selectedInstitution && institutions.length > 0) {
-      setSelectedInstitution(institutions[0].id);
-    }
-  }, [institutions, isSuperAdmin, selectedInstitution]);
+  // Super-admin picks from InstitutionPicker; regular users resolve via useInstitutionContext.
+  const institutionId = isSuperAdmin
+    ? selectedInstitutionId
+    : (institutionCtx?.myjkkn_id ?? undefined);
 
-  useEffect(() => {
-    const fetchInstitutions = async () => {
-      if (!isSuperAdmin) return;
-      try {
-        const res = await fetch('/api/bos/institutions');
-        if (!res.ok) throw new Error('Failed to fetch institutions');
-        const data = await res.json();
-        setInstitutions(data || []);
-      } catch (err) {
-        console.error('Failed to fetch institutions:', err);
-      }
-    };
+  const regulationsQuery = useQuery<Regulation[]>({
+    queryKey: ['bos', 'regulations', institutionId],
+    queryFn: async () => {
+      const url = institutionId
+        ? `/api/bos/regulations?institutionId=${institutionId}`
+        : '/api/bos/regulations';
+      const res = await fetch(url);
+      if (!res.ok) throw new Error('Failed to load regulations');
+      const json = await res.json();
+      return json.data ?? [];
+    },
+    enabled: !!institutionId || !isSuperAdmin,
+  });
 
-    fetchInstitutions();
-  }, [isSuperAdmin]);
+  const assignmentsQuery = useQuery<TaxonomyAssignment[]>({
+    queryKey: ['bos', 'taxonomy-assignments', institutionId],
+    queryFn: async () => {
+      const url = institutionId
+        ? `/api/bos/taxonomy?institutionsId=${institutionId}`
+        : '/api/bos/taxonomy';
+      const res = await fetch(url);
+      if (!res.ok) throw new Error('Failed to load taxonomy assignments');
+      const json = await res.json();
+      return json.data ?? [];
+    },
+    enabled: !!institutionId || !isSuperAdmin,
+  });
 
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        setIsLoading(true);
-        const res = await fetch('/api/bos/regulations');
-        if (!res.ok) throw new Error('Failed to fetch regulations');
-        const { data } = await res.json();
-        setRegulations(data || []);
+  const assignedMap = new Map(
+    (assignmentsQuery.data ?? []).map((a) => [a.regulation_id, a.taxonomy_type])
+  );
 
-        // Fetch syllabi counts for each regulation
-        const institutionId = isSuperAdmin ? selectedInstitution : userProfile?.institution_id;
-        const counts: Record<string, number> = {};
-
-        for (const regulation of data || []) {
-          const syllabusRes = await fetch(
-            `/api/bos/syllabi?regulationId=${regulation.id}&institutionsId=${institutionId}&limit=1`
-          );
-          if (syllabusRes.ok) {
-            const { metadata } = await syllabusRes.json();
-            counts[regulation.id] = metadata?.total || 0;
-          }
-        }
-        setSyllabusCount(counts);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to load regulations');
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    if (isReady) {
-      fetchData();
-    }
-  }, [isReady, selectedInstitution, userProfile?.institution_id, isSuperAdmin]);
-
-  if (isSuperAdmin && institutions.length === 0) {
-    return (
-      <Alert>
-        <AlertCircle className='h-4 w-4' />
-        <AlertTitle>No Institutions</AlertTitle>
-        <AlertDescription>
-          No institutions available to manage taxonomy.
-        </AlertDescription>
-      </Alert>
-    );
-  }
-
-  if (isLoading) {
-    return (
-      <div className='space-y-4'>
-        {isSuperAdmin && <Skeleton className='h-10 w-48' />}
-        {Array.from({ length: 3 }).map((_, i) => (
-          <Skeleton key={i} className='h-20 w-full' />
-        ))}
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <Alert variant='destructive'>
-        <AlertCircle className='h-4 w-4' />
-        <AlertTitle>Error</AlertTitle>
-        <AlertDescription>{error}</AlertDescription>
-      </Alert>
-    );
-  }
-
-  if (regulations.length === 0) {
-    return (
-      <div className='text-center py-8 text-muted-foreground'>
-        No regulations found
-      </div>
-    );
-  }
+  const isLoading = regulationsQuery.isLoading || assignmentsQuery.isLoading;
+  const error = regulationsQuery.error ?? assignmentsQuery.error;
 
   return (
     <div className='space-y-4'>
       {isSuperAdmin && (
-        <div className='space-y-2'>
-          <label className='text-sm font-medium'>Select Institution</label>
-          <Select value={selectedInstitution} onValueChange={setSelectedInstitution}>
-            <SelectTrigger className='w-48'>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {institutions.map((inst) => (
-                <SelectItem key={inst.id} value={inst.id}>
-                  {inst.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+        <div className='flex items-end gap-3'>
+          <InstitutionPicker
+            value={selectedInstitutionId}
+            onChange={setSelectedInstitutionId}
+            showAllOption
+          />
+          <Button
+            variant='ghost'
+            size='sm'
+            onClick={() => setSelectedInstitutionId(undefined)}
+          >
+            Reset
+          </Button>
         </div>
       )}
 
-      <p className='text-sm text-muted-foreground'>
-        Manage learning outcome frameworks (K-values, Programme Outcomes, Programme Specific Outcomes) for each regulation.
-      </p>
-
-      <div className='grid gap-4'>
-        {regulations.map((regulation) => (
-          <div
-            key={regulation.id}
-            className='border rounded-lg p-4 flex items-center justify-between hover:bg-muted/50 transition-colors'
-          >
-            <div>
-              <h3 className='font-semibold'>{regulation.title}</h3>
-              <p className='text-xs text-muted-foreground mt-1'>
-                {syllabusCount[regulation.id] || 0} syllabus/syllabi
-              </p>
-            </div>
-            <Button
-              variant='outline'
-              onClick={() => router.push(`/bos/taxonomy/${regulation.id}`)}
-            >
-              Manage
-            </Button>
-          </div>
-        ))}
-      </div>
+      {!institutionId && isSuperAdmin ? (
+        <p className='text-sm text-muted-foreground py-4'>
+          Select an institution to view regulation taxonomy assignments.
+        </p>
+      ) : isLoading ? (
+        <div className='space-y-2'>
+          {Array.from({ length: 4 }).map((_, i) => (
+            <Skeleton key={i} className='h-12 w-full' />
+          ))}
+        </div>
+      ) : error ? (
+        <p className='text-sm text-destructive'>
+          {error instanceof Error ? error.message : 'Failed to load data'}
+        </p>
+      ) : (regulationsQuery.data ?? []).length === 0 ? (
+        <p className='text-sm text-muted-foreground py-4'>No regulations found.</p>
+      ) : (
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Regulation</TableHead>
+              <TableHead>Taxonomy Assigned</TableHead>
+              <TableHead className='text-right'>Action</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {(regulationsQuery.data ?? []).map((reg) => {
+              const taxonomyType = assignedMap.get(reg.id);
+              return (
+                <TableRow key={reg.id}>
+                  <TableCell className='font-medium'>{reg.title}</TableCell>
+                  <TableCell>
+                    {taxonomyType ? (
+                      <Badge variant='secondary' className='capitalize'>
+                        {taxonomyType}
+                      </Badge>
+                    ) : (
+                      <span className='text-sm text-muted-foreground'>Not configured</span>
+                    )}
+                  </TableCell>
+                  <TableCell className='text-right'>
+                    <Button
+                      variant='outline'
+                      size='sm'
+                      onClick={() => router.push(`/bos/taxonomy/${reg.id}`)}
+                    >
+                      Configure
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              );
+            })}
+          </TableBody>
+        </Table>
+      )}
     </div>
   );
 }

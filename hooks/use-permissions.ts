@@ -5,6 +5,7 @@ import { UserRolesService } from '@/lib/services/users/user-roles-service';
 import { SYSTEM_ROLES, UserRoleAssignment } from '@/types/auth';
 import { Profile, StudentStatus } from '@/types/auth';
 import { useAuth } from './use-auth';
+import { getRolePermissions } from '@/lib/services/bos/bos-role-permissions';
 
 interface UsePermissionsOptions {
   /**
@@ -36,6 +37,29 @@ interface PermissionData {
   isSuperAdmin: boolean;
   userRoles: UserRoleAssignment[];
   primaryRole: UserRoleAssignment | null;
+}
+
+/**
+ * Merges DEFAULT_ROLE_PERMISSIONS for the given role keys into a flat
+ * permissions map when the database role has no academic.bos-* keys yet.
+ * Newly added BOS modules may not be seeded into the DB's custom_roles.permissions
+ * JSONB, so this prevents a complete access block for existing roles.
+ */
+function applyBOSFallback(
+  flatPerms: Record<string, boolean>,
+  roleKeys: string[]
+): void {
+  const hasBOS = Object.keys(flatPerms).some((k) => k.startsWith('academic.bos'));
+  if (hasBOS) return; // DB already has BOS permissions — skip fallback
+  for (const roleKey of roleKeys) {
+    const defaultPerms = getRolePermissions(roleKey);
+    for (const [module, actions] of Object.entries(defaultPerms)) {
+      for (const action of actions) {
+        const key = `${module}.${action}`;
+        if (!flatPerms[key]) flatPerms[key] = true;
+      }
+    }
+  }
 }
 
 // Stable fallback references to prevent infinite re-render loops.
@@ -142,6 +166,12 @@ export function usePermissions(
             }
           }
 
+          // Seed BOS module defaults if the DB role predates the BOS modules
+          applyBOSFallback(
+            mergedPermissions,
+            [...roles.map((r) => r.role_key), userProfile.role].filter(Boolean) as string[]
+          );
+
           return {
             permissions: mergedPermissions,
             isSuperAdmin: false,
@@ -168,6 +198,12 @@ export function usePermissions(
       } else {
         rolePermissions = (role as any).permissions || {};
       }
+
+      // Seed BOS module defaults if the DB role predates the BOS modules
+      applyBOSFallback(
+        rolePermissions as Record<string, boolean>,
+        userProfile.role ? [userProfile.role] : []
+      );
 
       return {
         permissions: rolePermissions,

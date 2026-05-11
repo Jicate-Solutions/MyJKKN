@@ -25,6 +25,7 @@ export async function GET(request: NextRequest) {
     const status = searchParams.get('status') as BosMeetingStatus | null ?? undefined;
     const meetingType = searchParams.get('meetingType') as BosMeetingType | null ?? undefined;
     const search = searchParams.get('search') ?? undefined;
+    const withMembers = searchParams.get('withMembers') === 'true';
     const page = searchParams.has('page') ? parseInt(searchParams.get('page')!) : 1;
     const limit = Math.min(
       searchParams.has('limit') ? parseInt(searchParams.get('limit')!) : 20,
@@ -33,6 +34,20 @@ export async function GET(request: NextRequest) {
     const offset = (page - 1) * limit;
     const sortBy = searchParams.get('sortBy') ?? 'scheduled_date';
     const sortOrder = searchParams.get('sortOrder') ?? 'desc';
+
+    // When withMembers=true, restrict to meetings whose composition has at least
+    // one active member (ensures syllabus is linked to a constituted BOS).
+    let memberCompositionIds: string[] | undefined;
+    if (withMembers) {
+      const { data: memberRows } = await supabase
+        .from('bos_members')
+        .select('composition_id')
+        .eq('is_active', true);
+      memberCompositionIds = [...new Set((memberRows ?? []).map((m: any) => m.composition_id).filter(Boolean))];
+      if (memberCompositionIds.length === 0) {
+        return NextResponse.json({ data: [], metadata: { total: 0, page, limit, totalPages: 0 } });
+      }
+    }
 
     let query = supabase
       .from('bos_meetings')
@@ -51,6 +66,7 @@ export async function GET(request: NextRequest) {
     if (status) query = query.eq('status', status);
     if (meetingType) query = query.eq('meeting_type', meetingType);
     if (search) query = query.ilike('meeting_title', `%${search}%`);
+    if (memberCompositionIds) query = query.in('composition_id', memberCompositionIds);
 
     query = query
       .order(sortBy, { ascending: sortOrder !== 'desc' })

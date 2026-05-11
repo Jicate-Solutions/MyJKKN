@@ -8,6 +8,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { SearchableSelect } from '@/components/ui/searchable-select';
 import { Button } from '@/components/ui/button';
 import { RotateCcw } from 'lucide-react';
 import { CompositionSearchParams } from './data-table-schema';
@@ -25,6 +26,7 @@ interface CompositionFiltersProps {
   onFilterChange: (key: string, value: string | undefined) => void;
   onClearFilters: () => void;
   isSuperAdmin?: boolean;
+  institutionContextId?: string;
 }
 
 export function CompositionFilters({
@@ -32,6 +34,7 @@ export function CompositionFilters({
   onFilterChange,
   onClearFilters,
   isSuperAdmin = false,
+  institutionContextId,
 }: CompositionFiltersProps) {
   const { userProfile } = usePermissions();
   const [boards, setBoards] = useState<Board[]>([]);
@@ -72,7 +75,8 @@ export function CompositionFilters({
   }, [isSuperAdmin]);
 
   useEffect(() => {
-    const institutionIdToFetch = searchParams.institutionsId || userProfile?.institution_id;
+    const institutionIdToFetch =
+      searchParams.institutionsId || institutionContextId || userProfile?.institution_id;
     if (!institutionIdToFetch) return;
 
     async function fetchBoards() {
@@ -81,7 +85,11 @@ export function CompositionFilters({
         const res = await fetch(
           `/api/bos/boards?institutionsId=${institutionIdToFetch}`
         );
-        if (res.ok) setBoards(await res.json());
+        if (res.ok) {
+          const json = await res.json();
+          // Boards API returns { data: [...] } — unwrap it.
+          setBoards(Array.isArray(json) ? json : (json?.data ?? []));
+        }
       } catch (error) {
         logger.error('academic/bos', 'Failed to fetch boards for filter', error);
       } finally {
@@ -89,7 +97,7 @@ export function CompositionFilters({
       }
     }
     fetchBoards();
-  }, [searchParams.institutionsId, userProfile?.institution_id]);
+  }, [searchParams.institutionsId, institutionContextId, userProfile?.institution_id]);
 
   const hasActiveFilters = !!(
     searchParams.board_id ||
@@ -104,44 +112,26 @@ export function CompositionFilters({
         {/* Institution Filter (Super Admin Only) */}
         {isSuperAdmin && (
           <div className='min-w-[200px]'>
-            <Select
+            <SearchableSelect
               value={searchParams.institutionsId || 'all'}
               onValueChange={(val) => onFilterChange('institutionsId', val === 'all' ? undefined : val)}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder='All institutions' />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value='all'>All institutions</SelectItem>
-                {institutionOptions.map((inst) => (
-                  <SelectItem key={inst.id} value={inst.id}>
-                    {inst.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+              options={[{ value: 'all', label: 'All institutions' }, ...institutionOptions.map(inst => ({ value: inst.id, label: inst.name }))]}
+              className='w-full'
+              searchPlaceholder='Search institution…'
+            />
           </div>
         )}
 
         {/* Board Filter */}
         <div className='min-w-[220px]'>
-          <Select
+          <SearchableSelect
             value={searchParams.board_id ?? 'all'}
-            disabled={loadingBoards}
             onValueChange={(v) => onFilterChange('board_id', v === 'all' ? undefined : v)}
-          >
-            <SelectTrigger>
-              <SelectValue placeholder={loadingBoards ? 'Loading...' : 'All Boards'} />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value='all'>All Boards</SelectItem>
-              {boards.map((b) => (
-                <SelectItem key={b.id} value={b.id}>
-                  {b.board_name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+            options={[{ value: 'all', label: 'All Boards' }, ...boards.map(b => ({ value: b.id, label: b.board_name }))]}
+            loading={loadingBoards}
+            className='w-full'
+            searchPlaceholder='Search board…'
+          />
         </div>
 
         {/* Status Filter */}

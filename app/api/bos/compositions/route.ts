@@ -15,8 +15,14 @@ export async function GET(request: NextRequest) {
     const scope = await resolveBosAccess(user.id);
 
     const { searchParams } = new URL(request.url);
+    // Super-admin may pass explicit institutionIds (comma-separated) or institutionsId.
+    // Regular users use allInstitutionIds from scope (covers CAS Aided+Self siblings).
+    const multiInstitutionIds = scope.isSuperAdmin
+      ? (searchParams.get('institutionIds') ?? undefined)
+      : scope.allInstitutionIds.length > 1
+        ? scope.allInstitutionIds.join(',')
+        : undefined;
     const filters: BosCompositionFilters = {
-      // Non-super-admin users are locked to their own institution
       institutionsId: scope.isSuperAdmin
         ? (searchParams.get('institutionsId') ?? undefined)
         : (scope.institutionsId ?? undefined),
@@ -36,15 +42,17 @@ export async function GET(request: NextRequest) {
     const limit = Math.min(filters.limit ?? 20, 100);
     const offset = (page - 1) * limit;
 
-    // Fetch compositions with member count. board fields omitted — board table lives in COE.
     let query = supabase
       .from('bos_compositions')
-      .select(
-        `*, member_count:bos_members(count)`,
-        { count: 'exact' }
-      );
+      .select(`*, member_count:bos_members(count)`, { count: 'exact' });
 
-    if (filters.institutionsId) query = query.eq('institutions_id', filters.institutionsId);
+    if (multiInstitutionIds) {
+      const ids = multiInstitutionIds.split(',').filter(Boolean);
+      if (ids.length === 1) query = query.eq('institutions_id', ids[0]);
+      else if (ids.length > 1) query = query.in('institutions_id', ids);
+    } else if (filters.institutionsId) {
+      query = query.eq('institutions_id', filters.institutionsId);
+    }
     if (filters.boardId) query = query.eq('board_id', filters.boardId);
     if (filters.academicYear) query = query.eq('academic_year', filters.academicYear);
     if (filters.isActive !== undefined) query = query.eq('is_active', filters.isActive);
@@ -61,10 +69,24 @@ export async function GET(request: NextRequest) {
     const { data, error, count } = await query;
     if (error) throw error;
 
-    // Flatten member_count from PostgREST aggregate array to a scalar
+    // Enrich with board data from local bos_boards table.
+    const boardIds = [...new Set((data ?? []).map((r: any) => r.board_id).filter(Boolean))];
+    let boardMap: Record<string, { board_code: string; board_name: string; board_type?: string }> = {};
+    if (boardIds.length > 0) {
+      const { data: boards } = await supabase
+        .from('bos_boards')
+        .select('id, board_code, board_name, board_type')
+        .in('id', boardIds);
+      for (const b of boards ?? []) {
+        boardMap[b.id] = { board_code: b.board_code, board_name: b.board_name, board_type: b.board_type };
+      }
+    }
+
+    // Flatten member_count from PostgREST aggregate array to a scalar, attach board
     const normalized = (data ?? []).map((row: any) => ({
       ...row,
       member_count: row.member_count?.[0]?.count ?? 0,
+      board: boardMap[row.board_id] ?? null,
     }));
 
     return NextResponse.json({

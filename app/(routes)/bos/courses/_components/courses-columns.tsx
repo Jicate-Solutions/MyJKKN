@@ -18,8 +18,8 @@ export const coursesColumns: ColumnDef<BosCourseMaster>[] = [
     // Tolerant lookup — COE may surface the field as course_name, name,
     // or display_name depending on the response shape.
     cell: ({ row }) => {
-      const r = row.original as BosCourseMaster & { name?: string; display_name?: string };
-      return r.course_name || r.name || r.display_name || '—';
+      const r = row.original as BosCourseMaster & { course_title?: string; name?: string; display_name?: string };
+      return r.course_name || r.course_title || r.name || r.display_name || '—';
     },
   },
   { accessorKey: 'course_part_master', header: 'Part' },
@@ -74,7 +74,8 @@ export const coursesColumns: ColumnDef<BosCourseMaster>[] = [
           </Badge>
         );
       }
-      return row.original.status
+      const active = row.original.is_active ?? row.original.status;
+      return active
         ? <Badge variant='default'>Active</Badge>
         : <Badge variant='secondary'>Inactive</Badge>;
     },

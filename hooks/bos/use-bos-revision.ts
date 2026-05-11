@@ -14,7 +14,7 @@ export function useReviseBosSyllabus(currentId: string) {
       updated_content: Record<string, unknown>;
       revision_notes?: string;
     }) =>
-      fetch(`/api/bos/syllabi/${currentId}/revise`, {
+      fetch(`/api/bos/syllabus/${currentId}/revise`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(request),
@@ -54,7 +54,7 @@ export function useBatchDuplicate() {
       target_regulation_id: string;
       courses: Array<{ source_course_code: string; target_course_code: string }>;
     }) =>
-      fetch('/api/bos/syllabi/duplicate-regulation', {
+      fetch('/api/bos/syllabus/duplicate-regulation', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(request),
@@ -80,7 +80,7 @@ export function useSyllabusCompare(id1: string | undefined, id2: string | undefi
   return useQuery({
     queryKey: ['bos', 'compare', id1, id2],
     queryFn: async () => {
-      const res = await fetch('/api/bos/syllabi/compare', {
+      const res = await fetch('/api/bos/syllabus/compare', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -124,7 +124,7 @@ export function usePdfExport(syllabusId: string | undefined) {
         ),
       });
 
-      const res = await fetch(`/api/bos/syllabi/${syllabusId}/export-pdf?${queryParams}`, {
+      const res = await fetch(`/api/bos/syllabus/${syllabusId}/export-pdf?${queryParams}`, {
         method: 'GET',
       });
 
@@ -146,7 +146,7 @@ export function useBeforeAfterComparison(beforeId: string | undefined, afterId: 
     queryFn: async () => {
       if (!beforeId || !afterId) throw new Error('Both IDs required');
 
-      const res = await fetch('/api/bos/syllabi/compare', {
+      const res = await fetch('/api/bos/syllabus/compare', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

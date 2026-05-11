@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { useSyllabusMetrics, useSyllabusHealthCheck } from '@/hooks/bos/use-syllabi-metrics';
+import { useSyllabusMetrics, useSyllabusHealthCheck } from '@/hooks/bos/use-syllabus-metrics';
 import { useBosPermissions } from '@/hooks/bos/use-bos-permissions';
 import { useRouter } from 'next/navigation';
 import { format } from 'date-fns';
@@ -290,7 +290,7 @@ export function SyllabiDashboard({ institutionsId }: SyllabihDashboardProps) {
               {metrics?.recentlyModified?.map((item) => (
                 <button
                   key={item.id}
-                  onClick={() => router.push(`/bos/syllabi/${item.id}/edit`)}
+                  onClick={() => router.push(`/bos/syllabus/${item.id}/edit`)}
                   className="w-full flex items-center justify-between p-3 rounded-lg border hover:bg-muted/50 transition-colors text-left group"
                 >
                   <div className="min-w-0 flex-1">
@@ -323,7 +323,7 @@ export function SyllabiDashboard({ institutionsId }: SyllabihDashboardProps) {
         </CardHeader>
         <CardContent className="flex flex-col sm:flex-row gap-2">
           <Button
-            onClick={() => router.push('/bos/syllabi/new')}
+            onClick={() => router.push('/bos/syllabus/new')}
             disabled={!permissions.canCreate}
             title={permissions.canCreate ? '' : 'You do not have permission to create syllabi'}
           >
@@ -331,7 +331,7 @@ export function SyllabiDashboard({ institutionsId }: SyllabihDashboardProps) {
           </Button>
           <Button
             variant="outline"
-            onClick={() => router.push('/bos/syllabi?incomplete=true')}
+            onClick={() => router.push('/bos/syllabus?incomplete=true')}
             disabled={!permissions.canView}
             title={permissions.canView ? '' : 'You do not have permission to view syllabi'}
           >

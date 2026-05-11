@@ -12,7 +12,7 @@ export function SemesterTable({
   semester: string;
   mappings: BosCourseMappingDetailed[];
   editMode: boolean;
-  onAddToSemester: () => void;
+  onAddToSemester: (semester: string) => void;
 }) {
   const remove = useRemoveMapping();
 
@@ -103,7 +103,7 @@ export function SemesterTable({
         </table>
       </div>
       {editMode && (
-        <Button variant='outline' size='sm' onClick={onAddToSemester}>
+        <Button variant='outline' size='sm' onClick={() => onAddToSemester(semester)}>
           <Plus className='mr-2 h-4 w-4' /> Add course to Semester {semester}
         </Button>
       )}

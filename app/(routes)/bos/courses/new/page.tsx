@@ -1,29 +1,50 @@
 'use client';
 
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useEffect, useRef, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { toast } from 'sonner';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { SearchableSelect } from '@/components/ui/searchable-select';
 import { PermissionGuard } from '@/components/auth/permission-guard';
-import { useAuth } from '@/hooks/use-auth';
-import { InstitutionPicker } from '../../_components/institution-picker';
+import { usePermissions } from '@/hooks/use-permissions';
+import { InstitutionPicker, type InstitutionOption } from '../../_components/institution-picker';
 import { CourseForm } from '../_components/course-form';
 import { useCreateBosCourse } from '@/hooks/bos/use-bos-courses';
+import { useBosRegulationOptions } from '@/hooks/bos/use-bos-scheme-options';
 
 export default function NewCoursePage() {
   const router = useRouter();
-  const { profile } = useAuth();
-  const [institutionId, setInstitutionId] = useState<string | undefined>(profile?.institution_id ?? undefined);
-  const [institutionCode, setInstitutionCode] = useState('');
-  const [regulationCode, setRegulationCode] = useState('');
+  const searchParams = useSearchParams();
+  const { isSuperAdmin } = usePermissions();
+
+  const [institutionId, setInstitutionId] = useState<string | undefined>(undefined);
+  const [institutionCode, setInstitutionCode] = useState(searchParams.get('institution_code') ?? '');
+  const [myjkknIds, setMyjkknIds] = useState<string[]>([]);
+  const [regulationCode, setRegulationCode] = useState(searchParams.get('regulation_code') ?? '');
   const create = useCreateBosCourse();
 
-  const ready =
-    !!institutionId &&
-    institutionCode.trim().length > 0 &&
-    regulationCode.trim().length > 0;
+  // Skip resetting regulation on the very first institution auto-selection.
+  const institutionInitialized = useRef(false);
+  useEffect(() => {
+    if (!institutionInitialized.current) {
+      institutionInitialized.current = true;
+      return;
+    }
+    setRegulationCode('');
+  }, [institutionId]);
+
+  const handleInstitutionSelect = (opt: InstitutionOption) => {
+    setInstitutionCode(opt.institution_code);
+    setMyjkknIds(opt.myjkkn_institution_ids);
+  };
+
+  // Use MyJKKN IDs if available (CAS Aided+Self); fall back to COE institution UUID.
+  const lookupIds = myjkknIds.length > 0 ? myjkknIds : institutionId;
+  const { data: regulationsData, isLoading: regulationsLoading } = useBosRegulationOptions(lookupIds);
+  const regulations = regulationsData?.data ?? [];
+
+  const ready = !!institutionId && institutionCode.trim().length > 0 && regulationCode.trim().length > 0;
 
   return (
     <PermissionGuard module='academic.bos-courses' action='create'>
@@ -33,34 +54,45 @@ export default function NewCoursePage() {
         </CardHeader>
         <CardContent className='space-y-6'>
           <div className='flex gap-3 flex-wrap items-end'>
-            <InstitutionPicker value={institutionId} onChange={setInstitutionId} />
-            <div className='space-y-1'>
-              <Label className='text-xs'>Institution Code</Label>
-              <Input
-                value={institutionCode}
-                onChange={(e) => setInstitutionCode(e.target.value.toUpperCase())}
-                placeholder='AHS'
-                className='w-[140px] font-mono'
+            {/* Visible for super-admins; mounted-but-hidden for others to trigger auto-select. */}
+            <div className={isSuperAdmin ? '' : 'hidden'}>
+              <InstitutionPicker
+                value={institutionId}
+                onChange={setInstitutionId}
+                onSelect={handleInstitutionSelect}
               />
             </div>
+
+            {/* Regulation dropdown — enabled once institution is resolved. */}
             <div className='space-y-1'>
-              <Label className='text-xs'>Regulation Code</Label>
-              <Input
+              <Label className='text-xs'>Regulation</Label>
+              <SearchableSelect
                 value={regulationCode}
-                onChange={(e) => setRegulationCode(e.target.value.toUpperCase())}
-                placeholder='R-2024'
-                className='w-[160px] font-mono'
+                onValueChange={setRegulationCode}
+                options={regulations.map((r) => ({
+                  value: r.regulation_code,
+                  label: r.regulation_year
+                    ? `${r.regulation_code} (${r.regulation_year})`
+                    : r.regulation_code,
+                }))}
+                loading={regulationsLoading}
+                disabled={!institutionId || (regulations.length === 0 && !regulationsLoading)}
+                placeholder={!institutionId ? 'Select institution first' : 'Select regulation'}
+                searchPlaceholder='Search regulation…'
+                className='w-[200px]'
               />
             </div>
           </div>
 
           {!ready && (
             <p className='text-sm text-muted-foreground'>
-              Pick an institution and enter the institution + regulation codes to enable the form.
+              {isSuperAdmin
+                ? 'Pick an institution and select a regulation to enable the form.'
+                : 'Select a regulation to enable the form.'}
             </p>
           )}
 
-          {ready && institutionId && (
+          {ready && (
             <CourseForm
               submitting={create.isPending}
               submitLabel='Create Course'
@@ -69,7 +101,7 @@ export default function NewCoursePage() {
                   await create.mutateAsync({
                     form,
                     context: {
-                      institution_id: institutionId,
+                      institution_id: institutionId!,
                       institution_code: institutionCode,
                       regulation_code: regulationCode,
                     },

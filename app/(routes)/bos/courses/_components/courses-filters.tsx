@@ -1,10 +1,13 @@
 'use client';
 
-import { Input } from '@/components/ui/input';
+import { useEffect } from 'react';
 import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
+import { SearchableSelect } from '@/components/ui/searchable-select';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
+import { useBosRegulationOptions } from '@/hooks/bos/use-bos-scheme-options';
 
 export interface CoursesFiltersState {
   search: string;
@@ -13,8 +16,28 @@ export interface CoursesFiltersState {
 }
 
 export function CoursesFilters({
-  value, onChange,
-}: { value: CoursesFiltersState; onChange: (v: CoursesFiltersState) => void }) {
+  value,
+  onChange,
+  institutionId,
+  myjkknInstitutionIds,
+}: {
+  value: CoursesFiltersState;
+  onChange: (v: CoursesFiltersState) => void;
+  institutionId?: string;
+  myjkknInstitutionIds?: string[];
+}) {
+  const lookupIds = myjkknInstitutionIds && myjkknInstitutionIds.length > 0
+    ? myjkknInstitutionIds
+    : institutionId;
+  const { data: regulationsData, isLoading: regulationsLoading } = useBosRegulationOptions(lookupIds);
+  const regulations = regulationsData?.data ?? [];
+
+  // Clear regulation filter when institution changes.
+  useEffect(() => {
+    onChange({ ...value, regulation_code: '' });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [institutionId]);
+
   return (
     <div className='flex gap-3 flex-wrap items-end'>
       <div className='space-y-1'>
@@ -28,11 +51,23 @@ export function CoursesFilters({
       </div>
       <div className='space-y-1'>
         <Label className='text-xs'>Regulation</Label>
-        <Input
-          placeholder='e.g. R-2024'
+        <SearchableSelect
           value={value.regulation_code}
-          onChange={(e) => onChange({ ...value, regulation_code: e.target.value.toUpperCase() })}
-          className='w-[160px]'
+          onValueChange={(v) => onChange({ ...value, regulation_code: v })}
+          options={[
+            { value: '', label: 'All regulations' },
+            ...regulations.map((r) => ({
+              value: r.regulation_code,
+              label: r.regulation_year
+                ? `${r.regulation_code} (${r.regulation_year})`
+                : r.regulation_code,
+            })),
+          ]}
+          loading={regulationsLoading}
+          disabled={!institutionId}
+          placeholder='All regulations'
+          searchPlaceholder='Search regulation…'
+          className='w-[180px]'
         />
       </div>
       <div className='space-y-1'>

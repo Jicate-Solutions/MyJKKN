@@ -798,14 +798,17 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // "Permission: super_admin or audit.external_auditor.manage")
   '/audit/external-auditors': 'audit.external_auditor.manage',
 
-  // Board of Studies — seven tier-2 sub-pages under /bos
-  '/bos/compositions': 'bos.compositions.view',
+  // Board of Studies — ten tier-2 sub-pages under /bos
+  '/bos/taxonomy': 'bos.taxonomy.view',
   '/bos/courses': 'bos.courses.view',
   '/bos/course-scheme': 'bos.scheme.view',
   '/bos/experts': 'bos.experts.view',
+  '/bos/compositions': 'bos.compositions.view',
+  '/bos/syllabus': 'bos.syllabus.view',
+  '/bos/sop': 'bos.sop.view',
   '/bos/meetings': 'bos.meetings.view',
-  '/bos/reports': 'bos.reports.view',
   '/bos/ta-da': 'bos.ta_da.view',
+  '/bos/reports': 'bos.reports.view',
 
   // OKR — admin landing (redirects to /okr/admin/compliance which is gated
   // by okr.admin.view; reuse the same key on the parent)

@@ -238,6 +238,14 @@ const PAGE_ENRICHMENTS: Record<string, { keywords: string[]; description: string
     keywords: ['my attendance', 'absence record', 'attendance percentage'],
     description: 'View your attendance records and percentage'
   },
+  '/learners/my-marks': {
+    keywords: ['my marks', 'internal marks', 'cia marks', 'assessment marks', 'semester results', 'student marks'],
+    description: 'View your internal assessment marks and semester results'
+  },
+  '/learners/my-marks/internal': {
+    keywords: ['internal marks', 'cia marks', 'assessment marks', 'continuous internal assessment'],
+    description: 'View your internal continuous assessment marks'
+  },
   '/learners/my-profile': {
     keywords: ['my profile', 'student profile', 'personal details'],
     description: 'View and update your profile'

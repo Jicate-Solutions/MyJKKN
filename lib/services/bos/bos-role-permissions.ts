@@ -10,7 +10,7 @@ export interface RolePermissions {
 }
 
 export const BOS_MODULES = {
-  SYLLABI: 'academic.bos-syllabi',
+  SYLLABI: 'academic.bos-syllabus',
   TAXONOMY: 'academic.bos-taxonomy',
   EXPERTS: 'academic.bos-experts',
   COMPOSITIONS: 'academic.bos-compositions',
@@ -87,6 +87,19 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, RolePermissions> = {
     [BOS_MODULES.TA_DA]: ['view', 'submit'],
     [BOS_MODULES.REPORTS]: ['view'],
     [BOS_MODULES.COURSES]: ['view'],
+    [BOS_MODULES.SCHEME]: ['view'],
+  },
+
+  // Facilitator: Can create and edit syllabi, participate in meetings
+  facilitator: {
+    [BOS_MODULES.SYLLABI]: ['view', 'create', 'edit', 'export'],
+    [BOS_MODULES.TAXONOMY]: ['view'],
+    [BOS_MODULES.EXPERTS]: ['view'],
+    [BOS_MODULES.COMPOSITIONS]: ['view'],
+    [BOS_MODULES.MEETINGS]: ['view'],
+    [BOS_MODULES.TA_DA]: ['view', 'submit'],
+    [BOS_MODULES.REPORTS]: ['view'],
+    [BOS_MODULES.COURSES]: ['view', 'create', 'edit'],
     [BOS_MODULES.SCHEME]: ['view'],
   },
 

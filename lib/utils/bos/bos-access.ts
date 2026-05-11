@@ -3,6 +3,14 @@ import { createClient } from '@/lib/supabase/server';
 export interface BosAccessScope {
   isSuperAdmin: boolean;
   institutionsId: string | null;
+  /**
+   * All MyJKKN institution UUIDs that belong to the same COE institution.
+   * For most institutions this is [institutionsId]. For CAS it contains both
+   * the Aided and Self-Financing UUIDs so queries don't miss cross-ID records.
+   */
+  allInstitutionIds: string[];
+  /** The user's own institution regardless of super_admin status. Use as a default when creating records without an explicit institution. */
+  userInstitutionId: string | null;
   role: string | null;
 }
 
@@ -16,19 +24,52 @@ export async function resolveBosAccess(userId: string): Promise<BosAccessScope> 
     .single();
 
   if (error || !profile) {
-    return { isSuperAdmin: false, institutionsId: null, role: null };
+    return { isSuperAdmin: false, institutionsId: null, allInstitutionIds: [], userInstitutionId: null, role: null };
   }
 
   const isSuperAdmin =
     profile.is_super_admin === true || profile.role === 'super_admin';
 
   if (isSuperAdmin) {
-    return { isSuperAdmin: true, institutionsId: null, role: profile.role };
+    return {
+      isSuperAdmin: true,
+      institutionsId: null,
+      allInstitutionIds: [],
+      userInstitutionId: profile.institution_id ?? null,
+      role: profile.role,
+    };
+  }
+
+  const institutionId: string | null = profile.institution_id ?? null;
+
+  // For CAS institutions, two MyJKKN UUIDs (Aided + Self) share the same
+  // counselling_code. Fetch all sibling IDs so filters don't miss cross-UUID records.
+  let allInstitutionIds: string[] = institutionId ? [institutionId] : [];
+  if (institutionId) {
+    const { data: inst } = await supabase
+      .from('institutions')
+      .select('counselling_code')
+      .eq('id', institutionId)
+      .single();
+
+    if (inst?.counselling_code) {
+      const { data: siblings } = await supabase
+        .from('institutions')
+        .select('id')
+        .eq('counselling_code', inst.counselling_code)
+        .eq('is_active', true);
+
+      if (siblings && siblings.length > 0) {
+        allInstitutionIds = siblings.map((s: { id: string }) => s.id);
+      }
+    }
   }
 
   return {
     isSuperAdmin: false,
-    institutionsId: profile.institution_id ?? null,
+    institutionsId: institutionId,
+    allInstitutionIds,
+    userInstitutionId: institutionId,
     role: profile.role,
   };
 }

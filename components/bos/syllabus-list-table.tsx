@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { useBosSyllabi, useDeleteBosSyllabus } from '@/hooks/bos/use-bos-syllabi';
+import { useBosSyllabi, useDeleteBosSyllabus } from '@/hooks/bos/use-bos-syllabus';
 import { BosCourseSyllabus, BosSyllabusFilters } from '@/types/bos';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';

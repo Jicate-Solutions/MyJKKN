@@ -57,7 +57,9 @@ export function useBosCourse(id: string | undefined) {
         const err = await r.json().catch(() => ({}));
         throw new Error(err.error || 'Failed to load course');
       }
-      return r.json();
+      const json = await r.json();
+      // COE single-record responses are wrapped in { data: {...} } — unwrap.
+      return (json?.data ?? json) as BosCourseMaster;
     },
   });
 }

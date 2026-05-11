@@ -8,7 +8,8 @@ export type BosExpertCategory =
   | 'university_nominee'
   | 'subject_expert'
   | 'industry_expert'
-  | 'alumni';
+  | 'alumni'
+  | 'startup';
 
 export type BosMemberType =
   | 'chairman'
@@ -66,6 +67,7 @@ export const BOS_EXPERT_CATEGORY_LABELS: Record<BosExpertCategory, string> = {
   subject_expert: 'Subject Expert',
   industry_expert: 'Industry Expert',
   alumni: 'Alumni',
+  startup: 'Startup',
 };
 
 export const BOS_MEMBER_TYPE_LABELS: Record<BosMemberType, string> = {
@@ -138,6 +140,62 @@ export const BOS_MEETING_NEXT_STATUS: Record<BosMeetingStatus, BosMeetingStatus 
   minutes_approved: 'ratified',
   ratified: null,
 };
+
+// ── Board Programme Mapping ──────────────────────────────────────────────────
+
+export interface BosBoardProgramme {
+  id: string;
+  board_id: string;
+  institutions_id: string;
+  programme_code: string;    // UEN, UCM, UTA…
+  programme_name?: string;
+  is_active: boolean;
+  created_by?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+// ── Programme Outcomes ───────────────────────────────────────────────────────
+
+export interface BosProgrammeOutcome {
+  id: string;
+  institutions_id: string;
+  regulation_id: string;
+  programme_code: string;
+  po_code: string;           // PO1, PO2, …
+  description?: string | null;
+  sort_order: number;
+  created_by?: string;
+  created_at: string;
+  updated_by?: string;
+  updated_at: string;
+}
+
+export interface BosProgrammeSpecificOutcome {
+  id: string;
+  institutions_id: string;
+  regulation_id: string;
+  programme_code: string;
+  pso_code: string;          // PSO1, PSO2, …
+  description?: string | null;
+  sort_order: number;
+  created_by?: string;
+  created_at: string;
+  updated_by?: string;
+  updated_at: string;
+}
+
+/** Summary row returned by GET /api/bos/taxonomy/[regulationId]/programmes */
+export interface BosProgrammeSummary {
+  programme_code: string;
+  programme_name: string;
+  board_id: string;
+  board_name: string;
+  po_count: number;
+  pso_count: number;
+  can_edit: boolean;   // true if current user is chairman for this programme (or super admin)
+  can_view: boolean;   // true if current user is any board member, principal, or super admin
+}
 
 // ── Board (Reference from COE) ───────────────────────────────────────────────
 
@@ -315,6 +373,72 @@ export interface BosSyllabusFilters {
   sortOrder?: 'asc' | 'desc';
 }
 
+// ── Master Taxonomy Frameworks (bos_taxonomy + bos_taxonomy_levels) ──
+
+export interface BosTaxonomyLevel {
+  id: string;
+  taxonomy_id: string;
+  code: string; // 'K1', 'K2', ...
+  name: string; // 'Remember', 'Foundational Knowledge', ...
+  description?: string | null;
+  verb_examples: string[]; // [] for Fink's, ['define','list',...] for Bloom's
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface BosTaxonomy {
+  id: string;
+  institutions_id: string;
+  code: string; // 'blooms' | 'finks' | custom slug
+  name: string; // 'Bloom\'s Taxonomy', 'Fink\'s Taxonomy', ...
+  description?: string | null;
+  is_hierarchical: boolean;
+  is_system: boolean;
+  is_active: boolean;
+  created_by?: string | null;
+  created_at: string;
+  updated_by?: string | null;
+  updated_at: string;
+}
+
+export interface BosTaxonomyWithLevels extends BosTaxonomy {
+  levels: BosTaxonomyLevel[];
+}
+
+export interface BosTaxonomySummary extends BosTaxonomy {
+  level_count: number;
+  institution_name?: string;
+}
+
+export interface CreateBosTaxonomyDto {
+  institutions_id?: string;
+  code: string;
+  name: string;
+  description?: string | null;
+  is_hierarchical?: boolean;
+  is_active?: boolean;
+  levels: Array<{
+    code: string;
+    name: string;
+    description?: string | null;
+    verb_examples?: string[];
+    sort_order?: number;
+  }>;
+}
+
+export type UpdateBosTaxonomyDto = Partial<Omit<CreateBosTaxonomyDto, 'institutions_id'>>;
+
+export interface BosTaxonomyFilters {
+  institutionsId?: string;
+  isActive?: boolean;
+  search?: string;
+  page?: number;
+  limit?: number;
+  sortBy?: string;
+  sortOrder?: 'asc' | 'desc';
+}
+
 // ── Regulation Taxonomy Master ────────────────────────────────────────
 
 export interface BosRegulationTaxonomy {
@@ -323,8 +447,10 @@ export interface BosRegulationTaxonomy {
   regulation_id: string;
   taxonomy_type: 'finks' | 'blooms' | string; // Framework choice
   k_values: Record<string, string>; // {"K1": "Application", "K2": "Foundational", ...}
-  pos: Record<string, string>; // PO definitions: {"PO1": "...", "PO2": "..."}
-  psos?: Record<string, string>; // PSO definitions (optional)
+  // Per-programme PO definitions: { "UEN": { "PO1": "...", "PO2": "..." }, "UCM": { ... } }
+  // Legacy flat format { "PO1": "..." } is also accepted for backward compat.
+  pos: Record<string, string> | Record<string, Record<string, string>>;
+  psos?: Record<string, string> | Record<string, Record<string, string>>; // PSO definitions (optional)
   created_by: string;
   created_at: string;
   updated_by?: string;

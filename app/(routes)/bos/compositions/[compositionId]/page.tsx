@@ -23,32 +23,17 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Separator } from '@/components/ui/separator';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useBosComposition } from '@/hooks/bos/use-bos-compositions';
-import { useBosMembersByComposition, useAddBosMember, useRemoveBosMember } from '@/hooks/bos/use-bos-members';
+import { useBosMembersByComposition, useRemoveBosMember } from '@/hooks/bos/use-bos-members';
 import { usePermissions } from '@/hooks/use-permissions';
 import {
   BosMember,
   BosMemberType,
-  BOS_MEMBER_TYPE_LABELS,
 } from '@/types/bos';
 import { logger } from '@/lib/utils/enhanced-logger';
+import { AddMemberDialog } from '../_components/add-member-dialog';
+import { BoardProgrammesCard } from '../../_components/board-programmes-card';
 
 // ── Member type display order ─────────────────────────────────────────────────
 
@@ -59,141 +44,6 @@ const MEMBER_GROUPS: { type: BosMemberType; label: string }[] = [
   { type: 'industry_expert',    label: 'Industry Experts' },
   { type: 'alumni',             label: 'Alumni Members' },
 ];
-
-// ── Add Member Dialog ─────────────────────────────────────────────────────────
-
-interface AddMemberDialogProps {
-  open: boolean;
-  onClose: () => void;
-  compositionId: string;
-  institutionsId: string;
-}
-
-function AddMemberDialog({ open, onClose, compositionId, institutionsId }: AddMemberDialogProps) {
-  const addMember = useAddBosMember();
-  const [memberType, setMemberType] = useState<BosMemberType>('internal_member');
-  const [displayName, setDisplayName] = useState('');
-  const [displayDesignation, setDisplayDesignation] = useState('');
-  const [displayInstitution, setDisplayInstitution] = useState('');
-  const [email, setEmail] = useState('');
-  const [contactNo, setContactNo] = useState('');
-
-  const reset = () => {
-    setMemberType('internal_member');
-    setDisplayName('');
-    setDisplayDesignation('');
-    setDisplayInstitution('');
-    setEmail('');
-    setContactNo('');
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!displayName.trim()) { toast.error('Display name is required'); return; }
-    try {
-      await addMember.mutateAsync({
-        institutions_id: institutionsId,
-        composition_id: compositionId,
-        member_type: memberType,
-        display_name: displayName.trim(),
-        display_designation: displayDesignation.trim() || undefined,
-        display_institution: displayInstitution.trim() || undefined,
-        email: email.trim() || undefined,
-        contact_no: contactNo.trim() || undefined,
-        is_active: true,
-        sort_order: 0,
-      });
-      toast.success('Member added');
-      reset();
-      onClose();
-    } catch (err) {
-      logger.error('academic/bos', 'Failed to add member', err);
-      toast.error((err as Error).message || 'Failed to add member');
-    }
-  };
-
-  return (
-    <Dialog open={open} onOpenChange={(v) => { if (!v) { reset(); onClose(); } }}>
-      <DialogContent className='max-w-md'>
-        <DialogHeader>
-          <DialogTitle>Add Member</DialogTitle>
-        </DialogHeader>
-        <form onSubmit={handleSubmit} className='space-y-4'>
-          <div className='space-y-2'>
-            <Label>Member Type <span className='text-destructive'>*</span></Label>
-            <Select value={memberType} onValueChange={(v) => setMemberType(v as BosMemberType)}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {Object.entries(BOS_MEMBER_TYPE_LABELS).map(([value, label]) => (
-                  <SelectItem key={value} value={value}>{label}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className='space-y-2'>
-            <Label>Full Name <span className='text-destructive'>*</span></Label>
-            <Input
-              placeholder='e.g. Dr. Rajesh Kumar'
-              value={displayName}
-              onChange={(e) => setDisplayName(e.target.value)}
-            />
-          </div>
-
-          <div className='grid grid-cols-2 gap-3'>
-            <div className='space-y-2'>
-              <Label>Designation</Label>
-              <Input
-                placeholder='e.g. Professor'
-                value={displayDesignation}
-                onChange={(e) => setDisplayDesignation(e.target.value)}
-              />
-            </div>
-            <div className='space-y-2'>
-              <Label>Institution</Label>
-              <Input
-                placeholder='e.g. Anna University'
-                value={displayInstitution}
-                onChange={(e) => setDisplayInstitution(e.target.value)}
-              />
-            </div>
-          </div>
-
-          <div className='grid grid-cols-2 gap-3'>
-            <div className='space-y-2'>
-              <Label>Email</Label>
-              <Input
-                type='email'
-                placeholder='email@example.com'
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-              />
-            </div>
-            <div className='space-y-2'>
-              <Label>Contact No.</Label>
-              <Input
-                placeholder='+91 98765 43210'
-                value={contactNo}
-                onChange={(e) => setContactNo(e.target.value)}
-              />
-            </div>
-          </div>
-
-          <DialogFooter>
-            <Button type='button' variant='outline' onClick={() => { reset(); onClose(); }}>
-              Cancel
-            </Button>
-            <Button type='submit' disabled={addMember.isPending}>
-              {addMember.isPending ? 'Adding...' : 'Add Member'}
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
-  );
-}
 
 // ── Member Card ───────────────────────────────────────────────────────────────
 
@@ -365,60 +215,90 @@ export default function CompositionDetailPage({ params }: CompositionDetailPageP
         </CardContent>
       </Card>
 
-      {/* ── Members ─────────────────────────────────────────────────────── */}
-      <Card>
-        <CardHeader className='pb-3'>
-          <div className='flex items-center justify-between'>
-            <CardTitle className='text-base'>
-              Members
-              <span className='ml-2 text-sm font-normal text-muted-foreground'>
-                ({activeMembers.length} active)
-              </span>
-            </CardTitle>
-            {canEdit && (
-              <Button size='sm' variant='outline' onClick={() => setAddDialogOpen(true)}>
-                <Plus className='mr-2 h-4 w-4' />
-                Add Member
-              </Button>
+      {/* ── Tabbed sections ─────────────────────────────────────────────── */}
+      <Tabs defaultValue='members'>
+        <TabsList>
+          <TabsTrigger value='members'>
+            Members
+            {activeMembers.length > 0 && (
+              <Badge variant='secondary' className='ml-2 text-xs'>{activeMembers.length}</Badge>
             )}
-          </div>
-        </CardHeader>
-        <CardContent className='space-y-6'>
-          {members.length === 0 ? (
-            <div className='text-center py-8 text-muted-foreground'>
-              <Users className='h-8 w-8 mx-auto mb-2 opacity-40' />
-              <p className='text-sm'>No members added yet.</p>
-              {canEdit && (
-                <Button variant='link' size='sm' onClick={() => setAddDialogOpen(true)}>
-                  Add the first member →
-                </Button>
-              )}
-            </div>
-          ) : (
-            MEMBER_GROUPS.map(({ type, label }) => {
-              const group = members.filter((m) => m.member_type === type);
-              if (group.length === 0) return null;
-              return (
-                <div key={type}>
-                  <h4 className='text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2'>
-                    {label} ({group.length})
-                  </h4>
-                  <div className='grid gap-2 sm:grid-cols-2'>
-                    {group.map((member) => (
-                      <MemberCard
-                        key={member.id}
-                        member={member}
-                        canEdit={canEdit}
-                        onRemove={handleRemoveMember}
-                      />
-                    ))}
-                  </div>
+          </TabsTrigger>
+          <TabsTrigger value='programmes'>Programmes</TabsTrigger>
+        </TabsList>
+
+        {/* Members tab */}
+        <TabsContent value='members'>
+          <Card>
+            <CardHeader className='pb-3'>
+              <div className='flex items-center justify-between'>
+                <CardTitle className='text-base'>
+                  Members
+                  <span className='ml-2 text-sm font-normal text-muted-foreground'>
+                    ({activeMembers.length} active)
+                  </span>
+                </CardTitle>
+                {canEdit && (
+                  <Button size='sm' variant='outline' onClick={() => setAddDialogOpen(true)}>
+                    <Plus className='mr-2 h-4 w-4' />
+                    Add Member
+                  </Button>
+                )}
+              </div>
+            </CardHeader>
+            <CardContent className='space-y-6'>
+              {members.length === 0 ? (
+                <div className='text-center py-8 text-muted-foreground'>
+                  <Users className='h-8 w-8 mx-auto mb-2 opacity-40' />
+                  <p className='text-sm'>No members added yet.</p>
+                  {canEdit && (
+                    <Button variant='link' size='sm' onClick={() => setAddDialogOpen(true)}>
+                      Add the first member →
+                    </Button>
+                  )}
                 </div>
-              );
-            })
+              ) : (
+                MEMBER_GROUPS.map(({ type, label }) => {
+                  const group = members.filter((m) => m.member_type === type);
+                  if (group.length === 0) return null;
+                  return (
+                    <div key={type}>
+                      <h4 className='text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2'>
+                        {label} ({group.length})
+                      </h4>
+                      <div className='grid gap-2 sm:grid-cols-2'>
+                        {group.map((member) => (
+                          <MemberCard
+                            key={member.id}
+                            member={member}
+                            canEdit={canEdit}
+                            onRemove={handleRemoveMember}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Programmes tab */}
+        <TabsContent value='programmes'>
+          {composition.institutions_id ? (
+            <BoardProgrammesCard
+              boardId={composition.board_id}
+              institutionsId={composition.institutions_id}
+              canEdit={canEdit}
+            />
+          ) : (
+            <p className='text-sm text-muted-foreground text-center py-8'>
+              Institution not linked to this composition.
+            </p>
           )}
-        </CardContent>
-      </Card>
+        </TabsContent>
+      </Tabs>
 
       {composition.notes && (
         <Card>

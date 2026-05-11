@@ -57,6 +57,7 @@ export function toCoeCreatePayload(
     regulation_code: ctx.regulation_code,
     course_code: form.course_code.toUpperCase(),
     course_name: form.course_name.trim(),
+    course_title: form.course_name.trim(),   // COE POST endpoint requires course_title
     display_code: form.course_code.toUpperCase(),  // mirror; UNIQUE in DB
     course_category: form.course_category,
     course_type: form.course_type,

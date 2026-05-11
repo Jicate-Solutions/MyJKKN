@@ -118,14 +118,14 @@ export function useBosPermissions(): BosPermissions {
   // Check merged permissions (set via custom roles)
   if (profile.merged_permissions) {
     const perms: BosPermissions = {
-      canView: profile.merged_permissions['bos.syllabi.view'] ?? false,
-      canCreate: profile.merged_permissions['bos.syllabi.create'] ?? false,
-      canEdit: profile.merged_permissions['bos.syllabi.edit'] ?? false,
-      canDelete: profile.merged_permissions['bos.syllabi.delete'] ?? false,
-      canRevise: profile.merged_permissions['bos.syllabi.revise'] ?? false,
-      canDuplicate: profile.merged_permissions['bos.syllabi.duplicate'] ?? false,
-      canExport: profile.merged_permissions['bos.syllabi.export'] ?? false,
-      canManageTaxonomy: profile.merged_permissions['bos.syllabi.manage_taxonomy'] ?? false,
+      canView: profile.merged_permissions['bos.syllabus.view'] ?? false,
+      canCreate: profile.merged_permissions['bos.syllabus.create'] ?? false,
+      canEdit: profile.merged_permissions['bos.syllabus.edit'] ?? false,
+      canDelete: profile.merged_permissions['bos.syllabus.delete'] ?? false,
+      canRevise: profile.merged_permissions['bos.syllabus.revise'] ?? false,
+      canDuplicate: profile.merged_permissions['bos.syllabus.duplicate'] ?? false,
+      canExport: profile.merged_permissions['bos.syllabus.export'] ?? false,
+      canManageTaxonomy: profile.merged_permissions['bos.syllabus.manage_taxonomy'] ?? false,
       hasAnyPermission: false,
     };
     perms.hasAnyPermission = Object.values(perms).some(v => v === true);

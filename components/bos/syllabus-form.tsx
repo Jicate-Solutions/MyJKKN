@@ -1,8 +1,8 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
-import { useCreateBosSyllabus, useUpdateBosSyllabus, useBosSyllabus } from '@/hooks/bos/use-bos-syllabi';
-import { useBosTaxonomy } from '@/hooks/bos/use-bos-taxonomy';
+import React, { useState, useEffect, useMemo } from 'react';
+import { useCreateBosSyllabus, useUpdateBosSyllabus, useBosSyllabus } from '@/hooks/bos/use-bos-syllabus';
+import { useBosTaxonomy, flattenPos } from '@/hooks/bos/use-bos-taxonomy';
 import { usePermissions } from '@/hooks/use-permissions';
 import { BosCourseSyllabus, CreateBosSyllabusDto, UpdateBosSyllabusDto } from '@/types/bos';
 import { Button } from '@/components/ui/button';
@@ -11,29 +11,54 @@ import { Textarea } from '@/components/ui/textarea';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { SearchableSelect } from '@/components/ui/searchable-select';
+import { useBosCourses } from '@/hooks/bos/use-bos-courses';
+import { useInstitutionContext } from '@/hooks/use-institution-context';
 
-interface Institution { id: string; name: string; }
-interface Regulation { id: string; title: string; }
+interface Institution { id: string; name: string; myjkkn_institution_ids: string[]; display_name?: string; }
+interface Regulation { id: string; title: string; regulation_code: string; regulation_year?: string; }
+
+const DEFAULT_K_VALUES: Record<string, string> = {
+  K1: 'Remember',
+  K2: 'Understand',
+  K3: 'Apply',
+  K4: 'Analyze',
+  K5: 'Evaluate',
+  K6: 'Create',
+};
 
 interface SyllabusFormProps {
   syllabusId?: string;
+  syllabus?: BosCourseSyllabus;
+  isEditing?: boolean;
   onSuccess?: (syllabus: BosCourseSyllabus) => void;
 }
 
 export function SyllabusForm({
   syllabusId,
+  syllabus: syllabusProp,
+  isEditing: isEditingProp = false,
   onSuccess,
 }: SyllabusFormProps) {
-  const { data: existingSyllabus } = useBosSyllabus(syllabusId);
+  // If the caller already loaded the syllabus (edit page), skip the fetch.
+  const { data: fetchedSyllabus } = useBosSyllabus(syllabusProp ? undefined : syllabusId);
+  const existingSyllabus = syllabusProp ?? fetchedSyllabus;
   const createMutation = useCreateBosSyllabus();
   const { userProfile, isSuperAdmin } = usePermissions();
+  const { data: institutionCtx } = useInstitutionContext();
 
   const [activeTab, setActiveTab] = useState('basic');
   const [institutions, setInstitutions] = useState<Institution[]>([]);
   const [regulations, setRegulations] = useState<Regulation[]>([]);
-  const [boards, setBoards] = useState<{ id: string; name: string }[]>([]);
-  const [compositions, setCompositions] = useState<{ id: string; composition_title: string; board_id: string }[]>([]);
+  const [boards, setBoards] = useState<{ id: string; board_name: string; board_code?: string }[]>([]);
+  const [meetings, setMeetings] = useState<{
+    id: string;
+    meeting_title: string;
+    composition_id: string;
+    board_id: string;
+    institutions_id: string;
+    bos_compositions: { composition_title: string; academic_year: string } | null;
+  }[]>([]);
   const [courseCodeError, setCourseCodeError] = useState<string | null>(null);
 
   const [formData, setFormData] = useState<Partial<BosCourseSyllabus>>(
@@ -60,9 +85,25 @@ export function SyllabusForm({
   // Update mutation's ID when we get one from creation
   const currentSyllabusId = syllabusId || formData.id;
 
-  // Consider it editing if we have an ID (either from prop or from creation response)
-  const isEditing = !!currentSyllabusId;
+  const isEditing = isEditingProp || !!currentSyllabusId;
   const isLoading = createMutation.isPending || updateMutation.isPending;
+
+  const regulation_code = useMemo(
+    () => regulations.find((r) => r.id === formData.regulation_id)?.regulation_code ?? '',
+    [regulations, formData.regulation_id],
+  );
+
+  const effectiveKValues = useMemo(
+    () => (taxonomy && Object.keys(taxonomy.k_values).length > 0) ? taxonomy.k_values : DEFAULT_K_VALUES,
+    [taxonomy],
+  );
+
+  const { data: coursesData, isLoading: coursesLoading } = useBosCourses(
+    formData.institutions_id && regulation_code
+      ? { institution_id: formData.institutions_id, regulation_code, limit: 200, is_active: 'true' }
+      : undefined,
+  );
+  const courseOptions = coursesData?.data ?? [];
 
   const handleSaveAndNext = async (nextTab: string) => {
     try {
@@ -89,6 +130,23 @@ export function SyllabusForm({
       console.error('Failed to save:', error);
     }
   };
+
+  // Populate form when the syllabus loads via hook (edit-by-id path)
+  useEffect(() => {
+    if (fetchedSyllabus && !syllabusProp) {
+      setFormData(fetchedSyllabus);
+      setCurrentUpdateId(fetchedSyllabus.id);
+    }
+  }, [fetchedSyllabus, syllabusProp]);
+
+  // Auto-seed institution for regular users on new-form path
+  useEffect(() => {
+    if (isSuperAdmin || isEditingProp || syllabusProp || !institutionCtx) return;
+    setFormData((prev) => ({
+      ...prev,
+      institutions_id: prev.institutions_id || institutionCtx.myjkkn_id,
+    }));
+  }, [isSuperAdmin, isEditingProp, syllabusProp, institutionCtx]);
 
   // Fetch institutions
   useEffect(() => {
@@ -126,28 +184,31 @@ export function SyllabusForm({
     fetchBoards();
   }, []);
 
-  // Fetch compositions filtered by institution
+  // Fetch meetings filtered by institution (with members only) for syllabus linking.
   useEffect(() => {
-    const fetchCompositions = async () => {
+    const fetchMeetings = async () => {
       try {
-        const url = new URL('/api/bos/compositions', window.location.origin);
-        if (formData.institutions_id) {
-          url.searchParams.set('institutionsId', formData.institutions_id);
-        }
+        const url = new URL('/api/bos/meetings', window.location.origin);
+        // Use primary institution ID; server-side resolveBosAccess handles CAS scope.
+        url.searchParams.set('institutionsId', formData.institutions_id!);
+        url.searchParams.set('withMembers', 'true');
         url.searchParams.set('limit', '100');
+        url.searchParams.set('sortBy', 'scheduled_date');
+        url.searchParams.set('sortOrder', 'desc');
         const res = await fetch(url.toString());
         if (res.ok) {
           const { data } = await res.json();
-          setCompositions(data || []);
+          setMeetings(data || []);
         }
       } catch (err) {
-        console.error('Failed to fetch compositions:', err);
+        console.error('Failed to fetch meetings:', err);
       }
     };
 
     if (formData.institutions_id) {
-      fetchCompositions();
+      fetchMeetings();
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [formData.institutions_id]);
 
   // Fetch regulations filtered by institution
@@ -179,7 +240,8 @@ export function SyllabusForm({
 
     try {
       if (isEditing && currentSyllabusId) {
-        await updateMutation.mutateAsync(formData as UpdateBosSyllabusDto);
+        const result = await updateMutation.mutateAsync(formData as UpdateBosSyllabusDto);
+        onSuccess?.(result);
       } else {
         const result = await createMutation.mutateAsync(formData as CreateBosSyllabusDto);
         onSuccess?.(result);
@@ -212,7 +274,7 @@ export function SyllabusForm({
 
     try {
       const res = await fetch(
-        `/api/bos/syllabi?courseCode=${encodeURIComponent(code)}&institutionsId=${formData.institutions_id}&regulationId=${formData.regulation_id}&limit=1`
+        `/api/bos/syllabus?courseCode=${encodeURIComponent(code)}&institutionsId=${formData.institutions_id}&regulationId=${formData.regulation_id}&limit=1`
       );
       if (res.ok) {
         const { data } = await res.json();
@@ -250,95 +312,117 @@ export function SyllabusForm({
               <CardDescription>Basic details about the course</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
+              {/* Row 1: Institution + Composition */}
               <div className="grid grid-cols-2 gap-4">
-                {isSuperAdmin && (
-                  <div>
-                    <label className="block text-sm font-medium mb-1">Institution *</label>
-                    <Select value={formData.institutions_id || ''} onValueChange={(val) => updateField('institutions_id', val)}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select institution" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {institutions.map((inst) => (
-                          <SelectItem key={inst.id} value={inst.id}>
-                            {inst.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                )}
+                <div>
+                  <label className="block text-sm font-medium mb-1">Institution *</label>
+                  {isSuperAdmin ? (
+                    <SearchableSelect
+                      value={formData.institutions_id || ''}
+                      onValueChange={(val) => {
+                        updateField('institutions_id', val);
+                        // Clear dependent fields when institution changes
+                        updateField('composition_id', '');
+                        updateField('board_id', '');
+                        updateField('regulation_id', '');
+                        const opt = institutions.find((i) => i.id === val);
+                      }}
+                      options={institutions.map((inst) => ({ value: inst.id, label: inst.name }))}
+                      placeholder='Select institution'
+                      searchPlaceholder='Search institution…'
+                      className='w-full'
+                    />
+                  ) : (
+                    <Input
+                      value={institutionCtx?.name || institutionCtx?.display_name || formData.institutions_id || ''}
+                      disabled
+                      className="bg-muted/50"
+                    />
+                  )}
+                </div>
 
                 <div>
-                  <label className="block text-sm font-medium mb-1">Composition *</label>
-                  <Select
-                    value={formData.composition_id || ''}
+                  <label className="block text-sm font-medium mb-1">Meeting *</label>
+                  <SearchableSelect
+                    value={formData.composition_id ? meetings.find(m => m.composition_id === formData.composition_id)?.id || '' : ''}
                     onValueChange={(val) => {
-                      updateField('composition_id', val);
-                      // Auto-populate board_id from composition
-                      const selectedComposition = compositions.find(c => c.id === val);
-                      if (selectedComposition) {
-                        updateField('board_id', selectedComposition.board_id);
+                      const meeting = meetings.find(m => m.id === val);
+                      if (!meeting) return;
+                      updateField('composition_id', meeting.composition_id);
+                      updateField('board_id', meeting.board_id);
+                      if (isSuperAdmin) updateField('institutions_id', meeting.institutions_id);
+                      // Auto-match regulation from composition academic year
+                      const academicYear = meeting.bos_compositions?.academic_year;
+                      if (academicYear) {
+                        const startYear = academicYear.split('-')[0];
+                        const matched = regulations.find(r => r.regulation_year === startYear);
+                        if (matched) updateField('regulation_id', matched.id);
                       }
                     }}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select composition" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {compositions.map((comp) => (
-                        <SelectItem key={comp.id} value={comp.id}>
-                          {comp.composition_title}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium mb-1">Regulation *</label>
-                  <Select value={formData.regulation_id || ''} onValueChange={(val) => updateField('regulation_id', val)}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select regulation" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {regulations.map((reg) => (
-                        <SelectItem key={reg.id} value={reg.id}>
-                          {reg.title}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                    options={meetings.map((m) => ({
+                      value: m.id,
+                      label: `${m.meeting_title}${m.bos_compositions ? ` — ${m.bos_compositions.composition_title}` : ''}`,
+                    }))}
+                    placeholder={formData.institutions_id ? 'Select meeting' : 'Select institution first'}
+                    searchPlaceholder='Search meeting…'
+                    disabled={!formData.institutions_id}
+                    className='w-full'
+                  />
                 </div>
               </div>
 
-              <div>
-                <label className="block text-sm font-medium mb-1">Board (Auto-populated from Composition)</label>
-                <Input
-                  value={boards.find(b => b.id === formData.board_id)?.name || ''}
-                  disabled
-                  placeholder="Board will be set from composition"
-                />
+              {/* Row 2: Regulation + Board */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium mb-1">Regulation *</label>
+                  <SearchableSelect
+                    value={formData.regulation_id || ''}
+                    onValueChange={(val) => updateField('regulation_id', val)}
+                    options={regulations.map((reg) => ({ value: reg.id, label: reg.title }))}
+                    placeholder={formData.institutions_id ? 'Select regulation' : 'Select institution first'}
+                    searchPlaceholder='Search regulation…'
+                    disabled={!formData.institutions_id}
+                    className='w-full'
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium mb-1">Board</label>
+                  <Input
+                    value={boards.find(b => b.id === formData.board_id)?.board_name || ''}
+                    disabled
+                    placeholder="Auto-filled from composition"
+                    className="bg-muted/50"
+                  />
+                </div>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium mb-1">Course Code (alphanumeric only)</label>
-                  <Input
+                  <label className="block text-sm font-medium mb-1">Course Code *</label>
+                  <SearchableSelect
                     value={formData.course_code || ''}
-                    onChange={(e) => {
-                      // Keep only alphanumeric characters and convert to uppercase
-                      const code = e.target.value.replace(/[^A-Z0-9]/g, '').toUpperCase();
-                      updateField('course_code', code);
-                      validateCourseCode(code);
+                    onValueChange={(val) => {
+                      const course = courseOptions.find((c) => c.course_code === val);
+                      if (!course) return;
+                      updateField('course_code', course.course_code);
+                      updateField('course_name', course.course_name || course.course_title || '');
+                      updateField('course_credits', course.credit);
+                      updateField('total_hours', (course.theory_hours ?? 0) + (course.practical_hours ?? 0));
+                      updateField('contact_hours', course.class_hours ?? 0);
+                      validateCourseCode(course.course_code);
                     }}
-                    onBlur={() => validateCourseCode(formData.course_code || '')}
-                    required
-                    disabled={isEditing}
-                    placeholder="e.g., 24UGTA01"
-                    className={courseCodeError ? 'border-red-500' : ''}
+                    options={courseOptions.map((c) => ({
+                      value: c.course_code,
+                      label: `${c.course_code} — ${c.course_name || c.course_title || ''}`,
+                    }))}
+                    placeholder={formData.institutions_id && regulation_code ? 'Select course' : 'Select institution & regulation first'}
+                    searchPlaceholder='Search by code or name…'
+                    loading={coursesLoading}
+                    disabled={isEditing || !formData.institutions_id || !regulation_code}
+                    className={`w-full${courseCodeError ? ' border-red-500' : ''}`}
                   />
-                  {courseCodeError && <p className="text-sm text-red-600 mt-1">{courseCodeError}</p>}
+                  {courseCodeError && <p className='text-sm text-red-600 mt-1'>{courseCodeError}</p>}
                 </div>
                 <div>
                   <label className="block text-sm font-medium mb-1">Course Name</label>
@@ -404,6 +488,7 @@ export function SyllabusForm({
                   type="button"
                   onClick={() => handleSaveAndNext('objectives')}
                   disabled={!formData.course_code || !formData.course_name || !formData.institutions_id || !formData.regulation_id || !formData.composition_id || !formData.board_id || !!courseCodeError || isLoading}
+                  title={!formData.composition_id ? 'Select a meeting first' : undefined}
                   className="bg-green-600 hover:bg-green-700"
                 >
                   {isLoading ? 'Saving...' : 'Save & Next'}
@@ -450,16 +535,17 @@ export function SyllabusForm({
               <CardDescription>Measurable outcomes aligned with K-values</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
-              {taxonomy && (
-                <Alert>
-                  <AlertDescription>
-                    Available K-values: {Object.keys(taxonomy.k_values).join(', ')}
-                  </AlertDescription>
-                </Alert>
-              )}
+              <Alert>
+                <AlertDescription>
+                  <span className='font-medium'>Taxonomy K-values: </span>
+                  {Object.entries(effectiveKValues).map(([k, desc]) => (
+                    <span key={k} className='mr-3 text-xs'><span className='font-mono font-semibold'>{k}</span> — {String(desc)}</span>
+                  ))}
+                </AlertDescription>
+              </Alert>
               <CloEditor
                 clos={formData.course_learning_outcomes as any}
-                kValues={taxonomy?.k_values || {}}
+                kValues={effectiveKValues}
                 onChange={(val) => updateField('course_learning_outcomes', val)}
               />
               <div className="flex justify-end gap-2 pt-4 border-t">
@@ -484,7 +570,7 @@ export function SyllabusForm({
           <Card>
             <CardHeader>
               <CardTitle>Course Content</CardTitle>
-              <CardDescription>Units, chapters, and topics</CardDescription>
+              <CardDescription>Units and topics</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
               <ContentEditor
@@ -587,8 +673,8 @@ export function SyllabusForm({
               {taxonomy && (
                 <PoMappingsEditor
                   mappings={formData.po_mappings as any}
-                  pos={taxonomy.pos}
-                  psos={taxonomy.psos}
+                  pos={flattenPos(taxonomy.pos)}
+                  psos={taxonomy.psos ? flattenPos(taxonomy.psos) : undefined}
                   onChange={(val) => updateField('po_mappings', val)}
                 />
               )}
@@ -721,8 +807,8 @@ function CloEditor({ clos, kValues, onChange }: any) {
             <div>
               <label className="text-sm font-medium">K-Values</label>
               <div className="flex flex-wrap gap-2 mt-1">
-                {Object.keys(kValues).map((k) => (
-                  <label key={k} className="flex items-center gap-1">
+                {Object.entries(kValues).map(([k, desc]) => (
+                  <label key={k} className="flex items-center gap-1 cursor-pointer">
                     <input
                       type="checkbox"
                       checked={clo.k_values?.includes(k) || false}
@@ -733,7 +819,8 @@ function CloEditor({ clos, kValues, onChange }: any) {
                         updateClo(idx, 'k_values', newKValues);
                       }}
                     />
-                    <span className="text-sm">{k}</span>
+                    <span className="text-sm font-mono font-medium">{k}</span>
+                    {desc && <span className="text-xs text-muted-foreground">— {String(desc)}</span>}
                   </label>
                 ))}
               </div>
@@ -749,13 +836,40 @@ function CloEditor({ clos, kValues, onChange }: any) {
 }
 
 function ContentEditor({ content, onChange }: any) {
+  const isPractical = !!content?.is_practical;
   const units = content?.units || [];
+  const topics: { number: number; title: string }[] = content?.topics || [];
+
+  const toggleMode = () => {
+    if (!isPractical) {
+      // Theory → Practical: collect all chapters from all units as flat topics
+      const allChapters = units.flatMap((u: any) => u.chapters || []);
+      const flatTopics = allChapters.map((ch: any, i: number) => ({
+        number: i + 1,
+        title: ch.title || '',
+      }));
+      onChange({ is_practical: true, topics: flatTopics.length > 0 ? flatTopics : [] });
+    } else {
+      // Practical → Theory: move topics back into a single unit
+      const chapters = topics.map((t, i) => ({
+        chapter_number: i + 1,
+        title: t.title,
+        sections: '',
+      }));
+      onChange({
+        is_practical: false,
+        units: [{ unit_id: 'A', unit_title: '', chapters }],
+      });
+    }
+  };
+
   const addUnit = () => {
     onChange({
       ...content,
       units: [...units, { unit_id: String.fromCharCode(65 + units.length), unit_title: '', chapters: [] }],
     });
   };
+
   const updateUnit = (idx: number, field: string, value: any) => {
     onChange({
       ...content,
@@ -764,6 +878,7 @@ function ContentEditor({ content, onChange }: any) {
       ),
     });
   };
+
   const addChapter = (unitIdx: number) => {
     const newUnits = [...units];
     newUnits[unitIdx].chapters = [
@@ -773,56 +888,128 @@ function ContentEditor({ content, onChange }: any) {
     onChange({ ...content, units: newUnits });
   };
 
+  const addTopic = () => {
+    onChange({ ...content, topics: [...topics, { number: topics.length + 1, title: '' }] });
+  };
+
+  const updateTopic = (idx: number, title: string) => {
+    onChange({
+      ...content,
+      topics: topics.map((t, i) => (i === idx ? { ...t, title } : t)),
+    });
+  };
+
+  const removeTopic = (idx: number) => {
+    const updated = topics
+      .filter((_, i) => i !== idx)
+      .map((t, i) => ({ ...t, number: i + 1 }));
+    onChange({ ...content, topics: updated });
+  };
+
   return (
     <div className="space-y-3">
-      {units.map((unit: any, unitIdx: number) => (
-        <Card key={unitIdx} className="p-4">
-          <div className="space-y-2">
-            <div className="grid grid-cols-2 gap-2">
+      {/* Mode toggle */}
+      <div className="flex items-center gap-3 pb-1 border-b">
+        <span className="text-sm font-medium text-muted-foreground">Content type:</span>
+        <div className="flex rounded-md border overflow-hidden text-sm">
+          <button
+            type="button"
+            onClick={() => isPractical && toggleMode()}
+            className={`px-3 py-1 transition-colors ${!isPractical ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'}`}
+          >
+            Theory (Units)
+          </button>
+          <button
+            type="button"
+            onClick={() => !isPractical && toggleMode()}
+            className={`px-3 py-1 transition-colors ${isPractical ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'}`}
+          >
+            Practical (Topics only)
+          </button>
+        </div>
+      </div>
+
+      {isPractical ? (
+        /* ── Practical mode: flat topic list ───────────────────────── */
+        <div className="space-y-2">
+          {topics.map((topic, idx) => (
+            <div key={idx} className="flex items-center gap-2">
+              <span className="text-sm font-semibold text-muted-foreground min-w-[28px]">
+                {topic.number}.
+              </span>
               <Input
-                placeholder="Unit ID"
-                value={unit.unit_id}
-                onChange={(e) => updateUnit(unitIdx, 'unit_id', e.target.value)}
-                maxLength={2}
+                placeholder="Topic title"
+                value={topic.title}
+                onChange={(e) => updateTopic(idx, e.target.value)}
+                className="flex-1"
               />
-              <Input
-                placeholder="Unit Title"
-                value={unit.unit_title}
-                onChange={(e) => updateUnit(unitIdx, 'unit_title', e.target.value)}
-              />
-            </div>
-            <div className="ml-4 space-y-2">
-              {unit.chapters?.map((ch: any, chIdx: number) => (
-                <div key={chIdx} className="border-l-2 pl-2 py-2">
-                  <div className="text-sm font-medium">Chapter {ch.chapter_number}</div>
-                  <Input
-                    placeholder="Chapter title"
-                    value={ch.title}
-                    onChange={(e) => {
-                      const newChapters = [...unit.chapters];
-                      newChapters[chIdx].title = e.target.value;
-                      updateUnit(unitIdx, 'chapters', newChapters);
-                    }}
-                    size="sm"
-                    className="text-sm mt-1"
-                  />
-                </div>
-              ))}
               <Button
                 type="button"
-                variant="outline"
+                variant="ghost"
                 size="sm"
-                onClick={() => addChapter(unitIdx)}
+                onClick={() => removeTopic(idx)}
+                className="text-muted-foreground hover:text-destructive"
               >
-                + Chapter
+                Remove
               </Button>
             </div>
-          </div>
-        </Card>
-      ))}
-      <Button type="button" variant="outline" onClick={addUnit} className="w-full">
-        + Add Unit
-      </Button>
+          ))}
+          <Button type="button" variant="outline" onClick={addTopic} className="w-full">
+            + Add Topic
+          </Button>
+        </div>
+      ) : (
+        /* ── Theory mode: unit → topics hierarchy ──────────────────── */
+        <>
+          {units.map((unit: any, unitIdx: number) => (
+            <Card key={unitIdx} className="p-4">
+              <div className="space-y-2">
+                <div className="grid grid-cols-2 gap-2">
+                  <Input
+                    placeholder="Unit ID (e.g. A)"
+                    value={unit.unit_id}
+                    onChange={(e) => updateUnit(unitIdx, 'unit_id', e.target.value)}
+                    maxLength={2}
+                  />
+                  <Input
+                    placeholder="Unit Title"
+                    value={unit.unit_title}
+                    onChange={(e) => updateUnit(unitIdx, 'unit_title', e.target.value)}
+                  />
+                </div>
+                <div className="ml-4 space-y-2">
+                  {unit.chapters?.map((ch: any, chIdx: number) => (
+                    <div key={chIdx} className="border-l-2 pl-2 py-2">
+                      <div className="text-sm font-medium text-muted-foreground">Topic {ch.chapter_number}</div>
+                      <Input
+                        placeholder="Topic title"
+                        value={ch.title}
+                        onChange={(e) => {
+                          const newChapters = [...unit.chapters];
+                          newChapters[chIdx].title = e.target.value;
+                          updateUnit(unitIdx, 'chapters', newChapters);
+                        }}
+                        className="text-sm mt-1"
+                      />
+                    </div>
+                  ))}
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => addChapter(unitIdx)}
+                  >
+                    + Topic
+                  </Button>
+                </div>
+              </div>
+            </Card>
+          ))}
+          <Button type="button" variant="outline" onClick={addUnit} className="w-full">
+            + Add Unit
+          </Button>
+        </>
+      )}
     </div>
   );
 }

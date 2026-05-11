@@ -2,6 +2,27 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { BosSyllabusService } from '@/lib/services/bos/bos-syllabus-service';
 import { BosRegulationTaxonomy } from '@/types/bos';
 
+/**
+ * Flatten nested per-programme POs { "UEN": { "PO1": "..." } } → { "PO1": "..." }.
+ * Old flat format passes through unchanged. Used by syllabus form for PO picker.
+ */
+export function flattenPos(raw: BosRegulationTaxonomy['pos'] | undefined): Record<string, string> {
+  if (!raw) return {};
+  const entries = Object.entries(raw);
+  if (entries.length === 0) return {};
+  const [, firstVal] = entries[0];
+  if (typeof firstVal === 'string') return raw as Record<string, string>;
+  const flat: Record<string, string> = {};
+  for (const progPOs of Object.values(raw) as Record<string, string>[]) {
+    if (progPOs && typeof progPOs === 'object') {
+      for (const [code, desc] of Object.entries(progPOs)) {
+        if (!(code in flat)) flat[code] = desc;
+      }
+    }
+  }
+  return flat;
+}
+
 const TAXONOMY_QUERY_KEY = ['bos', 'taxonomy'];
 
 /**
@@ -67,7 +88,7 @@ export function useProgrammeOutcomes(regulationId: string | undefined) {
   const saveMutation = useSaveBosTaxonomy(regulationId!);
 
   return {
-    pos: (taxonomy?.pos || {}) as Record<string, string>,
+    pos: flattenPos(taxonomy?.pos),
     isLoading: !taxonomy,
     updatePos: (newPos: Record<string, string>) => {
       if (!taxonomy) return;

@@ -37,6 +37,8 @@ export interface BosCourseMaster {
   regulation_code: string;
   course_code: string;
   course_name: string;
+  course_title?: string;     // COE alias for course_name — appears in single-record GET responses
+  credits?: number;          // COE alias for credit — same data, different key name
   display_code: string;
   course_category: CourseCategory;
   course_type: CourseType | null;
@@ -56,7 +58,8 @@ export interface BosCourseMaster {
   internal_pass_mark: number;
   external_pass_mark: number;
   total_pass_mark: number;
-  status: boolean;
+  is_active: boolean;       // COE field — true = course is active
+  status?: boolean;         // kept for back-compat; prefer is_active
   course_status: 'Active' | 'Locked' | string;   // Lock state. 'Locked' hides edit/delete in UI + 423 on server.
   created_at: string;
   updated_at: string;

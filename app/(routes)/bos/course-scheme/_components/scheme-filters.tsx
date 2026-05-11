@@ -1,61 +1,77 @@
 'use client';
 
-import { useState } from 'react';
-import { Input } from '@/components/ui/input';
+import { useEffect, useState } from 'react';
 import { Label } from '@/components/ui/label';
+import { SearchableSelect } from '@/components/ui/searchable-select';
+import { useBosProgramOptions, useBosRegulationOptions } from '@/hooks/bos/use-bos-scheme-options';
 import type { SchemeFilters } from '@/hooks/bos/use-bos-course-scheme';
 
 export function SchemeFiltersBar({
-  institutionId, value, onChange,
+  institutionId,
+  myjkknInstitutionIds,
+  value,
+  onChange,
 }: {
   institutionId: string;
+  /** All related MyJKKN UUIDs for the selected institution (>1 for CAS Aided+Self). */
+  myjkknInstitutionIds?: string[];
   value: SchemeFilters | null;
   onChange: (v: SchemeFilters | null) => void;
 }) {
   const [program, setProgram] = useState(value?.program_code ?? '');
   const [regulation, setRegulation] = useState(value?.regulation_code ?? '');
-  const [batch, setBatch] = useState(value?.batch_code ?? '');
 
-  const apply = (p = program, r = regulation, b = batch) => {
+  // Reset when institution changes.
+  useEffect(() => {
+    setProgram('');
+    setRegulation('');
+    onChange(null);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [institutionId]);
+
+  // Use all related IDs for CAS Aided+Self; fall back to single institutionId.
+  const lookupIds = myjkknInstitutionIds && myjkknInstitutionIds.length > 0
+    ? myjkknInstitutionIds
+    : institutionId;
+
+  const { data: programsData, isLoading: programsLoading } = useBosProgramOptions(lookupIds);
+  const { data: regulationsData, isLoading: regulationsLoading } = useBosRegulationOptions(lookupIds);
+
+  const programs = programsData?.data ?? [];
+  const regulations = regulationsData?.data ?? [];
+
+  const apply = (p = program, r = regulation) => {
     if (!p || !r) return onChange(null);
-    onChange({
-      institution_id: institutionId,
-      program_code: p,
-      regulation_code: r,
-      batch_code: b || undefined,
-    });
+    onChange({ institution_id: institutionId, program_code: p, regulation_code: r });
   };
 
   return (
     <div className='flex gap-3 flex-wrap items-end'>
       <div className='space-y-1'>
         <Label className='text-xs'>Program</Label>
-        <Input
+        <SearchableSelect
           value={program}
-          onChange={(e) => setProgram(e.target.value.toUpperCase())}
-          onBlur={() => apply()}
-          placeholder='e.g. UCS'
-          className='w-[140px]'
+          onValueChange={(val) => { setProgram(val); apply(val, regulation); }}
+          options={programs.map((p) => ({ value: p.program_code, label: `${p.program_code} — ${p.program_name}` }))}
+          loading={programsLoading}
+          disabled={programs.length === 0 && !programsLoading}
+          placeholder='Select program'
+          searchPlaceholder='Search program…'
+          className='w-[220px]'
         />
       </div>
+
       <div className='space-y-1'>
         <Label className='text-xs'>Regulation</Label>
-        <Input
+        <SearchableSelect
           value={regulation}
-          onChange={(e) => setRegulation(e.target.value.toUpperCase())}
-          onBlur={() => apply()}
-          placeholder='R-2024'
-          className='w-[140px]'
-        />
-      </div>
-      <div className='space-y-1'>
-        <Label className='text-xs'>Batch (optional)</Label>
-        <Input
-          value={batch}
-          onChange={(e) => setBatch(e.target.value)}
-          onBlur={() => apply()}
-          placeholder='2024'
-          className='w-[120px]'
+          onValueChange={(val) => { setRegulation(val); apply(program, val); }}
+          options={regulations.map((r) => ({ value: r.regulation_code, label: r.regulation_year ? `${r.regulation_code} (${r.regulation_year})` : r.regulation_code }))}
+          loading={regulationsLoading}
+          disabled={regulations.length === 0 && !regulationsLoading}
+          placeholder='Select regulation'
+          searchPlaceholder='Search regulation…'
+          className='w-[160px]'
         />
       </div>
     </div>

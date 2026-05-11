@@ -33,14 +33,33 @@ export async function GET(
 
     // Step 3: Parse query parameters
     const { searchParams } = new URL(request.url);
-    const institutionsId = searchParams.get('institutionsId') || scope.institutionId;
+
+    // 4-level fallback — mirrors POST handler so GET never runs without an institution filter.
+    // Without a filter, maybeSingle() throws PGRST116 if multiple institutions share this regulation.
+    let institutionsId: string | null =
+      searchParams.get('institutionsId') ||
+      scope.institutionsId ||
+      scope.userInstitutionId ||
+      null;
+
+    if (!institutionsId) {
+      const { data: reg } = await supabase
+        .from('regulations')
+        .select('institution_id')
+        .eq('id', regulationId)
+        .maybeSingle();
+      institutionsId = reg?.institution_id ?? null;
+    }
 
     // Step 4: Build query
     let query = supabase
       .from('bos_regulation_taxonomies')
       .select('*')
-      .eq('regulation_id', regulationId)
-      .eq('institutions_id', institutionsId);
+      .eq('regulation_id', regulationId);
+
+    if (institutionsId) {
+      query = query.eq('institutions_id', institutionsId);
+    }
 
     // Step 5: Execute query
     const { data, error } = await query.maybeSingle();
@@ -79,17 +98,20 @@ export async function GET(
  * {
  *   taxonomy_type: 'finks' | 'blooms' | 'custom',
  *   k_values: { K1: "...", K2: "...", ... },
- *   pos: { PO1: "...", PO2: "...", ... },
- *   psos?: { PSO1: "...", PSO2: "...", ... }
+ *   pos?: Record<string, unknown>  (legacy; POs now live in bos_programme_outcomes)
+ *   psos?: Record<string, unknown> (legacy; PSOs now live in bos_programme_specific_outcomes)
  * }
  *
  * Returns: Created or updated taxonomy
  */
 export async function POST(
   request: NextRequest,
-  { params }: { params: { regulationId: string } }
+  { params }: { params: Promise<{ regulationId: string }> }
 ) {
   try {
+    // Step 0: Await params (Next.js 15 requirement)
+    const { regulationId } = await params;
+
     // Step 1: Authenticate user
     const supabase = await createClient();
     const { data: { user } } = await supabase.auth.getUser();
@@ -106,19 +128,39 @@ export async function POST(
       institutions_id?: string;
       taxonomy_type: string;
       k_values: Record<string, string>;
-      pos: Record<string, string>;
-      psos?: Record<string, string>;
+      // pos/psos kept for backward compat; POs are now stored in bos_programme_outcomes
+      pos?: Record<string, unknown>;
+      psos?: Record<string, unknown>;
     };
 
-    // Step 4: Validate required fields
-    if (!body.taxonomy_type || !body.k_values || !body.pos) {
+    // Step 4: Validate required fields (pos is optional — normalized tables are authoritative now)
+    if (!body.taxonomy_type || !body.k_values) {
       return NextResponse.json(
-        { error: 'Missing required fields: taxonomy_type, k_values, pos' },
+        { error: 'Missing required fields: taxonomy_type, k_values' },
         { status: 400 }
       );
     }
 
-    const institutionsId = body.institutions_id || scope.institutionId;
+    // Super-admin has institutionsId=null by design; fall back to their own institution,
+    // then to the regulation's institution as a last resort.
+    let institutionsId: string | null =
+      body.institutions_id || scope.institutionsId || scope.userInstitutionId || null;
+
+    if (!institutionsId) {
+      const { data: reg } = await supabase
+        .from('regulations')
+        .select('institution_id')
+        .eq('id', regulationId)
+        .maybeSingle();
+      institutionsId = reg?.institution_id ?? null;
+    }
+
+    if (!institutionsId) {
+      return NextResponse.json(
+        { error: 'Cannot determine institution for this regulation.' },
+        { status: 400 }
+      );
+    }
 
     // Step 5: Guard institution write
     const writeError = guardInstitutionWrite(scope, institutionsId);
@@ -126,13 +168,14 @@ export async function POST(
       return NextResponse.json({ error: writeError }, { status: 403 });
     }
 
-    // Step 6: Check if taxonomy already exists
-    const { data: existing } = await supabase
+    // Step 6: Check if taxonomy already exists — only filter by institutions_id when non-null
+    let existingQuery = supabase
       .from('bos_regulation_taxonomies')
       .select('id')
-      .eq('institutions_id', institutionsId)
-      .eq('regulation_id', params.regulationId)
-      .maybeSingle();
+      .eq('regulation_id', regulationId)
+      .eq('institutions_id', institutionsId);
+
+    const { data: existing } = await existingQuery.maybeSingle();
 
     // Step 7: Upsert taxonomy
     if (existing) {
@@ -142,8 +185,8 @@ export async function POST(
         .update({
           taxonomy_type: body.taxonomy_type,
           k_values: body.k_values,
-          pos: body.pos,
-          psos: body.psos || null,
+          pos: body.pos ?? {},
+          psos: body.psos ?? null,
           updated_by: user.id,
           updated_at: new Date().toISOString(),
         })
@@ -166,11 +209,11 @@ export async function POST(
         .from('bos_regulation_taxonomies')
         .insert({
           institutions_id: institutionsId,
-          regulation_id: params.regulationId,
+          regulation_id: regulationId,
           taxonomy_type: body.taxonomy_type,
           k_values: body.k_values,
-          pos: body.pos,
-          psos: body.psos || null,
+          pos: body.pos ?? {},
+          psos: body.psos ?? null,
           created_by: user.id,
         })
         .select()

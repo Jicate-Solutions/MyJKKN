@@ -15,6 +15,7 @@ import {
 } from '@/types/bos';
 import { BosCompositionService } from '@/lib/services/bos/bos-composition-service';
 import { useAuth } from '../use-auth';
+import { useInstitutionContext } from '@/hooks/use-institution-context';
 import { QUERY_CONFIG } from '@/lib/config/query-config';
 
 export const bosCompositionKeys = {
@@ -30,16 +31,19 @@ export function useBosCompositions(
   filters: BosCompositionFilters = {}
 ): UseQueryResult<BosListResponse<BosComposition>, Error> {
   const { profile } = useAuth();
+  const { data: institutionCtx } = useInstitutionContext();
+
+  const isSuperAdmin = profile?.is_super_admin === true || profile?.role === 'super_admin';
 
   const scopedFilters: BosCompositionFilters = {
     ...filters,
-    institutionsId: profile?.institution_id ?? filters.institutionsId,
+    institutionsId: institutionCtx?.myjkkn_id ?? filters.institutionsId,
   };
 
   return useQuery({
     queryKey: bosCompositionKeys.list(scopedFilters),
     queryFn: () => BosCompositionService.getCompositions(scopedFilters),
-    enabled: !!profile?.institution_id,
+    enabled: !!profile && (!!institutionCtx?.myjkkn_id || isSuperAdmin),
     placeholderData: (previousData) => previousData,
     ...QUERY_CONFIG.SEMI_STABLE_DATA,
   });

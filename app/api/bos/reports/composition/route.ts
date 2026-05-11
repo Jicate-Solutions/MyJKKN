@@ -37,7 +37,12 @@ export async function GET(request: NextRequest) {
     if (memErr) throw memErr;
     if (!composition) return NextResponse.json({ error: 'Composition not found' }, { status: 404 });
 
-    return NextResponse.json({ composition, members: members ?? [] });
+    // Resolve board name from local bos_boards (no FK — bare UUID reference)
+    const { data: board } = composition.board_id
+      ? await supabase.from('bos_boards').select('id, board_code, board_name, board_type').eq('id', composition.board_id).single()
+      : { data: null };
+
+    return NextResponse.json({ composition: { ...composition, board: board ?? null }, members: members ?? [] });
   } catch (error) {
     console.error('[bos/reports/composition] GET error:', error);
     return NextResponse.json({ error: 'Failed to fetch composition report' }, { status: 500 });

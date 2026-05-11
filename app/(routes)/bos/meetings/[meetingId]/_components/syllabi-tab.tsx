@@ -46,7 +46,7 @@ export function SyllabusTab({
         limit: '1000',
       });
 
-      const res = await fetch(`/api/bos/syllabi?${params}`);
+      const res = await fetch(`/api/bos/syllabus?${params}`);
       if (!res.ok) throw new Error('Failed to fetch syllabi');
       return res.json();
     },
@@ -74,7 +74,7 @@ export function SyllabusTab({
         include_pedagogy: 'true',
       });
 
-      const res = await fetch(`/api/bos/syllabi/${syllabusId}/export-pdf?${params}`);
+      const res = await fetch(`/api/bos/syllabus/${syllabusId}/export-pdf?${params}`);
       if (!res.ok) throw new Error('Failed to export PDF');
 
       const html = await res.text();
@@ -208,7 +208,7 @@ export function SyllabusTab({
                       <Button
                         size="sm"
                         variant="ghost"
-                        onClick={() => router.push(`/bos/syllabi/${syllabus.id}/edit`)}
+                        onClick={() => router.push(`/bos/syllabus/${syllabus.id}/edit`)}
                       >
                         View
                       </Button>

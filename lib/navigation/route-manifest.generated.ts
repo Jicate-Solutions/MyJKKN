@@ -1425,12 +1425,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "children": []
       },
       {
-        "path": "/bos/syllabi",
-        "label": "Syllabi",
+        "path": "/bos/syllabus",
+        "label": "Syllabus",
         "iconName": "FileText",
         "children": [
           {
-            "path": "/bos/syllabi/new",
+            "path": "/bos/syllabus/new",
             "label": "New",
             "iconName": "Plus",
             "children": []
