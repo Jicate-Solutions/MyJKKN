@@ -4,9 +4,9 @@
 
 **Goal:** Activate per-module scope on the staff/employee management module so HOD/Principal/HR retain institution access, faculty get full self-edit of their own staff row, and every other custom role gets view-only access to their own staff row.
 
-**Architecture:** Hybrid enforcement — populate `custom_roles.module_scopes.staff` for every role, branch on `get_user_module_scope('staff')` inside `/api/staff` (primary enforcement), and replace staff-table RLS policies with scope-aware ones (defense in depth). Frontend reads the same scope via the existing `useUserModuleScope` hook and trims toolbar/actions for `own_records` users.
+**Architecture:** Hybrid enforcement — populate `custom_roles.module_scopes.staff` for every role, branch on `get_user_module_scope('staff')` inside `/api/staff` (primary enforcement), and replace staff-table RLS policies with scope-aware ones (defense in depth). Frontend reads the same scope via the existing `getModuleScope` returned from `usePermissions()` and trims toolbar/actions for `own_records` users.
 
-**Tech Stack:** Supabase Postgres + RLS, Next.js 15 App Router, `@supabase/ssr` cookie client, existing `usePermissions` / `useUserModuleScope` hooks.
+**Tech Stack:** Supabase Postgres + RLS, Next.js 15 App Router, `@supabase/ssr` cookie client, existing `usePermissions` hook (which exposes `getModuleScope`).
 
 **Three scope buckets:**
 
@@ -554,11 +554,12 @@ git commit -m "feat(staff): scope+ownership check on /api/staff/[id] mutations"
 In `app/(routes)/staff/list/page.tsx`, replace `usePermissions()` line with:
 
 ```typescript
-import { usePermissions, useUserModuleScope } from '@/hooks/use-permissions';
+import { usePermissions } from '@/hooks/use-permissions';
 
 // inside StaffPage()
 const { canAccess, isSuperAdmin, isLoading: permissionsLoading } = usePermissions();
-const staffScope = useUserModuleScope('staff');
+const { getModuleScope } = usePermissions();
+const staffScope = getModuleScope('staff');
 const isOwnRecordsScope = staffScope === 'own_records';
 ```
 
@@ -700,7 +701,7 @@ FOR SELECT USING (is_super_admin() OR is_admin() OR user_has_permission(auth.uid
 COMMIT;
 ```
 
-Frontend / API code falls back automatically because `useUserModuleScope` returns `null` and the API code treats `null` scope as no-filter for super-admin and no-access otherwise.
+Frontend / API code falls back automatically because `getModuleScope` returns `null` and the API code treats `null` scope as no-filter for super-admin and no-access otherwise.
 
 ---
 
