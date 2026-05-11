@@ -4,10 +4,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
-import type {
-  SentNotificationRow,
-  SentListResult
-} from '@/lib/services/notification/sent-service';
+import type { SentListResult } from '@/lib/services/notification/sent-service';
 
 /**
  * Sender's outbox — what YOU broadcast.
