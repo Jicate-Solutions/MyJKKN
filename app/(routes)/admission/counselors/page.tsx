@@ -550,7 +550,7 @@ function CounselorPerformancePageContent() {
   const goldCount = counselors.filter(c => c.conversionRate >= 30).length;
 
   return (
-    <PermissionGuard module="admission" action="view">
+    <PermissionGuard module="admission" action="counselors.view">
       <ContentLayout title="Counselor Performance">
         <div className="space-y-6">
           {/* Header */}

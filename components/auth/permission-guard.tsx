@@ -63,14 +63,46 @@ export function PermissionGuard({
     return <>{children}</>;
   }
 
-  // Admission global users have full access to all admission module pages
-  if (isAdmissionGlobalUser && (module === 'admission' || module.startsWith('admission.'))) {
+  // 2026-05-11: carve out admin-only admission sub-modules from the
+  // counselor/global bypass below. Counselor roles legitimately bypass for
+  // their core working surface (leads, applications, dashboard, daily-view,
+  // etc.), but they must NOT bypass for admin functions like settings,
+  // marketing, consultants, the counselors manage tab, or GD-PI.
+  //
+  // The permission key under test = `${module}.${first action}`. If it falls
+  // under one of these restricted prefixes, skip the broad bypass and fall
+  // through to the explicit canAccess check below — which will deny for
+  // counselor roles (their perms were revoked in the matching DB migration).
+  const firstAction = Array.isArray(action) ? action[0] : action;
+  const permKey = `${module}.${firstAction}`;
+  const COUNSELOR_RESTRICTED_PREFIXES = [
+    'admission.settings',
+    'admission.marketing',
+    'admission.consultants',
+    'admission.counselors',
+    'admission.gd_pi',
+  ];
+  const isRestrictedSubModule = COUNSELOR_RESTRICTED_PREFIXES.some((p) =>
+    permKey.startsWith(p),
+  );
+
+  // Admission global users have full access to admission module pages,
+  // EXCEPT the admin-only sub-modules listed above.
+  if (
+    isAdmissionGlobalUser
+    && (module === 'admission' || module.startsWith('admission.'))
+    && !isRestrictedSubModule
+  ) {
     return <>{children}</>;
   }
 
-  // Counselor users (in ANY of their assigned roles) can access admission module pages
-  // This handles multi-role users like faculty+counselor or student+counselor
-  if (isCounselorUser && (module === 'admission' || module.startsWith('admission.'))) {
+  // Counselor users (in ANY of their assigned roles) can access admission
+  // module pages, EXCEPT the admin-only sub-modules.
+  if (
+    isCounselorUser
+    && (module === 'admission' || module.startsWith('admission.'))
+    && !isRestrictedSubModule
+  ) {
     return <>{children}</>;
   }
 

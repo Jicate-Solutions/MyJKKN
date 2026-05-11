@@ -377,9 +377,14 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/admission/gate-entry/today': 'admission.gate_entry.view',
 
   // Admission GD-PI (Group Discussion / Personal Interview)
-  '/admission/gd-pi': 'admission.applications.view',
-  '/admission/gd-pi/new': 'admission.applications.create',
-  '/admission/gd-pi/[id]': 'admission.applications.view',
+  // 2026-05-11: rebound from admission.applications.* (which counselor roles
+  // hold, silently granting sidebar visibility despite the page-level
+  // PermissionGuard) to the dedicated admission.gd_pi.* keys. The user-side
+  // symptom was "GD-PI still shows in sidebar for counselors" — root cause
+  // was this mapping picking the wrong permission key.
+  '/admission/gd-pi': 'admission.gd_pi.view',
+  '/admission/gd-pi/new': 'admission.gd_pi.manage',
+  '/admission/gd-pi/[id]': 'admission.gd_pi.view',
 
   // Admission Leads
   '/admission/leads': 'admission.leads.view',
@@ -409,6 +414,11 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/admission/consultants/rewards': 'admission.consultants.rewards.view',
 
   // Admission Marketing
+  // 2026-05-11: added the top-level /admission/marketing entry — previously
+  // missing, which meant the sidebar's "Marketing" tab had no permission
+  // gate at all and showed to every authenticated user (including counselor
+  // roles whose explicit admission.marketing.view = false).
+  '/admission/marketing': 'admission.marketing.view',
   '/admission/marketing/campaigns/monitoring': 'admission.marketing.view',
   '/admission/marketing/campaigns/roi': 'admission.marketing.view',
   '/admission/marketing/campaigns/segments': 'admission.marketing.view',
