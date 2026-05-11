@@ -17,6 +17,7 @@
 // dropped after the user reported counselors seeing too-many-leads.)
 
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { withRetry } from '@/lib/retry';
 
 const COUNSELOR_ROLE_KEYS = [
   'admission_counselor',
@@ -90,14 +91,33 @@ export async function getCounselorScope(
   //      strict = has counselor role AND has NO admission/admin/exec override
   //    is_primary is NOT consulted. Override roles preserve broad visibility
   //    for multi-role admission_staff / tier-1 exec users.
-  const { data: roleRows, error: roleErr } = await supabase
-    .from('user_roles')
-    .select('custom_roles!inner(role_key)')
-    .eq('user_id', userId);
+  //
+  // withRetry: a transient ECONNRESET on this Supabase socket used to fail
+  // closed to `{isStrictCounselor: true, myAdmissionCounselorId: null}`,
+  // dropping the counselor_id branch from the visibility OR and silently
+  // making half the user's assigned leads invisible. 3 retries × ~1s
+  // backoff covers nearly every stale-keep-alive blip — see project memory
+  // feedback_supabase_econnreset_use_withretry.
+  let roleRows: any = null;
+  let roleErr: any = null;
+  try {
+    const res = await withRetry(async () => {
+      const r = await supabase
+        .from('user_roles')
+        .select('custom_roles!inner(role_key)')
+        .eq('user_id', userId);
+      if (r.error) throw r.error;
+      return r.data;
+    });
+    roleRows = res;
+  } catch (err) {
+    roleErr = err;
+  }
 
   if (roleErr) {
-    // Fail-closed: treat as strict counselor with empty scope so the
-    // user sees nothing, rather than fail-open to "see everything".
+    // After 3 retries it's a real persistent failure, not a transient blip.
+    // Fail-closed: treat as strict counselor with empty scope so the user
+    // sees nothing, rather than fail-open to "see everything".
     return { isStrictCounselor: true, myAdmissionCounselorId: null };
   }
 
@@ -123,13 +143,28 @@ export async function getCounselorScope(
   // 2. Resolve admission_counselors.id — admission_leads.counselor_id points
   //    here, NOT to profiles.id. Without this, direct-assignment via the
   //    legacy counselor_id column would be invisible to its owner.
-  const { data: acRow } = await supabase
-    .from('admission_counselors')
-    .select('id')
-    .eq('user_id', userId)
-    .maybeSingle();
-
-  const myAdmissionCounselorId = (acRow as { id?: string } | null)?.id ?? null;
+  //
+  // Same retry treatment as the role query above. The previous code had no
+  // error check at all — a transient null silently degraded visibility for
+  // leads matched via counselor_id (admission_counselors.id).
+  let myAdmissionCounselorId: string | null = null;
+  try {
+    const acRow = await withRetry(async () => {
+      const r = await supabase
+        .from('admission_counselors')
+        .select('id')
+        .eq('user_id', userId)
+        .maybeSingle();
+      if (r.error) throw r.error;
+      return r.data;
+    });
+    myAdmissionCounselorId = (acRow as { id?: string } | null)?.id ?? null;
+  } catch {
+    // Persistent failure on the admission_counselors lookup. Leave
+    // myAdmissionCounselorId as null — the user still gets the
+    // assigned_counselor_id branch via buildLeadVisibilityOr.
+    myAdmissionCounselorId = null;
+  }
 
   return { isStrictCounselor: true, myAdmissionCounselorId };
 }
@@ -170,18 +205,27 @@ export async function isUserInLeadViewAllowlist(
   supabase: SupabaseClient,
   userId: string,
 ): Promise<boolean> {
-  const { data, error } = await supabase
-    .from('user_roles')
-    .select('custom_roles!inner(role_key)')
-    .eq('user_id', userId);
-
-  if (error) {
-    // Fail-closed — denial is safer than leakage on a transient read error.
+  // Same withRetry pattern as getCounselorScope above — without it, a
+  // transient ECONNRESET on the user_roles query produces a 403 from the
+  // list API, which the user perceives as "leads suddenly disappeared."
+  let rows: Array<{ custom_roles?: { role_key?: string } | null }> = [];
+  try {
+    const data = await withRetry(async () => {
+      const r = await supabase
+        .from('user_roles')
+        .select('custom_roles!inner(role_key)')
+        .eq('user_id', userId);
+      if (r.error) throw r.error;
+      return r.data;
+    });
+    rows = (data ?? []) as Array<{
+      custom_roles?: { role_key?: string } | null;
+    }>;
+  } catch {
+    // Persistent failure after retries — fail-closed (deny). Better than
+    // leaking the entire list on a flaky read.
     return false;
   }
-
-  type Row = { custom_roles?: { role_key?: string } | null };
-  const rows = (data ?? []) as Row[];
 
   const allowlist: readonly string[] = LEAD_VIEW_ALLOWLIST_ROLE_KEYS;
   return rows.some((r) => {
