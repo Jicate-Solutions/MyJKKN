@@ -7,6 +7,14 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 
 import { usePermissions } from '@/hooks/use-permissions';
 import {
@@ -278,13 +286,98 @@ export function DistributePanel({ sourceId, sourceEnum, institutionId }: Distrib
     institutionMap,
   });
 
-  // Commit gate: block if there are blocking institution mismatches and the
-  // user hasn't enabled Override. auto-route bypasses (it uses server rules
-  // and surfaces no-candidate per-lead in the dry-run summary).
-  const institutionGateBlocked =
-    s.mode !== 'auto-route' &&
-    summaryStatus.hasBlockingMismatches &&
-    !s.override;
+  // Institution-matched commit batches. The user's intent: a lead should
+  // ONLY go to a counselor of its own institution. We split the selected
+  // pool into per-institution buckets (leads + their matching counselors)
+  // and a "no match" bucket for leads with no eligible counselor in this
+  // run. Unmatched leads stay unassigned for manual handling.
+  //
+  // Returned shape:
+  //   - bulkOneSplit  : matched/unmatched relative to the single picked
+  //                     counselor's institution (used by Bulk-One mode)
+  //   - rrBatches     : array of { institutionId, leadIds, counselorIds }
+  //                     for Round-Robin — each batch will produce a
+  //                     dedicated RPC call so cycling stays within the
+  //                     institution
+  //   - unmatchedIds  : combined list to be skipped (carries across modes)
+  const commitPlan = useMemo(() => {
+    const leadsByInst = new Map<string, string[]>();
+    const leadsWithNoInst: string[] = [];
+    for (const [leadId, instId] of s.selectedLeadInstitutions.entries()) {
+      if (!instId) {
+        leadsWithNoInst.push(leadId);
+        continue;
+      }
+      const list = leadsByInst.get(instId);
+      if (list) list.push(leadId);
+      else leadsByInst.set(instId, [leadId]);
+    }
+
+    const counselorsByInst = new Map<string, string[]>();
+    for (const c of selectedCounselors) {
+      const inst = c.counselor?.institution_id;
+      if (!inst) continue;
+      const list = counselorsByInst.get(inst);
+      if (list) list.push(c.counselor_id);
+      else counselorsByInst.set(inst, [c.counselor_id]);
+    }
+
+    // Round-Robin / Auto-Route batches: only institutions with both leads
+    // and at least one matching counselor.
+    const rrBatches: Array<{
+      institutionId: string;
+      leadIds: string[];
+      counselorIds: string[];
+    }> = [];
+    const unmatchedIds: string[] = [...leadsWithNoInst];
+    for (const [inst, leadIds] of leadsByInst.entries()) {
+      const counselorIds = counselorsByInst.get(inst);
+      if (counselorIds && counselorIds.length > 0) {
+        rrBatches.push({ institutionId: inst, leadIds, counselorIds });
+      } else {
+        unmatchedIds.push(...leadIds);
+      }
+    }
+
+    // Bulk-One split: target counselor's institution dictates the match.
+    const bulkOneTarget =
+      s.mode === 'bulk-one' && s.pickerIds.length === 1
+        ? (counselors ?? []).find((c) => c.counselor_id === s.pickerIds[0])
+        : null;
+    const bulkOneInst = bulkOneTarget?.counselor?.institution_id ?? null;
+    let bulkOneMatched: string[] = [];
+    let bulkOneUnmatched: string[] = [];
+    if (s.mode === 'bulk-one' && bulkOneInst) {
+      for (const [leadId, instId] of s.selectedLeadInstitutions.entries()) {
+        if (instId === bulkOneInst) bulkOneMatched.push(leadId);
+        else bulkOneUnmatched.push(leadId);
+      }
+    }
+
+    const matchedTotal =
+      s.mode === 'bulk-one'
+        ? bulkOneMatched.length
+        : rrBatches.reduce((sum, b) => sum + b.leadIds.length, 0);
+    const unmatchedTotal =
+      s.mode === 'bulk-one' ? bulkOneUnmatched.length : unmatchedIds.length;
+
+    return {
+      bulkOneSplit: {
+        matched: bulkOneMatched,
+        unmatched: bulkOneUnmatched,
+        targetInstitution: bulkOneInst,
+      },
+      rrBatches,
+      unmatchedIds,
+      matchedTotal,
+      unmatchedTotal,
+    };
+  }, [s.selectedLeadInstitutions, selectedCounselors, s.mode, s.pickerIds, counselors]);
+
+  // Confirmation dialog state — opens on Confirm click, shows the matched
+  // vs unmatched summary before any RPC fires. User clicks "Proceed" to
+  // actually run; unmatched leads are skipped on the floor.
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
   if (!canDistribute) return null;
   // Always render the panel when the user can distribute — even at zero
@@ -318,57 +411,147 @@ export function DistributePanel({ sourceId, sourceEnum, institutionId }: Distrib
     }
   };
 
-  const handleCommit = async () => {
+  // Opens the confirmation dialog. The dialog shows the matched/unmatched
+  // breakdown so the user explicitly acknowledges what will be skipped
+  // before the RPCs fire.
+  const handleConfirmClick = () => {
     if (s.override && s.reason.trim().length === 0) {
       toast.error('Override requires a reason note.');
       return;
     }
+    if (s.mode === 'bulk-one' && s.pickerIds.length !== 1) {
+      toast.error('Pick exactly one counselor for Bulk-one mode.');
+      return;
+    }
+    setConfirmOpen(true);
+  };
+
+  // Runs the actual per-institution-matched assignment. Each round-robin
+  // batch fires one RPC scoped to its institution, so cycling stays
+  // within that institution and a Pharmacy lead can never land on an
+  // Engineering counselor. Unmatched leads are not sent — they stay
+  // unassigned for manual handling.
+  const handleProceedCommit = async () => {
+    setConfirmOpen(false);
     dispatch({ type: 'SET_PHASE', phase: 'mutating' });
-    const ids = Array.from(s.selectedIds);
-    setBatchProgress(ids.length > 500 ? { done: 0, total: ids.length } : null);
+
+    // For auto-route, the server-side _pick_counselor_for_source already
+    // does its own institution matching via the routing rules — we just
+    // send the full selection.
+    const isAutoRoute = s.mode === 'auto-route';
+    const matchedTotal = isAutoRoute ? s.selectedIds.size : commitPlan.matchedTotal;
+    setBatchProgress(matchedTotal > 500 ? { done: 0, total: matchedTotal } : null);
     const onProgress = (done: number, total: number) =>
       setBatchProgress({ done, total });
+
     try {
-      let report: BulkAssignReport;
+      // Aggregate results across all per-institution sub-runs.
+      const allResults: BulkAssignReport['results'] = [];
+      let successCount = 0;
+      let failureCount = 0;
+      let planHash: string | undefined;
+
       if (s.mode === 'bulk-one') {
-        if (s.pickerIds.length !== 1) {
-          toast.error('Pick exactly one counselor for Bulk-one mode.');
+        const targetIds = commitPlan.bulkOneSplit.matched;
+        if (targetIds.length === 0) {
+          toast(
+            'No leads matched the selected counselor’s institution. Nothing to assign.',
+          );
           dispatch({ type: 'SET_PHASE', phase: 'ready' });
           setBatchProgress(null);
           return;
         }
-        report = await bulkOne.mutateAsync({
-          leadIds: ids,
+        const r = await bulkOne.mutateAsync({
+          leadIds: targetIds,
           counselorId: s.pickerIds[0],
           reason: s.reason || undefined,
           override: s.override,
         });
-      } else if (s.mode === 'auto-route') {
-        report = await autoRoute.mutateAsync({
-          leadIds: ids,
+        allResults.push(...r.results);
+        successCount += r.successCount;
+        failureCount += r.failureCount;
+      } else if (isAutoRoute) {
+        const r = await autoRoute.mutateAsync({
+          leadIds: Array.from(s.selectedIds),
           dryRun: false,
           override: s.override,
           expectedPlanHash: s.preview?.planHash ?? null,
           onProgress,
         });
+        allResults.push(...r.results);
+        successCount += r.successCount;
+        failureCount += r.failureCount;
+        planHash = r.planHash;
       } else {
+        // Round-Robin: one RPC per institution-batch so cycling stays
+        // institution-scoped. Aggregate per-counselor progress across them.
+        if (commitPlan.rrBatches.length === 0) {
+          toast(
+            'No selected leads have a matching counselor of their institution. Nothing to assign.',
+          );
+          dispatch({ type: 'SET_PHASE', phase: 'ready' });
+          setBatchProgress(null);
+          return;
+        }
         const limit = s.perCounselorLimit.trim()
           ? Math.max(1, Math.floor(Number(s.perCounselorLimit)))
           : null;
-        report = await roundRobin.mutateAsync({
-          leadIds: ids,
-          counselorIds: s.pickerIds,
-          dryRun: false,
-          override: s.override,
-          expectedPlanHash: s.preview?.planHash ?? null,
-          perCounselorLimit: limit,
-          onProgress,
-        });
+        let cumulative = 0;
+        for (const batch of commitPlan.rrBatches) {
+          const r = await roundRobin.mutateAsync({
+            leadIds: batch.leadIds,
+            counselorIds: batch.counselorIds,
+            dryRun: false,
+            override: s.override,
+            // expectedPlanHash isn't meaningful across multiple
+            // institution-scoped batches; pass null.
+            expectedPlanHash: null,
+            perCounselorLimit: limit,
+            onProgress: (done: number) => {
+              setBatchProgress({
+                done: cumulative + done,
+                total: matchedTotal,
+              });
+            },
+          });
+          allResults.push(...r.results);
+          successCount += r.successCount;
+          failureCount += r.failureCount;
+          cumulative += batch.leadIds.length;
+        }
       }
 
+      // Result toast surfaces the matched-assigned + unmatched-skipped split
+      // so the user knows exactly what stayed unassigned for manual handling.
+      const unmatchedSkipped = isAutoRoute ? 0 : commitPlan.unmatchedTotal;
+      const parts: string[] = [];
+      if (successCount > 0) {
+        parts.push(`Assigned ${successCount.toLocaleString()} lead${successCount === 1 ? '' : 's'}`);
+      }
+      if (unmatchedSkipped > 0) {
+        parts.push(
+          `${unmatchedSkipped.toLocaleString()} unmatched lead${unmatchedSkipped === 1 ? '' : 's'} skipped (no counselor from their institution selected)`,
+        );
+      }
+      if (failureCount > 0) {
+        parts.push(`${failureCount.toLocaleString()} failed`);
+      }
+      if (parts.length > 0) {
+        toast.success(parts.join(' · '));
+      }
+
+      const aggregated: BulkAssignReport = {
+        total: allResults.length,
+        successCount,
+        failureCount,
+        results: allResults,
+        failures: allResults.filter((r) => r.status !== 'assigned'),
+        planHash,
+      };
+
       setBatchProgress(null);
-      if (report.failureCount > 0 && report.successCount > 0) {
-        dispatch({ type: 'SET_ERRORS', errors: report.failures });
+      if (aggregated.failureCount > 0 && aggregated.successCount > 0) {
+        dispatch({ type: 'SET_ERRORS', errors: aggregated.failures });
       } else {
         dispatch({ type: 'RESET_AFTER_COMMIT' });
       }
@@ -383,7 +566,6 @@ export function DistributePanel({ sourceId, sourceEnum, institutionId }: Distrib
   const canCommitNow =
     s.selectedIds.size > 0 &&
     !isCommitting &&
-    !institutionGateBlocked &&
     (s.mode === 'bulk-one'
       ? s.pickerIds.length === 1
       : s.mode === 'round-robin'
@@ -614,7 +796,7 @@ export function DistributePanel({ sourceId, sourceEnum, institutionId }: Distrib
                 report={s.preview}
                 isCommitting={isCommitting}
                 override={s.override}
-                onCommit={handleCommit}
+                onCommit={handleConfirmClick}
                 onCancel={() => dispatch({ type: 'SET_PHASE', phase: 'ready' })}
               />
             ) : (
@@ -641,7 +823,7 @@ export function DistributePanel({ sourceId, sourceEnum, institutionId }: Distrib
                     {s.phase === 'previewing' ? 'Previewing…' : 'Preview'}
                   </Button>
                 )}
-                <Button size="sm" onClick={handleCommit} disabled={!canCommitNow}>
+                <Button size="sm" onClick={handleConfirmClick} disabled={!canCommitNow}>
                   {isCommitting ? 'Assigning…' : 'Confirm'}
                 </Button>
               </div>
@@ -656,6 +838,174 @@ export function DistributePanel({ sourceId, sourceEnum, institutionId }: Distrib
           </div>
         )}
       </CardContent>
+
+      {/* Pre-commit confirmation dialog — surfaces the institution-matched
+          split before any RPC fires. Unmatched leads are never sent; they
+          stay in the unassigned pool for manual handling. */}
+      <ConfirmAssignmentDialog
+        open={confirmOpen}
+        onOpenChange={setConfirmOpen}
+        mode={s.mode}
+        matchedTotal={
+          s.mode === 'auto-route' ? s.selectedIds.size : commitPlan.matchedTotal
+        }
+        unmatchedTotal={
+          s.mode === 'auto-route' ? 0 : commitPlan.unmatchedTotal
+        }
+        institutionMap={institutionMap}
+        rrBatches={commitPlan.rrBatches}
+        bulkOneTargetInstitutionName={
+          commitPlan.bulkOneSplit.targetInstitution
+            ? institutionMap.get(commitPlan.bulkOneSplit.targetInstitution) ??
+              null
+            : null
+        }
+        onProceed={handleProceedCommit}
+        isCommitting={isCommitting}
+      />
     </Card>
+  );
+}
+
+// -----------------------------------------------------------------------------
+// ConfirmAssignmentDialog
+// -----------------------------------------------------------------------------
+// Pre-commit summary modal. Shows the per-institution batches that will run
+// + a clear "N unmatched, will be skipped" line. Force-acknowledge gesture so
+// users never accidentally trigger a 14k-lead distribution.
+function ConfirmAssignmentDialog({
+  open,
+  onOpenChange,
+  mode,
+  matchedTotal,
+  unmatchedTotal,
+  institutionMap,
+  rrBatches,
+  bulkOneTargetInstitutionName,
+  onProceed,
+  isCommitting,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  mode: DistributeMode;
+  matchedTotal: number;
+  unmatchedTotal: number;
+  institutionMap: Map<string, string>;
+  rrBatches: Array<{ institutionId: string; leadIds: string[]; counselorIds: string[] }>;
+  bulkOneTargetInstitutionName: string | null;
+  onProceed: () => void;
+  isCommitting: boolean;
+}) {
+  const showInstBreakdown = mode === 'round-robin' && rrBatches.length > 0;
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Confirm assignment</DialogTitle>
+          <DialogDescription>
+            Review the institution-matched split before running. Unmatched
+            leads are NOT sent — they stay in the unassigned pool for manual
+            handling later.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-3">
+          {/* Headline split */}
+          <div className="grid grid-cols-2 gap-2">
+            <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-emerald-900 dark:border-emerald-900/40 dark:bg-emerald-950/30 dark:text-emerald-200">
+              <div className="text-[10px] uppercase tracking-wide font-medium">
+                Will assign
+              </div>
+              <div className="mt-0.5 text-2xl font-semibold tabular-nums">
+                {matchedTotal.toLocaleString()}
+              </div>
+              <div className="text-[11px] opacity-80">institution-matched</div>
+            </div>
+            <div
+              className={
+                unmatchedTotal > 0
+                  ? 'rounded-md border border-amber-200 bg-amber-50 p-3 text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-200'
+                  : 'rounded-md border bg-muted/30 p-3 text-muted-foreground'
+              }
+            >
+              <div className="text-[10px] uppercase tracking-wide font-medium">
+                Will skip
+              </div>
+              <div className="mt-0.5 text-2xl font-semibold tabular-nums">
+                {unmatchedTotal.toLocaleString()}
+              </div>
+              <div className="text-[11px] opacity-80">
+                {unmatchedTotal > 0 ? 'no matching counselor' : 'all matched'}
+              </div>
+            </div>
+          </div>
+
+          {/* Per-institution breakdown for Round-Robin */}
+          {showInstBreakdown && (
+            <div className="rounded-md border">
+              <div className="border-b bg-muted/30 px-2.5 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                Per institution
+              </div>
+              <div className="max-h-44 overflow-y-auto divide-y text-xs">
+                {rrBatches.map((b) => (
+                  <div
+                    key={b.institutionId}
+                    className="flex items-center justify-between gap-2 px-2.5 py-1.5"
+                  >
+                    <span className="truncate font-medium">
+                      {institutionMap.get(b.institutionId) ?? '(unknown)'}
+                    </span>
+                    <span className="flex-shrink-0 text-muted-foreground tabular-nums">
+                      {b.leadIds.length.toLocaleString()} leads →{' '}
+                      {b.counselorIds.length} counselor
+                      {b.counselorIds.length === 1 ? '' : 's'}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Bulk-one target institution chip */}
+          {mode === 'bulk-one' && bulkOneTargetInstitutionName && (
+            <div className="rounded-md border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+              All matched leads will go to one counselor at{' '}
+              <span className="font-medium text-foreground">
+                {bulkOneTargetInstitutionName}
+              </span>
+              .
+            </div>
+          )}
+
+          {/* Auto-route disclaimer — server-side routing rules pick counselors */}
+          {mode === 'auto-route' && (
+            <div className="rounded-md border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+              Auto-route uses server-side routing rules and applies its own
+              institution scoping internally. Every selected lead is sent;
+              the server may still mark some as "no-candidate" if no eligible
+              counselor exists for their source/institution.
+            </div>
+          )}
+        </div>
+
+        <DialogFooter>
+          <Button
+            variant="outline"
+            onClick={() => onOpenChange(false)}
+            disabled={isCommitting}
+          >
+            Cancel
+          </Button>
+          <Button
+            onClick={onProceed}
+            disabled={isCommitting || matchedTotal === 0}
+          >
+            {isCommitting
+              ? 'Assigning…'
+              : `Assign ${matchedTotal.toLocaleString()} lead${matchedTotal === 1 ? '' : 's'}`}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
