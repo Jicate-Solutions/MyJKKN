@@ -12,6 +12,7 @@ import {
 } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
@@ -37,6 +38,7 @@ interface CallSettings {
   auto_sms_enabled: boolean;
   auto_sms_template: string | null;
   auto_sms_sender_id: string | null;
+  auto_sms_cooldown_hours: number | null;
   dlt_entity_id: string | null;
   dlt_template_id: string | null;
 }
@@ -44,6 +46,10 @@ interface CallSettings {
 interface MissedCallSettingsProps {
   institutionId: string;
 }
+
+const DEFAULT_SMS_COOLDOWN_HOURS = 24;
+const MIN_SMS_COOLDOWN_HOURS = 1;
+const MAX_SMS_COOLDOWN_HOURS = 168; // 7 days
 
 // =============================================================================
 // API functions
@@ -69,6 +75,7 @@ async function updateCallSettings(payload: {
   auto_whatsapp_template: string;
   auto_sms_enabled: boolean;
   auto_sms_template: string;
+  auto_sms_cooldown_hours: number;
 }): Promise<CallSettings> {
   const res = await fetch('/api/admission/settings/call-settings', {
     method: 'POST',
@@ -101,6 +108,9 @@ export function MissedCallSettings({ institutionId }: MissedCallSettingsProps) {
   const [waTemplate, setWaTemplate] = useState('');
   const [smsEnabled, setSmsEnabled] = useState(false);
   const [smsTemplate, setSmsTemplate] = useState('');
+  const [smsCooldownHours, setSmsCooldownHours] = useState<number>(
+    DEFAULT_SMS_COOLDOWN_HOURS
+  );
 
   // Sync from server data
   useEffect(() => {
@@ -109,8 +119,16 @@ export function MissedCallSettings({ institutionId }: MissedCallSettingsProps) {
       setWaTemplate(settings.auto_whatsapp_template ?? '');
       setSmsEnabled(settings.auto_sms_enabled ?? false);
       setSmsTemplate(settings.auto_sms_template ?? '');
+      setSmsCooldownHours(
+        settings.auto_sms_cooldown_hours ?? DEFAULT_SMS_COOLDOWN_HOURS
+      );
     }
   }, [settings]);
+
+  const cooldownInRange =
+    Number.isFinite(smsCooldownHours) &&
+    smsCooldownHours >= MIN_SMS_COOLDOWN_HOURS &&
+    smsCooldownHours <= MAX_SMS_COOLDOWN_HOURS;
 
   const saveMutation = useMutation({
     mutationFn: () =>
@@ -120,6 +138,7 @@ export function MissedCallSettings({ institutionId }: MissedCallSettingsProps) {
         auto_whatsapp_template: waTemplate,
         auto_sms_enabled: smsEnabled,
         auto_sms_template: smsTemplate,
+        auto_sms_cooldown_hours: Math.trunc(smsCooldownHours),
       }),
     onSuccess: () => {
       toast.success('Missed call settings saved');
@@ -139,7 +158,9 @@ export function MissedCallSettings({ institutionId }: MissedCallSettingsProps) {
     (waEnabled !== (settings.auto_whatsapp_enabled ?? false) ||
       waTemplate !== (settings.auto_whatsapp_template ?? '') ||
       smsEnabled !== (settings.auto_sms_enabled ?? false) ||
-      smsTemplate !== (settings.auto_sms_template ?? ''));
+      smsTemplate !== (settings.auto_sms_template ?? '') ||
+      smsCooldownHours !==
+        (settings.auto_sms_cooldown_hours ?? DEFAULT_SMS_COOLDOWN_HOURS));
 
   if (isLoading) {
     return (
@@ -286,6 +307,41 @@ export function MissedCallSettings({ institutionId }: MissedCallSettingsProps) {
                 </p>
               </div>
 
+              {/* SMS cooldown — per-institution dedup window */}
+              <div className="space-y-2">
+                <Label htmlFor="sms-cooldown">SMS cooldown (hours)</Label>
+                <Input
+                  id="sms-cooldown"
+                  type="number"
+                  min={MIN_SMS_COOLDOWN_HOURS}
+                  max={MAX_SMS_COOLDOWN_HOURS}
+                  step={1}
+                  value={Number.isFinite(smsCooldownHours) ? smsCooldownHours : ''}
+                  onChange={(e) => {
+                    const raw = e.target.value;
+                    if (raw === '') {
+                      setSmsCooldownHours(NaN);
+                      return;
+                    }
+                    const n = Number(raw);
+                    setSmsCooldownHours(Number.isFinite(n) ? n : NaN);
+                  }}
+                  className="w-32"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Don&apos;t resend an SMS to the same caller within this many
+                  hours. Default {DEFAULT_SMS_COOLDOWN_HOURS}. Range{' '}
+                  {MIN_SMS_COOLDOWN_HOURS}–{MAX_SMS_COOLDOWN_HOURS} (1 hour to 7
+                  days).
+                </p>
+                {!cooldownInRange && (
+                  <p className="text-xs text-red-600">
+                    Cooldown must be between {MIN_SMS_COOLDOWN_HOURS} and{' '}
+                    {MAX_SMS_COOLDOWN_HOURS} hours.
+                  </p>
+                )}
+              </div>
+
               {/* DLT Warning */}
               {!settings.dlt_template_id && (
                 <div className="flex items-start gap-2 rounded-md border border-yellow-200 bg-yellow-50 p-3 dark:border-yellow-900 dark:bg-yellow-950/30">
@@ -347,7 +403,9 @@ export function MissedCallSettings({ institutionId }: MissedCallSettingsProps) {
           </div>
           <Button
             onClick={() => saveMutation.mutate()}
-            disabled={saveMutation.isPending || !hasChanges}
+            disabled={
+              saveMutation.isPending || !hasChanges || !cooldownInRange
+            }
           >
             {saveMutation.isPending ? (
               <Loader2 className="h-4 w-4 mr-2 animate-spin" />

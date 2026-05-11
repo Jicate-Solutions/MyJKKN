@@ -650,12 +650,20 @@ export class StudentBillService {
   }
 
   static async bulkCreateStudentBills(
-    bulkData: BulkBillScheduleDto
+    bulkData: BulkBillScheduleDto,
+    onProgress?: (done: number, total: number) => void
   ): Promise<BulkOperationResult> {
     const results: BulkOperationResult = {
       success: [],
       failed: []
     };
+
+    // Total work units = students × bills-per-student. The loop is sequential
+    // (Supabase round-trip per row), so reporting after each iteration gives
+    // truthful, monotonically-increasing progress.
+    const total = bulkData.student_ids.length * bulkData.bills.length;
+    let done = 0;
+    onProgress?.(0, total);
 
     for (const studentId of bulkData.student_ids) {
       for (const billData of bulkData.bills) {
@@ -670,6 +678,9 @@ export class StudentBillService {
             id: studentId,
             error: error instanceof Error ? error.message : 'Unknown error'
           });
+        } finally {
+          done += 1;
+          onProgress?.(done, total);
         }
       }
     }

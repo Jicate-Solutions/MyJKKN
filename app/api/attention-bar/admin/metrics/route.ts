@@ -14,10 +14,20 @@ import { getEnhancedUserProfile } from '@/lib/supabase/server';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-function rangeToInterval(range: string): string {
-  if (range === '7d') return '7 days';
-  if (range === '30d') return '30 days';
-  return '24 hours'; // default: 24h
+/**
+ * Convert a range string to an ISO-8601 cutoff timestamp computed in JS.
+ *
+ * Why ISO and not a SQL `now() - interval '...'` string: Supabase JS
+ * `.gte(column, value)` URL-encodes the value as a PostgREST filter literal.
+ * PostgREST does not evaluate `now() - interval '24 hours'` server-side — it
+ * tries to parse the string as a timestamptz literal and returns 400. The
+ * route was emitting that 400 silently and the catch-all turned it into a
+ * generic 500 → "Failed to load metrics" in the Tab 1 Overview UI.
+ * Caught 2026-05-03; the bug had been latent since the metrics route shipped.
+ */
+function rangeToCutoffISO(range: string): string {
+  const hours = range === '7d' ? 24 * 7 : range === '30d' ? 24 * 30 : 24;
+  return new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
 }
 
 export async function GET(request: Request) {
@@ -29,7 +39,7 @@ export async function GET(request: Request) {
   const isSuperAdmin = profile.is_super_admin === true;
   const url = new URL(request.url);
   const range = url.searchParams.get('range') ?? '24h';
-  const interval = rangeToInterval(range);
+  const cutoffISO = rangeToCutoffISO(range);
 
   // Permission check: super_admin or attention_bar.audit.view
   const supabase = await createClient();
@@ -48,7 +58,7 @@ export async function GET(request: Request) {
     const { data: rendersByLayer, error: rblError } = await supabase
       .from('quick_action_audit')
       .select('fired_layer')
-      .gte('rendered_at', `now() - interval '${interval}'`);
+      .gte('rendered_at', cutoffISO);
 
     if (rblError) throw rblError;
 
@@ -65,7 +75,7 @@ export async function GET(request: Request) {
       .from('quick_action_audit')
       .select('rule_id')
       .eq('fired_layer', 2)
-      .gte('rendered_at', `now() - interval '${interval}'`)
+      .gte('rendered_at', cutoffISO)
       .not('rule_id', 'is', null);
 
     if (trError) throw trError;
@@ -102,7 +112,7 @@ export async function GET(request: Request) {
     const { data: aiCacheRows } = await supabase
       .from('quick_action_ai_cache')
       .select('cost_usd, cached_at')
-      .gte('cached_at', `now() - interval '${interval}'`);
+      .gte('cached_at', cutoffISO);
 
     let aiCostTotal = 0;
     let aiCacheHits = 0;

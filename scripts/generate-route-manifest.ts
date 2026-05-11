@@ -79,19 +79,149 @@ function titleCaseSegment(seg: string): string {
 /**
  * Map URL prefixes to a sensible default lucide icon for new pages.
  * Real icons can be overridden per-page via `export const navMeta = { icon }`.
+ *
+ * Order matters — the first match wins. Put more specific patterns before
+ * more generic ones (e.g. `/data-quality` before `/quality`).
  */
 function inferIcon(urlPath: string): string {
-  if (urlPath.endsWith('/dashboard')) return 'LayoutGrid';
-  if (urlPath.endsWith('/analytics')) return 'BarChart';
-  if (urlPath.endsWith('/settings')) return 'Settings';
+  // ─── Specific dashboard / overview patterns ──────────────────────────
+  if (urlPath.endsWith('/dashboard') || urlPath.endsWith('/group-dashboard')) return 'LayoutGrid';
+  if (urlPath.endsWith('/overview')) return 'LayoutDashboard';
+  if (urlPath.endsWith('/analytics') || urlPath.endsWith('/analytics-dashboard')) return 'BarChart';
+  if (urlPath.endsWith('/insights')) return 'Lightbulb';
+  if (urlPath.endsWith('/leaderboard')) return 'Trophy';
+
+  // ─── Configuration / settings ────────────────────────────────────────
+  if (urlPath.endsWith('/settings') || urlPath.endsWith('/manage')) return 'Settings';
+  if (urlPath.endsWith('/parameters')) return 'Sliders';
+  if (urlPath.endsWith('/policies')) return 'BookText';
+  if (urlPath.endsWith('/regulations')) return 'Scale';
+
+  // ─── Create / list / search actions ─────────────────────────────────
   if (urlPath.endsWith('/new') || urlPath.includes('/create')) return 'Plus';
   if (urlPath.endsWith('/list') || urlPath.endsWith('/all')) return 'List';
+  if (urlPath.includes('/search') || urlPath.includes('/discovery')) return 'Search';
+  if (urlPath.includes('/findings')) return 'Search';
+
+  // ─── Reports & data quality ─────────────────────────────────────────
+  if (urlPath.includes('/data-quality')) return 'CheckCircle2';
   if (urlPath.includes('/reports')) return 'FileBarChart';
+  if (urlPath.includes('/audit-trail') || urlPath.includes('/activity')) return 'History';
+
+  // ─── Time / calendar ─────────────────────────────────────────────────
   if (urlPath.includes('/calendar')) return 'Calendar';
+  if (urlPath.includes('/timetables') || urlPath.includes('/timetable')) return 'CalendarClock';
+  if (urlPath.includes('/schedule')) return 'CalendarClock';
+  if (urlPath.includes('/availability')) return 'CalendarCheck';
+  if (urlPath.includes('/semesters')) return 'CalendarDays';
+  if (urlPath.endsWith('/years')) return 'CalendarRange';
+  if (urlPath.endsWith('/periods')) return 'Clock';
+  if (urlPath.includes('/cycles')) return 'RotateCw';
+
+  // ─── People / roles ─────────────────────────────────────────────────
+  if (urlPath.includes('/counselors') || urlPath.includes('/consultants')) return 'Users';
+  if (urlPath.includes('/mentors') || urlPath.includes('/experts')) return 'UserCheck';
+  if (urlPath.includes('/auditors')) return 'UserSearch';
+  if (urlPath.includes('/staff') || urlPath.includes('/employees')) return 'Users';
+  if (urlPath.includes('/learners') || urlPath.includes('/students')) return 'GraduationCap';
+  if (urlPath.includes('/alumni')) return 'GraduationCap';
+  if (urlPath.includes('/recruitment')) return 'UserSearch';
+  if (urlPath.includes('/team')) return 'Users';
   if (urlPath.includes('/users') || urlPath.includes('/members')) return 'Users';
+  if (urlPath.includes('/community')) return 'Users2';
   if (urlPath.includes('/profile')) return 'UserCircle';
+  if (urlPath.includes('/visitors')) return 'UserCog';
+  if (urlPath.includes('/residents')) return 'BedDouble';
+  if (urlPath.includes('/onboarding')) return 'UserPlus';
+  if (urlPath.includes('/leads') || urlPath.includes('/enquiries')) return 'UserPlus';
+
+  // ─── Messages / notifications ────────────────────────────────────────
+  if (urlPath.includes('/inbox')) return 'Inbox';
   if (urlPath.includes('/messages') || urlPath.includes('/chat')) return 'MessageSquare';
+  if (urlPath.includes('/notifications')) return 'Bell';
+  if (urlPath.includes('/communication')) return 'MessageCircle';
+  if (urlPath.includes('/feedback')) return 'MessageCircle';
+  if (urlPath.includes('/marketing')) return 'Megaphone';
+  if (urlPath.includes('/gd-pi')) return 'MessagesSquare';
+
+  // ─── Money / billing ────────────────────────────────────────────────
   if (urlPath.includes('/payment') || urlPath.includes('/billing')) return 'Wallet';
+  if (urlPath.includes('/invoices') || urlPath.includes('/receipts')) return 'Receipt';
+  if (urlPath.includes('/refunds')) return 'Undo2';
+  if (urlPath.includes('/discounts')) return 'Tag';
+  if (urlPath.includes('/finance') || urlPath.includes('/earnings')) return 'DollarSign';
+  if (urlPath.includes('/ta-da')) return 'DollarSign';
+
+  // ─── Academic ────────────────────────────────────────────────────────
+  if (urlPath.includes('/applications')) return 'ClipboardList';
+  if (urlPath.includes('/admission')) return 'GraduationCap';
+  if (urlPath.includes('/programs')) return 'BookOpen';
+  if (urlPath.includes('/courses')) return 'BookOpen';
+  if (urlPath.includes('/batches')) return 'Boxes';
+  if (urlPath.includes('/sections')) return 'LayoutGrid';
+  if (urlPath.includes('/departments')) return 'Building2';
+  if (urlPath.includes('/institutions')) return 'Building';
+  if (urlPath.includes('/degrees')) return 'GraduationCap';
+  if (urlPath.includes('/attendance')) return 'CheckSquare';
+  if (urlPath.includes('/leave')) return 'CalendarOff';
+  if (urlPath.includes('/grades') || urlPath.includes('/marks')) return 'Award';
+  if (urlPath.includes('/exams')) return 'FileQuestion';
+  if (urlPath.includes('/internal-marks')) return 'Star';
+  if (urlPath.includes('/privileges')) return 'KeyRound';
+  if (urlPath.includes('/regulations')) return 'Scale';
+
+  // ─── Roles / permissions / governance ───────────────────────────────
+  if (urlPath.includes('/roles') || urlPath.includes('/role-management')) return 'Shield';
+  if (urlPath.includes('/permissions')) return 'KeyRound';
+  if (urlPath.includes('/governance')) return 'Building';
+  if (urlPath.includes('/compositions')) return 'Layers';
+
+  // ─── Health / wellness / sports ──────────────────────────────────────
+  if (urlPath.includes('/health')) return 'Heart';
+  if (urlPath.includes('/wellness')) return 'HeartPulse';
+  if (urlPath.includes('/safety')) return 'ShieldAlert';
+  if (urlPath.includes('/fitness')) return 'Dumbbell';
+  if (urlPath.includes('/sports')) return 'Volleyball';
+  if (urlPath.includes('/training')) return 'Dumbbell';
+  if (urlPath.includes('/achievements')) return 'Award';
+  if (urlPath.includes('/assessments')) return 'ClipboardCheck';
+
+  // ─── Hostel / facilities ─────────────────────────────────────────────
+  if (urlPath.includes('/hostel') || urlPath.includes('/blocks')) return 'Building';
+  if (urlPath.includes('/allocations')) return 'PackageCheck';
+  if (urlPath.includes('/mess')) return 'Utensils';
+  if (urlPath.includes('/laundry')) return 'Shirt';
+  if (urlPath.includes('/housekeeping')) return 'SprayCan';
+  if (urlPath.includes('/maintenance')) return 'Wrench';
+  if (urlPath.includes('/gate-passes')) return 'Ticket';
+  if (urlPath.includes('/vacate')) return 'LogOut';
+  if (urlPath.includes('/resources') || urlPath.includes('/reservations')) return 'Boxes';
+
+  // ─── Innovation / build / capabilities ──────────────────────────────
+  if (urlPath.includes('/innovation')) return 'Lightbulb';
+  if (urlPath.includes('/quests')) return 'Trophy';
+  if (urlPath.includes('/channels')) return 'Tv';
+  if (urlPath.includes('/build')) return 'Hammer';
+  if (urlPath.includes('/capabilities')) return 'Cpu';
+  if (urlPath.includes('/portfolio')) return 'Briefcase';
+  if (urlPath.includes('/objectives')) return 'Target';
+  if (urlPath.includes('/check-in')) return 'CheckCircle';
+  if (urlPath.includes('/cascade')) return 'Network';
+  if (urlPath.includes('/organization')) return 'Building2';
+
+  // ─── Events ──────────────────────────────────────────────────────────
+  if (urlPath.includes('/events')) return 'CalendarHeart';
+
+  // ─── Tags / categorization ──────────────────────────────────────────
+  if (urlPath.includes('/categories') || urlPath.includes('/category')) return 'Tags';
+
+  // ─── Tech / API ──────────────────────────────────────────────────────
+  if (urlPath.includes('/api-management') || urlPath.includes('/api-guidelines')) return 'Code2';
+  if (urlPath.includes('/lti')) return 'PlugZap';
+  if (urlPath.includes('/saml')) return 'KeyRound';
+  if (urlPath.includes('/audit')) return 'ClipboardCheck';
+
+  // ─── Generic fallback ────────────────────────────────────────────────
   return 'FileText';
 }
 

@@ -58,30 +58,36 @@ export async function GET(request: NextRequest) {
       }
     );
 
-    // Exchange code for session
+    // Build login URL helper that preserves samlReqId across error redirects
+    // so a transient failure here does not strand the SAML SP-initiated flow.
+    const loginUrlWithSamlContext = (errorCode: string) => {
+      const url = new URL(`/auth/login`, origin);
+      url.searchParams.set('error', errorCode);
+      if (samlReqId) url.searchParams.set('samlReqId', samlReqId);
+      return url;
+    };
+
+    // Exchange code for session.
+    // IMPORTANT: read the user from the exchange's return value, NOT from a
+    // follow-up supabase.auth.getUser(). A second getUser() races the cookie
+    // write under PKCE/detectSessionInUrl on first SAML SSO and on external
+    // networks under MFA latency, yielding null and dropping the SAML resume.
+    // See memory: feedback_use_sign_in_return_not_getuser.md
     console.log('[Auth Callback] Exchanging code for session...');
-    const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(
-      code
-    );
+    const {
+      data: exchangeData,
+      error: exchangeError
+    } = await supabase.auth.exchangeCodeForSession(code);
     if (exchangeError) {
       console.log('[Auth Callback] ❌ Code exchange failed:', exchangeError);
-      return NextResponse.redirect(
-        new URL(`/auth/login?error=exchange`, origin)
-      );
+      return NextResponse.redirect(loginUrlWithSamlContext('exchange'));
     }
     console.log('[Auth Callback] ✅ Code exchange successful');
 
-    // Get user
-    console.log('[Auth Callback] Getting user session...');
-    const {
-      data: { user },
-      error: userError
-    } = await supabase.auth.getUser();
-    if (userError || !user) {
-      console.log('[Auth Callback] ❌ Failed to get user:', userError);
-      return NextResponse.redirect(
-        new URL(`/auth/login?error=session`, origin)
-      );
+    const user = exchangeData?.user ?? null;
+    if (!user) {
+      console.log('[Auth Callback] ❌ exchangeCodeForSession returned no user');
+      return NextResponse.redirect(loginUrlWithSamlContext('session'));
     }
     console.log('[Auth Callback] ✅ User authenticated:', user.id, user.email);
 
@@ -335,10 +341,16 @@ export async function GET(request: NextRequest) {
         }
       };
 
-      // INVITE-ONLY POLICY (2026-04-14):
+      // INVITE-ONLY POLICY (2026-04-14, updated 2026-05-06):
       // If no profile exists, the user is not authorized. We no longer auto-create
       // 'guest' profiles. Legitimate onboarding paths are:
-      //   (a) Pre-registered profile — linked by link_pre_registered_profile trigger on auth.users
+      //   (a) Pre-registered profile — migrated via the migrate_pre_registered_profile_to_auth
+      //       RPC called above (line ~152). The auth.users INSERT trigger
+      //       link_pre_registered_profile_trigger was dropped on 2026-05-06 because
+      //       its naive DELETE+INSERT raised FK violations on staff.profile_id and
+      //       210+ other blocking FKs to profiles(id), causing exchangeCodeForSession
+      //       to roll back and the user to bounce. The RPC now uses dynamic FK
+      //       detachment to handle every blocking reference.
       //   (b) Approved learner — has a row in learners_profiles with matching college_email
       //   (c) Admin-created profile — via /users/new
       // If none of these apply, we sign the user out, delete their auth.users row, and

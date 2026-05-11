@@ -33,6 +33,63 @@ export const POLICY_KEYS = {
   // two distinct hits — so the split bar renders by default on every page even
   // when no Layer 2 rule has been configured. Default false → unchanged behaviour.
   ATTENTION_BAR_L1_RETURN_SECONDARY: 'attention_bar.layer1.return_secondary',
+
+  // Dashboard leaderboards — min-volume thresholds for inclusion
+  // (matview HAVING clauses read these; refresh-time snapshot)
+  // Default 5 hot leads first-touched today / 10 leads in 30d.
+  DASHBOARD_LEADERBOARD_SLA_MIN_LEADS: 'dashboard.leaderboard.sla_min_leads',
+  DASHBOARD_LEADERBOARD_CONVERSION_MIN_LEADS: 'dashboard.leaderboard.conversion_min_leads',
+
+  // Telephony — ExoVoiceAnalyze submission tasks + categories.
+  // Object policy: { tasks: string[], categories: string[] }.
+  // Consumed by lib/services/telephony/call-pipeline-service.ts (server-only,
+  // pipeline runs in API routes / cron, never client). Director can edit via
+  // /admin/telephony-policies — no deploy needed.
+  TELEPHONY_EXOVOICE_CONFIG: 'telephony.exovoice.config',
+
+  // Telephony — CDR sync windowing (object: {default_lookback_days, chunk_max_days})
+  // Consumed by lib/services/telephony/inbound-call-sync-service.ts at sync start.
+  // Defaults: 7-day first-sync lookback, 30-day chunks (Exotel max is 31).
+  // Director-tweakable via platform_policies admin UI — no deploy needed.
+  TELEPHONY_CDR_SYNC_CONFIG: 'telephony.cdr_sync.config',
+
+  // BYOW WhatsApp (Bring Your Own WhatsApp via Railway whatsapp-web.js service).
+  // Spec: /Users/omm/PROJECTS/MyJKKN/specs/byow-whatsapp-revival.md (v4, 2026-05-03)
+  // Consumed by app/api/cron/whatsapp-byow-health/route.ts and the parent server
+  // component of /admission/settings/whatsapp-numbers (UI gate).
+  WA_BYOW_IS_ENABLED: 'wa_byow.is_enabled',
+  WA_BYOW_HEALTH_FAILURE_THRESHOLD: 'wa_byow.health_failure_threshold',
+  WA_BYOW_HEALTH_PROBE_TIMEOUT_SECONDS: 'wa_byow.health_probe_timeout_seconds',
+  WA_BYOW_ALERT_CHANNELS: 'wa_byow.alert_channels',
+  WA_BYOW_HEALTH_LOG_RETENTION_DAYS: 'wa_byow.health_log_retention_days',
+  WA_BYOW_TENANCY_SPLIT_THRESHOLD_CONNECTIONS: 'wa_byow.tenancy_split_threshold_connections',
+  WA_BYOW_CONNECTOR_ROLE_REQUIRED: 'wa_byow.connector_role_required',
+
+  // BYOW Spec 3 — Reliability infra + Senior Learner UI (verdict 2026-08-03).
+  // Consumed by: connection-pulse cron, header connection badge, dashboard card,
+  // bypass-detector cron, secret rotation UI.
+  WA_BYOW_DISCONNECT_NOTIFY_ROLES: 'wa_byow.disconnect_notify_roles',
+  WA_BYOW_CONNECTION_STALE_THRESHOLD_HOURS: 'wa_byow.connection_stale_threshold_hours',
+  WA_BYOW_CONNECTION_FORCE_DISCONNECT_AFTER_HOURS: 'wa_byow.connection_force_disconnect_after_hours',
+  WA_BYOW_INBOUND_ATTRIBUTION_CASCADE: 'wa_byow.inbound_attribution_cascade',
+  WA_BYOW_WEBHOOK_SECRET_ROTATION_DAYS: 'wa_byow.webhook_secret_rotation_days',
+
+  // BYOW Spec 3 Phase 2 — Synthetic audit cron (Task 17). DISABLED by default.
+  // When true, hourly cron sends a synthetic msg via each ready connection so
+  // we can detect silent inbound-webhook drops. Director flips after dry-run.
+  // Consumed by app/api/cron/whatsapp-byow-synthetic-audit/route.ts.
+  WA_BYOW_SYNTHETIC_AUDIT_ENABLED: 'wa_byow.synthetic_audit_enabled',
+
+  // Voice Memo Monitor (2026-05-10) — runtime-tunable thresholds for
+  // /admission/counselors/voice-memos. Director-tweakable via /admin/voice-memo-monitor.
+  VOICE_MEMO_MONITOR_WINDOW_HOURS: 'voice_memo_monitor.window_hours',
+  VOICE_MEMO_MONITOR_STUCK_THRESHOLD_MINUTES: 'voice_memo_monitor.stuck_threshold_minutes',
+  VOICE_MEMO_MONITOR_FAILURE_RATE_RED_PCT: 'voice_memo_monitor.failure_rate_red_pct',
+  VOICE_MEMO_MONITOR_FAILURE_RATE_AMBER_PCT: 'voice_memo_monitor.failure_rate_amber_pct',
+  VOICE_MEMO_MONITOR_RECENT_ROWS_LIMIT: 'voice_memo_monitor.recent_rows_limit',
+  VOICE_MEMO_MONITOR_REFRESH_INTERVAL_SECONDS: 'voice_memo_monitor.refresh_interval_seconds',
+  VOICE_MEMO_MONITOR_COST_ALERT_DAILY_INR: 'voice_memo_monitor.cost_alert_daily_inr',
+  VOICE_MEMO_MONITOR_DIRECTOR_DIGEST_CATEGORIES: 'voice_memo_monitor.director_digest_categories',
 } as const;
 
 export type PolicyKey = typeof POLICY_KEYS[keyof typeof POLICY_KEYS];

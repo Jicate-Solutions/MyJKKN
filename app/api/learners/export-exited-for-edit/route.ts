@@ -174,7 +174,8 @@ export async function GET(request: NextRequest) {
       'Caste': learner.caste || '',
       'Aadhar Number': learner.aadhar_number || '',
       'Blood Group': learner.blood_group || '',
-      'Admission Year': learner.admission_year || '',
+      'Admission Year':
+        (learner as any).admission_year_obj?.program_start_year ?? learner.admission_year ?? '',
 
       // SECTION 2: Parent/Guardian Information
       'Father Name': learner.father_name || '',
@@ -244,7 +245,6 @@ export async function GET(request: NextRequest) {
       'Roll Number': learner.roll_number || '',
       'Register Number': learner.register_number || '',
       'Quota': learner.quota || '',
-      'Category': learner.category || '',
       'Photo URL': learner.student_photo_url || '',
     }));
 

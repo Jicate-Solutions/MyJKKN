@@ -75,7 +75,7 @@ export default function NewBlockPage() {
     setIsSubmitting(true);
 
     try {
-      await createBlock.mutateAsync({
+      const created = await createBlock.mutateAsync({
         institution_id: profile?.institution_id ?? '',
         name: formData.name,
         code: formData.code,
@@ -94,7 +94,16 @@ export default function NewBlockPage() {
         metadata: null,
       });
 
-      router.push('/campus-living/blocks');
+      // BUG-003863: After block creation, route to the rooms management page
+      // for the newly-created block so the user can immediately add rooms
+      // (which is the prerequisite for adding beds and allocating residents).
+      // Fallback to the blocks list if the created row didn't return an id
+      // (defensive — should not happen with `.select().single()`).
+      if (created?.id) {
+        router.push(`/campus-living/blocks/${created.id}/rooms`);
+      } else {
+        router.push('/campus-living/blocks');
+      }
     } catch (error) {
       // Error is handled by the mutation hook's onError
     } finally {
@@ -122,7 +131,9 @@ export default function NewBlockPage() {
           <div>
             <h1 className="text-2xl font-bold py-1">Create New Hostel Block</h1>
             <p className="text-sm text-muted-foreground">
-              Add a new hostel building or wing
+              Add a new hostel building or wing. After creating the block,
+              you&apos;ll be taken to the rooms page to add rooms (rooms hold
+              beds, which are then allocated to residents).
             </p>
           </div>
         </div>
@@ -301,7 +312,7 @@ export default function NewBlockPage() {
               ) : (
                 <>
                   <Save className="mr-2 h-4 w-4" />
-                  Create Block
+                  Create Block &amp; Add Rooms
                 </>
               )}
             </Button>

@@ -5,7 +5,6 @@ import { useRouter } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import type { FieldErrors } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import * as z from 'zod';
 import { toast } from 'react-hot-toast';
 import { CalendarIcon } from 'lucide-react';
 import { format } from 'date-fns';
@@ -48,53 +47,86 @@ import { getFirstErrorField } from '@/lib/utils/form-errors';
 import { RoleService } from '@/lib/services/roles/role-service';
 import { usePermissions } from '@/hooks/use-permissions';
 import type { CustomRole } from '@/types/auth';
+import { fullStaffSchema, extendedStaffSchema, type StaffFormValues } from './staff-form-schema';
+import { TabbedFormShell, type TabSpec } from '@/components/forms';
+import { BasicTab } from './staff-form-tabs/basic-tab';
+import { AcademicTab } from './staff-form-tabs/academic-tab';
+import { ExperienceTab } from './staff-form-tabs/experience-tab';
+import { ResearchTab } from './staff-form-tabs/research-tab';
+import { AchievementsTab } from './staff-form-tabs/achievements-tab';
+import { MentoringTab } from './staff-form-tabs/mentoring-tab';
+import { FaqsTab } from './staff-form-tabs/faqs-tab';
 
 const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
 
-const staffSchema = z.object({
-  first_name: z.string().min(2, 'First name must be at least 2 characters'),
-  last_name: z.string().min(1, 'Last name must be at least one characters'),
-  gender: z.enum(['male', 'female', 'bigender']),
-  date_of_birth: z.date({
-    required_error: 'Date of birth is required'
-  }),
-  marital_status: z.enum(['single', 'married', 'divorced', 'widow']),
-  blood_group: z
-    .enum(['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-', 'A1+', 'A1B'])
-    .optional(),
-  email: z.string().email('Invalid email format'),
-  institution_email: z
-    .string()
-    .email('Invalid email format')
-    .refine(
-      (val) => val.toLowerCase().endsWith('@jkkn.ac.in'),
-      'Institution email must use @jkkn.ac.in domain (e.g., staff@jkkn.ac.in)'
-    )
-    .optional(),
-  phone: z.string().min(10, 'Phone number must be at least 10 characters'),
-  staff_id: z.string().optional(),
-  profile_picture: z.string().optional(),
-  address: z.string().optional(),
-  state: z.string().optional(),
-  district: z.string().optional(),
-  pincode: z.string().optional(),
-  date_of_joining: z.date({
-    required_error: 'Date of joining is required'
-  }),
-  designation: z.string().min(2, 'Designation is required'),
-  category_id: z.string().min(1, 'Category is required'),
-  role_key: z.string().min(1, 'Role is required'),
-  institution_id: z.string().min(1, 'Institution is required'),
-  // Department is now conditionally required based on category.is_teaching (see superRefine below)
-  department_id: z.string().optional().nullable(),
-  is_active: z.boolean().default(true)
-});
-
-type FormValues = z.infer<typeof staffSchema>;
+type FormValues = StaffFormValues;
 
 interface StaffFormProps {
   staff?: Staff;
   isEditing?: boolean;
+}
+
+function buildDefaults(staff?: Staff) {
+  return {
+    first_name: staff?.first_name || '',
+    last_name: staff?.last_name || '',
+    gender: staff?.gender || 'male',
+    date_of_birth: staff?.date_of_birth
+      ? new Date(staff.date_of_birth)
+      : undefined,
+    marital_status: staff?.marital_status || 'single',
+    blood_group: staff?.blood_group,
+    email: staff?.email || '',
+    institution_email: staff?.institution_email || '',
+    phone: staff?.phone || '',
+    staff_id: staff?.staff_id || '',
+    profile_picture: staff?.profile_picture || '',
+    address: staff?.address || '',
+    state: staff?.state || '',
+    district: staff?.district || '',
+    pincode: staff?.pincode || '',
+    date_of_joining: staff?.date_of_joining
+      ? new Date(staff.date_of_joining)
+      : undefined,
+    designation: staff?.designation || '',
+    category_id: staff?.category_id || '',
+    role_key: (staff as any)?.role_key || '',
+    institution_id: staff?.institution_id || '',
+    department_id: staff?.department_id || '',
+    is_active: staff?.is_active ?? true,
+    // Extended-profile defaults — keep RHF from seeing `undefined` for any of
+    // these fields (which would silently fail Zod required-checks once the
+    // user toggles `has_extended_profile=true`).
+    has_extended_profile: staff?.has_extended_profile ?? false,
+    slug: staff?.slug ?? null,
+    status: staff?.status ?? 'draft',
+    display_order: staff?.display_order ?? 0,
+    experience_years: staff?.experience_years ?? 0,
+    research_papers: staff?.research_papers ?? 0,
+    phd_scholars: staff?.phd_scholars ?? 0,
+    awards_won: staff?.awards_won ?? 0,
+    pg_dissertations_guided: staff?.pg_dissertations_guided ?? 0,
+    ug_projects_guided: staff?.ug_projects_guided ?? 0,
+    qualification_summary: staff?.qualification_summary ?? null,
+    professional_summary: staff?.professional_summary ?? null,
+    mentoring_description: staff?.mentoring_description ?? null,
+    google_scholar_url: staff?.google_scholar_url ?? null,
+    researchgate_url: staff?.researchgate_url ?? null,
+    orcid_url: staff?.orcid_url ?? null,
+    badges: staff?.badges ?? [],
+    qualifications: staff?.qualifications ?? [],
+    specialisations: staff?.specialisations ?? [],
+    experience_entries: staff?.experience_entries ?? [],
+    research_focus_areas: staff?.research_focus_areas ?? [],
+    publications: staff?.publications ?? [],
+    funded_projects: staff?.funded_projects ?? [],
+    certifications: staff?.certifications ?? [],
+    awards: staff?.awards ?? [],
+    memberships: staff?.memberships ?? [],
+    phd_scholars_list: staff?.phd_scholars_list ?? [],
+    faqs: staff?.faqs ?? [],
+    achievements: staff?.achievements ?? []
+  };
 }
 
 const staffFieldOrder: Array<keyof FormValues> = [
@@ -121,6 +153,21 @@ const staffFieldOrder: Array<keyof FormValues> = [
   'department_id',
   'is_active'
 ];
+
+function mapFieldToTab(field: string): string | null {
+  const map: Record<string, string> = {
+    qualifications: 'academic', specialisations: 'academic', qualification_summary: 'academic',
+    experience_years: 'experience', experience_entries: 'experience', professional_summary: 'experience',
+    research_papers: 'research', publications: 'research', research_focus_areas: 'research',
+    funded_projects: 'research', google_scholar_url: 'research', researchgate_url: 'research', orcid_url: 'research',
+    awards_won: 'achievements', badges: 'achievements', awards: 'achievements',
+    certifications: 'achievements', memberships: 'achievements', achievements: 'achievements',
+    mentoring_description: 'mentoring', phd_scholars: 'mentoring', pg_dissertations_guided: 'mentoring',
+    ug_projects_guided: 'mentoring', phd_scholars_list: 'mentoring',
+    faqs: 'faqs',
+  };
+  return map[field] ?? null;
+}
 
 export function StaffForm({ staff, isEditing }: StaffFormProps) {
   const router = useRouter();
@@ -159,7 +206,7 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
     Array<{ id: string; name: string }>
   >([]);
   const [categories, setCategories] = useState<
-    Array<{ id: string; category_name: string; is_teaching: boolean }>
+    Array<{ id: string; category_name: string; is_teaching: boolean; shows_extended_profile?: boolean }>
   >([]);
   const [roles, setRoles] = useState<CustomRole[]>([]);
 
@@ -171,35 +218,8 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
   const [isInitialLoad, setIsInitialLoad] = useState(true);
 
   const form = useForm<FormValues>({
-    resolver: zodResolver(staffSchema),
-    defaultValues: {
-      first_name: staff?.first_name || '',
-      last_name: staff?.last_name || '',
-      gender: staff?.gender || 'male',
-      date_of_birth: staff?.date_of_birth
-        ? new Date(staff.date_of_birth)
-        : undefined,
-      marital_status: staff?.marital_status || 'single',
-      blood_group: staff?.blood_group,
-      email: staff?.email || '',
-      institution_email: staff?.institution_email || '',
-      phone: staff?.phone || '',
-      staff_id: staff?.staff_id || '',
-      profile_picture: staff?.profile_picture || '',
-      address: staff?.address || '',
-      state: staff?.state || '',
-      district: staff?.district || '',
-      pincode: staff?.pincode || '',
-      date_of_joining: staff?.date_of_joining
-        ? new Date(staff.date_of_joining)
-        : undefined,
-      designation: staff?.designation || '',
-      category_id: staff?.category_id || '',
-      role_key: (staff as any)?.role_key || '',
-      institution_id: staff?.institution_id || '',
-      department_id: staff?.department_id || '',
-      is_active: staff?.is_active ?? true
-    }
+    resolver: zodResolver(fullStaffSchema),
+    defaultValues: buildDefaults(staff)
   });
 
   // Watch institution_id for departments loading
@@ -211,39 +231,37 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
     [categories, watchedCategoryId]
   );
   const isTeachingCategory = selectedCategory?.is_teaching ?? false;
+  // Drive the "Extended Faculty Profile" toggle visibility off the selected
+  // category's shows_extended_profile flag.
+  //
+  // Resilience layer: also surface the toggle when the staff record itself
+  // already has has_extended_profile = true. This handles the case where the
+  // categories list (loaded via CategoryService.getCategories — RLS-scoped
+  // per the user's role) returns a different subset than super_admin sees,
+  // OR is still loading. Without this fallback, non-super-admin admins
+  // editing an existing extended-profile staff would see the 3 admin fields
+  // (slug/status/display_order) but the toggle (and the 6 extra tabs) would
+  // silently vanish, making the form unusable for managing existing data.
+  const canEnableExtended =
+    !!selectedCategory?.shows_extended_profile ||
+    staff?.has_extended_profile === true;
+
+  // When category supports extended profile and the toggle is currently off,
+  // auto-flip it on. Applies to BOTH create and edit modes so existing staff
+  // under a newly-extended-enabled category get the 6 extra tabs surfaced
+  // without requiring a manual toggle click. Users can still toggle off
+  // per-record in the Profile Settings sub-section if they don't want it.
+  useEffect(() => {
+    if (canEnableExtended && form.getValues('has_extended_profile') === false) {
+      form.setValue('has_extended_profile', true);
+    }
+  }, [canEnableExtended, form]);
 
   // Reset form when staff data changes (for edit mode)
   useEffect(() => {
     if (isEditing && staff) {
       console.log('Resetting form with staff data:', staff);
-      form.reset({
-        first_name: staff.first_name || '',
-        last_name: staff.last_name || '',
-        gender: staff.gender || 'male',
-        date_of_birth: staff.date_of_birth
-          ? new Date(staff.date_of_birth)
-          : undefined,
-        marital_status: staff.marital_status || 'single',
-        blood_group: staff.blood_group,
-        email: staff.email || '',
-        institution_email: staff.institution_email || '',
-        phone: staff.phone || '',
-        staff_id: staff.staff_id || '',
-        profile_picture: staff.profile_picture || '',
-        address: staff.address || '',
-        state: staff.state || '',
-        district: staff.district || '',
-        pincode: staff.pincode || '',
-        date_of_joining: staff.date_of_joining
-          ? new Date(staff.date_of_joining)
-          : undefined,
-        designation: staff.designation || '',
-        category_id: staff.category_id || '',
-        role_key: (staff as any).role_key || '',
-        institution_id: staff.institution_id || '',
-        department_id: staff.department_id || '',
-        is_active: staff.is_active ?? true
-      });
+      form.reset(buildDefaults(staff));
     }
   }, [staff, isEditing, form]);
 
@@ -393,8 +411,29 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
     });
   };
 
-  const onSubmit = async (values: FormValues) => {
+  const onSubmit = async (values: FormValues, opts: { strict: boolean } = { strict: true }) => {
     try {
+      // Task 23 (P4.23) — When `strict` (Save & Publish), validate the extended
+      // schema explicitly so partial faculty profiles can't be published.
+      // Save Draft passes { strict: false } to skip this check.
+      if (opts.strict && values.has_extended_profile) {
+        const result = extendedStaffSchema.safeParse(values);
+        if (!result.success) {
+          result.error.issues.forEach((issue) => {
+            form.setError(issue.path.join('.') as any, { message: issue.message });
+          });
+          // Switch to the first tab that has an error.
+          const firstField = result.error.issues[0]?.path[0] as string | undefined;
+          if (firstField) {
+            const tabId = mapFieldToTab(firstField);
+            if (tabId) {
+              router.replace(`?tab=${tabId}`, { scroll: false });
+            }
+          }
+          return;
+        }
+      }
+
       // Conditional department enforcement (mirrors DB trigger).
       const cat = categories.find((c) => c.id === values.category_id);
       if (cat?.is_teaching && !values.department_id) {
@@ -493,558 +532,667 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
     }
   };
 
+  // ─── Section JSX hoisted into named consts ──────────────────────────────────
+  // These are unchanged from the previous vertical layout — they're hoisted so
+  // we can pass them as React.ReactNode props into <BasicTab> rather than
+  // rendering them directly in the form return.
+  const personalSection = (
+    <div className='space-y-4'>
+      <h2 className='text-lg font-semibold'>Personal Information</h2>
+      <div className='grid gap-4 md:grid-cols-2'>
+        <FormField
+          control={form.control}
+          name='first_name'
+          render={({ field }) => (
+            <FormItem data-field='first_name'>
+              <FormLabel>First Name <span className='text-destructive'>*</span></FormLabel>
+              <FormControl>
+                <Input placeholder='Enter first name' {...field} />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          control={form.control}
+          name='last_name'
+          render={({ field }) => (
+            <FormItem data-field='last_name'>
+              <FormLabel>Last Name <span className='text-destructive'>*</span></FormLabel>
+              <FormControl>
+                <Input placeholder='Enter last name' {...field} />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          control={form.control}
+          name='gender'
+          render={({ field }) => (
+            <FormItem data-field='gender'>
+              <FormLabel>Gender <span className='text-destructive'>*</span></FormLabel>
+              <Select onValueChange={field.onChange} value={field.value}>
+                <FormControl>
+                  <SelectTrigger>
+                    <SelectValue placeholder='Select gender' />
+                  </SelectTrigger>
+                </FormControl>
+                <SelectContent>
+                  <SelectItem value='male'>Male</SelectItem>
+                  <SelectItem value='female'>Female</SelectItem>
+                  <SelectItem value='bigender'>Bigender</SelectItem>
+                </SelectContent>
+              </Select>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          control={form.control}
+          name='date_of_birth'
+          render={({ field }) => (
+            <FormItem className='flex flex-col' data-field='date_of_birth'>
+              <FormLabel>Date of Birth <span className='text-destructive'>*</span></FormLabel>
+              <FormControl>
+                <DateInput
+                  value={field.value}
+                  onChange={field.onChange}
+                  max={maxDate}
+                  min={minDate}
+                />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+      </div>
+    </div>
+  );
+
+  const contactSection = (
+    <div className='space-y-4'>
+      <h2 className='text-lg font-semibold'>Contact Information</h2>
+      <div className='grid gap-4 md:grid-cols-2'>
+        <FormField
+          control={form.control}
+          name='email'
+          render={({ field }) => (
+            <FormItem data-field='email'>
+              <FormLabel>Personal Email <span className='text-destructive'>*</span></FormLabel>
+              <FormControl>
+                <Input
+                  type='email'
+                  placeholder='Enter personal email'
+                  {...field}
+                />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          control={form.control}
+          name='phone'
+          render={({ field }) => (
+            <FormItem data-field='phone'>
+              <FormLabel>Phone <span className='text-destructive'>*</span></FormLabel>
+              <FormControl>
+                <Input
+                  placeholder='Enter phone number'
+                  type='number'
+                  {...field}
+                />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          control={form.control}
+          name='address'
+          render={({ field }) => (
+            <FormItem data-field='address'>
+              <FormLabel>Address</FormLabel>
+              <FormControl>
+                <Input placeholder='Enter address' {...field} />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          control={form.control}
+          name='state'
+          render={({ field }) => (
+            <FormItem data-field='state'>
+              <FormLabel>State</FormLabel>
+              <FormControl>
+                <Input placeholder='Enter state' {...field} />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          control={form.control}
+          name='district'
+          render={({ field }) => (
+            <FormItem data-field='district'>
+              <FormLabel>District</FormLabel>
+              <FormControl>
+                <Input placeholder='Enter district' {...field} />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          control={form.control}
+          name='pincode'
+          render={({ field }) => (
+            <FormItem data-field='pincode'>
+              <FormLabel>PIN Code</FormLabel>
+              <FormControl>
+                <Input
+                  placeholder='Enter PIN code'
+                  type='number'
+                  {...field}
+                />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+      </div>
+    </div>
+  );
+
+  const additionalSection = (
+    <div className='space-y-4'>
+      <h2 className='text-lg font-semibold'>Additional Information</h2>
+      <div className='grid gap-4 md:grid-cols-2'>
+        <FormField
+          control={form.control}
+          name='marital_status'
+          render={({ field }) => (
+            <FormItem data-field='marital_status'>
+              <FormLabel>Marital Status <span className='text-destructive'>*</span></FormLabel>
+              <Select onValueChange={field.onChange} value={field.value}>
+                <FormControl>
+                  <SelectTrigger>
+                    <SelectValue placeholder='Select marital status' />
+                  </SelectTrigger>
+                </FormControl>
+                <SelectContent>
+                  <SelectItem value='single'>Single</SelectItem>
+                  <SelectItem value='married'>Married</SelectItem>
+                  <SelectItem value='divorced'>Divorced</SelectItem>
+                  <SelectItem value='widow'>Widow</SelectItem>
+                </SelectContent>
+              </Select>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          control={form.control}
+          name='blood_group'
+          render={({ field }) => (
+            <FormItem data-field='blood_group'>
+              <FormLabel>Blood Group</FormLabel>
+              <Select
+                onValueChange={field.onChange}
+                value={field.value || ''}
+              >
+                <FormControl>
+                  <SelectTrigger>
+                    <SelectValue placeholder='Select blood group' />
+                  </SelectTrigger>
+                </FormControl>
+                <SelectContent>
+                  <SelectItem value='A+'>A+</SelectItem>
+                  <SelectItem value='A-'>A-</SelectItem>
+                  <SelectItem value='B+'>B+</SelectItem>
+                  <SelectItem value='B-'>B-</SelectItem>
+                  <SelectItem value='AB+'>AB+</SelectItem>
+                  <SelectItem value='AB-'>AB-</SelectItem>
+                  <SelectItem value='O+'>O+</SelectItem>
+                  <SelectItem value='O-'>O-</SelectItem>
+                  <SelectItem value='A1+'>A1+</SelectItem>
+                  <SelectItem value='A1B'>A1B</SelectItem>
+                </SelectContent>
+              </Select>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          control={form.control}
+          name='profile_picture'
+          render={({ field }) => (
+            <FormItem data-field='profile_picture'>
+              <FormLabel>Profile Picture</FormLabel>
+              <FormControl>
+                <StaffImageUpload
+                  value={field.value}
+                  onChange={field.onChange}
+                  onRemove={() => field.onChange('')}
+                  staffId={isEditing ? (staff?.id as string) : 'temp'}
+                />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+      </div>
+    </div>
+  );
+
+  // Employment Information — hidden in edit mode for users whose
+  // staff scope is 'own_records' (they may only update their own
+  // personal/contact info, not their designation/role/etc.).
+  const employmentSection = !canEditEmployment ? (
+    <div className='rounded-lg border border-dashed bg-muted/30 p-4 text-sm text-muted-foreground'>
+      Your role only allows editing personal details on your own
+      employee record. Employment information (designation, role,
+      institution, department) is managed by HR.
+    </div>
+  ) : (
+    <div className='space-y-4'>
+      <h2 className='text-lg font-semibold'>Employment Information</h2>
+      <div className='grid gap-4 md:grid-cols-2'>
+        <FormField
+          control={form.control}
+          name='staff_id'
+          render={({ field }) => (
+            <FormItem data-field='staff_id'>
+              <FormLabel>Staff ID</FormLabel>
+              <FormControl>
+                <Input placeholder='Enter staff ID' {...field} />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          control={form.control}
+          name='institution_email'
+          render={({ field }) => (
+            <FormItem data-field='institution_email'>
+              <FormLabel>Institution Email</FormLabel>
+              <FormControl>
+                <Input
+                  type='email'
+                  placeholder='Enter institution email'
+                  {...field}
+                  value={field.value || ''}
+                />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          control={form.control}
+          name='date_of_joining'
+          render={({ field }) => (
+            <FormItem className='flex flex-col' data-field='date_of_joining'>
+              <FormLabel>Date of Joining <span className='text-destructive'>*</span></FormLabel>
+              <FormControl>
+                <DateInput
+                  value={field.value}
+                  onChange={field.onChange}
+                  max={maxDate}
+                  min={minDate}
+                />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          control={form.control}
+          name='designation'
+          render={({ field }) => (
+            <FormItem data-field='designation'>
+              <FormLabel>Designation <span className='text-destructive'>*</span></FormLabel>
+              <FormControl>
+                <Input placeholder='Enter designation' {...field} />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          control={form.control}
+          name='category_id'
+          render={({ field }) => (
+            <FormItem data-field='category_id'>
+              <FormLabel>Employment Category <span className='text-destructive'>*</span></FormLabel>
+              <Select onValueChange={field.onChange} value={field.value}>
+                <FormControl>
+                  <SelectTrigger>
+                    <SelectValue placeholder='Select category' />
+                  </SelectTrigger>
+                </FormControl>
+                <SelectContent>
+                  {categories.map((category) => (
+                    <SelectItem key={category.id} value={category.id}>
+                      {category.category_name}
+                      {category.is_teaching ? ' (Teaching)' : ' (Non-Teaching)'}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          control={form.control}
+          name='role_key'
+          render={({ field }) => (
+            <FormItem data-field='role_key'>
+              <FormLabel>Role <span className='text-destructive'>*</span></FormLabel>
+              <Select onValueChange={field.onChange} value={field.value}>
+                <FormControl>
+                  <SelectTrigger>
+                    <SelectValue placeholder='Select role' />
+                  </SelectTrigger>
+                </FormControl>
+                <SelectContent>
+                  {roles.map((role) => (
+                    <SelectItem key={role.role_key} value={role.role_key}>
+                      {role.role_name}
+                      <span className='ml-2 text-xs text-muted-foreground'>
+                        ({role.role_key})
+                      </span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className='text-xs text-muted-foreground'>
+                Drives the user&apos;s permissions after first login. Pick the role
+                that matches the staff member&apos;s responsibilities.
+              </p>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          control={form.control}
+          name='institution_id'
+          render={({ field }) => {
+            // Radix Select only registers <SelectItem> children once the
+            // popover opens. For users whose Select is disabled (own-scoped
+            // roles like HOD) the popover never opens, so <SelectValue>
+            // never gets a registered name for the controlled value and
+            // falls back to the placeholder. Render our own span with the
+            // looked-up name when there is a selection — and fall back to
+            // <SelectValue> ONLY in the empty state so Radix never owns
+            // both children and a portal ref on the same element (which
+            // crashes under React 19 strict rendering).
+            const selectedInstitution = institutions.find(
+              (i) => i.id === field.value
+            );
+            return (
+              <FormItem data-field='institution_id'>
+                <FormLabel>Institution <span className='text-destructive'>*</span></FormLabel>
+                <Select
+                  onValueChange={field.onChange}
+                  value={field.value}
+                  // Lock institution for users scoped to a single accessible institution
+                  disabled={isInstitutionScoped && institutions.length === 1}
+                >
+                  <FormControl>
+                    <SelectTrigger>
+                      {selectedInstitution ? (
+                        <span className='line-clamp-1 text-left'>
+                          {selectedInstitution.name}
+                        </span>
+                      ) : (
+                        <SelectValue placeholder='Select institution' />
+                      )}
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent>
+                    {institutions.map((inst) => (
+                      <SelectItem key={inst.id} value={inst.id}>
+                        {inst.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <FormMessage />
+                {isInstitutionScoped && institutions.length === 1 && (
+                  <p className="text-xs text-muted-foreground">
+                    Your role is scoped to a single institution.
+                  </p>
+                )}
+              </FormItem>
+            );
+          }}
+        />
+
+        {isTeachingCategory ? (
+          <FormField
+            control={form.control}
+            name='department_id'
+            render={({ field }) => (
+              <FormItem data-field='department_id'>
+                <FormLabel>Department <span className='text-destructive'>*</span></FormLabel>
+                <Select
+                  onValueChange={field.onChange}
+                  value={field.value ?? ''}
+                  disabled={!form.watch('institution_id')}
+                >
+                  <FormControl>
+                    <SelectTrigger>
+                      <SelectValue placeholder='Select department' />
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent>
+                    {departments.map((dept) => (
+                      <SelectItem key={dept.id} value={dept.id}>
+                        {dept.department_name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <FormMessage />
+                {isInstitutionScoped && departments.length > 0 && (
+                  <p className='text-xs text-muted-foreground'>
+                    You can create staff for any department in your institution.
+                  </p>
+                )}
+              </FormItem>
+            )}
+          />
+        ) : watchedCategoryId ? (
+          <div className='flex items-center rounded-lg border border-dashed bg-muted/30 p-3 text-sm text-muted-foreground'>
+            Non-teaching staff don&apos;t require a department.
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+
+  const statusSection = (
+    <div className='space-y-4'>
+      <FormField
+        control={form.control}
+        name='is_active'
+        render={({ field }) => (
+          <FormItem
+            className='flex flex-row items-center justify-between rounded-lg border p-3 shadow-sm'
+            data-field='is_active'
+          >
+            <div className='space-y-0.5'>
+              <FormLabel>Active Status</FormLabel>
+              <div className='text-sm text-muted-foreground'>
+                Disable to temporarily deactivate staff account
+              </div>
+            </div>
+            <FormControl>
+              <Switch
+                checked={field.value}
+                onCheckedChange={field.onChange}
+              />
+            </FormControl>
+          </FormItem>
+        )}
+      />
+    </div>
+  );
+
+  // ─── Tab spec ──────────────────────────────────────────────────────────────
+  // hasExtended drives visibility of the 6 extended-profile tabs; the dirty
+  // dot is just a small UX hint and is not load-bearing.
+  const hasExtended = form.watch('has_extended_profile');
+  const dirty = form.formState.dirtyFields as Record<string, unknown>;
+  const isDirty = (prefixes: string[]) =>
+    prefixes.some((p) => Object.keys(dirty).some((k) => k === p || k.startsWith(`${p}.`)));
+
+  const tabs: TabSpec[] = [
+    {
+      id: 'basic',
+      label: 'Basic',
+      dirty: isDirty([
+        'first_name','last_name','gender','date_of_birth','email','phone',
+        'address','state','district','pincode','marital_status','blood_group',
+        'profile_picture','staff_id','institution_email','date_of_joining',
+        'designation','category_id','role_key','institution_id','department_id',
+        'is_active','slug','status','display_order','has_extended_profile'
+      ]),
+      // canEnableExtended is now driven by category.shows_extended_profile
+      // (Task 23, P4.23) — replaced the hardcoded `true`.
+      content: (
+        <BasicTab
+          form={form}
+          personalSection={personalSection}
+          contactSection={contactSection}
+          additionalSection={additionalSection}
+          employmentSection={employmentSection}
+          statusSection={statusSection}
+          canEnableExtended={canEnableExtended}
+        />
+      )
+    },
+    {
+      id: 'academic',
+      label: 'Academic',
+      hidden: !hasExtended,
+      dirty: isDirty(['qualifications','specialisations','qualification_summary']),
+      content: <AcademicTab form={form} />
+    },
+    {
+      id: 'experience',
+      label: 'Experience',
+      hidden: !hasExtended,
+      dirty: isDirty(['experience_years','experience_entries','professional_summary']),
+      content: <ExperienceTab form={form} />
+    },
+    {
+      id: 'research',
+      label: 'Research',
+      hidden: !hasExtended,
+      dirty: isDirty([
+        'research_papers','publications','research_focus_areas','funded_projects',
+        'google_scholar_url','researchgate_url','orcid_url'
+      ]),
+      content: <ResearchTab form={form} />
+    },
+    {
+      id: 'achievements',
+      label: 'Achievements',
+      hidden: !hasExtended,
+      dirty: isDirty(['awards_won','badges','awards','certifications','memberships','achievements']),
+      content: <AchievementsTab form={form} />
+    },
+    {
+      id: 'mentoring',
+      label: 'Mentoring',
+      hidden: !hasExtended,
+      dirty: isDirty([
+        'mentoring_description','phd_scholars','pg_dissertations_guided',
+        'ug_projects_guided','phd_scholars_list'
+      ]),
+      content: <MentoringTab form={form} />
+    },
+    {
+      id: 'faqs',
+      label: 'FAQs',
+      hidden: !hasExtended,
+      dirty: isDirty(['faqs']),
+      content: <FaqsTab form={form} />
+    }
+  ];
+
   return (
     <Form {...form}>
       <form
         onSubmit={form.handleSubmit(onSubmit, onInvalid)}
-        className='space-y-8'
+        className='space-y-6'
         suppressHydrationWarning
       >
         <p className='text-xs text-muted-foreground'>
           Fields marked with <span className='text-destructive'>*</span> are required.
         </p>
 
-        {/* Personal Information */}
-        <div className='space-y-4'>
-          <h2 className='text-lg font-semibold'>Personal Information</h2>
-          <div className='grid gap-4 md:grid-cols-2'>
-            <FormField
-              control={form.control}
-              name='first_name'
-              render={({ field }) => (
-                <FormItem data-field='first_name'>
-                  <FormLabel>First Name <span className='text-destructive'>*</span></FormLabel>
-                  <FormControl>
-                    <Input placeholder='Enter first name' {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+        <TabbedFormShell tabs={tabs} defaultTab='basic' />
 
-            <FormField
-              control={form.control}
-              name='last_name'
-              render={({ field }) => (
-                <FormItem data-field='last_name'>
-                  <FormLabel>Last Name <span className='text-destructive'>*</span></FormLabel>
-                  <FormControl>
-                    <Input placeholder='Enter last name' {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name='gender'
-              render={({ field }) => (
-                <FormItem data-field='gender'>
-                  <FormLabel>Gender <span className='text-destructive'>*</span></FormLabel>
-                  <Select onValueChange={field.onChange} value={field.value}>
-                    <FormControl>
-                      <SelectTrigger>
-                        <SelectValue placeholder='Select gender' />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      <SelectItem value='male'>Male</SelectItem>
-                      <SelectItem value='female'>Female</SelectItem>
-                      <SelectItem value='bigender'>Bigender</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name='date_of_birth'
-              render={({ field }) => (
-                <FormItem className='flex flex-col' data-field='date_of_birth'>
-                  <FormLabel>Date of Birth <span className='text-destructive'>*</span></FormLabel>
-                  <FormControl>
-                    <DateInput
-                      value={field.value}
-                      onChange={field.onChange}
-                      max={maxDate}
-                      min={minDate}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-          </div>
-        </div>
-
-        {/* Contact Information */}
-        <div className='space-y-4'>
-          <h2 className='text-lg font-semibold'>Contact Information</h2>
-          <div className='grid gap-4 md:grid-cols-2'>
-            <FormField
-              control={form.control}
-              name='email'
-              render={({ field }) => (
-                <FormItem data-field='email'>
-                  <FormLabel>Personal Email <span className='text-destructive'>*</span></FormLabel>
-                  <FormControl>
-                    <Input
-                      type='email'
-                      placeholder='Enter personal email'
-                      {...field}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name='phone'
-              render={({ field }) => (
-                <FormItem data-field='phone'>
-                  <FormLabel>Phone <span className='text-destructive'>*</span></FormLabel>
-                  <FormControl>
-                    <Input
-                      placeholder='Enter phone number'
-                      type='number'
-                      {...field}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name='address'
-              render={({ field }) => (
-                <FormItem data-field='address'>
-                  <FormLabel>Address</FormLabel>
-                  <FormControl>
-                    <Input placeholder='Enter address' {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name='state'
-              render={({ field }) => (
-                <FormItem data-field='state'>
-                  <FormLabel>State</FormLabel>
-                  <FormControl>
-                    <Input placeholder='Enter state' {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name='district'
-              render={({ field }) => (
-                <FormItem data-field='district'>
-                  <FormLabel>District</FormLabel>
-                  <FormControl>
-                    <Input placeholder='Enter district' {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name='pincode'
-              render={({ field }) => (
-                <FormItem data-field='pincode'>
-                  <FormLabel>PIN Code</FormLabel>
-                  <FormControl>
-                    <Input
-                      placeholder='Enter PIN code'
-                      type='number'
-                      {...field}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-          </div>
-        </div>
-
-        {/* Additional Personal Information */}
-        <div className='space-y-4'>
-          <h2 className='text-lg font-semibold'>Additional Information</h2>
-          <div className='grid gap-4 md:grid-cols-2'>
-            <FormField
-              control={form.control}
-              name='marital_status'
-              render={({ field }) => (
-                <FormItem data-field='marital_status'>
-                  <FormLabel>Marital Status <span className='text-destructive'>*</span></FormLabel>
-                  <Select onValueChange={field.onChange} value={field.value}>
-                    <FormControl>
-                      <SelectTrigger>
-                        <SelectValue placeholder='Select marital status' />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      <SelectItem value='single'>Single</SelectItem>
-                      <SelectItem value='married'>Married</SelectItem>
-                      <SelectItem value='divorced'>Divorced</SelectItem>
-                      <SelectItem value='widow'>Widow</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name='blood_group'
-              render={({ field }) => (
-                <FormItem data-field='blood_group'>
-                  <FormLabel>Blood Group</FormLabel>
-                  <Select
-                    onValueChange={field.onChange}
-                    value={field.value || ''}
-                  >
-                    <FormControl>
-                      <SelectTrigger>
-                        <SelectValue placeholder='Select blood group' />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      <SelectItem value='A+'>A+</SelectItem>
-                      <SelectItem value='A-'>A-</SelectItem>
-                      <SelectItem value='B+'>B+</SelectItem>
-                      <SelectItem value='B-'>B-</SelectItem>
-                      <SelectItem value='AB+'>AB+</SelectItem>
-                      <SelectItem value='AB-'>AB-</SelectItem>
-                      <SelectItem value='O+'>O+</SelectItem>
-                      <SelectItem value='O-'>O-</SelectItem>
-                      <SelectItem value='A1+'>A1+</SelectItem>
-                      <SelectItem value='A1B'>A1B</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name='profile_picture'
-              render={({ field }) => (
-                <FormItem data-field='profile_picture'>
-                  <FormLabel>Profile Picture</FormLabel>
-                  <FormControl>
-                    <StaffImageUpload
-                      value={field.value}
-                      onChange={field.onChange}
-                      onRemove={() => field.onChange('')}
-                      staffId={isEditing ? (staff?.id as string) : 'temp'}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-          </div>
-        </div>
-
-        {/* Employment Information — hidden in edit mode for users whose
-            staff scope is 'own_records' (they may only update their own
-            personal/contact info, not their designation/role/etc.). */}
-        {!canEditEmployment ? (
-          <div className='rounded-lg border border-dashed bg-muted/30 p-4 text-sm text-muted-foreground'>
-            Your role only allows editing personal details on your own
-            employee record. Employment information (designation, role,
-            institution, department) is managed by HR.
-          </div>
-        ) : (
-        <div className='space-y-4'>
-          <h2 className='text-lg font-semibold'>Employment Information</h2>
-          <div className='grid gap-4 md:grid-cols-2'>
-            <FormField
-              control={form.control}
-              name='staff_id'
-              render={({ field }) => (
-                <FormItem data-field='staff_id'>
-                  <FormLabel>Staff ID</FormLabel>
-                  <FormControl>
-                    <Input placeholder='Enter staff ID' {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name='institution_email'
-              render={({ field }) => (
-                <FormItem data-field='institution_email'>
-                  <FormLabel>Institution Email</FormLabel>
-                  <FormControl>
-                    <Input
-                      type='email'
-                      placeholder='Enter institution email'
-                      {...field}
-                      value={field.value || ''}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name='date_of_joining'
-              render={({ field }) => (
-                <FormItem className='flex flex-col' data-field='date_of_joining'>
-                  <FormLabel>Date of Joining <span className='text-destructive'>*</span></FormLabel>
-                  <FormControl>
-                    <DateInput
-                      value={field.value}
-                      onChange={field.onChange}
-                      max={maxDate}
-                      min={minDate}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name='designation'
-              render={({ field }) => (
-                <FormItem data-field='designation'>
-                  <FormLabel>Designation <span className='text-destructive'>*</span></FormLabel>
-                  <FormControl>
-                    <Input placeholder='Enter designation' {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name='category_id'
-              render={({ field }) => (
-                <FormItem data-field='category_id'>
-                  <FormLabel>Employment Category <span className='text-destructive'>*</span></FormLabel>
-                  <Select onValueChange={field.onChange} value={field.value}>
-                    <FormControl>
-                      <SelectTrigger>
-                        <SelectValue placeholder='Select category' />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      {categories.map((category) => (
-                        <SelectItem key={category.id} value={category.id}>
-                          {category.category_name}
-                          {category.is_teaching ? ' (Teaching)' : ' (Non-Teaching)'}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name='role_key'
-              render={({ field }) => (
-                <FormItem data-field='role_key'>
-                  <FormLabel>Role <span className='text-destructive'>*</span></FormLabel>
-                  <Select onValueChange={field.onChange} value={field.value}>
-                    <FormControl>
-                      <SelectTrigger>
-                        <SelectValue placeholder='Select role' />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      {roles.map((role) => (
-                        <SelectItem key={role.role_key} value={role.role_key}>
-                          {role.role_name}
-                          <span className='ml-2 text-xs text-muted-foreground'>
-                            ({role.role_key})
-                          </span>
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <p className='text-xs text-muted-foreground'>
-                    Drives the user&apos;s permissions after first login. Pick the role
-                    that matches the staff member&apos;s responsibilities.
-                  </p>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name='institution_id'
-              render={({ field }) => {
-                // Radix Select only registers <SelectItem> children once the
-                // popover opens. For users whose Select is disabled (own-scoped
-                // roles like HOD) the popover never opens, so <SelectValue>
-                // never gets a registered name for the controlled value and
-                // falls back to the placeholder. Render our own span with the
-                // looked-up name when there is a selection — and fall back to
-                // <SelectValue> ONLY in the empty state so Radix never owns
-                // both children and a portal ref on the same element (which
-                // crashes under React 19 strict rendering).
-                const selectedInstitution = institutions.find(
-                  (i) => i.id === field.value
-                );
-                return (
-                  <FormItem data-field='institution_id'>
-                    <FormLabel>Institution <span className='text-destructive'>*</span></FormLabel>
-                    <Select
-                      onValueChange={field.onChange}
-                      value={field.value}
-                      // Lock institution for users scoped to a single accessible institution
-                      disabled={isInstitutionScoped && institutions.length === 1}
-                    >
-                      <FormControl>
-                        <SelectTrigger>
-                          {selectedInstitution ? (
-                            <span className='line-clamp-1 text-left'>
-                              {selectedInstitution.name}
-                            </span>
-                          ) : (
-                            <SelectValue placeholder='Select institution' />
-                          )}
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {institutions.map((inst) => (
-                          <SelectItem key={inst.id} value={inst.id}>
-                            {inst.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                    {isInstitutionScoped && institutions.length === 1 && (
-                      <p className="text-xs text-muted-foreground">
-                        Your role is scoped to a single institution.
-                      </p>
-                    )}
-                  </FormItem>
-                );
-              }}
-            />
-
-            {isTeachingCategory ? (
-              <FormField
-                control={form.control}
-                name='department_id'
-                render={({ field }) => (
-                  <FormItem data-field='department_id'>
-                    <FormLabel>Department <span className='text-destructive'>*</span></FormLabel>
-                    <Select
-                      onValueChange={field.onChange}
-                      value={field.value ?? ''}
-                      disabled={!form.watch('institution_id')}
-                    >
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder='Select department' />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {departments.map((dept) => (
-                          <SelectItem key={dept.id} value={dept.id}>
-                            {dept.department_name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                    {isInstitutionScoped && departments.length > 0 && (
-                      <p className='text-xs text-muted-foreground'>
-                        You can create staff for any department in your institution.
-                      </p>
-                    )}
-                  </FormItem>
-                )}
-              />
-            ) : watchedCategoryId ? (
-              <div className='flex items-center rounded-lg border border-dashed bg-muted/30 p-3 text-sm text-muted-foreground'>
-                Non-teaching staff don&apos;t require a department.
-              </div>
-            ) : null}
-          </div>
-        </div>
-        )}
-
-        {/* Status */}
-        <div className='space-y-4'>
-          <FormField
-            control={form.control}
-            name='is_active'
-            render={({ field }) => (
-              <FormItem
-                className='flex flex-row items-center justify-between rounded-lg border p-3 shadow-sm'
-                data-field='is_active'
-              >
-                <div className='space-y-0.5'>
-                  <FormLabel>Active Status</FormLabel>
-                  <div className='text-sm text-muted-foreground'>
-                    Disable to temporarily deactivate staff account
-                  </div>
-                </div>
-                <FormControl>
-                  <Switch
-                    checked={field.value}
-                    onCheckedChange={field.onChange}
-                  />
-                </FormControl>
-              </FormItem>
-            )}
-          />
-        </div>
-
-        {/* Form Actions */}
-        <div className='flex justify-end gap-4'>
+        {/* Form Actions — Task 23 (P4.23). Cancel / Save Draft / Save & Publish.
+            Save Draft skips the extended-schema check; Save & Publish runs it.
+            Save & Publish only appears when has_extended_profile is on. */}
+        <div className='flex items-center justify-end gap-2 pt-4 border-t'>
           <Button
             type='button'
-            variant='outline'
+            variant='ghost'
             onClick={() => router.back()}
             disabled={isSubmitting}
           >
             Cancel
           </Button>
-          <Button type='submit' disabled={isSubmitting}>
-            {isSubmitting
-              ? isEditing
-                ? 'Saving...'
-                : 'Creating...'
-              : isEditing
-              ? 'Save Changes'
-              : 'Create Staff'}
+          <Button
+            type='button'
+            variant='outline'
+            onClick={form.handleSubmit(
+              (values) => onSubmit({ ...values, status: 'draft' }, { strict: false }),
+              onInvalid
+            )}
+            disabled={isSubmitting}
+          >
+            Save Draft
           </Button>
+          {hasExtended && (
+            <Button
+              type='button'
+              onClick={form.handleSubmit(
+                (values) => onSubmit({ ...values, status: 'published' }, { strict: true }),
+                onInvalid
+              )}
+              disabled={isSubmitting}
+            >
+              Save & Publish
+            </Button>
+          )}
         </div>
       </form>
     </Form>

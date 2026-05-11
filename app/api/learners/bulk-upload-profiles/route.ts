@@ -284,7 +284,9 @@ export async function POST(request: NextRequest) {
         caste: sanitizeValue(mappedData.caste, 'text'),
         aadhar_number: sanitizeValue(mappedData.aadhar_number, 'number'),
         blood_group: normalizeDropdownValue(mappedData.blood_group, BLOOD_GROUP_VALUES),
-        admission_year: mappedData.admission_year ? parseInt(mappedData.admission_year) : undefined,
+        // 2026-05-02 (Phase D): integer column dropped. Legacy
+        // admission_year input from Excel is parsed only to resolve the FK.
+        _admission_year_input: mappedData.admission_year ? parseInt(mappedData.admission_year) : undefined,
 
         // Parent/Guardian Information
         father_name: sanitizeValue(mappedData.father_name, 'text'),
@@ -505,8 +507,10 @@ export async function POST(request: NextRequest) {
       // triple now that institution_id and program_id are resolved. Row is
       // allowed to proceed with admission_year_id=null if no matching cohort
       // exists (will be surfaced by the audit script).
+      // 2026-05-02 (Phase D): year input now lives on _admission_year_input.
+      const yearInput = (sanitizedData as any)._admission_year_input as number | undefined;
       if (
-        sanitizedData.admission_year != null &&
+        yearInput != null &&
         sanitizedData.institution_id &&
         sanitizedData.program_id
       ) {
@@ -514,7 +518,7 @@ export async function POST(request: NextRequest) {
         (sanitizedData as any).admission_year_id = await resolveAdmissionYearId(
           supabase as any,
           {
-            year: sanitizedData.admission_year as any,
+            year: yearInput,
             institutionId: sanitizedData.institution_id,
             programId: sanitizedData.program_id,
           }
@@ -530,6 +534,7 @@ export async function POST(request: NextRequest) {
       delete (sanitizedData as any)._section_name;
       delete (sanitizedData as any)._academic_year_name;
       delete (sanitizedData as any)._regulation_name;
+      delete (sanitizedData as any)._admission_year_input;
       delete (sanitizedData as any)._batch_name;
 
       // Validate row

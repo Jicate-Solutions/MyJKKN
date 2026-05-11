@@ -8,7 +8,6 @@ import type {
   LearnerDashboardFilters,
   DistrictContribution,
   TalukContribution,
-  CategoryMix,
   CommunityMix,
   IncomeDistribution,
   SchoolFeederData,
@@ -262,7 +261,7 @@ export class LearnerAdvancedAnalyticsService {
 
   /**
    * Trend Analytics
-   * Gender ratio, category/community mix, first-generation, income distribution
+   * Gender ratio, community mix, first-generation, income distribution
    */
   static async getTrendMetrics(
     filters: LearnerDashboardFilters
@@ -271,7 +270,7 @@ export class LearnerAdvancedAnalyticsService {
 
     let query = supabase
       .from('learners_profiles')
-      .select('gender, category, community, first_graduate, annual_income');
+      .select('gender, community, first_graduate, annual_income');
 
     if (filters.institutionId) {
       query = query.eq('institution_id', filters.institutionId);
@@ -291,7 +290,6 @@ export class LearnerAdvancedAnalyticsService {
       console.error('[learner-analytics] getTrendMetrics error:', error);
       return {
         genderRatio: { male: 0, female: 0, malePercentage: 0, femalePercentage: 0 },
-        categoryMix: [],
         communityMix: [],
         firstGenerationPercentage: 0,
         incomeDistribution: [],
@@ -310,21 +308,6 @@ export class LearnerAdvancedAnalyticsService {
       malePercentage: totalLearners > 0 ? (maleCount / totalLearners) * 100 : 0,
       femalePercentage: totalLearners > 0 ? (femaleCount / totalLearners) * 100 : 0,
     };
-
-    // Category Mix
-    const categoryCounts = new Map<string, number>();
-    learners.forEach(learner => {
-      const category = learner.category || 'Unknown';
-      categoryCounts.set(category, (categoryCounts.get(category) || 0) + 1);
-    });
-
-    const categoryMix: CategoryMix[] = Array.from(categoryCounts.entries())
-      .map(([category, count]) => ({
-        category,
-        count,
-        percentage: totalLearners > 0 ? (count / totalLearners) * 100 : 0,
-      }))
-      .sort((a, b) => b.count - a.count);
 
     // Community Mix
     const communityCounts = new Map<string, number>();
@@ -386,7 +369,6 @@ export class LearnerAdvancedAnalyticsService {
 
     return {
       genderRatio,
-      categoryMix,
       communityMix,
       firstGenerationPercentage: Math.round(firstGenerationPercentage * 10) / 10,
       incomeDistribution,

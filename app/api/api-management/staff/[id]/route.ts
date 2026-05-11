@@ -97,14 +97,18 @@ export async function GET(
     console.log('[Staff Detail API] 4. Executing query for staff ID:', staffId);
 
     // Query for the specific staff member
+    // Every *_id column is paired with its named-entity embed (institution,
+    // department, role, category) so consuming applications can render labels
+    // without resolving UUIDs against separate endpoints.
     const { data: staff, error } = await supabase
       .from('staff')
       .select(
         `
         *,
-        category:employment_categories(id, category_name),
+        category:employment_categories(id, category_name, is_teaching, shows_extended_profile),
         institution:institutions(id, name),
-        department:departments(id, department_name)
+        department:departments(id, department_name),
+        role:custom_roles!role_key(id, role_key, role_name, description, is_system_role)
         `
       )
       .eq('id', staffId)

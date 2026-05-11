@@ -3,6 +3,11 @@
 // POST  /api/webhooks/telephony  (StatusCallback, DID-level)
 // GET   /api/webhooks/telephony  (Passthru, in-flow applet — metadata in query)
 
+// Vercel default function timeout is 10s; webhook handler does DB writes +
+// pipeline fan-out (auto-WhatsApp dispatch, callback queue insert). Spike
+// risk under load — bump to 30s. Cron route uses 300 for the same family.
+export const maxDuration = 30;
+
 import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
 import { logger } from '@/lib/utils/enhanced-logger';

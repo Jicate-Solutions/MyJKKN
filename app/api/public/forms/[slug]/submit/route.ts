@@ -112,11 +112,16 @@ export async function POST(
     );
 
     if (result.success && sessionId) {
+      // 2026-05-03: emit lead_id into form_submitted metadata so the
+      // form-abandon recovery cron can flip "abandoned" → "submitted" without
+      // needing a hash match. Idempotency: this is the same session_id used by
+      // the field_focused / field_completed events, so the cron's
+      // session-level "any form_submitted exists?" check resolves cleanly.
       await supabase.from('admission_form_events').insert({
         form_id: form.id,
         event_type: 'form_submitted',
         session_id: sessionId,
-        metadata: { deviceType, ip },
+        metadata: { deviceType, ip, lead_id: result.leadId ?? null },
       });
     }
 

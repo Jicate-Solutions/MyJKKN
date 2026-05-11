@@ -2,7 +2,7 @@
 
 import { WidgetContainer } from './widget-container';
 import { PartyPopper, Cake, Award, Building2, Briefcase, GraduationCap, Users, CalendarDays, MapPin } from 'lucide-react';
-import { motion } from 'framer-motion';
+import { motion } from 'motion/react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';

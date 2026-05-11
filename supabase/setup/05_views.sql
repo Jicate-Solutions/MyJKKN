@@ -777,7 +777,11 @@ WHERE al.first_touch_at >= (CURRENT_DATE AT TIME ZONE 'Asia/Kolkata')::timestamp
       AND CURRENT_DATE BETWEEN hla.start_date AND hla.end_date
   )
 GROUP BY al.assigned_counselor_id, p.full_name, p.avatar_url, al.institution_id, i.name
-HAVING COUNT(*) >= 5;
+-- Updated: 2026-05-03 — min-volume threshold moved from hardcoded 5 into
+-- platform_policies.dashboard.leaderboard.sla_min_leads. Director can tune
+-- via super-admin UI without a deploy. Refresh-time snapshot — value at
+-- next REFRESH MATERIALIZED VIEW is what gets baked in.
+HAVING COUNT(*) >= fn_get_policy_int('dashboard.leaderboard.sla_min_leads', 5, NULL);
 CREATE UNIQUE INDEX idx_v_dashboard_sla_daily_counselor ON v_dashboard_sla_daily (counselor_id);
 CREATE INDEX idx_v_dashboard_sla_daily_institution ON v_dashboard_sla_daily (institution_id);
 
@@ -812,7 +816,9 @@ WHERE al.created_at >= (NOW() - INTERVAL '30 days')
   AND al.assigned_counselor_id IS NOT NULL
   AND p.is_active = TRUE
 GROUP BY al.assigned_counselor_id, p.full_name, p.avatar_url, al.institution_id, i.name
-HAVING COUNT(*) >= 10;
+-- Updated: 2026-05-03 — min-volume threshold moved from hardcoded 10 into
+-- platform_policies.dashboard.leaderboard.conversion_min_leads.
+HAVING COUNT(*) >= fn_get_policy_int('dashboard.leaderboard.conversion_min_leads', 10, NULL);
 CREATE UNIQUE INDEX idx_v_dashboard_conversion_monthly_counselor ON v_dashboard_conversion_monthly (counselor_id);
 CREATE INDEX idx_v_dashboard_conversion_monthly_institution ON v_dashboard_conversion_monthly (institution_id);
 

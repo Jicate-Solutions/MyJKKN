@@ -8,6 +8,17 @@ import { Toaster as HotToaster } from 'react-hot-toast';
 export const metadata: Metadata = {
   title: 'Apply - JKKN',
   description: 'Admission application form',
+  openGraph: {
+    type: 'website',
+    siteName: 'JKKN Admissions',
+    title: 'Apply for JKKN Admissions',
+    description: 'Start your admission journey with JKKN Educational Institutions',
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'Apply for JKKN Admissions',
+    description: 'Start your admission journey with JKKN Educational Institutions',
+  },
 };
 
 export default function ApplyLayout({ children }: { children: React.ReactNode }) {

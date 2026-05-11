@@ -72,6 +72,7 @@ import {
   ShieldAlert,
   Sparkles,
   TrendingUp,
+  ChevronRight,
   Trophy,
   UserCheck,
   UserPlus,
@@ -309,41 +310,65 @@ function AttentionPill({ action, layoutMode }: AttentionPillProps) {
           <Icon className={isHalf ? 'h-4 w-4' : 'h-5 w-5'} />
         </div>
 
-        {/* CTA pill — left-anchored to avoid collision with the right-side
-            floating action buttons (bug-report FAB + lightning FAB at
-            z-[80]+). The label below truncates harmlessly if FABs overlap
-            its right edge. Same pattern shipped in PR #621 for the
-            full-width case; we extend it to both halves of the split. */}
-        <span
-          className={cn(
-            'shrink-0 rounded-lg font-semibold shadow-sm ring-1 ring-inset ring-white/40',
-            isHalf ? 'px-2 py-1 text-[11px]' : 'px-3 py-1.5 text-[12px]',
-            styles.ctaBg,
-          )}
-        >
-          {action.cta}
-        </span>
+        {/* CTA pill — full-width mode only.
+            Left-anchored to avoid collision with the right-side floating
+            action buttons (bug-report FAB + lightning FAB at z-[80]+). Same
+            pattern shipped in PR #621 for the full-width case.
+            Half-mode (Wave B.4 follow-up 2026-05-03): the CTA pill is
+            dropped because each half has only ~159px usable width — the
+            pill chrome ate ~85px and left only ~55px for the label, forcing
+            "🧪 Verify sp..." truncation after ~10 chars. The whole half is
+            already the <Link> tap target, so the pill chrome is redundant
+            in split mode. A trailing ChevronRight (below) preserves the
+            "tappable" affordance. */}
+        {!isHalf && (
+          <span
+            className={cn(
+              'shrink-0 rounded-lg font-semibold shadow-sm ring-1 ring-inset ring-white/40',
+              'px-3 py-1.5 text-[12px]',
+              styles.ctaBg,
+            )}
+          >
+            {action.cta}
+          </span>
+        )}
 
         {/* Label + context — flex-1 fills the remaining space to the right.
-            In half mode we drop the secondary context line so the headline
-            has more room to breathe; truncation is aggressive on both lines. */}
+            Half mode: line-clamp-2 lets long titles wrap to a second line
+            instead of truncating after ~10 chars. The bar gets ~12px
+            taller, but the label is readable. Context drops in half mode
+            (the second line of clamp IS the context surface).
+            Full mode: single-line truncate + optional separate context. */}
         <div className="min-w-0 flex-1">
           <p
             className={cn(
-              'truncate font-semibold leading-tight text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.3)]',
-              isHalf ? 'text-[13px]' : 'text-[15px]',
+              'font-semibold leading-tight text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.3)]',
+              isHalf ? 'text-[13px] line-clamp-2' : 'truncate text-[15px]',
             )}
           >
             {action.label}
           </p>
-          {/* Drop context in half mode — narrower width can't carry two
-              lines of text without truncating both into illegibility. */}
+          {/* Drop context in half mode — line-clamp-2 on the title gives
+              the second line of horizontal real estate to the title itself,
+              not a separate context paragraph. */}
           {!isHalf && action.context && (
             <p className="truncate text-[12px] leading-tight text-white/80">
               {action.context}
             </p>
           )}
         </div>
+
+        {/* Half mode: trailing chevron preserves the "this is tappable"
+            affordance now that the explicit CTA pill is hidden. White-on-
+            translucent, mirrors the pattern used by BottomNav drawer tile
+            disclosure indicator. Hidden in full mode where the CTA pill
+            is the affordance. */}
+        {isHalf && (
+          <ChevronRight
+            className="h-4 w-4 shrink-0 text-white/70"
+            aria-hidden="true"
+          />
+        )}
       </div>
     </Link>
   );

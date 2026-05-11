@@ -23,6 +23,8 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { format } from 'date-fns';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import ReactMarkdown from 'react-markdown';
 import { StaffService } from '@/lib/services/staff/staff-service';
 import { usePermissions } from '@/hooks/use-permissions';
 import { BeatLoader } from 'react-spinners';
@@ -321,7 +323,203 @@ export default function StaffDetailsPage({ params }: StaffDetailsPageProps) {
             </div>
           </CardContent>
         </Card>
+
+        {/* Extended Profile (faculty-only, conditional) */}
+        {staff.has_extended_profile && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Extended Profile</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <Tabs defaultValue='academic'>
+                <TabsList className='flex-wrap h-auto'>
+                  <TabsTrigger value='academic'>Academic</TabsTrigger>
+                  <TabsTrigger value='experience'>Experience</TabsTrigger>
+                  <TabsTrigger value='research'>Research</TabsTrigger>
+                  <TabsTrigger value='achievements'>Achievements</TabsTrigger>
+                  <TabsTrigger value='mentoring'>Mentoring</TabsTrigger>
+                  <TabsTrigger value='faqs'>FAQs</TabsTrigger>
+                </TabsList>
+
+                <TabsContent value='academic'>
+                  {staff.qualification_summary && (
+                    <div className='prose prose-sm mb-4'>
+                      <ReactMarkdown>{staff.qualification_summary}</ReactMarkdown>
+                    </div>
+                  )}
+                  <ReadOnlyList
+                    title='Qualifications'
+                    items={staff.qualifications ?? []}
+                    renderItem={(q: any) =>
+                      `${q.degree} — ${q.institution} (${q.year})`
+                    }
+                  />
+                  <ReadOnlyList
+                    title='Specialisations'
+                    items={staff.specialisations ?? []}
+                    renderItem={(s: any) => s.name}
+                  />
+                </TabsContent>
+
+                <TabsContent value='experience'>
+                  <p className='text-sm text-muted-foreground mb-3'>
+                    {staff.experience_years} years total
+                  </p>
+                  <ReadOnlyList
+                    title='Experience'
+                    items={staff.experience_entries ?? []}
+                    renderItem={(e: any) =>
+                      `${e.role} @ ${e.organisation} (${e.from} – ${e.to ?? 'present'})`
+                    }
+                  />
+                  {staff.professional_summary && (
+                    <div className='prose prose-sm mt-4'>
+                      <ReactMarkdown>{staff.professional_summary}</ReactMarkdown>
+                    </div>
+                  )}
+                </TabsContent>
+
+                <TabsContent value='research'>
+                  <p className='text-sm text-muted-foreground mb-3'>
+                    {staff.research_papers} research papers
+                  </p>
+                  <ReadOnlyList
+                    title='Publications'
+                    items={staff.publications ?? []}
+                    renderItem={(p: any) => `${p.title} (${p.year ?? '—'})`}
+                  />
+                  <ReadOnlyList
+                    title='Research Focus'
+                    items={staff.research_focus_areas ?? []}
+                    renderItem={(r: any) => r.area}
+                  />
+                  <ReadOnlyList
+                    title='Funded Projects'
+                    items={staff.funded_projects ?? []}
+                    renderItem={(f: any) => `${f.title} — ${f.agency ?? '—'}`}
+                  />
+                  <div className='mt-3 flex gap-3 text-sm'>
+                    {staff.google_scholar_url && (
+                      <a
+                        className='underline'
+                        href={staff.google_scholar_url}
+                        target='_blank'
+                        rel='noreferrer'
+                      >
+                        Google Scholar
+                      </a>
+                    )}
+                    {staff.researchgate_url && (
+                      <a
+                        className='underline'
+                        href={staff.researchgate_url}
+                        target='_blank'
+                        rel='noreferrer'
+                      >
+                        ResearchGate
+                      </a>
+                    )}
+                    {staff.orcid_url && (
+                      <a
+                        className='underline'
+                        href={staff.orcid_url}
+                        target='_blank'
+                        rel='noreferrer'
+                      >
+                        ORCID
+                      </a>
+                    )}
+                  </div>
+                </TabsContent>
+
+                <TabsContent value='achievements'>
+                  <p className='text-sm text-muted-foreground mb-3'>
+                    {staff.awards_won} awards won
+                  </p>
+                  <ReadOnlyList
+                    title='Badges'
+                    items={staff.badges ?? []}
+                    renderItem={(b: any) => b.label}
+                  />
+                  <ReadOnlyList
+                    title='Awards'
+                    items={staff.awards ?? []}
+                    renderItem={(a: any) => `${a.title} (${a.year ?? '—'})`}
+                  />
+                  <ReadOnlyList
+                    title='Certifications'
+                    items={staff.certifications ?? []}
+                    renderItem={(c: any) => c.name}
+                  />
+                  <ReadOnlyList
+                    title='Memberships'
+                    items={staff.memberships ?? []}
+                    renderItem={(m: any) =>
+                      `${m.body}${m.role ? ' (' + m.role + ')' : ''}`
+                    }
+                  />
+                  <ReadOnlyList
+                    title='Achievements'
+                    items={staff.achievements ?? []}
+                    renderItem={(a: any) => a.title}
+                  />
+                </TabsContent>
+
+                <TabsContent value='mentoring'>
+                  {staff.mentoring_description && (
+                    <div className='prose prose-sm mb-4'>
+                      <ReactMarkdown>{staff.mentoring_description}</ReactMarkdown>
+                    </div>
+                  )}
+                  <p className='text-sm'>
+                    PhD scholars: {staff.phd_scholars} | PG:{' '}
+                    {staff.pg_dissertations_guided} | UG:{' '}
+                    {staff.ug_projects_guided}
+                  </p>
+                  <ReadOnlyList
+                    title='PhD Scholars'
+                    items={staff.phd_scholars_list ?? []}
+                    renderItem={(s: any) =>
+                      `${s.name}${s.topic ? ' — ' + s.topic : ''}`
+                    }
+                  />
+                </TabsContent>
+
+                <TabsContent value='faqs'>
+                  {(staff.faqs ?? []).map((q: any, i: number) => (
+                    <div key={i} className='mb-4'>
+                      <p className='font-semibold'>{q.question}</p>
+                      <p className='text-sm'>{q.answer}</p>
+                    </div>
+                  ))}
+                </TabsContent>
+              </Tabs>
+            </CardContent>
+          </Card>
+        )}
       </div>
     </ContentLayout>
+  );
+}
+
+function ReadOnlyList<T>({
+  title,
+  items,
+  renderItem
+}: {
+  title: string;
+  items: T[];
+  renderItem: (item: T) => React.ReactNode;
+}) {
+  if (!items?.length) return null;
+  return (
+    <div className='mb-4'>
+      <h3 className='font-semibold text-sm mb-2'>{title}</h3>
+      <ul className='list-disc pl-5 space-y-1 text-sm'>
+        {items.map((it, i) => (
+          <li key={i}>{renderItem(it)}</li>
+        ))}
+      </ul>
+    </div>
   );
 }

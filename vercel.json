@@ -82,6 +82,50 @@
     {
       "path": "/api/cron/prospect-reminders?secret=${CRON_SECRET}",
       "schedule": "23 8 * * *"
+    },
+    {
+      "path": "/api/cron/jicate-booking-reconcile",
+      "schedule": "17 2 * * *"
+    },
+    {
+      "path": "/api/cron/whatsapp-byow-health",
+      "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/cron/whatsapp-byow-connection-pulse",
+      "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/whatsapp-byow-bypass-detect",
+      "schedule": "0 9 * * 1"
+    },
+    {
+      "path": "/api/cron/whatsapp-byow-monthly-audit",
+      "schedule": "0 4 1 * *"
+    },
+    {
+      "path": "/api/cron/whatsapp-byow-synthetic-audit",
+      "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/cron/callback-queue-expire?secret=${CRON_SECRET}",
+      "schedule": "13 * * * *"
+    },
+    {
+      "path": "/api/cron/form-abandon-recovery?secret=${CRON_SECRET}",
+      "schedule": "*/30 * * * *"
+    },
+    {
+      "path": "/api/cron/analyze-calls?secret=${CRON_SECRET}",
+      "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/cron/analyze-voice-memos?secret=${CRON_SECRET}",
+      "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/hr/document-expiry-reminders?secret=${CRON_SECRET}",
+      "schedule": "0 7 * * *"
     }
   ]
 }

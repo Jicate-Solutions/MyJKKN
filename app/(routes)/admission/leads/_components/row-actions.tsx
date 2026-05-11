@@ -23,10 +23,22 @@ import {
   AlertDialogHeader,
   AlertDialogTitle
 } from '@/components/ui/alert-dialog';
-import type { AdmissionLead } from '@/types/admission';
+import type { AdmissionLead, FunnelStage } from '@/types/admission';
 import { useLeadMutations } from '@/hooks/admission';
 import { usePermissions } from '@/hooks/use-permissions';
-import { Eye, Flame, Star, Trash2, AlertTriangle } from 'lucide-react';
+import { Eye, Flame, Star, Trash2, AlertTriangle, ArrowRightCircle } from 'lucide-react';
+import { AccountTransitionDialog } from './_account/account-transition-dialog';
+
+// Pre-account funnel stages eligible for the "Move to Account" transition.
+// These mirror the late-funnel states where the learner has been admitted
+// but billing onboarding hasn't run yet.
+const ACCOUNT_TRANSITION_ELIGIBLE_STAGES: FunnelStage[] = [
+  'documents_verified',
+  'offer_accepted',
+  'token_paid',
+  'enrolled',
+  'confirmed',
+];
 
 interface DataTableRowActionsProps<TData> {
   row: Row<TData>;
@@ -37,14 +49,27 @@ export function DataTableRowActions<TData>({
 }: DataTableRowActionsProps<TData>) {
   const router = useRouter();
   const lead = row.original as AdmissionLead;
-  const { canAccess, isSuperAdmin, isAdmissionGlobalUser } = usePermissions();
+  const { canAccess, canPerformAll, isSuperAdmin, isAdmissionGlobalUser } = usePermissions();
   const { toggleHotLead, togglePriority, deleteLead, permanentDeleteLead } = useLeadMutations();
   const [showLostDialog, setShowLostDialog] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [showAccountDialog, setShowAccountDialog] = useState(false);
 
   const canView = isSuperAdmin || isAdmissionGlobalUser || canAccess('admission', 'leads.view');
   const canEdit = isSuperAdmin || isAdmissionGlobalUser || canAccess('admission', 'leads.edit');
   const canDelete = isSuperAdmin || isAdmissionGlobalUser || canAccess('admission', 'leads.delete');
+
+  // "Move to Account" — permissive menu-level gating; the SECURITY DEFINER
+  // RPC re-checks admission_documents.manage on the server. Visible only when
+  // the lead has a backing learner_profile_id and is in a pre-account funnel
+  // stage.
+  const canMoveToAccount =
+    isSuperAdmin ||
+    isAdmissionGlobalUser ||
+    canPerformAll('admission_documents', ['manage']);
+  const isEligibleForAccountTransition =
+    !!lead.learner_profile_id &&
+    ACCOUNT_TRANSITION_ELIGIBLE_STAGES.includes(lead.funnel_stage);
 
   // Mark-as-lost is a stage transition (soft-delete). Kept on canEdit so counselors
   // can follow the CRM workflow; permanent delete below requires canDelete.
@@ -121,7 +146,20 @@ export function DataTableRowActions<TData>({
             </DropdownMenuItem>
           )}
 
-          {(canEdit || canDelete) && <DropdownMenuSeparator />}
+          {(canEdit || canDelete || (canMoveToAccount && isEligibleForAccountTransition)) && (
+            <DropdownMenuSeparator />
+          )}
+
+          {/* Move to Account — opens fee summary + documents checklist dialog */}
+          {canMoveToAccount && isEligibleForAccountTransition && (
+            <DropdownMenuItem
+              onSelect={() => setShowAccountDialog(true)}
+              className="text-emerald-600"
+            >
+              <ArrowRightCircle className="h-4 w-4 mr-2" />
+              Move to Account
+            </DropdownMenuItem>
+          )}
 
           {/* Mark as Lost — requires admission.leads.edit */}
           {canEdit && (
@@ -173,6 +211,17 @@ export function DataTableRowActions<TData>({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Move to Account Dialog */}
+      {lead.learner_profile_id && (
+        <AccountTransitionDialog
+          open={showAccountDialog}
+          onOpenChange={setShowAccountDialog}
+          learnerId={lead.learner_profile_id}
+          institutionId={lead.institution_id}
+          onSuccess={() => router.refresh()}
+        />
+      )}
 
       {/* Permanent Delete Dialog */}
       <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>

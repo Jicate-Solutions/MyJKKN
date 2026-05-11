@@ -3,6 +3,8 @@
 
 import { useParams, useRouter } from 'next/navigation';
 import { useState, useEffect } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import { queryKeys } from '@/lib/query/query-keys';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import {
   useBugReport,
@@ -149,6 +151,7 @@ export default function BugReportDetailsPage() {
   const updateStatusMutation = useUpdateBugReportStatus();
   const deleteReportMutation = useDeleteBugReport();
   const supabase = createClientSupabaseClient();
+  const queryClient = useQueryClient();
 
   // Set up real-time subscription for this specific bug report
   useEffect(() => {
@@ -172,13 +175,20 @@ export default function BugReportDetailsPage() {
               router.push('/admin/bug-reports');
             }, 2000);
           } else if (payload.eventType === 'UPDATE') {
-            // For updates, refetch the data to get latest changes
+            // Apply the new row from the realtime payload directly into the
+            // detail cache so the badge updates instantly. We still kick a
+            // background refetch to pick up any joined fields the payload
+            // doesn't carry (reporter_name, institution_name, etc.).
+            queryClient.setQueryData(
+              queryKeys.bugReports.detail(id),
+              (old: any) => (old ? { ...old, ...payload.new } : old)
+            );
             refetch();
 
             // Show notification for status changes
             const newStatus = payload.new?.status;
             const oldStatus = payload.old?.status;
-            if (newStatus !== oldStatus) {
+            if (newStatus && newStatus !== oldStatus) {
               toast.success(
                 `Bug report status changed to: ${newStatus.replace('_', ' ')}`
               );
@@ -191,7 +201,7 @@ export default function BugReportDetailsPage() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [id, supabase, refetch, router]);
+  }, [id, supabase, refetch, router, queryClient]);
 
   const handleStatusChange = async (status: BugReportStatus) => {
     try {
@@ -483,39 +493,81 @@ export default function BugReportDetailsPage() {
                       </div>
                     )}
 
-                    {/* Additional Images */}
+                    {/* Additional Attachments (images + documents) */}
                     {report.attachment_urls && report.attachment_urls.length > 0 && (
                       <div>
                         <label className='text-sm font-medium text-muted-foreground mb-2 block'>
-                          Additional Images ({report.attachment_urls.length})
+                          Additional Attachments ({report.attachment_urls.length})
                         </label>
                         <div className='grid grid-cols-2 gap-3'>
-                          {report.attachment_urls.map((url, index) => (
-                            <a
-                              key={index}
-                              href={url}
-                              target='_blank'
-                              rel='noopener noreferrer'
-                              className='group'
-                            >
-                              <div className='relative rounded-lg overflow-hidden border bg-muted cursor-pointer hover:opacity-90 transition-opacity'>
-                                <Image
-                                  src={url}
-                                  alt={`Additional screenshot ${index + 1}`}
-                                  width={600}
-                                  height={400}
-                                  className='w-full h-auto'
-                                  style={{ maxHeight: '300px', objectFit: 'contain' }}
-                                />
-                                <div className='absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity'>
-                                  <div className='flex items-center gap-2 rounded-md bg-white/90 px-3 py-1.5 text-xs font-medium text-slate-900 dark:bg-slate-900/90 dark:text-slate-50'>
-                                    <ExternalLink className='h-3 w-3' />
-                                    View #{index + 1}
+                          {report.attachment_urls.map((url, index) => {
+                            // Detect image vs document from URL extension. Images
+                            // render inline with thumbnails; documents render as a
+                            // download card with filename + extension.
+                            const isImage = /\.(png|jpe?g|gif|webp|svg)(\?|$)/i.test(url);
+                            const filename = (() => {
+                              try {
+                                const path = new URL(url).pathname;
+                                return decodeURIComponent(path.split('/').pop() || `attachment-${index + 1}`);
+                              } catch {
+                                return `attachment-${index + 1}`;
+                              }
+                            })();
+                            const ext = (filename.split('.').pop() || '').toLowerCase();
+
+                            if (isImage) {
+                              return (
+                                <a
+                                  key={index}
+                                  href={url}
+                                  target='_blank'
+                                  rel='noopener noreferrer'
+                                  className='group'
+                                >
+                                  <div className='relative rounded-lg overflow-hidden border bg-muted cursor-pointer hover:opacity-90 transition-opacity'>
+                                    <Image
+                                      src={url}
+                                      alt={`Additional screenshot ${index + 1}`}
+                                      width={600}
+                                      height={400}
+                                      className='w-full h-auto'
+                                      style={{ maxHeight: '300px', objectFit: 'contain' }}
+                                    />
+                                    <div className='absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity'>
+                                      <div className='flex items-center gap-2 rounded-md bg-white/90 px-3 py-1.5 text-xs font-medium text-slate-900 dark:bg-slate-900/90 dark:text-slate-50'>
+                                        <ExternalLink className='h-3 w-3' />
+                                        View #{index + 1}
+                                      </div>
+                                    </div>
+                                  </div>
+                                </a>
+                              );
+                            }
+
+                            // Non-image: download card
+                            return (
+                              <a
+                                key={index}
+                                href={url}
+                                target='_blank'
+                                rel='noopener noreferrer'
+                                download={filename}
+                                className='group flex items-center gap-3 rounded-lg border bg-muted p-4 hover:bg-muted/70 transition-colors'
+                              >
+                                <div className='flex h-12 w-12 shrink-0 items-center justify-center rounded-md bg-background border'>
+                                  <Download className='h-5 w-5 text-muted-foreground' />
+                                </div>
+                                <div className='min-w-0 flex-1'>
+                                  <div className='truncate text-sm font-medium' title={filename}>
+                                    {filename}
+                                  </div>
+                                  <div className='text-xs text-muted-foreground uppercase'>
+                                    {ext || 'file'} · click to download
                                   </div>
                                 </div>
-                              </div>
-                            </a>
-                          ))}
+                              </a>
+                            );
+                          })}
                         </div>
                       </div>
                     )}

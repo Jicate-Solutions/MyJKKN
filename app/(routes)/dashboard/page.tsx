@@ -53,6 +53,7 @@ import {
 } from '@/components/dashboard/todays-focus';
 import { listQueueItems } from '@/lib/services/dashboard/decision-queue-service';
 import { CounselorStaffingAlert } from '@/components/admission/counselor-staffing-alert';
+import { DepartmentWhatsAppHealthCard } from '@/components/whatsapp/department-whatsapp-health-card';
 
 const VALID_FILTERS: QueueFilter[] = [
   'all',
@@ -326,6 +327,16 @@ export default async function DashboardV2Page({
         {(isDirector || isCounselor) && (
           <CounselorStaffingAlert />
         )}
+
+        {/* Department WhatsApp Health (BYOW Spec 3 §8 H2.2) — visible to anyone
+            with in-scope wa_byow_connection_health rows (super_admin sees all,
+            HoD sees own dept). Component returns null when scope is empty —
+            no chrome rendered for irrelevant roles. Source-of-truth gating is
+            RLS at the API; H4.1 will replace the implicit "RLS gives me rows"
+            check with an explicit whatsapp.connection.view_dept permission key. */}
+        <DashboardErrorBoundary label='WhatsApp Health' mode='silent'>
+          <DepartmentWhatsAppHealthCard />
+        </DashboardErrorBoundary>
 
         {/* Hero — role-aware (§7.1 Director / §5+§8 Counselor / Faculty / Principal / Student / limited safe default).
             2026-04-21: wrapped in DashboardErrorBoundary so RPC/auth failures surface as a

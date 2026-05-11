@@ -45,6 +45,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import { useLeadMutations, useCounselorProfiles } from '@/hooks/admission';
+import { useActiveLeadSources } from '@/hooks/admission/use-active-lead-sources';
 import { useConsultantsForDropdown } from '@/hooks/admission/use-consultants';
 import {
   useReferralInstitutions,
@@ -72,21 +73,8 @@ export const navMeta = {
 } as const;
 
 
-// Must match LeadSource type from types/admission.ts
-const LEAD_SOURCES = [
-  { value: 'website', label: 'Website' },
-  { value: 'admission_form', label: 'Admission Form' },
-  { value: 'walk_in', label: 'Walk-in' },
-  { value: 'referral', label: 'Referral' },
-  { value: 'social_media', label: 'Social Media' },
-  { value: 'newspaper', label: 'Newspaper' },
-  { value: 'education_fair', label: 'Education Fair' },
-  { value: 'agent', label: 'Agent/Partner' },
-  { value: 'publisher', label: 'Publisher' },
-  { value: 'google_ads', label: 'Google Ads' },
-  { value: 'facebook_ads', label: 'Facebook Ads' },
-  { value: 'other', label: 'Other' }
-];
+// Source options now come from useActiveLeadSources() — admin-curated rows
+// in admission_lead_sources_master replace this once-static list.
 
 const REFERRAL_TYPES = [
   { value: 'consultant', label: 'Consultant' },
@@ -133,8 +121,13 @@ interface ProgramOption {
 }
 
 function NewLeadPageContent() {
+  // Admin-curated source list (replaces static LEAD_SOURCES). Falls back to
+  // empty array while loading; the dropdown handles empty gracefully.
   const router = useRouter();
   const { profile } = useAuth();
+  const { options: leadSources } = useActiveLeadSources({
+    institutionId: profile?.institution_id ?? null,
+  });
   const { isSuperAdmin, isAdmissionGlobalUser } = usePermissions();
   const { institutions, loading: institutionsLoading } = useInstitutionsWithAccess();
   const { createLeadWithProfile } = useLeadMutations();
@@ -1074,8 +1067,8 @@ function NewLeadPageContent() {
                           <SelectValue placeholder="Select source" />
                         </SelectTrigger>
                         <SelectContent>
-                          {LEAD_SOURCES.map((source) => (
-                            <SelectItem key={source.value} value={source.value}>
+                          {leadSources.map((source) => (
+                            <SelectItem key={source.masterId} value={source.value}>
                               {source.label}
                             </SelectItem>
                           ))}

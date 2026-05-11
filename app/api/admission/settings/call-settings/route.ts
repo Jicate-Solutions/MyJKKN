@@ -30,7 +30,7 @@ export async function GET(request: NextRequest) {
     const { data, error } = await supabase
       .from('institution_call_settings')
       .select(
-        'institution_id, auto_whatsapp_enabled, auto_whatsapp_template, auto_sms_enabled, auto_sms_template, auto_sms_sender_id, dlt_entity_id, dlt_template_id'
+        'institution_id, auto_whatsapp_enabled, auto_whatsapp_template, auto_sms_enabled, auto_sms_template, auto_sms_sender_id, auto_sms_cooldown_hours, dlt_entity_id, dlt_template_id'
       )
       .eq('institution_id', institutionId)
       .maybeSingle();
@@ -53,7 +53,8 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// POST: Update auto_whatsapp_enabled, auto_whatsapp_template, auto_sms_enabled, auto_sms_template
+// POST: Update auto_whatsapp_enabled, auto_whatsapp_template, auto_sms_enabled,
+// auto_sms_template, auto_sms_cooldown_hours
 export async function POST(request: NextRequest) {
   await connection();
   try {
@@ -69,6 +70,7 @@ export async function POST(request: NextRequest) {
       auto_whatsapp_template,
       auto_sms_enabled,
       auto_sms_template,
+      auto_sms_cooldown_hours,
     } = body;
 
     if (!institution_id) {
@@ -89,6 +91,16 @@ export async function POST(request: NextRequest) {
       updatePayload.auto_sms_enabled = auto_sms_enabled;
     if (typeof auto_sms_template === 'string')
       updatePayload.auto_sms_template = auto_sms_template;
+    if (typeof auto_sms_cooldown_hours === 'number') {
+      const hours = Math.trunc(auto_sms_cooldown_hours);
+      if (!Number.isFinite(hours) || hours < 1 || hours > 168) {
+        return NextResponse.json(
+          { error: 'auto_sms_cooldown_hours must be an integer between 1 and 168' },
+          { status: 400 }
+        );
+      }
+      updatePayload.auto_sms_cooldown_hours = hours;
+    }
 
     if (Object.keys(updatePayload).length === 0) {
       return NextResponse.json(

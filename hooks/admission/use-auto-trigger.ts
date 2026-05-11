@@ -15,7 +15,7 @@ const QUERY_KEY = 'wa-auto-trigger-rules';
 
 async function fetchRules(institutionId: string): Promise<AutoTriggerRule[]> {
   const res = await fetch(
-    `/api/admission/whatsapp-personal/auto-triggers?institution_id=${institutionId}`
+    `/api/whatsapp-personal/auto-triggers?institution_id=${institutionId}`
   );
   if (!res.ok) throw new Error('Failed to fetch trigger rules');
   const data = await res.json();
@@ -38,7 +38,7 @@ export function useAutoTriggerMutations(institutionId: string) {
 
   const createRule = useMutation({
     mutationFn: async (input: CreateAutoTriggerInput) => {
-      const res = await fetch('/api/admission/whatsapp-personal/auto-triggers', {
+      const res = await fetch('/api/whatsapp-personal/auto-triggers', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(input),
@@ -58,7 +58,7 @@ export function useAutoTriggerMutations(institutionId: string) {
 
   const updateRule = useMutation({
     mutationFn: async ({ id, ...input }: UpdateAutoTriggerInput & { id: string }) => {
-      const res = await fetch(`/api/admission/whatsapp-personal/auto-triggers?id=${id}`, {
+      const res = await fetch(`/api/whatsapp-personal/auto-triggers?id=${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(input),
@@ -78,7 +78,7 @@ export function useAutoTriggerMutations(institutionId: string) {
 
   const deleteRule = useMutation({
     mutationFn: async (id: string) => {
-      const res = await fetch(`/api/admission/whatsapp-personal/auto-triggers?id=${id}`, {
+      const res = await fetch(`/api/whatsapp-personal/auto-triggers?id=${id}`, {
         method: 'DELETE',
       });
       if (!res.ok) throw new Error('Failed to delete trigger rule');
@@ -93,7 +93,7 @@ export function useAutoTriggerMutations(institutionId: string) {
 
   const toggleRule = useMutation({
     mutationFn: async ({ id, is_active }: { id: string; is_active: boolean }) => {
-      const res = await fetch(`/api/admission/whatsapp-personal/auto-triggers?id=${id}`, {
+      const res = await fetch(`/api/whatsapp-personal/auto-triggers?id=${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ is_active }),
@@ -116,7 +116,7 @@ export function usePersonalWAQueueStats(institutionId?: string) {
     queryKey: ['wa-personal-queue-stats', institutionId],
     queryFn: async () => {
       const params = institutionId ? `?institution_id=${institutionId}` : '';
-      const res = await fetch(`/api/admission/whatsapp-personal/queue${params}`);
+      const res = await fetch(`/api/whatsapp-personal/queue${params}`);
       if (!res.ok) throw new Error('Failed to fetch queue stats');
       return res.json();
     },

@@ -3,9 +3,42 @@ import { ExotelClient } from './exotel-client';
 import { PhoneNumberIntelligence } from './phone-number-intelligence';
 import { sendTextMessage as waSendText, isWhatsAppConfigured } from '@/lib/services/whatsapp/whatsapp-api-client';
 import { WAEventDispatcher } from '@/lib/services/whatsapp/wa-event-dispatcher';
+import { getPolicy } from '@/lib/policies/get-policy';
+import { POLICY_KEYS } from '@/lib/policies/keys';
+import { capturePipelineErrorAsync } from './error-capture';
 
 const PIPELINE_STAGES = ['captured', 'classified', 'matched', 'intelligence', 'enriched', 'responded', 'complete'] as const;
 type PipelineStage = typeof PIPELINE_STAGES[number];
+
+/**
+ * Director-tunable ExoVoiceAnalyze submission config.
+ * Read from `platform_policies` row keyed `telephony.exovoice.config` (global scope).
+ * Hardcoded fallbacks below preserve historical behaviour when the row is missing
+ * or the RPC fails. Director edits via /admin/telephony-policies — no deploy needed.
+ */
+interface ExoVoiceConfig {
+  tasks: string[];
+  categories: string[];
+}
+
+const EXOVOICE_CONFIG_DEFAULT: ExoVoiceConfig = {
+  tasks: ['transcript', 'summarization', 'sentiment', 'categorise'],
+  categories: [
+    'admission_inquiry', 'fee_inquiry', 'course_inquiry',
+    'placement_inquiry', 'complaint', 'follow_up', 'other',
+  ],
+};
+
+async function getExoVoiceConfig(): Promise<ExoVoiceConfig> {
+  const v = await getPolicy<Partial<ExoVoiceConfig>>(POLICY_KEYS.TELEPHONY_EXOVOICE_CONFIG, null);
+  const tasks = Array.isArray(v?.tasks) && v!.tasks.length > 0
+    ? v!.tasks!
+    : EXOVOICE_CONFIG_DEFAULT.tasks;
+  const categories = Array.isArray(v?.categories) && v!.categories.length > 0
+    ? v!.categories!
+    : EXOVOICE_CONFIG_DEFAULT.categories;
+  return { tasks, categories };
+}
 
 interface PipelineContext {
   callLogId: string;
@@ -35,6 +68,7 @@ interface InstitutionCallSettings {
   auto_sms_enabled: boolean;
   auto_sms_template: string;
   auto_sms_sender_id: string | null;
+  auto_sms_cooldown_hours: number;
   dlt_entity_id: string | null;
   dlt_template_id: string | null;
   auto_whatsapp_enabled: boolean;
@@ -148,6 +182,11 @@ export class CallPipelineService {
       return { stage: finalStage, intelligenceId, callbackQueueId, autoSmsSent, autoWhatsAppSent };
     } catch (error) {
       console.error('[CallPipeline] Error:', error);
+      capturePipelineErrorAsync('pipeline', error, {
+        callSid: ctx.callSid,
+        callLogId: ctx.callLogId,
+        institutionId: ctx.institutionId,
+      });
       return { stage: 'intelligence', error: String(error) };
     }
   }
@@ -161,6 +200,20 @@ export class CallPipelineService {
     supabase: SupabaseClient
   ): Promise<string | undefined> {
     try {
+      // Idempotency: skip if call already has an intelligence row.
+      // Two writer paths exist post-2026-05-02: real-time webhook + cron CDR sync.
+      // Without this guard a single call ingested by both paths would create
+      // duplicate intel rows, double-submit to ExoVoiceAnalyze, and double-bill.
+      // Also protects backfill re-runs.
+      const { data: existing } = await supabase
+        .from('admission_call_logs')
+        .select('intelligence_id')
+        .eq('id', ctx.callLogId)
+        .single();
+      if (existing?.intelligence_id) {
+        return existing.intelligence_id;
+      }
+
       // Create intelligence record
       const { data: intel, error: insertError } = await supabase
         .from('admission_call_intelligence')
@@ -189,15 +242,26 @@ export class CallPipelineService {
       const webhookToken = process.env.EXOTEL_API_TOKEN;
       const callbackUrl = `${baseUrl}/api/webhooks/telephony/intelligence?token=${webhookToken}`;
 
-      // Submit to ExoVoiceAnalyze
+      // Submit to ExoVoiceAnalyze.
+      // Tasks + categories sourced from platform_policies
+      // (telephony.exovoice.config, global scope). Director-tunable via
+      // /admin/telephony-policies — no deploy needed. Hardcoded fallbacks
+      // inside getExoVoiceConfig() preserve historical behaviour when the
+      // row is missing or the RPC fails.
+      const exovoiceCfg = await getExoVoiceConfig();
       const response = await ExotelClient.analyzeCall({
         callSid: ctx.callSid,
-        tasks: ['transcript', 'summarization', 'sentiment', 'categorise'],
+        // Exotel echoes task_id back in the webhook payload; we use the
+        // call_log UUID so the intelligence webhook can correlate the result
+        // back to the exact admission_call_logs row that triggered the submit.
+        taskId: ctx.callLogId,
+        // Director-tunable values are typed `string[]` in ExoVoiceConfig
+        // (reflects the JSON shape of the platform_policies row). Cast to
+        // the API's enum union — `getExoVoiceConfig()` only returns the
+        // 4 valid task tokens by virtue of the seeded row.
+        tasks: exovoiceCfg.tasks as ('transcript' | 'summarization' | 'sentiment' | 'categorise')[],
         callbackUrl,
-        categories: [
-          'admission_inquiry', 'fee_inquiry', 'course_inquiry',
-          'placement_inquiry', 'complaint', 'follow_up', 'other'
-        ],
+        categories: exovoiceCfg.categories,
       });
 
       // Update with job ID
@@ -212,13 +276,35 @@ export class CallPipelineService {
       return intel.id;
     } catch (error) {
       console.error('[CallPipeline] ExoVoiceAnalyze submit failed:', error);
+      // This is THE error site that the 27-day silent-failure history hid.
+      // Every analyzeCall returning HTTP 400 was swallowed here. Capture
+      // surface='pipeline' (the submit is initiated from the pipeline,
+      // not from the intelligence callback). Extra carries the Exotel
+      // status code if the error was an ExotelApiError.
+      const extra: Record<string, unknown> = {
+        site: 'submitForAnalysis',
+      };
+      if (error && typeof error === 'object') {
+        const e = error as { status?: number; exotelCode?: string; body?: string };
+        if (e.status !== undefined) extra.status = e.status;
+        if (e.exotelCode !== undefined) extra.exotel_code = e.exotelCode;
+        if (e.body !== undefined) extra.exotel_body = e.body;
+      }
+      capturePipelineErrorAsync('pipeline', error, {
+        callSid: ctx.callSid,
+        callLogId: ctx.callLogId,
+        institutionId: ctx.institutionId,
+        extra,
+      });
       return undefined;
     }
   }
 
   /**
    * Send auto-SMS to missed caller.
-   * FIX 3: One SMS per caller per 24 hours — prevents spamming repeat callers.
+   * FIX 3: One SMS per caller per cooldown window — prevents spamming repeat
+   * callers. Cooldown is configurable per-institution via
+   * institution_call_settings.auto_sms_cooldown_hours (default 24, range 1..168).
    */
   private static async sendMissedCallSms(
     ctx: PipelineContext,
@@ -231,25 +317,30 @@ export class CallPipelineService {
         return false;
       }
 
-      // FIX 3: Check if we already sent SMS to this number in the last 24 hours
-      const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+      // FIX 3: Check if we already sent SMS to this number within the
+      // institution-configured cooldown window. Falls back to 24h if the
+      // setting is missing/invalid (defensive — column is NOT NULL DEFAULT 24).
+      const cooldownHours = Number.isFinite(settings.auto_sms_cooldown_hours) && settings.auto_sms_cooldown_hours > 0
+        ? settings.auto_sms_cooldown_hours
+        : 24;
+      const cooldownCutoffIso = new Date(Date.now() - cooldownHours * 60 * 60 * 1000).toISOString();
       const { data: recentSms } = await supabase
         .from('admission_call_logs')
         .select('id')
         .eq('from_number', ctx.fromNumber)
         .eq('direction', 'inbound')
         .eq('auto_sms_sent', true)
-        .gte('created_at', twentyFourHoursAgo)
+        .gte('created_at', cooldownCutoffIso)
         .limit(1)
         .maybeSingle();
 
       if (recentSms) {
-        // Already sent SMS to this caller in the last 24h — skip
+        // Already sent SMS to this caller within the cooldown window — skip
         await supabase
           .from('admission_call_logs')
-          .update({ auto_sms_skipped_reason: 'already_sent_24h' })
+          .update({ auto_sms_skipped_reason: `already_sent_${cooldownHours}h` })
           .eq('id', ctx.callLogId);
-        console.info('[CallPipeline] SMS skipped — already sent to', ctx.fromNumber.slice(-4), 'in last 24h');
+        console.info('[CallPipeline] SMS skipped — already sent to', ctx.fromNumber.slice(-4), `in last ${cooldownHours}h`);
         return false;
       }
 
@@ -591,6 +682,7 @@ export class CallPipelineService {
       auto_sms_enabled: true,
       auto_sms_template: 'Thank you for calling JKKN. A counselor will call you back shortly.',
       auto_sms_sender_id: null,
+      auto_sms_cooldown_hours: 24,
       dlt_entity_id: null,
       dlt_template_id: null,
       auto_whatsapp_enabled: false,

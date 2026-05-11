@@ -65,6 +65,19 @@ export class HostelBlockService {
   }
 
   // ── Create ────────────────────────────────────────────────────────
+  // The block is also written to `hostel_block_institutions` as the
+  // primary owner. The M2M is consulted by `role_has_hostel_block_scope()`
+  // which 4 RLS policies on hostel_blocks (and rooms/beds via cascade)
+  // depend on — without the junction row, non-super-admin readers cannot
+  // see the block. See migration 20260421000004_hostel_blocks_multi_college.
+  //
+  // The two writes are NOT in a single transaction (PostgREST limitation).
+  // If the M2M insert fails after the block insert succeeds, the block
+  // exists but is RLS-invisible. Recovery: re-running this method is safe
+  // (the block insert would fail on whatever uniqueness constraint hit it,
+  // OR the M2M insert would no-op due to PRIMARY KEY conflict). For now
+  // we surface the M2M failure as an error — the orphan block can be
+  // backfilled by the platform_policies migration pattern if needed.
   static async createBlock(payload: CreateHostelBlockDTO) {
     try {
       const supabase = createClientSupabaseClient();
@@ -78,7 +91,31 @@ export class HostelBlockService {
         logger.error('campus-living/blocks', 'Failed to create block', error);
         throw error;
       }
-      return data as HostelBlock;
+
+      const block = data as HostelBlock;
+
+      // Mirror to M2M with is_primary=true. Skipped only if institution_id
+      // is null (rare — a shared block created before any college claims
+      // primary ownership; UI doesn't currently allow this path).
+      if (block.institution_id) {
+        const { error: m2mError } = await supabase
+          .from('hostel_block_institutions')
+          .insert({
+            block_id: block.id,
+            institution_id: block.institution_id,
+            is_primary: true,
+          });
+        if (m2mError) {
+          logger.error(
+            'campus-living/blocks',
+            'Block created but M2M junction insert failed — block will be RLS-invisible to non-super-admins until backfilled',
+            { blockId: block.id, error: m2mError },
+          );
+          throw m2mError;
+        }
+      }
+
+      return block;
     } catch (error) {
       logger.error('campus-living/blocks', 'Unexpected error in createBlock', error);
       throw error;

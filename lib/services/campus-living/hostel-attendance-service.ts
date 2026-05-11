@@ -25,6 +25,11 @@ export class HostelAttendanceService {
       if (filters?.block_id) query = query.eq('block_id', filters.block_id);
       if (filters?.date) query = query.eq('date', filters.date);
       if (filters?.status) query = query.eq('evening_status', filters.status);
+      // Optional learner narrowing — used by deep-links from the residents
+      // detail drawer (`/campus-living/attendance/history?learner=<id>`).
+      if ((filters as { learner_id?: string } | undefined)?.learner_id) {
+        query = query.eq('learner_id', (filters as { learner_id: string }).learner_id);
+      }
 
       const from = (page - 1) * pageSize;
       query = query.order('date', { ascending: false }).range(from, from + pageSize - 1);

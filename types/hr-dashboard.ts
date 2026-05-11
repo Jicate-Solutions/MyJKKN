@@ -45,7 +45,10 @@ export type DashboardKPIName =
   | 'active_blackouts_compliance'
   | 'pending_encashments'
   // Director: Trend
-  | 'leave_applications_12mo';
+  | 'leave_applications_12mo'
+  // T8.6 — multi-role KPI refinements (2026-05-10)
+  | 'documents_pending_verification'   // HR Officer
+  | 'active_shifts_today';             // Director
 
 export interface DashboardKPI {
   /** Stable machine name (audit-log safe). */
@@ -288,3 +291,62 @@ export const APPROVAL_ESCALATE_AFTER_HOURS = 48;
 
 /** 12-month rolling window for trend quadrant (decision #7). */
 export const TREND_WINDOW_MONTHS = 12;
+
+// =====================================================================================
+// T3.3 — Recent Activities feed
+// =====================================================================================
+
+/**
+ * One entry in the recent-activities feed shown alongside the dashboard
+ * quadrants. Sourced from hr_dashboard_access_log (table populated 724+ times
+ * since dashboard launched). Names + institution names are joined server-side
+ * so the client never has to do a second round-trip.
+ *
+ * For super_admin → all activities across the platform. For other roles →
+ * scoped to their hr_organization_id (matches the audit log's filter column).
+ */
+export interface RecentActivityEntry {
+  /** ISO 8601 timestamp (UTC). UI converts to "X min ago" client-side. */
+  viewed_at: string;
+  /** auth.user.id of the person who viewed the dashboard. */
+  user_id: string;
+  /** Resolved profile.full_name (or email fallback). 'Unknown user' if profile missing. */
+  actor_name: string;
+  /** Quadrant + KPI together describe what the actor saw. */
+  quadrant: string;
+  kpi_name: string;
+  /** Resolved institution.name when institution_id is set; null when rolled-up scope. */
+  institution_name: string | null;
+}
+
+/**
+ * Activity feed payload. Bucketing by hour is computed client-side from
+ * viewed_at; we keep the API shape flat for cache-friendliness.
+ */
+export interface RecentActivitiesPayload {
+  entries: RecentActivityEntry[];
+  generated_at: string;
+}
+
+// =====================================================================================
+// T3.5 — Employee distribution donut
+// =====================================================================================
+
+/**
+ * One slice of the employee-distribution donut. Values are aggregate counts
+ * (decision #6 — never individual names).
+ */
+export interface EmployeeDistributionSlice {
+  category_name: string;
+  count: number;
+  /** Hex color resolved server-side so the chart renders consistently across roles. */
+  color: string;
+}
+
+export interface EmployeeDistributionPayload {
+  slices: EmployeeDistributionSlice[];
+  total: number;
+  /** When > 5 categories existed, the rest are rolled into 'Others' (slices array still has 6 entries max). */
+  rolled_up_count: number;
+  generated_at: string;
+}
