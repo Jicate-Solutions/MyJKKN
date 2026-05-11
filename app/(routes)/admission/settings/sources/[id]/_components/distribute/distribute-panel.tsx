@@ -1,6 +1,6 @@
 'use client';
 
-import { useReducer, useMemo, useEffect } from 'react';
+import { useReducer, useMemo, useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
 import { ChevronDown, ChevronUp, Send } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
@@ -9,9 +9,14 @@ import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 
 import { usePermissions } from '@/hooks/use-permissions';
-import { useUnassignedLeads, type UnassignedLeadFilters } from '@/hooks/admission/use-unassigned-leads';
+import {
+  useUnassignedLeads,
+  useAllUnassignedLeadIdsLazy,
+  type UnassignedLeadFilters,
+} from '@/hooks/admission/use-unassigned-leads';
 import { useBulkAssign } from '@/hooks/admission/use-bulk-assign';
 import { useSourceCounselorsWithLoad } from '@/hooks/admission/use-source-counselors-with-load';
+import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import type { BulkAssignReport, PerLeadResult } from '@/lib/services/admission/bulk-assign-service';
 import type { LeadSourceEnum } from '@/lib/services/admission/source-master-service';
 
@@ -21,6 +26,7 @@ import { UnassignedLeadList } from './unassigned-lead-list';
 import { CounselorTargetPicker } from './counselor-target-picker';
 import { OverrideToggle } from './override-toggle';
 import { DistributeDryRun } from './distribute-dry-run';
+import { InstitutionSummary, useInstitutionSummary } from './institution-summary';
 
 interface DistributePanelProps {
   sourceId: string;
@@ -35,7 +41,16 @@ interface State {
   mode: DistributeMode;
   filters: UnassignedLeadFilters;
   selectedIds: Set<string>;
+  /**
+   * lead_id -> institution_id for every selected lead. Populated as the user
+   * toggles individual leads (we always know institution_id at toggle time
+   * from either the visible list or the lazy-fetched ID list). Used to
+   * compute the institution-matching summary without round-tripping the DB.
+   */
+  selectedLeadInstitutions: Map<string, string | null>;
   pickerIds: string[];
+  /** Hide counselors whose institution_id isn't in the lead-selection set. */
+  restrictPickerToLeadInstitutions: boolean;
   override: boolean;
   reason: string;
   /** Round-robin only: cap each selected counselor at N leads per run. */
@@ -50,7 +65,9 @@ const initial: State = {
   mode: 'bulk-one',
   filters: {},
   selectedIds: new Set<string>(),
+  selectedLeadInstitutions: new Map<string, string | null>(),
   pickerIds: [],
+  restrictPickerToLeadInstitutions: true,
   override: false,
   reason: '',
   perCounselorLimit: '',
@@ -63,10 +80,22 @@ type Action =
   | { type: 'TOGGLE_EXPAND' }
   | { type: 'SET_MODE'; mode: DistributeMode }
   | { type: 'SET_FILTERS'; filters: UnassignedLeadFilters }
-  | { type: 'TOGGLE_LEAD'; id: string }
-  | { type: 'TOGGLE_ALL_VISIBLE'; visibleIds: string[] }
-  | { type: 'SELECT_ALL_MATCHING'; ids: string[] }
+  | {
+      type: 'TOGGLE_LEAD';
+      id: string;
+      institutionId: string | null;
+    }
+  | {
+      type: 'TOGGLE_ALL_VISIBLE';
+      visible: Array<{ id: string; institution_id: string | null }>;
+    }
+  | {
+      type: 'SELECT_ALL_MATCHING';
+      rows: Array<{ id: string; institution_id: string | null }>;
+    }
+  | { type: 'CLEAR_LEAD_SELECTION' }
   | { type: 'SET_PICKER'; ids: string[] }
+  | { type: 'TOGGLE_INST_RESTRICTION'; value: boolean }
   | { type: 'SET_OVERRIDE'; value: boolean }
   | { type: 'SET_REASON'; value: string }
   | { type: 'SET_PER_COUNSELOR_LIMIT'; value: string }
@@ -85,20 +114,52 @@ function reducer(s: State, a: Action): State {
       return { ...s, filters: a.filters };
     case 'TOGGLE_LEAD': {
       const next = new Set(s.selectedIds);
-      if (next.has(a.id)) next.delete(a.id);
-      else next.add(a.id);
-      return { ...s, selectedIds: next };
+      const nextInst = new Map(s.selectedLeadInstitutions);
+      if (next.has(a.id)) {
+        next.delete(a.id);
+        nextInst.delete(a.id);
+      } else {
+        next.add(a.id);
+        nextInst.set(a.id, a.institutionId);
+      }
+      return { ...s, selectedIds: next, selectedLeadInstitutions: nextInst };
     }
     case 'TOGGLE_ALL_VISIBLE': {
       const next = new Set(s.selectedIds);
-      const allOn = a.visibleIds.every((id) => next.has(id));
-      a.visibleIds.forEach((id) => (allOn ? next.delete(id) : next.add(id)));
-      return { ...s, selectedIds: next };
+      const nextInst = new Map(s.selectedLeadInstitutions);
+      const allOn = a.visible.every((row) => next.has(row.id));
+      if (allOn) {
+        a.visible.forEach((row) => {
+          next.delete(row.id);
+          nextInst.delete(row.id);
+        });
+      } else {
+        a.visible.forEach((row) => {
+          next.add(row.id);
+          nextInst.set(row.id, row.institution_id);
+        });
+      }
+      return { ...s, selectedIds: next, selectedLeadInstitutions: nextInst };
     }
-    case 'SELECT_ALL_MATCHING':
-      return { ...s, selectedIds: new Set(a.ids) };
+    case 'SELECT_ALL_MATCHING': {
+      const next = new Set<string>();
+      const nextInst = new Map<string, string | null>();
+      for (const row of a.rows) {
+        next.add(row.id);
+        nextInst.set(row.id, row.institution_id);
+      }
+      return { ...s, selectedIds: next, selectedLeadInstitutions: nextInst };
+    }
+    case 'CLEAR_LEAD_SELECTION':
+      return {
+        ...s,
+        selectedIds: new Set<string>(),
+        selectedLeadInstitutions: new Map<string, string | null>(),
+      };
     case 'SET_PICKER':
       return { ...s, pickerIds: a.ids };
+    case 'TOGGLE_INST_RESTRICTION':
+      return { ...s, restrictPickerToLeadInstitutions: a.value };
     case 'SET_OVERRIDE':
       return { ...s, override: a.value };
     case 'SET_REASON':
@@ -142,6 +203,31 @@ export function DistributePanel({ sourceId, sourceEnum, institutionId }: Distrib
     [counselors, s.override]
   );
 
+  // Institutions name map (for the summary card + picker chip).
+  const { institutions } = useInstitutionsWithAccess();
+  const institutionMap = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const inst of institutions ?? []) m.set(inst.id, inst.name);
+    return m;
+  }, [institutions]);
+
+  // Institution IDs represented across the currently-selected leads. Drives
+  // the counselor-picker auto-filter and the institution-summary card.
+  const selectedLeadInstitutionIds = useMemo(() => {
+    const set = new Set<string>();
+    for (const inst of s.selectedLeadInstitutions.values()) {
+      if (inst) set.add(inst);
+    }
+    return Array.from(set);
+  }, [s.selectedLeadInstitutions]);
+
+  // Selected counselor objects (full records, not just IDs) — needed by the
+  // institution-summary so it can read counselor.institution_id.
+  const selectedCounselors = useMemo(
+    () => (counselors ?? []).filter((a) => s.pickerIds.includes(a.counselor_id)),
+    [counselors, s.pickerIds],
+  );
+
   // Default round-robin participant pool: all available counselors selected by default.
   // Done in useEffect rather than useMemo so the dispatch happens off the render path.
   useEffect(() => {
@@ -154,6 +240,51 @@ export function DistributePanel({ sourceId, sourceEnum, institutionId }: Distrib
   const { bulkOne, autoRoute, roundRobin } = useBulkAssign();
   const totalCount = leadsData?.totalCount ?? 0;
   const visibleLeads = leadsData?.leads ?? [];
+
+  // Lazy fetch for "Select all N" — only fires when user clicks the button.
+  const allIdsLazy = useAllUnassignedLeadIdsLazy();
+  const [isSelectingAll, setIsSelectingAll] = useState(false);
+
+  // Auto-batch progress: when the user commits with > MAX_RUN_SIZE leads, the
+  // service chunks the run and calls onProgress after each batch resolves.
+  // This lets us paint a "Processed X of Y" footer instead of leaving the
+  // user staring at a frozen Confirming… button for 30+ seconds.
+  const [batchProgress, setBatchProgress] = useState<{ done: number; total: number } | null>(null);
+
+  const handleSelectAllMatching = async () => {
+    setIsSelectingAll(true);
+    try {
+      const rows = await allIdsLazy.mutateAsync({
+        sourceEnum,
+        institutionId,
+        filters: s.filters,
+      });
+      dispatch({ type: 'SELECT_ALL_MATCHING', rows });
+      toast.success(`Selected all ${rows.length.toLocaleString()} matching leads`);
+    } catch (err: any) {
+      toast.error(err?.message ?? 'Failed to load all matching leads');
+    } finally {
+      setIsSelectingAll(false);
+    }
+  };
+
+  // Institution-matching status (also surfaced as the commit gate).
+  const summaryStatus = useInstitutionSummary({
+    selectedLeadInstitutions: Array.from(s.selectedLeadInstitutions.entries()).map(
+      ([leadId, institutionId]) => ({ leadId, institutionId }),
+    ),
+    selectedCounselors,
+    allMappedCounselors: counselors ?? [],
+    institutionMap,
+  });
+
+  // Commit gate: block if there are blocking institution mismatches and the
+  // user hasn't enabled Override. auto-route bypasses (it uses server rules
+  // and surfaces no-candidate per-lead in the dry-run summary).
+  const institutionGateBlocked =
+    s.mode !== 'auto-route' &&
+    summaryStatus.hasBlockingMismatches &&
+    !s.override;
 
   if (!canDistribute) return null;
   // Always render the panel when the user can distribute — even at zero
@@ -194,12 +325,16 @@ export function DistributePanel({ sourceId, sourceEnum, institutionId }: Distrib
     }
     dispatch({ type: 'SET_PHASE', phase: 'mutating' });
     const ids = Array.from(s.selectedIds);
+    setBatchProgress(ids.length > 500 ? { done: 0, total: ids.length } : null);
+    const onProgress = (done: number, total: number) =>
+      setBatchProgress({ done, total });
     try {
       let report: BulkAssignReport;
       if (s.mode === 'bulk-one') {
         if (s.pickerIds.length !== 1) {
           toast.error('Pick exactly one counselor for Bulk-one mode.');
           dispatch({ type: 'SET_PHASE', phase: 'ready' });
+          setBatchProgress(null);
           return;
         }
         report = await bulkOne.mutateAsync({
@@ -214,6 +349,7 @@ export function DistributePanel({ sourceId, sourceEnum, institutionId }: Distrib
           dryRun: false,
           override: s.override,
           expectedPlanHash: s.preview?.planHash ?? null,
+          onProgress,
         });
       } else {
         const limit = s.perCounselorLimit.trim()
@@ -226,9 +362,11 @@ export function DistributePanel({ sourceId, sourceEnum, institutionId }: Distrib
           override: s.override,
           expectedPlanHash: s.preview?.planHash ?? null,
           perCounselorLimit: limit,
+          onProgress,
         });
       }
 
+      setBatchProgress(null);
       if (report.failureCount > 0 && report.successCount > 0) {
         dispatch({ type: 'SET_ERRORS', errors: report.failures });
       } else {
@@ -236,6 +374,7 @@ export function DistributePanel({ sourceId, sourceEnum, institutionId }: Distrib
       }
     } catch (_err: any) {
       // Mutation hook already toasted
+      setBatchProgress(null);
       dispatch({ type: 'SET_PHASE', phase: 'ready' });
     }
   };
@@ -244,6 +383,7 @@ export function DistributePanel({ sourceId, sourceEnum, institutionId }: Distrib
   const canCommitNow =
     s.selectedIds.size > 0 &&
     !isCommitting &&
+    !institutionGateBlocked &&
     (s.mode === 'bulk-one'
       ? s.pickerIds.length === 1
       : s.mode === 'round-robin'
@@ -319,13 +459,26 @@ export function DistributePanel({ sourceId, sourceEnum, institutionId }: Distrib
               totalCount={totalCount}
               isLoading={leadsLoading}
               selectedIds={s.selectedIds}
-              toggleOne={(id) => dispatch({ type: 'TOGGLE_LEAD', id })}
+              toggleOne={(id) => {
+                const lead = visibleLeads.find((l) => l.id === id);
+                dispatch({
+                  type: 'TOGGLE_LEAD',
+                  id,
+                  institutionId: lead?.institution_id ?? null,
+                });
+              }}
               toggleAllVisible={() =>
-                dispatch({ type: 'TOGGLE_ALL_VISIBLE', visibleIds: visibleLeads.map((l) => l.id) })
+                dispatch({
+                  type: 'TOGGLE_ALL_VISIBLE',
+                  visible: visibleLeads.map((l) => ({
+                    id: l.id,
+                    institution_id: l.institution_id,
+                  })),
+                })
               }
-              selectAllMatching={() =>
-                dispatch({ type: 'SELECT_ALL_MATCHING', ids: visibleLeads.map((l) => l.id) })
-              }
+              selectAllMatching={handleSelectAllMatching}
+              isSelectingAll={isSelectingAll}
+              clearSelection={() => dispatch({ type: 'CLEAR_LEAD_SELECTION' })}
             />
 
             {s.mode !== 'auto-route' && (
@@ -335,6 +488,27 @@ export function DistributePanel({ sourceId, sourceEnum, institutionId }: Distrib
                 selectedIds={s.pickerIds}
                 onChange={(ids) => dispatch({ type: 'SET_PICKER', ids })}
                 override={s.override}
+                selectedLeadInstitutionIds={selectedLeadInstitutionIds}
+                restrictToLeadInstitutions={s.restrictPickerToLeadInstitutions}
+                onToggleRestriction={(v) =>
+                  dispatch({ type: 'TOGGLE_INST_RESTRICTION', value: v })
+                }
+                institutionMap={institutionMap}
+              />
+            )}
+
+            {s.mode !== 'auto-route' && s.selectedIds.size > 0 && (
+              <InstitutionSummary
+                selectedLeadInstitutions={Array.from(
+                  s.selectedLeadInstitutions.entries(),
+                ).map(([leadId, instId]) => ({
+                  leadId,
+                  institutionId: instId,
+                }))}
+                selectedCounselors={selectedCounselors}
+                allMappedCounselors={counselors ?? []}
+                institutionMap={institutionMap}
+                overrideActive={s.override}
               />
             )}
 
@@ -401,6 +575,40 @@ export function DistributePanel({ sourceId, sourceEnum, institutionId }: Distrib
               />
             )}
 
+            {/* Batch progress for large auto-route / round-robin runs. The
+                service chunks selections > 500 transparently and calls
+                onProgress after each chunk; this surfaces it as a live
+                "X of Y" bar so Confirming doesn't look frozen. */}
+            {batchProgress && (
+              <div className="rounded-md border bg-card p-3 text-xs">
+                <div className="mb-1 flex items-center justify-between">
+                  <span className="font-medium">
+                    Distributing in batches of {500}…
+                  </span>
+                  <span className="tabular-nums text-muted-foreground">
+                    {batchProgress.done.toLocaleString()} /{' '}
+                    {batchProgress.total.toLocaleString()}
+                  </span>
+                </div>
+                <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+                  <div
+                    className="h-full bg-primary transition-all"
+                    style={{
+                      width: `${Math.min(
+                        100,
+                        Math.round(
+                          (batchProgress.done / batchProgress.total) * 100,
+                        ),
+                      )}%`,
+                    }}
+                  />
+                </div>
+                <div className="mt-1 text-[11px] text-muted-foreground">
+                  Don't close this page — running the next batch in a moment.
+                </div>
+              </div>
+            )}
+
             {s.phase === 'preview-ready' && s.preview ? (
               <DistributeDryRun
                 report={s.preview}
@@ -412,7 +620,16 @@ export function DistributePanel({ sourceId, sourceEnum, institutionId }: Distrib
             ) : (
               <div className="flex items-center justify-end gap-2 border-t pt-3">
                 <span className="mr-auto text-xs text-muted-foreground">
-                  {s.selectedIds.size} of {totalCount} selected
+                  {s.selectedIds.size.toLocaleString()} of{' '}
+                  {totalCount.toLocaleString()} selected
+                  {s.selectedIds.size > 500 && (
+                    <>
+                      {' · '}
+                      <span className="text-foreground">
+                        will run in {Math.ceil(s.selectedIds.size / 500)} batches
+                      </span>
+                    </>
+                  )}
                 </span>
                 {s.mode !== 'bulk-one' && (
                   <Button
