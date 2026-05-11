@@ -12,6 +12,50 @@
 // fee-structure-service.ts) and surface errors via react-hot-toast.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+
+// -----------------------------------------------------------------------------
+// humanizeFeeStructureCreateError
+// -----------------------------------------------------------------------------
+// The SECURITY DEFINER trigger _fee_structure_community_no_overlap raises
+// SQLSTATE 23505 with a message like:
+//
+//   "Another active fee structure already covers community <uuid> for this
+//    7-dim combination. Archive the existing structure first."
+//
+// That text is exactly what we DON'T want users to see. Translate it into an
+// actionable explanation listing the dimensions they can change to make the
+// new structure unique. Falls back to the raw message for any other error.
+function humanizeFeeStructureCreateError(err: unknown): string {
+  const raw =
+    err instanceof Error
+      ? err.message
+      : typeof err === 'string'
+        ? err
+        : 'Failed to create fee structure';
+
+  // Detect the community-overlap trigger. Match permissively so we still
+  // catch the message if the trigger ever rewords slightly.
+  if (
+    /already covers community/i.test(raw) ||
+    /7-dim combination/i.test(raw)
+  ) {
+    const uuidMatch = raw.match(
+      /community\s+([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i,
+    );
+    const commHint = uuidMatch ? ` (community ${uuidMatch[1].slice(0, 8)}…)` : '';
+    return [
+      `A fee structure already exists for this exact combination${commHint}.`,
+      '',
+      'To create a NEW one alongside it, change at least ONE of these dimensions:',
+      '• Institution · Degree · Department · Programme',
+      '• Quota · Accommodation · Admission Year',
+      '',
+      'Or archive the existing structure first, then re-save.',
+    ].join('\n');
+  }
+
+  return raw;
+}
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
@@ -407,7 +451,10 @@ export function NewStructureForm({
       onCreated();
     } catch (err) {
       console.error(err);
-      toast.error(err instanceof Error ? err.message : 'Failed to create fee structure');
+      toast.error(humanizeFeeStructureCreateError(err), {
+        duration: 9000,
+        style: { maxWidth: '520px' },
+      });
     } finally {
       submittingRef.current = false;
       // On success, keep the buttons disabled — the parent navigates away
