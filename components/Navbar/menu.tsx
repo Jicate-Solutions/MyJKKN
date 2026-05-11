@@ -95,9 +95,25 @@ export function Menu({ isOpen }: MenuProps) {
     // Enrich permissions with dynamic access for assigned team members.
     // Faculty/students assigned to expo events need to see the Expos menu
     // even without a global `admission.marketing.expos.view` permission.
+    //
+    // 2026-05-11: counselor roles whose access to the Marketing module was
+    // explicitly revoked must NOT get expo visibility re-granted via
+    // team-membership enrichment. Without this carve-out, an
+    // admission_counselor / learner_counselor / staff_counselor user who
+    // happens to be on any expo team (e.g. MAHENDIRAN S) would have the
+    // Marketing parent menu re-appear in the sidebar because at least one of
+    // its 16 submenus (`/admission/marketing/expos`) becomes accessible. The
+    // expo_counselor role legitimately needs expo access and gets it through
+    // its own `custom_roles.permissions`, so it is intentionally NOT skipped.
     let enrichedPermissions = { ...permissions };
+    const EXPO_ENRICHMENT_SKIP_ROLES = new Set([
+      'admission_counselor',
+      'learner_counselor',
+      'staff_counselor',
+    ]);
+    const skipExpoEnrichment = EXPO_ENRICHMENT_SKIP_ROLES.has(userProfile.role || '');
 
-    if (isExpoTeamMember) {
+    if (isExpoTeamMember && !skipExpoEnrichment) {
       enrichedPermissions['admission.marketing.expos.view'] = true;
     }
 

@@ -175,8 +175,20 @@ export function BottomNavbar() {
       };
     }
 
-    // Enrich permissions with dynamic expo access for assigned team members
-    const enrichedPermissions = isExpoTeamMember
+    // Enrich permissions with dynamic expo access for assigned team members.
+    // 2026-05-11: counselor roles whose Marketing access was explicitly
+    // revoked must NOT get expo visibility re-granted via team-membership
+    // enrichment. Without this carve-out, the mobile Marketing module entry
+    // re-appears for admission_counselor / learner_counselor / staff_counselor
+    // users who happen to be on any expo team. Mirrors menu.tsx logic so
+    // desktop sidebar and mobile bottom-nav stay in lock-step.
+    const EXPO_ENRICHMENT_SKIP_ROLES = new Set([
+      'admission_counselor',
+      'learner_counselor',
+      'staff_counselor',
+    ]);
+    const skipExpoEnrichment = EXPO_ENRICHMENT_SKIP_ROLES.has(userProfile.role || '');
+    const enrichedPermissions = isExpoTeamMember && !skipExpoEnrichment
       ? { ...permissions, 'admission.marketing.expos.view': true }
       : permissions;
 
