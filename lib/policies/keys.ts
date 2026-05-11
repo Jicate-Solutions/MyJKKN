@@ -90,6 +90,86 @@ export const POLICY_KEYS = {
   VOICE_MEMO_MONITOR_REFRESH_INTERVAL_SECONDS: 'voice_memo_monitor.refresh_interval_seconds',
   VOICE_MEMO_MONITOR_COST_ALERT_DAILY_INR: 'voice_memo_monitor.cost_alert_daily_inr',
   VOICE_MEMO_MONITOR_DIRECTOR_DIGEST_CATEGORIES: 'voice_memo_monitor.director_digest_categories',
+
+  // Bug Triage Agent (governs /fixmyjkkn and /fixallbugs skills) — 2026-05-12
+  // Substrate PR-A of 4 for the runtime-config doctrine: every tunable in the
+  // bug-triage agent skills becomes a config row read at runtime, not a
+  // hardcoded skill rule. Skills will call getPolicy() at runtime (PR-C);
+  // admin UI lands in PR-B. Defaults below MIRROR current hardcoded behavior
+  // 1:1 — zero behavioral drift on apply.
+
+  // Master kill switch. When false, /fixmyjkkn + /fixallbugs short-circuit
+  // before clone/worktree/grep. Director-only flip via admin UI.
+  // Consumed by /fixmyjkkn Step 0 + /fixallbugs Step 0 entry gate.
+  BUG_TRIAGE_IS_ENABLED: 'bug_triage.is_enabled',
+
+  // Maximum number of parallel subagents the batch (fan-out) mode of
+  // /fixallbugs can spawn at once across apps or within a single app.
+  // Consumed by /fixallbugs batch dispatcher.
+  BUG_TRIAGE_BATCH_MAX_CONCURRENT_AGENTS: 'bug_triage.batch.max_concurrent_agents',
+
+  // Pre-flight visual probe (2026-05-10 doctrine, ref: feedback_preflight_visual_probe_before_debug_cycle.md):
+  // bug-description keywords that mark the bug as interactive-flow.
+  // Interactive-flow bugs SKIP the probe verdict (cannot be auto-confirmed
+  // resolved via static page-render — needs the click that mounts the dialog).
+  // Consumed by /fixmyjkkn Step 2.5 + /fixallbugs Step 2.5 pre-flight probe.
+  BUG_TRIAGE_PREFLIGHT_INTERACTIVE_FLOW_KEYWORDS: 'bug_triage.preflight.interactive_flow_keywords',
+
+  // Pre-flight visual probe: bug-description keywords that mark the bug as
+  // page-load class — eligible for the 10-sec CFT probe verdict.
+  // Consumed by /fixmyjkkn Step 2.5 + /fixallbugs Step 2.5 pre-flight probe.
+  BUG_TRIAGE_PREFLIGHT_PAGE_LOAD_KEYWORDS: 'bug_triage.preflight.page_load_keywords',
+
+  // Pre-flight visual probe: verdict when the probe is INCONCLUSIVE
+  // (screenshot ambiguous, route timeout, auth gate, etc.). Conservative
+  // default = still_reproducible → proceed with clone+fix path.
+  // Allowed values: still_reproducible | already_fixed | skip
+  // Consumed by /fixmyjkkn Step 2.5 + /fixallbugs Step 2.5 pre-flight probe.
+  BUG_TRIAGE_PREFLIGHT_INCONCLUSIVE_DEFAULT: 'bug_triage.preflight.inconclusive_default',
+
+  // Maximum number of files a single bug-fix diff can touch before the agent
+  // is forced to STOP and surface the blocker (over-broad fix = wrong fix).
+  // Consumed by /fixmyjkkn Step 4 + /fixallbugs Step 4 diff guard.
+  BUG_TRIAGE_DIFF_MAX_FILES: 'bug_triage.diff.max_files',
+
+  // Minimum self-rated confidence (0.0–1.0) the agent must reach before
+  // opening a PR. Below this, the agent must STOP and surface the blocker.
+  // Consumed by /fixmyjkkn Step 4.5 + /fixallbugs Step 4.5 confidence gate.
+  BUG_TRIAGE_FIX_CONFIDENCE_MIN: 'bug_triage.fix.confidence_min',
+
+  // For PLATFORM bugs (centralized bug reporter), the per-Application toggle
+  // keys an admin must flip to make a bug auto-merge eligible. Array allows
+  // future expansion (e.g. ["auto_merge_eligible","ci_gates_passing"]).
+  // Consumed by /fixallbugs auto-merge gate (defense-in-depth, per-app).
+  BUG_TRIAGE_PLATFORM_AUTO_MERGE_GATE_KEYS: 'bug_triage.platform.auto_merge_gate_keys',
+
+  // Glob patterns whose presence in a diff disqualifies the bug from
+  // auto-merge regardless of any other gate (auth, RLS, middleware, payment,
+  // billing, env, CI config, CLAUDE.md). Hard floor — cannot be bypassed.
+  // Consumed by /fixmyjkkn + /fixallbugs auto-merge gates.
+  BUG_TRIAGE_DANGER_ZONE_GLOBS: 'bug_triage.danger_zone_globs',
+
+  // MyJKKN-specific master gate: hard-enforced FALSE at global scope per
+  // /fixmyjkkn standing rule (no auto-merge on MyJKKN bugs; PR-only). An
+  // institution-scope override is permitted in the table but the runtime
+  // consumer rejects globally-true. Consumed by /fixmyjkkn auto-merge gate.
+  BUG_TRIAGE_MYJKKN_AUTO_MERGE_ELIGIBLE: 'bug_triage.myjkkn.auto_merge_eligible',
+
+  // Optional allowlist of bug-tag strings — only bugs carrying at least one
+  // listed tag enter the auto-fix loop. Empty array = no allowlist (every
+  // open bug is eligible). Consumed by /fixallbugs Step 1 fetch filter.
+  BUG_TRIAGE_ALLOWLIST_TAGS: 'bug_triage.allowlist_tags',
+
+  // GitHub username to auto-assign as reviewer when the agent opens a PR.
+  // Empty string = no auto-assignment (leave to repo's CODEOWNERS).
+  // Consumed by /fixmyjkkn Step 6 + /fixallbugs Step 6 PR-open routine.
+  BUG_TRIAGE_DRAFT_PR_REVIEWER: 'bug_triage.draft_pr_reviewer',
+
+  // Bug-description keywords that signal "feature request masquerading as
+  // bug" — when matched, the agent rejects the bug as out-of-scope and
+  // routes it to the product backlog instead of attempting a fix.
+  // Consumed by /fixmyjkkn Step 1.5 + /fixallbugs Step 1.5 intake classifier.
+  BUG_TRIAGE_FEATURE_REQUEST_SIGNAL_KEYWORDS: 'bug_triage.feature_request_signal_keywords',
 } as const;
 
 export type PolicyKey = typeof POLICY_KEYS[keyof typeof POLICY_KEYS];
