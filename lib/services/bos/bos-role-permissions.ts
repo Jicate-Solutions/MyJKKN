@@ -173,3 +173,38 @@ export function canAccessModule(role: string | null, module: string): boolean {
   const modulePermissions = permissions[module];
   return modulePermissions !== undefined && modulePermissions.length > 0;
 }
+
+/**
+ * Merges DEFAULT_ROLE_PERMISSIONS for the given role keys into a flat permissions map
+ * when the database role has no academic.bos-* keys yet. Also ensures the parent
+ * 'bos.view' sidebar gate is set whenever any academic.bos-*.view permission is present.
+ *
+ * Two problems this solves:
+ * 1. DB roles that predate BOS modules have no academic.bos-* keys — seed from defaults.
+ * 2. MENU_PERMISSIONS['/bos'] requires 'bos.view' — without it the entire BOS sidebar
+ *    section is hidden even when all granular academic.bos-*.view keys are present
+ *    (BUG-003340: HOD at JKKN CAS could not see /bos/experts).
+ */
+export function applyBOSFallback(
+  flatPerms: Record<string, boolean>,
+  roleKeys: string[]
+): void {
+  const hasBOS = Object.keys(flatPerms).some((k) => k.startsWith('academic.bos'));
+  if (!hasBOS) {
+    for (const roleKey of roleKeys) {
+      const defaultPerms = getRolePermissions(roleKey);
+      for (const [module, actions] of Object.entries(defaultPerms)) {
+        for (const action of actions) {
+          const key = `${module}.${action}`;
+          if (!flatPerms[key]) flatPerms[key] = true;
+        }
+      }
+    }
+  }
+  // Ensure the parent sidebar gate is set regardless of whether perms came from DB or
+  // were just seeded above — only when the user actually has a BOS view permission.
+  const hasBosViewPerm = Object.keys(flatPerms).some(
+    (k) => k.startsWith('academic.bos') && k.endsWith('.view') && flatPerms[k]
+  );
+  if (hasBosViewPerm && flatPerms['bos.view'] === undefined) flatPerms['bos.view'] = true;
+}
