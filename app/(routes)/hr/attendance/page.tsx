@@ -21,6 +21,7 @@
 //   the hub permissive avoids re-encoding gates in two places.
 // ============================================================================
 
+import type { ComponentType } from 'react';
 import Link from 'next/link';
 import { ArrowRight, ClipboardCheck, ShieldCheck } from 'lucide-react';
 
@@ -68,7 +69,7 @@ function ActionCard({
   audience,
 }: {
   href: string;
-  icon: React.ComponentType<{ className?: string }>;
+  icon: ComponentType<{ className?: string }>;
   title: string;
   description: string;
   audience: string;
