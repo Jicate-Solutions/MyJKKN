@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
 import type { SentListResult } from '@/lib/services/notification/sent-service';
+import { stripHtml } from '@/components/ui/rich-text-editor';
 
 /**
  * Sender's outbox — what YOU broadcast.
@@ -300,7 +301,7 @@ export function SentOutbox() {
                       className="text-sm line-clamp-2"
                       style={{ color: '#3a3a3a' }}
                     >
-                      {row.body}
+                      {stripHtml(row.body)}
                     </p>
                   )}
                   <div
