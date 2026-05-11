@@ -576,7 +576,7 @@ export default function CandidateDetailPage() {
                                 onClick={() => {
                                   setCounterPackageId(pkg.id);
                                   setCounterCtc('');
-                                  setCounterBreakdown('');
+                                  setCounterBreakdown(EMPTY_BREAKDOWN);
                                   setCounterNotes('');
                                 }}
                               >
