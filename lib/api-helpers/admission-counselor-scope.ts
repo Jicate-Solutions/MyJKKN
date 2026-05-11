@@ -25,9 +25,40 @@ const COUNSELOR_ROLE_KEYS = [
   'staff_counselor',
 ] as const;
 
+// Override roles — if a user holds ANY of these AND also a counselor role,
+// they are NOT strict (they keep broad visibility). Mirrors the override
+// set in _user_is_strict_counselor SQL helper.
+// Final rule (2026-05-11): admission_staff and tier-1 execs see all leads
+// even when they also hold a secondary counselor role.
 const NON_COUNSELOR_OVERRIDE_ROLE_KEYS = [
   'admission',
+  'admission_staff',
   'administrator',
+  'super_admin',
+  'ceo',
+  'coo',
+  'cbo',
+  'registrar',
+] as const;
+
+// Canonical allowlist for the admission leads list — mirrors the SECURITY
+// DEFINER helper `_user_in_admission_lead_allowlist(uuid)` in
+// supabase/migrations/20260513140000_admission_leads_visibility_lockdown.sql.
+// Drift = leak: if the SQL helper accepts a role this list rejects (or vice
+// versa), the API and RLS no longer enforce the same rule.
+// super_admin / is_admin bypass higher up; they don't need to be here.
+const LEAD_VIEW_ALLOWLIST_ROLE_KEYS = [
+  'admission',
+  'admission_staff',
+  'administrator',
+  'ceo',
+  'coo',
+  'cbo',
+  'registrar',
+  'admission_counselor',
+  'expo_counselor',
+  'learner_counselor',
+  'staff_counselor',
 ] as const;
 
 export interface CounselorScope {
@@ -55,14 +86,13 @@ export async function getCounselorScope(
   userId: string
 ): Promise<CounselorScope> {
   // 1. Detect strict-counselor — mirrors _user_is_strict_counselor()
-  //    SQL helper. Counselor key must be the user's PRIMARY role
-  //    (is_primary=true) so multi-role executives (e.g. hr_admin +
-  //    secondary admission_counselor) are NOT demoted to strict-only
-  //    visibility. Override roles (admission / administrator) suppress
-  //    strict-counselor regardless of which row is primary.
+  //    SQL helper. Final rule (2026-05-11):
+  //      strict = has counselor role AND has NO admission/admin/exec override
+  //    is_primary is NOT consulted. Override roles preserve broad visibility
+  //    for multi-role admission_staff / tier-1 exec users.
   const { data: roleRows, error: roleErr } = await supabase
     .from('user_roles')
-    .select('is_primary, custom_roles!inner(role_key)')
+    .select('custom_roles!inner(role_key)')
     .eq('user_id', userId);
 
   if (roleErr) {
@@ -71,12 +101,12 @@ export async function getCounselorScope(
     return { isStrictCounselor: true, myAdmissionCounselorId: null };
   }
 
-  type RoleRow = { is_primary: boolean | null; custom_roles?: { role_key?: string } | null };
+  type RoleRow = { custom_roles?: { role_key?: string } | null };
   const rows = (roleRows ?? []) as RoleRow[];
 
-  const hasPrimaryCounselorRole = rows.some((r) => {
+  const hasAnyCounselorRole = rows.some((r) => {
     const k = r.custom_roles?.role_key;
-    return r.is_primary === true && typeof k === 'string'
+    return typeof k === 'string'
       && (COUNSELOR_ROLE_KEYS as readonly string[]).includes(k);
   });
   const hasOverrideRole = rows.some((r) => {
@@ -85,7 +115,7 @@ export async function getCounselorScope(
       && (NON_COUNSELOR_OVERRIDE_ROLE_KEYS as readonly string[]).includes(k);
   });
 
-  const isStrictCounselor = hasPrimaryCounselorRole && !hasOverrideRole;
+  const isStrictCounselor = hasAnyCounselorRole && !hasOverrideRole;
   if (!isStrictCounselor) {
     return { isStrictCounselor: false, myAdmissionCounselorId: null };
   }
@@ -120,4 +150,42 @@ export function buildLeadVisibilityOr(scope: CounselorScope, userId: string): st
   }
   parts.push(`assigned_counselor_id.eq.${userId}`);
   return parts.length > 0 ? parts.join(',') : null;
+}
+
+/**
+ * Defense-in-depth check that mirrors the SQL helper
+ * `_user_in_admission_lead_allowlist(uuid)`. Returns TRUE iff the user
+ * holds one of the canonical lead-view role_keys.
+ *
+ * The list API (which runs as service role and bypasses RLS) MUST call this
+ * after the user_has_permission('admission.leads.view') check. Without it,
+ * any role with admission.leads.view in custom_roles.permissions JSONB —
+ * accidentally granted via Role Management UI — re-leaks the entire leads
+ * list to that role's users (faculty/hod/principal/student/etc.). 2026-05-11.
+ *
+ * Returns true for super_admin / is_admin paths via the caller's
+ * isSuperAdmin short-circuit; this helper does NOT check those flags.
+ */
+export async function isUserInLeadViewAllowlist(
+  supabase: SupabaseClient,
+  userId: string,
+): Promise<boolean> {
+  const { data, error } = await supabase
+    .from('user_roles')
+    .select('custom_roles!inner(role_key)')
+    .eq('user_id', userId);
+
+  if (error) {
+    // Fail-closed — denial is safer than leakage on a transient read error.
+    return false;
+  }
+
+  type Row = { custom_roles?: { role_key?: string } | null };
+  const rows = (data ?? []) as Row[];
+
+  const allowlist: readonly string[] = LEAD_VIEW_ALLOWLIST_ROLE_KEYS;
+  return rows.some((r) => {
+    const k = r.custom_roles?.role_key;
+    return typeof k === 'string' && allowlist.includes(k);
+  });
 }

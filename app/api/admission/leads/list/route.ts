@@ -15,6 +15,7 @@ import { sanitizeSearch } from '@/lib/config/pagination';
 import {
   getCounselorScope,
   buildLeadVisibilityOr,
+  isUserInLeadViewAllowlist,
 } from '@/lib/api-helpers/admission-counselor-scope';
 
 // Retry only on undici / Node fetch transient failures (cold-start flakes on
@@ -99,6 +100,25 @@ export async function GET(request: NextRequest) {
       { error: 'Forbidden: admission.leads.view permission required' },
       { status: 403 }
     );
+  }
+
+  // Defense-in-depth role allowlist (2026-05-11). The permission gate above
+  // only checks admission.leads.view, which is grantable via Role Management
+  // UI to ANY role. faculty/hod/principal/student all held it in production
+  // and were seeing the full leads list. This check mirrors the SQL helper
+  // _user_in_admission_lead_allowlist(uuid) used by adm_leads_select RLS, so
+  // the API (service-role) and RLS (authenticated) enforce the same gate.
+  // super_admin bypasses via isSuperAdmin already.
+  if (!isSuperAdmin) {
+    const inAllowlist = await retryOnFetchFailure(() =>
+      isUserInLeadViewAllowlist(supabase, user.id)
+    );
+    if (!inAllowlist) {
+      return NextResponse.json(
+        { error: 'Forbidden: role is not permitted to view admission leads' },
+        { status: 403 }
+      );
+    }
   }
 
   // Cross-institution access flag drives the "show all institutions vs scope
