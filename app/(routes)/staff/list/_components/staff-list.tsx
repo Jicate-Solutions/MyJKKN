@@ -538,7 +538,7 @@ const StaffListComponent = ({
           },
           showPermissionError: true
         }}
-        tableTools={tableTools}
+        tableTools={readOnly ? undefined : tableTools}
         onBulkAction={canDeleteStaff && !readOnly ? handleBulkDelete : undefined}
         bulkActionConfig={canDeleteStaff && !readOnly ? bulkActionConfig : undefined}
         getRowId={(row) => row.id}
