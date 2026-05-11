@@ -1331,41 +1331,38 @@ function LeadDetailPageContent() {
             />
           </div>
 
-          {/* Stage Selector — disabled for cascaded-away FROM-counselor */}
+          {/* Stage selector — single colored chip trigger that shows current stage AND opens the picker.
+              Replaces the prior "Current Stage: [badge] ... Move to: [dropdown]" row where the badge and
+              dropdown both displayed the same value, creating a visual duplicate. */}
           <Card className={isReadonlyCascadedView ? 'pointer-events-none opacity-60' : ''}>
             <CardContent className="py-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <span className="text-sm font-medium">Current Stage:</span>
-                  <Badge className={`${getStageColor(lead.funnel_stage)} border`} variant="outline">
-                    {lead.funnel_stage?.replace(/_/g, ' ') || 'New'}
-                  </Badge>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-sm text-muted-foreground">Move to:</span>
-                  <Select
-                    value={lead.funnel_stage || 'new'}
-                    onValueChange={handleStageChange}
+              <div className="flex items-center gap-3">
+                <span className="text-sm font-medium">Stage</span>
+                <Select
+                  value={lead.funnel_stage || 'new'}
+                  onValueChange={handleStageChange}
+                >
+                  <SelectTrigger
+                    aria-label="Lead stage — click to change"
+                    className={`w-auto min-w-[180px] gap-2 font-medium ${getStageColor(lead.funnel_stage)}`}
                   >
-                    <SelectTrigger className="w-[200px]">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {(() => {
-                        const allowedNextStages = lead?.funnel_stage
-                          ? ALLOWED_STAGE_TRANSITIONS[lead.funnel_stage as FunnelStage] ?? []
-                          : FUNNEL_STAGES.map(s => s.value);
-                        return FUNNEL_STAGES.filter(
-                          s => allowedNextStages.includes(s.value as FunnelStage) || s.value === lead?.funnel_stage
-                        ).map((stage) => (
-                          <SelectItem key={stage.value} value={stage.value}>
-                            {stage.label}
-                          </SelectItem>
-                        ));
-                      })()}
-                    </SelectContent>
-                  </Select>
-                </div>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(() => {
+                      const allowedNextStages = lead?.funnel_stage
+                        ? ALLOWED_STAGE_TRANSITIONS[lead.funnel_stage as FunnelStage] ?? []
+                        : FUNNEL_STAGES.map(s => s.value);
+                      return FUNNEL_STAGES.filter(
+                        s => allowedNextStages.includes(s.value as FunnelStage) || s.value === lead?.funnel_stage
+                      ).map((stage) => (
+                        <SelectItem key={stage.value} value={stage.value}>
+                          {stage.label}
+                        </SelectItem>
+                      ));
+                    })()}
+                  </SelectContent>
+                </Select>
               </div>
             </CardContent>
           </Card>
