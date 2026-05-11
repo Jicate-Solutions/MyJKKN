@@ -4881,34 +4881,86 @@ CREATE POLICY dashboard_config_modify ON dashboard_config FOR ALL USING (
 -- =============================================================================
 
 -- ---- staff -------------------------------------------------------------------
+-- Updated: 2026-05-11 - Staff module scope lockdown.
+-- Replaces the prior staff_*_permission set (2026-04) with scope-aware policies
+-- that branch on get_user_module_scope('staff'):
+--   all_institutions -> any row (super_admin, hr_admin)
+--   own_institution  -> rows in accessible institutions (hod, principal)
+--   own_records      -> single row where staff.profile_id = auth.uid()
+-- See migration: supabase/migrations/20260511_staff_module_scope_lockdown.sql
+DROP POLICY IF EXISTS "staff_select_permission" ON staff;
+DROP POLICY IF EXISTS "staff_insert_permission" ON staff;
+DROP POLICY IF EXISTS "staff_update_permission" ON staff;
+DROP POLICY IF EXISTS "staff_delete_permission" ON staff;
+-- Belt-and-braces: also drop older policy names in case they linger in dev/staging
 DROP POLICY IF EXISTS "staff_select_by_institution_access" ON staff;
 DROP POLICY IF EXISTS "staff_select_event_coordinator"     ON staff;
 DROP POLICY IF EXISTS "staff_insert_by_access_type"        ON staff;
 DROP POLICY IF EXISTS "staff_update_by_access_type"        ON staff;
 DROP POLICY IF EXISTS "staff_delete_by_admin_access"       ON staff;
 
-CREATE POLICY "staff_select_permission" ON staff FOR SELECT USING (
-  is_super_admin() OR is_admin()
-  OR (user_has_permission('staff.view')
-      AND role_has_module_access('staff', institution_id, institution_email))
-  OR institution_email = (SELECT auth.email())  -- self-view by institution_email
+CREATE POLICY "staff_select_scope_aware" ON staff
+FOR SELECT USING (
+  is_super_admin()
+  OR (
+    user_has_permission('staff.view')
+    AND (
+      CASE get_user_module_scope('staff')
+        WHEN 'all_institutions' THEN TRUE
+        WHEN 'own_institution'  THEN role_has_institution_access(staff.institution_id)
+        WHEN 'own_records'      THEN staff.profile_id = auth.uid()
+        ELSE FALSE
+      END
+    )
+  )
 );
--- INSERT keeps institution-only check: 'own_records' doesn't apply to creation
--- (the row doesn't exist yet, so there's no owner_email to compare against).
-CREATE POLICY "staff_insert_permission" ON staff FOR INSERT WITH CHECK (
-  is_super_admin() OR is_admin()
-  OR (user_has_permission('staff.create') AND role_has_institution_access(institution_id))
+
+CREATE POLICY "staff_insert_scope_aware" ON staff
+FOR INSERT WITH CHECK (
+  is_super_admin()
+  OR (
+    user_has_permission('staff.create')
+    AND (
+      CASE get_user_module_scope('staff')
+        WHEN 'all_institutions' THEN TRUE
+        WHEN 'own_institution'  THEN role_has_institution_access(staff.institution_id)
+        -- own_records can never INSERT (their row should already exist via HR)
+        ELSE FALSE
+      END
+    )
+  )
 );
-CREATE POLICY "staff_update_permission" ON staff FOR UPDATE USING (
-  is_super_admin() OR is_admin()
-  OR (user_has_permission('staff.edit')
-      AND role_has_module_access('staff', institution_id, institution_email))
-  OR institution_email = (SELECT auth.email())  -- self-update by institution_email
+
+CREATE POLICY "staff_update_scope_aware" ON staff
+FOR UPDATE USING (
+  is_super_admin()
+  OR (
+    user_has_permission('staff.edit')
+    AND (
+      CASE get_user_module_scope('staff')
+        WHEN 'all_institutions' THEN TRUE
+        WHEN 'own_institution'  THEN role_has_institution_access(staff.institution_id)
+        WHEN 'own_records'      THEN staff.profile_id = auth.uid()
+        ELSE FALSE
+      END
+    )
+  )
 );
-CREATE POLICY "staff_delete_permission" ON staff FOR DELETE USING (
-  is_super_admin() OR is_admin()
-  OR (user_has_permission('staff.delete')
-      AND role_has_module_access('staff', institution_id, institution_email))
+
+CREATE POLICY "staff_delete_scope_aware" ON staff
+FOR DELETE USING (
+  is_super_admin()
+  OR (
+    user_has_permission('staff.delete')
+    AND (
+      CASE get_user_module_scope('staff')
+        WHEN 'all_institutions' THEN TRUE
+        WHEN 'own_institution'  THEN role_has_institution_access(staff.institution_id)
+        -- own_records never deletes
+        ELSE FALSE
+      END
+    )
+  )
 );
 
 -- ---- employment_categories ---------------------------------------------------
