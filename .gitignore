@@ -83,4 +83,7 @@ public/swe-worker-*.js.map
 # Agent worktrees (created by parallel sub-agent runs in interactive sessions)
 .claude/worktrees/
 
+# /loop & /schedule runtime state — session ID + PID, not feature work
+.claude/scheduled_tasks.lock
+
 .screenshots/
