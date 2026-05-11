@@ -78,10 +78,21 @@ export async function GET(request: NextRequest, { params }: RouteContext) {
 }
 
 /**
- * DELETE — SOFT-DELETE.
- * Replaces the previous hard `DELETE FROM admission_counselors WHERE id = ?`.
- * Sets is_active=false, deactivated_at=now(), deactivated_by=auth.uid().
- * Audit log trigger (admission_counselors_audit_log, PR #516) fires automatically on UPDATE.
+ * DELETE — SOFT-DELETE + lead unassignment.
+ *
+ * 1. Resolve the counselor's user_id so we can match both legacy and
+ *    current writers of admission_leads.assigned_counselor_id.
+ * 2. NULL out counselor_id, assigned_counselor_id, and assigned_at on
+ *    every lead currently linked to this counselor. After this, the
+ *    leads return to the unassigned pool (status preserved).
+ * 3. Soft-delete the counselor row (is_active=false, deactivated_at,
+ *    deactivated_by). Audit log trigger fires on UPDATE.
+ *
+ * The two operations are serialized — leads first so the soft-deleted
+ * counselor never has a brief window with orphan-looking links — but
+ * not transactional (Supabase JS doesn't expose BEGIN/COMMIT from a
+ * route handler). The lead-unlink is safe to retry: re-running NULL=NULL
+ * on already-cleared rows is a no-op.
  */
 export async function DELETE(_request: NextRequest, { params }: RouteContext) {
   try {
@@ -96,7 +107,98 @@ export async function DELETE(_request: NextRequest, { params }: RouteContext) {
     const { id } = await params;
     const supabase = await createServerSupabaseClient();
 
-    // RLS will block unauthorized deletes via the standard admission.counselors.delete permission.
+    // Resolve the counselor's auth user_id. assigned_counselor_id has a
+    // mixed-writer history — some paths store admission_counselors.id,
+    // others store profiles.id (auth.uid()). To fully unassign, we need
+    // to NULL out matches against BOTH IDs.
+    const { data: counselorRow, error: lookupErr } = await supabase
+      .from('admission_counselors')
+      .select('id, user_id')
+      .eq('id', id)
+      .maybeSingle();
+
+    if (lookupErr) {
+      logger.error('admission/counselors/[id]', 'Lookup before delete failed', {
+        error: lookupErr,
+        id,
+      });
+      return NextResponse.json(
+        { error: 'LOOKUP_FAILED', message: lookupErr.message },
+        { status: 500 }
+      );
+    }
+
+    if (!counselorRow) {
+      return NextResponse.json(
+        { error: 'NOT_FOUND', message: 'Counselor not found' },
+        { status: 404 }
+      );
+    }
+
+    // Build the OR predicate for the lead unlink. Always match on
+    // counselor_id; also match on assigned_counselor_id against both
+    // possible identity columns.
+    const matchIds: string[] = [id];
+    if (counselorRow.user_id) matchIds.push(counselorRow.user_id);
+
+    // Unassign by counselor_id first (cleanest match).
+    const { count: leadsByCounselorId, error: clearAErr } = await supabase
+      .from('admission_leads')
+      .update(
+        {
+          counselor_id: null,
+          assigned_counselor_id: null,
+          assigned_at: null,
+        },
+        { count: 'exact' }
+      )
+      .eq('counselor_id', id);
+
+    if (clearAErr) {
+      logger.error('admission/counselors/[id]', 'Lead unlink by counselor_id failed', {
+        error: clearAErr,
+        id,
+      });
+      return NextResponse.json(
+        { error: 'UNASSIGN_FAILED', message: clearAErr.message },
+        { status: 500 }
+      );
+    }
+
+    // Also catch leads that only had assigned_counselor_id set (no
+    // counselor_id), matching either possible identity column. .in()
+    // with a single-element array is fine if user_id is missing.
+    let leadsByAssignedId = 0;
+    if (matchIds.length > 0) {
+      const { count, error: clearBErr } = await supabase
+        .from('admission_leads')
+        .update(
+          {
+            assigned_counselor_id: null,
+            assigned_at: null,
+          },
+          { count: 'exact' }
+        )
+        .is('counselor_id', null)
+        .in('assigned_counselor_id', matchIds);
+
+      if (clearBErr) {
+        logger.error(
+          'admission/counselors/[id]',
+          'Lead unlink by assigned_counselor_id failed',
+          { error: clearBErr, id }
+        );
+        return NextResponse.json(
+          { error: 'UNASSIGN_FAILED', message: clearBErr.message },
+          { status: 500 }
+        );
+      }
+      leadsByAssignedId = count ?? 0;
+    }
+
+    const totalUnassigned = (leadsByCounselorId ?? 0) + leadsByAssignedId;
+
+    // Soft-delete the counselor. Audit log trigger fires on UPDATE.
     const { data, error } = await supabase
       .from('admission_counselors')
       .update({
@@ -116,22 +218,22 @@ export async function DELETE(_request: NextRequest, { params }: RouteContext) {
       );
     }
 
-    if (!data) {
-      return NextResponse.json(
-        { error: 'NOT_FOUND', message: 'Counselor not found' },
-        { status: 404 }
-      );
-    }
-
     logger.info('admission/counselors/[id]', 'Counselor soft-deleted', {
       counselor_id: id,
       actor: user.id,
+      leads_unassigned: totalUnassigned,
     });
 
     return NextResponse.json({
       success: true,
       counselor: data,
-      message: 'Counselor deactivated. Audit log entry recorded.',
+      leads_unassigned: totalUnassigned,
+      message:
+        totalUnassigned > 0
+          ? `Counselor removed. ${totalUnassigned} lead${
+              totalUnassigned === 1 ? '' : 's'
+            } returned to the unassigned pool.`
+          : 'Counselor removed. No assigned leads to unlink.',
     });
   } catch (err) {
     logger.error('admission/counselors/[id]', 'DELETE unexpected error', err);

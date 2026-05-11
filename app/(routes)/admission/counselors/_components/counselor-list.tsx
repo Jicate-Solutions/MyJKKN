@@ -1268,7 +1268,10 @@ export function CounselorList({ onRefresh, institutionId, isGlobalUser }: Counse
   // Advanced filter state. Filters are applied inside fetchData (closure
   // captures these), and any change bumps refetchKey so the DataTable
   // re-runs with the new filter set.
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+  // Default to 'active' so soft-deleted (removed) counselors disappear from
+  // the Manage tab by default. Users who need to audit deactivated counselors
+  // can switch the Status filter to 'inactive' or 'all'.
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('active');
   const [assignmentFilter, setAssignmentFilter] = useState<AssignmentFilter>('all');
   const [sourcesFilter, setSourcesFilter] = useState<SourcesFilter>('all');
   const [roleFilter, setRoleFilter] = useState<string>('all');
@@ -1707,17 +1710,19 @@ export function CounselorList({ onRefresh, institutionId, isGlobalUser }: Counse
     try {
       const isRoleOnly = counselor.id.startsWith('role-');
 
+      let leadsUnassigned = 0;
       if (!isRoleOnly) {
         const res = await fetch(
           `/api/admission/counselors/${encodeURIComponent(counselor.id)}`,
           { method: 'DELETE' },
         );
+        const json = await res.json().catch(() => ({}));
         if (!res.ok) {
-          const json = await res.json().catch(() => ({}));
           toast.error(json?.message || 'Failed to remove counselor');
           console.error('[admission/counselors] Soft-delete failed:', json);
           return;
         }
+        leadsUnassigned = Number(json?.leads_unassigned ?? 0);
       }
 
       if (counselor.user_id) {
@@ -1757,7 +1762,13 @@ export function CounselorList({ onRefresh, institutionId, isGlobalUser }: Counse
         }
       }
 
-      toast.success('Counselor removed (soft-delete + audit logged)');
+      toast.success(
+        leadsUnassigned > 0
+          ? `Counselor removed — ${leadsUnassigned} lead${
+              leadsUnassigned === 1 ? '' : 's'
+            } returned to the unassigned pool`
+          : 'Counselor removed (no assigned leads to unlink)',
+      );
       setRefetchKey((k) => k + 1);
       onRefresh?.();
     } catch {
