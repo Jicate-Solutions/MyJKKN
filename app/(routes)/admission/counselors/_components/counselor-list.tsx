@@ -18,6 +18,7 @@ import {
   Loader2,
   Pencil,
   Search,
+  Tag,
   ToggleLeft,
   ToggleRight,
   Trash2,
@@ -84,6 +85,7 @@ interface CounselorRecord {
   max_leads: number;
   current_leads: number;
   assigned_lead_count: number;
+  sources_count: number;
   specializations: string[] | null;
   institution_id: string;
   user_id: string | null;
@@ -181,33 +183,6 @@ function useCounselorActions(): CounselorActionsContext {
   return ctx;
 }
 
-// Name cell renders as a button so clicking the counselor name opens the
-// details modal — the most intuitive "view details" gesture. Falls back
-// to plain text if the actions context isn't mounted (defensive — should
-// never happen because the column is rendered inside the provider).
-function CounselorNameCell({ counselor }: { counselor: CounselorRecord }) {
-  const ctx = useContext(CounselorActionsCtx);
-  return (
-    <div className="flex flex-col gap-0.5">
-      <button
-        type="button"
-        onClick={() => ctx?.openDetailsDialog(counselor)}
-        className={cn(
-          'text-left font-medium hover:underline focus-visible:outline-none focus-visible:underline truncate',
-          !counselor.is_active && 'text-muted-foreground',
-        )}
-      >
-        {counselor.name || '—'}
-      </button>
-      {counselor.email && (
-        <span className="text-xs text-muted-foreground truncate">
-          {counselor.email}
-        </span>
-      )}
-    </div>
-  );
-}
-
 function CounselorRowActions({ counselor }: { counselor: CounselorRecord }) {
   const {
     togglingIds,
@@ -296,6 +271,35 @@ function CounselorRowActions({ counselor }: { counselor: CounselorRecord }) {
     </DropdownMenu>
   );
 }
+
+// Name cell renders as a button so clicking the counselor name opens the
+// details modal. Placed immediately above counselorColumns (and as a const
+// arrow rather than a function declaration) so Turbopack's React Refresh
+// chunk transform keeps the binding visible to the columns array — matches
+// the hoisting-safety pattern used in add-counselor-dialog (see memory note
+// feedback_temporal_dead_zone_in_add_counselor_dialog).
+const CounselorNameCell = ({ counselor }: { counselor: CounselorRecord }) => {
+  const ctx = useContext(CounselorActionsCtx);
+  return (
+    <div className="flex flex-col gap-0.5">
+      <button
+        type="button"
+        onClick={() => ctx?.openDetailsDialog(counselor)}
+        className={cn(
+          'text-left font-medium hover:underline focus-visible:outline-none focus-visible:underline truncate',
+          !counselor.is_active && 'text-muted-foreground',
+        )}
+      >
+        {counselor.name || '—'}
+      </button>
+      {counselor.email && (
+        <span className="text-xs text-muted-foreground truncate">
+          {counselor.email}
+        </span>
+      )}
+    </div>
+  );
+};
 
 const counselorColumns: ColumnDef<CounselorRecord>[] = [
   {
@@ -392,6 +396,30 @@ const counselorColumns: ColumnDef<CounselorRecord>[] = [
     },
   },
   {
+    accessorKey: 'sources_count',
+    header: ({ column }) => <DataTableColumnHeader column={column} title="Sources" />,
+    cell: ({ row }) => {
+      const n = row.original.sources_count ?? 0;
+      return (
+        <div className="flex items-center gap-1.5 tabular-nums">
+          <Tag
+            className={`h-3.5 w-3.5 ${n > 0 ? 'text-primary' : 'text-muted-foreground/60'}`}
+          />
+          <span
+            className={`text-sm font-semibold ${
+              n > 0 ? 'text-foreground' : 'text-muted-foreground'
+            }`}
+          >
+            {n.toLocaleString()}
+          </span>
+          {n === 0 && (
+            <span className="text-[10px] text-muted-foreground/80">unassigned</span>
+          )}
+        </div>
+      );
+    },
+  },
+  {
     id: 'actions',
     cell: ({ row }) => <CounselorRowActions counselor={row.original} />,
     header: 'Actions',
@@ -408,6 +436,7 @@ const COUNSELOR_EXPORT_CONFIG = {
     institution: 'Institution',
     is_active: 'Active',
     assigned_lead_count: 'Assigned Leads',
+    sources_count: 'Sources Mapped',
     max_leads: 'Max Leads',
   },
   columnWidths: [
@@ -417,6 +446,7 @@ const COUNSELOR_EXPORT_CONFIG = {
     { wch: 22 },
     { wch: 28 },
     { wch: 10 },
+    { wch: 14 },
     { wch: 14 },
     { wch: 10 },
   ],
@@ -428,6 +458,7 @@ const COUNSELOR_EXPORT_CONFIG = {
     'Institution',
     'Active',
     'Assigned Leads',
+    'Sources Mapped',
     'Max Leads',
   ],
 };
@@ -574,6 +605,7 @@ function EditCounselorDialog({
 
 type StatusFilter = 'all' | 'active' | 'inactive';
 type AssignmentFilter = 'all' | 'has_leads' | 'no_leads';
+type SourcesFilter = 'all' | 'has_sources' | 'no_sources';
 
 const ROLE_FILTER_OPTIONS = [
   { value: 'all', label: 'All Roles' },
@@ -1238,6 +1270,7 @@ export function CounselorList({ onRefresh, institutionId, isGlobalUser }: Counse
   // re-runs with the new filter set.
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [assignmentFilter, setAssignmentFilter] = useState<AssignmentFilter>('all');
+  const [sourcesFilter, setSourcesFilter] = useState<SourcesFilter>('all');
   const [roleFilter, setRoleFilter] = useState<string>('all');
 
   const [dialog, setDialog] = useState<GuardrailDialogState>({
@@ -1366,6 +1399,7 @@ export function CounselorList({ onRefresh, institutionId, isGlobalUser }: Counse
             max_leads: 50,
             current_leads: 0,
             assigned_lead_count: 0,
+            sources_count: 0,
             specializations: null,
             institution_id: profile.institution_id || '',
             user_id: profile.id,
@@ -1443,6 +1477,37 @@ export function CounselorList({ onRefresh, institutionId, isGlobalUser }: Counse
       }),
     );
 
+    // Live source-mapping counts. One batched query for all counselors —
+    // admission_counselor_sources keys solely on counselor_id (no dual-FK
+    // ambiguity), so we fetch every row for the visible IDs in one round-
+    // trip and group client-side. Role-only rows can't have mappings (no
+    // admission_counselors row to FK to), so they stay at 0.
+    const realCounselorIds = records
+      .filter((c) => !c.id.startsWith('role-'))
+      .map((c) => c.id);
+
+    if (realCounselorIds.length > 0) {
+      const { data: mappingRows, error: mapErr } = await supabase
+        .from('admission_counselor_sources')
+        .select('counselor_id')
+        .in('counselor_id', realCounselorIds);
+
+      if (mapErr) {
+        console.warn('[admission/counselors] sources_count batch failed', mapErr);
+        for (const c of records) c.sources_count = c.sources_count ?? 0;
+      } else {
+        const counts = new Map<string, number>();
+        for (const row of (mappingRows ?? []) as Array<{ counselor_id: string }>) {
+          counts.set(row.counselor_id, (counts.get(row.counselor_id) ?? 0) + 1);
+        }
+        for (const c of records) {
+          c.sources_count = counts.get(c.id) ?? 0;
+        }
+      }
+    } else {
+      for (const c of records) c.sources_count = c.sources_count ?? 0;
+    }
+
     records.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
     return records;
   }, [supabase, institutionId, isGlobalUser]);
@@ -1472,6 +1537,12 @@ export function CounselorList({ onRefresh, institutionId, isGlobalUser }: Counse
         rows = rows.filter((c) => (c.assigned_lead_count ?? 0) > 0);
       } else if (assignmentFilter === 'no_leads') {
         rows = rows.filter((c) => (c.assigned_lead_count ?? 0) === 0);
+      }
+
+      if (sourcesFilter === 'has_sources') {
+        rows = rows.filter((c) => (c.sources_count ?? 0) > 0);
+      } else if (sourcesFilter === 'no_sources') {
+        rows = rows.filter((c) => (c.sources_count ?? 0) === 0);
       }
 
       if (roleFilter !== 'all') {
@@ -1513,12 +1584,12 @@ export function CounselorList({ onRefresh, institutionId, isGlobalUser }: Counse
         },
       };
     },
-    [fetchCounselors, statusFilter, assignmentFilter, roleFilter],
+    [fetchCounselors, statusFilter, assignmentFilter, sourcesFilter, roleFilter],
   );
 
   useEffect(() => {
     setRefetchKey((k) => k + 1);
-  }, [institutionId, isGlobalUser, statusFilter, assignmentFilter, roleFilter]);
+  }, [institutionId, isGlobalUser, statusFilter, assignmentFilter, sourcesFilter, roleFilter]);
 
   const openGuardrailDialog = useCallback(
     async (mode: GuardrailMode, counselor: CounselorRecord) => {
@@ -1808,11 +1879,15 @@ export function CounselorList({ onRefresh, institutionId, isGlobalUser }: Counse
   );
 
   const hasActiveFilters =
-    statusFilter !== 'all' || assignmentFilter !== 'all' || roleFilter !== 'all';
+    statusFilter !== 'all' ||
+    assignmentFilter !== 'all' ||
+    sourcesFilter !== 'all' ||
+    roleFilter !== 'all';
 
   const clearFilters = () => {
     setStatusFilter('all');
     setAssignmentFilter('all');
+    setSourcesFilter('all');
     setRoleFilter('all');
   };
 
@@ -1923,6 +1998,20 @@ export function CounselorList({ onRefresh, institutionId, isGlobalUser }: Counse
           </SelectContent>
         </Select>
 
+        <Select
+          value={sourcesFilter}
+          onValueChange={(v) => setSourcesFilter(v as SourcesFilter)}
+        >
+          <SelectTrigger className="h-8 w-[180px] text-xs">
+            <SelectValue placeholder="Sources" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Sources</SelectItem>
+            <SelectItem value="has_sources">Has sources mapped</SelectItem>
+            <SelectItem value="no_sources">Unassigned (no sources)</SelectItem>
+          </SelectContent>
+        </Select>
+
         <Select value={roleFilter} onValueChange={(v) => setRoleFilter(v)}>
           <SelectTrigger className="h-8 w-[180px] text-xs">
             <SelectValue placeholder="Role" />
@@ -1957,7 +2046,12 @@ export function CounselorList({ onRefresh, institutionId, isGlobalUser }: Counse
             )}
             {assignmentFilter !== 'all' && (
               <Badge variant="secondary" className="text-[10px]">
-                {assignmentFilter === 'has_leads' ? 'Assigned' : 'Unassigned'}
+                Leads: {assignmentFilter === 'has_leads' ? 'has' : 'none'}
+              </Badge>
+            )}
+            {sourcesFilter !== 'all' && (
+              <Badge variant="secondary" className="text-[10px]">
+                Sources: {sourcesFilter === 'has_sources' ? 'has' : 'none'}
               </Badge>
             )}
             {roleFilter !== 'all' && (
