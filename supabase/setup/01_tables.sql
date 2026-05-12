@@ -4052,8 +4052,122 @@ CREATE TABLE IF NOT EXISTS admission_form_submissions (
   utm_campaign text,
   referrer_url text,
   device_type text,
+  -- 2026-05-12 — campaign attribution (Migration B §4.2). NULLABLE: pre-migration
+  -- rows and organic (non-campaign) submissions have no link. ON DELETE SET NULL
+  -- so deleting a campaign/link does not delete the submission row.
+  campaign_link_id uuid REFERENCES admission_campaign_links(id) ON DELETE SET NULL,
   submitted_at timestamptz NOT NULL DEFAULT now()
 );
+
+CREATE INDEX IF NOT EXISTS idx_form_subs_campaign_link
+  ON admission_form_submissions (campaign_link_id)
+  WHERE campaign_link_id IS NOT NULL;
+
+-- ──────────────────────────────────────────────────────────────
+-- 2026-05-12 — Admission Campaign Attribution (Migration A)
+-- See: docs/superpowers/specs/2026-05-12-admission-campaign-attribution-design.md §4.1
+-- ──────────────────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS admission_campaigns (
+  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  institution_id  uuid NOT NULL REFERENCES institutions(id) ON DELETE CASCADE,
+  name            text NOT NULL,
+  slug            text NOT NULL,
+  description     text,
+  source          lead_source NOT NULL,
+  status          text NOT NULL DEFAULT 'draft'
+                  CHECK (status IN ('draft','active','paused','completed','archived')),
+  starts_at       timestamptz,
+  ends_at         timestamptz,
+  budget_inr      numeric(12,2),
+  target_leads    integer,
+  target_enrolled integer,
+  metadata        jsonb NOT NULL DEFAULT '{}'::jsonb,
+  created_by      uuid REFERENCES profiles(id),
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  updated_at      timestamptz NOT NULL DEFAULT now(),
+  archived_at     timestamptz,
+  UNIQUE (institution_id, slug)
+);
+
+CREATE INDEX IF NOT EXISTS idx_campaigns_inst_status ON admission_campaigns (institution_id, status)
+  WHERE archived_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_campaigns_inst_source ON admission_campaigns (institution_id, source)
+  WHERE archived_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_campaigns_inst_dates  ON admission_campaigns (institution_id, starts_at, ends_at);
+
+CREATE TABLE IF NOT EXISTS admission_campaign_links (
+  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  campaign_id     uuid NOT NULL REFERENCES admission_campaigns(id) ON DELETE CASCADE,
+  form_id         uuid NOT NULL REFERENCES admission_forms(id),
+  token           text NOT NULL UNIQUE,
+  name            text NOT NULL,
+  description     text,
+  cost_inr        numeric(12,2),
+  utm_source      text,
+  utm_medium      text,
+  utm_campaign    text,
+  utm_content     text,
+  is_active       boolean NOT NULL DEFAULT true,
+  expires_at      timestamptz,
+  click_count     integer NOT NULL DEFAULT 0,
+  capture_count   integer NOT NULL DEFAULT 0,
+  created_by      uuid REFERENCES profiles(id),
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  updated_at      timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_links_campaign ON admission_campaign_links (campaign_id);
+CREATE INDEX IF NOT EXISTS idx_links_form     ON admission_campaign_links (form_id);
+
+CREATE TABLE IF NOT EXISTS admission_campaign_link_clicks (
+  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  link_id         uuid NOT NULL REFERENCES admission_campaign_links(id) ON DELETE CASCADE,
+  campaign_id     uuid NOT NULL REFERENCES admission_campaigns(id) ON DELETE CASCADE,
+  clicked_at      timestamptz NOT NULL DEFAULT now(),
+  ip_hash         text,
+  user_agent      text,
+  referrer        text,
+  device_type     text,
+  country         text,
+  session_id      text,
+  resulted_in_submission boolean NOT NULL DEFAULT false,
+  resulted_lead_id       uuid REFERENCES admission_leads(id) ON DELETE SET NULL,
+  metadata        jsonb NOT NULL DEFAULT '{}'::jsonb
+);
+
+CREATE INDEX IF NOT EXISTS idx_clicks_campaign_time ON admission_campaign_link_clicks (campaign_id, clicked_at DESC);
+CREATE INDEX IF NOT EXISTS idx_clicks_link_time     ON admission_campaign_link_clicks (link_id, clicked_at DESC);
+CREATE INDEX IF NOT EXISTS idx_clicks_session       ON admission_campaign_link_clicks (session_id)
+  WHERE session_id IS NOT NULL;
+
+-- ──────────────────────────────────────────────────────────────
+-- 2026-05-12 — Admission Campaign Attribution (Migration B §4.2)
+-- Migration: supabase/migrations/20260512100002_b_add_campaign_attribution_columns.sql
+--
+-- Denormalized read-cache columns on admission_leads (the canonical per-touch
+-- record lives on admission_lead_source_captures.campaign_link_id, mirrored
+-- inside that CREATE TABLE block below). Triggers maintain first/last on every
+-- new capture. NULLABLE — pre-migration leads + organic traffic have no link.
+-- ON DELETE SET NULL — deleting a campaign/link must NOT delete the lead;
+-- the opposite policy would catastrophically cascade.
+-- admission_leads has no CREATE TABLE in this file; columns are added via
+-- ALTER, alongside the source/expo_event_id/referrer_id tracking columns
+-- already accreted via ALTER blocks elsewhere in this file.
+-- ──────────────────────────────────────────────────────────────
+ALTER TABLE admission_leads
+  ADD COLUMN IF NOT EXISTS first_campaign_link_id uuid
+    REFERENCES admission_campaign_links(id) ON DELETE SET NULL,
+  ADD COLUMN IF NOT EXISTS last_campaign_link_id  uuid
+    REFERENCES admission_campaign_links(id) ON DELETE SET NULL;
+
+CREATE INDEX IF NOT EXISTS idx_leads_first_campaign
+  ON admission_leads (first_campaign_link_id)
+  WHERE first_campaign_link_id IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_leads_last_campaign
+  ON admission_leads (last_campaign_link_id)
+  WHERE last_campaign_link_id IS NOT NULL;
 
 -- Analytics events
 CREATE TABLE IF NOT EXISTS admission_form_events (
@@ -4994,6 +5108,10 @@ CREATE TABLE IF NOT EXISTS public.admission_lead_source_captures (
   utm_source      TEXT,
   utm_medium      TEXT,
   utm_campaign    TEXT,
+  -- 2026-05-12 — campaign attribution (Migration B §4.2). Canonical per-touch
+  -- attribution: which campaign link captured this specific touch. NULLABLE
+  -- because organic / pre-migration captures have no link. ON DELETE SET NULL.
+  campaign_link_id UUID REFERENCES public.admission_campaign_links(id) ON DELETE SET NULL,
   -- Soft polymorphic pointer: profiles.id | learners_profiles.id | staff.id
   -- depending on parent admission_leads.referral_type. No FK because
   -- cross-table. User-readable copy lives on admission_leads.referred_by_{id,name}.
@@ -5017,6 +5135,10 @@ CREATE INDEX IF NOT EXISTS idx_alsc_expo_event
   WHERE expo_event_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_alsc_captured_at
   ON public.admission_lead_source_captures (captured_at DESC);
+-- 2026-05-12 — campaign attribution (Migration B §4.2)
+CREATE INDEX IF NOT EXISTS idx_captures_campaign_link
+  ON public.admission_lead_source_captures (campaign_link_id)
+  WHERE campaign_link_id IS NOT NULL;
 
 ALTER TABLE public.admission_lead_source_captures ENABLE ROW LEVEL SECURITY;
 

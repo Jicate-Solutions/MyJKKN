@@ -11522,10 +11522,13 @@ GRANT EXECUTE ON FUNCTION fn_notification_is_for_user(JSONB, UUID) TO authentica
 -- LeadService.createLead. SECURITY DEFINER + internal authorization
 -- check; service-role callers (auth.uid() IS NULL) bypass the check
 -- since they auth upstream via X-API-Key.
--- Returns: jsonb { lead_id, capture_id, action: created|merged, reactivated }
+-- Returns: jsonb { lead_id, capture_id, action: created|merged, reactivated, attributed_link }
 -- Companion table: admission_lead_source_captures
 -- Verified live with smoke test 2026-04-27: phone-format normalization
 -- merged "+919000000000" and "900-000-0000" onto the same lead_id.
+-- 2026-05-12 (Task 5): extended to accept soft-validated campaign_link_id
+-- in p_capture; Task 3 trigger trg_sync_lead_campaign_attribution handles
+-- first/last denormalization onto admission_leads + capture_count bump.
 -- =====================================================
 CREATE OR REPLACE FUNCTION public.capture_admission_lead(
   p_lead    JSONB,
@@ -11537,16 +11540,17 @@ SECURITY DEFINER
 SET search_path = public
 AS $$
 DECLARE
-  v_institution_id UUID;
-  v_phone          TEXT;
-  v_normalized     TEXT;
-  v_existing       public.admission_leads%ROWTYPE;
-  v_new            public.admission_leads%ROWTYPE;
-  v_lead_id        UUID;
-  v_capture_id     UUID;
-  v_action         TEXT;
-  v_reactivated    BOOLEAN := FALSE;
-  v_user_id        UUID;
+  v_institution_id   UUID;
+  v_phone            TEXT;
+  v_normalized       TEXT;
+  v_existing         public.admission_leads%ROWTYPE;
+  v_new              public.admission_leads%ROWTYPE;
+  v_lead_id          UUID;
+  v_capture_id       UUID;
+  v_action           TEXT;
+  v_reactivated      BOOLEAN := FALSE;
+  v_user_id          UUID;
+  v_campaign_link_id UUID;
 BEGIN
   IF auth.uid() IS NOT NULL
      AND NOT (
@@ -11678,11 +11682,22 @@ BEGIN
     VALUES (v_lead_id, NULL, 'new'::public.funnel_stage, v_user_id, NULL, now());
   END IF;
 
+  v_campaign_link_id := NULLIF(p_capture->>'campaign_link_id', '')::uuid;
+
+  -- Soft-validate: invalid/inactive link drops attribution but keeps the lead
+  IF v_campaign_link_id IS NOT NULL
+     AND NOT EXISTS (
+       SELECT 1 FROM public.admission_campaign_links
+        WHERE id = v_campaign_link_id AND is_active = true
+     ) THEN
+    v_campaign_link_id := NULL;
+  END IF;
+
   INSERT INTO public.admission_lead_source_captures (
     lead_id, institution_id, source, source_detail,
     captured_at, captured_by, expo_event_id, stall_id,
     utm_source, utm_medium, utm_campaign, referrer_id,
-    raw_payload, created_by
+    raw_payload, created_by, campaign_link_id
   ) VALUES (
     v_lead_id,
     v_institution_id,
@@ -11697,15 +11712,17 @@ BEGIN
     NULLIF(p_capture->>'utm_campaign', ''),
     NULLIF(p_capture->>'referrer_id', '')::UUID,
     COALESCE(p_capture->'raw_payload', '{}'::JSONB),
-    v_user_id
+    v_user_id,
+    v_campaign_link_id
   )
   RETURNING id INTO v_capture_id;
 
   RETURN jsonb_build_object(
-    'lead_id',     v_lead_id,
-    'capture_id',  v_capture_id,
-    'action',      v_action,
-    'reactivated', v_reactivated
+    'lead_id',          v_lead_id,
+    'capture_id',       v_capture_id,
+    'action',           v_action,
+    'reactivated',      v_reactivated,
+    'attributed_link',  v_campaign_link_id
   );
 END;
 $$;
@@ -11714,7 +11731,7 @@ REVOKE ALL ON FUNCTION public.capture_admission_lead(JSONB, JSONB) FROM PUBLIC, 
 GRANT EXECUTE ON FUNCTION public.capture_admission_lead(JSONB, JSONB) TO authenticated, service_role;
 
 COMMENT ON FUNCTION public.capture_admission_lead(JSONB, JSONB) IS
-  'Atomic capture entry point for admission leads. Either creates a new lead or locks an existing matching one and appends a source-capture row. Returns {lead_id, capture_id, action: created|merged, reactivated}.';
+  'Atomic capture entry point for admission leads. Either creates a new lead or locks an existing matching one and appends a source-capture row. Accepts optional campaign_link_id (soft-validated). Returns {lead_id, capture_id, action: created|merged, reactivated, attributed_link}.';
 
 -- ================================================================================
 -- SECTION: ATTENTION BAR — Layer 2 State-Query Functions
@@ -13955,3 +13972,610 @@ $$;
 
 COMMENT ON FUNCTION public._user_can_view_lead_for_call(uuid, uuid) IS
   'SECURITY DEFINER lookup: does this user own this NON-REFERRAL lead via assigned_counselor_id OR counselor_id? Updated 2026-05-11 to close RLS asymmetry.';
+
+-- ──────────────────────────────────────────────────────────────
+-- 2026-05-12 — Admission Campaign Attribution (Migration A) triggers
+-- Reuses existing update_updated_at_column() function.
+-- See: docs/superpowers/specs/2026-05-12-admission-campaign-attribution-design.md §4.1
+-- ──────────────────────────────────────────────────────────────
+
+DROP TRIGGER IF EXISTS trg_admission_campaigns_updated ON admission_campaigns;
+CREATE TRIGGER trg_admission_campaigns_updated
+  BEFORE UPDATE ON admission_campaigns
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+DROP TRIGGER IF EXISTS trg_admission_campaign_links_updated ON admission_campaign_links;
+CREATE TRIGGER trg_admission_campaign_links_updated
+  BEFORE UPDATE ON admission_campaign_links
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- ──────────────────────────────────────────────────────────────
+-- Campaign attribution triggers (added 2026-05-12, see migration 20260512100003_c)
+-- ──────────────────────────────────────────────────────────────
+
+CREATE OR REPLACE FUNCTION sync_lead_campaign_attribution()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  IF NEW.campaign_link_id IS NULL THEN
+    RETURN NEW;
+  END IF;
+
+  UPDATE admission_leads
+     SET first_campaign_link_id = COALESCE(first_campaign_link_id, NEW.campaign_link_id),
+         last_campaign_link_id  = NEW.campaign_link_id,
+         updated_at             = now()
+   WHERE id = NEW.lead_id;
+
+  UPDATE admission_campaign_links
+     SET capture_count = capture_count + 1,
+         updated_at    = now()
+   WHERE id = NEW.campaign_link_id;
+
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_sync_lead_campaign_attribution ON admission_lead_source_captures;
+CREATE TRIGGER trg_sync_lead_campaign_attribution
+AFTER INSERT ON admission_lead_source_captures
+FOR EACH ROW EXECUTE FUNCTION sync_lead_campaign_attribution();
+
+CREATE OR REPLACE FUNCTION link_click_to_submission()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  IF NEW.campaign_link_id IS NULL THEN
+    RETURN NEW;
+  END IF;
+
+  UPDATE admission_campaign_link_clicks
+     SET resulted_in_submission = true,
+         resulted_lead_id       = NEW.lead_id
+   WHERE id = (
+     SELECT id FROM admission_campaign_link_clicks
+      WHERE link_id = NEW.campaign_link_id
+        AND clicked_at >= now() - INTERVAL '24 hours'
+        AND resulted_in_submission = false
+      ORDER BY clicked_at DESC
+      LIMIT 1
+   );
+
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_link_click_to_submission ON admission_form_submissions;
+CREATE TRIGGER trg_link_click_to_submission
+AFTER INSERT ON admission_form_submissions
+FOR EACH ROW EXECUTE FUNCTION link_click_to_submission();
+
+-- ──────────────────────────────────────────────────────────────
+-- Campaign attribution RLS policies (added 2026-05-12, see migration 20260512100004_d)
+-- ──────────────────────────────────────────────────────────────
+-- The SECURITY DEFINER helper _campaign_link_institution_id avoids the
+-- 42P17 transitive-recursion loop that would otherwise happen when
+-- admission_campaign_links policies query admission_campaigns (which
+-- has its own policies). Pattern mirrored from _expo_event_institution_id.
+
+CREATE OR REPLACE FUNCTION _campaign_link_institution_id(p_link_id uuid)
+RETURNS uuid
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT c.institution_id
+    FROM admission_campaign_links l
+    JOIN admission_campaigns c ON c.id = l.campaign_id
+   WHERE l.id = p_link_id;
+$$;
+
+GRANT EXECUTE ON FUNCTION _campaign_link_institution_id(uuid) TO authenticated;
+
+ALTER TABLE admission_campaigns            ENABLE ROW LEVEL SECURITY;
+ALTER TABLE admission_campaign_links       ENABLE ROW LEVEL SECURITY;
+ALTER TABLE admission_campaign_link_clicks ENABLE ROW LEVEL SECURITY;
+
+-- ──── admission_campaigns ────
+DROP POLICY IF EXISTS p_campaigns_select ON admission_campaigns;
+CREATE POLICY p_campaigns_select ON admission_campaigns FOR SELECT TO authenticated USING (
+  is_super_admin() OR is_admin()
+  OR (user_has_permission('admission.campaigns.view')
+      AND role_has_institution_access(institution_id))
+);
+
+DROP POLICY IF EXISTS p_campaigns_insert ON admission_campaigns;
+CREATE POLICY p_campaigns_insert ON admission_campaigns FOR INSERT TO authenticated WITH CHECK (
+  is_super_admin() OR is_admin()
+  OR (user_has_permission('admission.campaigns.create')
+      AND role_has_institution_access(institution_id))
+);
+
+DROP POLICY IF EXISTS p_campaigns_update ON admission_campaigns;
+CREATE POLICY p_campaigns_update ON admission_campaigns FOR UPDATE TO authenticated
+  USING (
+    is_super_admin() OR is_admin()
+    OR (user_has_permission('admission.campaigns.edit')
+        AND role_has_institution_access(institution_id))
+  )
+  WITH CHECK (
+    is_super_admin() OR is_admin()
+    OR (user_has_permission('admission.campaigns.edit')
+        AND role_has_institution_access(institution_id))
+  );
+
+-- No DELETE policy — soft-archive only via UPDATE archived_at
+
+-- ──── admission_campaign_links ────
+DROP POLICY IF EXISTS p_links_select ON admission_campaign_links;
+CREATE POLICY p_links_select ON admission_campaign_links FOR SELECT TO authenticated USING (
+  is_super_admin() OR is_admin()
+  OR (user_has_permission('admission.campaigns.view')
+      AND role_has_institution_access(_campaign_link_institution_id(id)))
+);
+
+DROP POLICY IF EXISTS p_links_insert ON admission_campaign_links;
+CREATE POLICY p_links_insert ON admission_campaign_links FOR INSERT TO authenticated WITH CHECK (
+  is_super_admin() OR is_admin()
+  OR (user_has_permission('admission.campaigns.create')
+      AND EXISTS (
+        SELECT 1 FROM admission_campaigns c
+         WHERE c.id = campaign_id
+           AND role_has_institution_access(c.institution_id)
+      ))
+);
+
+DROP POLICY IF EXISTS p_links_update ON admission_campaign_links;
+CREATE POLICY p_links_update ON admission_campaign_links FOR UPDATE TO authenticated
+  USING (
+    is_super_admin() OR is_admin()
+    OR (user_has_permission('admission.campaigns.edit')
+        AND role_has_institution_access(_campaign_link_institution_id(id)))
+  )
+  WITH CHECK (
+    is_super_admin() OR is_admin()
+    OR (user_has_permission('admission.campaigns.edit')
+        AND role_has_institution_access(_campaign_link_institution_id(id)))
+  );
+
+-- ──── admission_campaign_link_clicks ────
+-- SELECT only for authenticated users; INSERT happens via service-role
+-- from the /c/[token] route handler (anonymous public-side action).
+DROP POLICY IF EXISTS p_clicks_select ON admission_campaign_link_clicks;
+CREATE POLICY p_clicks_select ON admission_campaign_link_clicks FOR SELECT TO authenticated USING (
+  is_super_admin() OR is_admin()
+  OR (user_has_permission('admission.campaigns.view')
+      AND EXISTS (
+        SELECT 1 FROM admission_campaigns c
+         WHERE c.id = campaign_id
+           AND role_has_institution_access(c.institution_id)
+      ))
+);
+
+-- ──────────────────────────────────────────────────────────────
+-- Campaign analytics RPC: get_campaign_funnel (added 2026-05-12, migration 20260512100006_f1)
+-- ──────────────────────────────────────────────────────────────
+
+CREATE OR REPLACE FUNCTION public.get_campaign_funnel(
+  p_campaign_id        uuid,
+  p_attribution_mode   text    DEFAULT 'first',  -- 'first' | 'last' | 'any'
+  p_start_date         timestamptz DEFAULT NULL,
+  p_end_date           timestamptz DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+STABLE
+AS $$
+DECLARE
+  v_institution_id uuid;
+  v_link_ids       uuid[];
+  v_clicks         integer := 0;
+  v_captures       integer := 0;
+  v_qualified      integer := 0;
+  v_applied        integer := 0;
+  v_enrolled       integer := 0;
+BEGIN
+  -- Access control
+  SELECT institution_id INTO v_institution_id
+    FROM admission_campaigns WHERE id = p_campaign_id;
+
+  IF v_institution_id IS NULL THEN
+    RAISE EXCEPTION 'campaign not found';
+  END IF;
+
+  IF NOT (
+    is_super_admin()
+    OR is_admin()
+    OR (user_has_permission('admission.campaigns.view')
+        AND role_has_institution_access(v_institution_id))
+  ) THEN
+    RAISE EXCEPTION 'access denied';
+  END IF;
+
+  -- Collect this campaign's link IDs (used in all subsequent queries)
+  SELECT array_agg(id) INTO v_link_ids
+    FROM admission_campaign_links WHERE campaign_id = p_campaign_id;
+
+  -- If no links exist yet, return all zeros (campaign just created)
+  IF v_link_ids IS NULL OR cardinality(v_link_ids) = 0 THEN
+    RETURN jsonb_build_object(
+      'campaign_id',      p_campaign_id,
+      'attribution_mode', p_attribution_mode,
+      'date_range',       jsonb_build_object('from', p_start_date, 'to', p_end_date),
+      'stages',           jsonb_build_object('clicks',0,'captures',0,'qualified',0,'applied',0,'enrolled',0),
+      'rates',            jsonb_build_object('click_to_capture',0,'capture_to_qual',0,'qual_to_applied',0,'applied_to_enrol',0,'overall',0)
+    );
+  END IF;
+
+  -- Clicks (from append-only log)
+  SELECT COUNT(*) INTO v_clicks
+    FROM admission_campaign_link_clicks
+   WHERE link_id = ANY(v_link_ids)
+     AND (p_start_date IS NULL OR clicked_at >= p_start_date)
+     AND (p_end_date   IS NULL OR clicked_at <  p_end_date);
+
+  -- Captures + funnel-stage rollups (attribution-mode aware)
+  WITH attributed_leads AS (
+    SELECT DISTINCT l.id, l.funnel_stage, l.created_at
+      FROM admission_leads l
+     WHERE
+       CASE p_attribution_mode
+         WHEN 'first' THEN l.first_campaign_link_id = ANY(v_link_ids)
+         WHEN 'last'  THEN l.last_campaign_link_id  = ANY(v_link_ids)
+         WHEN 'any'   THEN EXISTS (
+           SELECT 1 FROM admission_lead_source_captures c
+            WHERE c.lead_id = l.id AND c.campaign_link_id = ANY(v_link_ids)
+         )
+       END
+       AND (p_start_date IS NULL OR l.created_at >= p_start_date)
+       AND (p_end_date   IS NULL OR l.created_at <  p_end_date)
+  )
+  SELECT
+    COUNT(*),
+    COUNT(*) FILTER (WHERE funnel_stage IN (
+      'qualified','application_started','application_submitted',
+      'documents_pending','documents_verified','interview_scheduled',
+      'interview_completed','offer_sent','offer_accepted','token_paid','enrolled')),
+    COUNT(*) FILTER (WHERE funnel_stage IN (
+      'application_submitted','documents_pending','documents_verified',
+      'interview_scheduled','interview_completed','offer_sent',
+      'offer_accepted','token_paid','enrolled')),
+    COUNT(*) FILTER (WHERE funnel_stage = 'enrolled')
+  INTO v_captures, v_qualified, v_applied, v_enrolled
+  FROM attributed_leads;
+
+  RETURN jsonb_build_object(
+    'campaign_id',      p_campaign_id,
+    'attribution_mode', p_attribution_mode,
+    'date_range',       jsonb_build_object('from', p_start_date, 'to', p_end_date),
+    'stages', jsonb_build_object(
+      'clicks',    v_clicks,    'captures',  v_captures,
+      'qualified', v_qualified, 'applied',   v_applied,
+      'enrolled',  v_enrolled),
+    'rates',  jsonb_build_object(
+      'click_to_capture', CASE WHEN v_clicks    > 0 THEN ROUND(100.0 * v_captures  / v_clicks,    2) ELSE 0 END,
+      'capture_to_qual',  CASE WHEN v_captures  > 0 THEN ROUND(100.0 * v_qualified / v_captures,  2) ELSE 0 END,
+      'qual_to_applied',  CASE WHEN v_qualified > 0 THEN ROUND(100.0 * v_applied   / v_qualified, 2) ELSE 0 END,
+      'applied_to_enrol', CASE WHEN v_applied   > 0 THEN ROUND(100.0 * v_enrolled  / v_applied,   2) ELSE 0 END,
+      'overall',          CASE WHEN v_clicks    > 0 THEN ROUND(100.0 * v_enrolled  / v_clicks,    2) ELSE 0 END)
+  );
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.get_campaign_funnel(uuid, text, timestamptz, timestamptz) TO authenticated;
+
+-- ──────────────────────────────────────────────────────────────
+-- Campaign analytics RPC: get_campaign_time_series (added 2026-05-12, migration 20260512100007_f2)
+-- ──────────────────────────────────────────────────────────────
+
+CREATE OR REPLACE FUNCTION public.get_campaign_time_series(
+  p_campaign_id        uuid,
+  p_attribution_mode   text    DEFAULT 'first',
+  p_granularity        text    DEFAULT 'day',     -- 'day' | 'week' | 'month'
+  p_start_date         timestamptz DEFAULT (now() - INTERVAL '30 days'),
+  p_end_date           timestamptz DEFAULT now()
+)
+RETURNS TABLE (
+  bucket_at  timestamptz,
+  clicks     integer,
+  captures   integer,
+  qualified  integer,
+  applied    integer,
+  enrolled   integer
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+STABLE
+AS $$
+DECLARE
+  v_institution_id uuid;
+  v_link_ids       uuid[];
+  v_trunc          text;
+BEGIN
+  -- Access control
+  SELECT institution_id INTO v_institution_id
+    FROM admission_campaigns WHERE id = p_campaign_id;
+
+  IF v_institution_id IS NULL THEN
+    RAISE EXCEPTION 'campaign not found';
+  END IF;
+
+  IF NOT (
+    is_super_admin()
+    OR is_admin()
+    OR (user_has_permission('admission.campaigns.view')
+        AND role_has_institution_access(v_institution_id))
+  ) THEN
+    RAISE EXCEPTION 'access denied';
+  END IF;
+
+  -- Validate granularity to prevent SQL injection via date_trunc
+  v_trunc := CASE p_granularity
+               WHEN 'day'   THEN 'day'
+               WHEN 'week'  THEN 'week'
+               WHEN 'month' THEN 'month'
+               ELSE 'day'
+             END;
+
+  SELECT array_agg(id) INTO v_link_ids
+    FROM admission_campaign_links WHERE campaign_id = p_campaign_id;
+
+  IF v_link_ids IS NULL OR cardinality(v_link_ids) = 0 THEN
+    -- Still return the time buckets (with zeros) so the chart renders empty
+    RETURN QUERY
+    SELECT b.bucket::timestamptz,
+           0::integer, 0::integer, 0::integer, 0::integer, 0::integer
+      FROM generate_series(
+        date_trunc(v_trunc, p_start_date),
+        date_trunc(v_trunc, p_end_date),
+        ('1 ' || v_trunc)::interval
+      ) AS b(bucket)
+    ORDER BY 1;
+    RETURN;
+  END IF;
+
+  RETURN QUERY
+  WITH buckets AS (
+    SELECT generate_series(
+      date_trunc(v_trunc, p_start_date),
+      date_trunc(v_trunc, p_end_date),
+      ('1 ' || v_trunc)::interval
+    ) AS bucket
+  ),
+  clicks_by_bucket AS (
+    SELECT date_trunc(v_trunc, clicked_at) AS bucket, COUNT(*) AS n
+      FROM admission_campaign_link_clicks
+     WHERE link_id = ANY(v_link_ids)
+       AND clicked_at >= p_start_date
+       AND clicked_at <  p_end_date
+     GROUP BY 1
+  ),
+  attributed AS (
+    SELECT l.id, l.funnel_stage, date_trunc(v_trunc, l.created_at) AS bucket
+      FROM admission_leads l
+     WHERE
+       CASE p_attribution_mode
+         WHEN 'first' THEN l.first_campaign_link_id = ANY(v_link_ids)
+         WHEN 'last'  THEN l.last_campaign_link_id  = ANY(v_link_ids)
+         WHEN 'any'   THEN EXISTS (
+           SELECT 1 FROM admission_lead_source_captures c
+            WHERE c.lead_id = l.id AND c.campaign_link_id = ANY(v_link_ids)
+         )
+       END
+       AND l.created_at >= p_start_date
+       AND l.created_at <  p_end_date
+  )
+  SELECT
+    b.bucket                                                                      AS bucket_at,
+    COALESCE(cb.n, 0)::integer                                                    AS clicks,
+    COUNT(a.id)::integer                                                          AS captures,
+    COUNT(a.id) FILTER (WHERE a.funnel_stage IN (
+      'qualified','application_started','application_submitted',
+      'documents_pending','documents_verified','interview_scheduled',
+      'interview_completed','offer_sent','offer_accepted','token_paid','enrolled'))::integer AS qualified,
+    COUNT(a.id) FILTER (WHERE a.funnel_stage IN (
+      'application_submitted','documents_pending','documents_verified',
+      'interview_scheduled','interview_completed','offer_sent',
+      'offer_accepted','token_paid','enrolled'))::integer AS applied,
+    COUNT(a.id) FILTER (WHERE a.funnel_stage = 'enrolled')::integer               AS enrolled
+  FROM buckets b
+  LEFT JOIN clicks_by_bucket cb ON cb.bucket = b.bucket
+  LEFT JOIN attributed a        ON a.bucket  = b.bucket
+  GROUP BY b.bucket, cb.n
+  ORDER BY b.bucket;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.get_campaign_time_series(uuid, text, text, timestamptz, timestamptz) TO authenticated;
+
+-- ──────────────────────────────────────────────────────────────
+-- Campaign analytics RPC: get_campaigns_compare (added 2026-05-12, migration 20260512100008_f3)
+-- ──────────────────────────────────────────────────────────────
+
+CREATE OR REPLACE FUNCTION public.get_campaigns_compare(
+  p_campaign_ids       uuid[],
+  p_attribution_mode   text    DEFAULT 'first',
+  p_start_date         timestamptz DEFAULT NULL,
+  p_end_date           timestamptz DEFAULT NULL
+)
+RETURNS TABLE (
+  campaign_id     uuid,
+  campaign_name   text,
+  source          lead_source,
+  budget_inr      numeric,
+  spent_inr       numeric,
+  clicks          integer,
+  captures        integer,
+  qualified       integer,
+  applied         integer,
+  enrolled        integer,
+  cpl             numeric,
+  cpe             numeric,
+  conversion_rate numeric
+)
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = public
+STABLE
+AS $$
+  SELECT
+    c.id                                                                                              AS campaign_id,
+    c.name                                                                                            AS campaign_name,
+    c.source                                                                                          AS source,
+    c.budget_inr                                                                                      AS budget_inr,
+    COALESCE((SELECT SUM(l.cost_inr) FROM admission_campaign_links l WHERE l.campaign_id = c.id), 0)  AS spent_inr,
+    (f.payload->'stages'->>'clicks')::integer                                                         AS clicks,
+    (f.payload->'stages'->>'captures')::integer                                                       AS captures,
+    (f.payload->'stages'->>'qualified')::integer                                                      AS qualified,
+    (f.payload->'stages'->>'applied')::integer                                                        AS applied,
+    (f.payload->'stages'->>'enrolled')::integer                                                       AS enrolled,
+    CASE WHEN (f.payload->'stages'->>'captures')::integer > 0
+         THEN ROUND(
+                COALESCE((SELECT SUM(l.cost_inr) FROM admission_campaign_links l WHERE l.campaign_id = c.id), 0)
+                / NULLIF((f.payload->'stages'->>'captures')::integer, 0)::numeric,
+                2)
+    END                                                                                               AS cpl,
+    CASE WHEN (f.payload->'stages'->>'enrolled')::integer > 0
+         THEN ROUND(
+                COALESCE((SELECT SUM(l.cost_inr) FROM admission_campaign_links l WHERE l.campaign_id = c.id), 0)
+                / NULLIF((f.payload->'stages'->>'enrolled')::integer, 0)::numeric,
+                2)
+    END                                                                                               AS cpe,
+    (f.payload->'rates'->>'overall')::numeric                                                         AS conversion_rate
+  FROM unnest(p_campaign_ids) AS cid
+  JOIN admission_campaigns c ON c.id = cid
+  CROSS JOIN LATERAL (
+    SELECT get_campaign_funnel(c.id, p_attribution_mode, p_start_date, p_end_date) AS payload
+  ) f
+  WHERE is_super_admin()
+     OR is_admin()
+     OR (user_has_permission('admission.campaigns.view')
+         AND role_has_institution_access(c.institution_id));
+$$;
+
+GRANT EXECUTE ON FUNCTION public.get_campaigns_compare(uuid[], text, timestamptz, timestamptz) TO authenticated;
+
+-- ──────────────────────────────────────────────────────────────
+-- Campaign utility RPCs: increment_clicks + overview_stats + reconcile_counters
+-- (added 2026-05-12, migration 20260512100009_f4)
+-- ──────────────────────────────────────────────────────────────
+
+CREATE OR REPLACE FUNCTION public.increment_campaign_link_clicks(p_link_id uuid)
+RETURNS void
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  UPDATE admission_campaign_links
+     SET click_count = click_count + 1,
+         updated_at  = now()
+   WHERE id = p_link_id;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.increment_campaign_link_clicks(uuid) TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.get_campaigns_overview_stats(
+  p_start_date timestamptz DEFAULT (now() - INTERVAL '30 days'),
+  p_end_date   timestamptz DEFAULT now()
+) RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+STABLE
+AS $$
+DECLARE
+  v_result jsonb;
+BEGIN
+  IF NOT (
+    is_super_admin()
+    OR is_admin()
+    OR user_has_permission('admission.campaigns.view')
+  ) THEN
+    RAISE EXCEPTION 'access denied';
+  END IF;
+
+  WITH visible_campaigns AS (
+    SELECT id, status, budget_inr, archived_at
+      FROM admission_campaigns
+     WHERE archived_at IS NULL
+       AND (is_super_admin() OR is_admin() OR role_has_institution_access(institution_id))
+  ),
+  visible_links AS (
+    SELECT l.id, l.cost_inr, l.click_count, l.capture_count
+      FROM admission_campaign_links l
+      JOIN visible_campaigns c ON c.id = l.campaign_id
+  )
+  SELECT jsonb_build_object(
+    'total_active',    (SELECT COUNT(*) FROM visible_campaigns WHERE status = 'active'),
+    'total_paused',    (SELECT COUNT(*) FROM visible_campaigns WHERE status = 'paused'),
+    'total_archived',  0,
+    'total_spent_inr', COALESCE((SELECT SUM(cost_inr) FROM visible_links), 0),
+    'total_clicks',    COALESCE((SELECT SUM(click_count) FROM visible_links), 0),
+    'total_captures',  COALESCE((SELECT SUM(capture_count) FROM visible_links), 0)
+  ) INTO v_result;
+
+  RETURN v_result;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.get_campaigns_overview_stats(timestamptz, timestamptz) TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.reconcile_campaign_link_counters()
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_clicks_updated   integer;
+  v_captures_updated integer;
+BEGIN
+  IF NOT (
+    is_super_admin()
+    OR is_admin()
+    OR user_has_permission('admission.campaigns.edit')
+  ) THEN
+    RAISE EXCEPTION 'access denied';
+  END IF;
+
+  UPDATE admission_campaign_links l
+     SET click_count = sub.n
+    FROM (
+      SELECT l2.id AS link_id,
+             COALESCE((SELECT COUNT(*) FROM admission_campaign_link_clicks c WHERE c.link_id = l2.id), 0)::integer AS n
+        FROM admission_campaign_links l2
+    ) sub
+   WHERE l.id = sub.link_id
+     AND l.click_count <> sub.n;
+  GET DIAGNOSTICS v_clicks_updated = ROW_COUNT;
+
+  UPDATE admission_campaign_links l
+     SET capture_count = sub.n
+    FROM (
+      SELECT l2.id AS link_id,
+             COALESCE((SELECT COUNT(*) FROM admission_lead_source_captures c
+                        WHERE c.campaign_link_id = l2.id), 0)::integer AS n
+        FROM admission_campaign_links l2
+    ) sub
+   WHERE l.id = sub.link_id
+     AND l.capture_count <> sub.n;
+  GET DIAGNOSTICS v_captures_updated = ROW_COUNT;
+
+  RETURN jsonb_build_object(
+    'clicks_updated',   v_clicks_updated,
+    'captures_updated', v_captures_updated
+  );
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.reconcile_campaign_link_counters() TO authenticated;
