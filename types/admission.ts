@@ -344,6 +344,20 @@ export interface LeadSourceCapture {
   raw_payload: Record<string, unknown>;
   created_at: string;
   created_by: string | null;
+  /** Campaign attribution — set when the lead was captured via /c/[token]
+   *  or any flow that passed campaign_link_id to capture_admission_lead. */
+  campaign_link_id: string | null;
+  campaign_link?: {
+    id: string;
+    name: string;
+    token: string;
+    campaign?: {
+      id: string;
+      name: string;
+      scope: 'institution' | 'global';
+      source: LeadSource;
+    } | null;
+  } | null;
 }
 
 // Optional override fields for the capture row itself. Most callers will

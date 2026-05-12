@@ -589,9 +589,19 @@ export class LeadService {
    * Used by the "Sources Captured" panel on the lead detail page.
    */
   static async getSourceCaptures(leadId: string): Promise<LeadSourceCapture[]> {
+    // Left-join the campaign link (and its parent campaign) so the UI can
+    // label captures that came in via /c/[token] with the campaign name +
+    // link name instead of just the raw source. Non-campaign captures
+    // simply get campaign_link = null.
     const { data, error } = await (this.supabase as any)
       .from('admission_lead_source_captures')
-      .select('*')
+      .select(`
+        *,
+        campaign_link:admission_campaign_links(
+          id, name, token,
+          campaign:admission_campaigns(id, name, scope, source)
+        )
+      `)
       .eq('lead_id', leadId)
       .order('captured_at', { ascending: false });
 

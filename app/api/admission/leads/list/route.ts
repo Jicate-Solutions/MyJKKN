@@ -147,7 +147,12 @@ export async function GET(request: NextRequest) {
   const page = parseInt(searchParams.get('page') || '1', 10);
   const limit = Math.min(parseInt(searchParams.get('limit') || '50', 10), 200);
   const search = searchParams.get('search') || undefined;
-  const sortBy = searchParams.get('sort_by') || 'created_at';
+  // Default sort = last_activity_at DESC so dedup'd leads (e.g. an
+  // existing lead re-captured by a new campaign submission) bubble to
+  // the top instead of staying buried at their original created_at.
+  // Set via migration K; bumped on every admission_lead_source_captures
+  // insert. Callers can still override with ?sort_by=created_at.
+  const sortBy = searchParams.get('sort_by') || 'last_activity_at';
   const sortOrder = searchParams.get('sort_order') || 'desc';
   const funnelStage = searchParams.get('funnel_stage') || undefined;
   const priority = searchParams.get('priority') || undefined;
