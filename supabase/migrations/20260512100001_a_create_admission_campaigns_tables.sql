@@ -78,10 +78,12 @@ CREATE INDEX IF NOT EXISTS idx_clicks_session       ON admission_campaign_link_c
   WHERE session_id IS NOT NULL;
 
 -- Updated-at maintenance triggers (reuse existing function)
+DROP TRIGGER IF EXISTS trg_admission_campaigns_updated ON admission_campaigns;
 CREATE TRIGGER trg_admission_campaigns_updated
   BEFORE UPDATE ON admission_campaigns
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+DROP TRIGGER IF EXISTS trg_admission_campaign_links_updated ON admission_campaign_links;
 CREATE TRIGGER trg_admission_campaign_links_updated
   BEFORE UPDATE ON admission_campaign_links
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();

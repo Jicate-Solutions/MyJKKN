@@ -13962,10 +13962,12 @@ COMMENT ON FUNCTION public._user_can_view_lead_for_call(uuid, uuid) IS
 -- See: docs/superpowers/specs/2026-05-12-admission-campaign-attribution-design.md §4.1
 -- ──────────────────────────────────────────────────────────────
 
+DROP TRIGGER IF EXISTS trg_admission_campaigns_updated ON admission_campaigns;
 CREATE TRIGGER trg_admission_campaigns_updated
   BEFORE UPDATE ON admission_campaigns
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+DROP TRIGGER IF EXISTS trg_admission_campaign_links_updated ON admission_campaign_links;
 CREATE TRIGGER trg_admission_campaign_links_updated
   BEFORE UPDATE ON admission_campaign_links
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
