@@ -179,7 +179,7 @@ export function CompositionForm({
   // stored under either. Pass all sibling IDs via institution_ids so both are
   // searched in a single query.
   const staffInstitutionIds: string[] = isSuperAdmin
-    ? (allInstitutions.find((i) => i.id === institutionsId)?.myjkkn_institution_ids ?? (institutionsId ? [institutionsId] : []))
+    ? (allInstitutions.find((i) => i.myjkkn_institution_ids.includes(institutionsId))?.myjkkn_institution_ids ?? (institutionsId ? [institutionsId] : []))
     : (ownCtx?.myjkkn_institution_ids?.length ? ownCtx.myjkkn_institution_ids : ownCtx?.myjkkn_id ? [ownCtx.myjkkn_id] : []);
 
   const { data: principalStaff = [] } = useQuery<StaffOption[]>({

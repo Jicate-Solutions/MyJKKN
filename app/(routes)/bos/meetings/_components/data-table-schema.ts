@@ -20,7 +20,7 @@ export const meetingSearchParamsSchema = z.object({
     .optional(),
   board_id: z.string().optional(),
   academic_year: z.string().optional(),
-  meeting_type: z.enum(['regular', 'special', 'emergency', 'online']).optional(),
+  meeting_type: z.enum(['regular', 'special', 'emergency', 'online', 'hybrid']).optional(),
   institutionsId: z.string().optional(),
 });
 

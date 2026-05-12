@@ -32,7 +32,7 @@ export type BosMeetingStatus =
   | 'minutes_approved'
   | 'ratified';
 
-export type BosMeetingType = 'regular' | 'special' | 'emergency' | 'online';
+export type BosMeetingType = 'regular' | 'special' | 'emergency' | 'online' | 'hybrid';
 
 export type BosAttendanceStatus = 'present' | 'absent' | 'leave_of_absence';
 
@@ -101,6 +101,7 @@ export const BOS_MEETING_TYPE_LABELS: Record<BosMeetingType, string> = {
   special: 'Special',
   emergency: 'Emergency',
   online: 'Online',
+  hybrid: 'Hybrid',
 };
 
 export const BOS_COURSE_REVIEW_ACTION_LABELS: Record<BosCourseReviewAction, string> = {

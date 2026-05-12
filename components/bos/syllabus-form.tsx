@@ -24,7 +24,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { SearchableSelect } from '@/components/ui/searchable-select';
 import { useBosCourses } from '@/hooks/bos/use-bos-courses';
 import { useInstitutionContext } from '@/hooks/use-institution-context';
-import { X, Trash2, BookOpen, Plus, FlaskConical, BookText } from 'lucide-react';
+import { X, Trash2, BookOpen, Plus, FlaskConical, BookText, Check } from 'lucide-react';
 
 interface Institution { id: string; name: string; myjkkn_institution_ids: string[]; display_name?: string; }
 interface Regulation { id: string; title: string; regulation_code: string; regulation_year?: string; }
@@ -1487,48 +1487,162 @@ function ResourcesEditor({ resources, onChange }: any) {
   );
 }
 
-function PedagogyEditor({ methods, onChange }: any) {
-  const list = methods?.methods || [];
-  const commonMethods = [
-    'Chalk and talk',
-    'PowerPoint',
-    'E-content',
-    'Group discussion',
-    'Case study',
-    'Problem-based learning',
-    'Project-based learning',
-    'Simulation',
-  ];
+const PEDAGOGY_COMMON = [
+  'Chalk and talk',
+  'PowerPoint presentation',
+  'E-content / Digital learning',
+  'Group discussion',
+  'Case study',
+  'Problem-based learning (PBL)',
+  'Project-based learning',
+  'Simulation',
+];
 
-  const addMethod = (method?: string) => {
-    onChange({
-      ...methods,
-      methods: list.includes(method) ? list : [...list, method || ''],
-    });
+const PEDAGOGY_ADDITIONAL = [
+  'Seminar presentation',
+  'Tutorial method',
+  'Brainstorming sessions',
+  'Role play',
+  'Experiential learning',
+  'Collaborative learning',
+  'Peer learning / Peer teaching',
+  'Flipped classroom',
+  'Inquiry-based learning',
+  'Activity-based learning',
+  'Demonstration method',
+  'Workshop method',
+  'Field visit / Industrial visit',
+  'Laboratory experiments',
+  'Quiz and gamification',
+  'Team-based learning',
+  'Concept mapping',
+  'Think–Pair–Share',
+  'Debate method',
+  'Blended learning',
+  'Self-directed learning',
+  'MOOC / Online learning integration',
+  'Interactive whiteboard teaching',
+  'Storytelling method',
+  'Reflective learning',
+  'Design thinking approach',
+  'Hands-on training',
+  'Competency-based learning',
+  'Microlearning',
+  'Mentoring and coaching sessions',
+];
+
+function PedagogyEditor({ methods, onChange }: any) {
+  const list: string[] = methods?.methods || [];
+  const [customInput, setCustomInput] = useState('');
+
+  const allPredefined = [...PEDAGOGY_COMMON, ...PEDAGOGY_ADDITIONAL];
+  const customMethods = list.filter((m: string) => !allPredefined.includes(m));
+
+  const toggle = (method: string) => {
+    const next = list.includes(method)
+      ? list.filter((m: string) => m !== method)
+      : [...list, method];
+    onChange({ ...methods, methods: next });
   };
 
+  const addCustom = () => {
+    const trimmed = customInput.trim();
+    if (!trimmed || list.includes(trimmed)) return;
+    onChange({ ...methods, methods: [...list, trimmed] });
+    setCustomInput('');
+  };
+
+  const MethodChip = ({ method }: { method: string }) => {
+    const active = list.includes(method);
+    return (
+      <button
+        type="button"
+        onClick={() => toggle(method)}
+        className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-all ${
+          active
+            ? 'border-primary bg-primary text-primary-foreground shadow-sm'
+            : 'border-border bg-background text-muted-foreground hover:border-primary/60 hover:text-foreground'
+        }`}
+      >
+        {active && <Check className="h-3 w-3 shrink-0" />}
+        {method}
+      </button>
+    );
+  };
+
+  const SectionDivider = ({ label }: { label: string }) => (
+    <div className="flex items-center gap-2.5 mb-3">
+      <span className="text-[11px] font-bold uppercase tracking-widest text-muted-foreground shrink-0">{label}</span>
+      <div className="flex-1 h-px bg-border" />
+    </div>
+  );
+
   return (
-    <div className="space-y-3">
-      <div>
-        <label className="text-sm font-medium">Common Methods</label>
-        <div className="flex flex-wrap gap-2 mt-2">
-          {commonMethods.map((method) => (
-            <Button
-              key={method}
-              type="button"
-              variant={list.includes(method) ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => {
-                const newList = list.includes(method)
-                  ? list.filter((m: string) => m !== method)
-                  : [...list, method];
-                onChange({ ...methods, methods: newList });
-              }}
-            >
-              {method}
-            </Button>
-          ))}
+    <div className="space-y-5">
+      {/* Selection summary */}
+      {list.length > 0 && (
+        <div className="flex items-center gap-3 rounded-lg bg-primary/5 border border-primary/20 px-3 py-2">
+          <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary text-[11px] font-bold text-primary-foreground shrink-0">
+            {list.length}
+          </span>
+          <span className="text-xs text-muted-foreground flex-1">
+            {list.length === 1 ? '1 method selected' : `${list.length} methods selected`}
+          </span>
+          <button
+            type="button"
+            onClick={() => onChange({ ...methods, methods: [] })}
+            className="text-xs text-muted-foreground hover:text-destructive transition-colors"
+          >
+            Clear all
+          </button>
         </div>
+      )}
+
+      {/* Common Methods */}
+      <div>
+        <SectionDivider label="Common Methods" />
+        <div className="flex flex-wrap gap-2">
+          {PEDAGOGY_COMMON.map((m) => <MethodChip key={m} method={m} />)}
+        </div>
+      </div>
+
+      {/* Additional Methods */}
+      <div>
+        <SectionDivider label="Additional Methods" />
+        <div className="flex flex-wrap gap-2">
+          {PEDAGOGY_ADDITIONAL.map((m) => <MethodChip key={m} method={m} />)}
+        </div>
+      </div>
+
+      {/* Custom methods (user-added) */}
+      {customMethods.length > 0 && (
+        <div>
+          <SectionDivider label="Custom" />
+          <div className="flex flex-wrap gap-2">
+            {customMethods.map((m: string) => <MethodChip key={m} method={m} />)}
+          </div>
+        </div>
+      )}
+
+      {/* Add custom method */}
+      <div className="flex gap-2 pt-1">
+        <Input
+          placeholder="Add a custom teaching method…"
+          value={customInput}
+          onChange={(e) => setCustomInput(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addCustom(); } }}
+          className="text-sm"
+        />
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={addCustom}
+          disabled={!customInput.trim() || list.includes(customInput.trim())}
+          className="shrink-0"
+        >
+          <Plus className="h-3.5 w-3.5 mr-1" /> Add
+        </Button>
       </div>
     </div>
   );

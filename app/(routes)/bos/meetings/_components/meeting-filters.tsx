@@ -151,6 +151,7 @@ export function MeetingFilters({
               <SelectItem value='special'>Special</SelectItem>
               <SelectItem value='emergency'>Emergency</SelectItem>
               <SelectItem value='online'>Online</SelectItem>
+              <SelectItem value='hybrid'>Hybrid</SelectItem>
             </SelectContent>
           </Select>
         </div>

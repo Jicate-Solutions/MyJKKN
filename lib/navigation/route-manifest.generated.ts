@@ -491,6 +491,31 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         ]
       },
       {
+        "path": "/admin/consultants",
+        "label": "Consultants",
+        "iconName": "Users",
+        "children": [
+          {
+            "path": "/admin/consultants/commission-triggers",
+            "label": "Commission Triggers",
+            "iconName": "Coins",
+            "children": []
+          },
+          {
+            "path": "/admin/consultants/portal-access",
+            "label": "Portal Access Policy",
+            "iconName": "KeyRound",
+            "children": []
+          },
+          {
+            "path": "/admin/consultants/tier-policy",
+            "label": "Consultant Tier Policy",
+            "iconName": "Award",
+            "children": []
+          }
+        ]
+      },
+      {
         "path": "/admin/counselors",
         "label": "Counselors",
         "iconName": "Users",
@@ -554,6 +579,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "path": "/admin/hr/onboarding-checklists",
             "label": "Onboarding Checklists",
             "iconName": "UserPlus",
+            "children": []
+          },
+          {
+            "path": "/admin/hr/recruitment-approvals-scope",
+            "label": "Recruitment Approvals Scope",
+            "iconName": "ShieldCheck",
             "children": []
           },
           {
@@ -2311,6 +2342,44 @@ export const ROUTE_MANIFEST: RouteNode[] = [
     ]
   },
   {
+    "path": "/consultant-portal",
+    "label": "Consultant Portal",
+    "iconName": "FileText",
+    "children": [
+      {
+        "path": "/consultant-portal/commissions",
+        "label": "Commissions",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
+        "path": "/consultant-portal/leads",
+        "label": "Leads",
+        "iconName": "UserPlus",
+        "children": [
+          {
+            "path": "/consultant-portal/leads/submit",
+            "label": "Submit",
+            "iconName": "UserPlus",
+            "children": []
+          }
+        ]
+      },
+      {
+        "path": "/consultant-portal/profile",
+        "label": "Profile",
+        "iconName": "UserCircle",
+        "children": []
+      },
+      {
+        "path": "/consultant-portal/rewards",
+        "label": "Rewards",
+        "iconName": "FileText",
+        "children": []
+      }
+    ]
+  },
+  {
     "path": "/dashboard",
     "label": "Dashboard",
     "iconName": "LayoutGrid",
@@ -3247,6 +3316,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
     "label": "Notifications",
     "iconName": "Bell",
     "children": [
+      {
+        "path": "/notifications/sent",
+        "label": "Sent",
+        "iconName": "Bell",
+        "children": []
+      },
       {
         "path": "/notifications/settings",
         "label": "Settings",

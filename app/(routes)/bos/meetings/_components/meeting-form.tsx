@@ -61,7 +61,7 @@ const meetingFormSchema = z.object({
   institutions_id: z.string().min(1),
   board_id: z.string().min(1, 'Board is required'),
   composition_id: z.string().min(1, 'Composition is required'),
-  meeting_type: z.enum(['regular', 'special', 'emergency', 'online']),
+  meeting_type: z.enum(['regular', 'special', 'emergency', 'online', 'hybrid']),
   academic_year: z.string().min(1, 'Academic year is required'),
   scheduled_date: z.string().min(1, 'Scheduled date is required'),
   scheduled_time: z.string().optional(),
