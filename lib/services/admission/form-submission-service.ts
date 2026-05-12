@@ -1,6 +1,7 @@
 // lib/services/admission/form-submission-service.ts
-// Handles public form submissions → lead creation pipeline
-// Added: 2026-04-08
+// Handles public form submissions → lead creation pipeline.
+// Refactored 2026-05-12: now flows through capture_admission_lead RPC so
+// campaign attribution + multi-source dedup are atomic.
 
 import type {
   AdmissionForm,
@@ -9,7 +10,6 @@ import type {
   CreateLeadInput,
   LeadSource,
 } from '@/types/admission';
-import { LeadService } from './lead-service';
 
 interface SubmissionInput {
   formData: Record<string, unknown>;
@@ -20,12 +20,18 @@ interface SubmissionInput {
   utmCampaign?: string;
   referrerUrl?: string;
   deviceType?: string;
+  /** Resolved campaign_link UUID (server-validated) — never raw token. */
+  campaignLinkId?: string;
+  /** Anonymous browser session ID forwarded from the public form. */
+  sessionId?: string;
 }
 
 interface SubmissionResult {
   success: boolean;
   submissionId?: string;
   leadId?: string;
+  isNewLead?: boolean;
+  wasReactivated?: boolean;
   error?: string;
   isDuplicate?: boolean;
 }
@@ -36,20 +42,21 @@ export class FormSubmissionService {
    * 1. Validate form data against field schema
    * 2. Extract lead fields via lead_field_map
    * 3. Determine institution_id from program selection
-   * 4. Create lead via LeadService.createLead()
-   * 5. Store raw submission
+   * 4. Atomic capture via capture_admission_lead RPC (handles dedup +
+   *    campaign attribution + lead_source_captures row)
+   * 5. Store raw form_submissions row tied to the resolved lead_id
    */
   static async processSubmission(
-    form: AdmissionForm & { sections: (AdmissionFormSection & { fields: AdmissionFormField[] })[] },
+    form: AdmissionForm & {
+      sections: (AdmissionFormSection & { fields: AdmissionFormField[] })[];
+    },
     input: SubmissionInput,
-    supabaseServiceClient: any
+    supabaseServiceClient: any,
   ): Promise<SubmissionResult> {
     const { formData } = input;
 
-    // 1. Flatten all fields from sections
     const allFields = form.sections.flatMap((s) => s.fields ?? []);
 
-    // 2. Validate required fields
     for (const field of allFields) {
       if (field.is_required) {
         const value = formData[field.field_key];
@@ -59,24 +66,24 @@ export class FormSubmissionService {
       }
     }
 
-    // 3. Extract lead data via lead_field_map
-    // Source is per-form (admission_forms.lead_source); existing rows default
-    // to 'website' at the DB level, so legacy forms keep prior behavior.
-    const leadData: Partial<CreateLeadInput> = {
+    const leadData: Partial<CreateLeadInput> & Record<string, unknown> = {
       source: (form.lead_source ?? 'website') as LeadSource,
       tags: [`form:${form.slug}`],
       notes: `Submitted via public form: ${form.name}`,
     };
 
     for (const field of allFields) {
-      if (field.lead_field_map && formData[field.field_key] !== undefined) {
-        (leadData as any)[field.lead_field_map] = formData[field.field_key];
+      if (
+        field.lead_field_map &&
+        formData[field.field_key] !== undefined
+      ) {
+        (leadData as Record<string, unknown>)[field.lead_field_map] =
+          formData[field.field_key];
       }
     }
 
-    // 4. Determine institution_id
     const programSelectorField = allFields.find(
-      (f) => f.field_type === 'institution_program_selector'
+      (f) => f.field_type === 'institution_program_selector',
     );
     let institutionId: string;
 
@@ -87,7 +94,10 @@ export class FormSubmissionService {
       };
       institutionId = selection.institution_id;
       leadData.interested_programs = [selection.program_id];
-    } else if (form.institution_ids && form.institution_ids.length === 1) {
+    } else if (
+      form.institution_ids &&
+      form.institution_ids.length === 1
+    ) {
       institutionId = form.institution_ids[0];
     } else {
       institutionId = form.institution_id;
@@ -95,7 +105,6 @@ export class FormSubmissionService {
 
     leadData.institution_id = institutionId;
 
-    // 5. Ensure required lead fields with fallback
     if (!leadData.first_name) {
       const fullName = formData['full_name'] as string;
       if (fullName) {
@@ -111,64 +120,137 @@ export class FormSubmissionService {
       return { success: false, error: 'Phone number is required' };
     }
 
-    // 6. Add UTM tags
     if (input.utmSource) {
-      leadData.tags = [...(leadData.tags ?? []), `utm:${input.utmSource}`];
+      leadData.tags = [
+        ...((leadData.tags as string[]) ?? []),
+        `utm:${input.utmSource}`,
+      ];
     }
 
-    // 7. Set WhatsApp opt-in from form
     if (formData['wa_opt_in'] === true) {
       leadData.wa_opt_in = true;
       leadData.wa_opt_in_source = 'public_form';
     }
 
-    // 8. Create lead via existing service
-    try {
-      const lead = await LeadService.createLead(
-        leadData as CreateLeadInput,
-        undefined,
-        supabaseServiceClient
-      );
-
-      // 9. Store raw submission
-      const { data: submission, error: subError } = await supabaseServiceClient
-        .from('admission_form_submissions')
-        .insert({
-          form_id: form.id,
-          lead_id: lead.id,
+    // ─── Atomic capture via RPC ──────────────────────────────────────────
+    const leadSource = (form.lead_source ?? 'website') as LeadSource;
+    const { data: rpcData, error: rpcError } = await supabaseServiceClient.rpc(
+      'capture_admission_lead',
+      {
+        p_lead: {
+          first_name: leadData.first_name,
+          last_name: leadData.last_name ?? null,
+          phone: leadData.phone,
+          email: (leadData as any).email ?? null,
           institution_id: institutionId,
-          submission_data: formData,
-          ip_address: input.ipAddress,
-          user_agent: input.userAgent,
-          utm_source: input.utmSource,
-          utm_medium: input.utmMedium,
-          utm_campaign: input.utmCampaign,
-          referrer_url: input.referrerUrl,
-          device_type: input.deviceType,
-        })
-        .select('id')
-        .single();
+          interested_programs: leadData.interested_programs ?? null,
+          source: leadSource,
+          tags: leadData.tags ?? [],
+          notes: leadData.notes ?? null,
+          wa_opt_in: leadData.wa_opt_in ?? false,
+          wa_opt_in_source: leadData.wa_opt_in_source ?? null,
+        },
+        p_capture: {
+          source: leadSource,
+          source_detail: form.slug,
+          captured_at: new Date().toISOString(),
+          captured_by: null,
+          utm_source: input.utmSource ?? null,
+          utm_medium: input.utmMedium ?? null,
+          utm_campaign: input.utmCampaign ?? null,
+          campaign_link_id: input.campaignLinkId ?? null,
+          raw_payload: {
+            form_id: form.id,
+            session_id: input.sessionId ?? null,
+            ip_address: input.ipAddress ?? null,
+            user_agent: input.userAgent ?? null,
+            device_type: input.deviceType ?? null,
+            referrer_url: input.referrerUrl ?? null,
+            submission: formData,
+          },
+        },
+      },
+    );
 
-      if (subError) {
-        console.error('[admission/forms] Failed to store submission:', subError);
-        // Lead was created successfully, don't fail the whole operation
-      }
-
-      return {
-        success: true,
-        submissionId: submission?.id,
-        leadId: lead.id,
-      };
-    } catch (error: any) {
-      if (error?.message?.includes('Duplicate lead') || error?.code === '409') {
+    if (rpcError) {
+      // Phone-unique duplicate → friendly duplicate response (preserves
+      // the previous 409 contract that the route handler relies on).
+      if (
+        rpcError?.message?.toLowerCase()?.includes('duplicate') ||
+        rpcError?.code === '23505'
+      ) {
         return {
           success: false,
-          error: 'An application with this phone number already exists. Our team will contact you.',
+          error:
+            'An application with this phone number already exists. Our team will contact you.',
           isDuplicate: true,
         };
       }
-      console.error('[admission/forms] Submission failed:', error);
-      return { success: false, error: 'Failed to submit application. Please try again.' };
+      console.error(
+        '[admission/forms] capture_admission_lead failed:',
+        rpcError,
+      );
+      return {
+        success: false,
+        error: 'Failed to submit application. Please try again.',
+      };
     }
+
+    const captureResult = rpcData as
+      | {
+          lead_id?: string;
+          is_new_lead?: boolean;
+          was_reactivated?: boolean;
+        }
+      | null
+      | undefined;
+    const leadId = captureResult?.lead_id;
+
+    if (!leadId) {
+      console.error(
+        '[admission/forms] capture_admission_lead returned no lead_id',
+        rpcData,
+      );
+      return {
+        success: false,
+        error: 'Failed to submit application. Please try again.',
+      };
+    }
+
+    // ─── Persist raw form submission row (best-effort) ──────────────────
+    const { data: submission, error: subError } = await supabaseServiceClient
+      .from('admission_form_submissions')
+      .insert({
+        form_id: form.id,
+        lead_id: leadId,
+        institution_id: institutionId,
+        submission_data: formData,
+        ip_address: input.ipAddress,
+        user_agent: input.userAgent,
+        utm_source: input.utmSource,
+        utm_medium: input.utmMedium,
+        utm_campaign: input.utmCampaign,
+        campaign_link_id: input.campaignLinkId ?? null,
+        referrer_url: input.referrerUrl,
+        device_type: input.deviceType,
+      })
+      .select('id')
+      .single();
+
+    if (subError) {
+      console.error(
+        '[admission/forms] Failed to store submission row:',
+        subError,
+      );
+      // Lead is the commercially valuable artifact — do not fail.
+    }
+
+    return {
+      success: true,
+      submissionId: submission?.id,
+      leadId,
+      isNewLead: captureResult?.is_new_lead,
+      wasReactivated: captureResult?.was_reactivated,
+    };
   }
 }
