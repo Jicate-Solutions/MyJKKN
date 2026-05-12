@@ -4,13 +4,17 @@ import type { LeadSource } from '@/types/admission';
 export type CampaignStatus =
   | 'draft' | 'active' | 'paused' | 'completed' | 'archived';
 
+export type CampaignScope = 'institution' | 'global';
+
 export type AttributionMode = 'first' | 'last' | 'any';
 
 export type ChartGranularity = 'day' | 'week' | 'month';
 
 export interface Campaign {
   id: string;
-  institution_id: string;
+  /** Null when `scope === 'global'` — the campaign spans all institutions. */
+  institution_id: string | null;
+  scope: CampaignScope;
   name: string;
   slug: string;
   description: string | null;
@@ -111,7 +115,9 @@ export interface CampaignFilters {
 }
 
 export interface CreateCampaignInput {
-  institution_id: string;
+  /** Required when scope='institution'; must be null/omitted when scope='global'. */
+  institution_id: string | null;
+  scope?: CampaignScope;
   name: string;
   slug?: string;
   description?: string;
