@@ -32,8 +32,14 @@ import {
   useActiveLeadSources,
   FALLBACK_LEAD_SOURCE_LABELS,
 } from '@/hooks/admission/use-active-lead-sources';
+import { usePrograms } from '@/hooks/organization/use-programs';
+import { useAdmissionYears } from '@/hooks/use-admission-years';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import type { LeadSource } from '@/types/admission';
+import {
+  CAMPAIGN_CATEGORIES,
+  type CampaignCategory,
+} from '@/types/admission/campaign';
 
 // Sentinel value used inside the institution <Select> to represent the
 // "All Institutions (Global)" option. Picked because Radix Select rejects
@@ -49,6 +55,12 @@ export default function NewCampaignWizard() {
   );
 
   const [institutionId, setInstitutionId] = useState('');
+  const [category, setCategory] = useState<CampaignCategory>('admission');
+  // Program + admission year only meaningful when category='admission'.
+  // Stored as separate state so switching category away and back keeps
+  // the value, but UI hides them and the service zeros them on save.
+  const [programId, setProgramId] = useState('');
+  const [admissionYearId, setAdmissionYearId] = useState('');
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [source, setSource] = useState<LeadSource>('whatsapp');
@@ -100,6 +112,49 @@ export default function NewCampaignWizard() {
   }, [profile?.institution_id, institutions, institutionId]);
 
   const isGlobal = institutionId === GLOBAL_SCOPE_VALUE;
+  const showAdmissionFields = category === 'admission';
+
+  // Programs cascade off institution. For global campaigns we hide the
+  // cascade entirely (no single institution to filter on). Limit=200 is
+  // generous — admission programs per institution are typically <50.
+  const { data: programsData } = usePrograms({
+    institution_id: !isGlobal && institutionId ? institutionId : undefined,
+    isActive: true,
+    limit: 200,
+  });
+  const programs = programsData?.data ?? [];
+
+  // Admission years cascade off (institution, program). The hook returns
+  // an empty array when either input is missing, so we can render the
+  // <Select> in a disabled placeholder state without conditional logic.
+  const { admissionYears, loading: yearsLoading } = useAdmissionYears(
+    !isGlobal && institutionId ? institutionId : null,
+    programId || null,
+  );
+
+  // When the user changes category away from admission, zero out the
+  // cascade fields so they can't accidentally submit stale values.
+  // (The service also forces them to null, but clearing UI state keeps
+  // the form predictable on category toggle.)
+  useEffect(() => {
+    if (category !== 'admission') {
+      setProgramId('');
+      setAdmissionYearId('');
+    }
+  }, [category]);
+
+  // When institution changes, the program list is now a different set —
+  // a previously-selected program may not belong to the new institution.
+  // Reset to avoid stale FKs at insert time.
+  useEffect(() => {
+    setProgramId('');
+    setAdmissionYearId('');
+  }, [institutionId]);
+
+  // Same cascade — when the program changes, the year list invalidates.
+  useEffect(() => {
+    setAdmissionYearId('');
+  }, [programId]);
 
   const { data: forms } = useCampaignableForms(source);
   const createCampaign = useCreateCampaign();
@@ -122,6 +177,13 @@ export default function NewCampaignWizard() {
     const campaign = await createCampaign.mutateAsync({
       institution_id: isGlobal ? null : institutionId,
       scope: isGlobal ? 'global' : 'institution',
+      category,
+      // The service will force these to null if category !== 'admission'.
+      // We still pass them so a future category-aware update path doesn't
+      // lose the chosen values.
+      program_id: showAdmissionFields && programId ? programId : null,
+      admission_year_id:
+        showAdmissionFields && admissionYearId ? admissionYearId : null,
       name,
       description: description || undefined,
       source,
@@ -258,6 +320,107 @@ export default function NewCampaignWizard() {
                   </SelectContent>
                 </Select>
               </div>
+
+              {/* Category drives whether Program/AdmissionYear are shown.
+                  When category is anything other than 'admission' those
+                  two fields are hidden AND the service forces them to NULL,
+                  matching the DB CHECK constraint. */}
+              <div>
+                <Label>Category *</Label>
+                <Select
+                  value={category}
+                  onValueChange={(v) => setCategory(v as CampaignCategory)}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {CAMPAIGN_CATEGORIES.map((c) => (
+                      <SelectItem key={c.value} value={c.value}>
+                        <div className="flex flex-col">
+                          <span className="font-medium">{c.label}</span>
+                          <span className="text-xs text-muted-foreground">
+                            {c.help}
+                          </span>
+                        </div>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Admission-only cascade. Hidden for event/promotion/etc.
+                  Both fields are optional even within the admission category —
+                  a brand-level admission campaign that spans multiple programs
+                  can leave both unset. */}
+              {showAdmissionFields && (
+                <div className="grid grid-cols-1 gap-3 rounded-md border border-dashed border-muted-foreground/30 bg-muted/20 p-3 sm:grid-cols-2">
+                  <div className="sm:col-span-2 -mb-1">
+                    <p className="text-xs text-muted-foreground">
+                      Optional — leave both blank for a multi-program admission
+                      campaign. Selecting a program will surface its admission
+                      years.
+                    </p>
+                  </div>
+                  <div>
+                    <Label>Program</Label>
+                    <Select
+                      value={programId}
+                      onValueChange={setProgramId}
+                      disabled={isGlobal || !institutionId}
+                    >
+                      <SelectTrigger>
+                        <SelectValue
+                          placeholder={
+                            isGlobal
+                              ? 'Not available for global'
+                              : !institutionId
+                                ? 'Pick an institution first'
+                                : 'Pick a program (optional)'
+                          }
+                        />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {programs.map((p: any) => (
+                          <SelectItem key={p.id} value={p.id}>
+                            {p.display_name ?? p.program_name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label>Admission Year</Label>
+                    <Select
+                      value={admissionYearId}
+                      onValueChange={setAdmissionYearId}
+                      disabled={isGlobal || !programId || yearsLoading}
+                    >
+                      <SelectTrigger>
+                        <SelectValue
+                          placeholder={
+                            yearsLoading
+                              ? 'Loading…'
+                              : !programId
+                                ? 'Pick a program first'
+                                : admissionYears.length === 0
+                                  ? 'No active years'
+                                  : 'Pick an admission year (optional)'
+                          }
+                        />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {admissionYears.map((y) => (
+                          <SelectItem key={y.id} value={y.id}>
+                            {y.admission_year_name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              )}
+
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <Label>Start date</Label>

@@ -6,6 +6,21 @@ export type CampaignStatus =
 
 export type CampaignScope = 'institution' | 'global';
 
+export type CampaignCategory =
+  | 'admission'
+  | 'event'
+  | 'promotion'
+  | 'awareness'
+  | 'other';
+
+export const CAMPAIGN_CATEGORIES: { value: CampaignCategory; label: string; help: string }[] = [
+  { value: 'admission', label: 'Admission', help: 'Acquisition for a specific program / admission year' },
+  { value: 'event',     label: 'Event',     help: 'Promote a one-time event (open day, expo, webinar)' },
+  { value: 'promotion', label: 'Promotion', help: 'Discounts, fee waivers, scholarship offers' },
+  { value: 'awareness', label: 'Awareness', help: 'Brand-building or top-of-funnel reach' },
+  { value: 'other',     label: 'Other',     help: 'Anything that doesn\'t fit the other categories' },
+];
+
 export type AttributionMode = 'first' | 'last' | 'any';
 
 export type ChartGranularity = 'day' | 'week' | 'month';
@@ -15,6 +30,10 @@ export interface Campaign {
   /** Null when `scope === 'global'` — the campaign spans all institutions. */
   institution_id: string | null;
   scope: CampaignScope;
+  category: CampaignCategory;
+  /** Only meaningful when category='admission'. NULL otherwise (enforced by DB CHECK). */
+  program_id: string | null;
+  admission_year_id: string | null;
   name: string;
   slug: string;
   description: string | null;
@@ -118,6 +137,10 @@ export interface CreateCampaignInput {
   /** Required when scope='institution'; must be null/omitted when scope='global'. */
   institution_id: string | null;
   scope?: CampaignScope;
+  category?: CampaignCategory;
+  /** Only valid when category='admission'. Ignored / forced to null otherwise. */
+  program_id?: string | null;
+  admission_year_id?: string | null;
   name: string;
   slug?: string;
   description?: string;

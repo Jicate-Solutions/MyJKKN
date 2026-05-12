@@ -53,12 +53,23 @@ export class CampaignService {
     if (scope === 'global' && input.institution_id) {
       throw new Error('Global campaigns must not specify an institution_id');
     }
+
+    // Enforce the category contract client-side BEFORE hitting the DB,
+    // so users get a friendly error instead of a Postgres CHECK violation.
+    const category = input.category ?? 'admission';
+    const programId = category === 'admission' ? input.program_id ?? null : null;
+    const admissionYearId =
+      category === 'admission' ? input.admission_year_id ?? null : null;
+
     const { data, error } = await this.client()
       .from('admission_campaigns')
       .insert({
         ...input,
         institution_id: scope === 'global' ? null : input.institution_id,
         scope,
+        category,
+        program_id: programId,
+        admission_year_id: admissionYearId,
         slug,
         status: 'draft',
       })
