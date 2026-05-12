@@ -337,12 +337,7 @@ export default function NewCampaignWizard() {
                   <SelectContent>
                     {CAMPAIGN_CATEGORIES.map((c) => (
                       <SelectItem key={c.value} value={c.value}>
-                        <div className="flex flex-col">
-                          <span className="font-medium">{c.label}</span>
-                          <span className="text-xs text-muted-foreground">
-                            {c.help}
-                          </span>
-                        </div>
+                        {c.label}
                       </SelectItem>
                     ))}
                   </SelectContent>
