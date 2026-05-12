@@ -25,6 +25,33 @@
 
 These migrations are the load-bearing structure. Apply via Supabase MCP `apply_migration` for the remote DB AND commit the body to `supabase/migrations/` + mirror to `supabase/setup/*`. Use placeholder timestamp `20260512100000_*` (incrementing the last `*0` digit per task) — adjust to actual deploy time when applied.
 
+### ⚠ Plan Correction Notice (discovered during Task 4 execution)
+
+The project's `user_has_permission` and `role_has_institution_access` functions take a **single argument** (the permission key or institution_id), reading `auth.uid()` internally — NOT the 2-arg form `(auth.uid(), key)` that earlier sections of this plan show in SQL bodies. Applying the 2-arg form fails with `42883 function does not exist`.
+
+**In every SQL block in Tasks 5-9, replace:**
+
+| Plan literal (wrong)                                         | Use instead (correct)                                |
+| ------------------------------------------------------------ | ---------------------------------------------------- |
+| `user_has_permission(auth.uid(), 'admission.campaigns.view')` | `user_has_permission('admission.campaigns.view')`    |
+| `role_has_institution_access(auth.uid(), v_institution_id)`  | `role_has_institution_access(v_institution_id)`      |
+| `role_has_institution_access(auth.uid(), c.institution_id)`  | `role_has_institution_access(c.institution_id)`      |
+
+Additionally, RLS policies and RPC access-guards follow the project's standard shape (see `supabase/setup/03_policies.sql` and `supabase/migrations/20260428_expo_rls_recursion_hotfix.sql`):
+
+```sql
+is_super_admin()
+  OR is_admin()
+  OR (user_has_permission('admission.campaigns.view')
+      AND role_has_institution_access(<institution_id>))
+```
+
+The `is_super_admin() OR is_admin()` super-admin bypass is project-wide convention; omitting it would under-permission super-admins relative to every other admission table. Apply this same shape in:
+- The access-guard at the top of `get_campaign_funnel`, `get_campaign_time_series`, `get_campaigns_compare`, `get_campaigns_overview_stats`, `reconcile_campaign_link_counters`
+- (Already applied correctly in Task 4's RLS policies — commit `7a7a560a6`)
+
+Established by Task 4 review. Don't re-discover.
+
 ### Task 1: Create the three new campaign tables
 
 **Files:**
