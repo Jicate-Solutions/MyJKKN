@@ -34,13 +34,39 @@ export class CampaignService {
   }
 
   static async get(id: string): Promise<Campaign> {
+    // Embed institution / program / admission_year so consumers (detail
+    // page, edit page) can render display names without a separate fetch
+    // round-trip. Supabase returns nested embeds as arrays even for 1:1
+    // FKs — normalize to a single object before returning.
     const { data, error } = await this.client()
       .from('admission_campaigns')
-      .select('*')
+      .select(`
+        *,
+        institution:institutions(id, name),
+        program:programs(id, program_name, display_name),
+        admission_year:admission_years(id, admission_year_name)
+      `)
       .eq('id', id)
       .single();
     if (error) throw error;
-    return data as Campaign;
+
+    const raw = data as Campaign & {
+      institution?: any;
+      program?: any;
+      admission_year?: any;
+    };
+    return {
+      ...raw,
+      institution: Array.isArray(raw.institution)
+        ? raw.institution[0] ?? null
+        : raw.institution ?? null,
+      program: Array.isArray(raw.program)
+        ? raw.program[0] ?? null
+        : raw.program ?? null,
+      admission_year: Array.isArray(raw.admission_year)
+        ? raw.admission_year[0] ?? null
+        : raw.admission_year ?? null,
+    } as Campaign;
   }
 
   static async create(input: CreateCampaignInput): Promise<Campaign> {

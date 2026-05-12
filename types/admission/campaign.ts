@@ -49,6 +49,17 @@ export interface Campaign {
   created_at: string;
   updated_at: string;
   archived_at: string | null;
+  /** Joined display data — populated by CampaignService.get(). */
+  institution?: { id: string; name: string } | null;
+  program?: {
+    id: string;
+    program_name: string;
+    display_name: string | null;
+  } | null;
+  admission_year?: {
+    id: string;
+    admission_year_name: string;
+  } | null;
 }
 
 export interface CampaignLink {

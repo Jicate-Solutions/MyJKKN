@@ -1,7 +1,7 @@
 'use client';
 
 import { useParams, useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
 import Link from 'next/link';
 import {
@@ -80,12 +80,50 @@ export default function CampaignEditPage() {
     isActive: true,
     limit: 200,
   });
-  const programs = programsData?.data ?? [];
+  const programsFromList = programsData?.data ?? [];
 
-  const { admissionYears, loading: yearsLoading } = useAdmissionYears(
-    !isGlobal ? campaign?.institution_id ?? null : null,
-    programId || null,
-  );
+  // Merge the campaign's CURRENTLY-set program into the list — it may
+  // have become inactive since the campaign was created (so the active-
+  // only fetch above would miss it), or paginated out. Without this
+  // merge the Select renders an empty trigger even though programId is
+  // populated, making the user think the fetch failed.
+  const programs = useMemo(() => {
+    if (
+      !campaign?.program ||
+      programsFromList.some((p: any) => p.id === campaign.program?.id)
+    ) {
+      return programsFromList;
+    }
+    return [campaign.program, ...programsFromList];
+  }, [programsFromList, campaign?.program]);
+
+  const { admissionYears: yearsFromList, loading: yearsLoading } =
+    useAdmissionYears(
+      !isGlobal ? campaign?.institution_id ?? null : null,
+      programId || null,
+    );
+
+  // Same merge for admission years — useAdmissionYears filters to
+  // is_active=true, so an archived year that's still on the campaign
+  // would never appear without this.
+  const admissionYears = useMemo(() => {
+    if (
+      !campaign?.admission_year ||
+      yearsFromList.some((y) => y.id === campaign.admission_year?.id)
+    ) {
+      return yearsFromList;
+    }
+    return [
+      {
+        id: campaign.admission_year.id,
+        admission_year_name: campaign.admission_year.admission_year_name,
+        program_start_year: 0,
+        program_end_year: 0,
+        is_active: false,
+      },
+      ...yearsFromList,
+    ];
+  }, [yearsFromList, campaign?.admission_year]);
 
   useEffect(() => {
     if (category !== 'admission') {
@@ -137,7 +175,7 @@ export default function CampaignEditPage() {
 
   return (
     <PermissionGuard module="admission.campaigns" action="edit">
-      <div className="mx-auto max-w-3xl space-y-4 p-6">
+      <div className="mx-auto space-y-4 p-6">
         <Link
           href={`/admission/marketing/campaigns/${id}`}
           className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
@@ -181,7 +219,7 @@ export default function CampaignEditPage() {
                   value={
                     campaign.scope === 'global'
                       ? 'All institutions'
-                      : campaign.institution_id ?? '—'
+                      : campaign.institution?.name ?? '—'
                   }
                   disabled
                   className="truncate"

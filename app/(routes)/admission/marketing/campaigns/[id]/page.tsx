@@ -245,9 +245,12 @@ export default function CampaignDetailPage() {
                   ) : (
                     <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
                       <MapPin className="size-3.5" />
-                      Institution-scoped
+                      {campaign.institution?.name ?? 'Institution-scoped'}
                     </span>
                   )}
+                  <span className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                    {campaign.category}
+                  </span>
                 </div>
                 <div>
                   <h1 className="text-3xl font-bold tracking-tight">
@@ -285,6 +288,31 @@ export default function CampaignDetailPage() {
                     </span>
                   )}
                 </div>
+                {/* Program / Admission Year — only shown when the
+                    admission category fields are populated. Hidden for
+                    event/promotion/awareness/other categories where
+                    these can't be set. */}
+                {(campaign.program || campaign.admission_year) && (
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+                    {campaign.program && (
+                      <span className="text-muted-foreground">
+                        Program:{' '}
+                        <span className="font-medium text-foreground">
+                          {campaign.program.display_name ??
+                            campaign.program.program_name}
+                        </span>
+                      </span>
+                    )}
+                    {campaign.admission_year && (
+                      <span className="text-muted-foreground">
+                        Admission Year:{' '}
+                        <span className="font-medium text-foreground">
+                          {campaign.admission_year.admission_year_name}
+                        </span>
+                      </span>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* Actions */}
