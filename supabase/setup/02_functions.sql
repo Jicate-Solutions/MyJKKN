@@ -14038,3 +14038,106 @@ DROP TRIGGER IF EXISTS trg_link_click_to_submission ON admission_form_submission
 CREATE TRIGGER trg_link_click_to_submission
 AFTER INSERT ON admission_form_submissions
 FOR EACH ROW EXECUTE FUNCTION link_click_to_submission();
+
+-- ──────────────────────────────────────────────────────────────
+-- Campaign attribution RLS policies (added 2026-05-12, see migration 20260512100004_d)
+-- ──────────────────────────────────────────────────────────────
+-- The SECURITY DEFINER helper _campaign_link_institution_id avoids the
+-- 42P17 transitive-recursion loop that would otherwise happen when
+-- admission_campaign_links policies query admission_campaigns (which
+-- has its own policies). Pattern mirrored from _expo_event_institution_id.
+
+CREATE OR REPLACE FUNCTION _campaign_link_institution_id(p_link_id uuid)
+RETURNS uuid
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT c.institution_id
+    FROM admission_campaign_links l
+    JOIN admission_campaigns c ON c.id = l.campaign_id
+   WHERE l.id = p_link_id;
+$$;
+
+GRANT EXECUTE ON FUNCTION _campaign_link_institution_id(uuid) TO authenticated;
+
+ALTER TABLE admission_campaigns            ENABLE ROW LEVEL SECURITY;
+ALTER TABLE admission_campaign_links       ENABLE ROW LEVEL SECURITY;
+ALTER TABLE admission_campaign_link_clicks ENABLE ROW LEVEL SECURITY;
+
+-- ──── admission_campaigns ────
+DROP POLICY IF EXISTS p_campaigns_select ON admission_campaigns;
+CREATE POLICY p_campaigns_select ON admission_campaigns FOR SELECT TO authenticated USING (
+  is_super_admin() OR is_admin()
+  OR (user_has_permission('admission.campaigns.view')
+      AND role_has_institution_access(institution_id))
+);
+
+DROP POLICY IF EXISTS p_campaigns_insert ON admission_campaigns;
+CREATE POLICY p_campaigns_insert ON admission_campaigns FOR INSERT TO authenticated WITH CHECK (
+  is_super_admin() OR is_admin()
+  OR (user_has_permission('admission.campaigns.create')
+      AND role_has_institution_access(institution_id))
+);
+
+DROP POLICY IF EXISTS p_campaigns_update ON admission_campaigns;
+CREATE POLICY p_campaigns_update ON admission_campaigns FOR UPDATE TO authenticated
+  USING (
+    is_super_admin() OR is_admin()
+    OR (user_has_permission('admission.campaigns.edit')
+        AND role_has_institution_access(institution_id))
+  )
+  WITH CHECK (
+    is_super_admin() OR is_admin()
+    OR (user_has_permission('admission.campaigns.edit')
+        AND role_has_institution_access(institution_id))
+  );
+
+-- No DELETE policy — soft-archive only via UPDATE archived_at
+
+-- ──── admission_campaign_links ────
+DROP POLICY IF EXISTS p_links_select ON admission_campaign_links;
+CREATE POLICY p_links_select ON admission_campaign_links FOR SELECT TO authenticated USING (
+  is_super_admin() OR is_admin()
+  OR (user_has_permission('admission.campaigns.view')
+      AND role_has_institution_access(_campaign_link_institution_id(id)))
+);
+
+DROP POLICY IF EXISTS p_links_insert ON admission_campaign_links;
+CREATE POLICY p_links_insert ON admission_campaign_links FOR INSERT TO authenticated WITH CHECK (
+  is_super_admin() OR is_admin()
+  OR (user_has_permission('admission.campaigns.create')
+      AND EXISTS (
+        SELECT 1 FROM admission_campaigns c
+         WHERE c.id = campaign_id
+           AND role_has_institution_access(c.institution_id)
+      ))
+);
+
+DROP POLICY IF EXISTS p_links_update ON admission_campaign_links;
+CREATE POLICY p_links_update ON admission_campaign_links FOR UPDATE TO authenticated
+  USING (
+    is_super_admin() OR is_admin()
+    OR (user_has_permission('admission.campaigns.edit')
+        AND role_has_institution_access(_campaign_link_institution_id(id)))
+  )
+  WITH CHECK (
+    is_super_admin() OR is_admin()
+    OR (user_has_permission('admission.campaigns.edit')
+        AND role_has_institution_access(_campaign_link_institution_id(id)))
+  );
+
+-- ──── admission_campaign_link_clicks ────
+-- SELECT only for authenticated users; INSERT happens via service-role
+-- from the /c/[token] route handler (anonymous public-side action).
+DROP POLICY IF EXISTS p_clicks_select ON admission_campaign_link_clicks;
+CREATE POLICY p_clicks_select ON admission_campaign_link_clicks FOR SELECT TO authenticated USING (
+  is_super_admin() OR is_admin()
+  OR (user_has_permission('admission.campaigns.view')
+      AND EXISTS (
+        SELECT 1 FROM admission_campaigns c
+         WHERE c.id = campaign_id
+           AND role_has_institution_access(c.institution_id)
+      ))
+);
