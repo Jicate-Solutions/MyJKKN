@@ -80,9 +80,18 @@ export class CampaignService {
   }
 
   static async update(id: string, patch: UpdateCampaignInput): Promise<Campaign> {
+    // If category is being changed (or is in the patch alongside
+    // program/admission_year), enforce the same contract as create():
+    // program_id and admission_year_id are only valid when category='admission'.
+    // For any other category, force them to NULL so the DB CHECK doesn't reject.
+    const next: UpdateCampaignInput & Record<string, unknown> = { ...patch };
+    if (next.category !== undefined && next.category !== 'admission') {
+      next.program_id = null;
+      next.admission_year_id = null;
+    }
     const { data, error } = await this.client()
       .from('admission_campaigns')
-      .update({ ...patch, updated_at: new Date().toISOString() })
+      .update({ ...next, updated_at: new Date().toISOString() })
       .eq('id', id)
       .select()
       .single();

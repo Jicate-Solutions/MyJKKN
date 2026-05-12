@@ -154,7 +154,11 @@ export interface CreateCampaignInput {
 
 export interface UpdateCampaignInput {
   name?: string;
-  description?: string;
+  description?: string | null;
+  category?: CampaignCategory;
+  /** Only valid when (resulting) category='admission'. Service forces null otherwise. */
+  program_id?: string | null;
+  admission_year_id?: string | null;
   starts_at?: string | null;
   ends_at?: string | null;
   budget_inr?: number | null;
