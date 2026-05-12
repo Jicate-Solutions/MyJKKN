@@ -232,6 +232,12 @@ const config: ModuleNavConfig = {
           matchPaths: ['/admission/marketing/campaigns'],
         },
         {
+          label: 'Automations',
+          icon: 'Workflow',
+          href: '/admission/marketing/automations',
+          matchPaths: ['/admission/marketing/automations'],
+        },
+        {
           label: 'Chat',
           icon: 'MessageSquare',
           href: '/admission/marketing/chat',

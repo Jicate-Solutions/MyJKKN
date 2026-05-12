@@ -196,9 +196,13 @@ const PAGE_ENRICHMENTS: Record<string, { keywords: string[]; description: string
     keywords: ['whatsapp', 'message', 'chat', 'whatsapp marketing'],
     description: 'WhatsApp marketing chat and messaging'
   },
-  '/admission/marketing/campaigns/monitoring': {
-    keywords: ['campaign', 'marketing campaign', 'sms campaign', 'email campaign'],
-    description: 'Monitor active marketing campaigns'
+  '/admission/marketing/campaigns': {
+    keywords: ['campaign', 'marketing campaign', 'acquisition', 'attribution', 'funnel'],
+    description: 'Acquisition campaigns with per-link attribution analytics'
+  },
+  '/admission/marketing/automations/monitoring': {
+    keywords: ['automation', 'drip campaign', 'sequence', 'sms campaign', 'email campaign'],
+    description: 'Monitor active marketing automations and drip sequences'
   },
   '/admission/marketing/expos': {
     keywords: ['expo', 'exhibition', 'education fair', 'campus visit'],

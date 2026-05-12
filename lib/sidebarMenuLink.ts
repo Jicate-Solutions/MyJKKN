@@ -419,9 +419,10 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // gate at all and showed to every authenticated user (including counselor
   // roles whose explicit admission.marketing.view = false).
   '/admission/marketing': 'admission.marketing.view',
-  '/admission/marketing/campaigns/monitoring': 'admission.marketing.view',
-  '/admission/marketing/campaigns/roi': 'admission.marketing.view',
-  '/admission/marketing/campaigns/segments': 'admission.marketing.view',
+  '/admission/marketing/campaigns': 'admission.campaigns.view',
+  '/admission/marketing/automations/monitoring': 'admission.marketing.view',
+  '/admission/marketing/automations/roi': 'admission.marketing.view',
+  '/admission/marketing/automations/segments': 'admission.marketing.view',
   '/admission/marketing/chat': 'admission.marketing.chat.view',
   '/admission/marketing/chat/performance': 'admission.marketing.chat.view',
   '/admission/marketing/chat/settings': 'admission.marketing.chat.manage',
@@ -1022,19 +1023,24 @@ export function GetPages(pathname: string): MenuGroup[] {
           icon: Megaphone,
           submenus: [
             {
-              href: '/admission/marketing/campaigns/monitoring',
-              label: 'Campaign Monitor',
-              active: pathname === '/admission/marketing/campaigns/monitoring'
+              href: '/admission/marketing/campaigns',
+              label: 'Campaigns',
+              active: pathname.startsWith('/admission/marketing/campaigns')
             },
             {
-              href: '/admission/marketing/campaigns/roi',
-              label: 'Campaign ROI',
-              active: pathname === '/admission/marketing/campaigns/roi'
+              href: '/admission/marketing/automations/monitoring',
+              label: 'Automation Monitor',
+              active: pathname === '/admission/marketing/automations/monitoring'
             },
             {
-              href: '/admission/marketing/campaigns/segments',
+              href: '/admission/marketing/automations/roi',
+              label: 'Automation ROI',
+              active: pathname === '/admission/marketing/automations/roi'
+            },
+            {
+              href: '/admission/marketing/automations/segments',
               label: 'Segments',
-              active: pathname === '/admission/marketing/campaigns/segments'
+              active: pathname === '/admission/marketing/automations/segments'
             },
             {
               href: '/admission/marketing/chat',
