@@ -11522,10 +11522,13 @@ GRANT EXECUTE ON FUNCTION fn_notification_is_for_user(JSONB, UUID) TO authentica
 -- LeadService.createLead. SECURITY DEFINER + internal authorization
 -- check; service-role callers (auth.uid() IS NULL) bypass the check
 -- since they auth upstream via X-API-Key.
--- Returns: jsonb { lead_id, capture_id, action: created|merged, reactivated }
+-- Returns: jsonb { lead_id, capture_id, action: created|merged, reactivated, attributed_link }
 -- Companion table: admission_lead_source_captures
 -- Verified live with smoke test 2026-04-27: phone-format normalization
 -- merged "+919000000000" and "900-000-0000" onto the same lead_id.
+-- 2026-05-12 (Task 5): extended to accept soft-validated campaign_link_id
+-- in p_capture; Task 3 trigger trg_sync_lead_campaign_attribution handles
+-- first/last denormalization onto admission_leads + capture_count bump.
 -- =====================================================
 CREATE OR REPLACE FUNCTION public.capture_admission_lead(
   p_lead    JSONB,
@@ -11537,16 +11540,17 @@ SECURITY DEFINER
 SET search_path = public
 AS $$
 DECLARE
-  v_institution_id UUID;
-  v_phone          TEXT;
-  v_normalized     TEXT;
-  v_existing       public.admission_leads%ROWTYPE;
-  v_new            public.admission_leads%ROWTYPE;
-  v_lead_id        UUID;
-  v_capture_id     UUID;
-  v_action         TEXT;
-  v_reactivated    BOOLEAN := FALSE;
-  v_user_id        UUID;
+  v_institution_id   UUID;
+  v_phone            TEXT;
+  v_normalized       TEXT;
+  v_existing         public.admission_leads%ROWTYPE;
+  v_new              public.admission_leads%ROWTYPE;
+  v_lead_id          UUID;
+  v_capture_id       UUID;
+  v_action           TEXT;
+  v_reactivated      BOOLEAN := FALSE;
+  v_user_id          UUID;
+  v_campaign_link_id UUID;
 BEGIN
   IF auth.uid() IS NOT NULL
      AND NOT (
@@ -11678,11 +11682,22 @@ BEGIN
     VALUES (v_lead_id, NULL, 'new'::public.funnel_stage, v_user_id, NULL, now());
   END IF;
 
+  v_campaign_link_id := NULLIF(p_capture->>'campaign_link_id', '')::uuid;
+
+  -- Soft-validate: invalid/inactive link drops attribution but keeps the lead
+  IF v_campaign_link_id IS NOT NULL
+     AND NOT EXISTS (
+       SELECT 1 FROM public.admission_campaign_links
+        WHERE id = v_campaign_link_id AND is_active = true
+     ) THEN
+    v_campaign_link_id := NULL;
+  END IF;
+
   INSERT INTO public.admission_lead_source_captures (
     lead_id, institution_id, source, source_detail,
     captured_at, captured_by, expo_event_id, stall_id,
     utm_source, utm_medium, utm_campaign, referrer_id,
-    raw_payload, created_by
+    raw_payload, created_by, campaign_link_id
   ) VALUES (
     v_lead_id,
     v_institution_id,
@@ -11697,15 +11712,17 @@ BEGIN
     NULLIF(p_capture->>'utm_campaign', ''),
     NULLIF(p_capture->>'referrer_id', '')::UUID,
     COALESCE(p_capture->'raw_payload', '{}'::JSONB),
-    v_user_id
+    v_user_id,
+    v_campaign_link_id
   )
   RETURNING id INTO v_capture_id;
 
   RETURN jsonb_build_object(
-    'lead_id',     v_lead_id,
-    'capture_id',  v_capture_id,
-    'action',      v_action,
-    'reactivated', v_reactivated
+    'lead_id',          v_lead_id,
+    'capture_id',       v_capture_id,
+    'action',           v_action,
+    'reactivated',      v_reactivated,
+    'attributed_link',  v_campaign_link_id
   );
 END;
 $$;
@@ -11714,7 +11731,7 @@ REVOKE ALL ON FUNCTION public.capture_admission_lead(JSONB, JSONB) FROM PUBLIC, 
 GRANT EXECUTE ON FUNCTION public.capture_admission_lead(JSONB, JSONB) TO authenticated, service_role;
 
 COMMENT ON FUNCTION public.capture_admission_lead(JSONB, JSONB) IS
-  'Atomic capture entry point for admission leads. Either creates a new lead or locks an existing matching one and appends a source-capture row. Returns {lead_id, capture_id, action: created|merged, reactivated}.';
+  'Atomic capture entry point for admission leads. Either creates a new lead or locks an existing matching one and appends a source-capture row. Accepts optional campaign_link_id (soft-validated). Returns {lead_id, capture_id, action: created|merged, reactivated, attributed_link}.';
 
 -- ================================================================================
 -- SECTION: ATTENTION BAR — Layer 2 State-Query Functions
