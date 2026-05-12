@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { toast } from 'sonner';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from '@/components/ui/dialog';
@@ -11,10 +12,17 @@ import { Label } from '@/components/ui/label';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
+import { Badge } from '@/components/ui/badge';
 import { useAddMapping, type SchemeFilters } from '@/hooks/bos/use-bos-course-scheme';
 import { useBosCourses } from '@/hooks/bos/use-bos-courses';
 import { COURSE_GROUP_VALUES } from '@/lib/services/bos/courses-schemas';
-import type { BosCourseMaster } from '@/types/bos-courses';
+import type { BosCourseMaster, BosCourseMappingDetailed } from '@/types/bos-courses';
+
+// "UBA-1" → "Semester 1", "UPH-5" → "Semester 5"
+function semesterLabel(code: string): string {
+  const n = code.match(/-(\d+)$/)?.[1];
+  return n ? `Semester ${n}` : `Semester ${code}`;
+}
 
 interface Props {
   open: boolean;
@@ -30,6 +38,7 @@ export function AddCourseDialog({ open, onOpenChange, semester, filters, institu
   const [courseGroup, setCourseGroup] = useState('');
   const [courseOrder, setCourseOrder] = useState('');
   const addMapping = useAddMapping();
+  const qc = useQueryClient();
 
   const { data: coursesData } = useBosCourses(
     open && search.length >= 2
@@ -58,7 +67,48 @@ export function AddCourseDialog({ open, onOpenChange, semester, filters, institu
         course_group: courseGroup && courseGroup !== 'none' ? courseGroup : undefined,
         course_order: courseOrder ? Number(courseOrder) : undefined,
       });
-      toast.success(`${selected.course_code} added to Semester ${semester}`);
+
+      // Immediately reflect in the table — optimistic entry uses selected course data.
+      // The background refetch (triggered by invalidateQueries in useAddMapping.onSuccess)
+      // will replace this with the server-confirmed row.
+      const optimistic: BosCourseMappingDetailed = {
+        id: `__opt_${Date.now()}`,
+        institutions_id: '',
+        program_id: null,
+        course_id: selected.id ?? '',
+        batch_id: null,
+        institution_code: institutionCode,
+        program_code: filters.program_code,
+        course_code: selected.course_code,
+        batch_code: filters.batch_code ?? null,
+        course_group: (courseGroup && courseGroup !== 'none' ? courseGroup : null) as BosCourseMappingDetailed['course_group'],
+        semester_code: semester,
+        course_order: courseOrder ? Number(courseOrder) : null,
+        regulation_code: filters.regulation_code,
+        is_active: true,
+        mapping_status: 'Active',
+        created_at: new Date().toISOString(),
+        course: {
+          course_code:        selected.course_code,
+          course_name:        selected.course_name ?? selected.course_title ?? '',
+          course_category:    selected.course_category,
+          course_type:        selected.course_type,
+          course_part_master: selected.course_part_master,
+          credit:             selected.credit,
+          exam_duration:      selected.exam_duration,
+          theory_hours:       selected.theory_hours,
+          practical_hours:    selected.practical_hours,
+          internal_max_mark:  selected.internal_max_mark,
+          external_max_mark:  selected.external_max_mark,
+          total_max_mark:     selected.total_max_mark,
+        },
+      };
+      qc.setQueryData<{ data: BosCourseMappingDetailed[] }>(
+        ['bos', 'course-mapping', filters],
+        (old) => old ? { ...old, data: [...old.data, optimistic] } : old,
+      );
+
+      toast.success(`${selected.course_code} added to ${semesterLabel(semester)}`);
       onOpenChange(false);
       reset();
     } catch (e) {
@@ -70,10 +120,16 @@ export function AddCourseDialog({ open, onOpenChange, semester, filters, institu
     <Dialog open={open} onOpenChange={(v) => { onOpenChange(v); if (!v) reset(); }}>
       <DialogContent className='sm:max-w-lg'>
         <DialogHeader>
-          <DialogTitle>Add Course to Semester {semester}</DialogTitle>
+          <DialogTitle className='flex items-center gap-2'>
+            Add Course
+            <Badge variant='secondary' className='font-mono text-xs'>
+              {semesterLabel(semester)}
+            </Badge>
+          </DialogTitle>
         </DialogHeader>
 
         <div className='space-y-4 py-2'>
+          {/* Course search */}
           <div className='space-y-1'>
             <Label htmlFor='add-course-search' className='text-xs'>Course</Label>
             <Input
@@ -109,7 +165,7 @@ export function AddCourseDialog({ open, onOpenChange, semester, filters, institu
 
           <div className='grid grid-cols-2 gap-3'>
             <div className='space-y-1'>
-              <Label htmlFor='add-course-group' className='text-xs'>Course Group (optional)</Label>
+              <Label className='text-xs'>Course Group (optional)</Label>
               <Select value={courseGroup} onValueChange={setCourseGroup}>
                 <SelectTrigger><SelectValue placeholder='—' /></SelectTrigger>
                 <SelectContent>
@@ -121,9 +177,8 @@ export function AddCourseDialog({ open, onOpenChange, semester, filters, institu
               </Select>
             </div>
             <div className='space-y-1'>
-              <Label htmlFor='add-course-order' className='text-xs'>Order (optional)</Label>
+              <Label className='text-xs'>Order (optional)</Label>
               <Input
-                id='add-course-order'
                 type='number' min={1}
                 value={courseOrder}
                 onChange={(e) => setCourseOrder(e.target.value)}
@@ -136,7 +191,7 @@ export function AddCourseDialog({ open, onOpenChange, semester, filters, institu
         <DialogFooter>
           <Button variant='outline' onClick={() => { onOpenChange(false); reset(); }}>Cancel</Button>
           <Button onClick={handleSubmit} disabled={!selected || addMapping.isPending}>
-            {addMapping.isPending ? 'Adding…' : 'Add Course'}
+            {addMapping.isPending ? 'Adding…' : `Add to ${semesterLabel(semester)}`}
           </Button>
         </DialogFooter>
       </DialogContent>

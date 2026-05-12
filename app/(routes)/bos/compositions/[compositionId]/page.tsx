@@ -14,8 +14,10 @@ import {
   Phone,
   Plus,
   Trash2,
+  GraduationCap,
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
+import { useQuery } from '@tanstack/react-query';
 
 import { PageHeader } from '@/components/page-header';
 import { Button } from '@/components/ui/button';
@@ -24,9 +26,13 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Separator } from '@/components/ui/separator';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select';
 import { useBosComposition } from '@/hooks/bos/use-bos-compositions';
 import { useBosMembersByComposition, useRemoveBosMember } from '@/hooks/bos/use-bos-members';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useInstitutionContext } from '@/hooks/use-institution-context';
 import {
   BosMember,
   BosMemberType,
@@ -34,11 +40,22 @@ import {
 import { logger } from '@/lib/utils/enhanced-logger';
 import { AddMemberDialog } from '../_components/add-member-dialog';
 import { BoardProgrammesCard } from '../../_components/board-programmes-card';
+import { ProgrammeOutcomesEditor } from '../../taxonomy/_components/programme-outcomes-editor';
+
+interface Regulation {
+  id: string;
+  title: string;
+  regulation_year: string;
+  regulation_code: string;
+}
 
 // ── Member type display order ─────────────────────────────────────────────────
 
 const MEMBER_GROUPS: { type: BosMemberType; label: string }[] = [
+  { type: 'principal',          label: 'Principal' },
   { type: 'chairman',           label: 'Chairman' },
+  { type: 'hod',                label: 'Head of Department' },
+  { type: 'facilitator',        label: 'Facilitators' },
   { type: 'university_nominee', label: 'University Nominees' },
   { type: 'internal_member',    label: 'Internal Members' },
   { type: 'industry_expert',    label: 'Industry Experts' },
@@ -120,7 +137,45 @@ export default function CompositionDetailPage({ params }: CompositionDetailPageP
   const [addDialogOpen, setAddDialogOpen] = useState(false);
 
   const canEdit = isSuperAdmin || canAccess('academic.bos-compositions', 'edit');
+
+  // Resolve all sibling institution IDs (needed for CAS Aided+Self programme lookup).
+  const institutionCtx = useInstitutionContext();
+  const allInstitutionIds: string[] = institutionCtx.data?.myjkkn_institution_ids?.length
+    ? institutionCtx.data.myjkkn_institution_ids
+    : composition?.institutions_id ? [composition.institutions_id] : [];
+
   const isLoading = loadingComposition || loadingMembers;
+
+  const [selectedRegulationId, setSelectedRegulationId] = useState('');
+
+  // Regulations for this institution
+  const { data: regulations = [], isLoading: loadingRegs } = useQuery<Regulation[]>({
+    queryKey: ['bos', 'regulations', composition?.institutions_id],
+    queryFn: async () => {
+      const res = await fetch(`/api/bos/regulations?institutionId=${composition!.institutions_id}`);
+      if (!res.ok) return [];
+      const json = await res.json();
+      return json.data ?? [];
+    },
+    enabled: !!composition?.institutions_id,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  // Taxonomy assignments — only regulations with a taxonomy can have PO/PSO
+  const { data: taxonomyAssignments = [] } = useQuery<{ regulation_id: string }[]>({
+    queryKey: ['bos', 'taxonomy-assignments', composition?.institutions_id],
+    queryFn: async () => {
+      const res = await fetch(`/api/bos/taxonomy?institutionsId=${composition!.institutions_id}`);
+      if (!res.ok) return [];
+      const json = await res.json();
+      return json.data ?? [];
+    },
+    enabled: !!composition?.institutions_id,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const assignedRegIds = new Set(taxonomyAssignments.map((a) => a.regulation_id));
+  const regulationsWithTaxonomy = regulations.filter((r) => assignedRegIds.has(r.id));
 
   const handleRemoveMember = async (memberId: string) => {
     try {
@@ -225,6 +280,10 @@ export default function CompositionDetailPage({ params }: CompositionDetailPageP
             )}
           </TabsTrigger>
           <TabsTrigger value='programmes'>Programmes</TabsTrigger>
+          <TabsTrigger value='outcomes'>
+            <GraduationCap className='h-3.5 w-3.5 mr-1.5' />
+            Outcomes (PO/PSO)
+          </TabsTrigger>
         </TabsList>
 
         {/* Members tab */}
@@ -290,12 +349,59 @@ export default function CompositionDetailPage({ params }: CompositionDetailPageP
             <BoardProgrammesCard
               boardId={composition.board_id}
               institutionsId={composition.institutions_id}
+              allInstitutionIds={allInstitutionIds}
               canEdit={canEdit}
             />
           ) : (
             <p className='text-sm text-muted-foreground text-center py-8'>
               Institution not linked to this composition.
             </p>
+          )}
+        </TabsContent>
+
+        {/* Outcomes (PO/PSO) tab */}
+        <TabsContent value='outcomes' className='space-y-4'>
+          {loadingRegs ? (
+            <Skeleton className='h-9 w-56' />
+          ) : regulationsWithTaxonomy.length === 0 ? (
+            <div className='flex flex-col items-center gap-3 py-12 border rounded-md border-dashed text-center'>
+              <GraduationCap className='h-8 w-8 text-muted-foreground/40' />
+              <p className='text-sm text-muted-foreground'>
+                No regulations with taxonomy configured for this institution.
+              </p>
+              <Button variant='outline' size='sm' onClick={() => router.push('/bos/taxonomy')}>
+                Configure in Taxonomy →
+              </Button>
+            </div>
+          ) : (
+            <>
+              <div className='flex items-center gap-3'>
+                <span className='text-sm font-medium shrink-0'>Regulation</span>
+                <Select value={selectedRegulationId} onValueChange={setSelectedRegulationId}>
+                  <SelectTrigger className='w-[260px]'>
+                    <SelectValue placeholder='Select regulation…' />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {regulationsWithTaxonomy.map((r) => (
+                      <SelectItem key={r.id} value={r.id}>
+                        {r.regulation_code} — {r.title}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              {selectedRegulationId ? (
+                <ProgrammeOutcomesEditor
+                  regulationId={selectedRegulationId}
+                  boardId={composition.board_id}
+                  institutionsId={composition.institutions_id}
+                />
+              ) : (
+                <p className='text-sm text-muted-foreground text-center py-6'>
+                  Select a regulation above to view and edit POs/PSOs.
+                </p>
+              )}
+            </>
           )}
         </TabsContent>
       </Tabs>

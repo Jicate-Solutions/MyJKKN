@@ -18,12 +18,13 @@ export function SemesterTable({
 
   const totals = mappings.reduce(
     (acc, m) => {
-      acc.credits += m.course.credit ?? 0;
-      acc.hours += (m.course.theory_hours ?? 0) + (m.course.practical_hours ?? 0);
-      acc.marks += m.course.total_max_mark ?? 0;
+      acc.credits  += m.course.credit         ?? 0;
+      acc.theory   += m.course.theory_hours   ?? 0;
+      acc.practical += m.course.practical_hours ?? 0;
+      acc.marks    += m.course.total_max_mark  ?? 0;
       return acc;
     },
-    { credits: 0, hours: 0, marks: 0 },
+    { credits: 0, theory: 0, practical: 0, marks: 0 },
   );
 
   return (
@@ -40,6 +41,7 @@ export function SemesterTable({
               <th className='p-2 text-right'>Credits</th>
               <th className='p-2 text-right'>L</th>
               <th className='p-2 text-right'>P</th>
+              <th className='p-2 text-right'>L+P</th>
               <th className='p-2 text-right'>CIA</th>
               <th className='p-2 text-right'>ESE</th>
               <th className='p-2 text-right'>Total</th>
@@ -48,7 +50,9 @@ export function SemesterTable({
           </thead>
           <tbody>
             {mappings.map((m) => {
-              const locked = isMappingLocked(m);
+              const locked = isMappingLocked(m) || m.course.course_status?.toLowerCase() === 'locked';
+              const l = m.course.theory_hours   ?? 0;
+              const p = m.course.practical_hours ?? 0;
               return (
                 <tr key={m.id} className={locked ? 'border-t bg-muted/40' : 'border-t'}>
                   <td className='p-2'>
@@ -57,20 +61,17 @@ export function SemesterTable({
                   </td>
                   <td className='p-2 font-mono'>{m.course.course_code}</td>
                   <td className='p-2'>{m.course.course_name}</td>
-                  <td className='p-2 text-right'>{m.course.exam_duration}</td>
-                  <td className='p-2 text-right'>{Number(m.course.credit ?? 0).toFixed(2)}</td>
-                  <td className='p-2 text-right'>{m.course.theory_hours}</td>
-                  <td className='p-2 text-right'>{m.course.practical_hours || '-'}</td>
+                  <td className='p-2 text-right'>{m.course.exam_duration ?? '-'}</td>
+                  <td className='p-2 text-right'>{m.course.credit != null ? Number(m.course.credit) : '-'}</td>
+                  <td className='p-2 text-right'>{m.course.theory_hours ?? '-'}</td>
+                  <td className='p-2 text-right'>{m.course.practical_hours ?? '-'}</td>
+                  <td className='p-2 text-right'>{l + p}</td>
                   <td className='p-2 text-right'>{m.course.internal_max_mark}</td>
                   <td className='p-2 text-right'>{m.course.external_max_mark}</td>
                   <td className='p-2 text-right font-semibold'>{m.course.total_max_mark}</td>
                   {editMode && (
                     <td className='p-2'>
-                      {locked ? (
-                        <span title='Locked — ratified mapping cannot be removed'>
-                          <Lock className='h-3.5 w-3.5 text-muted-foreground' />
-                        </span>
-                      ) : (
+                      {locked ? null : (
                         <Button
                           variant='ghost' size='icon' className='h-7 w-7 text-red-600'
                           onClick={async () => {
@@ -93,8 +94,10 @@ export function SemesterTable({
             })}
             <tr className='border-t bg-muted/30 font-semibold'>
               <td colSpan={4} className='p-2 text-right'>Totals</td>
-              <td className='p-2 text-right'>{totals.credits.toFixed(2)}</td>
-              <td colSpan={2} className='p-2 text-right'>{totals.hours} hrs</td>
+              <td className='p-2 text-right'>{totals.credits}</td>
+              <td className='p-2 text-right'>{totals.theory}</td>
+              <td className='p-2 text-right'>{totals.practical}</td>
+              <td className='p-2 text-right'>{totals.theory + totals.practical}</td>
               <td colSpan={2} className='p-2 text-right'></td>
               <td className='p-2 text-right'>{totals.marks}</td>
               {editMode && <td></td>}
@@ -102,7 +105,7 @@ export function SemesterTable({
           </tbody>
         </table>
       </div>
-      {editMode && (
+      {(editMode || mappings.length === 0) && (
         <Button variant='outline' size='sm' onClick={() => onAddToSemester(semester)}>
           <Plus className='mr-2 h-4 w-4' /> Add course to Semester {semester}
         </Button>

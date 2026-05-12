@@ -4,9 +4,10 @@ import { ColumnDef } from '@tanstack/react-table';
 import { Lock } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import type { BosCourseMaster } from '@/types/bos-courses';
-import { CoursesRowActions } from './courses-row-actions';
+import { CoursesRowActions, CoursesPdfDownloadButton } from './courses-row-actions';
 
-export const coursesColumns: ColumnDef<BosCourseMaster>[] = [
+export function createCoursesColumns(institutionName?: string): ColumnDef<BosCourseMaster>[] {
+  return [
   {
     accessorKey: 'course_code',
     header: 'Code',
@@ -34,22 +35,26 @@ export const coursesColumns: ColumnDef<BosCourseMaster>[] = [
     accessorKey: 'credit',
     header: 'Credits',
     cell: ({ row }) => {
-      // Hide zero/null credits — show '—' so the column reads cleanly.
-      const v = row.original.credit;
-      if (v === null || v === undefined || Number(v) === 0) {
+      // COE may return the field as 'credits' (plural) — fall back to it.
+      const v = row.original.credit ?? row.original.credits;
+      const n = Number(v);
+      if (v === null || v === undefined || isNaN(n) || n === 0) {
         return <span className='text-xs text-muted-foreground'>—</span>;
       }
-      return Number(v).toFixed(2);
+      return n % 1 === 0 ? String(n) : n.toFixed(2);
     },
   },
   {
     id: 'hours',
     header: 'L+P',
     cell: ({ row }) => {
-      const t = row.original.theory_hours ?? 0;
-      const p = row.original.practical_hours ?? 0;
-      if (t === 0 && p === 0) return <span className='text-xs text-muted-foreground'>—</span>;
-      return `${t}+${p}`;
+      // Coerce explicitly — COE occasionally returns hours as strings.
+      const t = Number(row.original.theory_hours ?? 0);
+      const p = Number(row.original.practical_hours ?? 0);
+      const tSafe = isNaN(t) ? 0 : t;
+      const pSafe = isNaN(p) ? 0 : p;
+      if (tSafe === 0 && pSafe === 0) return <span className='text-xs text-muted-foreground'>—</span>;
+      return `${tSafe}+${pSafe}`;
     },
   },
   {
@@ -67,7 +72,7 @@ export const coursesColumns: ColumnDef<BosCourseMaster>[] = [
     id: 'status',
     header: 'Status',
     cell: ({ row }) => {
-      if (row.original.course_status === 'Locked') {
+      if (row.original.course_status?.toLowerCase() === 'locked') {
         return (
           <Badge variant='destructive' className='gap-1'>
             <Lock className='h-3 w-3' /> Locked
@@ -80,5 +85,15 @@ export const coursesColumns: ColumnDef<BosCourseMaster>[] = [
         : <Badge variant='secondary'>Inactive</Badge>;
     },
   },
-  { id: 'actions', cell: ({ row }) => <CoursesRowActions course={row.original} /> },
-];
+  {
+    id: 'actions',
+    header: () => <span className='sr-only'>Actions</span>,
+    cell: ({ row }) => (
+      <div className='flex items-center gap-1'>
+        <CoursesPdfDownloadButton course={row.original} institutionName={institutionName} />
+        <CoursesRowActions course={row.original} institutionName={institutionName} />
+      </div>
+    ),
+  },
+  ]
+}

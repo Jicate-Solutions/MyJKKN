@@ -1,8 +1,9 @@
 'use client';
 
+import { useCallback, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { useCallback } from 'react';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useInstitutionContext } from '@/hooks/use-institution-context';
 import { ExpertFilters } from './expert-filters';
 import type { ExpertSearchParams } from './data-table-schema';
 
@@ -13,7 +14,17 @@ interface ExpertFiltersClientProps {
 export function ExpertFiltersClient({ searchParams }: ExpertFiltersClientProps) {
   const router = useRouter();
   const currentSearchParams = useSearchParams();
-  const { isSuperAdmin, userProfile } = usePermissions();
+  const { isSuperAdmin } = usePermissions();
+  const { data: institutionCtx } = useInstitutionContext();
+
+  // Auto-seed institutionsId for non-admin users once institution context resolves.
+  useEffect(() => {
+    if (isSuperAdmin || !institutionCtx?.myjkkn_id) return;
+    if (currentSearchParams?.get('institutionsId')) return;
+    const params = new URLSearchParams(currentSearchParams?.toString() ?? '');
+    params.set('institutionsId', institutionCtx.myjkkn_id);
+    router.replace(`/bos/experts?${params.toString()}`);
+  }, [isSuperAdmin, institutionCtx?.myjkkn_id, currentSearchParams, router]);
 
   const handleFilterChange = useCallback(
     (key: string, value: string | undefined) => {

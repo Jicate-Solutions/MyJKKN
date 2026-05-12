@@ -15,13 +15,32 @@ export async function GET(request: NextRequest) {
     const scope = await resolveBosAccess(user.id);
 
     const { searchParams } = new URL(request.url);
-    // Super-admin may pass explicit institutionIds (comma-separated) or institutionsId.
-    // Regular users use allInstitutionIds from scope (covers CAS Aided+Self siblings).
-    const multiInstitutionIds = scope.isSuperAdmin
-      ? (searchParams.get('institutionIds') ?? undefined)
-      : scope.allInstitutionIds.length > 1
-        ? scope.allInstitutionIds.join(',')
-        : undefined;
+
+    // Resolve which institution IDs to filter by.
+    // Super-admin: use client-supplied list or single ID.
+    // Non-admin CAS: client may pass COE-authoritative myjkkn_institution_ids —
+    //   validate each against the user's own scope before trusting them.
+    //   Falls back to server-resolved allInstitutionIds (Supabase counselling_code join).
+    let multiInstitutionIds: string | undefined;
+    if (scope.isSuperAdmin) {
+      multiInstitutionIds = searchParams.get('institutionIds') ?? undefined;
+    } else {
+      const clientIds = searchParams.get('institutionIds')?.split(',').filter(Boolean) ?? [];
+      if (clientIds.length > 0) {
+        // Accept only IDs that belong to this user's own institution scope.
+        const allowed = new Set([
+          ...(scope.institutionsId ? [scope.institutionsId] : []),
+          ...scope.allInstitutionIds,
+        ]);
+        const valid = clientIds.filter((id) => allowed.has(id));
+        if (valid.length > 0) multiInstitutionIds = valid.join(',');
+      }
+      // Server-side fallback: use Supabase counselling_code siblings when no client list.
+      if (!multiInstitutionIds && scope.allInstitutionIds.length > 1) {
+        multiInstitutionIds = scope.allInstitutionIds.join(',');
+      }
+    }
+
     const filters: BosCompositionFilters = {
       institutionsId: scope.isSuperAdmin
         ? (searchParams.get('institutionsId') ?? undefined)
@@ -69,17 +88,13 @@ export async function GET(request: NextRequest) {
     const { data, error, count } = await query;
     if (error) throw error;
 
-    // Enrich with board data from local bos_boards table.
-    const boardIds = [...new Set((data ?? []).map((r: any) => r.board_id).filter(Boolean))];
-    let boardMap: Record<string, { board_code: string; board_name: string; board_type?: string }> = {};
-    if (boardIds.length > 0) {
-      const { data: boards } = await supabase
-        .from('bos_boards')
-        .select('id, board_code, board_name, board_type')
-        .in('id', boardIds);
-      for (const b of boards ?? []) {
-        boardMap[b.id] = { board_code: b.board_code, board_name: b.board_name, board_type: b.board_type };
-      }
+    // Enrich with board data from COE API.
+    const institutionIdsInPage = [...new Set((data ?? []).map((r: any) => r.institutions_id).filter(Boolean))];
+    const { fetchCoeBoardMaps } = await import('@/lib/utils/bos/coe-boards');
+    const coeBoardMap = await fetchCoeBoardMaps(institutionIdsInPage);
+    const boardMap: Record<string, { board_code: string; board_name: string; board_type?: string | null }> = {};
+    for (const [id, b] of coeBoardMap) {
+      boardMap[id] = { board_code: b.board_code, board_name: b.board_name, board_type: b.board_type };
     }
 
     // Flatten member_count from PostgREST aggregate array to a scalar, attach board

@@ -1,10 +1,20 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useCreateBosSyllabus, useUpdateBosSyllabus, useBosSyllabus } from '@/hooks/bos/use-bos-syllabus';
-import { useBosTaxonomy, flattenPos } from '@/hooks/bos/use-bos-taxonomy';
+import { useBosTaxonomy } from '@/hooks/bos/use-bos-taxonomy';
 import { usePermissions } from '@/hooks/use-permissions';
-import { BosCourseSyllabus, CreateBosSyllabusDto, UpdateBosSyllabusDto } from '@/types/bos';
+import {
+  BosCourseSyllabus,
+  CreateBosSyllabusDto,
+  UpdateBosSyllabusDto,
+  BosBoardProgramme,
+  BosCourseLearnOutcome,
+  BosProgrammeOutcome,
+  BosProgrammeSpecificOutcome,
+  BosPOMappingsData,
+  BosPoMapping,
+} from '@/types/bos';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -14,6 +24,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { SearchableSelect } from '@/components/ui/searchable-select';
 import { useBosCourses } from '@/hooks/bos/use-bos-courses';
 import { useInstitutionContext } from '@/hooks/use-institution-context';
+import { X, Trash2, BookOpen, Plus, FlaskConical, BookText } from 'lucide-react';
 
 interface Institution { id: string; name: string; myjkkn_institution_ids: string[]; display_name?: string; }
 interface Regulation { id: string; title: string; regulation_code: string; regulation_year?: string; }
@@ -51,6 +62,15 @@ export function SyllabusForm({
   const [institutions, setInstitutions] = useState<Institution[]>([]);
   const [regulations, setRegulations] = useState<Regulation[]>([]);
   const [boards, setBoards] = useState<{ id: string; board_name: string; board_code?: string }[]>([]);
+  const [compositions, setCompositions] = useState<{
+    id: string;
+    composition_title: string;
+    board_id: string;
+    academic_year: string;
+    institutions_id: string;
+    board?: { board_name: string; board_code: string; board_type?: string | null } | null;
+  }[]>([]);
+  const [selectedCompositionId, setSelectedCompositionId] = useState('');
   const [meetings, setMeetings] = useState<{
     id: string;
     meeting_title: string;
@@ -76,11 +96,16 @@ export function SyllabusForm({
     }
   );
 
-  // Initialize with passed ID or empty string (will be set when we create)
-  const [currentUpdateId, setCurrentUpdateId] = useState<string>(syllabusId || '');
+  // Initialize with passed ID, or fall back to syllabusProp.id (edit page passes syllabus but not syllabusId)
+  const [currentUpdateId, setCurrentUpdateId] = useState<string>(syllabusId || syllabusProp?.id || '');
   const updateMutation = useUpdateBosSyllabus(currentUpdateId);
 
-  const { data: taxonomy } = useBosTaxonomy(formData.regulation_id || '');
+  // Seed composition picker when an existing syllabus is passed directly as prop.
+  useEffect(() => {
+    if (syllabusProp?.composition_id) setSelectedCompositionId(syllabusProp.composition_id);
+  }, [syllabusProp?.composition_id]);
+
+  const { data: taxonomy } = useBosTaxonomy(formData.regulation_id || '', formData.institutions_id || undefined);
 
   // Update mutation's ID when we get one from creation
   const currentSyllabusId = syllabusId || formData.id;
@@ -136,6 +161,7 @@ export function SyllabusForm({
     if (fetchedSyllabus && !syllabusProp) {
       setFormData(fetchedSyllabus);
       setCurrentUpdateId(fetchedSyllabus.id);
+      if (fetchedSyllabus.composition_id) setSelectedCompositionId(fetchedSyllabus.composition_id);
     }
   }, [fetchedSyllabus, syllabusProp]);
 
@@ -184,14 +210,62 @@ export function SyllabusForm({
     fetchBoards();
   }, []);
 
-  // Fetch meetings filtered by institution (with members only) for syllabus linking.
+  // Step 1: fetch compositions for the selected institution.
+  // Super-admin: pass all CAS sibling UUIDs via institutionIds= to avoid missing records.
+  // Non-admin: server uses resolveBosAccess scope automatically (no params needed).
+  useEffect(() => {
+    const fetchCompositions = async () => {
+      try {
+        const url = new URL('/api/bos/compositions', window.location.origin);
+        if (isSuperAdmin) {
+          const instOption = institutions.find((i) => i.id === formData.institutions_id);
+          const ids = instOption?.myjkkn_institution_ids ?? (formData.institutions_id ? [formData.institutions_id] : []);
+          if (ids.length > 1) url.searchParams.set('institutionIds', ids.join(','));
+          else if (ids.length === 1) url.searchParams.set('institutionsId', ids[0]);
+        } else if (institutionCtx?.myjkkn_institution_ids && institutionCtx.myjkkn_institution_ids.length > 1) {
+          // CAS non-admin: pass COE-authoritative sibling IDs so the server doesn't
+          // miss compositions stored under the other institution UUID (Aided vs Self).
+          url.searchParams.set('institutionIds', institutionCtx.myjkkn_institution_ids.join(','));
+        }
+        // In edit mode fetch all compositions (including inactive) so the linked
+        // one is always visible in the dropdown regardless of its current status.
+        if (!isEditingProp) {
+          url.searchParams.set('isActive', 'true');
+        }
+        url.searchParams.set('limit', '100');
+        const res = await fetch(url.toString());
+        if (res.ok) {
+          const { data } = await res.json();
+          setCompositions(data || []);
+        }
+      } catch (err) {
+        console.error('Failed to fetch compositions:', err);
+      }
+    };
+
+    if (formData.institutions_id) {
+      // Non-admin: wait for institutionCtx before fetching so CAS sibling IDs are
+      // available. Avoids a wasted first fetch that returns incomplete results.
+      if (!isSuperAdmin && institutionCtx === undefined) return;
+      fetchCompositions();
+    }
+    // In edit mode the composition is pre-seeded from the loaded syllabus — don't clear it.
+    if (!isEditingProp) {
+      setSelectedCompositionId('');
+      setMeetings([]);
+    }
+  // institutionCtx is async — it may resolve after institutions_id is already set,
+  // so both must be deps to trigger the single fetch once ctx is ready.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formData.institutions_id, institutionCtx]);
+
+  // Step 2: fetch meetings for the selected composition.
+  // Filtering by compositionId avoids CAS institution-UUID mismatch entirely.
   useEffect(() => {
     const fetchMeetings = async () => {
       try {
         const url = new URL('/api/bos/meetings', window.location.origin);
-        // Use primary institution ID; server-side resolveBosAccess handles CAS scope.
-        url.searchParams.set('institutionsId', formData.institutions_id!);
-        url.searchParams.set('withMembers', 'true');
+        url.searchParams.set('compositionId', selectedCompositionId);
         url.searchParams.set('limit', '100');
         url.searchParams.set('sortBy', 'scheduled_date');
         url.searchParams.set('sortOrder', 'desc');
@@ -205,11 +279,23 @@ export function SyllabusForm({
       }
     };
 
-    if (formData.institutions_id) {
+    if (selectedCompositionId) {
       fetchMeetings();
+    } else {
+      setMeetings([]);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [formData.institutions_id]);
+  }, [selectedCompositionId]);
+
+  // Resolve board_id from the loaded compositions list if it isn't set.
+  // Handles syllabi saved before board_id was persisted, or the edit path where
+  // board_id wasn't stored on the record.
+  useEffect(() => {
+    if (formData.board_id || !formData.composition_id || compositions.length === 0) return;
+    const comp = compositions.find(c => c.id === formData.composition_id);
+    if (comp?.board_id) {
+      setFormData(prev => ({ ...prev, board_id: comp.board_id }));
+    }
+  }, [formData.board_id, formData.composition_id, compositions]);
 
   // Fetch regulations filtered by institution
   useEffect(() => {
@@ -297,7 +383,7 @@ export function SyllabusForm({
         <TabsList className="grid w-full grid-cols-7">
           <TabsTrigger value="basic">Basic Info</TabsTrigger>
           <TabsTrigger value="objectives">Objectives</TabsTrigger>
-          <TabsTrigger value="clo">Learning Outcomes</TabsTrigger>
+          <TabsTrigger value="clo">Course Outcomes</TabsTrigger>
           <TabsTrigger value="content">Content</TabsTrigger>
           <TabsTrigger value="resources">Resources</TabsTrigger>
           <TabsTrigger value="pedagogy">Pedagogy</TabsTrigger>
@@ -312,46 +398,59 @@ export function SyllabusForm({
               <CardDescription>Basic details about the course</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              {/* Row 1: Institution + Composition */}
-              <div className="grid grid-cols-2 gap-4">
+              {/* Row 1: Institution (super-admin only) */}
+              {isSuperAdmin && (
                 <div>
                   <label className="block text-sm font-medium mb-1">Institution *</label>
-                  {isSuperAdmin ? (
-                    <SearchableSelect
-                      value={formData.institutions_id || ''}
-                      onValueChange={(val) => {
-                        updateField('institutions_id', val);
-                        // Clear dependent fields when institution changes
-                        updateField('composition_id', '');
-                        updateField('board_id', '');
-                        updateField('regulation_id', '');
-                        const opt = institutions.find((i) => i.id === val);
-                      }}
-                      options={institutions.map((inst) => ({ value: inst.id, label: inst.name }))}
-                      placeholder='Select institution'
-                      searchPlaceholder='Search institution…'
-                      className='w-full'
-                    />
-                  ) : (
-                    <Input
-                      value={institutionCtx?.name || institutionCtx?.display_name || formData.institutions_id || ''}
-                      disabled
-                      className="bg-muted/50"
-                    />
-                  )}
+                  <SearchableSelect
+                    value={formData.institutions_id || ''}
+                    onValueChange={(val) => {
+                      updateField('institutions_id', val);
+                      updateField('composition_id', '');
+                      updateField('board_id', '');
+                      updateField('regulation_id', '');
+                    }}
+                    options={institutions.map((inst) => ({ value: inst.id, label: inst.name }))}
+                    placeholder='Select institution'
+                    searchPlaceholder='Search institution…'
+                    className='w-full'
+                  />
+                </div>
+              )}
+
+              {/* Row 2: Composition + Meeting */}
+              <div className='grid grid-cols-2 gap-4'>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Composition *</label>
+                  <SearchableSelect
+                    value={selectedCompositionId}
+                    onValueChange={(val) => {
+                      setSelectedCompositionId(val);
+                      updateField('composition_id', val);
+                      updateField('board_id', compositions.find(c => c.id === val)?.board_id || '');
+                      updateField('regulation_id', '');
+                    }}
+                    options={compositions.map((c) => ({
+                      value: c.id,
+                      label: c.composition_title,
+                    }))}
+                    placeholder={formData.institutions_id ? 'Select composition' : 'Select institution first'}
+                    searchPlaceholder='Search composition…'
+                    disabled={!formData.institutions_id}
+                    className='w-full'
+                  />
                 </div>
 
                 <div>
                   <label className="block text-sm font-medium mb-1">Meeting *</label>
                   <SearchableSelect
-                    value={formData.composition_id ? meetings.find(m => m.composition_id === formData.composition_id)?.id || '' : ''}
+                    value={formData.composition_id ? (meetings.find(m => m.composition_id === formData.composition_id)?.id || '') : ''}
                     onValueChange={(val) => {
                       const meeting = meetings.find(m => m.id === val);
                       if (!meeting) return;
                       updateField('composition_id', meeting.composition_id);
                       updateField('board_id', meeting.board_id);
                       if (isSuperAdmin) updateField('institutions_id', meeting.institutions_id);
-                      // Auto-match regulation from composition academic year
                       const academicYear = meeting.bos_compositions?.academic_year;
                       if (academicYear) {
                         const startYear = academicYear.split('-')[0];
@@ -361,11 +460,11 @@ export function SyllabusForm({
                     }}
                     options={meetings.map((m) => ({
                       value: m.id,
-                      label: `${m.meeting_title}${m.bos_compositions ? ` — ${m.bos_compositions.composition_title}` : ''}`,
+                      label: m.meeting_title,
                     }))}
-                    placeholder={formData.institutions_id ? 'Select meeting' : 'Select institution first'}
+                    placeholder={selectedCompositionId ? 'Select meeting' : 'Select composition first'}
                     searchPlaceholder='Search meeting…'
-                    disabled={!formData.institutions_id}
+                    disabled={!selectedCompositionId}
                     className='w-full'
                   />
                 </div>
@@ -389,7 +488,11 @@ export function SyllabusForm({
                 <div>
                   <label className="block text-sm font-medium mb-1">Board</label>
                   <Input
-                    value={boards.find(b => b.id === formData.board_id)?.board_name || ''}
+                    value={
+                      boards.find(b => b.id === formData.board_id)?.board_name ||
+                      compositions.find(c => c.id === formData.composition_id)?.board?.board_name ||
+                      ''
+                    }
                     disabled
                     placeholder="Auto-filled from composition"
                     className="bg-muted/50"
@@ -407,9 +510,14 @@ export function SyllabusForm({
                       if (!course) return;
                       updateField('course_code', course.course_code);
                       updateField('course_name', course.course_name || course.course_title || '');
-                      updateField('course_credits', course.credit);
-                      updateField('total_hours', (course.theory_hours ?? 0) + (course.practical_hours ?? 0));
-                      updateField('contact_hours', course.class_hours ?? 0);
+                      // COE returns `credits` (plural) in list responses and `credit` (singular)
+                      // in single-record responses — handle both field names.
+                      const c = course as any;
+                      updateField('course_credits', c.credit ?? c.credits ?? 0);
+                      const th = Number(c.theory_hours ?? 0);
+                      const ph = Number(c.practical_hours ?? 0);
+                      updateField('total_hours', th + ph);
+                      updateField('contact_hours', Number(c.class_hours ?? (th + ph)));
                       validateCourseCode(course.course_code);
                     }}
                     options={courseOptions.map((c) => ({
@@ -428,9 +536,9 @@ export function SyllabusForm({
                   <label className="block text-sm font-medium mb-1">Course Name</label>
                   <Input
                     value={formData.course_name || ''}
-                    onChange={(e) => updateField('course_name', e.target.value.toUpperCase())}
-                    required
-                    placeholder="Course name"
+                    readOnly
+                    placeholder="Auto-filled from course code"
+                    className="bg-muted/50 text-foreground"
                   />
                 </div>
               </div>
@@ -440,27 +548,30 @@ export function SyllabusForm({
                   <label className="block text-sm font-medium mb-1">Total Hours</label>
                   <Input
                     type="number"
-                    value={formData.total_hours || ''}
-                    onChange={(e) => updateField('total_hours', parseInt(e.target.value) || 0)}
-                    placeholder="e.g., 60"
+                    value={formData.total_hours ?? ''}
+                    readOnly
+                    placeholder="Auto-filled"
+                    className="bg-muted/50 text-foreground"
                   />
                 </div>
                 <div>
                   <label className="block text-sm font-medium mb-1">Contact Hours</label>
                   <Input
                     type="number"
-                    value={formData.contact_hours || ''}
-                    onChange={(e) => updateField('contact_hours', parseInt(e.target.value) || 0)}
-                    placeholder="e.g., 45"
+                    value={formData.contact_hours ?? ''}
+                    readOnly
+                    placeholder="Auto-filled"
+                    className="bg-muted/50 text-foreground"
                   />
                 </div>
                 <div>
                   <label className="block text-sm font-medium mb-1">Credits</label>
                   <Input
                     type="number"
-                    value={formData.course_credits || ''}
-                    onChange={(e) => updateField('course_credits', parseInt(e.target.value) || 0)}
-                    placeholder="e.g., 4"
+                    value={formData.course_credits ?? ''}
+                    readOnly
+                    placeholder="Auto-filled"
+                    className="bg-muted/50 text-foreground"
                   />
                 </div>
               </div>
@@ -527,22 +638,29 @@ export function SyllabusForm({
           </Card>
         </TabsContent>
 
-        {/* Course Learning Outcomes */}
+        {/* Course Outcomes */}
         <TabsContent value="clo" className="space-y-4">
           <Card>
             <CardHeader>
-              <CardTitle>Course Learning Outcomes (CLOs)</CardTitle>
-              <CardDescription>Measurable outcomes aligned with K-values</CardDescription>
+              <CardTitle>Course Outcomes (COs)</CardTitle>
+              <CardDescription>Measurable outcomes aligned with K-values from the regulation taxonomy</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
-              <Alert>
-                <AlertDescription>
-                  <span className='font-medium'>Taxonomy K-values: </span>
+              {/* K-Values reference panel — sourced from bos_regulation_taxonomies */}
+              <div className="rounded-md border bg-muted/30 p-3">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">K-Values</p>
+                <div className="flex flex-wrap gap-2">
                   {Object.entries(effectiveKValues).map(([k, desc]) => (
-                    <span key={k} className='mr-3 text-xs'><span className='font-mono font-semibold'>{k}</span> — {String(desc)}</span>
+                    <span key={k} className="inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs bg-background">
+                      <span className="font-mono font-bold">{k}</span>
+                      <span className="text-muted-foreground">— {String(desc)}</span>
+                    </span>
                   ))}
-                </AlertDescription>
-              </Alert>
+                </div>
+                {!formData.regulation_id && (
+                  <p className="text-xs text-amber-600 mt-2">Select a regulation to load configured K-values.</p>
+                )}
+              </div>
               <CloEditor
                 clos={formData.course_learning_outcomes as any}
                 kValues={effectiveKValues}
@@ -602,15 +720,12 @@ export function SyllabusForm({
               <CardDescription>Primary textbooks, references, and online resources</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
+              <TextbooksEditor
+                textbooks={formData.textbooks as any}
+                onChange={(val) => updateField('textbooks', val)}
+              />
               <div>
-                <h3 className="text-sm font-semibold mb-2">Textbooks</h3>
-                <TextbooksEditor
-                  textbooks={formData.textbooks as any}
-                  onChange={(val) => updateField('textbooks', val)}
-                />
-              </div>
-              <div>
-                <h3 className="text-sm font-semibold mb-2">Web Resources</h3>
+                <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">Web Resources</h4>
                 <ResourcesEditor
                   resources={formData.web_resources as any}
                   onChange={(val) => updateField('web_resources', val)}
@@ -667,17 +782,16 @@ export function SyllabusForm({
           <Card>
             <CardHeader>
               <CardTitle>Programme Outcome Mappings</CardTitle>
-              <CardDescription>Align CLOs with Programme Outcomes</CardDescription>
+              <CardDescription>Align COs with Programme Outcomes</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
-              {taxonomy && (
-                <PoMappingsEditor
-                  mappings={formData.po_mappings as any}
-                  pos={flattenPos(taxonomy.pos)}
-                  psos={taxonomy.psos ? flattenPos(taxonomy.psos) : undefined}
-                  onChange={(val) => updateField('po_mappings', val)}
-                />
-              )}
+              <PoMappingsEditor
+                mappings={formData.po_mappings as BosPOMappingsData | undefined}
+                regulationId={formData.regulation_id || ''}
+                boardId={formData.board_id || ''}
+                courseOutcomes={((formData.course_learning_outcomes as any)?.clos ?? []) as BosCourseLearnOutcome[]}
+                onChange={(val) => updateField('po_mappings', val)}
+              />
               <div className="flex justify-end gap-2 pt-4 border-t">
                 <Button type="button" variant="outline" onClick={() => setActiveTab('pedagogy')}>
                   Back
@@ -703,6 +817,75 @@ export function SyllabusForm({
         </Alert>
       )}
     </form>
+  );
+}
+
+// ── MathInput: text input with a categorised math/Greek symbol picker ────────
+const MATH_SYMBOL_GROUPS = [
+  { label: 'Greek', syms: ['θ','α','β','γ','δ','φ','ψ','ω','π','Σ','Δ','Ω','Λ','μ','λ','ε','ζ','η','ι','κ','ν','ξ','ρ','σ','τ','χ'] },
+  { label: 'Ops',   syms: ['√','∞','±','×','÷','≤','≥','≠','≈','∫','∑','∏','∂','∇','∝'] },
+  { label: 'Super', syms: ['⁰','¹','²','³','⁴','⁵','⁶','⁷','⁸','⁹','ⁿ','ᵐ'] },
+  { label: 'Sub',   syms: ['₀','₁','₂','₃','₄','₅','₆','₇','₈','₉'] },
+  { label: 'Sets',  syms: ['∈','∉','⊂','⊃','∪','∩','∅','ℝ','ℤ','ℕ','ℚ'] },
+  { label: 'Misc',  syms: ['…','→','←','↔','⇒','⇔','∴','∵','°','′','″'] },
+];
+
+function MathInput({ value, onChange, placeholder, className }: {
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+  className?: string;
+}) {
+  const [focused, setFocused] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const insertAtCursor = (sym: string) => {
+    const input = inputRef.current;
+    if (!input) { onChange(value + sym); return; }
+    const start = input.selectionStart ?? value.length;
+    const end   = input.selectionEnd   ?? value.length;
+    const next  = value.substring(0, start) + sym + value.substring(end);
+    onChange(next);
+    requestAnimationFrame(() => {
+      input.setSelectionRange(start + sym.length, start + sym.length);
+      input.focus();
+    });
+  };
+
+  return (
+    <div className="w-full">
+      <Input
+        ref={inputRef}
+        placeholder={placeholder}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
+        className={className}
+      />
+      {focused && (
+        <div className="mt-1 border rounded-lg bg-card shadow-sm overflow-hidden z-10">
+          {MATH_SYMBOL_GROUPS.map((group) => (
+            <div key={group.label} className="flex items-center gap-1 px-2 py-1 border-b last:border-0 hover:bg-muted/30 transition-colors">
+              <span className="text-[10px] font-semibold text-muted-foreground w-9 shrink-0 uppercase tracking-wide">{group.label}</span>
+              <div className="flex flex-wrap gap-0.5">
+                {group.syms.map((sym) => (
+                  <button
+                    key={sym}
+                    type="button"
+                    onMouseDown={(e) => { e.preventDefault(); insertAtCursor(sym); }}
+                    className="w-7 h-7 flex items-center justify-center rounded font-mono text-sm hover:bg-primary/15 hover:text-primary transition-colors"
+                    title={sym}
+                  >
+                    {sym}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -759,77 +942,112 @@ function ObjectivesEditor({ objectives, onChange }: any) {
 }
 
 function CloEditor({ clos, kValues, onChange }: any) {
-  const cloList = clos?.clos || [];
-  const addClo = () => {
+  const coList = clos?.clos || [];
+  const addCo = () => {
     onChange({
       ...clos,
       clos: [
-        ...cloList,
-        { clo_number: cloList.length + 1, description: '', k_values: [] },
+        ...coList,
+        { clo_number: coList.length + 1, description: '', k_values: [] },
       ],
     });
   };
-  const updateClo = (idx: number, field: string, value: any) => {
+  const updateCo = (idx: number, field: string, value: any) => {
     onChange({
       ...clos,
-      clos: cloList.map((c: any, i: number) =>
+      clos: coList.map((c: any, i: number) =>
         i === idx ? { ...c, [field]: value } : c
       ),
     });
   };
-  const removeClo = (idx: number) => {
+  const removeCo = (idx: number) => {
     onChange({
       ...clos,
-      clos: cloList.filter((_: any, i: number) => i !== idx),
+      clos: coList.filter((_: any, i: number) => i !== idx),
     });
   };
 
   return (
     <div className="space-y-3">
-      {cloList.map((clo: any, idx: number) => (
+      {coList.map((co: any, idx: number) => (
         <Card key={idx} className="p-4">
           <div className="space-y-2">
-            <div className="flex gap-2">
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-semibold text-muted-foreground min-w-[36px]">
+                CO{co.clo_number ?? idx + 1}
+              </span>
               <Input
-                placeholder="CLO description"
-                value={clo.description}
-                onChange={(e) => updateClo(idx, 'description', e.target.value)}
+                placeholder="Describe this course outcome…"
+                value={co.description}
+                onChange={(e) => updateCo(idx, 'description', e.target.value)}
+                className="flex-1"
               />
               <Button
                 type="button"
                 variant="ghost"
                 size="sm"
-                onClick={() => removeClo(idx)}
+                onClick={() => removeCo(idx)}
+                className="text-muted-foreground hover:text-destructive shrink-0"
               >
                 Remove
               </Button>
             </div>
-            <div>
-              <label className="text-sm font-medium">K-Values</label>
-              <div className="flex flex-wrap gap-2 mt-1">
-                {Object.entries(kValues).map(([k, desc]) => (
-                  <label key={k} className="flex items-center gap-1 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={clo.k_values?.includes(k) || false}
-                      onChange={(e) => {
-                        const newKValues = e.target.checked
-                          ? [...(clo.k_values || []), k]
-                          : (clo.k_values || []).filter((v: string) => v !== k);
-                        updateClo(idx, 'k_values', newKValues);
-                      }}
-                    />
-                    <span className="text-sm font-mono font-medium">{k}</span>
-                    {desc && <span className="text-xs text-muted-foreground">— {String(desc)}</span>}
-                  </label>
-                ))}
+            <div className="ml-[44px]">
+              <div className="flex items-center justify-between mb-1">
+                <p className="text-xs font-medium text-muted-foreground">K-Values</p>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => updateCo(idx, 'k_values', Object.keys(kValues))}
+                    className="text-xs text-primary hover:underline"
+                  >
+                    Select All
+                  </button>
+                  <span className="text-xs text-muted-foreground">·</span>
+                  <button
+                    type="button"
+                    onClick={() => updateCo(idx, 'k_values', [])}
+                    className="text-xs text-muted-foreground hover:underline"
+                  >
+                    Clear
+                  </button>
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {Object.entries(kValues).map(([k, desc]) => {
+                  const checked = co.k_values?.includes(k) || false;
+                  return (
+                    <label
+                      key={k}
+                      className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs cursor-pointer transition-colors ${
+                        checked
+                          ? 'bg-primary text-primary-foreground border-primary'
+                          : 'bg-background hover:bg-muted'
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        className="sr-only"
+                        checked={checked}
+                        onChange={(e) => {
+                          const updated = e.target.checked
+                            ? [...(co.k_values || []), k]
+                            : (co.k_values || []).filter((v: string) => v !== k);
+                          updateCo(idx, 'k_values', updated);
+                        }}
+                      />
+                      <span className="font-mono font-bold">{k}</span>
+                      {desc && <span className="opacity-80">— {String(desc)}</span>}
+                    </label>
+                  );
+                })}
               </div>
             </div>
           </div>
         </Card>
       ))}
-      <Button type="button" variant="outline" onClick={addClo} className="w-full">
-        + Add CLO
+      <Button type="button" variant="outline" onClick={addCo} className="w-full">
+        + Add CO
       </Button>
     </div>
   );
@@ -839,6 +1057,31 @@ function ContentEditor({ content, onChange }: any) {
   const isPractical = !!content?.is_practical;
   const units = content?.units || [];
   const topics: { number: number; title: string }[] = content?.topics || [];
+
+  // Migrate legacy single-letter unit IDs (A, B, C…) to Roman numerals (I, II, III…).
+  // Safe to re-run: Roman numerals don't match /^[A-Z]$/ so the effect is a no-op
+  // after the first conversion.
+  useEffect(() => {
+    if (!units.length) return;
+    const hasLegacyIds = units.some((u: any) => /^[A-Z]$/.test(u.unit_id));
+    if (!hasLegacyIds) return;
+    onChange({
+      ...content,
+      units: units.map((u: any) => ({
+        ...u,
+        unit_id: /^[A-Z]$/.test(u.unit_id)
+          ? (() => {
+              const n = u.unit_id.charCodeAt(0) - 64; // A=1, B=2, …
+              const vals = [10,9,5,4,1], syms = ['X','IX','V','IV','I'];
+              let r = '', rem = n;
+              for (let i = 0; i < vals.length; i++) while (rem >= vals[i]) { r += syms[i]; rem -= vals[i]; }
+              return r;
+            })()
+          : u.unit_id,
+      })),
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const toggleMode = () => {
     if (!isPractical) {
@@ -863,11 +1106,29 @@ function ContentEditor({ content, onChange }: any) {
     }
   };
 
+  const toRoman = (n: number): string => {
+    const vals = [10, 9, 5, 4, 1];
+    const syms = ['X', 'IX', 'V', 'IV', 'I'];
+    let result = '';
+    let rem = n;
+    for (let i = 0; i < vals.length; i++) {
+      while (rem >= vals[i]) { result += syms[i]; rem -= vals[i]; }
+    }
+    return result;
+  };
+
   const addUnit = () => {
     onChange({
       ...content,
-      units: [...units, { unit_id: String.fromCharCode(65 + units.length), unit_title: '', chapters: [] }],
+      units: [...units, { unit_id: toRoman(units.length + 1), unit_title: '', chapters: [], remarks: '' }],
     });
+  };
+
+  const removeUnit = (idx: number) => {
+    const updated = units
+      .filter((_: any, i: number) => i !== idx)
+      .map((u: any, i: number) => ({ ...u, unit_id: toRoman(i + 1) }));
+    onChange({ ...content, units: updated });
   };
 
   const updateUnit = (idx: number, field: string, value: any) => {
@@ -907,108 +1168,182 @@ function ContentEditor({ content, onChange }: any) {
   };
 
   return (
-    <div className="space-y-3">
-      {/* Mode toggle */}
-      <div className="flex items-center gap-3 pb-1 border-b">
-        <span className="text-sm font-medium text-muted-foreground">Content type:</span>
-        <div className="flex rounded-md border overflow-hidden text-sm">
+    <div className="space-y-4">
+      {/* ── Mode toggle ────────────────────────────────────────────── */}
+      <div className="flex items-center gap-3">
+        <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Content Type</span>
+        <div className="flex rounded-lg border bg-muted/40 p-0.5 text-sm gap-0.5">
           <button
             type="button"
             onClick={() => isPractical && toggleMode()}
-            className={`px-3 py-1 transition-colors ${!isPractical ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'}`}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md transition-all text-xs font-medium ${
+              !isPractical
+                ? 'bg-white dark:bg-card shadow-sm text-foreground'
+                : 'text-muted-foreground hover:text-foreground'
+            }`}
           >
-            Theory (Units)
+            <BookText className="h-3.5 w-3.5" />
+            Theory
           </button>
           <button
             type="button"
             onClick={() => !isPractical && toggleMode()}
-            className={`px-3 py-1 transition-colors ${isPractical ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'}`}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md transition-all text-xs font-medium ${
+              isPractical
+                ? 'bg-white dark:bg-card shadow-sm text-foreground'
+                : 'text-muted-foreground hover:text-foreground'
+            }`}
           >
-            Practical (Topics only)
+            <FlaskConical className="h-3.5 w-3.5" />
+            Practical
           </button>
         </div>
       </div>
 
       {isPractical ? (
-        /* ── Practical mode: flat topic list ───────────────────────── */
+        /* ── Practical mode ──────────────────────────────────────── */
         <div className="space-y-2">
           {topics.map((topic, idx) => (
-            <div key={idx} className="flex items-center gap-2">
-              <span className="text-sm font-semibold text-muted-foreground min-w-[28px]">
-                {topic.number}.
+            <div key={idx} className="flex items-start gap-2.5">
+              <span className="mt-2 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[11px] font-bold text-primary">
+                {topic.number}
               </span>
-              <Input
+              <MathInput
                 placeholder="Topic title"
                 value={topic.title}
-                onChange={(e) => updateTopic(idx, e.target.value)}
-                className="flex-1"
+                onChange={(v) => updateTopic(idx, v)}
+                className="flex-1 text-sm"
               />
-              <Button
+              <button
                 type="button"
-                variant="ghost"
-                size="sm"
                 onClick={() => removeTopic(idx)}
-                className="text-muted-foreground hover:text-destructive"
+                className="mt-2 rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors"
               >
-                Remove
-              </Button>
+                <X className="h-3.5 w-3.5" />
+              </button>
             </div>
           ))}
-          <Button type="button" variant="outline" onClick={addTopic} className="w-full">
-            + Add Topic
-          </Button>
+          <button
+            type="button"
+            onClick={addTopic}
+            className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed py-2 text-xs font-medium text-muted-foreground hover:border-primary/50 hover:text-primary transition-colors"
+          >
+            <Plus className="h-3.5 w-3.5" /> Add Topic
+          </button>
         </div>
       ) : (
-        /* ── Theory mode: unit → topics hierarchy ──────────────────── */
-        <>
+        /* ── Theory mode ─────────────────────────────────────────── */
+        <div className="space-y-3">
           {units.map((unit: any, unitIdx: number) => (
-            <Card key={unitIdx} className="p-4">
-              <div className="space-y-2">
-                <div className="grid grid-cols-2 gap-2">
+            <div key={unitIdx} className="rounded-xl border bg-card overflow-hidden shadow-sm">
+              {/* Unit header */}
+              <div className="flex items-center gap-3 bg-primary/5 dark:bg-primary/10 border-b px-4 py-3">
+                <div className="flex items-center gap-2 shrink-0">
+                  <span className="text-[10px] font-bold uppercase tracking-widest text-primary/70">Unit</span>
                   <Input
-                    placeholder="Unit ID (e.g. A)"
                     value={unit.unit_id}
                     onChange={(e) => updateUnit(unitIdx, 'unit_id', e.target.value)}
-                    maxLength={2}
-                  />
-                  <Input
-                    placeholder="Unit Title"
-                    value={unit.unit_title}
-                    onChange={(e) => updateUnit(unitIdx, 'unit_title', e.target.value)}
+                    maxLength={6}
+                    className="h-7 w-14 border-0 bg-transparent p-0 text-center text-base font-bold text-primary focus-visible:ring-0 focus-visible:ring-offset-0"
                   />
                 </div>
-                <div className="ml-4 space-y-2">
-                  {unit.chapters?.map((ch: any, chIdx: number) => (
-                    <div key={chIdx} className="border-l-2 pl-2 py-2">
-                      <div className="text-sm font-medium text-muted-foreground">Topic {ch.chapter_number}</div>
-                      <Input
+                <div className="h-5 w-px bg-primary/20" />
+                <Input
+                  placeholder="Unit Title"
+                  value={unit.unit_title}
+                  onChange={(e) => updateUnit(unitIdx, 'unit_title', e.target.value)}
+                  className="h-7 flex-1 border-0 bg-transparent px-0 text-sm font-semibold focus-visible:ring-0 focus-visible:ring-offset-0 placeholder:text-muted-foreground/50"
+                />
+                <button
+                  type="button"
+                  onClick={() => removeUnit(unitIdx)}
+                  className="ml-auto rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors"
+                  title="Remove unit"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              </div>
+
+              {/* Topics */}
+              <div className="px-4 py-3 space-y-2">
+                {unit.chapters?.map((ch: any, chIdx: number) => (
+                  <div key={chIdx} className="flex items-start gap-2.5 group">
+                    <span className="mt-2 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-muted text-[11px] font-bold text-muted-foreground">
+                      {ch.chapter_number}
+                    </span>
+                    <div className="flex-1 space-y-1">
+                      <MathInput
                         placeholder="Topic title"
                         value={ch.title}
-                        onChange={(e) => {
+                        onChange={(v) => {
                           const newChapters = [...unit.chapters];
-                          newChapters[chIdx].title = e.target.value;
+                          newChapters[chIdx].title = v;
                           updateUnit(unitIdx, 'chapters', newChapters);
                         }}
-                        className="text-sm mt-1"
+                        className="text-sm"
+                      />
+                      <Input
+                        placeholder="Sections (e.g. 6.1, 6.2, 6.3)"
+                        value={ch.sections || ''}
+                        onChange={(e) => {
+                          const newChapters = [...unit.chapters];
+                          newChapters[chIdx].sections = e.target.value;
+                          updateUnit(unitIdx, 'chapters', newChapters);
+                        }}
+                        className="h-7 text-xs text-muted-foreground bg-muted/30 border-muted"
                       />
                     </div>
-                  ))}
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => addChapter(unitIdx)}
-                  >
-                    + Topic
-                  </Button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const newChapters = unit.chapters
+                          .filter((_: any, i: number) => i !== chIdx)
+                          .map((c: any, i: number) => ({ ...c, chapter_number: i + 1 }));
+                        updateUnit(unitIdx, 'chapters', newChapters);
+                      }}
+                      className="mt-2 rounded p-1 text-muted-foreground opacity-0 group-hover:opacity-100 hover:bg-destructive/10 hover:text-destructive transition-all"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                ))}
+
+                <button
+                  type="button"
+                  onClick={() => addChapter(unitIdx)}
+                  className="flex items-center gap-1.5 rounded-md border border-dashed px-3 py-1.5 text-xs font-medium text-muted-foreground hover:border-primary/50 hover:text-primary transition-colors mt-1"
+                >
+                  <Plus className="h-3.5 w-3.5" /> Add Topic
+                </button>
+              </div>
+
+              {/* Remarks */}
+              <div className="px-4 pb-4">
+                <div className="rounded-lg bg-muted/40 p-3 space-y-1.5">
+                  <div className="flex items-center gap-1.5">
+                    <BookOpen className="h-3.5 w-3.5 text-muted-foreground" />
+                    <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Remarks</span>
+                  </div>
+                  <Textarea
+                    placeholder="e.g. Book 3: Chapter 6: Sections 6.1, 6.2, 6.3, 6.4, 6.6, 6.7, 6.8"
+                    value={unit.remarks || ''}
+                    onChange={(e) => updateUnit(unitIdx, 'remarks', e.target.value)}
+                    rows={2}
+                    className="text-xs bg-transparent border-muted resize-none"
+                  />
                 </div>
               </div>
-            </Card>
+            </div>
           ))}
-          <Button type="button" variant="outline" onClick={addUnit} className="w-full">
-            + Add Unit
-          </Button>
-        </>
+
+          <button
+            type="button"
+            onClick={addUnit}
+            className="flex w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed py-3 text-sm font-medium text-muted-foreground hover:border-primary/50 hover:text-primary transition-colors"
+          >
+            <Plus className="h-4 w-4" /> Add Unit
+          </button>
+        </div>
       )}
     </div>
   );
@@ -1016,53 +1351,85 @@ function ContentEditor({ content, onChange }: any) {
 
 function TextbooksEditor({ textbooks, onChange }: any) {
   const primary = textbooks?.primary || [];
-  const addTextbook = () => {
-    onChange({
-      ...textbooks,
-      primary: [...primary, { title: '', author: '', publication_year: new Date().getFullYear(), publisher: '' }],
-    });
+  const references = textbooks?.references || [];
+
+  const addPrimary = () => {
+    onChange({ ...textbooks, primary: [...primary, { title: '', author: '' }] });
   };
-  const updateTextbook = (idx: number, field: string, value: any) => {
-    onChange({
-      ...textbooks,
-      primary: primary.map((t: any, i: number) =>
-        i === idx ? { ...t, [field]: value } : t
-      ),
-    });
+  const updatePrimary = (idx: number, field: string, value: string) => {
+    onChange({ ...textbooks, primary: primary.map((t: any, i: number) => i === idx ? { ...t, [field]: value } : t) });
+  };
+  const removePrimary = (idx: number) => {
+    onChange({ ...textbooks, primary: primary.filter((_: any, i: number) => i !== idx) });
+  };
+
+  const addReference = () => {
+    onChange({ ...textbooks, references: [...references, { title: '', author: '' }] });
+  };
+  const updateReference = (idx: number, field: string, value: string) => {
+    onChange({ ...textbooks, references: references.map((r: any, i: number) => i === idx ? { ...r, [field]: value } : r) });
+  };
+  const removeReference = (idx: number) => {
+    onChange({ ...textbooks, references: references.filter((_: any, i: number) => i !== idx) });
   };
 
   return (
-    <div className="space-y-2">
-      {primary.map((book: any, idx: number) => (
-        <div key={idx} className="flex gap-2">
-          <Input
-            placeholder="Title"
-            value={book.title}
-            onChange={(e) => updateTextbook(idx, 'title', e.target.value)}
-            className="flex-1"
-          />
-          <Input
-            placeholder="Author"
-            value={book.author}
-            onChange={(e) => updateTextbook(idx, 'author', e.target.value)}
-            className="flex-1"
-          />
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            onClick={() => onChange({
-              ...textbooks,
-              primary: primary.filter((_: any, i: number) => i !== idx),
-            })}
-          >
-            Remove
+    <div className="space-y-4">
+      <div>
+        <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">Textbooks</h4>
+        <div className="space-y-2">
+          {primary.map((book: any, idx: number) => (
+            <div key={idx} className="flex gap-2">
+              <Input
+                placeholder="Title"
+                value={book.title}
+                onChange={(e) => updatePrimary(idx, 'title', e.target.value)}
+                className="flex-1"
+              />
+              <Input
+                placeholder="Author"
+                value={book.author}
+                onChange={(e) => updatePrimary(idx, 'author', e.target.value)}
+                className="flex-1"
+              />
+              <Button type="button" variant="ghost" size="sm" onClick={() => removePrimary(idx)}>
+                Remove
+              </Button>
+            </div>
+          ))}
+          <Button type="button" variant="outline" onClick={addPrimary} className="w-full">
+            + Add Textbook
           </Button>
         </div>
-      ))}
-      <Button type="button" variant="outline" onClick={addTextbook} className="w-full">
-        + Add Textbook
-      </Button>
+      </div>
+
+      <div>
+        <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">Reference Books</h4>
+        <div className="space-y-2">
+          {references.map((book: any, idx: number) => (
+            <div key={idx} className="flex gap-2">
+              <Input
+                placeholder="Title"
+                value={book.title}
+                onChange={(e) => updateReference(idx, 'title', e.target.value)}
+                className="flex-1"
+              />
+              <Input
+                placeholder="Author"
+                value={book.author}
+                onChange={(e) => updateReference(idx, 'author', e.target.value)}
+                className="flex-1"
+              />
+              <Button type="button" variant="ghost" size="sm" onClick={() => removeReference(idx)}>
+                Remove
+              </Button>
+            </div>
+          ))}
+          <Button type="button" variant="outline" onClick={addReference} className="w-full">
+            + Add Reference Book
+          </Button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -1167,62 +1534,241 @@ function PedagogyEditor({ methods, onChange }: any) {
   );
 }
 
-function PoMappingsEditor({ mappings, pos, psos, onChange }: any) {
-  const list = mappings?.mappings || [];
-  const addMapping = () => {
-    onChange({
-      ...mappings,
-      mappings: [...list, { co_id: '', pos: {}, psos: {} }],
+const ALIGNMENT_LEVELS = [
+  { value: '' as const,  label: '-', bg: 'bg-gray-50',     text: 'text-gray-400',   desc: 'No Mapping' },
+  { value: 'L' as const, label: 'L', bg: 'bg-yellow-100',  text: 'text-yellow-700', desc: 'Low' },
+  { value: 'M' as const, label: 'M', bg: 'bg-orange-100',  text: 'text-orange-700', desc: 'Medium' },
+  { value: 'H' as const, label: 'H', bg: 'bg-green-100',   text: 'text-green-700',  desc: 'High' },
+] as const;
+type AlignmentLevel = '' | 'L' | 'M' | 'H';
+
+interface PoMappingsEditorProps {
+  mappings: BosPOMappingsData | undefined;
+  regulationId: string;
+  boardId: string;
+  courseOutcomes: BosCourseLearnOutcome[];
+  onChange: (val: BosPOMappingsData) => void;
+}
+
+function PoMappingsEditor({ mappings, regulationId, boardId, courseOutcomes, onChange }: PoMappingsEditorProps) {
+  const [programmes, setProgrammes] = useState<BosBoardProgramme[]>([]);
+  const [selectedProgramme, setSelectedProgramme] = useState('');
+  const [pos, setPos] = useState<BosProgrammeOutcome[]>([]);
+  const [psos, setPsos] = useState<BosProgrammeSpecificOutcome[]>([]);
+  const [loadingPos, setLoadingPos] = useState(false);
+
+  // Derive the CO→outcome→level matrix directly from the mappings prop.
+  // No separate matrix state — avoids stale state when parent re-renders.
+  const matrix = useMemo<Record<string, Record<string, AlignmentLevel>>>(() => {
+    const m: Record<string, Record<string, AlignmentLevel>> = {};
+    for (const mapping of (mappings?.mappings ?? [])) {
+      m[mapping.co_id] = {
+        ...Object.fromEntries(Object.entries(mapping.pos  ?? {}).map(([k, v]) => [k, v as AlignmentLevel])),
+        ...Object.fromEntries(Object.entries(mapping.psos ?? {}).map(([k, v]) => [k, v as AlignmentLevel])),
+      };
+    }
+    return m;
+  }, [mappings]);
+
+  // Fetch programmes for the board.
+  // Fallback: if the board has no entries in bos_board_programmes, query
+  // bos_programme_outcomes directly for any programme that already has POs
+  // configured — avoids a dead end when board-programme assignment is missing.
+  useEffect(() => {
+    if (!boardId) { setProgrammes([]); setSelectedProgramme(''); return; }
+    fetch(`/api/bos/boards/${boardId}/programmes`)
+      .then(r => r.json())
+      .then(({ data }) => {
+        const progs: BosBoardProgramme[] = data ?? [];
+        if (progs.length > 0) {
+          setProgrammes(progs);
+          setSelectedProgramme(progs.length === 1 ? progs[0].programme_code : '');
+          return;
+        }
+        // Board has no programme rows — fall back to programmes with POs defined
+        if (!regulationId) { setProgrammes([]); setSelectedProgramme(''); return; }
+        return fetch(`/api/bos/taxonomy/${regulationId}/po-programmes`)
+          .then(r => r.json())
+          .then(({ data: poCodes }) => {
+            const fallback: BosBoardProgramme[] = (poCodes ?? []).map(
+              (p: { programme_code: string }) => ({
+                id: p.programme_code,
+                board_id: boardId,
+                institutions_id: '',
+                programme_code: p.programme_code,
+                programme_name: p.programme_code,
+                is_active: true,
+                created_at: '',
+                updated_at: '',
+              })
+            );
+            setProgrammes(fallback);
+            setSelectedProgramme(fallback.length === 1 ? fallback[0].programme_code : '');
+          });
+      })
+      .catch(() => { setProgrammes([]); setSelectedProgramme(''); });
+  }, [boardId, regulationId]);
+
+  // Fetch POs + PSOs for the selected programme
+  useEffect(() => {
+    if (!regulationId || !selectedProgramme) { setPos([]); setPsos([]); return; }
+    setLoadingPos(true);
+    Promise.all([
+      fetch(`/api/bos/taxonomy/${regulationId}/programmes/${selectedProgramme}/pos`).then(r => r.json()),
+      fetch(`/api/bos/taxonomy/${regulationId}/programmes/${selectedProgramme}/psos`).then(r => r.json()),
+    ])
+      .then(([posRes, psosRes]) => { setPos(posRes.data ?? []); setPsos(psosRes.data ?? []); })
+      .catch(() => { setPos([]); setPsos([]); })
+      .finally(() => setLoadingPos(false));
+  }, [regulationId, selectedProgramme]);
+
+  const handleCellClick = (coCode: string, outcomeCode: string) => {
+    const current: AlignmentLevel = matrix[coCode]?.[outcomeCode] ?? '';
+    const idx = ALIGNMENT_LEVELS.findIndex(l => l.value === current);
+    const next = ALIGNMENT_LEVELS[(idx + 1) % ALIGNMENT_LEVELS.length].value;
+
+    const updatedMatrix = {
+      ...matrix,
+      [coCode]: { ...matrix[coCode], [outcomeCode]: next },
+    };
+
+    const newMappings: BosPoMapping[] = courseOutcomes.map(clo => {
+      const key = `CO${clo.clo_number}`;
+      const cell = updatedMatrix[key] ?? {};
+      const poEntries  = Object.fromEntries(pos.filter(p => cell[p.po_code]).map(p => [p.po_code,  cell[p.po_code]])) as Record<string, 'H' | 'M' | 'L'>;
+      const psoEntries = Object.fromEntries(psos.filter(p => cell[p.pso_code]).map(p => [p.pso_code, cell[p.pso_code]])) as Record<string, 'H' | 'M' | 'L'>;
+      return { co_id: key, pos: poEntries, psos: psoEntries };
     });
-  };
-  const updateMapping = (idx: number, field: string, value: any) => {
-    onChange({
-      ...mappings,
-      mappings: list.map((m: any, i: number) =>
-        i === idx ? { ...m, [field]: value } : m
-      ),
-    });
+
+    onChange({ mappings: newMappings });
   };
 
+  const getCellLevel = (coCode: string, outcomeCode: string): AlignmentLevel =>
+    (matrix[coCode]?.[outcomeCode] as AlignmentLevel) ?? '';
+
+  if (!boardId || !regulationId) {
+    return <p className="text-sm text-muted-foreground">Select a board and regulation to load programme outcomes.</p>;
+  }
+
   return (
-    <div className="space-y-3">
-      {list.map((mapping: any, idx: number) => (
-        <Card key={idx} className="p-4">
-          <div className="space-y-2">
-            <Input
-              placeholder="CO/CLO ID"
-              value={mapping.co_id}
-              onChange={(e) => updateMapping(idx, 'co_id', e.target.value)}
-            />
-            <div>
-              <label className="text-sm font-medium">PO Alignment (H/M/L)</label>
-              <div className="grid grid-cols-3 gap-2 mt-1">
-                {Object.entries(pos).map(([poCode, poDesc]) => (
-                  <div key={poCode} className="text-xs">
-                    <div className="font-medium">{poCode}</div>
-                    <select
-                      value={mapping.pos?.[poCode] || ''}
-                      onChange={(e) => {
-                        const newPos = { ...mapping.pos, [poCode]: e.target.value };
-                        updateMapping(idx, 'pos', newPos);
-                      }}
-                      className="w-full text-xs"
+    <div className="space-y-4">
+      {/* Programme selector — only shown when the board covers multiple programmes */}
+      {programmes.length > 1 && (
+        <div className="flex items-center gap-3">
+          <span className="text-sm font-medium whitespace-nowrap">Programme</span>
+          <SearchableSelect
+            options={programmes.map(p => ({
+              value: p.programme_code,
+              label: `${p.programme_code}${p.programme_name ? ` – ${p.programme_name}` : ''}`,
+            }))}
+            value={selectedProgramme}
+            onValueChange={setSelectedProgramme}
+            placeholder="Select programme…"
+            className="w-64"
+          />
+        </div>
+      )}
+
+      {!selectedProgramme ? (
+        <p className="text-sm text-muted-foreground">
+          {programmes.length === 0
+            ? 'No programme outcomes configured for this regulation yet. Add them in the Taxonomy section.'
+            : 'Select a programme to view its outcomes.'}
+        </p>
+      ) : loadingPos ? (
+        <p className="text-sm text-muted-foreground">Loading outcomes…</p>
+      ) : pos.length === 0 ? (
+        <p className="text-sm text-muted-foreground">
+          No programme outcomes defined for {selectedProgramme}. Add them in the Taxonomy section.
+        </p>
+      ) : courseOutcomes.length === 0 ? (
+        <p className="text-sm text-muted-foreground">
+          No course outcomes defined. Add them in the Course Outcomes tab first.
+        </p>
+      ) : (
+        <>
+          <div className="overflow-x-auto rounded border">
+            <table className="w-full border-collapse text-sm">
+              <thead>
+                <tr className="bg-gray-50">
+                  <th className="border-b border-r p-2 text-left font-medium min-w-[200px] text-xs">Course Outcome</th>
+                  {pos.map(po => (
+                    <th
+                      key={po.id}
+                      className="border-b border-r p-2 text-center font-medium min-w-[56px] text-xs"
+                      title={po.description ?? ''}
                     >
-                      <option value="">-</option>
-                      <option value="H">High</option>
-                      <option value="M">Medium</option>
-                      <option value="L">Low</option>
-                    </select>
-                  </div>
-                ))}
-              </div>
-            </div>
+                      {po.po_code}
+                    </th>
+                  ))}
+                  {psos.map(pso => (
+                    <th
+                      key={pso.id}
+                      className="border-b border-r p-2 text-center font-medium min-w-[56px] text-xs bg-blue-50"
+                      title={pso.description ?? ''}
+                    >
+                      {pso.pso_code}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {courseOutcomes.map(clo => {
+                  const coCode = `CO${clo.clo_number}`;
+                  return (
+                    <tr key={coCode} className="hover:bg-gray-50/50">
+                      <td className="border-b border-r p-2 min-w-[200px]">
+                        <div className="font-semibold text-xs">{coCode}</div>
+                        <div className="text-xs text-muted-foreground line-clamp-2 mt-0.5">{clo.description}</div>
+                      </td>
+                      {pos.map(po => {
+                        const level = getCellLevel(coCode, po.po_code);
+                        const style = ALIGNMENT_LEVELS.find(l => l.value === level) ?? ALIGNMENT_LEVELS[0];
+                        return (
+                          <td
+                            key={po.id}
+                            className={`border-b border-r p-1 text-center cursor-pointer select-none hover:opacity-75 transition-opacity ${style.bg}`}
+                            onClick={() => handleCellClick(coCode, po.po_code)}
+                            title={`${coCode} → ${po.po_code}: ${style.desc}`}
+                          >
+                            <span className={`text-xs font-bold ${style.text}`}>{style.label}</span>
+                          </td>
+                        );
+                      })}
+                      {psos.map(pso => {
+                        const level = getCellLevel(coCode, pso.pso_code);
+                        const style = ALIGNMENT_LEVELS.find(l => l.value === level) ?? ALIGNMENT_LEVELS[0];
+                        return (
+                          <td
+                            key={pso.id}
+                            className={`border-b border-r p-1 text-center cursor-pointer select-none hover:opacity-75 transition-opacity ${style.bg}`}
+                            onClick={() => handleCellClick(coCode, pso.pso_code)}
+                            title={`${coCode} → ${pso.pso_code}: ${style.desc}`}
+                          >
+                            <span className={`text-xs font-bold ${style.text}`}>{style.label}</span>
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
-        </Card>
-      ))}
-      <Button type="button" variant="outline" onClick={addMapping} className="w-full">
-        + Add Mapping
-      </Button>
+
+          {/* Legend */}
+          <div className="flex flex-wrap gap-4 pt-2 border-t">
+            {ALIGNMENT_LEVELS.map(level => (
+              <div key={level.value || 'none'} className="flex items-center gap-2">
+                <div className={`w-7 h-7 rounded border flex items-center justify-center ${level.bg}`}>
+                  <span className={`text-xs font-bold ${level.text}`}>{level.label}</span>
+                </div>
+                <span className="text-xs text-muted-foreground">{level.desc}</span>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
     </div>
   );
 }

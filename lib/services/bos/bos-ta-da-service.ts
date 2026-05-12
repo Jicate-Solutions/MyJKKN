@@ -4,7 +4,7 @@ export interface CreateTaDaClaimDto {
   institutions_id: string;
   meeting_id: string;
   member_id: string;
-  expert_id: string;
+  expert_id?: string;
   travel_mode?: string;
   travel_from?: string;
   travel_to?: string;

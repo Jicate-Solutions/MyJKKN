@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
 
-import { BosMeeting, BosMember, BosAgendaItem, BosMeetingAttendee } from '@/types/bos';
+import { BosMeeting, BosMember, BosAgendaItem, BosMeetingAttendee, BOS_MEETING_STATUS_ORDER } from '@/types/bos';
 import { useBosAgendaItems } from '@/hooks/bos/use-bos-agenda';
 import { useBosAttendance } from '@/hooks/bos/use-bos-attendance';
 import { useBosMembersByComposition } from '@/hooks/bos/use-bos-members';
@@ -93,6 +93,11 @@ export function DocumentsTab({
   const hasAgenda = agendaItems.length > 0 || !!meeting.agenda_text;
   const hasAttendance = attendance.length > 0;
 
+  // Status-based document gates using ordered index comparison
+  const statusIndex = BOS_MEETING_STATUS_ORDER.indexOf(meeting.status);
+  const isBeforeNoticed   = statusIndex < BOS_MEETING_STATUS_ORDER.indexOf('noticed');
+  const isBeforeCompleted = statusIndex < BOS_MEETING_STATUS_ORDER.indexOf('completed');
+
   const generateNotice = async () => {
     const { generateMeetingNoticePdf } = await import('@/lib/utils/bos/bos-pdf-generator');
     generateMeetingNoticePdf({
@@ -156,12 +161,12 @@ export function DocumentsTab({
           <DocCard
             title='Minutes of Meeting'
             description='Full minutes with attendance and resolutions'
-            disabled={!hasAttendance || meeting.status === 'draft' || meeting.status === 'principal_approved' || meeting.status === 'noticed' || meeting.status === 'expert_invited'}
+            disabled={isBeforeCompleted || !hasAttendance}
             disabledReason={
-              !hasAttendance
-                ? 'Record attendance first'
-                : meeting.status === 'draft' || meeting.status === 'principal_approved' || meeting.status === 'noticed' || meeting.status === 'expert_invited'
+              isBeforeCompleted
                 ? 'Meeting must be completed first'
+                : !hasAttendance
+                ? 'Record attendance first'
                 : undefined
             }
             onGenerate={generateMinutes}
@@ -196,7 +201,14 @@ export function DocumentsTab({
                   variant='outline'
                   className='shrink-0'
                   onClick={() => generateCallLetterFor(member)}
-                  disabled={!hasAgenda}
+                  disabled={isBeforeNoticed || !hasAgenda}
+                  title={
+                    isBeforeNoticed
+                      ? 'Available after notice is sent'
+                      : !hasAgenda
+                      ? 'Add agenda items first'
+                      : undefined
+                  }
                 >
                   <Download className='mr-2 h-3.5 w-3.5' />
                   Call Letter

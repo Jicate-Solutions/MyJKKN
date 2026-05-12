@@ -45,24 +45,16 @@ export async function POST(request: NextRequest, { params }: Params) {
 
     const scope = await resolveBosAccess(user.id);
 
-    // Fetch the board to get institutions_id
-    const { data: board, error: boardError } = await supabase
-      .from('bos_boards')
-      .select('id, institutions_id')
-      .eq('id', boardId)
-      .maybeSingle();
-
-    if (boardError || !board) {
-      return NextResponse.json({ error: 'Board not found' }, { status: 404 });
-    }
-
-    const writeError = guardInstitutionWrite(scope, board.institutions_id);
-    if (writeError) return NextResponse.json({ error: writeError }, { status: 403 });
-
     const body = (await request.json()) as {
       programme_code: string;
       programme_name?: string;
+      institutions_id?: string;
     };
+
+    // institutions_id required for non-admin permission guard
+    const institutionsId = body.institutions_id ?? scope.institutionsId ?? null;
+    const writeError = guardInstitutionWrite(scope, institutionsId);
+    if (writeError) return NextResponse.json({ error: writeError }, { status: 403 });
 
     if (!body.programme_code?.trim()) {
       return NextResponse.json({ error: 'programme_code is required' }, { status: 400 });
@@ -73,7 +65,7 @@ export async function POST(request: NextRequest, { params }: Params) {
       .upsert(
         {
           board_id: boardId,
-          institutions_id: board.institutions_id,
+          institutions_id: institutionsId,
           programme_code: body.programme_code.trim().toUpperCase(),
           programme_name: body.programme_name?.trim() ?? null,
           is_active: true,
@@ -116,15 +108,17 @@ export async function DELETE(request: NextRequest, { params }: Params) {
 
     const scope = await resolveBosAccess(user.id);
 
-    const { data: board } = await supabase
-      .from('bos_boards')
+    // Derive institutions_id from an existing programme row (already stored)
+    // or fall back to the caller's own scope for non-admins.
+    const { data: existingProg } = await supabase
+      .from('bos_board_programmes')
       .select('institutions_id')
-      .eq('id', boardId)
+      .eq('board_id', boardId)
+      .limit(1)
       .maybeSingle();
 
-    if (!board) return NextResponse.json({ error: 'Board not found' }, { status: 404 });
-
-    const writeError = guardInstitutionWrite(scope, board.institutions_id);
+    const institutionsId = existingProg?.institutions_id ?? scope.institutionsId ?? null;
+    const writeError = guardInstitutionWrite(scope, institutionsId);
     if (writeError) return NextResponse.json({ error: writeError }, { status: 403 });
 
     const { error } = await supabase

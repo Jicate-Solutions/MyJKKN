@@ -51,14 +51,23 @@ export async function GET(
       institutionsId = reg?.institution_id ?? null;
     }
 
+    // For CAS institutions two UUIDs (Aided + Self) share the same counselling_code.
+    // The taxonomy may be stored under either sibling UUID, so use allInstitutionIds
+    // to do an IN filter rather than an exact match — avoids "not found" false negatives.
+    const filterIds: string[] = scope.allInstitutionIds.length > 0
+      ? scope.allInstitutionIds
+      : (institutionsId ? [institutionsId] : []);
+
     // Step 4: Build query
     let query = supabase
       .from('bos_regulation_taxonomies')
       .select('*')
       .eq('regulation_id', regulationId);
 
-    if (institutionsId) {
-      query = query.eq('institutions_id', institutionsId);
+    if (filterIds.length > 1) {
+      query = query.in('institutions_id', filterIds);
+    } else if (filterIds.length === 1) {
+      query = query.eq('institutions_id', filterIds[0]);
     }
 
     // Step 5: Execute query

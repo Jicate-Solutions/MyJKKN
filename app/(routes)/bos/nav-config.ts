@@ -10,6 +10,12 @@ const config: ModuleNavConfig = {
   module: 'bos',
   groups: [
     {
+      label: 'SOP',
+      icon: 'FileText',
+      href: '/bos/sop',
+      matchPaths: ['/bos/sop'],
+    },
+    {
       label: 'Taxonomy',
       icon: 'Layers',
       href: '/bos/taxonomy',
@@ -44,12 +50,6 @@ const config: ModuleNavConfig = {
       icon: 'BookOpen',
       href: '/bos/syllabus',
       matchPaths: ['/bos/syllabus'],
-    },
-    {
-      label: 'SOP',
-      icon: 'FileText',
-      href: '/bos/sop',
-      matchPaths: ['/bos/sop'],
     },
     {
       label: 'Meetings',

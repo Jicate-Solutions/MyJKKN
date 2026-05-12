@@ -4,7 +4,6 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { useAuth } from '@/hooks/use-auth';
 import { usePermissions } from '@/hooks/use-permissions';
 
 import { InstitutionPicker } from '../../_components/institution-picker';
@@ -13,16 +12,15 @@ import { CoursesDataTable } from './courses-data-table';
 
 export function CoursesPageClient() {
   const router = useRouter();
-  const { profile } = useAuth();
   const { canAccess, isSuperAdmin } = usePermissions();
 
   const canCreate = isSuperAdmin || canAccess('academic.bos-courses', 'create');
 
-  // Default to the user's own institution; super-admins start unset and pick.
-  const [institutionId, setInstitutionId] = useState<string | undefined>(
-    profile?.institution_id ?? undefined,
-  );
+  // Start unset; hidden-but-mounted InstitutionPicker auto-selects the first
+  // institution for non-admins so onSelect always fires to populate institutionCode.
+  const [institutionId, setInstitutionId] = useState<string | undefined>(undefined);
   const [institutionCode, setInstitutionCode] = useState('');
+  const [institutionName, setInstitutionName] = useState('');
   const [myjkknInstitutionIds, setMyjkknInstitutionIds] = useState<string[]>([]);
 
   const [filters, setFilters] = useState<CoursesFiltersState>({
@@ -35,14 +33,27 @@ export function CoursesPageClient() {
     <div className='space-y-6'>
       <div className='flex items-end justify-between gap-4 flex-wrap'>
         <div className='flex gap-3 flex-wrap items-end'>
-          <InstitutionPicker
-            value={institutionId}
-            onChange={setInstitutionId}
-            onSelect={(opt) => {
-              setInstitutionCode(opt.institution_code);
-              setMyjkknInstitutionIds(opt.myjkkn_institution_ids);
-            }}
-          />
+          {/* Super-admins: visible picker with "All Institutions" default.
+              Non-admins: hidden but mounted so onSelect fires for auto-selection. */}
+          <div className={isSuperAdmin ? '' : 'hidden'}>
+            <InstitutionPicker
+              value={institutionId}
+              onChange={(id) => {
+                setInstitutionId(id);
+                if (!id) {
+                  setInstitutionCode('');
+                  setInstitutionName('');
+                  setMyjkknInstitutionIds([]);
+                }
+              }}
+              onSelect={(opt) => {
+                setInstitutionCode(opt.institution_code);
+                setInstitutionName(opt.name);
+                setMyjkknInstitutionIds(opt.myjkkn_institution_ids);
+              }}
+              showAllOption={isSuperAdmin}
+            />
+          </div>
           <CoursesFilters
             value={filters}
             onChange={setFilters}
@@ -51,7 +62,8 @@ export function CoursesPageClient() {
           />
         </div>
         <div className='flex gap-2'>
-          {canCreate && (
+          {/* Disable New Course when "All Institutions" is active — no institution context to create into. */}
+          {canCreate && institutionId && (
             <Button
               size='sm'
               onClick={() => {
@@ -67,10 +79,16 @@ export function CoursesPageClient() {
         </div>
       </div>
 
-      {institutionId ? (
-        <CoursesDataTable institutionId={institutionId} filters={filters} />
+      {/* Super-admin: show table even with no specific institution (all-institutions mode).
+          Non-admin: institutionId is always set by auto-select, so table always renders. */}
+      {(isSuperAdmin || institutionId) ? (
+        <CoursesDataTable
+          institutionId={institutionId}
+          filters={filters}
+          institutionName={institutionName}
+        />
       ) : (
-        <p className='text-sm text-muted-foreground'>Select an institution to load courses.</p>
+        <p className='text-sm text-muted-foreground'>Loading institution…</p>
       )}
     </div>
   );

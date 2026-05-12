@@ -1,103 +1,87 @@
 'use client';
 
-import { useEffect, useState, useRef } from 'react';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
+import { useEffect, useRef } from 'react';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { SearchableSelect } from '@/components/ui/searchable-select';
 import { Button } from '@/components/ui/button';
+import { Skeleton } from '@/components/ui/skeleton';
 import { RotateCcw } from 'lucide-react';
-import { CompositionSearchParams } from './data-table-schema';
+import { useQuery } from '@tanstack/react-query';
 import { usePermissions } from '@/hooks/use-permissions';
-import { logger } from '@/lib/utils/enhanced-logger';
+import { useInstitutionContext } from '@/hooks/use-institution-context';
+import { CompositionSearchParams } from './data-table-schema';
 
-interface Board {
-  id: string;
-  board_code: string;
-  board_name: string;
-}
+interface Board { id: string; board_code: string; board_name: string; }
+interface BosInstitutionOption { id: string; name: string; institution_code: string; myjkkn_institution_ids: string[]; }
 
 interface CompositionFiltersProps {
   searchParams: CompositionSearchParams;
   onFilterChange: (key: string, value: string | undefined) => void;
   onClearFilters: () => void;
-  isSuperAdmin?: boolean;
-  institutionContextId?: string;
 }
 
 export function CompositionFilters({
   searchParams,
   onFilterChange,
   onClearFilters,
-  isSuperAdmin = false,
-  institutionContextId,
 }: CompositionFiltersProps) {
-  const { userProfile } = usePermissions();
-  const [boards, setBoards] = useState<Board[]>([]);
-  const [loadingBoards, setLoadingBoards] = useState(false);
-  const [institutionOptions, setInstitutionOptions] = useState<{ id: string; name: string }[]>([]);
-  const institutionsAbortControllerRef = useRef<AbortController | null>(null);
+  // Self-contained permission check — not reliant on prop from parent.
+  const { isSuperAdmin, isLoading: permissionsLoading } = usePermissions();
 
-  // Fetch institutions (for super admins)
+  // Own institution context for non-admin users.
+  const { data: ownCtx, isLoading: ownCtxLoading } = useInstitutionContext();
+
+  // All institutions — fetched from COE API (canonical names, CAS Aided+SF deduped).
+  const { data: allInstitutions = [], isLoading: institutionsLoading } = useQuery<BosInstitutionOption[]>({
+    queryKey: ['bos', 'institutions'],
+    queryFn: async () => {
+      const r = await fetch('/api/bos/institutions');
+      if (!r.ok) return [];
+      return r.json();
+    },
+    enabled: !!isSuperAdmin,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  // Board fetch: pass MyJKKN institution UUID directly.  The server handles
+  // CAS sibling resolution (Aided+SF) via counselling_code lookup internally.
+  const boardInstitutionId = isSuperAdmin
+    ? (searchParams.institutionsId ?? null)
+    : (ownCtx?.myjkkn_id ?? null);
+
+  const prevIdRef = useRef(boardInstitutionId);
+
+  const { data: boardsRaw = [], isLoading: loadingBoards } = useQuery<Board[]>({
+    queryKey: ['bos', 'boards', boardInstitutionId],
+    enabled: !!boardInstitutionId,
+    queryFn: async () => {
+      const res = await fetch(`/api/bos/boards?institutionsId=${boardInstitutionId}`);
+      if (!res.ok) return [];
+      const json = await res.json();
+      return (Array.isArray(json) ? json : (json?.data ?? [])) as Board[];
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+
+  // Clear board filter when institution changes.
   useEffect(() => {
-    if (!isSuperAdmin) return;
-
-    if (institutionsAbortControllerRef.current) {
-      institutionsAbortControllerRef.current.abort();
+    if (prevIdRef.current !== boardInstitutionId) {
+      prevIdRef.current = boardInstitutionId;
+      onFilterChange('board_id', undefined);
     }
-    institutionsAbortControllerRef.current = new AbortController();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [boardInstitutionId]);
 
-    const fetchInstitutions = async () => {
-      try {
-        const res = await fetch('/api/bos/institutions', {
-          signal: institutionsAbortControllerRef.current?.signal,
-        });
-        if (res.ok) {
-          const data = await res.json();
-          setInstitutionOptions(data || []);
-        }
-      } catch (err) {
-        if ((err as Error).name !== 'AbortError') {
-          console.error('Failed to fetch institutions:', err);
-        }
-      }
-    };
-
-    fetchInstitutions();
-
-    return () => {
-      institutionsAbortControllerRef.current?.abort();
-    };
-  }, [isSuperAdmin]);
-
-  useEffect(() => {
-    const institutionIdToFetch =
-      searchParams.institutionsId || institutionContextId || userProfile?.institution_id;
-    if (!institutionIdToFetch) return;
-
-    async function fetchBoards() {
-      setLoadingBoards(true);
-      try {
-        const res = await fetch(
-          `/api/bos/boards?institutionsId=${institutionIdToFetch}`
-        );
-        if (res.ok) {
-          const json = await res.json();
-          // Boards API returns { data: [...] } — unwrap it.
-          setBoards(Array.isArray(json) ? json : (json?.data ?? []));
-        }
-      } catch (error) {
-        logger.error('academic/bos', 'Failed to fetch boards for filter', error);
-      } finally {
-        setLoadingBoards(false);
-      }
-    }
-    fetchBoards();
-  }, [searchParams.institutionsId, institutionContextId, userProfile?.institution_id]);
+  // While permissions or own context are resolving, show placeholders to avoid flicker.
+  if (permissionsLoading || (!isSuperAdmin && ownCtxLoading)) {
+    return (
+      <div className='flex gap-3 flex-wrap'>
+        <Skeleton className='h-9 w-[220px]' />
+        <Skeleton className='h-9 w-[220px]' />
+        <Skeleton className='h-9 w-[140px]' />
+      </div>
+    );
+  }
 
   const hasActiveFilters = !!(
     searchParams.board_id ||
@@ -107,34 +91,45 @@ export function CompositionFilters({
   );
 
   return (
-    <div className='flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between'>
+    <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between flex-wrap'>
       <div className='flex flex-col gap-3 sm:flex-row sm:items-center flex-wrap'>
-        {/* Institution Filter (Super Admin Only) */}
+
+        {/* Institution dropdown — super-admin ONLY */}
         {isSuperAdmin && (
-          <div className='min-w-[200px]'>
+          <div className='min-w-[220px]'>
             <SearchableSelect
               value={searchParams.institutionsId || 'all'}
-              onValueChange={(val) => onFilterChange('institutionsId', val === 'all' ? undefined : val)}
-              options={[{ value: 'all', label: 'All institutions' }, ...institutionOptions.map(inst => ({ value: inst.id, label: inst.name }))]}
+              onValueChange={(val) =>
+                onFilterChange('institutionsId', val === 'all' ? undefined : val)
+              }
+              options={[
+                { value: 'all', label: 'All Institutions' },
+                ...allInstitutions.map((i) => ({ value: i.id, label: i.name })),
+              ]}
+              loading={institutionsLoading}
               className='w-full'
               searchPlaceholder='Search institution…'
             />
           </div>
         )}
 
-        {/* Board Filter */}
+        {/* Board filter — scoped to user's institution automatically */}
         <div className='min-w-[220px]'>
           <SearchableSelect
             value={searchParams.board_id ?? 'all'}
             onValueChange={(v) => onFilterChange('board_id', v === 'all' ? undefined : v)}
-            options={[{ value: 'all', label: 'All Boards' }, ...boards.map(b => ({ value: b.id, label: b.board_name }))]}
+            options={[
+              { value: 'all', label: 'All Boards' },
+              ...boardsRaw.map((b) => ({ value: b.id, label: b.board_name })),
+            ]}
             loading={loadingBoards}
+            disabled={!boardInstitutionId}
             className='w-full'
             searchPlaceholder='Search board…'
           />
         </div>
 
-        {/* Status Filter */}
+        {/* Status filter */}
         <div className='min-w-[140px]'>
           <Select
             value={searchParams.is_active ?? 'all'}
@@ -154,8 +149,7 @@ export function CompositionFilters({
 
       {hasActiveFilters && (
         <Button variant='ghost' onClick={onClearFilters} className='h-8 px-2 lg:px-3'>
-          Reset
-          <RotateCcw className='ml-2 h-4 w-4' />
+          Reset <RotateCcw className='ml-2 h-4 w-4' />
         </Button>
       )}
     </div>

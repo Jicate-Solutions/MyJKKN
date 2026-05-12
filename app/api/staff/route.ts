@@ -136,9 +136,15 @@ export async function GET(request: NextRequest) {
     // Get query parameters
     const searchParams = request.nextUrl.searchParams;
     const institutionId = searchParams.get('institution_id');
+    // institution_ids: comma-separated list for CAS (Aided + SF combined lookup)
+    const institutionIdsRaw = searchParams.get('institution_ids');
+    const institutionIds = institutionIdsRaw
+      ? institutionIdsRaw.split(',').map((s) => s.trim()).filter(Boolean)
+      : null;
     const search = searchParams.get('search');
     const categoryId = searchParams.get('category_id');
     const departmentId = searchParams.get('department_id');
+    const roleKey = searchParams.get('role_key');
     const isActive = searchParams.get('isActive');
     const limit = parseInt(searchParams.get('limit') || '100');
     const page = parseInt(searchParams.get('page') || '1');
@@ -166,7 +172,9 @@ export async function GET(request: NextRequest) {
     }
 
     // Apply filters
-    if (institutionId) {
+    if (institutionIds && institutionIds.length > 0) {
+      query = query.in('institution_id', institutionIds);
+    } else if (institutionId) {
       query = query.eq('institution_id', institutionId);
     }
 
@@ -182,6 +190,10 @@ export async function GET(request: NextRequest) {
 
     if (departmentId) {
       query = query.eq('department_id', departmentId);
+    }
+
+    if (roleKey) {
+      query = query.eq('role_key', roleKey);
     }
 
     if (isActive !== null) {

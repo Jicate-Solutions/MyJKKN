@@ -12032,7 +12032,7 @@ export type Database = {
           da_amount: number | null
           da_days: number | null
           da_rate: number | null
-          expert_id: string
+          expert_id: string | null
           id: string
           institutions_id: string
           meeting_id: string
@@ -12056,7 +12056,7 @@ export type Database = {
           da_amount?: number | null
           da_days?: number | null
           da_rate?: number | null
-          expert_id: string
+          expert_id?: string | null
           id?: string
           institutions_id: string
           meeting_id: string

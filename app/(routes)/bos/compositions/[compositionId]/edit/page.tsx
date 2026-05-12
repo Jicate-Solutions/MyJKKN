@@ -61,13 +61,13 @@ export default function EditCompositionPage({ params }: EditCompositionPageProps
   if (!composition) return null;
 
   return (
-    <div className='max-w-3xl'>
+    <div>
       <PageHeader
         title='Edit Composition'
         description={`Editing: ${composition.composition_title}`}
       />
 
-      <div className='mt-6'>
+      <div className='mt-4'>
         <CompositionForm
           composition={composition}
           isSubmitting={updateComposition.isPending}

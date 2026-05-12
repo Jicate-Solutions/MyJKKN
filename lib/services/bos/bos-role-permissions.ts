@@ -64,13 +64,13 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, RolePermissions> = {
     [BOS_MODULES.SCHEME]: ['view', 'edit'],
   },
 
-  // Principal: View-only access
+  // Principal: Full edit across compositions, meetings, taxonomy
   principal: {
     [BOS_MODULES.SYLLABI]: ['view', 'export'],
-    [BOS_MODULES.TAXONOMY]: ['view'],
-    [BOS_MODULES.EXPERTS]: ['view'],
-    [BOS_MODULES.COMPOSITIONS]: ['view'],
-    [BOS_MODULES.MEETINGS]: ['view'],
+    [BOS_MODULES.TAXONOMY]: ['view', 'edit'],
+    [BOS_MODULES.EXPERTS]: ['view', 'edit'],
+    [BOS_MODULES.COMPOSITIONS]: ['view', 'create', 'edit'],
+    [BOS_MODULES.MEETINGS]: ['view', 'create', 'edit'],
     [BOS_MODULES.TA_DA]: ['view'],
     [BOS_MODULES.REPORTS]: ['view', 'export'],
     [BOS_MODULES.COURSES]: ['view'],
@@ -90,13 +90,13 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, RolePermissions> = {
     [BOS_MODULES.SCHEME]: ['view'],
   },
 
-  // Facilitator: Can create and edit syllabi, participate in meetings
+  // Facilitator: Can create/edit syllabi, compositions, and taxonomy outcomes
   facilitator: {
     [BOS_MODULES.SYLLABI]: ['view', 'create', 'edit', 'export'],
-    [BOS_MODULES.TAXONOMY]: ['view'],
+    [BOS_MODULES.TAXONOMY]: ['view', 'edit'],
     [BOS_MODULES.EXPERTS]: ['view'],
-    [BOS_MODULES.COMPOSITIONS]: ['view'],
-    [BOS_MODULES.MEETINGS]: ['view'],
+    [BOS_MODULES.COMPOSITIONS]: ['view', 'edit'],
+    [BOS_MODULES.MEETINGS]: ['view', 'edit'],
     [BOS_MODULES.TA_DA]: ['view', 'submit'],
     [BOS_MODULES.REPORTS]: ['view'],
     [BOS_MODULES.COURSES]: ['view', 'create', 'edit'],

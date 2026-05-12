@@ -444,7 +444,7 @@ export default function MeetingDetailPage({ params }: MeetingDetailPageProps) {
             </TabsList>
 
             <TabsContent value='agenda'>
-              <AgendaTab meetingId={meetingId} canEdit={canEdit} />
+              <AgendaTab meetingId={meetingId} canEdit={canEdit} meetingStatus={meeting.status} />
             </TabsContent>
 
             <TabsContent value='attendance'>
@@ -453,6 +453,7 @@ export default function MeetingDetailPage({ params }: MeetingDetailPageProps) {
                 compositionId={meeting.composition_id}
                 institutionsId={meeting.institutions_id}
                 canEdit={canEdit}
+                meetingStatus={meeting.status}
               />
             </TabsContent>
 
@@ -466,6 +467,7 @@ export default function MeetingDetailPage({ params }: MeetingDetailPageProps) {
             <TabsContent value='syllabus'>
               <SyllabusTab
                 meetingId={meetingId}
+                boardId={meeting.board_id}
                 regulationId={meeting.regulation_id}
                 institutionsId={meeting.institutions_id}
                 canEdit={canEdit}

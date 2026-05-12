@@ -6,17 +6,11 @@ import { toast } from 'react-hot-toast';
 import { Loader2, Plus, Trash2, ChevronDown, ChevronRight, Save, Lock } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
+import { PoPsoMappingMatrix } from './po-pso-mapping-matrix';
 import {
   BosProgrammeSummary,
   BosProgrammeOutcome,
@@ -54,44 +48,36 @@ function OutcomeTable<T extends PoRow | PsoRow>({
 }: OutcomeTableProps<T>) {
   if (rows.length === 0) return null;
   return (
-    <Table>
-      <TableHeader>
-        <TableRow>
-          <TableHead className='w-24'>Code</TableHead>
-          <TableHead>Description</TableHead>
-          {canEdit && <TableHead className='w-12' />}
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {rows.map((row, idx) => (
-          <TableRow key={idx}>
-            <TableCell>
-              <Input value={String(row[codeKey])} disabled className='w-20' />
-            </TableCell>
-            <TableCell>
-              <Input
-                value={row.description}
-                placeholder={placeholder}
-                disabled={!canEdit}
-                onChange={(e) => onUpdate(idx, e.target.value)}
-              />
-            </TableCell>
+    <div className='space-y-3'>
+      {rows.map((row, idx) => (
+        <div key={idx} className='rounded-md border p-3 space-y-2'>
+          <div className='flex items-center justify-between'>
+            <Badge variant='outline' className='font-mono text-xs'>
+              {String(row[codeKey])}
+            </Badge>
             {canEdit && (
-              <TableCell>
-                <Button
-                  type='button'
-                  variant='ghost'
-                  size='icon'
-                  onClick={() => onRemove(idx)}
-                >
-                  <Trash2 className='h-4 w-4 text-destructive' />
-                </Button>
-              </TableCell>
+              <Button
+                type='button'
+                variant='ghost'
+                size='icon'
+                className='h-7 w-7'
+                onClick={() => onRemove(idx)}
+              >
+                <Trash2 className='h-3.5 w-3.5 text-destructive' />
+              </Button>
             )}
-          </TableRow>
-        ))}
-      </TableBody>
-    </Table>
+          </div>
+          <Textarea
+            value={row.description}
+            placeholder={placeholder}
+            disabled={!canEdit}
+            rows={3}
+            className='resize-none text-sm'
+            onChange={(e) => onUpdate(idx, e.target.value)}
+          />
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -100,9 +86,10 @@ function OutcomeTable<T extends PoRow | PsoRow>({
 interface ProgrammeCardProps {
   regulationId: string;
   programme: BosProgrammeSummary;
+  institutionsId: string;
 }
 
-function ProgrammeCard({ regulationId, programme }: ProgrammeCardProps) {
+function ProgrammeCard({ regulationId, programme, institutionsId }: ProgrammeCardProps) {
   const queryClient = useQueryClient();
   const [isExpanded, setIsExpanded] = useState(false);
 
@@ -283,6 +270,7 @@ function ProgrammeCard({ regulationId, programme }: ProgrammeCardProps) {
                   <Badge variant='secondary' className='ml-2 text-xs'>{pso_count}</Badge>
                 )}
               </TabsTrigger>
+              <TabsTrigger value='mapping'>PO / PSO Mapping</TabsTrigger>
             </TabsList>
 
             {/* POs tab */}
@@ -374,6 +362,16 @@ function ProgrammeCard({ regulationId, programme }: ProgrammeCardProps) {
                 </>
               )}
             </TabsContent>
+
+            {/* Mapping tab */}
+            <TabsContent value='mapping' className='mt-0'>
+              <PoPsoMappingMatrix
+                regulationId={regulationId}
+                programmeCode={programme.programme_code}
+                institutionsId={institutionsId}
+                canEdit={can_edit}
+              />
+            </TabsContent>
           </Tabs>
         </div>
       )}
@@ -387,13 +385,17 @@ interface ProgrammeOutcomesEditorProps {
   regulationId: string;
   /** When provided, only programmes belonging to this board are shown. */
   boardId?: string;
+  institutionsId?: string;
 }
 
-export function ProgrammeOutcomesEditor({ regulationId, boardId }: ProgrammeOutcomesEditorProps) {
+export function ProgrammeOutcomesEditor({ regulationId, boardId, institutionsId = '' }: ProgrammeOutcomesEditorProps) {
   const { data, isLoading, error } = useQuery<{ data: BosProgrammeSummary[] }>({
-    queryKey: ['bos', 'regulation-programmes', regulationId],
+    queryKey: ['bos', 'regulation-programmes', regulationId, institutionsId],
     queryFn: async () => {
-      const res = await fetch(`/api/bos/taxonomy/${regulationId}/programmes`);
+      // Pass institutionsId so the API uses the board's institution, not the
+      // caller's home institution (critical for cross-institution board members).
+      const params = institutionsId ? `?institutionsId=${institutionsId}` : '';
+      const res = await fetch(`/api/bos/taxonomy/${regulationId}/programmes${params}`);
       if (!res.ok) throw new Error('Failed to load programmes');
       return res.json();
     },
@@ -456,6 +458,7 @@ export function ProgrammeOutcomesEditor({ regulationId, boardId }: ProgrammeOutc
           key={programme.programme_code}
           regulationId={regulationId}
           programme={programme}
+          institutionsId={institutionsId}
         />
       ))}
     </div>

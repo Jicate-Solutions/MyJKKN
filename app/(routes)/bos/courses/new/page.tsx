@@ -98,15 +98,19 @@ export default function NewCoursePage() {
               submitLabel='Create Course'
               onSubmit={async (form) => {
                 try {
-                  await create.mutateAsync({
+                  const result = await create.mutateAsync({
                     form,
                     context: {
                       institution_id: institutionId!,
                       institution_code: institutionCode,
                       regulation_code: regulationCode,
                     },
-                  });
-                  toast.success('Course created');
+                  }) as { _upsertAction?: string };
+                  toast.success(
+                    result?._upsertAction === 'updated'
+                      ? 'Course already existed — updated successfully'
+                      : 'Course created'
+                  );
                   router.push('/bos/courses');
                 } catch (e) {
                   toast.error((e as Error).message);

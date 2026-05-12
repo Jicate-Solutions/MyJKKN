@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from 'next';
-import { Poppins } from 'next/font/google';
+import { Poppins, Noto_Sans_Tamil } from 'next/font/google';
 import './globals.css';
 import { PushNotificationProvider } from '@/components/notifications/push-notification-provider';
 import { InstallPromptBanner } from '@/components/pwa/install-prompt-banner';
@@ -16,6 +16,13 @@ const poppins = Poppins({
   subsets: ['latin'],
   display: 'swap',
   variable: '--font-poppins'
+});
+
+const notoSansTamil = Noto_Sans_Tamil({
+  weight: ['400', '500', '600', '700'],
+  subsets: ['tamil'],
+  display: 'swap',
+  variable: '--font-noto-tamil'
 });
 
 // Allow pinch-zoom for accessibility (WCAG 2.5.5 target size, 1.4.4 resize text).
@@ -187,7 +194,7 @@ export default function RootLayout({
           href='https://apis.google.com'
         />
       </head>
-      <body className={`${poppins.variable} font-sans antialiased`} suppressHydrationWarning>
+      <body className={`${poppins.variable} ${notoSansTamil.variable} font-sans antialiased`} suppressHydrationWarning>
         <ReactQueryProvider>
           <ThemeProvider
             attribute='class'

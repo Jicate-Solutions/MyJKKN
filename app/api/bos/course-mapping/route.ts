@@ -3,21 +3,33 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { CoeRestClient, CoeApiError } from '@/lib/services/coe/coe-rest-client';
 import { canAccessBos, resolveCoeInstitutionId } from '@/lib/utils/bos/bos-access';
+import type { BosCourseMaster, BosCourseListResponse } from '@/types/bos-courses';
 
-// COE returns the joined course record under the key `courses` (plural, Supabase
-// convention) with `credits` and `course_title`. We normalize to the singular
-// `course` key with `credit` and `course_name` to match BosCourseMappingDetailed.
-function normalizeMappingResponse(raw: Record<string, unknown>): Record<string, unknown> {
+// Normalize the basic join fields that COE aliases differently.
+// Structural fields (course_part_master, exam_duration, theory_hours, practical_hours)
+// are NOT in the join — they are merged from a separate COE courses fetch below.
+function normalizeMappingResponse(
+  raw: Record<string, unknown>,
+  coursesByCode: Map<string, BosCourseMaster>,
+): Record<string, unknown> {
   const rows = raw?.data;
   if (!Array.isArray(rows)) return raw;
   return {
     ...raw,
     data: rows.map((m: Record<string, unknown>) => {
       const joined = (m.courses ?? {}) as Record<string, unknown>;
+      // course_code lives on the flat mapping row, not inside the join object.
+      const courseCode = (m.course_code ?? joined.course_code ?? '') as string;
+      const full = coursesByCode.get(courseCode);
       const course: Record<string, unknown> = {
         ...joined,
-        course_name: joined.course_name ?? joined.course_title ?? '',
-        credit:      joined.credit      ?? joined.credits      ?? 0,
+        course_name:        joined.course_name  ?? joined.course_title    ?? '',
+        credit:             joined.credit       ?? joined.credits         ?? 0,
+        // Prefer the full course record for structural fields missing from the join.
+        course_part_master: full?.course_part_master ?? joined.course_part_master ?? joined.part ?? null,
+        exam_duration:      full?.exam_duration      ?? joined.exam_duration      ?? null,
+        theory_hours:       full?.theory_hours       ?? joined.theory_hours       ?? null,
+        practical_hours:    full?.practical_hours     ?? joined.practical_hours    ?? null,
       };
       const { courses: _courses, ...rest } = m;
       return { ...rest, course };
@@ -49,22 +61,41 @@ export async function GET(request: NextRequest) {
     }
 
     const client = CoeRestClient.create();
-    const raw = await client.get<Record<string, unknown>>('/api/v1/course-mapping', {
-      institutions_id: coeInstitutionId,
-      program_code:    searchParams.get('program_code') ?? undefined,
-      regulation_code: searchParams.get('regulation_code') ?? undefined,
-      batch_code:      searchParams.get('batch_code') ?? undefined,
-      semester_code:   searchParams.get('semester_code') ?? undefined,
-      is_active:       searchParams.get('is_active') ?? 'true',
-      details:         searchParams.get('details') ?? 'true',
-      id:              searchParams.get('id') ?? undefined,
-      limit:           searchParams.get('limit') ?? '500',
-    });
+    const programCode    = searchParams.get('program_code')    ?? undefined;
+    const regulationCode = searchParams.get('regulation_code') ?? undefined;
 
-    // Normalize COE field names to match BosCourseMappingDetailed type:
-    // COE returns join as `courses` (plural) with `credits`/`course_title`;
-    // our type expects `course` (singular) with `credit`/`course_name`.
-    const data = normalizeMappingResponse(raw);
+    // Fetch mappings + full courses in parallel — courses provide the structural
+    // fields (Part, Exam, L, P) that the mapping join omits.
+    const [raw, coursesRaw] = await Promise.all([
+      client.get<Record<string, unknown>>('/api/v1/course-mapping', {
+        institutions_id: coeInstitutionId,
+        program_code:    programCode,
+        regulation_code: regulationCode,
+        batch_code:      searchParams.get('batch_code')    ?? undefined,
+        semester_code:   searchParams.get('semester_code') ?? undefined,
+        is_active:       searchParams.get('is_active')     ?? 'true',
+        details:         searchParams.get('details')       ?? 'true',
+        id:              searchParams.get('id')            ?? undefined,
+        limit:           searchParams.get('limit')         ?? '500',
+      }),
+      client.get<unknown>('/api/v1/courses', {
+        institutions_id: coeInstitutionId,
+        regulation_code: regulationCode,
+        // No program_code — shared courses (Tamil, English, NME) are not
+        // program-scoped in COE, so filtering by program would exclude them.
+        is_active:       'true',
+        limit:           '500',
+        offset:          '0',
+      }),
+    ]);
+
+    // Build a lookup map: course_code → full BosCourseMaster
+    const coursesList: BosCourseMaster[] = Array.isArray(coursesRaw)
+      ? (coursesRaw as BosCourseMaster[])
+      : ((coursesRaw as BosCourseListResponse)?.data ?? []);
+    const coursesByCode = new Map(coursesList.map((c) => [c.course_code, c]));
+
+    const data = normalizeMappingResponse(raw, coursesByCode);
     return NextResponse.json(data);
   } catch (error) {
     if (error instanceof CoeApiError) {

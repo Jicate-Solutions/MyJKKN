@@ -51,7 +51,7 @@ BEGIN
     FROM   public.bos_members        m
     JOIN   public.bos_compositions   c  ON c.id        = m.composition_id
     JOIN   public.bos_board_programmes bp ON bp.board_id = c.board_id
-    WHERE  bp.institutions_id = p_institutions_id
+    WHERE  (bp.institutions_id = p_institutions_id OR bp.institutions_id IS NULL)
       AND  bp.programme_code  = p_programme_code
       AND  c.is_active        = true
       AND  m.staff_id         = v_staff_id

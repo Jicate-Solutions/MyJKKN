@@ -1,0 +1,53 @@
+import { CoeRestClient } from '@/lib/services/coe/coe-rest-client';
+import { resolveCoeInstitutionId } from '@/lib/utils/bos/bos-access';
+
+export interface CoeBoard {
+  id: string;
+  board_code: string;
+  board_name: string;
+  board_type?: string | null;
+  institutions_id?: string;
+  is_active?: boolean;
+}
+
+/**
+ * Fetches all boards for a single MyJKKN institution UUID from the COE API.
+ * Returns an empty map on any error (permission denied, unavailable, etc.).
+ */
+export async function fetchCoeBoardMap(
+  myJkknInstitutionId: string
+): Promise<Map<string, CoeBoard>> {
+  try {
+    const coeId = await resolveCoeInstitutionId(myJkknInstitutionId);
+    if (!coeId) return new Map();
+    const coe = CoeRestClient.create();
+    const raw = await coe.get<unknown>('/api/v1/boards', {
+      institutions_id: coeId,
+      is_active: 'true',
+    });
+    const boards: CoeBoard[] = Array.isArray(raw)
+      ? (raw as CoeBoard[])
+      : (((raw as { data?: CoeBoard[] })?.data) ?? []);
+    return new Map(boards.map((b) => [b.id, b]));
+  } catch {
+    return new Map();
+  }
+}
+
+/**
+ * Fetches and merges board maps for multiple MyJKKN institution UUIDs.
+ * CAS institutions (same COE ID) deduplicate naturally since they map to
+ * the same COE institution and return the same board set.
+ */
+export async function fetchCoeBoardMaps(
+  myJkknInstitutionIds: string[]
+): Promise<Map<string, CoeBoard>> {
+  const unique = [...new Set(myJkknInstitutionIds.filter(Boolean))];
+  if (unique.length === 0) return new Map();
+  const maps = await Promise.all(unique.map(fetchCoeBoardMap));
+  const merged = new Map<string, CoeBoard>();
+  for (const m of maps) {
+    for (const [id, board] of m) merged.set(id, board);
+  }
+  return merged;
+}

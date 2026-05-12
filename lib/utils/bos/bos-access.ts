@@ -43,24 +43,35 @@ export async function resolveBosAccess(userId: string): Promise<BosAccessScope> 
   const institutionId: string | null = profile.institution_id ?? null;
 
   // For CAS institutions, two MyJKKN UUIDs (Aided + Self) share the same
-  // counselling_code. Fetch all sibling IDs so filters don't miss cross-UUID records.
+  // counselling_code. Resolve sibling IDs from the COE API (authoritative MDM source)
+  // which caches the result for 10 minutes — no network penalty after first call.
+  // Falls back to the Supabase counselling_code join if the COE lookup fails.
   let allInstitutionIds: string[] = institutionId ? [institutionId] : [];
   if (institutionId) {
-    const { data: inst } = await supabase
-      .from('institutions')
-      .select('counselling_code')
-      .eq('id', institutionId)
-      .single();
-
-    if (inst?.counselling_code) {
-      const { data: siblings } = await supabase
+    try {
+      const { resolveInstitutionContext } = await import('@/lib/utils/institutions/institution-resolver');
+      const ctx = await resolveInstitutionContext(institutionId, supabase);
+      if (ctx?.myjkkn_institution_ids && ctx.myjkkn_institution_ids.length > 0) {
+        allInstitutionIds = ctx.myjkkn_institution_ids;
+      }
+    } catch {
+      // COE unavailable — fall back to Supabase counselling_code siblings
+      const { data: inst } = await supabase
         .from('institutions')
-        .select('id')
-        .eq('counselling_code', inst.counselling_code)
-        .eq('is_active', true);
+        .select('counselling_code')
+        .eq('id', institutionId)
+        .single();
 
-      if (siblings && siblings.length > 0) {
-        allInstitutionIds = siblings.map((s: { id: string }) => s.id);
+      if (inst?.counselling_code) {
+        const { data: siblings } = await supabase
+          .from('institutions')
+          .select('id')
+          .eq('counselling_code', inst.counselling_code)
+          .eq('is_active', true);
+
+        if (siblings && siblings.length > 0) {
+          allInstitutionIds = siblings.map((s: { id: string }) => s.id);
+        }
       }
     }
   }

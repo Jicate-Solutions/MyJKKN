@@ -75,6 +75,7 @@ export function BoardProgrammesCard({
         body: JSON.stringify({
           programme_code: selectedCode,
           programme_name: prog?.program_name ?? selectedCode,
+          institutions_id: institutionsId,
         }),
       });
       if (!res.ok) {

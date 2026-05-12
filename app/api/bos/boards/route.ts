@@ -1,10 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
-import { resolveBosAccess } from '@/lib/utils/bos/bos-access';
+import { CoeRestClient } from '@/lib/services/coe/coe-rest-client';
+import { resolveBosAccess, resolveCoeInstitutionId } from '@/lib/utils/bos/bos-access';
+
+interface CoeBoard {
+  id: string;
+  board_code: string;
+  board_name: string;
+  board_type?: string | null;
+  institutions_id?: string;
+  is_active?: boolean;
+}
 
 // ── GET /api/bos/boards ───────────────────────────────────────────────────────
-// Returns boards for a given institution from the local bos_boards table.
-// Super-admin may query any institution; others are locked to their own.
+// Returns boards for a given institution from the COE API.
+// Query param: institutionsId (MyJKKN UUID)
+// Super-admin may query any institution; others locked to their own scope.
 export async function GET(request: NextRequest) {
   try {
     const supabase = await createClient();
@@ -17,32 +28,32 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const institutionsId = searchParams.get('institutionsId');
 
-    let query = supabase
-      .from('bos_boards')
-      .select('id, board_code, board_name, board_type, institutions_id, is_active')
-      .eq('is_active', true)
-      .order('board_name');
+    const targetMyJkknId = scope.isSuperAdmin
+      ? (institutionsId ?? null)
+      : (scope.institutionsId ?? null);
 
-    if (scope.isSuperAdmin) {
-      // Super-admin may pass an explicit institution filter
-      if (institutionsId) query = query.eq('institutions_id', institutionsId);
-    } else if (scope.allInstitutionIds.length > 1) {
-      // CAS: include both Aided and Self-Financing institution boards
-      query = query.in('institutions_id', scope.allInstitutionIds);
-    } else if (scope.institutionsId) {
-      query = query.eq('institutions_id', scope.institutionsId);
+    if (!targetMyJkknId) {
+      return NextResponse.json({ data: [], count: 0 });
     }
 
-    const { data, error } = await query;
-
-    if (error) {
-      console.error('[GET /api/bos/boards]', error);
-      return NextResponse.json({ error: 'Failed to fetch boards' }, { status: 500 });
+    const coeInstitutionId = await resolveCoeInstitutionId(targetMyJkknId);
+    if (!coeInstitutionId) {
+      return NextResponse.json({ data: [], count: 0 });
     }
 
-    return NextResponse.json({ data: data ?? [], count: data?.length ?? 0 });
+    const coe = CoeRestClient.create();
+    const raw = await coe.get<unknown>('/api/v1/boards', {
+      institutions_id: coeInstitutionId,
+      is_active: 'true',
+    });
+
+    const boards: CoeBoard[] = Array.isArray(raw)
+      ? (raw as CoeBoard[])
+      : (((raw as { data?: CoeBoard[] })?.data) ?? []);
+
+    return NextResponse.json({ data: boards, count: boards.length });
   } catch (error) {
     console.error('[GET /api/bos/boards]', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to fetch boards' }, { status: 500 });
   }
 }

@@ -20,14 +20,19 @@ interface AvailableProgramme {
 interface BoardProgrammesCardProps {
   boardId: string;
   institutionsId: string;
+  /** All sibling institution UUIDs (Aided + Self for CAS). Defaults to [institutionsId]. */
+  allInstitutionIds?: string[];
   canEdit: boolean;
 }
 
 export function BoardProgrammesCard({
   boardId,
   institutionsId,
+  allInstitutionIds,
   canEdit,
 }: BoardProgrammesCardProps) {
+  // Resolve all sibling IDs for CAS institutions (Aided + Self share same COE code).
+  const effectiveIds = allInstitutionIds?.length ? allInstitutionIds : [institutionsId];
   const queryClient = useQueryClient();
   const [selectedCode, setSelectedCode] = useState('');
   const [adding, setAdding] = useState(false);
@@ -46,11 +51,15 @@ export function BoardProgrammesCard({
     staleTime: 5 * 60 * 1000,
   });
 
-  // All programmes for this institution (COE-synced `programs` table)
+  // All programmes for this institution (COE-synced `programs` table).
+  // Uses all sibling IDs so CAS Aided+Self institutions both contribute their programmes.
   const allProgrammesQuery = useQuery<{ data: AvailableProgramme[] }>({
-    queryKey: ['bos', 'institution-programs', institutionsId],
+    queryKey: ['bos', 'institution-programs', effectiveIds.join(',')],
     queryFn: async () => {
-      const res = await fetch(`/api/bos/programs?institutionId=${institutionsId}`);
+      const param = effectiveIds.length === 1
+        ? `institutionId=${effectiveIds[0]}`
+        : `institutionIds=${effectiveIds.join(',')}`;
+      const res = await fetch(`/api/bos/programs?${param}`);
       if (!res.ok) return { data: [] };
       return res.json();
     },
@@ -75,6 +84,7 @@ export function BoardProgrammesCard({
         body: JSON.stringify({
           programme_code: selectedCode,
           programme_name: prog?.program_name ?? selectedCode,
+          institutions_id: institutionsId,
         }),
       });
       if (!res.ok) {

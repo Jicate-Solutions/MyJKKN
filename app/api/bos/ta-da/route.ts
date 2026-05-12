@@ -24,8 +24,12 @@ export async function GET(request: NextRequest) {
       .from('bos_ta_da_claims')
       .select(`
         *,
-        member:bos_members ( id, display_name, display_designation, member_type ),
-        expert:bos_external_experts ( id, name, title, designation, institution_name, email )
+        member:bos_members (
+          id, display_name, display_designation, member_type,
+          contact_no, email, staff_id,
+          staff:staff ( id, phone )
+        ),
+        expert:bos_external_experts ( id, name, title, designation, institution_name, email, contact_no )
       `)
       .order('created_at', { ascending: false });
 
@@ -39,7 +43,8 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(data ?? []);
   } catch (error) {
     console.error('[bos/ta-da] GET error:', error);
-    return NextResponse.json({ error: 'Failed to fetch TA/DA claims' }, { status: 500 });
+    const msg = error instanceof Error ? error.message : 'Failed to fetch TA/DA claims';
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
 }
 
@@ -55,9 +60,9 @@ export async function POST(request: NextRequest) {
     const scope = await resolveBosAccess(user.id);
     const body = await request.json();
 
-    if (!body.meeting_id || !body.member_id || !body.expert_id || !body.institutions_id) {
+    if (!body.meeting_id || !body.member_id || !body.institutions_id) {
       return NextResponse.json(
-        { error: 'meeting_id, member_id, expert_id, and institutions_id are required' },
+        { error: 'meeting_id, member_id, and institutions_id are required' },
         { status: 400 }
       );
     }
@@ -79,8 +84,12 @@ export async function POST(request: NextRequest) {
       })
       .select(`
         *,
-        member:bos_members ( id, display_name, display_designation, member_type ),
-        expert:bos_external_experts ( id, name, title, designation, institution_name )
+        member:bos_members (
+          id, display_name, display_designation, member_type,
+          contact_no, email, staff_id,
+          staff:staff ( id, phone )
+        ),
+        expert:bos_external_experts ( id, name, title, designation, institution_name, email, contact_no )
       `)
       .single();
 
@@ -89,6 +98,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(data, { status: 201 });
   } catch (error) {
     console.error('[bos/ta-da] POST error:', error);
-    return NextResponse.json({ error: 'Failed to create TA/DA claim' }, { status: 500 });
+    const msg = error instanceof Error ? error.message : 'Failed to create TA/DA claim';
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
 }

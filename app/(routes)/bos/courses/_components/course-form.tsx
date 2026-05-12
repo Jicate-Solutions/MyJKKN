@@ -61,10 +61,26 @@ export function CourseForm({ defaultValues, onSubmit, submitting, submitLabel = 
         <legend className='px-2 text-sm font-semibold'>Identity</legend>
         <div className='grid grid-cols-2 gap-3'>
           <Field label='Course Code' error={form.formState.errors.course_code?.message}>
-            <Input {...form.register('course_code')} placeholder='24UCSC01' className='font-mono uppercase' />
+            <Input
+              {...form.register('course_code')}
+              placeholder='24UCSC01'
+              className='font-mono'
+              onChange={(e) =>
+                form.setValue('course_code', e.target.value.toUpperCase(), {
+                  shouldValidate: true, shouldDirty: true,
+                })
+              }
+            />
           </Field>
           <Field label='Course Name' error={form.formState.errors.course_name?.message}>
-            <Input {...form.register('course_name')} />
+            <Input
+              {...form.register('course_name')}
+              onChange={(e) =>
+                form.setValue('course_name', e.target.value.toUpperCase(), {
+                  shouldValidate: true, shouldDirty: true,
+                })
+              }
+            />
           </Field>
         </div>
         <div className='grid grid-cols-3 gap-3'>

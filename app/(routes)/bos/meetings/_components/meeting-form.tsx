@@ -31,6 +31,7 @@ import { Badge } from '@/components/ui/badge';
 
 import { BosMeeting, BOS_MEETING_TYPE_LABELS } from '@/types/bos';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useAcademicYears } from '@/hooks/use-academic-years';
 import { BosMeetingService } from '@/lib/services/bos/bos-meeting-service';
 import { logger } from '@/lib/utils/enhanced-logger';
 
@@ -61,10 +62,7 @@ const meetingFormSchema = z.object({
   board_id: z.string().min(1, 'Board is required'),
   composition_id: z.string().min(1, 'Composition is required'),
   meeting_type: z.enum(['regular', 'special', 'emergency', 'online']),
-  academic_year: z
-    .string()
-    .regex(/^\d{4}-\d{4}$/, 'Format: YYYY-YYYY')
-    .min(1, 'Academic year is required'),
+  academic_year: z.string().min(1, 'Academic year is required'),
   scheduled_date: z.string().min(1, 'Scheduled date is required'),
   scheduled_time: z.string().optional(),
   venue: z.string().optional(),
@@ -133,6 +131,15 @@ export function MeetingForm({ meeting, isSubmitting, onSubmit, onCancel }: Meeti
   const institutionsId = form.watch('institutions_id');
   const boardId = form.watch('board_id');
   const academicYear = form.watch('academic_year');
+
+  const { data: academicYearsData } = useAcademicYears(institutionsId || undefined);
+  const academicYears = academicYearsData?.data ?? [];
+  const academicYearOptions = [
+    ...academicYears.map((ay) => ({ value: ay.academic_year_name, label: ay.academic_year_name })),
+    ...(meeting?.academic_year && !academicYears.some((ay) => ay.academic_year_name === meeting.academic_year)
+      ? [{ value: meeting.academic_year, label: meeting.academic_year }]
+      : []),
+  ];
 
   // Fetch institutions from COE database (for super admin dropdown)
   useEffect(() => {
@@ -212,11 +219,13 @@ export function MeetingForm({ meeting, isSubmitting, onSubmit, onCancel }: Meeti
       .catch(() => setNextMeetingNumber(null));
   }, [boardId, academicYear, meeting]);
 
-  // Auto-derive academic year from scheduled date
+  // Auto-select academic year from dropdown based on scheduled date
   const handleDateChange = (value: string) => {
     form.setValue('scheduled_date', value);
     if (value && !form.getValues('academic_year')) {
-      form.setValue('academic_year', deriveAcademicYear(value));
+      const derived = deriveAcademicYear(value);
+      const match = academicYearOptions.find((opt) => opt.value === derived);
+      if (match) form.setValue('academic_year', match.value);
     }
   };
 
@@ -350,10 +359,16 @@ export function MeetingForm({ meeting, isSubmitting, onSubmit, onCancel }: Meeti
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Academic Year <span className='text-destructive'>*</span></FormLabel>
-                    <FormControl>
-                      <Input placeholder='e.g. 2025-2026' {...field} />
-                    </FormControl>
-                    <FormDescription>Auto-filled from scheduled date.</FormDescription>
+                    <SearchableSelect
+                      value={field.value}
+                      onValueChange={field.onChange}
+                      options={academicYearOptions}
+                      placeholder='Select academic year'
+                      searchPlaceholder='Search year…'
+                      disabled={!institutionsId}
+                      className='w-full'
+                    />
+                    <FormDescription>Auto-selected from scheduled date if matched.</FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}

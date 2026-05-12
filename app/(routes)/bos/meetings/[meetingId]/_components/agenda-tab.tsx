@@ -24,7 +24,7 @@ import {
 } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 
-import { BosAgendaItem, BosResolutionStatus } from '@/types/bos';
+import { BosAgendaItem, BosResolutionStatus, BosMeetingStatus } from '@/types/bos';
 import {
   useBosAgendaItems,
   useCreateBosAgendaItem,
@@ -286,9 +286,11 @@ function AgendaItemRow({
 interface AgendaTabProps {
   meetingId: string;
   canEdit: boolean;
+  meetingStatus: BosMeetingStatus;
 }
 
-export function AgendaTab({ meetingId, canEdit }: AgendaTabProps) {
+export function AgendaTab({ meetingId, canEdit, meetingStatus }: AgendaTabProps) {
+  const effectiveCanEdit = canEdit && meetingStatus !== 'ratified';
   const { data: items = [], isLoading } = useBosAgendaItems(meetingId);
   const [addOpen, setAddOpen] = useState(false);
 
@@ -305,8 +307,11 @@ export function AgendaTab({ meetingId, canEdit }: AgendaTabProps) {
       <div className='flex items-center justify-between'>
         <p className='text-sm text-muted-foreground'>
           {items.length} agenda {items.length === 1 ? 'item' : 'items'}
+          {meetingStatus === 'ratified' && (
+            <span className='ml-2 text-xs text-muted-foreground'>(read-only — meeting ratified)</span>
+          )}
         </p>
-        {canEdit && (
+        {effectiveCanEdit && (
           <Button size='sm' variant='outline' onClick={() => setAddOpen(true)}>
             <Plus className='mr-2 h-4 w-4' />
             Add Item
@@ -317,7 +322,7 @@ export function AgendaTab({ meetingId, canEdit }: AgendaTabProps) {
       {items.length === 0 ? (
         <div className='rounded-lg border border-dashed p-8 text-center'>
           <p className='text-sm text-muted-foreground'>No agenda items yet.</p>
-          {canEdit && (
+          {effectiveCanEdit && (
             <Button variant='link' size='sm' className='mt-1' onClick={() => setAddOpen(true)}>
               Add the first agenda item →
             </Button>
@@ -329,7 +334,7 @@ export function AgendaTab({ meetingId, canEdit }: AgendaTabProps) {
             <AgendaItemRow
               key={item.id}
               item={item}
-              canEdit={canEdit}
+              canEdit={effectiveCanEdit}
               meetingId={meetingId}
             />
           ))}

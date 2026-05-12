@@ -2,6 +2,7 @@
 
 import { useCallback, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { useQuery } from '@tanstack/react-query';
 import { DataTable } from '@/components/data-table/data-table';
 import { BosCourseSyllabus } from '@/types/bos';
 import { BosSyllabusService } from '@/lib/services/bos/bos-syllabus-service';
@@ -10,8 +11,9 @@ import { useDeleteBosSyllabus } from '@/hooks/bos/use-bos-syllabus';
 import { Button } from '@/components/ui/button';
 import { Plus } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
-import { columns } from './columns';
+import { createSyllabusColumns } from './columns';
 import { SyllabusSearchParams } from './data-table-schema';
+import type { InstitutionOption } from '../../_components/institution-picker';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 
 interface SyllabusDataTableProps {
@@ -27,6 +29,26 @@ export function SyllabusDataTable({ search }: SyllabusDataTableProps) {
   const [isDeleting, setIsDeleting] = useState(false);
 
   const isReady = !permissionsLoading && !!userProfile;
+
+  // Resolve institution name once for PDF headers — reuses the same cached query
+  // that InstitutionPicker and filters already populate.
+  const { data: institutions = [] } = useQuery<InstitutionOption[]>({
+    queryKey: ['bos', 'institutions'],
+    queryFn: async () => {
+      const r = await fetch('/api/bos/institutions');
+      if (!r.ok) throw new Error('Failed to load institutions');
+      return r.json();
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const scopedInstitutionsId = search.institutionsId || (!isSuperAdmin ? userProfile?.institution_id : undefined);
+  const institutionName = useMemo(
+    () => institutions.find(
+      (i) => i.id === scopedInstitutionsId || i.myjkkn_institution_ids.includes(scopedInstitutionsId ?? '')
+    )?.name,
+    [institutions, scopedInstitutionsId]
+  );
 
   const canCreate = useMemo(
     () => isSuperAdmin || canAccess('academic.bos-syllabus', 'create'),
@@ -123,7 +145,7 @@ export function SyllabusDataTable({ search }: SyllabusDataTableProps) {
     <>
       <DataTable
         fetchDataFn={fetchData}
-        getColumns={() => columns}
+        getColumns={() => createSyllabusColumns(institutionName)}
         exportConfig={{
           entityName: 'syllabi',
           columnMapping: {},

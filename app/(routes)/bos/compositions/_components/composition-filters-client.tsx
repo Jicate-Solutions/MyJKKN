@@ -14,10 +14,12 @@ interface CompositionFiltersClientProps {
 export function CompositionFiltersClient({ searchParams }: CompositionFiltersClientProps) {
   const router = useRouter();
   const currentSearchParams = useSearchParams();
-  const { isSuperAdmin, userProfile } = usePermissions();
+  const { isSuperAdmin } = usePermissions();
   const { data: institutionCtx } = useInstitutionContext();
 
-  // Auto-seed institutionsId for regular users once institution context resolves.
+  // For non-admins: seed the institutionsId URL param from their resolved context so
+  // the server-side searchParams (and thus CompositionDataTable) are institution-scoped.
+  // Super-admins pick their institution from the dropdown instead.
   useEffect(() => {
     if (isSuperAdmin || !institutionCtx?.myjkkn_id) return;
     if (currentSearchParams?.get('institutionsId')) return;
@@ -37,7 +39,7 @@ export function CompositionFiltersClient({ searchParams }: CompositionFiltersCli
       params.set('page', '1');
       router.push(`/bos/compositions?${params.toString()}`);
     },
-    [router, currentSearchParams]
+    [router, currentSearchParams],
   );
 
   const handleClearFilters = useCallback(() => {
@@ -45,16 +47,18 @@ export function CompositionFiltersClient({ searchParams }: CompositionFiltersCli
     params.set('page', '1');
     const pageSize = currentSearchParams?.get('pageSize');
     if (pageSize) params.set('pageSize', pageSize);
-    router.push('/bos/compositions');
-  }, [router, currentSearchParams]);
+    // Non-admins keep their institutionsId so data stays scoped after clearing.
+    if (!isSuperAdmin && institutionCtx?.myjkkn_id) {
+      params.set('institutionsId', institutionCtx.myjkkn_id);
+    }
+    router.push(`/bos/compositions?${params.toString()}`);
+  }, [router, currentSearchParams, isSuperAdmin, institutionCtx?.myjkkn_id]);
 
   return (
     <CompositionFilters
       searchParams={searchParams}
       onFilterChange={handleFilterChange}
       onClearFilters={handleClearFilters}
-      isSuperAdmin={isSuperAdmin}
-      institutionContextId={institutionCtx?.myjkkn_id}
     />
   );
 }

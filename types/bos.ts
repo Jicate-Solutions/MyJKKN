@@ -17,7 +17,10 @@ export type BosMemberType =
   | 'university_nominee'
   | 'subject_expert'
   | 'industry_expert'
-  | 'alumni';
+  | 'alumni'
+  | 'hod'
+  | 'facilitator'
+  | 'principal';
 
 export type BosMeetingStatus =
   | 'draft'
@@ -77,6 +80,9 @@ export const BOS_MEMBER_TYPE_LABELS: Record<BosMemberType, string> = {
   subject_expert: 'Subject Expert',
   industry_expert: 'Industry Expert',
   alumni: 'Alumni',
+  hod: 'Head of Department',
+  facilitator: 'Facilitator',
+  principal: 'Principal',
 };
 
 export const BOS_MEETING_STATUS_LABELS: Record<BosMeetingStatus, string> = {
@@ -755,7 +761,7 @@ export interface BosTaDaClaim {
   institutions_id: string;
   meeting_id: string;
   member_id: string;
-  expert_id: string;
+  expert_id?: string | null;
   travel_mode?: string;
   travel_from?: string;
   travel_to?: string;

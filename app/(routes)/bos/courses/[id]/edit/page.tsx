@@ -1,7 +1,7 @@
 'use client';
 
 import { use } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Lock } from 'lucide-react';
 import { toast } from 'sonner';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -14,8 +14,14 @@ import { isLocked } from '@/types/bos-courses';
 export default function EditCoursePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { data: course, isLoading } = useBosCourse(id);
   const update = useUpdateBosCourse();
+
+  // Hard-lock check: trust the URL param (set from list row data which is reliable)
+  // as well as the fetched course — whichever says locked wins.
+  const lockedFromUrl = searchParams.get('course_status')?.toLowerCase() === 'locked';
+  const courseIsLocked = lockedFromUrl || isLocked(course);
 
   return (
     <PermissionGuard module='academic.bos-courses' action='edit'>
@@ -26,12 +32,16 @@ export default function EditCoursePage({ params }: { params: Promise<{ id: strin
           </CardTitle>
         </CardHeader>
         <CardContent>
-          {isLoading || !course ? (
+          {isLoading ? (
             <Skeleton className='h-96 w-full' />
-          ) : isLocked(course) ? (
+          ) : courseIsLocked ? (
+            // Hard block — render regardless of whether course data has loaded,
+            // because lockedFromUrl is already definitive while the fetch is in flight.
             <div className='flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800'>
-              <Lock className='h-4 w-4' />
-              This course is <strong>Locked</strong> and cannot be edited.
+              <Lock className='h-5 w-5 shrink-0' />
+              <span>
+                This course is <strong>Locked</strong> and cannot be edited.
+              </span>
               <button
                 onClick={() => router.push('/bos/courses')}
                 className='ml-auto underline'
@@ -39,6 +49,8 @@ export default function EditCoursePage({ params }: { params: Promise<{ id: strin
                 Back to list
               </button>
             </div>
+          ) : !course ? (
+            <Skeleton className='h-96 w-full' />
           ) : (
             <CourseForm
               submitting={update.isPending}
@@ -58,12 +70,18 @@ export default function EditCoursePage({ params }: { params: Promise<{ id: strin
                 total_max_mark: course.total_max_mark ?? 100,
               }}
               onSubmit={async (form) => {
+                // Final server-side guard — 423 response means COE confirmed lock.
                 try {
                   await update.mutateAsync({ id, form });
                   toast.success('Course updated');
                   router.push('/bos/courses');
                 } catch (e) {
-                  toast.error((e as Error).message);
+                  const msg = (e as Error).message;
+                  if (msg.toLowerCase().includes('locked')) {
+                    toast.error('Course is locked and cannot be modified');
+                  } else {
+                    toast.error(msg);
+                  }
                 }
               }}
             />

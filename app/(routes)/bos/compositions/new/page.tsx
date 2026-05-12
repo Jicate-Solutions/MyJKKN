@@ -24,13 +24,13 @@ export default function NewCompositionPage() {
   };
 
   return (
-    <div className='max-w-3xl'>
+    <div>
       <PageHeader
         title='New Composition'
         description='Create a new Board of Studies composition for a board.'
       />
 
-      <div className='mt-6'>
+      <div className='mt-4'>
         <CompositionForm
           isSubmitting={createComposition.isPending}
           onSubmit={handleSubmit}

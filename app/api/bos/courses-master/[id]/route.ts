@@ -2,7 +2,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { CoeRestClient, CoeApiError } from '@/lib/services/coe/coe-rest-client';
-import { canAccessBos } from '@/lib/utils/bos/bos-access';
+import { canAccessBos, resolveBosAccess, resolveCoeInstitutionId, type BosAccessScope } from '@/lib/utils/bos/bos-access';
 import { courseFormSchema } from '@/lib/services/bos/courses-schemas';
 
 async function authenticate(action: 'view' | 'edit' | 'delete') {
@@ -11,20 +11,39 @@ async function authenticate(action: 'view' | 'edit' | 'delete') {
   if (error || !user) {
     return { error: NextResponse.json({ error: 'Unauthorized' }, { status: 401 }) };
   }
-  if (!(await canAccessBos(user.id, 'academic.bos-courses', action))) {
+  const [hasAccess, scope] = await Promise.all([
+    canAccessBos(user.id, 'academic.bos-courses', action),
+    resolveBosAccess(user.id),
+  ]);
+  if (!hasAccess) {
     return { error: NextResponse.json({ error: 'Forbidden' }, { status: 403 }) };
   }
-  return { user };
+  return { user, scope };
 }
 
-/** Refuses mutation if course is Locked. Returns 423 (RFC 4918) if so, null otherwise. */
-async function assertNotLocked(client: CoeRestClient, id: string): Promise<NextResponse | null> {
-  const existing = await client.get<{ course_status?: string }>(`/api/v1/courses/${id}`);
-  if (existing?.course_status === 'Locked') {
+/**
+ * Fetches the course, checks lock status, and for non-super-admins verifies
+ * the course belongs to their own institution. Returns an error response or null.
+ */
+async function assertMutationAllowed(
+  client: CoeRestClient,
+  id: string,
+  scope: BosAccessScope,
+): Promise<NextResponse | null> {
+  const existing = await client.get<{ course_status?: string; courses_status?: string; institutions_id?: string }>(`/api/v1/courses/${id}`);
+  const lockVal = existing?.courses_status ?? existing?.course_status;
+  if (lockVal?.toLowerCase() === 'locked') {
     return NextResponse.json(
       { error: 'Course is locked and cannot be modified', code: 'LOCKED' },
       { status: 423 },
     );
+  }
+  // Non-super-admins may only mutate courses belonging to their own institution.
+  if (!scope.isSuperAdmin && scope.institutionsId && existing?.institutions_id) {
+    const userCoeId = await resolveCoeInstitutionId(scope.institutionsId);
+    if (userCoeId && userCoeId !== existing.institutions_id) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
   }
   return null;
 }
@@ -55,11 +74,9 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
 
   try {
     const { id } = await params;
-
-    // Defense in depth — even if the UI hid the button, refuse the mutation.
     const client = CoeRestClient.create();
-    const lockResp = await assertNotLocked(client, id);
-    if (lockResp) return lockResp;
+    const guardResp = await assertMutationAllowed(client, id, auth.scope);
+    if (guardResp) return guardResp;
 
     const body = await request.json();
     // Partial update — only validate fields that are present
@@ -72,6 +89,13 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     }
 
     const updates: Record<string, unknown> = { ...partial.data };
+
+    // COE PUT endpoint field name aliases — confirmed by live API test 2026-05-12:
+    //   form 'course_name'  → COE requires 'course_title'  (singular 'course_name' ignored)
+    //   form 'credit'       → COE requires 'credits'       (singular 'credit' ignored on PUT)
+    if ('course_name' in updates) updates.course_title = updates.course_name;
+    if ('credit' in updates) updates.credits = updates.credit;
+
     // Recompute totals if both sides were sent
     if ('internal_max_mark' in updates && 'external_max_mark' in updates) {
       const i = (updates.internal_max_mark as number | undefined) ?? 0;
@@ -106,8 +130,8 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
     const check = searchParams.get('check') ?? undefined;
 
     const client = CoeRestClient.create();
-    const lockResp = await assertNotLocked(client, id);
-    if (lockResp) return lockResp;
+    const guardResp = await assertMutationAllowed(client, id, auth.scope);
+    if (guardResp) return guardResp;
 
     const result = await client.delete<unknown>(`/api/v1/courses/${id}`, { check });
     return NextResponse.json(result);

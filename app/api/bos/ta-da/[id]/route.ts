@@ -18,7 +18,11 @@ export async function GET(
       .from('bos_ta_da_claims')
       .select(`
         *,
-        member:bos_members ( id, display_name, display_designation, member_type ),
+        member:bos_members (
+          id, display_name, display_designation, member_type,
+          contact_no, email, staff_id,
+          staff:staff ( id, phone )
+        ),
         expert:bos_external_experts ( id, name, title, designation, institution_name, email, contact_no )
       `)
       .eq('id', id)
@@ -62,8 +66,12 @@ export async function PUT(
       .eq('id', id)
       .select(`
         *,
-        member:bos_members ( id, display_name, display_designation, member_type ),
-        expert:bos_external_experts ( id, name, title, designation, institution_name )
+        member:bos_members (
+          id, display_name, display_designation, member_type,
+          contact_no, email, staff_id,
+          staff:staff ( id, phone )
+        ),
+        expert:bos_external_experts ( id, name, title, designation, institution_name, email, contact_no )
       `)
       .single();
 
@@ -73,7 +81,8 @@ export async function PUT(
     return NextResponse.json(data);
   } catch (error) {
     console.error('[bos/ta-da/:id] PUT error:', error);
-    return NextResponse.json({ error: 'Failed to update claim' }, { status: 500 });
+    const msg = error instanceof Error ? error.message : 'Failed to update claim';
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
 }
 

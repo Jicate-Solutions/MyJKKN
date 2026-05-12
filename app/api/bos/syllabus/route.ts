@@ -66,11 +66,21 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Step 5: Build query
+    // Step 5: Build query — CAS-aware: use allInstitutionIds (Aided + Self) when available.
+    // Super-admin has allInstitutionIds=[] so falls back to single scopedInstitutionsId.
+    const filterIds: string[] = scope.allInstitutionIds.length > 0
+      ? scope.allInstitutionIds
+      : [scopedInstitutionsId];
+
     let query = supabase
       .from('bos_course_syllabi')
-      .select('*', { count: 'exact' })
-      .eq('institutions_id', scopedInstitutionsId);
+      .select('*', { count: 'exact' });
+
+    if (filterIds.length > 1) {
+      query = query.in('institutions_id', filterIds);
+    } else {
+      query = query.eq('institutions_id', filterIds[0]);
+    }
 
     // Apply filters
     if (boardId) query = query.eq('board_id', boardId);

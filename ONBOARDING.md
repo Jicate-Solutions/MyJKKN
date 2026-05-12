@@ -31,8 +31,8 @@ Regulation (regulations — local MyJKKN table)
 |---|---|
 | `board_id` is a bare UUID (no FK) | Board data comes from the COE REST API, not local DB |
 | `regulation_id` has an FK to `regulations` | `regulations` is local to MyJKKN Supabase — CASCADE delete keeps data clean |
-| POs/PSOs in normalized tables, not JSONB | Enables per-programme chairman write access via RLS |
-| `is_board_chairman_for_programme()` SECURITY DEFINER | RLS policy helper that joins across staff → members → compositions → board_programmes without exposing those tables |
+| POs/PSOs in normalized tables, not JSONB | Enables per-programme member write access via RLS |
+| `is_board_member_for_programme()` SECURITY DEFINER | RLS policy helper that joins across staff → members → compositions → board_programmes without exposing those tables |
 | `useInstitutionContext()` everywhere (not `useAuth`) | Resolves COE↔MyJKKN institution bridge correctly for CAS Aided+Self dedup |
 
 ---
@@ -63,23 +63,29 @@ Regulation (regulations — local MyJKKN table)
 ### DB Function
 
 ```sql
-is_board_chairman_for_programme(p_institutions_id UUID, p_programme_code VARCHAR)
+is_board_member_for_programme(p_institutions_id UUID, p_programme_code VARCHAR)
   → BOOLEAN (SECURITY DEFINER)
 ```
-Returns `true` if the calling auth user is chairman in any active composition of a board that governs the given programme. Used in RLS `WITH CHECK` policies for PO/PSO write operations.
+Returns `true` if the calling auth user is **any member type** (chairman, internal, external, alumni…) in any active composition of a board that governs the given programme. Used in RLS `WITH CHECK` policies for PO/PSO INSERT/UPDATE/DELETE operations.
 
 ---
 
 ## Access Control
 
-| Role | Board Programmes | PO/PSO Read | PO/PSO Write |
-|---|---|---|---|
-| `super_admin` | Full | All | All |
-| `admin` | Full | Institution | Institution |
-| Board Chairman | — | Programme | Own programme only |
-| Other members | — | Programme | ❌ |
+The API returns two per-programme flags: **`can_edit`** and **`can_view`**.
 
-Chairman = `bos_members.member_type = 'chairman'` in an active composition (`is_active = true`) for any board that governs the target programme.
+| Role | `can_edit` | `can_view` | Board Programmes |
+|---|---|---|---|
+| `super_admin` | ✅ All | ✅ All | Full |
+| Board Member (any type) | ✅ Own programme | ✅ Own programme | — |
+| Principal / VP / Dean | ❌ | ✅ All boards | — |
+| Others | ❌ | ❌ (filtered out) | — |
+
+- **`can_edit = true`** → any board member (chairman, internal, external, alumni…) OR super admin  
+- **`can_view = true`** → `can_edit` OR principal-role (`principal`, `vice_principal`, `dean`)  
+- Non-members are excluded from API results entirely (not just shown as read-only)
+
+Principal roles are checked via `PRINCIPAL_ROLES = new Set(['principal', 'vice_principal', 'dean'])` against `scope.role` from `resolveBosAccess()`.
 
 ---
 
@@ -97,7 +103,7 @@ DELETE /api/bos/boards/[id]/programmes?programmeCode=UEN  Remove programme
 ```
 GET  /api/bos/taxonomy/[regulationId]             Get framework + K-values
 POST /api/bos/taxonomy/[regulationId]             Save framework + K-values
-GET  /api/bos/taxonomy/[regulationId]/programmes  List programmes with po_count, pso_count, can_edit
+GET  /api/bos/taxonomy/[regulationId]/programmes  List programmes with po_count, pso_count, can_edit, can_view
 GET  /api/bos/taxonomy/[regulationId]/programmes/[code]/pos   List POs
 POST /api/bos/taxonomy/[regulationId]/programmes/[code]/pos   Batch-replace POs
 GET  /api/bos/taxonomy/[regulationId]/programmes/[code]/psos  List PSOs
@@ -120,7 +126,7 @@ GET  /api/bos/programs?institutionId=...          List COE-synced programmes for
 | `/bos/taxonomy` | Regulation → taxonomy assignment list |
 | `/bos/taxonomy/[regulationId]` | Configure: Step 1 (framework + K-values), Step 2 (PO/PSO per programme) |
 | `/bos/compositions` | Compositions list |
-| `/bos/compositions/[id]` | Composition detail — members + board programmes card |
+| `/bos/compositions/[id]` | Composition detail — two tabs: **Members** (member list + Add Member) and **Programmes** (BoardProgrammesCard only, no PO/PSO here) |
 | `/bos/meetings` | Meetings list |
 | `/bos/courses` | Courses list |
 | `/bos/course-scheme` | Course scheme (semester-grouped) |
@@ -136,18 +142,19 @@ GET  /api/bos/programs?institutionId=...          List COE-synced programmes for
    - Select a board, set academic year, term dates
 3. **Add members** → open composition → Add Member
    - Designate one member as `chairman`
-4. **Assign programmes** → open composition → scroll to "Programmes Governed by this Board"
-   - Pick UEN / UCM / UTA etc. from the institution's programme list
+4. **Assign programmes** → open composition → open **Programmes** tab → pick UEN / UCM / UTA etc. from the institution's programme list
 
-### Taxonomy Configuration (Admin or Chairman)
+### Taxonomy Configuration (Board Members)
 
 1. Go to `/bos/taxonomy`
 2. Click **Configure** on a regulation
 3. **Step 1** — Select taxonomy framework (Bloom's / Fink's), set K1–K6 descriptions → **Save Framework**
-4. **Step 2** — Expand each programme card:
-   - Enter POs (PO1…PO12) → **Save POs**
-   - Enter PSOs (PSO1…PSOn, optional) → **Save PSOs**
-   - Only the chairman for that programme can edit (others see read-only view)
+4. **Step 2** — Expand each programme card → two tabs appear:
+   - **Programme Outcomes tab**: Enter POs (PO1…PO12) → **Save POs**
+   - **Specific Outcomes (PSO) tab**: Enter PSOs (PSO1…PSOn, optional) → **Save PSOs**
+   - Any board member for that programme can edit; principals see a read-only view; non-members see nothing
+
+> **Note:** PO/PSO configuration lives exclusively at `/bos/taxonomy/[regulationId]` Step 2. The composition page shows only which programmes a board governs — no PO/PSO editing there.
 
 ---
 
@@ -164,13 +171,13 @@ import { resolveBosAccess } from '@/lib/utils/bos/bos-access';
 const scope = await resolveBosAccess(user.id);
 // scope.isSuperAdmin, scope.institutionsId, scope.userInstitutionId
 
-// Chairman check (server-side, single programme)
-import { isChairmanForProgramme } from '@/lib/utils/bos/bos-chairman-access';
-const canEdit = await isChairmanForProgramme(userId, 'UEN', institutionsId);
+// Board member check (server-side, single programme — used in POST write guards)
+import { isMemberForProgramme } from '@/lib/utils/bos/bos-chairman-access';
+const canEdit = await isMemberForProgramme(userId, 'UEN', institutionsId);
 
-// Chairman check (server-side, batch — for list endpoints)
-import { getChairmanProgrammes } from '@/lib/utils/bos/bos-chairman-access';
-const chairSet = await getChairmanProgrammes(userId, ['UEN','UCM'], institutionsId);
+// Board member check (server-side, batch — used in GET list endpoints to avoid N+1)
+import { getBoardMemberProgrammes } from '@/lib/utils/bos/bos-chairman-access';
+const memberSet = await getBoardMemberProgrammes(userId, ['UEN','UCM'], institutionsId);
 
 // PO flattening for syllabus CO→PO mapping
 import { flattenPos } from '@/hooks/bos/use-bos-taxonomy';

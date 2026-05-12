@@ -15,10 +15,6 @@ export async function GET(request: NextRequest) {
     const scope = await resolveBosAccess(user.id);
 
     const { searchParams } = new URL(request.url);
-    // Super admin may pass any institutionsId; others are locked to their own
-    const institutionsId = scope.isSuperAdmin
-      ? (searchParams.get('institutionsId') ?? undefined)
-      : (scope.institutionsId ?? undefined);
     const boardId = searchParams.get('boardId') ?? undefined;
     const compositionId = searchParams.get('compositionId') ?? undefined;
     const academicYear = searchParams.get('academicYear') ?? undefined;
@@ -35,18 +31,17 @@ export async function GET(request: NextRequest) {
     const sortBy = searchParams.get('sortBy') ?? 'scheduled_date';
     const sortOrder = searchParams.get('sortOrder') ?? 'desc';
 
-    // When withMembers=true, restrict to meetings whose composition has at least
-    // one active member (ensures syllabus is linked to a constituted BOS).
+    // withMembers=true: prefer meetings whose composition has active members.
+    // Falls back to all meetings if none found (soft filter — doesn't block new setups).
     let memberCompositionIds: string[] | undefined;
     if (withMembers) {
       const { data: memberRows } = await supabase
         .from('bos_members')
         .select('composition_id')
         .eq('is_active', true);
-      memberCompositionIds = [...new Set((memberRows ?? []).map((m: any) => m.composition_id).filter(Boolean))];
-      if (memberCompositionIds.length === 0) {
-        return NextResponse.json({ data: [], metadata: { total: 0, page, limit, totalPages: 0 } });
-      }
+      const ids = [...new Set((memberRows ?? []).map((m: any) => m.composition_id).filter(Boolean))];
+      if (ids.length > 0) memberCompositionIds = ids;
+      // If ids.length === 0, fall through and show all meetings for the institution.
     }
 
     let query = supabase
@@ -59,7 +54,16 @@ export async function GET(request: NextRequest) {
         { count: 'exact' }
       );
 
-    if (institutionsId) query = query.eq('institutions_id', institutionsId);
+    // Institution scope — CAS-aware: include both Aided + Self-Financing UUIDs.
+    if (scope.isSuperAdmin) {
+      const institutionsId = searchParams.get('institutionsId') ?? undefined;
+      if (institutionsId) query = query.eq('institutions_id', institutionsId);
+    } else if (scope.allInstitutionIds.length > 1) {
+      query = query.in('institutions_id', scope.allInstitutionIds);
+    } else if (scope.institutionsId) {
+      query = query.eq('institutions_id', scope.institutionsId);
+    }
+
     if (boardId) query = query.eq('board_id', boardId);
     if (compositionId) query = query.eq('composition_id', compositionId);
     if (academicYear) query = query.eq('academic_year', academicYear);

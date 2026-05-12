@@ -16,13 +16,13 @@ import {
 } from '@/components/ui/breadcrumb';
 
 const BOS_NAV_TABS = [
+  { href: '/bos/sop',           label: 'SOP',              icon: FileText },
   { href: '/bos/taxonomy',      label: 'Taxonomy',         icon: Layers },
   { href: '/bos/courses',       label: 'Courses',          icon: BookText },
   { href: '/bos/course-scheme', label: 'Course Scheme',    icon: ListTree },
   { href: '/bos/experts',       label: 'External Experts', icon: Users },
   { href: '/bos/compositions',  label: 'Compositions',     icon: ClipboardList },
   { href: '/bos/syllabus',      label: 'Syllabus',         icon: BookOpen },
-  { href: '/bos/sop',           label: 'SOP',              icon: FileText },
   { href: '/bos/meetings',      label: 'Meetings',         icon: CalendarDays },
   { href: '/bos/ta-da',         label: 'TA/DA Claims',     icon: Receipt },
   { href: '/bos/reports',       label: 'Reports',          icon: BarChart3 },
@@ -130,7 +130,7 @@ export default function BoSLayout({ children }: { children: ReactNode }) {
       </Breadcrumb>
 
       {/* ── BoS sub-navigation tabs ─────────────────────────────────────── */}
-      <div className='border-b bg-background -mx-4 sm:-mx-8 mt-4'>
+      <div className='border-b bg-background -mx-4 sm:-mx-8 mt-4 overflow-x-clip'>
         <nav className='flex overflow-x-auto px-4 sm:px-8 -mb-px gap-1'>
           {BOS_NAV_TABS.map((tab) => {
             const isActive = pathname.startsWith(tab.href);

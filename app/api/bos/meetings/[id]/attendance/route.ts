@@ -22,7 +22,7 @@ export async function GET(
         *,
         member:bos_members (
           id, display_name, display_designation, display_institution,
-          member_type, is_active, sort_order
+          member_type, is_active, sort_order, expert_id
         )
       `)
       .eq('meeting_id', meetingId)
@@ -82,7 +82,7 @@ export async function POST(
         *,
         member:bos_members (
           id, display_name, display_designation, display_institution,
-          member_type, is_active, sort_order
+          member_type, is_active, sort_order, expert_id
         )
       `);
 

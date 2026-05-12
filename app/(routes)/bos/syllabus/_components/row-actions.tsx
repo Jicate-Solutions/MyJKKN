@@ -7,7 +7,7 @@ import { usePermissions } from '@/hooks/use-permissions';
 import { useDeleteBosSyllabus } from '@/hooks/bos/use-bos-syllabus';
 import { ReviseDialog } from '@/components/bos/revise-dialog';
 import { DuplicateDialog } from '@/components/bos/duplicate-dialog';
-import { BosCourseSyllabus } from '@/types/bos';
+import type { BosCourseSyllabus, BosCourseObjectivesContent, BosCourseLearnOutcomesContent } from '@/types/bos';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -15,16 +15,119 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Button } from '@/components/ui/button';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
-import { MoreHorizontal, Edit2, Copy, History, Trash2 } from 'lucide-react';
+import { MoreHorizontal, Edit2, Copy, History, Trash2, FileDown, Loader2 } from 'lucide-react';
+import { toast } from 'sonner';
+import { getInstitutionHeader } from '@/lib/utils/internal-marks/institution-header';
+import { generateCourseSyllabusPDF, extractPOKeys } from '@/lib/utils/bos/course-syllabus-pdf';
+
+// ── PDF Download Button ───────────────────────────────────────────────────────
+
+export function SyllabusPdfDownloadButton({
+  syllabus,
+  institutionName,
+}: {
+  syllabus: BosCourseSyllabus;
+  institutionName?: string;
+}) {
+  const { canAccess, isSuperAdmin } = usePermissions();
+  const [loading, setLoading] = useState(false);
+
+  if (!isSuperAdmin && !canAccess('academic.bos-syllabus', 'view')) return null;
+
+  const handleClick = async () => {
+    setLoading(true);
+    const tid = toast.loading(`Generating PDF for ${syllabus.course_code}…`);
+    try {
+      let kValues: Record<string, string> | undefined;
+      let poKeys: string[] | undefined;
+      let psoKeys: string[] | undefined;
+
+      if (syllabus.regulation_id) {
+        try {
+          const taxRes = await fetch(`/api/bos/taxonomy/${syllabus.regulation_id}`);
+          if (taxRes.ok) {
+            const taxonomy = await taxRes.json();
+            kValues = taxonomy.k_values;
+            poKeys = extractPOKeys(taxonomy.pos);
+            psoKeys = taxonomy.psos ? extractPOKeys(taxonomy.psos) : [];
+          }
+        } catch {
+          // taxonomy fetch failure is non-fatal; PDF generates without k-value legend
+        }
+      }
+
+      const header = getInstitutionHeader(institutionName ?? null);
+      const objectivesContent = syllabus.course_objectives as BosCourseObjectivesContent | undefined;
+      const outcomesContent = syllabus.course_learning_outcomes as BosCourseLearnOutcomesContent | undefined;
+
+      generateCourseSyllabusPDF({
+        institution_name: header.institution_name,
+        institution_address: header.institution_address,
+        institution_accreditation: header.institution_accreditation,
+        logoImage: '/logo.png',
+        rightLogoImage: header.rightLogoImage,
+        course_code: syllabus.course_code,
+        course_name: syllabus.course_name,
+        total_hours: syllabus.total_hours ?? undefined,
+        contact_hours: syllabus.contact_hours ?? undefined,
+        credits: syllabus.course_credits ?? undefined,
+        objectives: objectivesContent?.objectives ?? [],
+        clos: outcomesContent?.clos ?? [],
+        k_values: kValues,
+        units: syllabus.course_content?.units ?? [],
+        textbooks: syllabus.textbooks?.primary ?? [],
+        references: syllabus.textbooks?.references ?? [],
+        web_resources: syllabus.web_resources?.resources ?? [],
+        pedagogy_methods: syllabus.pedagogy?.methods ?? [],
+        po_mappings: syllabus.po_mappings?.mappings ?? [],
+        po_keys: poKeys,
+        pso_keys: psoKeys,
+      });
+
+      toast.success('PDF downloaded', { id: tid });
+    } catch (e) {
+      toast.error((e as Error).message, { id: tid });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant='ghost'
+            size='icon'
+            className='h-8 w-8 text-blue-600 hover:text-blue-700 hover:bg-blue-50'
+            onClick={handleClick}
+            disabled={loading}
+            aria-label={`Download syllabus PDF for ${syllabus.course_code}`}
+          >
+            {loading
+              ? <Loader2 className='h-4 w-4 animate-spin' />
+              : <FileDown className='h-4 w-4' />}
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent side='top'>Download Syllabus PDF</TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+}
+
+// ── Row Actions Dropdown ──────────────────────────────────────────────────────
 
 interface DataTableRowActionsProps<TData> {
   row: Row<TData>;
+  institutionName?: string;
 }
 
 export function DataTableRowActions<TData extends BosCourseSyllabus>({
   row,
 }: DataTableRowActionsProps<TData>) {
+  // institutionName is consumed by SyllabusPdfDownloadButton rendered alongside this component
   const router = useRouter();
   const { canAccess } = usePermissions();
   const syllabus = row.original as BosCourseSyllabus;

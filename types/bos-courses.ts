@@ -60,14 +60,18 @@ export interface BosCourseMaster {
   total_pass_mark: number;
   is_active: boolean;       // COE field — true = course is active
   status?: boolean;         // kept for back-compat; prefer is_active
-  course_status: 'Active' | 'Locked' | string;   // Lock state. 'Locked' hides edit/delete in UI + 423 on server.
+  course_status?: 'Active' | 'Locked' | string;   // COE alias: singular
+  courses_status?: 'Active' | 'Locked' | string;  // COE DB column: plural — API returns this
   created_at: string;
   updated_at: string;
 }
 
-/** Reusable helper — single source of truth for "can this row be mutated?". */
-export function isLocked(row: { course_status?: string | null } | undefined | null): boolean {
-  return row?.course_status === 'Locked';
+/** Reusable helper — single source of truth for "can this row be mutated?".
+ *  COE returns the field as courses_status (plural); guard both spellings.
+ */
+export function isLocked(row: { course_status?: string | null; courses_status?: string | null } | undefined | null): boolean {
+  const v = row?.courses_status ?? row?.course_status;
+  return v?.toLowerCase() === 'locked';
 }
 
 /** The 13-field manual form (per design Section 2). */

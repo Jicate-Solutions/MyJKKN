@@ -1,14 +1,14 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
-import { Save, Users } from 'lucide-react';
+import { Save, Users, Lock } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 
-import { BosAttendanceStatus, BosMemberType } from '@/types/bos';
+import { BosAttendanceStatus, BosMemberType, BosMeetingStatus, BOS_MEETING_STATUS_ORDER } from '@/types/bos';
 import { useBosMembersByComposition } from '@/hooks/bos/use-bos-members';
 import { useBosAttendance, useSaveBosAttendance } from '@/hooks/bos/use-bos-attendance';
 import { logger } from '@/lib/utils/enhanced-logger';
@@ -103,6 +103,7 @@ interface AttendanceTabProps {
   compositionId: string;
   institutionsId: string;
   canEdit: boolean;
+  meetingStatus: BosMeetingStatus;
 }
 
 export function AttendanceTab({
@@ -110,7 +111,12 @@ export function AttendanceTab({
   compositionId,
   institutionsId,
   canEdit,
+  meetingStatus,
 }: AttendanceTabProps) {
+  const completedIndex = BOS_MEETING_STATUS_ORDER.indexOf('completed');
+  const currentStatusIndex = BOS_MEETING_STATUS_ORDER.indexOf(meetingStatus);
+  const isBeforeMeeting = currentStatusIndex < completedIndex;
+  const isReadOnly = meetingStatus === 'ratified';
   const { data: members = [], isLoading: loadingMembers } = useBosMembersByComposition(compositionId);
   const { data: savedAttendance = [], isLoading: loadingAttendance } = useBosAttendance(meetingId);
   const saveAttendance = useSaveBosAttendance(meetingId);
@@ -184,6 +190,19 @@ export function AttendanceTab({
     }
   };
 
+  if (isBeforeMeeting) {
+    return (
+      <div className='rounded-lg border border-dashed p-8 text-center'>
+        <Lock className='h-8 w-8 mx-auto mb-3 opacity-30' />
+        <p className='text-sm font-medium'>Attendance not available yet</p>
+        <p className='text-xs text-muted-foreground mt-1'>
+          Attendance can be recorded once the meeting is marked as{' '}
+          <strong>Completed</strong>.
+        </p>
+      </div>
+    );
+  }
+
   if (loadingMembers || loadingAttendance) {
     return (
       <div className='space-y-2'>
@@ -232,7 +251,7 @@ export function AttendanceTab({
       </div>
 
       {/* ── Save button ────────────────────────────────────── */}
-      {canEdit && (
+      {canEdit && !isReadOnly && (
         <div className='flex justify-end pt-2'>
           <Button
             size='sm'

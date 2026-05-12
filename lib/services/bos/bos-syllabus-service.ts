@@ -238,8 +238,9 @@ export class BosSyllabusService {
   /**
    * Fetch taxonomy for a regulation.
    */
-  static async getTaxonomy(regulationId: string): Promise<BosRegulationTaxonomy> {
-    const res = await fetch(`/api/bos/taxonomy/${regulationId}`);
+  static async getTaxonomy(regulationId: string, institutionsId?: string): Promise<BosRegulationTaxonomy> {
+    const qs = institutionsId ? `?institutionsId=${encodeURIComponent(institutionsId)}` : '';
+    const res = await fetch(`/api/bos/taxonomy/${regulationId}${qs}`);
     if (!res.ok) {
       const err = await res.json().catch(() => ({ error: 'Taxonomy not found' }));
       throw new Error(err.error ?? 'Failed to fetch taxonomy');

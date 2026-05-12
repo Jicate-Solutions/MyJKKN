@@ -10,7 +10,7 @@ import type {
 import type { CourseFormInput } from '@/lib/services/bos/courses-schemas';
 
 export interface CourseFilters {
-  institution_id: string;
+  institution_id?: string;  // omit to fetch all institutions (super-admin only)
   regulation_code?: string;
   program_code?: string;
   search?: string;
@@ -31,7 +31,7 @@ const baseKey = ['bos', 'courses'] as const;
 export function useBosCourses(filters: CourseFilters | undefined) {
   return useQuery<BosCourseListResponse>({
     queryKey: [...baseKey, 'list', filters] as const,
-    enabled: !!filters?.institution_id,
+    enabled: filters !== undefined,  // run even with no institution_id (all-institutions mode)
     queryFn: async () => {
       const params = new URLSearchParams();
       Object.entries(filters!).forEach(([k, v]) => {
