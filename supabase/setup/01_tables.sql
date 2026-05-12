@@ -4070,7 +4070,10 @@ CREATE INDEX IF NOT EXISTS idx_form_subs_campaign_link
 
 CREATE TABLE IF NOT EXISTS admission_campaigns (
   id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  institution_id  uuid NOT NULL REFERENCES institutions(id) ON DELETE CASCADE,
+  -- Nullable when scope='global' (cross-institution campaign).
+  institution_id  uuid REFERENCES institutions(id) ON DELETE CASCADE,
+  scope           text NOT NULL DEFAULT 'institution'
+                  CHECK (scope IN ('institution','global')),
   name            text NOT NULL,
   slug            text NOT NULL,
   description     text,
@@ -4087,7 +4090,12 @@ CREATE TABLE IF NOT EXISTS admission_campaigns (
   created_at      timestamptz NOT NULL DEFAULT now(),
   updated_at      timestamptz NOT NULL DEFAULT now(),
   archived_at     timestamptz,
-  UNIQUE (institution_id, slug)
+  UNIQUE (institution_id, slug),
+  CONSTRAINT chk_campaigns_scope_institution CHECK (
+    (scope = 'institution' AND institution_id IS NOT NULL)
+    OR
+    (scope = 'global'      AND institution_id IS NULL)
+  )
 );
 
 CREATE INDEX IF NOT EXISTS idx_campaigns_inst_status ON admission_campaigns (institution_id, status)
