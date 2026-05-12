@@ -2555,7 +2555,7 @@ function LeadDetailPageContent() {
         <LogCallDialog
           open={showLogCallDialog}
           onOpenChange={setShowLogCallDialog}
-          lead={lead ? { id: lead.id, full_name: lead.full_name, phone: lead.phone, funnel_stage: lead.funnel_stage, institution_id: lead.institution_id } : null}
+          lead={lead ? { id: lead.id, full_name: lead.full_name, phone: lead.phone, funnel_stage: lead.funnel_stage, institution_id: lead.institution_id, is_hot_lead: lead.is_hot_lead, is_priority: lead.is_priority, tags: lead.tags } : null}
           onSendWhatsApp={() => { setShowLogCallDialog(false); setPersonalMsgOpen(true); }}
         />
       </ContentLayout>

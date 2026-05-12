@@ -46,6 +46,9 @@ export interface LogCallInput {
   institution_id: string;
   counselor_id?: string;
   phone_called: string;
+  // call_outcome is required ONLY in call mode; for update_only it may be omitted.
+  // Kept as required in the type for backward compat — UI passes a default 'connected'
+  // when update_only is set (it's ignored server-side in update-only branch).
   call_outcome: CallOutcome;
   interest_level?: InterestLevel;
   next_action?: NextAction;
@@ -54,6 +57,19 @@ export interface LogCallInput {
   follow_up_time?: string | null;
   suggested_stage?: string | null;
   accept_stage_change?: boolean;
+
+  // ── Phase 1 consolidation (2026-05-12) ──
+  // update_only=true skips the admission_call_logs.insert and writes only the lead
+  // update + a note-type activity. Used by counselors to update a lead without a call.
+  update_only?: boolean;
+  // manual_stage takes precedence over (suggested_stage + accept_stage_change) when set.
+  // Validated against ALLOWED_STAGE_TRANSITIONS in the API route, not here.
+  manual_stage?: string | null;
+  // Lead flag toggles — null/undefined = leave unchanged; boolean = set to that value.
+  is_hot_lead?: boolean;
+  is_priority?: boolean;
+  // Full tag array (replace semantics). Undefined = leave unchanged.
+  tags?: string[];
 }
 
 export type CallDirection = 'inbound' | 'outbound';
@@ -672,20 +688,79 @@ export class TelephonyService {
 
   static async logManualCall(input: LogCallInput, supabase: any): Promise<{ callLog: any; leadUpdated: boolean }> {
     const { mapOutcomeToDisposition } = await import('@/lib/utils/admission/stage-suggestions');
-    const disposition = mapOutcomeToDisposition(input.call_outcome, input.interest_level);
     const followUpDateTime = input.follow_up_date ? (input.follow_up_time ? `${input.follow_up_date}T${input.follow_up_time}:00` : `${input.follow_up_date}T09:00:00`) : null;
-    const manualCallSid = `manual-${crypto.randomUUID()}`;
-    const { data: callLog, error: callError } = await supabase.from('admission_call_logs').insert({ call_sid: manualCallSid, institution_id: input.institution_id, lead_id: input.lead_id, counselor_id: input.counselor_id || null, direction: 'outbound', status: 'completed', call_disposition: disposition, from_number: 'manual', to_number: input.phone_called, duration_seconds: 0, call_notes: input.call_notes || null, follow_up_date: followUpDateTime, is_admission_call: true }).select().single();
-    if (callError) throw new Error(`Failed to log call: ${callError.message}`);
-    let leadUpdated = false;
-    const leadUpdate: Record<string, any> = { last_contact_at: new Date().toISOString(), updated_at: new Date().toISOString() };
+
+    // ── Resolve target stage (manual override wins over suggested-accept) ──
+    let targetStage: string | null = null;
+    if (input.manual_stage) {
+      targetStage = input.manual_stage;
+    } else if (input.accept_stage_change && input.suggested_stage) {
+      targetStage = input.suggested_stage;
+    }
+
+    // ── Build the lead-update payload (shared by both branches) ──
+    // null/undefined-aware: only set keys the caller actually wants to change so
+    // we don't accidentally null out fields like `tags` on a call-mode save.
+    const leadUpdate: Record<string, any> = { updated_at: new Date().toISOString() };
     if (followUpDateTime) leadUpdate.next_followup_at = followUpDateTime;
-    if (input.accept_stage_change && input.suggested_stage) {
+    if (typeof input.is_hot_lead === 'boolean') leadUpdate.is_hot_lead = input.is_hot_lead;
+    if (typeof input.is_priority === 'boolean') leadUpdate.is_priority = input.is_priority;
+    if (Array.isArray(input.tags)) leadUpdate.tags = input.tags;
+
+    if (targetStage) {
       const { data: cur } = await supabase.from('admission_leads').select('funnel_stage').eq('id', input.lead_id).single();
-      leadUpdate.funnel_stage = input.suggested_stage;
+      leadUpdate.funnel_stage = targetStage;
       leadUpdate.previous_stage = cur?.funnel_stage || 'new';
       leadUpdate.stage_changed_at = new Date().toISOString();
     }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // BRANCH B — Update-only mode (no call attempt, just a lead mutation)
+    // Skip admission_call_logs.insert; write only lead + a note-type activity.
+    // ─────────────────────────────────────────────────────────────────────
+    if (input.update_only) {
+      // For update-only there's no call, so last_contact_at must NOT be bumped
+      // (it tracks actual contact, not internal CRM edits). Use last_activity_at.
+      leadUpdate.last_activity_at = new Date().toISOString();
+
+      const { error: leadError } = await supabase.from('admission_leads').update(leadUpdate).eq('id', input.lead_id);
+      if (leadError) throw new Error(`Failed to update lead: ${leadError.message}`);
+
+      // Write a 'note' activity describing what changed so it surfaces in the
+      // unified Activity timeline. Mirror the pipe-delimited description style
+      // used by inbound-call-sync-service so the timeline renders consistently.
+      const changeParts: string[] = [];
+      if (targetStage) changeParts.push(`Stage: ${targetStage}`);
+      if (typeof input.is_hot_lead === 'boolean') changeParts.push(`Hot: ${input.is_hot_lead ? 'yes' : 'no'}`);
+      if (typeof input.is_priority === 'boolean') changeParts.push(`Priority: ${input.is_priority ? 'yes' : 'no'}`);
+      if (Array.isArray(input.tags)) changeParts.push(`Tags: ${input.tags.join(', ') || '(none)'}`);
+      if (followUpDateTime) changeParts.push(`Follow-up: ${followUpDateTime}`);
+      if (input.call_notes) changeParts.push(input.call_notes);
+
+      await supabase.from('admission_lead_activities').insert({
+        lead_id: input.lead_id,
+        activity_type: 'note',
+        subject: 'Counselor update',
+        description: changeParts.length > 0 ? changeParts.join(' | ') : 'Lead updated',
+        outcome: null,
+        created_by: input.counselor_id || null,
+      });
+
+      return { callLog: null, leadUpdated: true };
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // BRANCH A — Call mode (existing behavior — keep byte-equivalent insert)
+    // ─────────────────────────────────────────────────────────────────────
+    const disposition = mapOutcomeToDisposition(input.call_outcome, input.interest_level);
+    const manualCallSid = `manual-${crypto.randomUUID()}`;
+    const { data: callLog, error: callError } = await supabase.from('admission_call_logs').insert({ call_sid: manualCallSid, institution_id: input.institution_id, lead_id: input.lead_id, counselor_id: input.counselor_id || null, direction: 'outbound', status: 'completed', call_disposition: disposition, from_number: 'manual', to_number: input.phone_called, duration_seconds: 0, call_notes: input.call_notes || null, follow_up_date: followUpDateTime, is_admission_call: true }).select().single();
+    if (callError) throw new Error(`Failed to log call: ${callError.message}`);
+
+    // Call mode bumps last_contact_at (an actual contact happened)
+    leadUpdate.last_contact_at = new Date().toISOString();
+
+    let leadUpdated = false;
     const { error: leadError } = await supabase.from('admission_leads').update(leadUpdate).eq('id', input.lead_id);
     if (!leadError) leadUpdated = true;
     await supabase.from('admission_lead_activities').insert({ lead_id: input.lead_id, activity_type: 'call', subject: `Call ${input.call_outcome}`, description: [`Outcome: ${input.call_outcome}`, input.interest_level ? `Interest: ${input.interest_level}` : null, input.next_action ? `Next: ${input.next_action.replace(/_/g, ' ')}` : null, input.call_notes || null].filter(Boolean).join(' | '), outcome: disposition, created_by: input.counselor_id || null });
