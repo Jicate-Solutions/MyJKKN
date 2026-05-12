@@ -1,8 +1,9 @@
 -- ──────────────────────────────────────────────────────────────
--- Migration F2: get_campaign_time_series RPC
--- Daily/weekly/monthly bucketing via generate_series + date_trunc.
--- Empty buckets emit zero rows so charts render continuous timelines.
--- See spec §4.5 / design doc 2026-05-12.
+-- Migration F2 fix: align get_campaign_time_series date range with get_campaign_funnel
+-- get_campaign_funnel uses half-open >= AND < ; get_campaign_time_series used
+-- inclusive BETWEEN, causing edge clicks at exactly p_end_date to be counted
+-- by time-series but NOT by funnel. Convert both BETWEEN clauses to half-open.
+-- See spec §4.5 / design doc 2026-05-12 — caught by Task 7 code-quality review.
 -- ──────────────────────────────────────────────────────────────
 
 CREATE OR REPLACE FUNCTION public.get_campaign_time_series(

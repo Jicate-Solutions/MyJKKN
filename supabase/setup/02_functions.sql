@@ -14356,7 +14356,8 @@ BEGIN
     SELECT date_trunc(v_trunc, clicked_at) AS bucket, COUNT(*) AS n
       FROM admission_campaign_link_clicks
      WHERE link_id = ANY(v_link_ids)
-       AND clicked_at BETWEEN p_start_date AND p_end_date
+       AND clicked_at >= p_start_date
+       AND clicked_at <  p_end_date
      GROUP BY 1
   ),
   attributed AS (
@@ -14371,7 +14372,8 @@ BEGIN
             WHERE c.lead_id = l.id AND c.campaign_link_id = ANY(v_link_ids)
          )
        END
-       AND l.created_at BETWEEN p_start_date AND p_end_date
+       AND l.created_at >= p_start_date
+       AND l.created_at <  p_end_date
   )
   SELECT
     b.bucket                                                                      AS bucket_at,
