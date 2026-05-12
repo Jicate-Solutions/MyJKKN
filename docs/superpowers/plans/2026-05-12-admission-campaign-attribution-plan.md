@@ -8,7 +8,7 @@
 
 **Architecture:** Three new tables (`admission_campaigns`, `admission_campaign_links`, `admission_campaign_link_clicks`); attribution FKs added to `admission_leads` + `admission_lead_source_captures` + `admission_form_submissions`; public flow `/c/{token}` 302-redirects to `/apply/{slug}?c={token}` with click logging; public form submission refactored to flow through `capture_admission_lead` RPC; analytics RPCs return funnel + time-series + compare data; new admin UI under `/admission/marketing/campaigns/`; existing drip-sequence routes renamed to `/automations/`.
 
-**Tech Stack:** Next.js 15 (App Router) · TypeScript · Supabase (Postgres 15 + RLS) · React Query (TanStack Query) · Tailwind CSS · shadcn/ui · recharts · nanoid · pgTAP-style SQL tests · Playwright (E2E) · Vitest · React Testing Library
+**Tech Stack:** Next.js 16 (App Router) · TypeScript · Supabase (Postgres 15 + RLS) · React Query (TanStack Query) · Tailwind CSS · shadcn/ui · recharts · nanoid · pgTAP-style SQL tests · Playwright (E2E) · Vitest · React Testing Library
 
 **Conventions referenced throughout this plan:**
 - Existing service pattern: `lib/services/admission/*` (static-method classes, `createClientSupabaseClient()`)
