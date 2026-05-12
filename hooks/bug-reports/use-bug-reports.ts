@@ -215,7 +215,10 @@ const fetchInstitutions = async () => {
   if (!response.ok) {
     throw new Error('Failed to fetch institutions');
   }
-  return response.json();
+  // /api/institutions returns { data: [...], count: N }; unwrap to the bare
+  // array the typed contract (and callers like AdminBugReportsPage.map) expect.
+  const json = await response.json();
+  return Array.isArray(json) ? json : (json?.data ?? []);
 };
 
 const fetchDepartments = async (institutionId?: string) => {

@@ -115,22 +115,37 @@ export function RolesList({
   >({});
 
   // Fetch available roles
-  useEffect(() => {
-    const fetchRoles = async () => {
-      try {
-        setIsLoadingRoles(true);
-        const roles = await RoleService.getAssignableRoles();
-        setAvailableRoles(roles);
-      } catch (error) {
-        console.error('Error fetching roles:', error);
-        toast.error('Failed to load available roles');
-      } finally {
-        setIsLoadingRoles(false);
-      }
-    };
-
-    fetchRoles();
+  const fetchAvailableRoles = useCallback(async () => {
+    try {
+      setIsLoadingRoles(true);
+      const roles = await RoleService.getAssignableRoles();
+      setAvailableRoles(roles);
+    } catch (error) {
+      console.error('Error fetching roles:', error);
+      toast.error('Failed to load available roles');
+    } finally {
+      setIsLoadingRoles(false);
+    }
   }, []);
+
+  useEffect(() => {
+    fetchAvailableRoles();
+  }, [fetchAvailableRoles]);
+
+  // Refetch when the Manage Roles dialog opens so newly-created custom roles
+  // from /users/role-management appear without a hard page reload.
+  useEffect(() => {
+    if (showMultiRoleDialog) {
+      fetchAvailableRoles();
+    }
+  }, [showMultiRoleDialog, fetchAvailableRoles]);
+
+  // Same for the bulk-update dialog so its Select shows fresh roles too.
+  useEffect(() => {
+    if (showBulkRoleDialog) {
+      fetchAvailableRoles();
+    }
+  }, [showBulkRoleDialog, fetchAvailableRoles]);
 
   // Batch fetch user roles for all users on the current page
   const [isBatchLoadingRoles, setIsBatchLoadingRoles] = useState(false);

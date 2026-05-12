@@ -96,7 +96,7 @@ function NewGDPISessionContent() {
   const totalWeight = criteria.reduce((sum, c) => sum + (c.weight || 0), 0);
 
   return (
-    <PermissionGuard module="admission" action="create">
+    <PermissionGuard module="admission" action="gd_pi.manage">
       <ContentLayout title="New GD-PI Session">
         <div className="space-y-6">
           <Breadcrumb>

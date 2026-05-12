@@ -9614,11 +9614,14 @@ GRANT EXECUTE ON FUNCTION public.mirror_staff_role_to_user_roles(uuid, text) TO 
 -- ambiguity — every caller now resolves to this 3-arg version with p_role_key
 -- defaulting when omitted.
 -- Updated 2026-05-08 (phase 3.2): p_is_primary default flipped from true to
--- NULL (auto-decide). Auto rule: stay primary ONLY if user has no other
--- primary user_roles row. Prevents accidental overwrite of profiles.role
--- via sync_primary_role_to_profile() AFTER-INSERT trigger when an admin
--- adds a counselor on a user who already has a primary identity (e.g.
--- 'student' on a learner).
+-- NULL (auto-decide). Original auto-rule "primary only if no other primary"
+-- silently demoted counselor rows to is_primary=false for any user who
+-- already held a primary identity (e.g. faculty/student), breaking
+-- _user_is_strict_counselor classification and leaking the full lead list
+-- to 63% of counselors.
+-- Updated 2026-05-11: auto-rule rewritten to "primary UNLESS user holds an
+-- admission/admin override" so it mirrors _user_is_strict_counselor's own
+-- exclusion set. New counselor assignments now stay strict by default.
 CREATE OR REPLACE FUNCTION public.assign_counselor_role(
     p_user_id    uuid,
     p_is_primary boolean DEFAULT NULL,
@@ -9631,7 +9634,7 @@ AS $$
 DECLARE
     v_role_id        uuid;
     v_caller         uuid := auth.uid();
-    v_has_primary    boolean;
+    v_has_override   boolean;
     v_make_primary   boolean;
     v_allowed_keys   text[] := ARRAY[
       'admission_counselor',
@@ -9675,19 +9678,24 @@ BEGIN
         RETURN;
     END IF;
 
-    -- Decide is_primary:
-    --   - explicit TRUE  → caller forces primary (demote-then-insert)
-    --   - explicit FALSE → caller forces additive (no demote, never primary)
-    --   - NULL (default) → auto: primary only if user has no other primary yet
+    -- Auto-rule (2026-05-11): counselor identity wins UNLESS user holds an
+    -- admission/admin/exec override. Mirrors _user_is_strict_counselor's
+    -- exclusion set so strict-counselor classification stays consistent.
     SELECT EXISTS (
-        SELECT 1 FROM user_roles
-         WHERE user_id = p_user_id AND is_primary = true
-    ) INTO v_has_primary;
+        SELECT 1 FROM user_roles ur
+        JOIN custom_roles cr ON cr.id = ur.role_id
+        WHERE ur.user_id = p_user_id
+          AND cr.role_key IN (
+            'admission', 'admission_staff',
+            'administrator', 'super_admin',
+            'ceo', 'coo', 'cbo', 'registrar'
+          )
+    ) INTO v_has_override;
 
     v_make_primary := CASE
-        WHEN p_is_primary IS TRUE  THEN true
-        WHEN p_is_primary IS FALSE THEN false
-        ELSE NOT v_has_primary
+        WHEN p_is_primary IS TRUE  THEN TRUE
+        WHEN p_is_primary IS FALSE THEN FALSE
+        ELSE NOT v_has_override
     END;
 
     -- Only demote when this insert will actually be primary. Required to
@@ -13873,29 +13881,58 @@ SET search_path = public
 AS $$
   SELECT
     EXISTS (
-      SELECT 1
-        FROM user_roles ur
-        JOIN custom_roles cr ON cr.id = ur.role_id
-       WHERE ur.user_id = p_uid
-         AND ur.is_primary = TRUE
-         AND cr.role_key IN (
-           'admission_counselor',
-           'expo_counselor',
-           'learner_counselor',
-           'staff_counselor'
-         )
+      SELECT 1 FROM user_roles ur
+      JOIN custom_roles cr ON cr.id = ur.role_id
+      WHERE ur.user_id = p_uid
+        AND cr.role_key IN (
+          'admission_counselor','expo_counselor','learner_counselor','staff_counselor'
+        )
     )
     AND NOT EXISTS (
-      SELECT 1
-        FROM user_roles ur
-        JOIN custom_roles cr ON cr.id = ur.role_id
-       WHERE ur.user_id = p_uid
-         AND cr.role_key IN ('admission', 'administrator')
+      SELECT 1 FROM user_roles ur
+      JOIN custom_roles cr ON cr.id = ur.role_id
+      WHERE ur.user_id = p_uid
+        AND cr.role_key IN (
+          'admission','admission_staff','administrator','super_admin',
+          'ceo','coo','cbo','registrar'
+        )
     );
 $$;
 
 COMMENT ON FUNCTION public._user_is_strict_counselor(uuid) IS
-  'TRUE iff the user PRIMARILY identifies as a counselor (counselor key is is_primary=true) AND holds no admission/administrator override. Updated 2026-05-11 to require is_primary so multi-role executives are not demoted.';
+  'TRUE iff user holds a counselor role AND no admission/admission_staff/admin/exec override. is_primary is NOT consulted. Updated 2026-05-11 per user requirement: admission_staff and tier-1 execs (ceo/coo/cbo/registrar) keep broad visibility even with secondary counselor role; everyone else with a counselor role sees assigned leads only.';
+
+-- 2026-05-11: defense-in-depth allowlist for admission.leads.view. Even if
+-- the permission gets re-granted to a non-allowlist role via Role
+-- Management, RLS and the list API enforce the canonical role_key set here.
+-- Keep this in sync with LEAD_VIEW_ALLOWLIST_ROLE_KEYS in
+-- lib/api-helpers/admission-counselor-scope.ts.
+CREATE OR REPLACE FUNCTION public._user_in_admission_lead_allowlist(p_uid uuid)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT EXISTS (
+    SELECT 1
+      FROM user_roles ur
+      JOIN custom_roles cr ON cr.id = ur.role_id
+     WHERE ur.user_id = p_uid
+       AND cr.role_key IN (
+         'admission', 'admission_staff',
+         'administrator',
+         'ceo', 'coo', 'cbo', 'registrar',
+         'admission_counselor', 'expo_counselor',
+         'learner_counselor',   'staff_counselor'
+       )
+  );
+$$;
+
+COMMENT ON FUNCTION public._user_in_admission_lead_allowlist(uuid) IS
+  'Defense-in-depth allowlist for admission.leads.view. Returns TRUE iff user holds one of: admission, admission_staff, administrator, ceo, coo, cbo, registrar, or any of 4 counselor role_keys. Added 2026-05-11 so granting admission.leads.view to off-list roles (faculty, hod, principal, student, etc.) does not re-leak the leads list.';
+
+GRANT EXECUTE ON FUNCTION public._user_in_admission_lead_allowlist(uuid) TO authenticated;
 
 CREATE OR REPLACE FUNCTION public._user_can_view_lead_for_call(p_uid uuid, p_lead_id uuid)
 RETURNS boolean

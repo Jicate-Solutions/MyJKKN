@@ -94,7 +94,7 @@ function SessionDetailContent({ params }: { params: Promise<{ id: string }> }) {
   };
 
   return (
-    <PermissionGuard module="admission" action="view">
+    <PermissionGuard module="admission" action="gd_pi.view">
       <ContentLayout title={session.session_name}>
         <div className="space-y-6">
           <Breadcrumb>

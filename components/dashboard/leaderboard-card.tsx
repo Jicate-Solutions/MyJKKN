@@ -171,7 +171,11 @@ export function LeaderboardCard({ kind, result }: LeaderboardCardProps) {
       ) : (
         <ol className='p-2 space-y-1'>
           {result.rows.map((row) => (
-            <LeaderboardRowLine key={row.counselor_id} row={row} kind={kind} />
+            <LeaderboardRowLine
+              key={`${row.counselor_id}::${row.institution_id ?? 'unassigned'}`}
+              row={row}
+              kind={kind}
+            />
           ))}
         </ol>
       )}

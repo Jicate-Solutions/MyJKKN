@@ -1,0 +1,30 @@
+name: Nav-config href audit
+
+# Every href registered in a *_nav-config.ts under app/(routes)/ must
+# point at a real page.tsx. Catches the "/hr/attendance 404" and
+# "/hr/recruitment/candidates 404" bug class — nav promises a route that
+# doesn't exist, authenticated users hit a Next.js 404 after auth pass.
+#
+# curl shows 307 (auth redirect) for unauthed visitors, MASKING the bug.
+# Pre-merge static check is the only reliable defense.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: Nav-config hrefs match page.tsx
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@v4
+
+      - name: Run audit
+        run: bash scripts/ci/check-nav-config-hrefs.sh

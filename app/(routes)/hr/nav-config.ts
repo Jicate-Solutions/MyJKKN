@@ -53,12 +53,10 @@ const config: ModuleNavConfig = {
           href: '/hr/recruitment/jobs',
           matchPaths: ['/hr/recruitment/jobs'],
         },
-        {
-          label: 'Candidates',
-          icon: 'Users',
-          href: '/hr/recruitment/candidates',
-          matchPaths: ['/hr/recruitment/candidates'],
-        },
+        // Candidates list page not yet built (only [id] detail exists).
+        // Re-add this nav entry when app/(routes)/hr/recruitment/candidates/page.tsx
+        // ships. Removed 2026-05-11 so the nav-config-href-audit gate ships
+        // as-enforcing.
         {
           label: 'My Submissions',
           icon: 'ClipboardList',

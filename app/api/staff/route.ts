@@ -6,6 +6,7 @@ import { NextResponse , connection } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import type { CookieOptions } from '@supabase/ssr';
+import { getStaffScope } from '@/lib/services/staff/staff-scope';
 
 
 // Create admin client for database operations
@@ -88,10 +89,24 @@ export async function GET(request: NextRequest) {
 
     const isSuperAdmin = userProfile?.is_super_admin || userProfile?.role === 'super_admin';
 
+    // Resolve staff module scope via SECURITY DEFINER RPC.
+    // Defence-in-depth: RLS on public.staff already filters at the DB layer
+    // (Batch A), but the admin-client read path bypasses RLS for performance,
+    // so we MUST replicate the scope rules here. Use the cookie-authenticated
+    // `supabase` client so auth.uid() resolves correctly inside the RPC.
+    const scope = isSuperAdmin
+      ? ('all_institutions' as const)
+      : await getStaffScope(supabase, session.user.id);
+
+    if (scope === 'none') {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+
     console.log('[/api/staff] User access check:', {
       userId: session.user.id,
       email: session.user.email,
       isSuperAdmin,
+      scope,
       profileInstitutionId: userProfile?.institution_id
     });
 
@@ -121,8 +136,10 @@ export async function GET(request: NextRequest) {
 
       console.log('[/api/staff] Total accessible institutions:', accessibleInstitutionIds.length);
 
-      // User must have at least their primary institution
-      if (accessibleInstitutionIds.length === 0) {
+      // User must have at least their primary institution — UNLESS they're
+      // own_records scope, where the filter keys on profile_id and the
+      // institution list is irrelevant.
+      if (accessibleInstitutionIds.length === 0 && scope !== 'own_records') {
         console.warn('[/api/staff] User has no institution access');
         return NextResponse.json(
           { error: 'No institution access' },
@@ -161,15 +178,28 @@ export async function GET(request: NextRequest) {
       { count: 'exact' }
     );
 
-    // Faculty users can only view their own staff record
-    if (!isSuperAdmin && userProfile?.role === 'faculty') {
-      query = query.eq('institution_email', session.user.email);
-      console.log('[/api/staff] Faculty self-only filter applied for:', session.user.email);
+    // Scope branch — replaces the legacy `role === 'faculty'` self-only
+    // shortcut. Source of truth is custom_roles.module_scopes->>'staff'
+    // resolved by get_user_module_scope() (Batch A).
+    if (scope === 'own_records') {
+      // Faculty / own-records roles: only their own staff row, keyed on
+      // staff.profile_id (uuid, 100% populated, links to auth.uid()).
+      query = query.eq('profile_id', session.user.id);
+      console.log('[/api/staff] own_records filter applied for:', session.user.id);
+    } else if (scope === 'own_institution') {
+      if (accessibleInstitutionIds.length > 0) {
+        query = query.in('institution_id', accessibleInstitutionIds);
+      } else {
+        // No institutions in scope = empty result (mirrors prior 403 guard
+        // upstream, but the caller has already passed permission gates).
+        return NextResponse.json({
+          data: [],
+          metadata: { total: 0, page: 1, limit: 0, totalPages: 0 }
+        });
+      }
     }
-    // Filter by user's institution access (skip if super admin or faculty)
-    else if (!isSuperAdmin && accessibleInstitutionIds.length > 0) {
-      query = query.in('institution_id', accessibleInstitutionIds);
-    }
+    // scope === 'all_institutions' (super admin or cross-scope role) =>
+    // no row filter.
 
     // Apply filters
     if (institutionIds && institutionIds.length > 0) {

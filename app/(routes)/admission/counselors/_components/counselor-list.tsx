@@ -13,10 +13,12 @@ import { DotsHorizontalIcon } from '@radix-ui/react-icons';
 import {
   ArrowRightCircle,
   Check,
+  Eye,
   Filter,
   Loader2,
   Pencil,
   Search,
+  Tag,
   ToggleLeft,
   ToggleRight,
   Trash2,
@@ -72,6 +74,7 @@ import {
 } from '@/components/ui/dialog';
 import { DataTable, type DataFetchParams } from '@/components/data-table/data-table';
 import { DataTableColumnHeader } from '@/components/data-table/column-header';
+import { CounselorDetailsDialog } from './counselor-details-dialog';
 
 interface CounselorRecord {
   id: string;
@@ -82,6 +85,7 @@ interface CounselorRecord {
   max_leads: number;
   current_leads: number;
   assigned_lead_count: number;
+  sources_count: number;
   specializations: string[] | null;
   institution_id: string;
   user_id: string | null;
@@ -168,6 +172,7 @@ interface CounselorActionsContext {
   openGuardrailDialog: (mode: GuardrailMode, counselor: CounselorRecord) => void;
   openEditDialog: (counselor: CounselorRecord) => void;
   assignToSource: (counselor: CounselorRecord) => void;
+  openDetailsDialog: (counselor: CounselorRecord) => void;
 }
 
 const CounselorActionsCtx = createContext<CounselorActionsContext | null>(null);
@@ -186,6 +191,7 @@ function CounselorRowActions({ counselor }: { counselor: CounselorRecord }) {
     openGuardrailDialog,
     openEditDialog,
     assignToSource,
+    openDetailsDialog,
   } = useCounselorActions();
   const isToggling = togglingIds.has(counselor.id);
   const isRemoving = removingId === counselor.id;
@@ -210,6 +216,14 @@ function CounselorRowActions({ counselor }: { counselor: CounselorRecord }) {
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-[220px]">
         <DropdownMenuItem
+          onSelect={() => openDetailsDialog(counselor)}
+          disabled={busy}
+        >
+          <Eye className="mr-2 h-4 w-4" />
+          View Details
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem
           onSelect={() => assignToSource(counselor)}
           disabled={busy}
         >
@@ -224,22 +238,24 @@ function CounselorRowActions({ counselor }: { counselor: CounselorRecord }) {
           <Pencil className="mr-2 h-4 w-4" />
           Edit
         </DropdownMenuItem>
-        <DropdownMenuItem
-          onSelect={() => openGuardrailDialog('toggle', counselor)}
-          disabled={busy}
-        >
-          {counselor.is_active ? (
-            <>
-              <ToggleRight className="mr-2 h-4 w-4" />
-              Deactivate
-            </>
-          ) : (
-            <>
-              <ToggleLeft className="mr-2 h-4 w-4" />
-              Activate
-            </>
-          )}
-        </DropdownMenuItem>
+        {canDelete && (
+          <DropdownMenuItem
+            onSelect={() => openGuardrailDialog('toggle', counselor)}
+            disabled={busy}
+          >
+            {counselor.is_active ? (
+              <>
+                <ToggleRight className="mr-2 h-4 w-4" />
+                Deactivate
+              </>
+            ) : (
+              <>
+                <ToggleLeft className="mr-2 h-4 w-4" />
+                Activate
+              </>
+            )}
+          </DropdownMenuItem>
+        )}
         {canDelete && (
           <>
             <DropdownMenuSeparator />
@@ -257,6 +273,35 @@ function CounselorRowActions({ counselor }: { counselor: CounselorRecord }) {
     </DropdownMenu>
   );
 }
+
+// Name cell renders as a button so clicking the counselor name opens the
+// details modal. Placed immediately above counselorColumns (and as a const
+// arrow rather than a function declaration) so Turbopack's React Refresh
+// chunk transform keeps the binding visible to the columns array — matches
+// the hoisting-safety pattern used in add-counselor-dialog (see memory note
+// feedback_temporal_dead_zone_in_add_counselor_dialog).
+const CounselorNameCell = ({ counselor }: { counselor: CounselorRecord }) => {
+  const ctx = useContext(CounselorActionsCtx);
+  return (
+    <div className="flex flex-col gap-0.5">
+      <button
+        type="button"
+        onClick={() => ctx?.openDetailsDialog(counselor)}
+        className={cn(
+          'text-left font-medium hover:underline focus-visible:outline-none focus-visible:underline truncate',
+          !counselor.is_active && 'text-muted-foreground',
+        )}
+      >
+        {counselor.name || '—'}
+      </button>
+      {counselor.email && (
+        <span className="text-xs text-muted-foreground truncate">
+          {counselor.email}
+        </span>
+      )}
+    </div>
+  );
+};
 
 const counselorColumns: ColumnDef<CounselorRecord>[] = [
   {
@@ -283,19 +328,7 @@ const counselorColumns: ColumnDef<CounselorRecord>[] = [
   {
     accessorKey: 'name',
     header: ({ column }) => <DataTableColumnHeader column={column} title="Counselor" />,
-    cell: ({ row }) => {
-      const c = row.original;
-      return (
-        <div className="flex flex-col gap-0.5">
-          <span className={`font-medium ${!c.is_active ? 'text-muted-foreground' : ''}`}>
-            {c.name || '—'}
-          </span>
-          {c.email && (
-            <span className="text-xs text-muted-foreground truncate">{c.email}</span>
-          )}
-        </div>
-      );
-    },
+    cell: ({ row }) => <CounselorNameCell counselor={row.original} />,
   },
   {
     accessorKey: 'phone',
@@ -365,6 +398,30 @@ const counselorColumns: ColumnDef<CounselorRecord>[] = [
     },
   },
   {
+    accessorKey: 'sources_count',
+    header: ({ column }) => <DataTableColumnHeader column={column} title="Sources" />,
+    cell: ({ row }) => {
+      const n = row.original.sources_count ?? 0;
+      return (
+        <div className="flex items-center gap-1.5 tabular-nums">
+          <Tag
+            className={`h-3.5 w-3.5 ${n > 0 ? 'text-primary' : 'text-muted-foreground/60'}`}
+          />
+          <span
+            className={`text-sm font-semibold ${
+              n > 0 ? 'text-foreground' : 'text-muted-foreground'
+            }`}
+          >
+            {n.toLocaleString()}
+          </span>
+          {n === 0 && (
+            <span className="text-[10px] text-muted-foreground/80">unassigned</span>
+          )}
+        </div>
+      );
+    },
+  },
+  {
     id: 'actions',
     cell: ({ row }) => <CounselorRowActions counselor={row.original} />,
     header: 'Actions',
@@ -381,6 +438,7 @@ const COUNSELOR_EXPORT_CONFIG = {
     institution: 'Institution',
     is_active: 'Active',
     assigned_lead_count: 'Assigned Leads',
+    sources_count: 'Sources Mapped',
     max_leads: 'Max Leads',
   },
   columnWidths: [
@@ -390,6 +448,7 @@ const COUNSELOR_EXPORT_CONFIG = {
     { wch: 22 },
     { wch: 28 },
     { wch: 10 },
+    { wch: 14 },
     { wch: 14 },
     { wch: 10 },
   ],
@@ -401,6 +460,7 @@ const COUNSELOR_EXPORT_CONFIG = {
     'Institution',
     'Active',
     'Assigned Leads',
+    'Sources Mapped',
     'Max Leads',
   ],
 };
@@ -436,7 +496,7 @@ function EditCounselorDialog({
       setName(counselor.name || '');
       setEmail(counselor.email || '');
       setPhone(counselor.phone || '');
-      setMaxLeads(counselor.max_leads || 50);
+      setMaxLeads(counselor.max_leads || 5000);
     }
   }, [counselor, open]);
 
@@ -547,6 +607,7 @@ function EditCounselorDialog({
 
 type StatusFilter = 'all' | 'active' | 'inactive';
 type AssignmentFilter = 'all' | 'has_leads' | 'no_leads';
+type SourcesFilter = 'all' | 'has_sources' | 'no_sources';
 
 const ROLE_FILTER_OPTIONS = [
   { value: 'all', label: 'All Roles' },
@@ -564,28 +625,28 @@ interface AssignToSourceDialogProps {
   onOpenChange: (open: boolean) => void;
   institutionId?: string;
   isGlobalUser?: boolean;
-  onAssigned: (sourceId: string) => void;
+  onSaved: () => void;
 }
 
-// Source picker for the "Assign Leads (Sources)" row action. Maps the
+// Multi-source picker for the "Assign Leads (Sources)" row action. Maps the
 // counselor onto admission_counselor_sources via CounselorSourceService.bulkAttach
-// (idempotent — re-mapping is a no-op), then hands a sourceId back to the
-// parent so it can navigate to the source detail page where leads are
-// manually assigned.
+// once per selected source (idempotent — re-mapping is a no-op). Uses
+// Promise.allSettled so a single RLS denial on one source doesn't block
+// the remaining attaches.
 function AssignToSourceDialog({
   counselor,
   open,
   onOpenChange,
   institutionId,
   isGlobalUser,
-  onAssigned,
+  onSaved,
 }: AssignToSourceDialogProps) {
   const supabase = createClientSupabaseClient();
   const [sources, setSources] = useState<SourceMaster[]>([]);
   const [mappedSourceIds, setMappedSourceIds] = useState<Set<string>>(new Set());
   const [isLoading, setIsLoading] = useState(false);
   const [search, setSearch] = useState('');
-  const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null);
+  const [selectedSourceIds, setSelectedSourceIds] = useState<Set<string>>(new Set());
   const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
@@ -634,7 +695,7 @@ function AssignToSourceDialog({
   useEffect(() => {
     if (!open) {
       setSearch('');
-      setSelectedSourceId(null);
+      setSelectedSourceIds(new Set());
     }
   }, [open]);
 
@@ -646,8 +707,37 @@ function AssignToSourceDialog({
     );
   }, [sources, search]);
 
+  // Only counts sources the user actually picked that aren't already mapped —
+  // this is the number of INSERTs we'll attempt. Already-mapped picks are
+  // treated as no-ops so the CTA stays honest.
+  const newSelectionIds = useMemo(
+    () => Array.from(selectedSourceIds).filter((id) => !mappedSourceIds.has(id)),
+    [selectedSourceIds, mappedSourceIds],
+  );
+
+  const toggleSelection = (id: string) => {
+    setSelectedSourceIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const selectAllVisible = () => {
+    setSelectedSourceIds((prev) => {
+      const next = new Set(prev);
+      for (const s of filtered) {
+        if (!mappedSourceIds.has(s.id)) next.add(s.id);
+      }
+      return next;
+    });
+  };
+
+  const clearSelection = () => setSelectedSourceIds(new Set());
+
   const handleAssign = async () => {
-    if (!counselor || !selectedSourceId) return;
+    if (!counselor || newSelectionIds.length === 0) return;
 
     if (counselor.id.startsWith('role-')) {
       toast.error('No counselor record exists for this user yet. Add them first.');
@@ -656,47 +746,68 @@ function AssignToSourceDialog({
 
     setIsSaving(true);
     try {
-      const isAlreadyMapped = mappedSourceIds.has(selectedSourceId);
-      if (!isAlreadyMapped) {
-        const { created, skipped } = await CounselorSourceService.bulkAttach(
-          selectedSourceId,
-          [counselor.id],
-        );
-        if (created > 0) {
-          toast.success(`${counselor.name} added to source`);
-        } else if (skipped > 0) {
-          // Race-condition safety: someone else mapped them between our
-          // up-front fetch and this insert. Treat as success.
-          toast('Already mapped — opening source');
+      // Promise.allSettled — one source's RLS denial or constraint hiccup
+      // shouldn't block the rest from attaching. Mirrors the bulk-action
+      // pattern used elsewhere on this page.
+      const results = await Promise.allSettled(
+        newSelectionIds.map((sourceId) =>
+          CounselorSourceService.bulkAttach(sourceId, [counselor.id]),
+        ),
+      );
+
+      let createdTotal = 0;
+      let skippedTotal = 0;
+      const failures: string[] = [];
+      results.forEach((r, idx) => {
+        if (r.status === 'fulfilled') {
+          createdTotal += r.value.created;
+          skippedTotal += r.value.skipped;
+        } else {
+          failures.push(newSelectionIds[idx]);
+          console.error('[assign-to-source] attach failed', r.reason);
         }
-      } else {
-        toast('Already mapped — opening source');
+      });
+
+      if (createdTotal > 0) {
+        toast.success(
+          `${counselor.name} added to ${createdTotal} source${createdTotal === 1 ? '' : 's'}` +
+            (skippedTotal > 0 ? ` (${skippedTotal} already mapped)` : ''),
+        );
+      } else if (skippedTotal > 0 && failures.length === 0) {
+        toast('All selected sources were already mapped');
       }
-      onAssigned(selectedSourceId);
+
+      if (failures.length > 0) {
+        toast.error(
+          `Failed to map ${failures.length} source${failures.length === 1 ? '' : 's'}`,
+        );
+      }
+
+      onSaved();
       onOpenChange(false);
     } catch (err: any) {
-      toast.error(err?.message || 'Failed to add counselor to source');
+      toast.error(err?.message || 'Failed to add counselor to sources');
       console.error('[assign-to-source] insert failed', err);
     } finally {
       setIsSaving(false);
     }
   };
 
-  const isSelectedAlreadyMapped =
-    selectedSourceId !== null && mappedSourceIds.has(selectedSourceId);
+  const newSelectionCount = newSelectionIds.length;
+  const alreadyMappedSelectedCount = selectedSourceIds.size - newSelectionCount;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-lg">
         <DialogHeader>
-          <DialogTitle>Add to Source</DialogTitle>
+          <DialogTitle>Assign to Sources</DialogTitle>
           <DialogDescription>
-            Select a source to map{' '}
+            Select one or more sources to map{' '}
             <span className="font-medium text-foreground">
               {counselor?.name || 'this counselor'}
             </span>
-            . Once added you'll be taken to the source page where you can
-            assign leads manually.
+            . Each selected source becomes a place where this counselor can
+            receive leads.
           </DialogDescription>
         </DialogHeader>
 
@@ -709,6 +820,46 @@ function AssignToSourceDialog({
             className="pl-9"
             disabled={isLoading || isSaving}
           />
+        </div>
+
+        <div className="flex items-center justify-between text-xs">
+          <div className="text-muted-foreground">
+            {newSelectionCount > 0 ? (
+              <>
+                <span className="font-medium text-foreground">
+                  {newSelectionCount}
+                </span>{' '}
+                new
+                {alreadyMappedSelectedCount > 0 && (
+                  <> · {alreadyMappedSelectedCount} already mapped</>
+                )}
+              </>
+            ) : (
+              'No sources selected'
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 text-xs"
+              onClick={selectAllVisible}
+              disabled={isLoading || isSaving || filtered.length === 0}
+            >
+              Select all visible
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 text-xs"
+              onClick={clearSelection}
+              disabled={isSaving || selectedSourceIds.size === 0}
+            >
+              Clear
+            </Button>
+          </div>
         </div>
 
         <div className="max-h-72 overflow-y-auto rounded-md border divide-y">
@@ -726,33 +877,53 @@ function AssignToSourceDialog({
           ) : (
             filtered.map((s) => {
               const isMapped = mappedSourceIds.has(s.id);
-              const isSelected = selectedSourceId === s.id;
+              const isSelected = selectedSourceIds.has(s.id);
+              const interactive = !isMapped && !isSaving;
+              const handleActivate = () => {
+                if (interactive) toggleSelection(s.id);
+              };
               return (
-                <button
+                <div
                   key={s.id}
-                  type="button"
-                  onClick={() => setSelectedSourceId(s.id)}
-                  disabled={isSaving}
+                  role="checkbox"
+                  aria-checked={isSelected || isMapped}
+                  aria-disabled={!interactive}
+                  aria-label={`Select ${s.label}`}
+                  tabIndex={interactive ? 0 : -1}
+                  onClick={handleActivate}
+                  onKeyDown={(e) => {
+                    if (!interactive) return;
+                    if (e.key === ' ' || e.key === 'Enter') {
+                      e.preventDefault();
+                      toggleSelection(s.id);
+                    }
+                  }}
                   className={cn(
-                    'w-full text-left px-3 py-2.5 hover:bg-accent transition-colors flex items-center justify-between gap-3',
-                    isSelected && 'bg-accent border-l-2 border-l-primary',
+                    'w-full text-left px-3 py-2.5 transition-colors flex items-center gap-3 outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1',
+                    interactive && 'cursor-pointer hover:bg-accent',
+                    isMapped && 'opacity-70 cursor-not-allowed',
+                    isSelected && !isMapped && 'bg-accent border-l-2 border-l-primary',
                   )}
                 >
-                  <div className="min-w-0">
+                  <Checkbox
+                    checked={isSelected || isMapped}
+                    disabled={isMapped || isSaving}
+                    tabIndex={-1}
+                    aria-hidden
+                    className="pointer-events-none"
+                  />
+                  <div className="min-w-0 flex-1">
                     <div className="font-medium text-sm truncate">{s.label}</div>
                     <div className="text-xs text-muted-foreground font-mono truncate">
                       {s.key}
                     </div>
                   </div>
-                  <div className="flex items-center gap-2 flex-shrink-0">
-                    {isMapped && (
-                      <Badge variant="secondary" className="text-[10px]">
-                        Already mapped
-                      </Badge>
-                    )}
-                    {isSelected && <Check className="h-4 w-4 text-primary" />}
-                  </div>
-                </button>
+                  {isMapped && (
+                    <Badge variant="secondary" className="text-[10px] flex-shrink-0">
+                      Already mapped
+                    </Badge>
+                  )}
+                </div>
               );
             })
           )}
@@ -768,10 +939,317 @@ function AssignToSourceDialog({
           </Button>
           <Button
             onClick={handleAssign}
-            disabled={!selectedSourceId || isSaving || isLoading}
+            disabled={newSelectionCount === 0 || isSaving || isLoading}
           >
             {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            {isSelectedAlreadyMapped ? 'Open Source' : 'Add & Open Source'}
+            {newSelectionCount === 0
+              ? 'Assign to sources'
+              : `Assign to ${newSelectionCount} source${newSelectionCount === 1 ? '' : 's'}`}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+interface BulkAssignToSourcesDialogProps {
+  counselors: CounselorRecord[];
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  institutionId?: string;
+  isGlobalUser?: boolean;
+  onSaved: () => void;
+}
+
+// Bulk variant of the source picker. Operates on N selected counselors at
+// once and maps each chosen source to all of them via a single
+// CounselorSourceService.bulkAttach call per source (the service was built
+// to take counselorIds[]). Role-only rows are filtered out — they have no
+// admission_counselors record yet, so a junction insert would fail FK.
+function BulkAssignToSourcesDialog({
+  counselors,
+  open,
+  onOpenChange,
+  institutionId,
+  isGlobalUser,
+  onSaved,
+}: BulkAssignToSourcesDialogProps) {
+  const [sources, setSources] = useState<SourceMaster[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [search, setSearch] = useState('');
+  const [selectedSourceIds, setSelectedSourceIds] = useState<Set<string>>(new Set());
+  const [isSaving, setIsSaving] = useState(false);
+
+  // Counselors without a real admission_counselors row can't be junctioned —
+  // skipped with a banner so the user understands the effective N.
+  const eligibleCounselors = useMemo(
+    () => counselors.filter((c) => !c.id.startsWith('role-')),
+    [counselors],
+  );
+  const skippedRoleOnlyCount = counselors.length - eligibleCounselors.length;
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    (async () => {
+      setIsLoading(true);
+      try {
+        const sourceList = await SourceMasterService.list({
+          institution_id: isGlobalUser ? undefined : institutionId,
+          sortBy: 'display_order',
+          sortOrder: 'asc',
+        });
+        if (cancelled) return;
+        setSources(sourceList.filter((s) => s.is_active));
+      } catch (err) {
+        toast.error('Failed to load sources');
+        console.error('[bulk-assign-to-sources] load failed', err);
+      } finally {
+        if (!cancelled) setIsLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, institutionId, isGlobalUser]);
+
+  useEffect(() => {
+    if (!open) {
+      setSearch('');
+      setSelectedSourceIds(new Set());
+    }
+  }, [open]);
+
+  const filtered = useMemo(() => {
+    if (!search.trim()) return sources;
+    const q = search.toLowerCase();
+    return sources.filter(
+      (s) => s.label.toLowerCase().includes(q) || s.key.toLowerCase().includes(q),
+    );
+  }, [sources, search]);
+
+  const toggleSelection = (id: string) => {
+    setSelectedSourceIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const selectAllVisible = () => {
+    setSelectedSourceIds((prev) => {
+      const next = new Set(prev);
+      for (const s of filtered) next.add(s.id);
+      return next;
+    });
+  };
+  const clearSelection = () => setSelectedSourceIds(new Set());
+
+  const handleAssign = async () => {
+    if (selectedSourceIds.size === 0 || eligibleCounselors.length === 0) return;
+    setIsSaving(true);
+    try {
+      const sourceIds = Array.from(selectedSourceIds);
+      const counselorIds = eligibleCounselors.map((c) => c.id);
+      const results = await Promise.allSettled(
+        sourceIds.map((sid) => CounselorSourceService.bulkAttach(sid, counselorIds)),
+      );
+
+      let createdTotal = 0;
+      let skippedTotal = 0;
+      let failedSources = 0;
+      results.forEach((r, idx) => {
+        if (r.status === 'fulfilled') {
+          createdTotal += r.value.created;
+          skippedTotal += r.value.skipped;
+        } else {
+          failedSources += 1;
+          console.error(
+            '[bulk-assign-to-sources] attach failed for source',
+            sourceIds[idx],
+            r.reason,
+          );
+        }
+      });
+
+      if (createdTotal > 0) {
+        toast.success(
+          `Created ${createdTotal} mapping${createdTotal === 1 ? '' : 's'}` +
+            (skippedTotal > 0 ? ` (${skippedTotal} already mapped)` : ''),
+        );
+      } else if (skippedTotal > 0 && failedSources === 0) {
+        toast('All selected pairings were already mapped');
+      }
+      if (failedSources > 0) {
+        toast.error(
+          `${failedSources} source${failedSources === 1 ? '' : 's'} failed — check console`,
+        );
+      }
+
+      onSaved();
+      onOpenChange(false);
+    } catch (err: any) {
+      toast.error(err?.message || 'Bulk assignment failed');
+      console.error('[bulk-assign-to-sources] unexpected failure', err);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const counselorCount = eligibleCounselors.length;
+  const sourceCount = selectedSourceIds.size;
+  const totalNewMappings = counselorCount * sourceCount;
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>
+            Assign {counselorCount} counselor{counselorCount === 1 ? '' : 's'} to sources
+          </DialogTitle>
+          <DialogDescription>
+            Pick one or more sources. Each selected source will be mapped to
+            every selected counselor. Existing mappings are kept and skipped
+            silently — re-running this is safe.
+          </DialogDescription>
+        </DialogHeader>
+
+        {skippedRoleOnlyCount > 0 && (
+          <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-200">
+            {skippedRoleOnlyCount} of {counselors.length} selected row
+            {counselors.length === 1 ? ' is' : 's are'} role-only (no counselor
+            record yet) and will be skipped. Add them via the Add Counselor
+            dialog first.
+          </div>
+        )}
+
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder="Search sources by name or key..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="pl-9"
+            disabled={isLoading || isSaving}
+          />
+        </div>
+
+        <div className="flex items-center justify-between text-xs">
+          <div className="text-muted-foreground">
+            {sourceCount > 0 ? (
+              <>
+                <span className="font-medium text-foreground">{sourceCount}</span>{' '}
+                source{sourceCount === 1 ? '' : 's'} ·{' '}
+                <span className="font-medium text-foreground">{totalNewMappings}</span>{' '}
+                pairing{totalNewMappings === 1 ? '' : 's'} to attempt
+              </>
+            ) : (
+              'No sources selected'
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 text-xs"
+              onClick={selectAllVisible}
+              disabled={isLoading || isSaving || filtered.length === 0}
+            >
+              Select all visible
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 text-xs"
+              onClick={clearSelection}
+              disabled={isSaving || selectedSourceIds.size === 0}
+            >
+              Clear
+            </Button>
+          </div>
+        </div>
+
+        <div className="max-h-72 overflow-y-auto rounded-md border divide-y">
+          {isLoading ? (
+            <div className="flex items-center justify-center gap-2 py-12 text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              <span className="text-sm">Loading sources…</span>
+            </div>
+          ) : filtered.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-12 text-muted-foreground text-sm">
+              {search
+                ? 'No sources match your search'
+                : 'No active sources available for this institution'}
+            </div>
+          ) : (
+            filtered.map((s) => {
+              const isSelected = selectedSourceIds.has(s.id);
+              const interactive = !isSaving;
+              return (
+                <div
+                  key={s.id}
+                  role="checkbox"
+                  aria-checked={isSelected}
+                  aria-disabled={!interactive}
+                  aria-label={`Select ${s.label}`}
+                  tabIndex={interactive ? 0 : -1}
+                  onClick={() => interactive && toggleSelection(s.id)}
+                  onKeyDown={(e) => {
+                    if (!interactive) return;
+                    if (e.key === ' ' || e.key === 'Enter') {
+                      e.preventDefault();
+                      toggleSelection(s.id);
+                    }
+                  }}
+                  className={cn(
+                    'w-full text-left px-3 py-2.5 transition-colors flex items-center gap-3 outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1',
+                    interactive && 'cursor-pointer hover:bg-accent',
+                    isSelected && 'bg-accent border-l-2 border-l-primary',
+                  )}
+                >
+                  <Checkbox
+                    checked={isSelected}
+                    disabled={isSaving}
+                    tabIndex={-1}
+                    aria-hidden
+                    className="pointer-events-none"
+                  />
+                  <div className="min-w-0 flex-1">
+                    <div className="font-medium text-sm truncate">{s.label}</div>
+                    <div className="text-xs text-muted-foreground font-mono truncate">
+                      {s.key}
+                    </div>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+
+        <DialogFooter>
+          <Button
+            variant="outline"
+            onClick={() => onOpenChange(false)}
+            disabled={isSaving}
+          >
+            Cancel
+          </Button>
+          <Button
+            onClick={handleAssign}
+            disabled={
+              sourceCount === 0 ||
+              counselorCount === 0 ||
+              isSaving ||
+              isLoading
+            }
+          >
+            {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            {sourceCount === 0
+              ? 'Assign to sources'
+              : `Assign ${counselorCount} × ${sourceCount} (${totalNewMappings})`}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -792,8 +1270,12 @@ export function CounselorList({ onRefresh, institutionId, isGlobalUser }: Counse
   // Advanced filter state. Filters are applied inside fetchData (closure
   // captures these), and any change bumps refetchKey so the DataTable
   // re-runs with the new filter set.
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+  // Default to 'active' so soft-deleted (removed) counselors disappear from
+  // the Manage tab by default. Users who need to audit deactivated counselors
+  // can switch the Status filter to 'inactive' or 'all'.
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('active');
   const [assignmentFilter, setAssignmentFilter] = useState<AssignmentFilter>('all');
+  const [sourcesFilter, setSourcesFilter] = useState<SourcesFilter>('all');
   const [roleFilter, setRoleFilter] = useState<string>('all');
 
   const [dialog, setDialog] = useState<GuardrailDialogState>({
@@ -818,6 +1300,24 @@ export function CounselorList({ onRefresh, institutionId, isGlobalUser }: Counse
     rows: [],
     isRunning: false,
   });
+
+  // Separate from the destructive bulk dialog: this one is a non-destructive
+  // multi-counselor × multi-source mapper. Kept distinct so the destructive
+  // dialog's mode/typed-confirm logic stays simple.
+  const [bulkAssignDialog, setBulkAssignDialog] = useState<{
+    open: boolean;
+    rows: CounselorRecord[];
+  }>({ open: false, rows: [] });
+
+  const [detailsCounselor, setDetailsCounselor] = useState<CounselorRecord | null>(
+    null,
+  );
+  const [detailsOpen, setDetailsOpen] = useState(false);
+
+  const openDetailsDialog = useCallback((c: CounselorRecord) => {
+    setDetailsCounselor(c);
+    setDetailsOpen(true);
+  }, []);
 
   const fetchCounselors = useCallback(async (): Promise<CounselorRecord[]> => {
     let counselorQuery = supabase
@@ -901,9 +1401,10 @@ export function CounselorList({ onRefresh, institutionId, isGlobalUser }: Counse
             email: profile.email,
             phone: profile.phone_number,
             is_active: true,
-            max_leads: 50,
+            max_leads: 5000,
             current_leads: 0,
             assigned_lead_count: 0,
+            sources_count: 0,
             specializations: null,
             institution_id: profile.institution_id || '',
             user_id: profile.id,
@@ -981,6 +1482,37 @@ export function CounselorList({ onRefresh, institutionId, isGlobalUser }: Counse
       }),
     );
 
+    // Live source-mapping counts. One batched query for all counselors —
+    // admission_counselor_sources keys solely on counselor_id (no dual-FK
+    // ambiguity), so we fetch every row for the visible IDs in one round-
+    // trip and group client-side. Role-only rows can't have mappings (no
+    // admission_counselors row to FK to), so they stay at 0.
+    const realCounselorIds = records
+      .filter((c) => !c.id.startsWith('role-'))
+      .map((c) => c.id);
+
+    if (realCounselorIds.length > 0) {
+      const { data: mappingRows, error: mapErr } = await supabase
+        .from('admission_counselor_sources')
+        .select('counselor_id')
+        .in('counselor_id', realCounselorIds);
+
+      if (mapErr) {
+        console.warn('[admission/counselors] sources_count batch failed', mapErr);
+        for (const c of records) c.sources_count = c.sources_count ?? 0;
+      } else {
+        const counts = new Map<string, number>();
+        for (const row of (mappingRows ?? []) as Array<{ counselor_id: string }>) {
+          counts.set(row.counselor_id, (counts.get(row.counselor_id) ?? 0) + 1);
+        }
+        for (const c of records) {
+          c.sources_count = counts.get(c.id) ?? 0;
+        }
+      }
+    } else {
+      for (const c of records) c.sources_count = c.sources_count ?? 0;
+    }
+
     records.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
     return records;
   }, [supabase, institutionId, isGlobalUser]);
@@ -1010,6 +1542,12 @@ export function CounselorList({ onRefresh, institutionId, isGlobalUser }: Counse
         rows = rows.filter((c) => (c.assigned_lead_count ?? 0) > 0);
       } else if (assignmentFilter === 'no_leads') {
         rows = rows.filter((c) => (c.assigned_lead_count ?? 0) === 0);
+      }
+
+      if (sourcesFilter === 'has_sources') {
+        rows = rows.filter((c) => (c.sources_count ?? 0) > 0);
+      } else if (sourcesFilter === 'no_sources') {
+        rows = rows.filter((c) => (c.sources_count ?? 0) === 0);
       }
 
       if (roleFilter !== 'all') {
@@ -1051,12 +1589,12 @@ export function CounselorList({ onRefresh, institutionId, isGlobalUser }: Counse
         },
       };
     },
-    [fetchCounselors, statusFilter, assignmentFilter, roleFilter],
+    [fetchCounselors, statusFilter, assignmentFilter, sourcesFilter, roleFilter],
   );
 
   useEffect(() => {
     setRefetchKey((k) => k + 1);
-  }, [institutionId, isGlobalUser, statusFilter, assignmentFilter, roleFilter]);
+  }, [institutionId, isGlobalUser, statusFilter, assignmentFilter, sourcesFilter, roleFilter]);
 
   const openGuardrailDialog = useCallback(
     async (mode: GuardrailMode, counselor: CounselorRecord) => {
@@ -1174,17 +1712,19 @@ export function CounselorList({ onRefresh, institutionId, isGlobalUser }: Counse
     try {
       const isRoleOnly = counselor.id.startsWith('role-');
 
+      let leadsUnassigned = 0;
       if (!isRoleOnly) {
         const res = await fetch(
           `/api/admission/counselors/${encodeURIComponent(counselor.id)}`,
           { method: 'DELETE' },
         );
+        const json = await res.json().catch(() => ({}));
         if (!res.ok) {
-          const json = await res.json().catch(() => ({}));
           toast.error(json?.message || 'Failed to remove counselor');
           console.error('[admission/counselors] Soft-delete failed:', json);
           return;
         }
+        leadsUnassigned = Number(json?.leads_unassigned ?? 0);
       }
 
       if (counselor.user_id) {
@@ -1224,7 +1764,13 @@ export function CounselorList({ onRefresh, institutionId, isGlobalUser }: Counse
         }
       }
 
-      toast.success('Counselor removed (soft-delete + audit logged)');
+      toast.success(
+        leadsUnassigned > 0
+          ? `Counselor removed — ${leadsUnassigned} lead${
+              leadsUnassigned === 1 ? '' : 's'
+            } returned to the unassigned pool`
+          : 'Counselor removed (no assigned leads to unlink)',
+      );
       setRefetchKey((k) => k + 1);
       onRefresh?.();
     } catch {
@@ -1332,6 +1878,7 @@ export function CounselorList({ onRefresh, institutionId, isGlobalUser }: Counse
       openGuardrailDialog,
       openEditDialog,
       assignToSource,
+      openDetailsDialog,
     }),
     [
       togglingIds,
@@ -1340,15 +1887,20 @@ export function CounselorList({ onRefresh, institutionId, isGlobalUser }: Counse
       openGuardrailDialog,
       openEditDialog,
       assignToSource,
+      openDetailsDialog,
     ],
   );
 
   const hasActiveFilters =
-    statusFilter !== 'all' || assignmentFilter !== 'all' || roleFilter !== 'all';
+    statusFilter !== 'all' ||
+    assignmentFilter !== 'all' ||
+    sourcesFilter !== 'all' ||
+    roleFilter !== 'all';
 
   const clearFilters = () => {
     setStatusFilter('all');
     setAssignmentFilter('all');
+    setSourcesFilter('all');
     setRoleFilter('all');
   };
 
@@ -1370,17 +1922,33 @@ export function CounselorList({ onRefresh, institutionId, isGlobalUser }: Counse
             variant="outline"
             className="h-8"
             onClick={() =>
-              setBulkDialog({
+              setBulkAssignDialog({
                 open: true,
-                mode: 'deactivate',
                 rows: props.selectedRows,
-                isRunning: false,
               })
             }
           >
-            <ToggleRight className="mr-1.5 h-3.5 w-3.5" />
-            Deactivate
+            <ArrowRightCircle className="mr-1.5 h-3.5 w-3.5" />
+            Assign to Sources
           </Button>
+          {canDelete && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-8"
+              onClick={() =>
+                setBulkDialog({
+                  open: true,
+                  mode: 'deactivate',
+                  rows: props.selectedRows,
+                  isRunning: false,
+                })
+              }
+            >
+              <ToggleRight className="mr-1.5 h-3.5 w-3.5" />
+              Deactivate
+            </Button>
+          )}
           {canDelete && (
             <Button
               size="sm"
@@ -1445,6 +2013,20 @@ export function CounselorList({ onRefresh, institutionId, isGlobalUser }: Counse
           </SelectContent>
         </Select>
 
+        <Select
+          value={sourcesFilter}
+          onValueChange={(v) => setSourcesFilter(v as SourcesFilter)}
+        >
+          <SelectTrigger className="h-8 w-[180px] text-xs">
+            <SelectValue placeholder="Sources" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Sources</SelectItem>
+            <SelectItem value="has_sources">Has sources mapped</SelectItem>
+            <SelectItem value="no_sources">Unassigned (no sources)</SelectItem>
+          </SelectContent>
+        </Select>
+
         <Select value={roleFilter} onValueChange={(v) => setRoleFilter(v)}>
           <SelectTrigger className="h-8 w-[180px] text-xs">
             <SelectValue placeholder="Role" />
@@ -1479,7 +2061,12 @@ export function CounselorList({ onRefresh, institutionId, isGlobalUser }: Counse
             )}
             {assignmentFilter !== 'all' && (
               <Badge variant="secondary" className="text-[10px]">
-                {assignmentFilter === 'has_leads' ? 'Assigned' : 'Unassigned'}
+                Leads: {assignmentFilter === 'has_leads' ? 'has' : 'none'}
+              </Badge>
+            )}
+            {sourcesFilter !== 'all' && (
+              <Badge variant="secondary" className="text-[10px]">
+                Sources: {sourcesFilter === 'has_sources' ? 'has' : 'none'}
               </Badge>
             )}
             {roleFilter !== 'all' && (
@@ -1534,12 +2121,37 @@ export function CounselorList({ onRefresh, institutionId, isGlobalUser }: Counse
         }}
         institutionId={institutionId}
         isGlobalUser={isGlobalUser}
-        onAssigned={(sourceId) => {
-          // Refresh counselor data (counselor mapping count may have
-          // moved on the back end) then navigate to the source page.
+        onSaved={() => {
+          // Multi-select makes a single-source redirect ambiguous, so we
+          // stay on the counselor list and just refresh — the user can
+          // open any of the mapped sources from the sources page.
           setRefetchKey((k) => k + 1);
           onRefresh?.();
-          router.push(`/admission/settings/sources/${sourceId}`);
+        }}
+      />
+
+      <BulkAssignToSourcesDialog
+        counselors={bulkAssignDialog.rows}
+        open={bulkAssignDialog.open}
+        onOpenChange={(open) => {
+          setBulkAssignDialog((prev) =>
+            open ? { ...prev, open } : { open: false, rows: [] },
+          );
+        }}
+        institutionId={institutionId}
+        isGlobalUser={isGlobalUser}
+        onSaved={() => {
+          setRefetchKey((k) => k + 1);
+          onRefresh?.();
+        }}
+      />
+
+      <CounselorDetailsDialog
+        counselor={detailsCounselor}
+        open={detailsOpen}
+        onOpenChange={(open) => {
+          setDetailsOpen(open);
+          if (!open) setDetailsCounselor(null);
         }}
       />
 

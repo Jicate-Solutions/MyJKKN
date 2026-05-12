@@ -138,7 +138,18 @@ export function AutoTabNav({
   const sliceEnd = Math.max(0, maxDepth - 1);
   const visible = allTiers
     .slice(sliceStart, sliceEnd)
-    .map((chips) => chips.filter((c) => canShowChip(c.href)));
+    .map((chips) => chips.filter((c) => canShowChip(c.href)))
+    // Belt-and-suspenders: even if the generated manifest or an admin-side
+    // override produces two chips with the same href, dedupe here so we
+    // never trip React's "two children with the same key" warning in TabBar.
+    .map((chips) => {
+      const seen = new Set<string>();
+      return chips.filter((c) => {
+        if (seen.has(c.href)) return false;
+        seen.add(c.href);
+        return true;
+      });
+    });
 
   if (visible.length === 0) return null;
 

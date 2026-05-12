@@ -57,7 +57,14 @@ export function DataTableRowActions<TData>({
 
   const canView = isSuperAdmin || isAdmissionGlobalUser || canAccess('admission', 'leads.view');
   const canEdit = isSuperAdmin || isAdmissionGlobalUser || canAccess('admission', 'leads.edit');
-  const canDelete = isSuperAdmin || isAdmissionGlobalUser || canAccess('admission', 'leads.delete');
+  // 2026-05-11 fix: dropped the `isAdmissionGlobalUser` bypass from canDelete.
+  // That flag is a *visibility* scope (institution_scope='all') that
+  // intentionally returns true for admission_counselor / expo_counselor so they
+  // can SEE leads across institutions. Including it in the destructive-action
+  // gate leaked the Delete Permanently action to counselor roles. The right
+  // gate is the explicit `admission.leads.delete` permission, which counselor
+  // roles never hold by default.
+  const canDelete = isSuperAdmin || canAccess('admission', 'leads.delete');
 
   // "Move to Account" — permissive menu-level gating; the SECURITY DEFINER
   // RPC re-checks admission_documents.manage on the server. Visible only when

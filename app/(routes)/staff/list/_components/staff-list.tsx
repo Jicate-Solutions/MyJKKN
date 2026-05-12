@@ -47,6 +47,16 @@ interface StaffListProps {
   onRefresh: () => void;
   canEdit?: boolean;
   paginationLoading?: boolean;
+  /**
+   * Effective module scope for the current user on the staff module.
+   * When `'own_records'`, the table is treated as read-only at the chrome
+   * level: bulk-action checkboxes are hidden (the row Edit/Delete buttons
+   * stay gated on the `staff.edit` / `staff.delete` permission keys, NOT on
+   * scope — faculty has `staff.edit=true` and keeps its row Edit affordance).
+   * `null`/`undefined` means scope is still loading, so we render as if
+   * non-restricted to avoid layout shift; RLS still enforces row filtering.
+   */
+  scope?: 'all_institutions' | 'own_institution' | 'own_records' | 'none' | null;
 }
 
 const StaffListComponent = ({
@@ -56,7 +66,8 @@ const StaffListComponent = ({
   onPageSizeChange,
   onRefresh,
   canEdit = false,
-  paginationLoading
+  paginationLoading,
+  scope
 }: StaffListProps) => {
   const { canAccess, isSuperAdmin } = usePermissions();
 
@@ -85,6 +96,14 @@ const StaffListComponent = ({
   const canCreateStaff = isSuperAdmin || canAccess('staff', 'create');
   const canDeleteStaff = isSuperAdmin || canAccess('staff', 'delete');
   const canUpdateStatus = isSuperAdmin || canAccess('staff', 'status_update');
+
+  // `own_records` users see a single row (themselves). Bulk-action checkboxes
+  // would be meaningless — hide them by withholding `onBulkAction`/
+  // `bulkActionConfig` from the DataTable (the table only renders the
+  // selection column when both are provided). Row Edit/Delete remain gated
+  // on the permission keys above, so faculty (staff.edit=true) keeps Edit
+  // and other own_records users (staff.edit=false) lose it automatically.
+  const readOnly = scope === 'own_records';
 
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
   const [selectedStaffForDelete, setSelectedStaffForDelete] =
@@ -519,9 +538,9 @@ const StaffListComponent = ({
           },
           showPermissionError: true
         }}
-        tableTools={tableTools}
-        onBulkAction={canDeleteStaff ? handleBulkDelete : undefined}
-        bulkActionConfig={canDeleteStaff ? bulkActionConfig : undefined}
+        tableTools={readOnly ? undefined : tableTools}
+        onBulkAction={canDeleteStaff && !readOnly ? handleBulkDelete : undefined}
+        bulkActionConfig={canDeleteStaff && !readOnly ? bulkActionConfig : undefined}
         getRowId={(row) => row.id}
         onRefresh={onRefresh}
         showRefresh={true}

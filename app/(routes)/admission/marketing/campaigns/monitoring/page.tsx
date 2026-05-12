@@ -64,7 +64,7 @@ function CampaignMonitoringDashboardContent() {
     !loading && stats !== null && (stats?.totalCampaigns ?? 0) === 0;
 
   return (
-    <PermissionGuard module="admission" action="view">
+    <PermissionGuard module="admission" action="marketing.view">
       <ContentLayout title="Campaign Monitoring">
         <div className="space-y-6">
           {/* Header with Breadcrumb */}

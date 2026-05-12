@@ -54,7 +54,14 @@ export function DataTableRowActions<TData>({
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
 
   const canView = isSuperAdmin || isAdmissionGlobalUser || canAccess('admission', 'applications.view');
-  const canEdit = isSuperAdmin || isAdmissionGlobalUser || canAccess('admission', 'applications.edit');
+  // 2026-05-11: dropped `isAdmissionGlobalUser` bypass — see the matching fix
+  // in leads/row-actions.tsx and leads-data-table.tsx. The flag is a
+  // visibility scope (institution_scope='all') that returns true for
+  // admission_counselor / expo_counselor / etc., so using it as an edit
+  // bypass leaked write/delete actions to counselor roles even when their
+  // explicit applications.edit permission was false. Counselor roles are
+  // view-only on the applications page by design.
+  const canEdit = isSuperAdmin || canAccess('admission', 'applications.edit');
 
   const stage = lead.funnel_stage;
 
