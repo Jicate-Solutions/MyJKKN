@@ -69,6 +69,16 @@ export default function CampaignEditPage() {
   // Hydrate state from the loaded campaign once.
   useEffect(() => {
     if (campaign) {
+      // Debug: surface the exact shape coming back from the service.
+      // Remove once the program/admission_year cascade is verified live.
+      console.log('[campaign-edit] hydrate from campaign:', {
+        id: campaign.id,
+        category: campaign.category,
+        program_id: campaign.program_id,
+        admission_year_id: campaign.admission_year_id,
+        has_program_join: !!campaign.program,
+        has_year_join: !!campaign.admission_year,
+      });
       setName(campaign.name);
       setDescription(campaign.description ?? '');
       setCategory(campaign.category);

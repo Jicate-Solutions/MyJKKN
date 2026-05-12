@@ -34,38 +34,54 @@ export class CampaignService {
   }
 
   static async get(id: string): Promise<Campaign> {
-    // Embed institution / program / admission_year so consumers (detail
-    // page, edit page) can render display names without a separate fetch
-    // round-trip. Supabase returns nested embeds as arrays even for 1:1
-    // FKs — normalize to a single object before returning.
-    const { data, error } = await this.client()
+    // Step 1: raw row, no joins. Guaranteed to include every column
+    // (program_id, admission_year_id, etc.) without any PostgREST
+    // alias-vs-FK-name interaction.
+    const { data: row, error } = await this.client()
       .from('admission_campaigns')
-      .select(`
-        *,
-        institution:institutions(id, name),
-        program:programs(id, program_name, display_name),
-        admission_year:admission_years(id, admission_year_name)
-      `)
+      .select('*')
       .eq('id', id)
       .single();
     if (error) throw error;
+    const base = row as Campaign;
 
-    const raw = data as Campaign & {
-      institution?: any;
-      program?: any;
-      admission_year?: any;
-    };
+    // Step 2: separate lookups for the display-name joins, in parallel.
+    // Done as direct selects (not nested embeds) so RLS on the related
+    // tables works independently from RLS on admission_campaigns.
+    const client = this.client();
+    const [
+      { data: institution },
+      { data: program },
+      { data: admissionYear },
+    ] = await Promise.all([
+      base.institution_id
+        ? client
+            .from('institutions')
+            .select('id, name')
+            .eq('id', base.institution_id)
+            .maybeSingle()
+        : Promise.resolve({ data: null } as any),
+      base.program_id
+        ? client
+            .from('programs')
+            .select('id, program_name, display_name')
+            .eq('id', base.program_id)
+            .maybeSingle()
+        : Promise.resolve({ data: null } as any),
+      base.admission_year_id
+        ? client
+            .from('admission_years')
+            .select('id, admission_year_name')
+            .eq('id', base.admission_year_id)
+            .maybeSingle()
+        : Promise.resolve({ data: null } as any),
+    ]);
+
     return {
-      ...raw,
-      institution: Array.isArray(raw.institution)
-        ? raw.institution[0] ?? null
-        : raw.institution ?? null,
-      program: Array.isArray(raw.program)
-        ? raw.program[0] ?? null
-        : raw.program ?? null,
-      admission_year: Array.isArray(raw.admission_year)
-        ? raw.admission_year[0] ?? null
-        : raw.admission_year ?? null,
+      ...base,
+      institution: institution ?? null,
+      program: program ?? null,
+      admission_year: admissionYear ?? null,
     } as Campaign;
   }
 
