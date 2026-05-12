@@ -2,6 +2,8 @@
 
 import { useParams, useRouter } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import { campaignKeys } from '@/hooks/admission/use-campaigns';
 import toast from 'react-hot-toast';
 import Link from 'next/link';
 import {
@@ -39,8 +41,18 @@ import { ArrowLeft, Lock } from 'lucide-react';
 export default function CampaignEditPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
+  const qc = useQueryClient();
   const { data: campaign } = useCampaign(id);
   const update = useUpdateCampaign(id);
+
+  // Force-refresh on mount so we get the freshest joined data
+  // (institution / program / admission_year). useCampaign has a 30s
+  // staleTime, so navigating from the detail page right after a
+  // service-shape upgrade would otherwise serve the pre-join cache.
+  useEffect(() => {
+    qc.invalidateQueries({ queryKey: campaignKeys.detail(id) });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id]);
 
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
