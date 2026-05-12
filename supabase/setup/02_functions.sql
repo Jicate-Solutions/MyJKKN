@@ -13955,3 +13955,17 @@ $$;
 
 COMMENT ON FUNCTION public._user_can_view_lead_for_call(uuid, uuid) IS
   'SECURITY DEFINER lookup: does this user own this NON-REFERRAL lead via assigned_counselor_id OR counselor_id? Updated 2026-05-11 to close RLS asymmetry.';
+
+-- ──────────────────────────────────────────────────────────────
+-- 2026-05-12 — Admission Campaign Attribution (Migration A) triggers
+-- Reuses existing update_updated_at_column() function.
+-- See: docs/superpowers/specs/2026-05-12-admission-campaign-attribution-design.md §4.1
+-- ──────────────────────────────────────────────────────────────
+
+CREATE TRIGGER trg_admission_campaigns_updated
+  BEFORE UPDATE ON admission_campaigns
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER trg_admission_campaign_links_updated
+  BEFORE UPDATE ON admission_campaign_links
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
