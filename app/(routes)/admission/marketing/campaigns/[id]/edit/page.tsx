@@ -2,8 +2,9 @@
 
 import { useParams, useRouter } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { campaignKeys } from '@/hooks/admission/use-campaigns';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 import toast from 'react-hot-toast';
 import Link from 'next/link';
 import {
@@ -94,20 +95,47 @@ export default function CampaignEditPage() {
   });
   const programsFromList = programsData?.data ?? [];
 
+  // Belt-and-braces: fetch the campaign's currently-set program by ID
+  // directly. The nested embed on CampaignService.get() should populate
+  // campaign.program, but RLS on the programs table can silently null
+  // a nested-embed even when a direct select succeeds — so we do both
+  // and take whichever returns a row first.
+  const { data: campaignProgram } = useQuery({
+    queryKey: ['campaign-edit-program', campaign?.program_id],
+    queryFn: async () => {
+      const supabase = createClientSupabaseClient();
+      const { data, error } = await supabase
+        .from('programs')
+        .select('id, program_name, display_name')
+        .eq('id', campaign!.program_id!)
+        .maybeSingle();
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!campaign?.program_id,
+    staleTime: 60_000,
+  });
+
   // Merge the campaign's CURRENTLY-set program into the list — it may
   // have become inactive since the campaign was created (so the active-
   // only fetch above would miss it), or paginated out. Without this
   // merge the Select renders an empty trigger even though programId is
   // populated, making the user think the fetch failed.
+  //
+  // Source of truth for the "current" program is whichever resolves
+  // first: the joined campaign.program (via service get()), or the
+  // direct campaignProgram query above. Either yields {id, program_name,
+  // display_name}.
+  const currentProgram = campaign?.program ?? campaignProgram ?? null;
   const programs = useMemo(() => {
     if (
-      !campaign?.program ||
-      programsFromList.some((p: any) => p.id === campaign.program?.id)
+      !currentProgram ||
+      programsFromList.some((p: any) => p.id === currentProgram.id)
     ) {
       return programsFromList;
     }
-    return [campaign.program, ...programsFromList];
-  }, [programsFromList, campaign?.program]);
+    return [currentProgram, ...programsFromList];
+  }, [programsFromList, currentProgram]);
 
   const { admissionYears: yearsFromList, loading: yearsLoading } =
     useAdmissionYears(
@@ -115,27 +143,53 @@ export default function CampaignEditPage() {
       programId || null,
     );
 
+  // Same belt-and-braces approach for admission_year.
+  const { data: campaignAdmissionYear } = useQuery({
+    queryKey: [
+      'campaign-edit-admission-year',
+      campaign?.admission_year_id,
+    ],
+    queryFn: async () => {
+      const supabase = createClientSupabaseClient();
+      const { data, error } = await supabase
+        .from('admission_years')
+        .select(
+          'id, admission_year_name, program_start_year, program_end_year, is_active',
+        )
+        .eq('id', campaign!.admission_year_id!)
+        .maybeSingle();
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!campaign?.admission_year_id,
+    staleTime: 60_000,
+  });
+
   // Same merge for admission years — useAdmissionYears filters to
   // is_active=true, so an archived year that's still on the campaign
   // would never appear without this.
+  const currentAdmissionYear =
+    campaign?.admission_year ?? campaignAdmissionYear ?? null;
   const admissionYears = useMemo(() => {
     if (
-      !campaign?.admission_year ||
-      yearsFromList.some((y) => y.id === campaign.admission_year?.id)
+      !currentAdmissionYear ||
+      yearsFromList.some((y) => y.id === currentAdmissionYear.id)
     ) {
       return yearsFromList;
     }
     return [
       {
-        id: campaign.admission_year.id,
-        admission_year_name: campaign.admission_year.admission_year_name,
-        program_start_year: 0,
-        program_end_year: 0,
-        is_active: false,
+        id: currentAdmissionYear.id,
+        admission_year_name: currentAdmissionYear.admission_year_name,
+        program_start_year:
+          (currentAdmissionYear as any).program_start_year ?? 0,
+        program_end_year:
+          (currentAdmissionYear as any).program_end_year ?? 0,
+        is_active: (currentAdmissionYear as any).is_active ?? true,
       },
       ...yearsFromList,
     ];
-  }, [yearsFromList, campaign?.admission_year]);
+  }, [yearsFromList, currentAdmissionYear]);
 
   useEffect(() => {
     if (category !== 'admission') {
