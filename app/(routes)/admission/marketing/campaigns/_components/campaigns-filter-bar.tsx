@@ -16,6 +16,13 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import {
@@ -24,7 +31,7 @@ import {
   X,
   Globe2,
   MapPin,
-  CircleSlash,
+  ListFilter,
 } from 'lucide-react';
 import { FALLBACK_LEAD_SOURCE_LABELS } from '@/hooks/admission/use-active-lead-sources';
 import type {
@@ -33,26 +40,13 @@ import type {
 } from '@/types/admission/campaign';
 import type { LeadSource } from '@/types/admission';
 
-const STATUS_OPTIONS: CampaignStatus[] = [
-  'draft',
-  'active',
-  'paused',
-  'completed',
-  'archived',
+const STATUS_OPTIONS: { value: CampaignStatus; label: string; dot: string }[] = [
+  { value: 'draft', label: 'Draft', dot: 'bg-amber-500' },
+  { value: 'active', label: 'Active', dot: 'bg-emerald-500' },
+  { value: 'paused', label: 'Paused', dot: 'bg-blue-500' },
+  { value: 'completed', label: 'Completed', dot: 'bg-slate-500' },
+  { value: 'archived', label: 'Archived', dot: 'bg-zinc-400' },
 ];
-
-const STATUS_PILL: Record<CampaignStatus, string> = {
-  draft:
-    'data-[on=true]:bg-amber-50 data-[on=true]:text-amber-700 data-[on=true]:ring-amber-200 dark:data-[on=true]:bg-amber-950/40 dark:data-[on=true]:text-amber-300',
-  active:
-    'data-[on=true]:bg-emerald-50 data-[on=true]:text-emerald-700 data-[on=true]:ring-emerald-200 dark:data-[on=true]:bg-emerald-950/40 dark:data-[on=true]:text-emerald-300',
-  paused:
-    'data-[on=true]:bg-blue-50 data-[on=true]:text-blue-700 data-[on=true]:ring-blue-200 dark:data-[on=true]:bg-blue-950/40 dark:data-[on=true]:text-blue-300',
-  completed:
-    'data-[on=true]:bg-slate-100 data-[on=true]:text-slate-700 data-[on=true]:ring-slate-200',
-  archived:
-    'data-[on=true]:bg-zinc-100 data-[on=true]:text-zinc-700 data-[on=true]:ring-zinc-200',
-};
 
 export type ScopeFilter = 'all' | CampaignScope;
 
@@ -133,35 +127,77 @@ export function CampaignsFilterBar({
           />
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {/* Scope pills */}
-          <div className="inline-flex rounded-md border bg-background p-0.5">
-            <button
-              type="button"
-              onClick={() => setScope('all')}
-              data-on={value.scope === 'all'}
-              className="rounded px-2.5 py-1 text-xs font-medium text-muted-foreground transition-colors data-[on=true]:bg-muted data-[on=true]:text-foreground"
+          {/* Scope dropdown — single-select Select */}
+          <Select
+            value={value.scope}
+            onValueChange={(v) => setScope(v as ScopeFilter)}
+          >
+            <SelectTrigger className="h-8 w-[150px] text-xs">
+              <SelectValue placeholder="Scope" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All scopes</SelectItem>
+              <SelectItem value="institution">
+                <span className="inline-flex items-center gap-1.5">
+                  <MapPin className="size-3" />
+                  Institution
+                </span>
+              </SelectItem>
+              <SelectItem value="global">
+                <span className="inline-flex items-center gap-1.5">
+                  <Globe2 className="size-3" />
+                  Global
+                </span>
+              </SelectItem>
+            </SelectContent>
+          </Select>
+
+          {/* Status multi-select popover (was chip-row tabs) */}
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button variant="outline" size="sm" className="h-8 gap-1.5">
+                <ListFilter className="size-3.5" />
+                Status
+                {value.statuses.length > 0 && (
+                  <Badge
+                    variant="secondary"
+                    className="ml-1 h-5 px-1.5 text-xs"
+                  >
+                    {value.statuses.length}
+                  </Badge>
+                )}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent
+              align="end"
+              className="w-56 p-2"
             >
-              All scopes
-            </button>
-            <button
-              type="button"
-              onClick={() => setScope('institution')}
-              data-on={value.scope === 'institution'}
-              className="inline-flex items-center gap-1 rounded px-2.5 py-1 text-xs font-medium text-muted-foreground transition-colors data-[on=true]:bg-muted data-[on=true]:text-foreground"
-            >
-              <MapPin className="size-3" />
-              Institution
-            </button>
-            <button
-              type="button"
-              onClick={() => setScope('global')}
-              data-on={value.scope === 'global'}
-              className="inline-flex items-center gap-1 rounded px-2.5 py-1 text-xs font-medium text-muted-foreground transition-colors data-[on=true]:bg-muted data-[on=true]:text-foreground"
-            >
-              <Globe2 className="size-3" />
-              Global
-            </button>
-          </div>
+              <p className="px-2 pb-2 text-xs font-medium text-muted-foreground">
+                Filter by status
+              </p>
+              <div className="space-y-1">
+                {STATUS_OPTIONS.map((opt) => {
+                  const checked = value.statuses.includes(opt.value);
+                  return (
+                    <label
+                      key={opt.value}
+                      className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-muted/60"
+                    >
+                      <Checkbox
+                        checked={checked}
+                        onCheckedChange={() => toggleStatus(opt.value)}
+                      />
+                      <span
+                        className={`inline-block size-1.5 rounded-full ${opt.dot}`}
+                        aria-hidden
+                      />
+                      <span>{opt.label}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            </PopoverContent>
+          </Popover>
 
           {/* Source multi-select popover */}
           <Popover>
@@ -240,44 +276,85 @@ export function CampaignsFilterBar({
         </div>
       </div>
 
-      {/* Status chip row */}
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="text-xs text-muted-foreground">Status:</span>
-        {STATUS_OPTIONS.map((s) => {
-          const on = value.statuses.includes(s);
-          return (
-            <button
+      {/* Selected-filter chips row — shows the user what's currently
+          applied without opening each popover again. Each chip has an
+          x button to remove that single filter. */}
+      {(value.statuses.length > 0 ||
+        value.sources.length > 0 ||
+        value.scope !== 'all' ||
+        value.includeArchived) && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="text-xs text-muted-foreground">Active:</span>
+          {value.scope !== 'all' && (
+            <Badge
+              variant="secondary"
+              className="gap-1 text-[11px]"
+            >
+              Scope: {value.scope}
+              <button
+                type="button"
+                onClick={() => setScope('all')}
+                className="ml-0.5 rounded hover:bg-muted-foreground/20"
+                aria-label="Remove scope filter"
+              >
+                <X className="size-3" />
+              </button>
+            </Badge>
+          )}
+          {value.statuses.map((s) => (
+            <Badge
               key={s}
-              type="button"
-              onClick={() => toggleStatus(s)}
-              data-on={on}
-              className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ring-transparent transition-colors ${
-                STATUS_PILL[s]
-              } ${
-                on
-                  ? ''
-                  : 'bg-muted/40 text-muted-foreground hover:bg-muted'
-              }`}
+              variant="secondary"
+              className="gap-1 text-[11px]"
             >
               {s}
-            </button>
-          );
-        })}
-        {value.statuses.length === 0 && !value.includeArchived && (
-          <span className="ml-1 text-[10px] text-muted-foreground">
-            (showing all non-archived)
-          </span>
-        )}
-        {value.scope === 'global' && (
-          <Badge
-            variant="outline"
-            className="ml-auto inline-flex items-center gap-1 text-[10px]"
-          >
-            <CircleSlash className="size-2.5" />
-            Global campaigns only
-          </Badge>
-        )}
-      </div>
+              <button
+                type="button"
+                onClick={() => toggleStatus(s)}
+                className="ml-0.5 rounded hover:bg-muted-foreground/20"
+                aria-label={`Remove ${s} filter`}
+              >
+                <X className="size-3" />
+              </button>
+            </Badge>
+          ))}
+          {value.sources.map((src) => (
+            <Badge
+              key={src}
+              variant="secondary"
+              className="gap-1 text-[11px]"
+            >
+              {src}
+              <button
+                type="button"
+                onClick={() => toggleSource(src)}
+                className="ml-0.5 rounded hover:bg-muted-foreground/20"
+                aria-label={`Remove ${src} source filter`}
+              >
+                <X className="size-3" />
+              </button>
+            </Badge>
+          ))}
+          {value.includeArchived && (
+            <Badge
+              variant="secondary"
+              className="gap-1 text-[11px]"
+            >
+              Including archived
+              <button
+                type="button"
+                onClick={() =>
+                  onChange({ ...value, includeArchived: false })
+                }
+                className="ml-0.5 rounded hover:bg-muted-foreground/20"
+                aria-label="Stop including archived"
+              >
+                <X className="size-3" />
+              </button>
+            </Badge>
+          )}
+        </div>
+      )}
     </div>
   );
 }
