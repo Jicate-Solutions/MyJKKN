@@ -165,6 +165,10 @@ export default function NewCampaignWizard() {
   const createLink = useCreateCampaignLink(linkScope);
 
   async function handleFinish() {
+    // Belt-and-suspenders guard against double-submission.
+    // The button's `disabled` prop alone has a ~one-frame race window
+    // between mutateAsync() firing and React committing isPending=true.
+    if (createCampaign.isPending) return;
     if (!institutionId) {
       toast.error('Pick an institution before finishing the wizard.');
       setStep(1);

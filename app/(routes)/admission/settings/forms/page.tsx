@@ -120,6 +120,7 @@ function FormsListContent() {
   };
 
   const handleCreate = async () => {
+    if (createForm.isPending || createFromTemplate.isPending) return;
     if (!selectedInstitutionId || !profile?.id) {
       toast.error('Institution context required');
       return;
@@ -213,6 +214,7 @@ function FormsListContent() {
   };
 
   const handleDuplicate = async () => {
+    if (duplicateForm.isPending) return;
     if (!duplicateSource || !profile?.id) return;
     if (!duplicate.name.trim() || !duplicate.slug.trim()) {
       toast.error('Name and slug are required');

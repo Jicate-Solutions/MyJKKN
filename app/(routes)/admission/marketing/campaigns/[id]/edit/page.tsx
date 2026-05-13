@@ -200,6 +200,7 @@ export default function CampaignEditPage() {
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
+    if (update.isPending) return;
     try {
       await update.mutateAsync({
         name,
