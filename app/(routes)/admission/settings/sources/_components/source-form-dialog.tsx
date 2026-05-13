@@ -52,6 +52,7 @@ const ENUM_OPTIONS: { value: LeadSourceEnum; label: string }[] = [
   { value: 'publisher', label: 'Publisher' },
   { value: 'google_ads', label: 'Google Ads' },
   { value: 'facebook_ads', label: 'Facebook Ads' },
+  { value: 'youtube_ads', label: 'YouTube Ads' },
   { value: 'inbound_call', label: 'Inbound Call' },
   { value: 'whatsapp', label: 'WhatsApp' },
   { value: 'gate_entry', label: 'Gate Entry' },

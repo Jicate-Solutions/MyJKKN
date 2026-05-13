@@ -10,6 +10,7 @@ import { AlertTriangle } from 'lucide-react';
 const SOURCE_STYLES: Record<string, { bg: string; label: string }> = {
   facebook_ads: { bg: 'bg-blue-100 text-blue-700 border-blue-200', label: 'Facebook' },
   google_ads: { bg: 'bg-red-100 text-red-700 border-red-200', label: 'Google' },
+  youtube_ads: { bg: 'bg-rose-100 text-rose-700 border-rose-200', label: 'YouTube' },
   referral: { bg: 'bg-green-100 text-green-700 border-green-200', label: 'Referral' },
   walk_in: { bg: 'bg-orange-100 text-orange-700 border-orange-200', label: 'Walk-in' },
   education_fair: { bg: 'bg-purple-100 text-purple-700 border-purple-200', label: 'Edu Fair' },

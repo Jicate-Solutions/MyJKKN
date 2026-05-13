@@ -24,6 +24,7 @@ export type LeadSourceEnum =
   | 'publisher'
   | 'google_ads'
   | 'facebook_ads'
+  | 'youtube_ads'
   | 'other'
   | 'inbound_call'
   | 'gate_entry'

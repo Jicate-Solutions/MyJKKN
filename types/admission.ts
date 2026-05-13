@@ -19,6 +19,7 @@ export type LeadSource =
   | 'publisher'
   | 'google_ads'
   | 'facebook_ads'
+  | 'youtube_ads'
   | 'inbound_call'
   | 'gate_entry'
   | 'other';

@@ -30,6 +30,7 @@ const SOURCE_COLORS: Record<string, string> = {
   education_fair: '#f97316',
   google_ads: '#ef4444',
   facebook_ads: '#6366f1',
+  youtube_ads: '#e11d48',
   admission_form: '#84cc16',
   publisher: '#0ea5e9',
   other: '#9ca3af',
