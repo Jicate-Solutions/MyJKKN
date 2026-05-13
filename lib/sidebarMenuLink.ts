@@ -1283,8 +1283,15 @@ export function GetPages(pathname: string): MenuGroup[] {
               label: 'All Profiles',
               active: pathname === '/learners/profiles'
             }
-           
+
           ]
+        },
+        {
+          href: '/learners/onboarding',
+          label: 'Learner Onboarding',
+          active: pathname.startsWith('/learners/onboarding'),
+          icon: UserPlus,
+          submenus: []
         },
         {
           href: '/learners/alumni',
