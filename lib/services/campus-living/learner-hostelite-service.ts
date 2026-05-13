@@ -85,7 +85,10 @@ export class LearnerHosteliteService {
   ): Promise<{ data: LearnerHostelite[]; count: number }> {
     try {
       const supabase = createClientSupabaseClient();
-      let query = supabase
+      // Cast to `any` — `v_learner_hostelites` view exists on prod (PR #822 +
+      // #852 migrations) but Supabase TypeScript types weren't regenerated
+      // when the view was added. Same pattern used elsewhere in this service.
+      let query = (supabase as any)
         .from('v_learner_hostelites')
         .select(VIEW_SELECT, { count: 'exact' });
 
@@ -104,7 +107,11 @@ export class LearnerHosteliteService {
         query = query.eq('year_of_study', filters.year_of_study);
 
       if (filters?.gender)
-        query = query.eq('gender', filters.gender);
+        // Case-insensitive match — chip values are TitleCase ('Male'/'Female'/
+        // 'Other') but prod data is lowercase ('male'/'female'). `.eq()` was
+        // case-sensitive → 0 rows. `.ilike()` with no wildcards is an exact
+        // case-insensitive match, tolerant of DB casing drift either way.
+        query = query.ilike('gender', filters.gender);
 
       // Block filter: explicit UUID → match it. UNASSIGNED → IS NULL on the
       // view's current_block_id (LEFT JOIN result for learners with no active
@@ -193,7 +200,7 @@ export class LearnerHosteliteService {
         attRes,
         vacRes,
       ] = await Promise.all([
-        supabase
+        (supabase as any)
           .from('v_learner_hostelites')
           .select(VIEW_SELECT)
           .eq('id', learnerId)
