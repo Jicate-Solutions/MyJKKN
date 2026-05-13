@@ -76,6 +76,7 @@ export default function RoleManagementPage() {
     role_name: string;
     description: string;
     permissions: Record<string, boolean>;
+    institution_scope?: 'all' | 'own';
   }) => {
     try {
       setIsLoading(true);

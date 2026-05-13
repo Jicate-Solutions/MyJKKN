@@ -172,7 +172,8 @@ export class RoleService {
         description: role.description ?? null,
         permissions: (role.permissions || DEFAULT_ROLE_PERMISSIONS) as any,
         is_system_role: role.is_system_role ?? false,
-        institution_id: role.institution_id ?? null
+        institution_scope: role.institution_scope ?? 'own',
+        module_scopes: (role.module_scopes ?? {}) as any
       } as any;
 
       const { data, error } = await (this.supabase as any)
