@@ -199,7 +199,7 @@ export function Menu({ isOpen }: MenuProps) {
   };
 
   return (
-    <div className='overflow-y-auto h-full custom-scrollbar'>
+    <div className='overflow-y-auto overflow-x-hidden h-full custom-scrollbar'>
       {/* Sticky header: search + favorites pin to the top so they remain
           visible while the rest of the sidebar scrolls. The bg-sidebar
           background prevents scrolling content from showing through. */}
