@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import toast from 'react-hot-toast';
 import { CampaignService } from '@/lib/services/admission/campaign-service';
 import type {
   CampaignFilters,
@@ -122,6 +123,24 @@ export function useCreateCampaign() {
     mutationFn: (input: CreateCampaignInput) => CampaignService.create(input),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: campaignKeys.lists() });
+    },
+    onError: (err: any) => {
+      const raw = err?.message ?? '';
+      if (raw.includes('row-level security') || raw.includes('violates row-level')) {
+        toast.error(
+          'You don\'t have permission to create this campaign. ' +
+          'For Global scope you need multi-institution access; ' +
+          'for Institution scope you need access to the chosen institution.',
+        );
+      } else if (raw.includes('duplicate key') || raw.includes('unique constraint')) {
+        toast.error('A campaign with that slug already exists. Please rename and try again.');
+      } else if (raw.includes('institution_id is required')) {
+        toast.error('Pick an institution before submitting the wizard.');
+      } else if (raw.includes('Global campaigns must not specify')) {
+        toast.error('Inconsistent scope/institution selection — refresh the page and try again.');
+      } else {
+        toast.error(raw || 'Failed to create campaign');
+      }
     },
   });
 }

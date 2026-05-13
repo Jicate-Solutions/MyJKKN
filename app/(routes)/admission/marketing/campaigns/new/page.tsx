@@ -172,9 +172,20 @@ export default function NewCampaignWizard() {
 
   async function handleFinish() {
     // Belt-and-suspenders guard against double-submission.
-    // The button's `disabled` prop alone has a ~one-frame race window
-    // between mutateAsync() firing and React committing isPending=true.
     if (createCampaign.isPending) return;
+
+    // Up-front validation — surfaces clear messages before the network call
+    // instead of letting the DB return a less-friendly RLS / constraint error.
+    if (!name?.trim()) {
+      toast.error('Campaign name is required.');
+      setStep(1);
+      return;
+    }
+    if (!source) {
+      toast.error('Pick a source channel before submitting.');
+      setStep(1);
+      return;
+    }
     if (!institutionId) {
       toast.error('Pick an institution before finishing the wizard.');
       setStep(1);
@@ -184,52 +195,66 @@ export default function NewCampaignWizard() {
       toast.error('You need multi-institution access to create a global campaign.');
       return;
     }
-    const campaign = await createCampaign.mutateAsync({
-      institution_id: isGlobal ? null : institutionId,
-      scope: isGlobal ? 'global' : 'institution',
-      category,
-      // The service will force these to null if category !== 'admission'.
-      // We still pass them so a future category-aware update path doesn't
-      // lose the chosen values.
-      program_id: showAdmissionFields && programId ? programId : null,
-      admission_year_id:
-        showAdmissionFields && admissionYearId ? admissionYearId : null,
-      name,
-      description: description || undefined,
-      source,
-      starts_at: startsAt || undefined,
-      ends_at: endsAt || undefined,
-      budget_inr: budget ? parseFloat(budget) : undefined,
-      target_leads: targetLeads ? parseInt(targetLeads, 10) : undefined,
-      target_enrolled: targetEnrolled
-        ? parseInt(targetEnrolled, 10)
-        : undefined,
-    });
-    setCreatedCampaignId(campaign.id);
 
-    if (formId && linkName) {
-      // Mount hook scope to new id by re-rendering before mutate. The
-      // existing hook above was scoped to '' for the initial pass; we
-      // call the service directly to avoid a rerender wait.
-      const { CampaignService } = await import(
-        '@/lib/services/admission/campaign-service'
-      );
-      const link = await CampaignService.createLink(campaign.id, {
-        form_id: formId,
-        name: linkName,
+    try {
+      const campaign = await createCampaign.mutateAsync({
+        institution_id: isGlobal ? null : institutionId,
+        scope: isGlobal ? 'global' : 'institution',
+        category,
+        // The service will force these to null if category !== 'admission'.
+        // We still pass them so a future category-aware update path doesn't
+        // lose the chosen values.
+        program_id: showAdmissionFields && programId ? programId : null,
+        admission_year_id:
+          showAdmissionFields && admissionYearId ? admissionYearId : null,
+        name,
+        description: description || undefined,
+        source,
+        starts_at: startsAt || undefined,
+        ends_at: endsAt || undefined,
+        budget_inr: budget ? parseFloat(budget) : undefined,
+        target_leads: targetLeads ? parseInt(targetLeads, 10) : undefined,
+        target_enrolled: targetEnrolled
+          ? parseInt(targetEnrolled, 10)
+          : undefined,
       });
-      if (link?.token && typeof window !== 'undefined') {
+      setCreatedCampaignId(campaign.id);
+
+      if (formId && linkName) {
         try {
-          await navigator.clipboard.writeText(
-            `${window.location.origin}/c/${link.token}`,
+          const { CampaignService } = await import(
+            '@/lib/services/admission/campaign-service'
           );
-        } catch {
-          /* clipboard may be blocked — non-fatal */
+          const link = await CampaignService.createLink(campaign.id, {
+            form_id: formId,
+            name: linkName,
+          });
+          if (link?.token && typeof window !== 'undefined') {
+            try {
+              await navigator.clipboard.writeText(
+                `${window.location.origin}/c/${link.token}`,
+              );
+            } catch {
+              /* clipboard may be blocked — non-fatal */
+            }
+          }
+        } catch (linkErr: any) {
+          // Campaign already created — link is a non-fatal extra. Tell the
+          // user but still navigate them to the new campaign page so they
+          // can retry link creation from there.
+          toast.error(
+            linkErr?.message ?? 'Campaign created, but couldn\'t auto-create the share link. You can add it manually.',
+          );
         }
       }
-    }
 
-    router.push(`/admission/marketing/campaigns/${campaign.id}`);
+      toast.success('Campaign created');
+      router.push(`/admission/marketing/campaigns/${campaign.id}`);
+    } catch {
+      // useCreateCampaign's onError handler already shows a specific toast
+      // (RLS denial, duplicate slug, etc). Swallow here so the rejection
+      // doesn't become an unhandled promise.
+    }
   }
 
   // Silence unused-var warning for createLink (kept for future inline use).
