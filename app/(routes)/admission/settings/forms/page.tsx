@@ -372,7 +372,8 @@ function FormsListContent() {
                         title="Duplicate form (e.g. for a new channel)"
                         onClick={() => openDuplicate(form)}
                       >
-                        <Copy className="h-3.5 w-3.5" />
+                        <Copy className="h-3.5 w-3.5 mr-1" />
+                        Duplicate
                       </Button>
                     )}
                     {canDeleteForms && (
