@@ -211,7 +211,7 @@ export default function CampaignDetailPage() {
   }
 
   return (
-    <PermissionGuard module="admission.campaigns" action="view">
+    <PermissionGuard module="admission.marketing" action="view">
       <div className="space-y-6 p-6">
         {/* ─── Back link ─────────────────────────────────────── */}
         <Link
@@ -318,7 +318,7 @@ export default function CampaignDetailPage() {
               {/* Actions */}
               <div className="flex flex-wrap items-center gap-2">
                 <PermissionGuard
-                  module="admission.campaigns"
+                  module="admission.marketing"
                   action="edit"
                 >
                   {/* Contextual primary action driven by current status */}
@@ -389,7 +389,7 @@ export default function CampaignDetailPage() {
                 </PermissionGuard>
 
                 <PermissionGuard
-                  module="admission.campaigns"
+                  module="admission.marketing"
                   action="delete"
                 >
                   {campaign.status !== 'archived' && (
@@ -439,7 +439,7 @@ export default function CampaignDetailPage() {
                 share link, then activate to start collecting leads.
               </span>
             </div>
-            <PermissionGuard module="admission.campaigns" action="edit">
+            <PermissionGuard module="admission.marketing" action="edit">
               <Button
                 size="sm"
                 onClick={() => setStatus('active', 'Active')}
@@ -459,7 +459,7 @@ export default function CampaignDetailPage() {
                 redirecting and clicks aren&apos;t logged until you resume.
               </span>
             </div>
-            <PermissionGuard module="admission.campaigns" action="edit">
+            <PermissionGuard module="admission.marketing" action="edit">
               <Button
                 size="sm"
                 onClick={() => setStatus('active', 'Active')}
@@ -605,7 +605,7 @@ export default function CampaignDetailPage() {
               </p>
             </div>
             <PermissionGuard
-              module="admission.campaigns"
+              module="admission.marketing"
               action="create"
             >
               <CreateLinkDialog

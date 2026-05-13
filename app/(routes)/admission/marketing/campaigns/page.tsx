@@ -80,9 +80,10 @@ const STATUS_PILL: Record<CampaignStatus, string> = {
 // and we want permission gates rendered conditionally rather than always
 // mounted. Each menu item is wrapped in <PermissionGuard> with the exact
 // (module, action) pair the dynamic permission system catalogs:
-//   admission.campaigns.view    — implicit (column visible to viewers)
-//   admission.campaigns.edit    — Edit campaign + Manage links + Attributed leads
-//   admission.campaigns.delete  — Archive
+//   admission.marketing.view    — implicit (column visible to viewers)
+//   admission.marketing.edit    — Edit campaign + Manage links + Attributed leads
+//   (migrated 2026-05-13 from admission.campaigns.* dead namespace)
+//   admission.marketing.delete  — Archive
 
 function CampaignActionsCell({ campaign }: { campaign: Campaign }) {
   const router = useRouter();
@@ -127,13 +128,13 @@ function CampaignActionsCell({ campaign }: { campaign: Campaign }) {
               View details
             </DropdownMenuItem>
 
-            {/* Edit — gated by admission.campaigns.edit.
+            {/* Edit — gated by admission.marketing.edit.
                 PermissionGuard's internal super_admin / admin /
                 admission_global_user / counselor bypass means the items
                 appear automatically for those roles without us needing
                 to enumerate role keys here. */}
             <PermissionGuard
-              module="admission.campaigns"
+              module="admission.marketing"
               action="edit"
             >
               <DropdownMenuItem
@@ -158,7 +159,7 @@ function CampaignActionsCell({ campaign }: { campaign: Campaign }) {
               </DropdownMenuItem>
             </PermissionGuard>
 
-            <PermissionGuard module="admission.campaigns" action="view">
+            <PermissionGuard module="admission.marketing" action="view">
               <DropdownMenuItem
                 onClick={() =>
                   router.push(
@@ -171,11 +172,11 @@ function CampaignActionsCell({ campaign }: { campaign: Campaign }) {
               </DropdownMenuItem>
             </PermissionGuard>
 
-            {/* Archive — gated by admission.campaigns.delete.
+            {/* Archive — gated by admission.marketing.delete.
                 Hidden once the campaign is already archived. */}
             {campaign.status !== 'archived' && (
               <PermissionGuard
-                module="admission.campaigns"
+                module="admission.marketing"
                 action="delete"
               >
                 <DropdownMenuSeparator />
@@ -396,7 +397,7 @@ export default function CampaignsListPage() {
   }
 
   return (
-    <PermissionGuard module="admission.campaigns" action="view">
+    <PermissionGuard module="admission.marketing" action="view">
       <div className="space-y-4 p-6">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
@@ -410,7 +411,7 @@ export default function CampaignsListPage() {
             </p>
           </div>
           <PermissionGuard
-            module="admission.campaigns"
+            module="admission.marketing"
             action="create"
           >
             <Link href="/admission/marketing/campaigns/new">
@@ -428,7 +429,7 @@ export default function CampaignsListPage() {
         <DataTable
           columns={columns}
           data={filtered}
-          permissions={{ module: 'admission.campaigns' }}
+          permissions={{ module: 'admission.marketing' }}
           searchPlaceholder="Quick filter by name…"
           filterColumn="name"
           onBulkAction={bulkArchive}

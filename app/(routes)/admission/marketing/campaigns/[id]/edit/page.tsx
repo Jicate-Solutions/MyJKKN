@@ -240,7 +240,7 @@ export default function CampaignEditPage() {
     campaign.source;
 
   return (
-    <PermissionGuard module="admission.campaigns" action="edit">
+    <PermissionGuard module="admission.marketing" action="edit">
       <div className="mx-auto space-y-4 p-6">
         <Link
           href={`/admission/marketing/campaigns/${id}`}

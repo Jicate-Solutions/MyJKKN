@@ -18,7 +18,7 @@ export default function CampaignsMonitoringPage() {
   const { data: overview } = useCampaignsOverview();
 
   return (
-    <PermissionGuard module="admission.campaigns" action="view">
+    <PermissionGuard module="admission.marketing" action="view">
       <div className="space-y-6 p-6">
         <h1 className="text-2xl font-semibold">Campaign Monitoring</h1>
 

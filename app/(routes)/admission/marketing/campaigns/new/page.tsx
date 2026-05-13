@@ -229,7 +229,7 @@ export default function NewCampaignWizard() {
   const step3Valid = !formId || (formId && linkName);
 
   return (
-    <PermissionGuard module="admission.campaigns" action="create">
+    <PermissionGuard module="admission.marketing" action="create">
       <div className="mx-auto space-y-6 p-6">
         <h1 className="text-2xl font-semibold">
           New Campaign · Step {step} of 3

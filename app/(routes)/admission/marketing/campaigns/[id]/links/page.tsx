@@ -32,7 +32,7 @@ export default function CampaignLinksPage() {
   if (!campaign) return <div className="p-6">Loading…</div>;
 
   return (
-    <PermissionGuard module="admission.campaigns" action="view">
+    <PermissionGuard module="admission.marketing" action="view">
       <div className="space-y-4 p-6">
         <Link
           href={`/admission/marketing/campaigns/${id}`}
@@ -44,7 +44,7 @@ export default function CampaignLinksPage() {
           <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle>Share links</CardTitle>
             <PermissionGuard
-              module="admission.campaigns"
+              module="admission.marketing"
               action="create"
             >
               <CreateLinkDialog

@@ -419,7 +419,11 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // gate at all and showed to every authenticated user (including counselor
   // roles whose explicit admission.marketing.view = false).
   '/admission/marketing': 'admission.marketing.view',
-  '/admission/marketing/campaigns': 'admission.campaigns.view',
+  // 2026-05-13: campaigns migrated from dead admission.campaigns.* namespace
+  // (no role ever held those keys) into admission.marketing.* so any role
+  // with marketing access reaches campaigns end-to-end. Page-level
+  // PermissionGuards updated in the same pass.
+  '/admission/marketing/campaigns': 'admission.marketing.view',
   '/admission/marketing/automations/monitoring': 'admission.marketing.view',
   '/admission/marketing/automations/roi': 'admission.marketing.view',
   '/admission/marketing/automations/segments': 'admission.marketing.view',
@@ -429,12 +433,14 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/admission/marketing/chatbot': 'admission.marketing.chatbot.view',
   '/admission/marketing/chatbot/analytics': 'admission.marketing.chatbot.view',
   '/admission/marketing/chatbot/knowledge': 'admission.marketing.chatbot.manage',
+  '/admission/marketing/database': 'admission.marketing.view',
   '/admission/marketing/parent-communication': 'admission.marketing.view',
   '/admission/marketing/publishers': 'admission.marketing.view',
   '/admission/marketing/re-engagement': 'admission.marketing.view',
   '/admission/marketing/remarketing': 'admission.marketing.view',
   '/admission/marketing/voice-agents': 'admission.marketing.voice.view',
   '/admission/marketing/voice-broadcast': 'admission.marketing.voice.view',
+  '/admission/marketing/whatsapp-broadcast': 'admission.marketing.view',
   '/admission/marketing/expos': 'admission.marketing.expos.view',
   '/admission/marketing/expos/masters': 'admission.marketing.expos.view',
   '/admission/marketing/expos/new': 'admission.marketing.expos.create',
@@ -1076,6 +1082,11 @@ export function GetPages(pathname: string): MenuGroup[] {
               href: '/admission/marketing/voice-broadcast',
               label: 'Voice Broadcast',
               active: pathname === '/admission/marketing/voice-broadcast'
+            },
+            {
+              href: '/admission/marketing/whatsapp-broadcast',
+              label: 'WhatsApp Broadcast',
+              active: pathname === '/admission/marketing/whatsapp-broadcast'
             },
             {
               href: '/admission/marketing/database',
