@@ -70,10 +70,12 @@ function FormsListContent() {
   const { selectedInstitutionId, getAccessibleInstitutionIds } =
     useUserInstitutionAccess();
   const { isSuperAdmin, canAccess } = usePermissions();
-  const canEditForms = canAccess('admission', 'edit')
+  const canEditForms = canAccess('admission.settings.forms', 'manage')
+    || canAccess('admission', 'edit')
     || canAccess('admission', 'manage')
     || canAccess('admission', 'settings.edit');
-  const canDeleteForms = canAccess('admission', 'delete')
+  const canDeleteForms = canAccess('admission.settings.forms', 'manage')
+    || canAccess('admission', 'delete')
     || canAccess('admission', 'manage')
     || canAccess('admission', 'settings.delete');
   const [createOpen, setCreateOpen] = useState(false);
@@ -559,7 +561,7 @@ function FormsListContent() {
 export default function AdmissionFormsPage() {
   return (
     <AdmissionErrorBoundary>
-      <PermissionGuard module="admission" action="view">
+      <PermissionGuard module="admission.settings.forms" action="view">
         <FormsListContent />
       </PermissionGuard>
     </AdmissionErrorBoundary>

@@ -4781,29 +4781,53 @@ ALTER TABLE admission_form_templates ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "admission_form_templates_select" ON admission_form_templates
   FOR SELECT USING (is_system = true OR auth.uid() IS NOT NULL);
 
--- Forms: institution-scoped CRUD via profiles.institution_id
-CREATE POLICY "admission_forms_select" ON admission_forms
+-- Forms: gated by the dedicated admission.settings.forms.* namespace
+-- (migrated 2026-05-13 from admission.applications.* — see migration
+-- 20260513140000_admission_forms_namespace_and_role_seeds.sql for the
+-- rationale and the per-role seed matrix).
+CREATE POLICY adm_forms_select ON admission_forms
   FOR SELECT USING (
-    institution_id IN (SELECT institution_id FROM profiles WHERE id = auth.uid())
-    OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+    is_super_admin()
+    OR is_admin()
+    OR (
+      user_has_permission('admission.settings.forms.view')
+      AND role_has_institution_access(institution_id)
+    )
   );
 
-CREATE POLICY "admission_forms_insert" ON admission_forms
+CREATE POLICY adm_forms_insert ON admission_forms
   FOR INSERT WITH CHECK (
-    institution_id IN (SELECT institution_id FROM profiles WHERE id = auth.uid())
-    OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+    is_super_admin()
+    OR is_admin()
+    OR user_has_permission('admission.settings.forms.manage')
   );
 
-CREATE POLICY "admission_forms_update" ON admission_forms
+CREATE POLICY adm_forms_update ON admission_forms
   FOR UPDATE USING (
-    institution_id IN (SELECT institution_id FROM profiles WHERE id = auth.uid())
-    OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+    is_super_admin()
+    OR is_admin()
+    OR (
+      user_has_permission('admission.settings.forms.manage')
+      AND role_has_institution_access(institution_id)
+    )
+  )
+  WITH CHECK (
+    is_super_admin()
+    OR is_admin()
+    OR (
+      user_has_permission('admission.settings.forms.manage')
+      AND role_has_institution_access(institution_id)
+    )
   );
 
-CREATE POLICY "admission_forms_delete" ON admission_forms
+CREATE POLICY adm_forms_delete ON admission_forms
   FOR DELETE USING (
-    institution_id IN (SELECT institution_id FROM profiles WHERE id = auth.uid())
-    OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+    is_super_admin()
+    OR is_admin()
+    OR (
+      user_has_permission('admission.settings.forms.manage')
+      AND role_has_institution_access(institution_id)
+    )
   );
 
 -- Sections & Fields: cascade from form access

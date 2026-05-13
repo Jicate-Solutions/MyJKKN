@@ -1137,7 +1137,7 @@ export default function FormBuilderPage({ params }: { params: Promise<{ id: stri
   const { id } = usePromise(params);
   return (
     <AdmissionErrorBoundary>
-      <PermissionGuard module="admission" action="view">
+      <PermissionGuard module="admission.settings.forms" action="view">
         <FormBuilderContent formId={id} />
       </PermissionGuard>
     </AdmissionErrorBoundary>

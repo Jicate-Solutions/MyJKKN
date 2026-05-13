@@ -946,6 +946,8 @@ export const PERMISSION_CATEGORIES = [
       { key: 'admission.settings.manage', label: 'Manage Admission Settings' },
       { key: 'admission.settings.templates.view', label: 'View Communication Templates' },
       { key: 'admission.settings.templates.manage', label: 'Manage Communication Templates' },
+      { key: 'admission.settings.forms.view', label: 'View Admission Forms (Form Builder)' },
+      { key: 'admission.settings.forms.manage', label: 'Manage Admission Forms (Form Builder)' },
       { key: 'admission.settings.workflows.view', label: 'View Workflows' },
       { key: 'admission.settings.workflows.manage', label: 'Manage Workflows & Configuration' },
       { key: 'admission.settings.assignment.view', label: 'View Assignment Rules' },
