@@ -14087,14 +14087,14 @@ ALTER TABLE admission_campaign_link_clicks ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS p_campaigns_select ON admission_campaigns;
 CREATE POLICY p_campaigns_select ON admission_campaigns FOR SELECT TO authenticated USING (
   is_super_admin() OR is_admin()
-  OR (user_has_permission('admission.campaigns.view')
+  OR (user_has_permission('admission.marketing.view')
       AND role_has_institution_access(institution_id))
 );
 
 DROP POLICY IF EXISTS p_campaigns_insert ON admission_campaigns;
 CREATE POLICY p_campaigns_insert ON admission_campaigns FOR INSERT TO authenticated WITH CHECK (
   is_super_admin() OR is_admin()
-  OR (user_has_permission('admission.campaigns.create')
+  OR (user_has_permission('admission.marketing.create')
       AND role_has_institution_access(institution_id))
 );
 
@@ -14102,12 +14102,12 @@ DROP POLICY IF EXISTS p_campaigns_update ON admission_campaigns;
 CREATE POLICY p_campaigns_update ON admission_campaigns FOR UPDATE TO authenticated
   USING (
     is_super_admin() OR is_admin()
-    OR (user_has_permission('admission.campaigns.edit')
+    OR (user_has_permission('admission.marketing.edit')
         AND role_has_institution_access(institution_id))
   )
   WITH CHECK (
     is_super_admin() OR is_admin()
-    OR (user_has_permission('admission.campaigns.edit')
+    OR (user_has_permission('admission.marketing.edit')
         AND role_has_institution_access(institution_id))
   );
 
@@ -14117,14 +14117,14 @@ CREATE POLICY p_campaigns_update ON admission_campaigns FOR UPDATE TO authentica
 DROP POLICY IF EXISTS p_links_select ON admission_campaign_links;
 CREATE POLICY p_links_select ON admission_campaign_links FOR SELECT TO authenticated USING (
   is_super_admin() OR is_admin()
-  OR (user_has_permission('admission.campaigns.view')
+  OR (user_has_permission('admission.marketing.view')
       AND role_has_institution_access(_campaign_link_institution_id(id)))
 );
 
 DROP POLICY IF EXISTS p_links_insert ON admission_campaign_links;
 CREATE POLICY p_links_insert ON admission_campaign_links FOR INSERT TO authenticated WITH CHECK (
   is_super_admin() OR is_admin()
-  OR (user_has_permission('admission.campaigns.create')
+  OR (user_has_permission('admission.marketing.create')
       AND EXISTS (
         SELECT 1 FROM admission_campaigns c
          WHERE c.id = campaign_id
@@ -14136,12 +14136,12 @@ DROP POLICY IF EXISTS p_links_update ON admission_campaign_links;
 CREATE POLICY p_links_update ON admission_campaign_links FOR UPDATE TO authenticated
   USING (
     is_super_admin() OR is_admin()
-    OR (user_has_permission('admission.campaigns.edit')
+    OR (user_has_permission('admission.marketing.edit')
         AND role_has_institution_access(_campaign_link_institution_id(id)))
   )
   WITH CHECK (
     is_super_admin() OR is_admin()
-    OR (user_has_permission('admission.campaigns.edit')
+    OR (user_has_permission('admission.marketing.edit')
         AND role_has_institution_access(_campaign_link_institution_id(id)))
   );
 
@@ -14151,7 +14151,7 @@ CREATE POLICY p_links_update ON admission_campaign_links FOR UPDATE TO authentic
 DROP POLICY IF EXISTS p_clicks_select ON admission_campaign_link_clicks;
 CREATE POLICY p_clicks_select ON admission_campaign_link_clicks FOR SELECT TO authenticated USING (
   is_super_admin() OR is_admin()
-  OR (user_has_permission('admission.campaigns.view')
+  OR (user_has_permission('admission.marketing.view')
       AND EXISTS (
         SELECT 1 FROM admission_campaigns c
          WHERE c.id = campaign_id
@@ -14195,7 +14195,7 @@ BEGIN
   IF NOT (
     is_super_admin()
     OR is_admin()
-    OR (user_has_permission('admission.campaigns.view')
+    OR (user_has_permission('admission.marketing.view')
         AND role_has_institution_access(v_institution_id))
   ) THEN
     RAISE EXCEPTION 'access denied';
@@ -14313,7 +14313,7 @@ BEGIN
   IF NOT (
     is_super_admin()
     OR is_admin()
-    OR (user_has_permission('admission.campaigns.view')
+    OR (user_has_permission('admission.marketing.view')
         AND role_has_institution_access(v_institution_id))
   ) THEN
     RAISE EXCEPTION 'access denied';
@@ -14459,7 +14459,7 @@ AS $$
   ) f
   WHERE is_super_admin()
      OR is_admin()
-     OR (user_has_permission('admission.campaigns.view')
+     OR (user_has_permission('admission.marketing.view')
          AND role_has_institution_access(c.institution_id));
 $$;
 
@@ -14499,7 +14499,7 @@ BEGIN
   IF NOT (
     is_super_admin()
     OR is_admin()
-    OR user_has_permission('admission.campaigns.view')
+    OR user_has_permission('admission.marketing.view')
   ) THEN
     RAISE EXCEPTION 'access denied';
   END IF;
@@ -14543,7 +14543,7 @@ BEGIN
   IF NOT (
     is_super_admin()
     OR is_admin()
-    OR user_has_permission('admission.campaigns.edit')
+    OR user_has_permission('admission.marketing.edit')
   ) THEN
     RAISE EXCEPTION 'access denied';
   END IF;
