@@ -14091,11 +14091,35 @@ CREATE POLICY p_campaigns_select ON admission_campaigns FOR SELECT TO authentica
       AND role_has_institution_access(institution_id))
 );
 
+-- p_campaigns_insert (2026-05-13): scope-aware insert policy.
+-- - Super admin can insert anything.
+-- - Institution-scoped campaigns require institution access on the row.
+-- - Global campaigns require the user to have at least one role with
+--   institution_scope='all' (user_has_all_institution_access() defined
+--   in migration 20260513180000).
 DROP POLICY IF EXISTS p_campaigns_insert ON admission_campaigns;
 CREATE POLICY p_campaigns_insert ON admission_campaigns FOR INSERT TO authenticated WITH CHECK (
-  is_super_admin() OR is_admin()
-  OR (user_has_permission('admission.marketing.create')
-      AND role_has_institution_access(institution_id))
+  is_super_admin()
+  OR (
+    scope = 'institution'
+    AND (
+      is_admin()
+      OR (
+        user_has_permission('admission.marketing.create')
+        AND role_has_institution_access(institution_id)
+      )
+    )
+  )
+  OR (
+    scope = 'global'
+    AND (
+      is_admin()
+      OR (
+        user_has_permission('admission.marketing.create')
+        AND user_has_all_institution_access()
+      )
+    )
+  )
 );
 
 DROP POLICY IF EXISTS p_campaigns_update ON admission_campaigns;

@@ -76,6 +76,12 @@ export default function NewCampaignWizard() {
     isActive: true,
   });
   const { isSuperAdmin } = usePermissions();
+  // Global campaign creation: super_admin always passes; non-admin users
+  // pass when their accessible-institutions list spans more than one
+  // (scope='all' secondary roles like SEO Specialist hit this branch).
+  // RLS mirrors this via user_has_all_institution_access() in
+  // migration 20260513180000.
+  const canCreateGlobal = isSuperAdmin || institutions.length > 1;
 
   // Admin-curated source catalog. Falls back to the built-in label table
   // if the master is empty or RLS hides everything from this user — that
@@ -174,8 +180,8 @@ export default function NewCampaignWizard() {
       setStep(1);
       return;
     }
-    if (isGlobal && !isSuperAdmin) {
-      toast.error('Only super admins can create a cross-institution (global) campaign.');
+    if (isGlobal && !canCreateGlobal) {
+      toast.error('You need multi-institution access to create a global campaign.');
       return;
     }
     const campaign = await createCampaign.mutateAsync({
@@ -260,7 +266,7 @@ export default function NewCampaignWizard() {
                     />
                   </SelectTrigger>
                   <SelectContent>
-                    {isSuperAdmin && (
+                    {canCreateGlobal && (
                       <SelectItem value={GLOBAL_SCOPE_VALUE}>
                         🌐 All Institutions (Global)
                       </SelectItem>
