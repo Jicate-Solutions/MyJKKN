@@ -69,7 +69,7 @@ function FormsListContent() {
   });
   const { selectedInstitutionId, getAccessibleInstitutionIds } =
     useUserInstitutionAccess();
-  const { isSuperAdmin, canAccess } = usePermissions();
+  const { canAccess } = usePermissions();
   const canEditForms = canAccess('admission.settings.forms', 'manage')
     || canAccess('admission', 'edit')
     || canAccess('admission', 'manage')
@@ -86,14 +86,11 @@ function FormsListContent() {
     templateId: '',
   });
 
-  // Super admins see forms from ALL institutions they can access.
-  // Regular users see only forms for their current institution context.
+  // Trust the access RPC: scope='all' roles return many ids, single-
+  // institution roles return one. RLS still gates rows at the DB, so
+  // passing the full list is always safe.
   const accessibleIds = getAccessibleInstitutionIds();
-  const formsQueryScope = isSuperAdmin
-    ? accessibleIds.length > 0
-      ? accessibleIds
-      : selectedInstitutionId
-    : selectedInstitutionId;
+  const formsQueryScope = accessibleIds.length > 0 ? accessibleIds : selectedInstitutionId;
   const { data: forms = [], isLoading } = useAdmissionForms(formsQueryScope || undefined);
   const { data: templates = [] } = useFormTemplates();
   const formIds = forms.map((f) => f.id);
