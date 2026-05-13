@@ -369,11 +369,11 @@ function FormsListContent() {
                       <Button
                         size="sm"
                         variant="ghost"
-                        title="Duplicate form (e.g. for a new channel)"
+                        title="Clone form (e.g. for a new channel)"
                         onClick={() => openDuplicate(form)}
                       >
                         <Copy className="h-3.5 w-3.5 mr-1" />
-                        Duplicate
+                        Clone
                       </Button>
                     )}
                     {canDeleteForms && (
