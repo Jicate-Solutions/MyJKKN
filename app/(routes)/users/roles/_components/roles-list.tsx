@@ -2,10 +2,12 @@
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { Profile, CustomRole, UserRoleAssignment } from '@/types/auth';
-import { Shield, Users, Star, Loader2 } from 'lucide-react';
+import { Shield, Users, Star, Loader2, Search, X, Check } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import { cn } from '@/lib/utils';
 import {
   Select,
   SelectContent,
@@ -36,10 +38,7 @@ import toast from 'react-hot-toast';
 import { RoleService } from '@/lib/services/roles/role-service';
 import { UserRolesService } from '@/lib/services/users/user-roles-service';
 import { DataTable, PermissionColumnDef } from '@/components/ui/data-table';
-import {
-  MultiRoleSelector,
-  RoleBadges
-} from '@/components/ui/multi-role-selector';
+import { RoleBadges } from '@/components/ui/multi-role-selector';
 import {
   Tooltip,
   TooltipContent,
@@ -105,6 +104,41 @@ export function RolesList({
   // State for multi-role editing
   const [editingRoleIds, setEditingRoleIds] = useState<string[]>([]);
   const [editingPrimaryRoleId, setEditingPrimaryRoleId] = useState<string>('');
+  const [roleSearchQuery, setRoleSearchQuery] = useState('');
+
+  const filteredAvailableRoles = useMemo(() => {
+    const q = roleSearchQuery.trim().toLowerCase();
+    if (!q) return availableRoles;
+    return availableRoles.filter((r) => {
+      return (
+        r.role_name.toLowerCase().includes(q) ||
+        r.role_key.toLowerCase().includes(q) ||
+        (r.description ?? '').toLowerCase().includes(q)
+      );
+    });
+  }, [availableRoles, roleSearchQuery]);
+
+  const toggleRoleSelection = useCallback((roleId: string) => {
+    setEditingRoleIds((current) => {
+      const isSelected = current.includes(roleId);
+      if (isSelected) {
+        if (current.length <= 1) return current;
+        const next = current.filter((id) => id !== roleId);
+        setEditingPrimaryRoleId((prev) => (prev === roleId ? next[0] : prev));
+        return next;
+      }
+      const next = [...current, roleId];
+      setEditingPrimaryRoleId((prev) => (prev ? prev : roleId));
+      return next;
+    });
+  }, []);
+
+  const setAsPrimary = useCallback((roleId: string) => {
+    setEditingPrimaryRoleId(roleId);
+    setEditingRoleIds((current) =>
+      current.includes(roleId) ? current : [...current, roleId]
+    );
+  }, []);
 
   // Cache for user roles
   const [userRolesCache, setUserRolesCache] = useState<
@@ -221,6 +255,7 @@ export function RolesList({
     setEditingPrimaryRoleId(
       primaryRole?.role_id || (userRoles[0]?.role_id ?? '')
     );
+    setRoleSearchQuery('');
     setShowMultiRoleDialog(true);
   }, [userRolesCache]);
 
@@ -561,66 +596,228 @@ export function RolesList({
 
       {/* Multi-Role Assignment Dialog */}
       <Dialog open={showMultiRoleDialog} onOpenChange={setShowMultiRoleDialog}>
-        <DialogContent className="w-[95vw] max-w-[550px] max-h-[90vh] overflow-hidden flex flex-col">
-          <DialogHeader className="flex-shrink-0">
-            <DialogTitle className="flex items-center gap-2">
+        <DialogContent className="w-[95vw] sm:max-w-4xl h-[90vh] sm:h-auto sm:max-h-[85vh] p-0 gap-0 overflow-hidden flex flex-col">
+          <DialogHeader className="flex-shrink-0 px-6 pt-6 pb-4 border-b">
+            <DialogTitle className="flex items-center gap-2 text-lg">
               <Users className="h-5 w-5" />
               Manage Roles for {pendingMultiRoleUpdate?.userName}
             </DialogTitle>
             <DialogDescription>
-              Assign multiple roles to this user. The primary role (marked with{' '}
+              Assign one or more roles. The primary role (marked with{' '}
               <Star className="h-3 w-3 inline fill-yellow-500 text-yellow-500" />
-              ) will be used for display and legacy compatibility.
+              ) is used for display and legacy compatibility.
             </DialogDescription>
           </DialogHeader>
 
-          <div className="py-4 space-y-4 flex-1 overflow-y-auto">
-            <div>
-              <label className="text-sm font-medium mb-2 block">
-                Assigned Roles
-              </label>
-              <MultiRoleSelector
-                roles={availableRoles}
-                selectedRoleIds={editingRoleIds}
-                primaryRoleId={editingPrimaryRoleId}
-                onSelectionChange={setEditingRoleIds}
-                onPrimaryRoleChange={setEditingPrimaryRoleId}
-                disabled={isUpdating}
-                loading={isLoadingRoles}
-                placeholder="Select roles to assign..."
-                showPrimarySelector={true}
-              />
+          <div className="flex-1 min-h-0 grid grid-cols-1 md:grid-cols-3 md:divide-x">
+            {/* Left: search + available roles */}
+            <div className="md:col-span-2 flex flex-col min-h-0">
+              <div className="flex-shrink-0 px-6 pt-4 pb-3 space-y-3 border-b">
+                <div className="flex items-center justify-between gap-2">
+                  <h3 className="text-sm font-semibold">Available Roles</h3>
+                  <span className="text-xs text-muted-foreground">
+                    {filteredAvailableRoles.length} of {availableRoles.length}
+                  </span>
+                </div>
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+                  <Input
+                    value={roleSearchQuery}
+                    onChange={(e) => setRoleSearchQuery(e.target.value)}
+                    placeholder="Search by name, key, or description…"
+                    className="pl-9 pr-9 h-10"
+                    disabled={isUpdating || isLoadingRoles}
+                    autoFocus
+                  />
+                  {roleSearchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setRoleSearchQuery('')}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded-md hover:bg-muted"
+                      aria-label="Clear search"
+                    >
+                      <X className="h-3.5 w-3.5 text-muted-foreground" />
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex-1 min-h-0 overflow-y-auto px-2 py-2">
+                {isLoadingRoles ? (
+                  <div className="flex items-center justify-center h-full py-12 text-muted-foreground">
+                    <Loader2 className="h-5 w-5 animate-spin mr-2" />
+                    Loading roles…
+                  </div>
+                ) : filteredAvailableRoles.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center h-full py-12 text-center px-6">
+                    <Search className="h-8 w-8 text-muted-foreground mb-2" />
+                    <p className="text-sm font-medium">No roles match your search</p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Try a different name, key, or description.
+                    </p>
+                  </div>
+                ) : (
+                  <ul className="space-y-1">
+                    {filteredAvailableRoles.map((role) => {
+                      const isSelected = editingRoleIds.includes(role.id);
+                      const isPrimary = role.id === editingPrimaryRoleId;
+                      const isLastSelected =
+                        isSelected && editingRoleIds.length === 1;
+                      return (
+                        <li key={role.id}>
+                          <div
+                            role="button"
+                            tabIndex={0}
+                            onClick={() => toggleRoleSelection(role.id)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' || e.key === ' ') {
+                                e.preventDefault();
+                                toggleRoleSelection(role.id);
+                              }
+                            }}
+                            className={cn(
+                              'group flex items-start gap-3 px-3 py-2.5 rounded-md cursor-pointer transition-colors',
+                              'hover:bg-muted/60 focus:bg-muted/60 focus:outline-none',
+                              isSelected && 'bg-primary/5 hover:bg-primary/10',
+                              isLastSelected && 'cursor-not-allowed opacity-90'
+                            )}
+                            aria-pressed={isSelected}
+                          >
+                            <div
+                              className={cn(
+                                'mt-0.5 flex h-5 w-5 flex-shrink-0 items-center justify-center rounded border-2 transition-colors',
+                                isSelected
+                                  ? 'bg-primary border-primary text-primary-foreground'
+                                  : 'border-muted-foreground/40 group-hover:border-muted-foreground'
+                              )}
+                            >
+                              {isSelected && <Check className="h-3.5 w-3.5" />}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="font-medium text-sm">
+                                  {role.role_name}
+                                </span>
+                                <code className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
+                                  {role.role_key}
+                                </code>
+                                {isPrimary && (
+                                  <Badge
+                                    variant="secondary"
+                                    className="h-5 gap-1 px-1.5 text-[10px] bg-yellow-100 text-yellow-900 dark:bg-yellow-900/30 dark:text-yellow-200"
+                                  >
+                                    <Star className="h-2.5 w-2.5 fill-current" />
+                                    Primary
+                                  </Badge>
+                                )}
+                              </div>
+                              {role.description && (
+                                <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">
+                                  {role.description}
+                                </p>
+                              )}
+                            </div>
+                            {isSelected && (
+                              <TooltipProvider>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setAsPrimary(role.id);
+                                      }}
+                                      className={cn(
+                                        'flex-shrink-0 p-1.5 rounded-md transition-colors',
+                                        isPrimary
+                                          ? 'text-yellow-500 hover:bg-yellow-100 dark:hover:bg-yellow-900/30'
+                                          : 'text-muted-foreground hover:text-yellow-500 hover:bg-muted'
+                                      )}
+                                      aria-label={
+                                        isPrimary
+                                          ? 'Current primary role'
+                                          : 'Mark as primary'
+                                      }
+                                    >
+                                      <Star
+                                        className={cn(
+                                          'h-4 w-4',
+                                          isPrimary && 'fill-current'
+                                        )}
+                                      />
+                                    </button>
+                                  </TooltipTrigger>
+                                  <TooltipContent side="left">
+                                    {isPrimary
+                                      ? 'Primary role'
+                                      : 'Set as primary'}
+                                  </TooltipContent>
+                                </Tooltip>
+                              </TooltipProvider>
+                            )}
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </div>
             </div>
 
-            {editingRoleIds.length > 0 && (
-              <div className="bg-muted/50 rounded-lg p-3">
-                <h4 className="text-sm font-medium mb-2">Selected Roles:</h4>
-                <div className="flex flex-wrap gap-2 max-h-[120px] overflow-y-auto">
-                  {editingRoleIds.map((roleId) => {
-                    const role = availableRoles.find((r) => r.id === roleId);
-                    const isPrimary = roleId === editingPrimaryRoleId;
-                    return (
-                      <Badge
-                        key={roleId}
-                        variant={isPrimary ? 'default' : 'secondary'}
-                        className="flex items-center gap-1"
-                      >
-                        {isPrimary && (
-                          <Star className="h-3 w-3 fill-current" />
-                        )}
-                        {role?.role_name || 'Unknown'}
-                      </Badge>
-                    );
-                  })}
-                </div>
-                <p className="text-xs text-muted-foreground mt-2">
-                  Click the star icon in the dropdown to set a role as primary
+            {/* Right: selected roles panel */}
+            <div className="flex flex-col min-h-0 bg-muted/20">
+              <div className="flex-shrink-0 px-6 pt-4 pb-3 border-b md:border-t-0 border-t">
+                <h3 className="text-sm font-semibold">
+                  Selected ({editingRoleIds.length})
+                </h3>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Click <Star className="h-3 w-3 inline -mt-0.5" /> on a role
+                  to set it as primary.
                 </p>
               </div>
-            )}
+              <div className="flex-1 min-h-0 overflow-y-auto px-4 py-3">
+                {editingRoleIds.length === 0 ? (
+                  <p className="text-sm text-muted-foreground text-center py-6">
+                    No roles selected yet.
+                  </p>
+                ) : (
+                  <div className="flex flex-wrap gap-2">
+                    {editingRoleIds.map((roleId) => {
+                      const role = availableRoles.find((r) => r.id === roleId);
+                      const isPrimary = roleId === editingPrimaryRoleId;
+                      const canRemove = editingRoleIds.length > 1;
+                      return (
+                        <Badge
+                          key={roleId}
+                          variant={isPrimary ? 'default' : 'secondary'}
+                          className="h-7 flex items-center gap-1 pl-2 pr-1"
+                        >
+                          {isPrimary && (
+                            <Star className="h-3 w-3 fill-current" />
+                          )}
+                          <span className="max-w-[160px] truncate">
+                            {role?.role_name || 'Unknown'}
+                          </span>
+                          {canRemove && (
+                            <button
+                              type="button"
+                              onClick={() => toggleRoleSelection(roleId)}
+                              className="ml-0.5 p-0.5 rounded-full hover:bg-background/50"
+                              aria-label={`Remove ${role?.role_name}`}
+                            >
+                              <X className="h-3 w-3" />
+                            </button>
+                          )}
+                        </Badge>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
 
-          <DialogFooter className="flex-shrink-0 gap-2 sm:gap-0">
+          <DialogFooter className="flex-shrink-0 px-6 py-4 border-t bg-background gap-2 sm:gap-2">
             <Button
               variant="outline"
               onClick={() => {
@@ -628,6 +825,7 @@ export function RolesList({
                 setPendingMultiRoleUpdate(null);
                 setEditingRoleIds([]);
                 setEditingPrimaryRoleId('');
+                setRoleSearchQuery('');
               }}
               disabled={isUpdating}
             >
@@ -640,7 +838,7 @@ export function RolesList({
               {isUpdating ? (
                 <>
                   <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                  Updating...
+                  Updating…
                 </>
               ) : (
                 `Assign ${editingRoleIds.length} Role${editingRoleIds.length !== 1 ? 's' : ''}`
