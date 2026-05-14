@@ -128,6 +128,12 @@ const config: ModuleNavConfig = {
       matchPaths: ['/hr/onboarding'],
     },
     {
+      label: 'Offboarding',
+      icon: 'LogOut',
+      href: '/hr/offboarding',
+      matchPaths: ['/hr/offboarding'],
+    },
+    {
       label: 'Attendance',
       icon: 'UserCheck',
       href: '/hr/attendance',
