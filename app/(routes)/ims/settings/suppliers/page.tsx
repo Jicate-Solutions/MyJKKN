@@ -73,8 +73,6 @@ import type {
   CreateImsSupplierDto,
   UpdateImsSupplierDto,
 } from '@/types/ims';
-import { ImsPageGuard } from '@/components/ims/ims-page-guard';
-import { usePermissions } from '@/hooks/use-permissions';
 
 interface SupplierFormData {
   name: string;
@@ -97,17 +95,7 @@ const emptyFormData: SupplierFormData = {
 };
 
 export default function SuppliersPage() {
-  return (
-    <ImsPageGuard module="ims.settings.suppliers" action="manage">
-      <SuppliersPageInner />
-    </ImsPageGuard>
-  );
-}
-
-function SuppliersPageInner() {
-  const { storeId, institutionId } = useImsStoreContext();
-  const { canAccess, isSuperAdmin } = usePermissions();
-  const canManage = isSuperAdmin || canAccess('ims.settings.suppliers', 'manage');
+  const { storeId, institutionId, isSuperAdmin } = useImsStoreContext();
 
   // Filters
   const [search, setSearch] = useState('');
@@ -277,12 +265,10 @@ function SuppliersPageInner() {
               Manage your inventory suppliers and vendors
             </p>
           </div>
-          {canManage && (
-            <Button onClick={handleAddNew}>
-              <Plus className="h-4 w-4 mr-2" />
-              Add Supplier
-            </Button>
-          )}
+          <Button onClick={handleAddNew}>
+            <Plus className="h-4 w-4 mr-2" />
+            Add Supplier
+          </Button>
         </div>
 
         {/* Filters */}
@@ -391,24 +377,18 @@ function SuppliersPageInner() {
                               </Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end">
-                              {canManage && (
-                                <DropdownMenuItem onClick={() => handleEdit(supplier)}>
-                                  <Pencil className="h-4 w-4 mr-2" />
-                                  Edit
-                                </DropdownMenuItem>
-                              )}
-                              {canManage && (
-                                <>
-                                  <DropdownMenuSeparator />
-                                  <DropdownMenuItem
-                                    className="text-red-600 focus:text-red-600"
-                                    onClick={() => handleDeleteClick(supplier)}
-                                  >
-                                    <Trash2 className="h-4 w-4 mr-2" />
-                                    Delete
-                                  </DropdownMenuItem>
-                                </>
-                              )}
+                              <DropdownMenuItem onClick={() => handleEdit(supplier)}>
+                                <Pencil className="h-4 w-4 mr-2" />
+                                Edit
+                              </DropdownMenuItem>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem
+                                className="text-red-600 focus:text-red-600"
+                                onClick={() => handleDeleteClick(supplier)}
+                              >
+                                <Trash2 className="h-4 w-4 mr-2" />
+                                Delete
+                              </DropdownMenuItem>
                             </DropdownMenuContent>
                           </DropdownMenu>
                         </TableCell>

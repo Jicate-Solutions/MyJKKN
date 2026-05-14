@@ -82,8 +82,6 @@ import type {
 import { BulkImportDialog } from './_components/bulk-import-dialog';
 import { AddBatchModal } from '@/components/ims/add-batch-modal';
 import { BatchesDialog } from '@/components/ims/batches-dialog';
-import { ImsPageGuard } from '@/components/ims/ims-page-guard';
-import { usePermissions } from '@/hooks/use-permissions';
 
 const ITEM_TYPES: { label: string; value: ImsItemType }[] = [
   { label: 'Consumable', value: 'consumable' },
@@ -169,22 +167,9 @@ const emptyFormData: ItemFormData = {
 };
 
 export default function InventoryItemsPage() {
-  return (
-    <ImsPageGuard module="ims.inventory" action="view">
-      <InventoryItemsPageInner />
-    </ImsPageGuard>
-  );
-}
-
-function InventoryItemsPageInner() {
   const { storeId, institutionId, isSuperAdmin } = useImsStoreContext();
   const { profile } = useAuth();
   const queryClient = useQueryClient();
-  const { canAccess, isSuperAdmin: permsIsSuperAdmin } = usePermissions();
-  const canCreate = permsIsSuperAdmin || canAccess('ims.inventory', 'create');
-  const canEdit = permsIsSuperAdmin || canAccess('ims.inventory', 'edit');
-  const canDelete = permsIsSuperAdmin || canAccess('ims.inventory', 'delete');
-  const canAdjust = permsIsSuperAdmin || canAccess('ims.stock', 'adjust');
 
   // Filters state
   const [search, setSearch] = useState('');
@@ -442,24 +427,20 @@ function InventoryItemsPageInner() {
             </p>
           </div>
           <div className="flex items-center gap-2">
-            {canCreate && (
-              <Button
-                variant="outline"
-                onClick={() => setImportDialogOpen(true)}
-              >
-                <Upload className="h-4 w-4 mr-2" />
-                Import Items
-              </Button>
-            )}
+            <Button
+              variant="outline"
+              onClick={() => setImportDialogOpen(true)}
+            >
+              <Upload className="h-4 w-4 mr-2" />
+              Import Items
+            </Button>
             <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-            {canCreate && (
-              <DialogTrigger asChild>
-                <Button onClick={handleAddNew}>
-                  <Plus className="h-4 w-4 mr-2" />
-                  Add Item
-                </Button>
-              </DialogTrigger>
-            )}
+            <DialogTrigger asChild>
+              <Button onClick={handleAddNew}>
+                <Plus className="h-4 w-4 mr-2" />
+                Add Item
+              </Button>
+            </DialogTrigger>
             <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
               <DialogHeader>
                 <DialogTitle>
@@ -1245,52 +1226,40 @@ function InventoryItemsPageInner() {
                                 </Button>
                               </DropdownMenuTrigger>
                               <DropdownMenuContent align="end">
-                                {canEdit && (
-                                  <DropdownMenuItem onClick={() => handleEdit(item)}>
-                                    <Pencil className="h-4 w-4 mr-2" />
-                                    Edit
-                                  </DropdownMenuItem>
-                                )}
-                                {canAdjust && (
-                                  <DropdownMenuItem onClick={() => {
-                                    setAdjustingItem(item);
-                                    setAdjustForm({ adjustment_type: 'correction', quantity: 0, reason: '', batch_number: '', expiry_date: '' });
-                                    setAdjustDialogOpen(true);
-                                  }}>
-                                    <Layers className="h-4 w-4 mr-2" />
-                                    Adjust Stock
-                                  </DropdownMenuItem>
-                                )}
-                                {canEdit && (
-                                  <DropdownMenuItem onClick={() => setBatchItem(item)}>
-                                    <Package className="h-4 w-4 mr-2" />
-                                    Add Batch Stock
-                                  </DropdownMenuItem>
-                                )}
+                                <DropdownMenuItem onClick={() => handleEdit(item)}>
+                                  <Pencil className="h-4 w-4 mr-2" />
+                                  Edit
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => {
+                                  setAdjustingItem(item);
+                                  setAdjustForm({ adjustment_type: 'correction', quantity: 0, reason: '', batch_number: '', expiry_date: '' });
+                                  setAdjustDialogOpen(true);
+                                }}>
+                                  <Layers className="h-4 w-4 mr-2" />
+                                  Adjust Stock
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => setBatchItem(item)}>
+                                  <Package className="h-4 w-4 mr-2" />
+                                  Add Batch Stock
+                                </DropdownMenuItem>
                                 <DropdownMenuItem onClick={() => setViewBatchItem(item)}>
                                   <Layers className="h-4 w-4 mr-2" />
                                   View Batches
                                 </DropdownMenuItem>
-                                {canEdit && (
-                                  <DropdownMenuItem
-                                    onClick={() => handleToggleActive(item)}
-                                  >
-                                    <ToggleLeft className="h-4 w-4 mr-2" />
-                                    {item.is_active ? 'Deactivate' : 'Activate'}
-                                  </DropdownMenuItem>
-                                )}
-                                {canDelete && (
-                                  <>
-                                    <DropdownMenuSeparator />
-                                    <DropdownMenuItem
-                                      className="text-red-600 focus:text-red-600"
-                                      onClick={() => handleDelete(item)}
-                                    >
-                                      <Trash2 className="h-4 w-4 mr-2" />
-                                      Delete
-                                    </DropdownMenuItem>
-                                  </>
-                                )}
+                                <DropdownMenuItem
+                                  onClick={() => handleToggleActive(item)}
+                                >
+                                  <ToggleLeft className="h-4 w-4 mr-2" />
+                                  {item.is_active ? 'Deactivate' : 'Activate'}
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem
+                                  className="text-red-600 focus:text-red-600"
+                                  onClick={() => handleDelete(item)}
+                                >
+                                  <Trash2 className="h-4 w-4 mr-2" />
+                                  Delete
+                                </DropdownMenuItem>
                               </DropdownMenuContent>
                             </DropdownMenu>
                           </TableCell>

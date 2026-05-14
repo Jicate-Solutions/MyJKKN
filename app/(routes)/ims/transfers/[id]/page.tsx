@@ -2,7 +2,6 @@
 
 import { use } from 'react';
 import { ContentLayout } from '@/components/layout/content-layout';
-import { ImsActivityFeed } from '@/components/ims/activity-feed';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -18,24 +17,13 @@ import { useImsStore } from '@/hooks/ims';
 import { usePermissions } from '@/hooks/use-permissions';
 import { INDENT_STATUS_CONFIG, INDENT_URGENCY_CONFIG } from '@/types/ims';
 import { toast } from 'sonner';
-import { ImsPageGuard } from '@/components/ims/ims-page-guard';
 
 export default function TransferDetailPage({ params }: { params: Promise<{ id: string }> }) {
-  return (
-    <ImsPageGuard module="ims.transfers" action="view">
-      <TransferDetailPageInner params={params} />
-    </ImsPageGuard>
-  );
-}
-
-function TransferDetailPageInner({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const { storeId } = useImsStoreContext();
   const { data: currentStore } = useImsStore(storeId ?? '');
   const isCentralStore = currentStore?.is_central_supply_store ?? false;
-  const { userProfile, canAccess, isSuperAdmin } = usePermissions();
-  const canDispatch = isSuperAdmin || canAccess('ims.transfers', 'dispatch');
-  const canReceive = isSuperAdmin || canAccess('ims.transfers', 'receive');
+  const { userProfile } = usePermissions();
 
   const { data: transfer, isLoading } = useImsIndent(id);
   const { data: shipments } = useImsShipmentsForRequest(id);
@@ -186,38 +174,22 @@ function TransferDetailPageInner({ params }: { params: Promise<{ id: string }> }
 
         {/* Contextual Action Buttons */}
         <div className="flex gap-3">
-          {isCentralStore && transfer.status === 'approved' && !preparingShipment && canDispatch && (
+          {isCentralStore && transfer.status === 'approved' && !preparingShipment && (
             <Button onClick={handleCreateShipment} disabled={createShipment.isPending}>
               {createShipment.isPending ? 'Creating...' : 'Create Shipment'}
             </Button>
           )}
-          {isCentralStore && preparingShipment && canDispatch && (
+          {isCentralStore && preparingShipment && (
             <Button onClick={handleDispatch} disabled={dispatch.isPending}>
               {dispatch.isPending ? 'Dispatching...' : 'Mark Dispatched'}
             </Button>
           )}
-          {!isCentralStore && dispatchedShipment && canReceive && (
+          {!isCentralStore && dispatchedShipment && (
             <Button onClick={handleConfirmReceipt} disabled={confirmReceipt.isPending}>
               {confirmReceipt.isPending ? 'Confirming...' : 'Confirm Receipt'}
             </Button>
           )}
         </div>
-
-        {/* Phase F: end-to-end audit trail — request lifecycle */}
-        <ImsActivityFeed
-          entityType="indent"
-          entityId={id}
-          title="Request History"
-        />
-
-        {/* Phase F: shipment-level audit (if a shipment exists) */}
-        {shipments && shipments.length > 0 && (
-          <ImsActivityFeed
-            entityType="shipment"
-            entityId={shipments[0].id}
-            title="Shipment History"
-          />
-        )}
       </div>
     </ContentLayout>
   );

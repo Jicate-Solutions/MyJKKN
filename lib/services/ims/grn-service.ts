@@ -2,7 +2,6 @@
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { calculateGstLine } from '@/lib/utils/ims-gst-calculator';
-import { ImsActivityLogService } from './activity-log-service';
 import type {
   ImsGoodsReceivedNote,
   ImsGRNWithItems,
@@ -164,7 +163,6 @@ export class ImsGRNService {
           invoice_amount: data.invoice_amount || null,
           status: 'pending_verification',
           received_by: userId,
-          received_at: new Date().toISOString(),
           notes: data.notes || null,
           institution_id: data.institution_id,
           ...(data.store_id ? { store_id: data.store_id } : {}),
@@ -238,22 +236,6 @@ export class ImsGRNService {
 
       if (itemsError) throw itemsError;
 
-      // Phase F: log to activity trail
-      await ImsActivityLogService.log({
-        entityType: 'grn',
-        entityId: grn.id,
-        institutionId: data.institution_id,
-        action: 'received',
-        actorId: userId,
-        notes: data.notes ?? null,
-        metadata: {
-          grn_number: grnNumber,
-          supplier_id: data.supplier_id,
-          item_count: grnItems.length,
-          invoice_number: data.invoice_number ?? null,
-        },
-      });
-
       return grn as ImsGoodsReceivedNote;
     } catch (error) {
       console.error('[ImsGRNService] Error in createGRN:', error);
@@ -266,8 +248,7 @@ export class ImsGRNService {
    */
   static async verifyGRN(
     id: string,
-    userId: string,
-    notes?: string
+    userId: string
   ): Promise<ImsGoodsReceivedNote> {
     try {
       const { data, error } = await this.supabase
@@ -275,7 +256,6 @@ export class ImsGRNService {
         .update({
           status: 'verified',
           verified_by: userId,
-          verified_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         })
         .eq('id', id)
@@ -283,16 +263,6 @@ export class ImsGRNService {
         .single();
 
       if (error) throw error;
-
-      // Phase F: log to activity trail
-      await ImsActivityLogService.log({
-        entityType: 'grn',
-        entityId: id,
-        institutionId: data.institution_id,
-        action: 'verified',
-        actorId: userId,
-        notes: notes ?? null,
-      });
 
       return data as ImsGoodsReceivedNote;
     } catch (error) {
@@ -307,8 +277,7 @@ export class ImsGRNService {
    */
   static async approveGRN(
     id: string,
-    userId: string,
-    notes?: string
+    userId: string
   ): Promise<ImsGoodsReceivedNote> {
     try {
       // Update GRN status
@@ -317,7 +286,6 @@ export class ImsGRNService {
         .update({
           status: 'approved',
           approved_by: userId,
-          approved_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         })
         .eq('id', id)
@@ -402,17 +370,6 @@ export class ImsGRNService {
         });
       }
 
-      // Phase F: log to activity trail (after stock processing completes)
-      await ImsActivityLogService.log({
-        entityType: 'grn',
-        entityId: id,
-        institutionId: grn.institution_id,
-        action: 'approved',
-        actorId: userId,
-        notes: notes ?? null,
-        metadata: { grn_number: grn.grn_number, item_count: (grnItems ?? []).length },
-      });
-
       return grn as ImsGoodsReceivedNote;
     } catch (error) {
       console.error('[ImsGRNService] Error in approveGRN:', error);
@@ -423,7 +380,7 @@ export class ImsGRNService {
   /**
    * Cancel a GRN.
    */
-  static async cancelGRN(id: string, userId?: string): Promise<ImsGoodsReceivedNote> {
+  static async cancelGRN(id: string): Promise<ImsGoodsReceivedNote> {
     try {
       const { data, error } = await this.supabase
         .from('ims_goods_received_notes')

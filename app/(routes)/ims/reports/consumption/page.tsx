@@ -31,7 +31,6 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import type { ImsDepartmentConsumption, ImsItemConsumption } from '@/types/ims';
-import { ImsPageGuard } from '@/components/ims/ims-page-guard';
 
 const formatCurrency = (value: number) =>
   new Intl.NumberFormat('en-IN', {
@@ -70,14 +69,6 @@ function getDateRange(preset: string): { from: string; to: string } {
 }
 
 export default function ConsumptionReportPage() {
-  return (
-    <ImsPageGuard module="ims.reports" action="view">
-      <ConsumptionReportPageInner />
-    </ImsPageGuard>
-  );
-}
-
-function ConsumptionReportPageInner() {
   const [activeTab, setActiveTab] = useState('department');
   const [activePreset, setActivePreset] = useState('month');
   const [dateFrom, setDateFrom] = useState(() => getDateRange('month').from);

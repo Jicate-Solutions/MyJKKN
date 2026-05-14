@@ -41,8 +41,6 @@ import {
 } from 'lucide-react';
 import { BeatLoader } from 'react-spinners';
 import { toast } from 'sonner';
-import { ImsPageGuard } from '@/components/ims/ims-page-guard';
-import { usePermissions } from '@/hooks/use-permissions';
 
 const formatCurrency = (value: number) =>
   new Intl.NumberFormat('en-IN', {
@@ -76,19 +74,9 @@ const CUSTOMER_TYPE_LABELS: Record<string, string> = {
 };
 
 export default function SaleDetailPage() {
-  return (
-    <ImsPageGuard module="ims.sales" action="view">
-      <SaleDetailPageInner />
-    </ImsPageGuard>
-  );
-}
-
-function SaleDetailPageInner() {
   const params = useParams();
   const router = useRouter();
   const id = params.id as string;
-  const { canAccess, isSuperAdmin } = usePermissions();
-  const canRefund = isSuperAdmin || canAccess('ims.sales', 'refund');
 
   const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
   const [cancelReason, setCancelReason] = useState('');
@@ -176,7 +164,7 @@ function SaleDetailPageInner() {
               <Printer className="mr-2 h-4 w-4" />
               Receipt
             </Button>
-            {sale.status === 'completed' && canRefund && (
+            {sale.status === 'completed' && (
               <Button
                 variant="destructive"
                 onClick={() => setCancelDialogOpen(true)}
