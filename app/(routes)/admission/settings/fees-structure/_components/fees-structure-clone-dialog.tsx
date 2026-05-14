@@ -46,6 +46,7 @@ import { AdmissionYearService } from '@/lib/services/admission/admission-year-se
 import { DegreeService } from '@/lib/services/organization/degree-service';
 import { DepartmentService } from '@/lib/services/organization/department-service';
 import { ProgramService } from '@/lib/services/organization/program-service';
+import { getErrorMessage } from '@/lib/utils';
 import type {
   AdmissionFeeStructure,
   FeeStructureMatrixDimensions,
@@ -121,7 +122,7 @@ export function FeesStructureCloneDialog({
         setStructures(rows);
       })
       .catch((err) => {
-        toast.error(err instanceof Error ? err.message : 'Failed to load structures');
+        toast.error(getErrorMessage(err) || 'Failed to load structures');
       })
       .finally(() => {
         if (!cancelled) setLoadingStructures(false);
@@ -158,7 +159,7 @@ export function FeesStructureCloneDialog({
         );
       })
       .catch((err) => {
-        toast.error(err instanceof Error ? err.message : 'Failed to load lookups');
+        toast.error(getErrorMessage(err) || 'Failed to load lookups');
       });
     return () => {
       cancelled = true;
@@ -274,7 +275,15 @@ export function FeesStructureCloneDialog({
       onCloned?.();
       onOpenChange(false);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to clone');
+      // The clone underlying call is FeeStructureService.cloneToAcademicYear
+      // → .create() → trips the same 23505 community-overlap trigger on the
+      // target year when a structure already covers it. Surface the actual
+      // Postgres message (not the generic fallback) so the operator can
+      // archive the colliding row or change a dimension before retrying.
+      toast.error(getErrorMessage(err) || 'Failed to clone', {
+        duration: 9000,
+        style: { maxWidth: '520px' },
+      });
     } finally {
       setSubmitting(false);
     }

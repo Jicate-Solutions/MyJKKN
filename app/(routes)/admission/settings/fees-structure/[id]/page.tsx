@@ -69,6 +69,7 @@ import { PermissionGuard } from '@/components/auth/permission-guard';
 import { FeesStructureForm } from '../_components/fees-structure-form';
 import { FeeStructureService } from '@/lib/services/admission/fee-structure-service';
 import { usePermissions } from '@/hooks/use-permissions';
+import { getErrorMessage } from '@/lib/utils';
 import toast from 'react-hot-toast';
 import type {
   AdmissionFeeStructure,
@@ -122,7 +123,7 @@ function FeeStructureDetailPageContent({ id }: { id: string }) {
         if (!row) setError('Fee structure not found.');
         else setStructure(row);
       })
-      .catch((err) => setError(err instanceof Error ? err.message : 'Failed to load'))
+      .catch((err) => setError(getErrorMessage(err) || 'Failed to load'))
       .finally(() => setLoading(false));
   }, [id, refreshTick]);
 
@@ -144,7 +145,7 @@ function FeeStructureDetailPageContent({ id }: { id: string }) {
       toast.success('Fee structure archived');
       handleChanged();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Archive failed');
+      toast.error(getErrorMessage(err) || 'Archive failed');
     } finally {
       setActionRunning(false);
       setConfirmArchive(false);
@@ -159,7 +160,7 @@ function FeeStructureDetailPageContent({ id }: { id: string }) {
       toast.success('Fee structure activated');
       handleChanged();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Activate failed');
+      toast.error(getErrorMessage(err) || 'Activate failed');
     } finally {
       setActionRunning(false);
     }
@@ -173,7 +174,7 @@ function FeeStructureDetailPageContent({ id }: { id: string }) {
       toast.success(`Deleted "${structure.name}"`);
       router.push('/admission/settings/fees-structure');
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Delete failed');
+      toast.error(getErrorMessage(err) || 'Delete failed');
       setActionRunning(false);
       setConfirmDelete(false);
     }

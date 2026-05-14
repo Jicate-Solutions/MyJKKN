@@ -25,13 +25,15 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 // That text is exactly what we DON'T want users to see. Translate it into an
 // actionable explanation listing the dimensions they can change to make the
 // new structure unique. Falls back to the raw message for any other error.
+//
+// IMPORTANT: Supabase throws plain JSON objects (not Error instances) when a
+// service does `if (error) throw error` against the destructured response.
+// `instanceof Error` is FALSE for those, so we read via getErrorMessage()
+// which understands the plain-object shape — otherwise the real 23505 text is
+// silently replaced with the generic 'Failed to create fee structure' string
+// and users see no actionable info.
 function humanizeFeeStructureCreateError(err: unknown): string {
-  const raw =
-    err instanceof Error
-      ? err.message
-      : typeof err === 'string'
-        ? err
-        : 'Failed to create fee structure';
+  const raw = getErrorMessage(err) || 'Failed to create fee structure';
 
   // Detect the community-overlap trigger. Match permissively so we still
   // catch the message if the trigger ever rewords slightly.
@@ -99,6 +101,7 @@ import {
 import { FeeStructureService } from '@/lib/services/admission/fee-structure-service';
 import { BillingCategoryService } from '@/lib/services/billing/categories/billing-category-service';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { getErrorMessage } from '@/lib/utils';
 import { logActivityForCurrentUser } from '@/lib/utils/activity-logger-client';
 import { AdmissionFeesActivityTemplates } from '@/lib/utils/admission-fees-activity-templates';
 import { FeesStructureDimensionSelector } from './fees-structure-dimension-selector';
@@ -168,7 +171,7 @@ export function FeesStructureForm({ dims, onChanged }: Props) {
       })
       .catch((err) => {
         console.error('Failed to load fee structure', err);
-        toast.error(err instanceof Error ? err.message : 'Failed to load fee structure');
+        toast.error(getErrorMessage(err) || 'Failed to load fee structure');
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -801,7 +804,7 @@ function ExistingStructureEditor({
         });
         toast.success('Item removed');
       } catch (err) {
-        toast.error(err instanceof Error ? err.message : 'Failed to remove item');
+        toast.error(getErrorMessage(err) || 'Failed to remove item');
         return;
       }
     }
@@ -901,7 +904,13 @@ function ExistingStructureEditor({
       toast.success('Fee structure saved');
       onChanged();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to save fee structure');
+      // Reuse the humanizer so update-time 23505 collisions (when changing
+      // dims puts the structure into an occupied matrix slot) get the same
+      // actionable multi-line toast the create flow shows.
+      toast.error(humanizeFeeStructureCreateError(err), {
+        duration: 9000,
+        style: { maxWidth: '520px' },
+      });
     } finally {
       setSubmitting(false);
     }
@@ -915,7 +924,7 @@ function ExistingStructureEditor({
       toast.success('Fee structure archived');
       onChanged();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to archive');
+      toast.error(getErrorMessage(err) || 'Failed to archive');
     } finally {
       setSubmitting(false);
     }
@@ -928,7 +937,7 @@ function ExistingStructureEditor({
       toast.success('Fee structure activated');
       onChanged();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to activate');
+      toast.error(getErrorMessage(err) || 'Failed to activate');
     } finally {
       setSubmitting(false);
     }
