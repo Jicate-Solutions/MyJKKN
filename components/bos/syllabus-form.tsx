@@ -31,7 +31,7 @@ import {
   type ImportSummaryCounts,
 } from '@/components/bos/syllabus-import-issues-dialog';
 
-interface Institution { id: string; name: string; myjkkn_institution_ids: string[]; display_name?: string; }
+interface Institution { id: string; name: string; institution_code: string; myjkkn_institution_ids: string[]; display_name?: string; }
 interface Regulation { id: string; title: string; regulation_code: string; regulation_year?: string; }
 
 const DEFAULT_K_VALUES: Record<string, string> = {
@@ -95,6 +95,57 @@ export function SyllabusForm({
   const [importCounts, setImportCounts] = useState<ImportSummaryCounts>({});
   const importInputRef = useRef<HTMLInputElement>(null);
 
+<<<<<<< Updated upstream
+=======
+  // Read sessionStorage handoff from the list page Import button — runs once
+  // on mount, consumes-and-deletes so a refresh doesn't replay the data.
+  useEffect(() => {
+    if (isEditingProp || syllabusProp) return; // only on the new-syllabus path
+    if (typeof window === 'undefined') return;
+    const raw = sessionStorage.getItem('bos.syllabus.import.handoff');
+    if (!raw) return;
+    try {
+      const payload = JSON.parse(raw) as {
+        data: any;
+        summary: Record<string, number>;
+        warnings?: ImportWarning[];
+      };
+      sessionStorage.removeItem('bos.syllabus.import.handoff');
+      if (payload.warnings && payload.warnings.length > 0) {
+        setImportWarnings(payload.warnings);
+        setImportCounts(payload.summary as ImportSummaryCounts);
+        setImportIssuesOpen(true);
+      }
+      setFormData((prev) => ({
+        ...prev,
+        course_objectives: payload.data.course_objectives ?? prev.course_objectives,
+        course_learning_outcomes:
+          payload.data.course_learning_outcomes ?? prev.course_learning_outcomes,
+        course_content: payload.data.course_content ?? prev.course_content,
+        textbooks: payload.data.textbooks ?? prev.textbooks,
+        web_resources: payload.data.web_resources ?? prev.web_resources,
+        pedagogy: payload.data.pedagogy ?? prev.pedagogy,
+        po_mappings: payload.data.po_mappings ?? prev.po_mappings,
+      }));
+      const s = payload.summary ?? {};
+      const parts: string[] = [];
+      if (s.objectives) parts.push(`${s.objectives} objectives`);
+      if (s.clos) parts.push(`${s.clos} COs`);
+      if (s.units) parts.push(`${s.units} units`);
+      if (s.textbooks) parts.push(`${s.textbooks} textbooks`);
+      if (s.references) parts.push(`${s.references} references`);
+      if (s.web_resources) parts.push(`${s.web_resources} web resources`);
+      if (s.pedagogy) parts.push(`${s.pedagogy} pedagogy methods`);
+      if (s.po_mapping_rows) parts.push(`PO mapping (${s.po_mapping_rows} rows)`);
+      if (parts.length > 0) {
+        setImportSummary(`Imported: ${parts.join(', ')}. Fill Basic Info and Save.`);
+      }
+    } catch {
+      sessionStorage.removeItem('bos.syllabus.import.handoff');
+    }
+  }, [isEditingProp, syllabusProp]);
+
+>>>>>>> Stashed changes
   const [formData, setFormData] = useState<Partial<BosCourseSyllabus>>(
     existingSyllabus || {
       institutions_id: userProfile?.institution_id || '',
@@ -144,6 +195,7 @@ export function SyllabusForm({
   );
   const courseOptions = coursesData?.data ?? [];
 
+<<<<<<< Updated upstream
   // Read sessionStorage handoff from the list page Import button — runs once
   // on mount, consume-and-delete so a refresh doesn't replay the data.
   useEffect(() => {
@@ -194,6 +246,13 @@ export function SyllabusForm({
 
   // Per-form import handler used by the upload card on the Basic Info tab.
   // Non-destructive merge — only fills sections that are currently empty.
+=======
+  // Import syllabus structure (Objectives → PO Mapping) from an uploaded
+  // PDF / DOCX / XLSX. The Basic Info fields are NOT touched — those come
+  // from the linked composition + course code lookup.
+  // Merge policy: only fill sections that are currently empty so a re-import
+  // after manual edits is non-destructive.
+>>>>>>> Stashed changes
   const handleImportFile = async (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -207,10 +266,28 @@ export function SyllabusForm({
       fd.append('file', file);
       const res = await fetch('/api/bos/syllabus/extract', { method: 'POST', body: fd });
       const json = await res.json();
+<<<<<<< Updated upstream
       if (!res.ok) throw new Error(json.error || 'Failed to extract syllabus');
 
       const { data, summary, warnings } = json as {
         data: any;
+=======
+
+      if (!res.ok) {
+        throw new Error(json.error || 'Failed to extract syllabus');
+      }
+
+      const { data, summary, warnings } = json as {
+        data: {
+          course_objectives: any;
+          course_learning_outcomes: any;
+          course_content: any;
+          textbooks: any;
+          web_resources: any;
+          pedagogy: any;
+          po_mappings: any;
+        };
+>>>>>>> Stashed changes
         summary: Record<string, number>;
         warnings?: ImportWarning[];
       };
@@ -224,6 +301,10 @@ export function SyllabusForm({
       setFormData((prev) => {
         const isEmpty = (val: any, listKey: string) =>
           !val || !Array.isArray(val[listKey]) || val[listKey].length === 0;
+<<<<<<< Updated upstream
+=======
+
+>>>>>>> Stashed changes
         return {
           ...prev,
           course_objectives:
@@ -361,21 +442,30 @@ export function SyllabusForm({
   }, []);
 
   // Step 1: fetch compositions for the selected institution.
-  // Super-admin: pass all CAS sibling UUIDs via institutionIds= to avoid missing records.
-  // Non-admin: server uses resolveBosAccess scope automatically (no params needed).
+  // Filter by institution_code (= counselling_code), the authoritative single
+  // identifier for one real-world institution. The server resolves the matching
+  // MyJKKN sibling UUIDs (CAS Aided + Self) so neither variant's compositions
+  // are dropped — the client doesn't need to know about the split.
   useEffect(() => {
     const fetchCompositions = async () => {
       try {
         const url = new URL('/api/bos/compositions', window.location.origin);
         if (isSuperAdmin) {
-          const instOption = institutions.find((i) => i.id === formData.institutions_id);
-          const ids = instOption?.myjkkn_institution_ids ?? (formData.institutions_id ? [formData.institutions_id] : []);
-          if (ids.length > 1) url.searchParams.set('institutionIds', ids.join(','));
-          else if (ids.length === 1) url.searchParams.set('institutionsId', ids[0]);
-        } else if (institutionCtx?.myjkkn_institution_ids && institutionCtx.myjkkn_institution_ids.length > 1) {
-          // CAS non-admin: pass COE-authoritative sibling IDs so the server doesn't
-          // miss compositions stored under the other institution UUID (Aided vs Self).
-          url.searchParams.set('institutionIds', institutionCtx.myjkkn_institution_ids.join(','));
+          // Match by myjkkn_institution_ids.includes(), not i.id ===, because
+          // formData.institutions_id may be ANY of a CAS pair while i.id is only
+          // the first UUID in the list.
+          const instOption = institutions.find((i) =>
+            i.myjkkn_institution_ids?.includes(formData.institutions_id ?? '')
+          );
+          if (instOption?.institution_code) {
+            url.searchParams.set('institutionCode', instOption.institution_code);
+          } else if (formData.institutions_id) {
+            url.searchParams.set('institutionsId', formData.institutions_id);
+          }
+        } else if (institutionCtx?.institution_code) {
+          // Non-admin: pass the resolved code so the server can hydrate sibling
+          // UUIDs from the COE MDM (Aided + Self for CAS) without client juggling.
+          url.searchParams.set('institutionCode', institutionCtx.institution_code);
         }
         // In edit mode fetch all compositions (including inactive) so the linked
         // one is always visible in the dropdown regardless of its current status.
@@ -447,12 +537,28 @@ export function SyllabusForm({
     }
   }, [formData.board_id, formData.composition_id, compositions]);
 
-  // Fetch regulations filtered by institution
+  // Fetch regulations filtered by institution.
+  // For CAS (Aided + Self share a counselling_code), pass BOTH sibling UUIDs so
+  // regulations created against either institution variant are included.
+  // The /api/bos/regulations route deduplicates by regulation_code.
   useEffect(() => {
     const fetchRegulations = async () => {
       try {
         const url = new URL('/api/bos/regulations', window.location.origin);
-        if (formData.institutions_id) {
+        if (isSuperAdmin) {
+          const instOption = institutions.find((i) =>
+            i.myjkkn_institution_ids?.includes(formData.institutions_id ?? '')
+          );
+          const ids = instOption?.myjkkn_institution_ids ?? (formData.institutions_id ? [formData.institutions_id] : []);
+          if (ids.length > 1) url.searchParams.set('institutionIds', ids.join(','));
+          else if (ids.length === 1) url.searchParams.set('institutionId', ids[0]);
+        } else if (institutionCtx?.myjkkn_institution_ids && institutionCtx.myjkkn_institution_ids.length > 0) {
+          if (institutionCtx.myjkkn_institution_ids.length > 1) {
+            url.searchParams.set('institutionIds', institutionCtx.myjkkn_institution_ids.join(','));
+          } else {
+            url.searchParams.set('institutionId', institutionCtx.myjkkn_institution_ids[0]);
+          }
+        } else if (formData.institutions_id) {
           url.searchParams.set('institutionId', formData.institutions_id);
         }
         const res = await fetch(url.toString());
@@ -467,8 +573,37 @@ export function SyllabusForm({
       }
     };
 
-    fetchRegulations();
-  }, [formData.institutions_id]);
+    if (formData.institutions_id) {
+      if (!isSuperAdmin && institutionCtx === undefined) return;
+      fetchRegulations();
+    }
+  }, [formData.institutions_id, institutions, institutionCtx, isSuperAdmin]);
+
+  // Auto-derive regulation_id from the selected composition's academic_year.
+  // The composition record doesn't store regulation_id directly, but its
+  // academic_year (e.g. "2024-2027" or "2024-25") naturally aligns with the
+  // regulation's regulation_year. Match the start year as the common case.
+  //
+  // Only fills an EMPTY regulation_id — never overrides a manual selection.
+  // (The composition onChange below explicitly clears regulation_id on change,
+  //  letting this effect re-fire to derive the new default.)
+  useEffect(() => {
+    if (formData.regulation_id) return;
+    if (!formData.composition_id) return;
+    if (regulations.length === 0) return;
+    const comp = compositions.find((c) => c.id === formData.composition_id);
+    if (!comp?.academic_year) return;
+    const startYear = comp.academic_year.split('-')[0];
+    const matched = regulations.find(
+      (r) =>
+        r.regulation_year === comp.academic_year ||
+        r.regulation_year === startYear ||
+        r.regulation_year?.startsWith(startYear),
+    );
+    if (matched) {
+      setFormData((prev) => ({ ...prev, regulation_id: matched.id }));
+    }
+  }, [formData.composition_id, formData.regulation_id, compositions, regulations]);
 
 
   const handleSubmit = async (e: React.FormEvent) => {

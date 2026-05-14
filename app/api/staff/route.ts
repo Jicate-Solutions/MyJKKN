@@ -118,6 +118,58 @@ export async function GET(request: NextRequest) {
       if (userProfile?.institution_id) {
         accessibleInstitutionIds.push(userProfile.institution_id);
         console.log('[/api/staff] Added primary institution:', userProfile.institution_id);
+
+        // CAS expansion: For Arts & Science colleges the COE keeps one
+        // institution mapping to BOTH the Aided and Self-Financing MyJKKN
+        // UUIDs. A user whose profile.institution_id is the Aided UUID
+        // should still see Self-Financed staff (and vice versa), since BOS
+        // workflows like the Principal/Chairman picker need to find a
+        // unique Principal across both arms. Resolve sibling UUIDs via the
+        // shared COE-backed institution resolver (10-min cached).
+        try {
+          const { resolveInstitutionContext } = await import(
+            '@/lib/utils/institutions/institution-resolver'
+          );
+          // Pass the cookie-authenticated SSR client (not supabaseAdmin) —
+          // the resolver's signature expects that type, and the
+          // institutions lookup it does is RLS-readable for any signed-in
+          // user, so no admin escalation is required here.
+          const ctx = await resolveInstitutionContext(
+            userProfile.institution_id,
+            supabase
+          );
+          if (ctx?.myjkkn_institution_ids?.length) {
+            accessibleInstitutionIds = [
+              ...new Set([...accessibleInstitutionIds, ...ctx.myjkkn_institution_ids]),
+            ];
+            console.log(
+              '[/api/staff] Added CAS sibling UUIDs via institution resolver:',
+              ctx.myjkkn_institution_ids
+            );
+          }
+        } catch (err) {
+          // COE unavailable — fall back to counselling_code join on Supabase.
+          console.warn('[/api/staff] COE institution resolver failed; falling back to counselling_code:', err);
+          const { data: inst } = await supabaseAdmin
+            .from('institutions')
+            .select('counselling_code')
+            .eq('id', userProfile.institution_id)
+            .single();
+          if (inst?.counselling_code) {
+            const { data: siblings } = await supabaseAdmin
+              .from('institutions')
+              .select('id')
+              .eq('counselling_code', inst.counselling_code)
+              .eq('is_active', true);
+            if (siblings?.length) {
+              const ids = siblings.map((s: { id: string }) => s.id);
+              accessibleInstitutionIds = [
+                ...new Set([...accessibleInstitutionIds, ...ids]),
+              ];
+              console.log('[/api/staff] Added CAS sibling UUIDs via counselling_code fallback:', ids);
+            }
+          }
+        }
       }
 
       // Additional access: Institutions granted via user_institution_access (for billing module)
@@ -160,6 +212,7 @@ export async function GET(request: NextRequest) {
       : null;
     const search = searchParams.get('search');
     const categoryId = searchParams.get('category_id');
+    const categoryName = searchParams.get('category_name');
     const departmentId = searchParams.get('department_id');
     const roleKey = searchParams.get('role_key');
     const isActive = searchParams.get('isActive');
@@ -216,6 +269,18 @@ export async function GET(request: NextRequest) {
 
     if (categoryId) {
       query = query.eq('category_id', categoryId);
+    }
+
+    if (categoryName) {
+      const { data: matchingCats } = await supabaseAdmin
+        .from('employment_categories')
+        .select('id')
+        .ilike('category_name', categoryName);
+      if (matchingCats?.length) {
+        query = query.in('category_id', matchingCats.map((c) => c.id));
+      } else {
+        return NextResponse.json({ data: [], metadata: { total: 0, page: 1, limit: 0, totalPages: 0 } });
+      }
     }
 
     if (departmentId) {

@@ -3,168 +3,266 @@ import autoTable from 'jspdf-autotable';
 import { BosMeeting, BosMember, BosAgendaItem, BosMeetingAttendee } from '@/types/bos';
 
 // ── Layout constants ──────────────────────────────────────────────────────────
-const MARGIN = 14;
+const MARGIN = 10;
 const PAGE_W = 210;
+const PAGE_H = 297;
 const CONTENT_W = PAGE_W - MARGIN * 2;
-const LINE_H = 6;
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+// ── Institution header data ───────────────────────────────────────────────────
+export interface BosPdfHeader {
+  institution_name: string;
+  institution_accreditation?: string;
+  institution_address?: string;
+  logoImage?: string;
+  rightLogoImage?: string;
+}
+
+// ── Shared drawing helpers ────────────────────────────────────────────────────
+
+function detectImageFormat(src: string): string {
+  if (/^data:image\/jpe?g/i.test(src)) return 'JPEG';
+  if (/^data:image\/webp/i.test(src)) return 'WEBP';
+  return 'PNG';
+}
+
+function drawBanner(doc: jsPDF, header: BosPdfHeader, pageWidth: number, y: number): number {
+  const logoSize = 18;
+  if (header.logoImage) {
+    try { doc.addImage(header.logoImage, detectImageFormat(header.logoImage), MARGIN, y, logoSize, logoSize); } catch {}
+  }
+  if (header.rightLogoImage) {
+    try { doc.addImage(header.rightLogoImage, detectImageFormat(header.rightLogoImage), pageWidth - MARGIN - logoSize, y, logoSize, logoSize); } catch {}
+  }
+  const hasExtra = !!(header.institution_accreditation || header.institution_address);
+  const nameY = hasExtra ? y + 4 : y + 9;
+  doc.setFont('times', 'bold');
+  doc.setFontSize(13);
+  doc.setTextColor(0, 0, 0);
+  doc.text(header.institution_name, pageWidth / 2, nameY, { align: 'center' });
+  if (header.institution_accreditation) {
+    doc.setFont('times', 'normal');
+    doc.setFontSize(8);
+    doc.text(header.institution_accreditation, pageWidth / 2, y + 9.5, { align: 'center' });
+  }
+  if (header.institution_address) {
+    doc.setFont('times', 'bold');
+    doc.setFontSize(9);
+    doc.text(header.institution_address, pageWidth / 2, y + 14.5, { align: 'center' });
+  }
+  return y + logoSize + (header.institution_address ? 6 : 2);
+}
+
+function divider(doc: jsPDF, y: number): number {
+  doc.setDrawColor(0, 0, 0);
+  doc.setLineWidth(0.5);
+  doc.line(MARGIN, y, PAGE_W - MARGIN, y);
+  return y + 5;
+}
 
 function fmtDate(iso?: string | null): string {
   if (!iso) return '—';
-  const d = new Date(iso);
-  return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' });
+  return new Date(iso).toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' });
 }
 
 function fmtTime(t?: string | null): string {
   if (!t) return '—';
-  // t is HH:MM or HH:MM:SS
   const [h, m] = t.split(':').map(Number);
   const ampm = h >= 12 ? 'PM' : 'AM';
-  const hh = h % 12 || 12;
-  return `${hh}:${String(m).padStart(2, '0')} ${ampm}`;
+  return `${h % 12 || 12}:${String(m).padStart(2, '0')} ${ampm}`;
 }
 
-function addLetterhead(doc: jsPDF, collegeName: string, principalName: string, title: string): number {
-  let y = MARGIN;
-  doc.setFontSize(13);
-  doc.setFont('helvetica', 'bold');
-  doc.text(collegeName, PAGE_W / 2, y, { align: 'center' });
-  y += 7;
+function titleCase(s: string): string {
+  return s.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function lastAutoY(doc: jsPDF, fallback: number): number {
+  return (doc as jsPDF & { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? fallback;
+}
+
+function detailsTable(doc: jsPDF, rows: [string, string][], startY: number): number {
+  const labelW = 48;
+  autoTable(doc, {
+    body: rows,
+    startY,
+    margin: { left: MARGIN, right: MARGIN },
+    tableWidth: CONTENT_W,
+    theme: 'grid',
+    styles: {
+      font: 'times', fontSize: 10, cellPadding: 2.5,
+      lineColor: [0, 0, 0], lineWidth: 0.3,
+      textColor: [0, 0, 0], valign: 'middle', minCellHeight: 7, overflow: 'linebreak',
+    },
+    columnStyles: {
+      0: { cellWidth: labelW, fontStyle: 'bold', fillColor: [245, 245, 245] },
+      1: { cellWidth: CONTENT_W - labelW },
+    },
+  });
+  return lastAutoY(doc, startY + rows.length * 8) + 6;
+}
+
+function sigRow(doc: jsPDF, y: number, labels: string[][]): void {
+  const sigW = CONTENT_W / labels.length;
+  doc.setFont('times', 'normal');
   doc.setFontSize(9);
-  doc.setFont('helvetica', 'normal');
-  doc.text('Board of Studies', PAGE_W / 2, y, { align: 'center' });
-  y += 5;
-  // Divider
-  doc.setDrawColor(60, 60, 60);
-  doc.line(MARGIN, y, PAGE_W - MARGIN, y);
-  y += 5;
-  // Document title
-  doc.setFontSize(11);
-  doc.setFont('helvetica', 'bold');
-  doc.text(title, PAGE_W / 2, y, { align: 'center' });
-  y += 8;
-  return y;
+  labels.forEach((lines, i) => {
+    const cx = MARGIN + i * sigW + sigW / 2;
+    doc.setDrawColor(0, 0, 0);
+    doc.setLineWidth(0.3);
+    doc.line(MARGIN + i * sigW + 8, y, MARGIN + (i + 1) * sigW - 8, y);
+    lines.forEach((ln, li) => doc.text(ln, cx, y + 5 + li * 4.5, { align: 'center' }));
+  });
 }
 
-function addFooter(doc: jsPDF, principalName: string): void {
-  const pageH = 297;
-  const y = pageH - MARGIN;
-  doc.setFontSize(8);
-  doc.setFont('helvetica', 'normal');
-  doc.text(principalName, PAGE_W - MARGIN, y - 4, { align: 'right' });
-  doc.text('Principal', PAGE_W - MARGIN, y, { align: 'right' });
-  doc.text(`Generated: ${new Date().toLocaleString('en-IN')}`, MARGIN, y);
+function timestamp(doc: jsPDF): void {
+  doc.setFont('times', 'normal');
+  doc.setFontSize(7);
+  doc.setTextColor(128, 128, 128);
+  doc.text(new Date().toLocaleString('en-IN'), MARGIN, PAGE_H - 5);
+  doc.setTextColor(0, 0, 0);
 }
 
 // ── 1. Meeting Notice ─────────────────────────────────────────────────────────
 
-interface MeetingNoticeParams {
-  collegeName: string;
-  principalName: string;
+export interface MeetingNoticeParams {
+  header: BosPdfHeader;
+  principalName?: string;
   meeting: BosMeeting;
   agendaItems: BosAgendaItem[];
   chairmanName: string;
+  /** @deprecated pass header instead */
+  collegeName?: string;
 }
 
 export function generateMeetingNoticePdf({
-  collegeName,
-  principalName,
+  header,
+  principalName = 'Principal',
   meeting,
   agendaItems,
   chairmanName,
 }: MeetingNoticeParams): void {
   const doc = new jsPDF('portrait', 'mm', 'a4');
-  let y = addLetterhead(doc, collegeName, principalName, 'Notice of Board of Studies Meeting');
+  let y = drawBanner(doc, header, PAGE_W, MARGIN);
+  y = divider(doc, y);
 
-  // Meeting details block
-  const details: [string, string][] = [
+  // Title
+  doc.setFont('times', 'bold');
+  doc.setFontSize(12);
+  doc.text('NOTICE OF BOARD OF STUDIES MEETING', PAGE_W / 2, y, { align: 'center' });
+  y += 7;
+
+  // Ref + Date
+  const ref = `Ref: BoS/${meeting.academic_year}/${meeting.meeting_number}`;
+  doc.setFont('times', 'normal');
+  doc.setFontSize(9);
+  doc.text(ref, MARGIN, y);
+  doc.text(`Date: ${fmtDate(new Date().toISOString())}`, PAGE_W - MARGIN, y, { align: 'right' });
+  y += 7;
+
+  // Meeting details
+  y = detailsTable(doc, [
     ['Meeting No.', `${meeting.meeting_number} / ${meeting.academic_year}`],
-    ['Meeting Type', meeting.meeting_type?.replace(/_/g, ' ') ?? '—'],
+    ['Meeting Type', titleCase(meeting.meeting_type ?? '')],
     ['Date', fmtDate(meeting.scheduled_date)],
     ['Time', fmtTime(meeting.scheduled_time)],
     ['Venue', meeting.venue ?? '—'],
     ['Chairman', chairmanName],
-  ];
+  ], y);
 
+  // Intro paragraph
+  doc.setFont('times', 'normal');
   doc.setFontSize(10);
-  for (const [label, value] of details) {
-    doc.setFont('helvetica', 'bold');
-    doc.text(`${label}:`, MARGIN, y);
-    doc.setFont('helvetica', 'normal');
-    doc.text(value, MARGIN + 38, y);
-    y += LINE_H;
-  }
-  y += 4;
-
-  // Intro text
-  doc.setFontSize(9);
-  doc.setFont('helvetica', 'normal');
-  const intro = `All members of the Board of Studies are hereby informed that the ${
-    meeting.meeting_type?.replace(/_/g, ' ') ?? ''
-  } Meeting of the Board of Studies will be held as per the details mentioned above. Your presence is solicited.`;
+  const intro = `All members of the Board of Studies are hereby informed that the ${titleCase(meeting.meeting_type ?? '')} Meeting of the Board of Studies will be held as per the details mentioned above. Your presence is solicited.`;
   const introLines = doc.splitTextToSize(intro, CONTENT_W);
   doc.text(introLines, MARGIN, y);
-  y += introLines.length * LINE_H + 4;
+  y += introLines.length * 5.5 + 6;
 
-  // Agenda table
-  doc.setFontSize(10);
-  doc.setFont('helvetica', 'bold');
-  doc.text('Agenda', MARGIN, y);
-  y += 4;
-
+  // Agenda
   if (agendaItems.length > 0) {
+    doc.setFont('times', 'bold');
+    doc.setFontSize(10);
+    doc.text('AGENDA', MARGIN, y);
+    y += 4;
+
     autoTable(doc, {
+      head: [['No.', 'Agenda Item', 'Description']],
+      body: [...agendaItems]
+        .sort((a, b) => a.sort_order - b.sort_order)
+        .map((item) => [item.item_number, item.item_title, item.item_description ?? '']),
       startY: y,
       margin: { left: MARGIN, right: MARGIN },
-      head: [['S.No', 'Agenda Item', 'Description']],
-      body: agendaItems
-        .sort((a, b) => a.sort_order - b.sort_order)
-        .map((item) => [
-          item.item_number,
-          item.item_title,
-          item.item_description ?? '',
-        ]),
-      styles: { fontSize: 9, cellPadding: 3 },
-      headStyles: { fillColor: [40, 80, 160], textColor: 255, fontStyle: 'bold' },
-      columnStyles: { 0: { cellWidth: 12 }, 1: { cellWidth: 60 } },
+      tableWidth: CONTENT_W,
       theme: 'grid',
+      styles: {
+        font: 'times', fontSize: 9, cellPadding: 2.5,
+        lineColor: [0, 0, 0], lineWidth: 0.3,
+        textColor: [0, 0, 0], valign: 'middle', overflow: 'linebreak',
+      },
+      headStyles: {
+        font: 'times', fontStyle: 'bold',
+        fillColor: [230, 230, 230], textColor: [0, 0, 0], halign: 'center', fontSize: 9,
+      },
+      columnStyles: {
+        0: { cellWidth: 12, halign: 'center' },
+        1: { cellWidth: 65 },
+        2: { cellWidth: CONTENT_W - 77 },
+      },
     });
-    y = (doc as any).lastAutoTable.finalY + 10;
+    y = lastAutoY(doc, y + 30) + 10;
   } else if (meeting.agenda_text) {
-    const agendaLines = doc.splitTextToSize(meeting.agenda_text, CONTENT_W);
-    doc.setFont('helvetica', 'normal');
+    doc.setFont('times', 'bold');
+    doc.setFontSize(10);
+    doc.text('AGENDA', MARGIN, y);
+    y += 5;
+    doc.setFont('times', 'normal');
     doc.setFontSize(9);
+    const agendaLines = doc.splitTextToSize(meeting.agenda_text, CONTENT_W);
     doc.text(agendaLines, MARGIN, y);
-    y += agendaLines.length * LINE_H + 10;
+    y += agendaLines.length * 5 + 10;
   }
 
-  addFooter(doc, principalName);
+  if (y + 20 > PAGE_H - 15) { doc.addPage(); y = MARGIN + 10; }
+
+  // Signature (right-aligned, Principal)
+  doc.setFont('times', 'normal');
+  doc.setFontSize(10);
+  doc.text(principalName, PAGE_W - MARGIN, y, { align: 'right' });
+  doc.text('Principal', PAGE_W - MARGIN, y + 5, { align: 'right' });
+
+  timestamp(doc);
   doc.save(`meeting-notice-${meeting.meeting_number}-${meeting.academic_year}.pdf`);
 }
 
 // ── 2. Minutes of Meeting ─────────────────────────────────────────────────────
 
-interface MinutesParams {
-  collegeName: string;
+export interface MinutesParams {
+  header: BosPdfHeader;
   meeting: BosMeeting;
   attendees: BosMeetingAttendee[];
   agendaItems: BosAgendaItem[];
   chairmanName: string;
+  /** @deprecated pass header instead */
+  collegeName?: string;
 }
 
 export function generateMinutesPdf({
-  collegeName,
+  header,
   meeting,
   attendees,
   agendaItems,
   chairmanName,
 }: MinutesParams): void {
   const doc = new jsPDF('portrait', 'mm', 'a4');
-  let y = addLetterhead(doc, collegeName, 'Principal', 'Minutes of Board of Studies Meeting');
+  let y = drawBanner(doc, header, PAGE_W, MARGIN);
+  y = divider(doc, y);
+
+  // Title
+  doc.setFont('times', 'bold');
+  doc.setFontSize(12);
+  doc.text('MINUTES OF BOARD OF STUDIES MEETING', PAGE_W / 2, y, { align: 'center' });
+  y += 7;
 
   // Meeting details
-  const details: [string, string][] = [
+  y = detailsTable(doc, [
     ['Meeting No.', `${meeting.meeting_number} / ${meeting.academic_year}`],
     ['Date', fmtDate(meeting.actual_date ?? meeting.scheduled_date)],
     ['Start Time', fmtTime(meeting.actual_start_time ?? meeting.scheduled_time)],
@@ -172,78 +270,77 @@ export function generateMinutesPdf({
     ['Venue', meeting.venue ?? '—'],
     ['Chairman', chairmanName],
     ['Quorum', meeting.quorum_met ? 'Met' : 'Not Met'],
-  ];
+  ], y);
 
-  doc.setFontSize(10);
-  for (const [label, value] of details) {
-    doc.setFont('helvetica', 'bold');
-    doc.text(`${label}:`, MARGIN, y);
-    doc.setFont('helvetica', 'normal');
-    doc.text(value, MARGIN + 38, y);
-    y += LINE_H;
-  }
-  y += 4;
-
-  // Attendance table
+  // Attendance
   const present = attendees.filter((a) => a.attendance_status === 'present');
-  const absent = attendees.filter((a) => a.attendance_status !== 'present');
-
+  doc.setFont('times', 'bold');
   doc.setFontSize(10);
-  doc.setFont('helvetica', 'bold');
-  doc.text(`Attendance  (${present.length} Present / ${attendees.length} Total)`, MARGIN, y);
+  doc.text(`ATTENDANCE  (${present.length} Present / ${attendees.length} Total)`, MARGIN, y);
   y += 4;
 
   autoTable(doc, {
-    startY: y,
-    margin: { left: MARGIN, right: MARGIN },
     head: [['S.No', 'Name', 'Designation', 'Status']],
     body: attendees.map((a, i) => [
       i + 1,
-      a.member?.display_name ?? '—',
-      a.member?.display_designation ?? '',
+      (a as any).member?.display_name ?? '—',
+      (a as any).member?.display_designation ?? '',
       a.attendance_status === 'present' ? 'Present' : 'Absent',
     ]),
-    styles: { fontSize: 9, cellPadding: 3 },
-    headStyles: { fillColor: [40, 80, 160], textColor: 255, fontStyle: 'bold' },
-    bodyStyles: {},
+    startY: y,
+    margin: { left: MARGIN, right: MARGIN },
+    tableWidth: CONTENT_W,
     theme: 'grid',
+    styles: {
+      font: 'times', fontSize: 9, cellPadding: 2.5,
+      lineColor: [0, 0, 0], lineWidth: 0.3,
+      textColor: [0, 0, 0], valign: 'middle', overflow: 'linebreak',
+    },
+    headStyles: {
+      font: 'times', fontStyle: 'bold',
+      fillColor: [230, 230, 230], textColor: [0, 0, 0], halign: 'center', fontSize: 9,
+    },
+    columnStyles: {
+      0: { cellWidth: 12, halign: 'center' },
+      1: { cellWidth: 65 },
+      3: { cellWidth: 22, halign: 'center' },
+    },
     didParseCell(data) {
       if (data.section === 'body' && data.column.index === 3) {
-        const status = data.cell.raw as string;
-        data.cell.styles.textColor = status === 'Present' ? [0, 130, 0] : [180, 0, 0];
+        const v = data.cell.raw as string;
+        data.cell.styles.textColor = v === 'Present' ? [0, 120, 0] : [180, 0, 0];
       }
     },
   });
-  y = (doc as any).lastAutoTable.finalY + 8;
+  y = lastAutoY(doc, y + 30) + 8;
 
-  // Agenda & resolutions
+  // Agenda & Resolutions
   if (agendaItems.length > 0) {
+    if (y > 240) { doc.addPage(); y = MARGIN; }
+    doc.setFont('times', 'bold');
     doc.setFontSize(10);
-    doc.setFont('helvetica', 'bold');
-    doc.text('Agenda Items & Resolutions', MARGIN, y);
-    y += 4;
+    doc.text('AGENDA ITEMS & RESOLUTIONS', MARGIN, y);
+    y += 5;
 
-    for (const item of agendaItems.sort((a, b) => a.sort_order - b.sort_order)) {
-      // Check page overflow
-      if (y > 265) { doc.addPage(); y = MARGIN; }
-
+    for (const item of [...agendaItems].sort((a, b) => a.sort_order - b.sort_order)) {
+      if (y > 260) { doc.addPage(); y = MARGIN; }
+      doc.setFont('times', 'bold');
       doc.setFontSize(9);
-      doc.setFont('helvetica', 'bold');
-      const itemTitle = `${item.item_number}. ${item.item_title}`;
-      const titleLines = doc.splitTextToSize(itemTitle, CONTENT_W);
+      const titleLines = doc.splitTextToSize(`${item.item_number}. ${item.item_title}`, CONTENT_W);
       doc.text(titleLines, MARGIN, y);
       y += titleLines.length * 5 + 2;
 
       if (item.discussion_notes) {
-        doc.setFont('helvetica', 'italic');
-        const notes = doc.splitTextToSize(`Discussion: ${item.discussion_notes}`, CONTENT_W - 4);
+        if (y > 265) { doc.addPage(); y = MARGIN; }
+        doc.setFont('times', 'italic');
+        const notes = doc.splitTextToSize(`Discussion: ${item.discussion_notes}`, CONTENT_W - 6);
         doc.text(notes, MARGIN + 4, y);
         y += notes.length * 5 + 2;
       }
-
       if (item.resolution_text) {
-        doc.setFont('helvetica', 'normal');
-        const res = doc.splitTextToSize(`Resolution: ${item.resolution_text}`, CONTENT_W - 4);
+        if (y > 265) { doc.addPage(); y = MARGIN; }
+        doc.setFont('times', 'normal');
+        const res = doc.splitTextToSize(`Resolution: ${item.resolution_text}`, CONTENT_W - 6);
         doc.text(res, MARGIN + 4, y);
         y += res.length * 5 + 4;
       }
@@ -252,102 +349,111 @@ export function generateMinutesPdf({
 
   if (meeting.minutes_summary) {
     if (y > 250) { doc.addPage(); y = MARGIN; }
+    doc.setFont('times', 'bold');
     doc.setFontSize(10);
-    doc.setFont('helvetica', 'bold');
-    doc.text('Summary', MARGIN, y);
+    doc.text('SUMMARY', MARGIN, y);
     y += 5;
-    doc.setFont('helvetica', 'normal');
+    doc.setFont('times', 'normal');
     doc.setFontSize(9);
     const summaryLines = doc.splitTextToSize(meeting.minutes_summary, CONTENT_W);
     doc.text(summaryLines, MARGIN, y);
+    y += summaryLines.length * 5 + 8;
   }
 
-  addFooter(doc, 'Principal');
+  if (y + 22 > PAGE_H - 12) { doc.addPage(); y = MARGIN + 10; }
+
+  sigRow(doc, y, [
+    ['Signature of the Subject In-Charge'],
+    ['Signature of the HOD'],
+    ['Signature of the Principal'],
+  ]);
+
+  timestamp(doc);
   doc.save(`minutes-meeting-${meeting.meeting_number}-${meeting.academic_year}.pdf`);
 }
 
 // ── 3. Call Letter for External Expert ───────────────────────────────────────
 
-interface CallLetterParams {
-  collegeName: string;
-  principalName: string;
+export interface CallLetterParams {
+  header: BosPdfHeader;
+  principalName?: string;
   meeting: BosMeeting;
   agendaItems: BosAgendaItem[];
   expert: BosMember;
   chairmanName: string;
+  /** @deprecated pass header instead */
+  collegeName?: string;
 }
 
 export function generateCallLetterPdf({
-  collegeName,
-  principalName,
+  header,
+  principalName = 'Principal',
   meeting,
   agendaItems,
   expert,
 }: CallLetterParams): void {
   const doc = new jsPDF('portrait', 'mm', 'a4');
-  let y = addLetterhead(doc, collegeName, principalName, 'Invitation Letter — Board of Studies');
+  let y = drawBanner(doc, header, PAGE_W, MARGIN);
+  y = divider(doc, y);
 
+  // Title
+  doc.setFont('times', 'bold');
+  doc.setFontSize(12);
+  doc.text('INVITATION / CALL LETTER', PAGE_W / 2, y, { align: 'center' });
+  y += 7;
+
+  // Ref + Date
   const ref = `Ref: BoS/${meeting.academic_year}/${meeting.meeting_number}/${expert.id.slice(0, 6).toUpperCase()}`;
+  doc.setFont('times', 'normal');
   doc.setFontSize(9);
-  doc.setFont('helvetica', 'normal');
-  doc.text(ref, PAGE_W - MARGIN, y, { align: 'right' });
-  doc.text(`Date: ${fmtDate(new Date().toISOString())}`, MARGIN, y);
+  doc.text(ref, MARGIN, y);
+  doc.text(`Date: ${fmtDate(new Date().toISOString())}`, PAGE_W - MARGIN, y, { align: 'right' });
   y += 8;
 
   // Addressee block
+  doc.setFont('times', 'bold');
   doc.setFontSize(10);
-  doc.setFont('helvetica', 'bold');
   doc.text('To,', MARGIN, y); y += 5;
-  doc.setFont('helvetica', 'normal');
+  doc.setFont('times', 'normal');
   doc.text(expert.display_name, MARGIN, y); y += 5;
   if (expert.display_designation) { doc.text(expert.display_designation, MARGIN, y); y += 5; }
   if (expert.display_institution) { doc.text(expert.display_institution, MARGIN, y); y += 5; }
   if (expert.address) {
-    const addrLines = doc.splitTextToSize(expert.address, 80);
+    const addrLines = doc.splitTextToSize(expert.address, 90);
     doc.text(addrLines, MARGIN, y); y += addrLines.length * 5;
   }
   y += 4;
 
   // Salutation
-  doc.setFont('helvetica', 'bold');
-  doc.text(`Dear ${expert.display_designation ? expert.display_designation + ' ' : ''}${expert.display_name},`, MARGIN, y);
+  doc.setFont('times', 'bold');
+  doc.setFontSize(10);
+  const salutation = `Dear ${expert.display_designation ? expert.display_designation + ' ' : ''}${expert.display_name},`;
+  doc.text(salutation, MARGIN, y);
   y += 7;
 
   // Body
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(9);
-  const body1 = `We are pleased to invite you to attend the ${
-    meeting.meeting_type?.replace(/_/g, ' ') ?? ''
-  } Meeting of the Board of Studies of ${collegeName} scheduled as follows:`;
-  const body1Lines = doc.splitTextToSize(body1, CONTENT_W);
-  doc.text(body1Lines, MARGIN, y);
-  y += body1Lines.length * 5 + 5;
+  doc.setFont('times', 'normal');
+  doc.setFontSize(10);
+  const body = `We are pleased to invite you to attend the ${titleCase(meeting.meeting_type ?? '')} Meeting of the Board of Studies scheduled as follows:`;
+  const bodyLines = doc.splitTextToSize(body, CONTENT_W);
+  doc.text(bodyLines, MARGIN, y);
+  y += bodyLines.length * 5.5 + 5;
 
-  // Meeting details table
-  autoTable(doc, {
-    startY: y,
-    margin: { left: MARGIN, right: MARGIN },
-    head: [['Detail', 'Information']],
-    body: [
-      ['Meeting Number', `${meeting.meeting_number} / ${meeting.academic_year}`],
-      ['Date', fmtDate(meeting.scheduled_date)],
-      ['Time', fmtTime(meeting.scheduled_time)],
-      ['Venue', meeting.venue ?? '—'],
-    ],
-    styles: { fontSize: 9, cellPadding: 3 },
-    headStyles: { fillColor: [40, 80, 160], textColor: 255 },
-    columnStyles: { 0: { fontStyle: 'bold', cellWidth: 50 } },
-    theme: 'grid',
-  });
-  y = (doc as any).lastAutoTable.finalY + 6;
+  // Meeting details
+  y = detailsTable(doc, [
+    ['Meeting No.', `${meeting.meeting_number} / ${meeting.academic_year}`],
+    ['Date', fmtDate(meeting.scheduled_date)],
+    ['Time', fmtTime(meeting.scheduled_time)],
+    ['Venue', meeting.venue ?? '—'],
+  ], y);
 
   // Agenda summary
   if (agendaItems.length > 0) {
-    doc.setFontSize(9);
-    doc.setFont('helvetica', 'normal');
+    doc.setFont('times', 'normal');
+    doc.setFontSize(10);
     doc.text('The agenda for this meeting includes:', MARGIN, y);
     y += 5;
-    for (const item of agendaItems.sort((a, b) => a.sort_order - b.sort_order)) {
+    for (const item of [...agendaItems].sort((a, b) => a.sort_order - b.sort_order)) {
       if (y > 260) { doc.addPage(); y = MARGIN; }
       const line = doc.splitTextToSize(`${item.item_number}. ${item.item_title}`, CONTENT_W - 6);
       doc.text(line, MARGIN + 4, y);
@@ -357,26 +463,24 @@ export function generateCallLetterPdf({
   }
 
   // TA/DA note
-  doc.setFont('helvetica', 'italic');
+  doc.setFont('times', 'italic');
   doc.setFontSize(9);
-  doc.text(
-    'Travelling Allowance and Daily Allowance will be provided as per the norms.',
-    MARGIN, y
-  );
+  doc.text('Travelling Allowance and Daily Allowance will be provided as per the norms.', MARGIN, y);
   y += 8;
 
   // Closing
-  doc.setFont('helvetica', 'normal');
+  doc.setFont('times', 'normal');
+  doc.setFontSize(10);
   doc.text('Kindly confirm your attendance at the earliest.', MARGIN, y);
   y += 7;
   doc.text('Yours sincerely,', MARGIN, y);
   y += 12;
-  doc.setFont('helvetica', 'bold');
+  doc.setFont('times', 'bold');
   doc.text(principalName, MARGIN, y);
   y += 5;
-  doc.setFont('helvetica', 'normal');
+  doc.setFont('times', 'normal');
   doc.text('Principal', MARGIN, y);
 
-  addFooter(doc, principalName);
+  timestamp(doc);
   doc.save(`call-letter-${expert.display_name.replace(/\s+/g, '-')}-meeting-${meeting.meeting_number}.pdf`);
 }

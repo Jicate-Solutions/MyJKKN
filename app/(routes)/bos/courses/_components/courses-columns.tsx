@@ -27,9 +27,19 @@ export function createCoursesColumns(institutionName?: string): ColumnDef<BosCou
   {
     accessorKey: 'course_type',
     header: 'Type',
-    cell: ({ row }) => row.original.course_type
-      ? <Badge variant='outline'>{row.original.course_type}</Badge>
-      : <span className='text-xs text-muted-foreground'>—</span>,
+    cell: ({ row }) => {
+      // Prefer COE-computed course_type_code (e.g., "Core-I"). For legacy rows
+      // where COE hasn't backfilled the trigger yet, compose from parts; finally
+      // fall back to plain course_type so we never render empty for an old row.
+      const r = row.original;
+      const composite =
+        r.course_type_code
+        ?? (r.course_type && r.course_level ? `${r.course_type}-${r.course_level}` : null)
+        ?? r.course_type;
+      return composite
+        ? <Badge variant='outline'>{composite}</Badge>
+        : <span className='text-xs text-muted-foreground'>—</span>;
+    },
   },
   {
     accessorKey: 'credit',

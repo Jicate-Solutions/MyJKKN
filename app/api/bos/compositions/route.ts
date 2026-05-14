@@ -30,27 +30,56 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
 
     // Resolve which institution IDs to filter by.
-    // Super-admin: use client-supplied list or single ID.
-    // Non-admin CAS: client may pass COE-authoritative myjkkn_institution_ids —
-    //   validate each against the user's own scope before trusting them.
-    //   Falls back to server-resolved allInstitutionIds (Supabase counselling_code join).
+    //
+    // Preferred path — `institutionCode` (= counselling_code, the authoritative
+    // cross-DB key). Resolves to all MyJKKN sibling UUIDs (CAS Aided + Self
+    // both belong to ONE code) via the COE MDM, so callers don't need to know
+    // about the Aided/Self split.
+    //
+    // Legacy paths (still supported for callers that pass UUIDs directly):
+    //   • super-admin → `institutionIds`/`institutionsId` trusted as-is
+    //   • non-admin   → `institutionIds` validated against the user's scope
+    //                   before being trusted
     let multiInstitutionIds: string | undefined;
-    if (scope.isSuperAdmin) {
-      multiInstitutionIds = searchParams.get('institutionIds') ?? undefined;
-    } else {
-      const clientIds = searchParams.get('institutionIds')?.split(',').filter(Boolean) ?? [];
-      if (clientIds.length > 0) {
-        // Accept only IDs that belong to this user's own institution scope.
+
+    const institutionCode = searchParams.get('institutionCode');
+    if (institutionCode) {
+      const { resolveInstitutionContextByCode } = await import(
+        '@/lib/utils/institutions/institution-resolver'
+      );
+      const ctx = await resolveInstitutionContextByCode(institutionCode, supabase);
+      const ids = ctx?.myjkkn_institution_ids ?? [];
+
+      if (scope.isSuperAdmin) {
+        if (ids.length > 0) multiInstitutionIds = ids.join(',');
+      } else {
+        // Non-admin: keep only IDs that belong to the caller's own scope.
         const allowed = new Set([
           ...(scope.institutionsId ? [scope.institutionsId] : []),
           ...scope.allInstitutionIds,
         ]);
-        const valid = clientIds.filter((id) => allowed.has(id));
+        const valid = ids.filter((id) => allowed.has(id));
         if (valid.length > 0) multiInstitutionIds = valid.join(',');
       }
-      // Server-side fallback: use Supabase counselling_code siblings when no client list.
-      if (!multiInstitutionIds && scope.allInstitutionIds.length > 1) {
-        multiInstitutionIds = scope.allInstitutionIds.join(',');
+    }
+
+    if (!multiInstitutionIds) {
+      if (scope.isSuperAdmin) {
+        multiInstitutionIds = searchParams.get('institutionIds') ?? undefined;
+      } else {
+        const clientIds =
+          searchParams.get('institutionIds')?.split(',').filter(Boolean) ?? [];
+        if (clientIds.length > 0) {
+          const allowed = new Set([
+            ...(scope.institutionsId ? [scope.institutionsId] : []),
+            ...scope.allInstitutionIds,
+          ]);
+          const valid = clientIds.filter((id) => allowed.has(id));
+          if (valid.length > 0) multiInstitutionIds = valid.join(',');
+        }
+        if (!multiInstitutionIds && scope.allInstitutionIds.length > 1) {
+          multiInstitutionIds = scope.allInstitutionIds.join(',');
+        }
       }
     }
 

@@ -1,5 +1,5 @@
 import { CoeRestClient } from '@/lib/services/coe/coe-rest-client';
-import { resolveCoeInstitutionId } from '@/lib/utils/bos/bos-access';
+import { resolveCoeInstitutionCode } from '@/lib/utils/bos/bos-access';
 
 export interface CoeBoard {
   id: string;
@@ -18,12 +18,11 @@ export async function fetchCoeBoardMap(
   myJkknInstitutionId: string
 ): Promise<Map<string, CoeBoard>> {
   try {
-    const coeId = await resolveCoeInstitutionId(myJkknInstitutionId);
-    if (!coeId) return new Map();
+    const institutionCode = await resolveCoeInstitutionCode(myJkknInstitutionId);
+    if (!institutionCode) return new Map();
     const coe = CoeRestClient.create();
-    const raw = await coe.get<unknown>('/api/v1/boards', {
-      institutions_id: coeId,
-      is_active: 'true',
+    const raw = await coe.get<unknown>('/api/public/boards', {
+      institution_code: institutionCode,
     });
     const boards: CoeBoard[] = Array.isArray(raw)
       ? (raw as CoeBoard[])

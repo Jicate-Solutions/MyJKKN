@@ -12,7 +12,27 @@ import { BosMeeting, BosMember, BosAgendaItem, BosMeetingAttendee, BOS_MEETING_S
 import { useBosAgendaItems } from '@/hooks/bos/use-bos-agenda';
 import { useBosAttendance } from '@/hooks/bos/use-bos-attendance';
 import { useBosMembersByComposition } from '@/hooks/bos/use-bos-members';
+import { useInstitutionContext } from '@/hooks/use-institution-context';
+import { getInstitutionHeader } from '@/lib/utils/internal-marks/institution-header';
 import { logger } from '@/lib/utils/enhanced-logger';
+import type { BosPdfHeader } from '@/lib/utils/bos/bos-pdf-generator';
+
+// ── helpers ───────────────────────────────────────────────────────────────────
+
+async function toBase64(url: string): Promise<string | undefined> {
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return undefined;
+    const blob = await res.blob();
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result as string);
+      reader.readAsDataURL(blob);
+    });
+  } catch {
+    return undefined;
+  }
+}
 
 // ── Document Card ─────────────────────────────────────────────────────────────
 
@@ -68,19 +88,13 @@ function DocCard({ title, description, onGenerate, disabled, disabledReason }: D
 interface DocumentsTabProps {
   meeting: BosMeeting;
   compositionId: string;
-  collegeName?: string;
-  principalName?: string;
 }
 
-export function DocumentsTab({
-  meeting,
-  compositionId,
-  collegeName = 'JKKN College of Arts & Science',
-  principalName = 'Principal',
-}: DocumentsTabProps) {
+export function DocumentsTab({ meeting, compositionId }: DocumentsTabProps) {
   const { data: agendaItems = [], isLoading: loadingAgenda } = useBosAgendaItems(meeting.id);
   const { data: attendance = [], isLoading: loadingAttendance } = useBosAttendance(meeting.id);
   const { data: members = [], isLoading: loadingMembers } = useBosMembersByComposition(compositionId);
+  const { data: institutionCtx } = useInstitutionContext();
 
   const chairmanMember = members.find((m) => m.member_type === 'chairman');
   const chairmanName = chairmanMember?.display_name ?? 'Chairman';
@@ -93,45 +107,50 @@ export function DocumentsTab({
   const hasAgenda = agendaItems.length > 0 || !!meeting.agenda_text;
   const hasAttendance = attendance.length > 0;
 
-  // Status-based document gates using ordered index comparison
   const statusIndex = BOS_MEETING_STATUS_ORDER.indexOf(meeting.status);
   const isBeforeNoticed   = statusIndex < BOS_MEETING_STATUS_ORDER.indexOf('noticed');
   const isBeforeCompleted = statusIndex < BOS_MEETING_STATUS_ORDER.indexOf('completed');
 
+  // Build the per-institution PDF header (logos fetched as base64 data-URLs)
+  async function buildHeader(): Promise<BosPdfHeader> {
+    const h = getInstitutionHeader(institutionCtx?.name);
+    const [logoImage, rightLogoImage] = await Promise.all([
+      toBase64('/logo.png'),
+      toBase64(h.rightLogoImage),
+    ]);
+    return {
+      institution_name: h.institution_name,
+      institution_accreditation: h.institution_accreditation,
+      institution_address: h.institution_address,
+      logoImage,
+      rightLogoImage,
+    };
+  }
+
   const generateNotice = async () => {
-    const { generateMeetingNoticePdf } = await import('@/lib/utils/bos/bos-pdf-generator');
-    generateMeetingNoticePdf({
-      collegeName,
-      principalName,
-      meeting,
-      agendaItems,
-      chairmanName,
-    });
+    const [{ generateMeetingNoticePdf }, header] = await Promise.all([
+      import('@/lib/utils/bos/bos-pdf-generator'),
+      buildHeader(),
+    ]);
+    generateMeetingNoticePdf({ header, meeting, agendaItems, chairmanName });
     toast.success('Meeting notice downloaded');
   };
 
   const generateMinutes = async () => {
-    const { generateMinutesPdf } = await import('@/lib/utils/bos/bos-pdf-generator');
-    generateMinutesPdf({
-      collegeName,
-      meeting,
-      attendees: attendance,
-      agendaItems,
-      chairmanName,
-    });
+    const [{ generateMinutesPdf }, header] = await Promise.all([
+      import('@/lib/utils/bos/bos-pdf-generator'),
+      buildHeader(),
+    ]);
+    generateMinutesPdf({ header, meeting, attendees: attendance, agendaItems, chairmanName });
     toast.success('Minutes downloaded');
   };
 
   const generateCallLetterFor = async (member: BosMember) => {
-    const { generateCallLetterPdf } = await import('@/lib/utils/bos/bos-pdf-generator');
-    generateCallLetterPdf({
-      collegeName,
-      principalName,
-      meeting,
-      agendaItems,
-      expert: member,
-      chairmanName,
-    });
+    const [{ generateCallLetterPdf }, header] = await Promise.all([
+      import('@/lib/utils/bos/bos-pdf-generator'),
+      buildHeader(),
+    ]);
+    generateCallLetterPdf({ header, meeting, agendaItems, expert: member, chairmanName });
     toast.success(`Call letter for ${member.display_name} downloaded`);
   };
 

@@ -9,6 +9,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import { CourseForm } from '../../_components/course-form';
 import { useBosCourse, useUpdateBosCourse } from '@/hooks/bos/use-bos-courses';
+import { useBosBoards } from '@/hooks/bos/use-bos-boards';
 import { isLocked } from '@/types/bos-courses';
 
 export default function EditCoursePage({ params }: { params: Promise<{ id: string }> }) {
@@ -17,6 +18,10 @@ export default function EditCoursePage({ params }: { params: Promise<{ id: strin
   const searchParams = useSearchParams();
   const { data: course, isLoading } = useBosCourse(id);
   const update = useUpdateBosCourse();
+  // Edit page doesn't know the MyJKKN institution UUID — rely on the user's
+  // server-side scope (works for non-super-admins). Super-admins editing
+  // foreign-institution courses is a known gap; add a reverse-lookup if needed.
+  const { data: boards, isLoading: boardsLoading } = useBosBoards();
 
   // Hard-lock check: trust the URL param (set from list row data which is reliable)
   // as well as the fetched course — whichever says locked wins.
@@ -55,14 +60,24 @@ export default function EditCoursePage({ params }: { params: Promise<{ id: strin
             <CourseForm
               submitting={update.isPending}
               submitLabel='Save Changes'
+              boards={boards}
+              boardsLoading={boardsLoading}
               defaultValues={{
                 course_code: course.course_code,
                 course_name: course.course_name ?? course.course_title ?? '',
+                board_id: course.board_id ?? undefined,
                 course_category: course.course_category,
                 course_part_master: course.course_part_master ?? 'Part III',
                 course_type: (course.course_type as never) ?? 'Core',
+<<<<<<< Updated upstream
                 // Leave Level blank for legacy / non-tiered courses (e.g.,
                 // Internship) — don't silently substitute 'I' on save.
+=======
+                // Leave course_level undefined (not 'I') when COE has no value yet —
+                // the dropdown's placeholder prompts the user to pick, and Zod will
+                // block submit until they do. Avoids silently overwriting a real
+                // legacy value with a default the user didn't choose.
+>>>>>>> Stashed changes
                 course_level: (course.course_level as never) ?? undefined,
                 exam_duration: course.exam_duration ?? 3,
                 credit: course.credit ?? course.credits ?? 3,
@@ -75,7 +90,10 @@ export default function EditCoursePage({ params }: { params: Promise<{ id: strin
               onSubmit={async (form) => {
                 // Final server-side guard — 423 response means COE confirmed lock.
                 try {
-                  await update.mutateAsync({ id, form });
+                  // Resolve board_code from the boards list so the PUT request carries
+                  // both lookup keys to COE (mirrors the create flow).
+                  const board_code = boards?.find((b) => b.id === form.board_id)?.board_code;
+                  await update.mutateAsync({ id, form, board_code });
                   toast.success('Course updated');
                   router.push('/bos/courses');
                 } catch (e) {

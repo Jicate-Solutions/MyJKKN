@@ -214,6 +214,7 @@ export interface BosBoard {
   institutions_id?: string;
   is_active?: boolean;
   display_name?: string | null;
+  board_order?: number | null;   // COE-provided ordering; we sort ascending in selects
 }
 
 export interface BosBoardFilters {

@@ -91,6 +91,7 @@ export function guardInstitutionWrite(
 ): string | null {
   if (scope.isSuperAdmin) return null;
   if (!targetInstitutionsId) return null;
+<<<<<<< Updated upstream
   // CAS-aware: a user whose primary institution is one sibling of a CAS pair
   // (Aided/SF) is allowed to write to either sibling — BoS treats the pair as
   // one logical institution per counselling_code. Without this, the strict
@@ -101,9 +102,43 @@ export function guardInstitutionWrite(
   ]);
   if (allowed.size === 0) return null; // No scope to enforce (super-admin handled above).
   if (!allowed.has(targetInstitutionsId)) {
+=======
+
+  // CAS-aware: allow writes to any sibling institution under the same COE unit.
+  // For CAS users, allInstitutionIds contains both Aided + Self UUIDs so a user
+  // whose profile.institution_id is Aided can still edit a Self-owned record.
+  const allowed = scope.allInstitutionIds.length > 0
+    ? scope.allInstitutionIds
+    : (scope.institutionsId ? [scope.institutionsId] : []);
+
+  if (allowed.length > 0 && !allowed.includes(targetInstitutionsId)) {
+>>>>>>> Stashed changes
     return 'Forbidden: you can only manage BoS records for your own institution';
   }
   return null;
+}
+
+/**
+ * Returns the list of institution_id values the caller is allowed to READ.
+ *
+ * Use this on every list/detail GET that filters by institutions_id.
+ * Apply it as:
+ *   const ids = readableInstitutionIds(scope);
+ *   if (ids === null) // super-admin → no filter
+ *   else if (ids.length === 0) // no institution → empty result
+ *   else if (ids.length === 1) query.eq('institutions_id', ids[0])
+ *   else query.in('institutions_id', ids)
+ *
+ * Returns:
+ *  - null for super-admin (no filter — caller may apply its own).
+ *  - [] when the user has no institution at all (deny).
+ *  - [id] for a normal single-institution user.
+ *  - [aided, self] for CAS users (so they see records under either UUID).
+ */
+export function readableInstitutionIds(scope: BosAccessScope): string[] | null {
+  if (scope.isSuperAdmin) return null;
+  if (scope.allInstitutionIds.length > 0) return scope.allInstitutionIds;
+  return scope.institutionsId ? [scope.institutionsId] : [];
 }
 
 export function applyInstitutionScope(
@@ -170,6 +205,7 @@ export async function canAccessBos(
 /**
  * Re-export — COE institution mapping is shared with Internal Marks.
  */
+<<<<<<< Updated upstream
 export { resolveCoeInstitutionId } from '@/lib/utils/internal-marks/internal-marks-access';
 
 // ── Board-level scoping (Phase 1 of BOS access tightening) ──────────────────
@@ -456,3 +492,6 @@ export function guardPrincipalApprovalOnly(
   }
   return null;
 }
+=======
+export { resolveCoeInstitutionId, resolveCoeInstitutionCode } from '@/lib/utils/internal-marks/internal-marks-access';
+>>>>>>> Stashed changes

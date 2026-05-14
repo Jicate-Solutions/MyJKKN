@@ -24,6 +24,9 @@ interface MutateContext {
   institution_code: string;
   regulation_code: string;
   regulation_id?: string;
+  /** Human-readable board code — resolved client-side from the picked board_id
+   *  so the server can persist both keys without a second lookup. */
+  board_code?: string;
 }
 
 const baseKey = ['bos', 'courses'] as const;
@@ -86,11 +89,11 @@ export function useCreateBosCourse() {
 export function useUpdateBosCourse() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (vars: { id: string; form: Partial<CourseFormInput> }) => {
+    mutationFn: async (vars: { id: string; form: Partial<CourseFormInput>; board_code?: string }) => {
       const r = await fetch(`/api/bos/courses-master/${vars.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ form: vars.form }),
+        body: JSON.stringify({ form: vars.form, board_code: vars.board_code }),
       });
       if (!r.ok) {
         const err = await r.json().catch(() => ({}));

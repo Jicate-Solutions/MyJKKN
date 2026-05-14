@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
-import { resolveBosAccess, applyInstitutionScope } from '@/lib/utils/bos/bos-access';
+import { resolveBosAccess, applyInstitutionScope, readableInstitutionIds } from '@/lib/utils/bos/bos-access';
 
 /**
  * POST /api/bos/syllabus/compare
@@ -48,23 +48,32 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Step 4: Fetch both syllabi
+    // Step 4: Fetch both syllabi (CAS-aware — see syllabus/[id]/route.ts)
+    const allowedIds = readableInstitutionIds(scope);
+    if (allowedIds !== null && allowedIds.length === 0) {
+      return NextResponse.json(
+        { error: 'Syllabi not found' },
+        { status: 404 }
+      );
+    }
+
     let query1 = supabase
       .from('bos_course_syllabi')
       .select('*')
       .eq('id', body.syllabus_id_1);
-
-    if (!scope.isSuperAdmin) {
-      query1 = query1.eq('institutions_id', scope.institutionsId);
-    }
-
     let query2 = supabase
       .from('bos_course_syllabi')
       .select('*')
       .eq('id', body.syllabus_id_2);
 
-    if (!scope.isSuperAdmin) {
-      query2 = query2.eq('institutions_id', scope.institutionsId);
+    if (allowedIds !== null) {
+      if (allowedIds.length === 1) {
+        query1 = query1.eq('institutions_id', allowedIds[0]);
+        query2 = query2.eq('institutions_id', allowedIds[0]);
+      } else {
+        query1 = query1.in('institutions_id', allowedIds);
+        query2 = query2.in('institutions_id', allowedIds);
+      }
     }
 
     const [{ data: syllabus1, error: error1 }, { data: syllabus2, error: error2 }] = await Promise.all([

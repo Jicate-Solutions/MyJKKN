@@ -208,6 +208,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
+<<<<<<< Updated upstream
     const {
       institution_id,
       institution_code,
@@ -216,6 +217,9 @@ export async function POST(request: NextRequest) {
       board_code,
       board_id,
     } = body.context ?? {};
+=======
+    const { institution_id, institution_code, regulation_code, regulation_id, board_code } = body.context ?? {};
+>>>>>>> Stashed changes
     if (!institution_id || !institution_code || !regulation_code) {
       return NextResponse.json(
         { error: 'context.institution_id, .institution_code, .regulation_code required' },
@@ -246,10 +250,16 @@ export async function POST(request: NextRequest) {
       regulation_code,
       regulation_id,
       board_code,
+<<<<<<< Updated upstream
       board_id,
+=======
+>>>>>>> Stashed changes
     };
 
-    // Upsert: check if a course with this code already exists for the institution.
+    // Pre-flight duplicate check — course_code must be unique per institution.
+    // We reject (do NOT silently upsert) so the user knows their action collided
+    // with an existing record and can either pick a different code or go edit
+    // the existing course explicitly.
     const searchRaw = await client.get<unknown>('/api/v1/courses', {
       institutions_id: coeInstitutionId,
       search: parsed.data.course_code.toUpperCase(),
@@ -265,22 +275,26 @@ export async function POST(request: NextRequest) {
     );
 
     if (existing) {
-      const lockVal = (existing as BosCourseMaster & { courses_status?: string }).courses_status ?? existing.course_status;
-      if (lockVal?.toLowerCase() === 'locked') {
-        return NextResponse.json(
-          { error: 'Course already exists and is locked — cannot update', code: 'LOCKED' },
-          { status: 423 }
-        );
-      }
-      // Update existing course instead of creating a duplicate.
-      const payload = toCoeCreatePayload(parsed.data, ctx);
-      const updated = await client.put<unknown>(`/api/v1/courses/${existing.id}`, payload);
-      return NextResponse.json({ ...updated as object, _upsertAction: 'updated' }, { status: 200 });
+      const enteredCode = parsed.data.course_code.toUpperCase();
+      return NextResponse.json(
+        {
+          error:
+            `Course code "${enteredCode}" already exists for this institution. ` +
+            `Use a unique code, or open the existing course to edit it.`,
+          code: 'DUPLICATE_COURSE_CODE',
+          existing: {
+            id: existing.id,
+            course_code: existing.course_code,
+            course_name: existing.course_name,
+          },
+        },
+        { status: 409 }
+      );
     }
 
     const payload = toCoeCreatePayload(parsed.data, ctx);
     const created = await client.post<unknown>('/api/v1/courses', payload);
-    return NextResponse.json({ ...created as object, _upsertAction: 'created' }, { status: 201 });
+    return NextResponse.json(created as object, { status: 201 });
   } catch (error) {
     if (error instanceof CoeApiError) {
       return NextResponse.json({ error: error.message, details: error.details }, { status: error.status });

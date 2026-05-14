@@ -3,7 +3,11 @@
 import { useRef, useState, type ChangeEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
+<<<<<<< Updated upstream
 import { Upload, FileSpreadsheet, Loader2, Plus } from 'lucide-react';
+=======
+import { Download, Upload, FileSpreadsheet, Loader2, Plus } from 'lucide-react';
+>>>>>>> Stashed changes
 import { toast } from 'sonner';
 import { usePermissions } from '@/hooks/use-permissions';
 
@@ -55,6 +59,7 @@ export function SyllabusActions() {
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Extraction failed');
 
+<<<<<<< Updated upstream
       // Hand off parsed data + warnings to the new-syllabus form via
       // sessionStorage. Using sessionStorage (not query params) because the
       // payload can be 50KB+.
@@ -62,12 +67,20 @@ export function SyllabusActions() {
 
       const counts = json.summary as Record<string, number>;
       const warnings = (json.warnings ?? []) as unknown[];
+=======
+      // Hand off parsed data to the new-syllabus form via sessionStorage.
+      // Using sessionStorage (not query params) because the payload can be 50KB+.
+      sessionStorage.setItem(IMPORT_HANDOFF_KEY, JSON.stringify(json));
+
+      const counts = json.summary as Record<string, number>;
+>>>>>>> Stashed changes
       const parts: string[] = [];
       if (counts.objectives) parts.push(`${counts.objectives} objectives`);
       if (counts.clos) parts.push(`${counts.clos} COs`);
       if (counts.units) parts.push(`${counts.units} units`);
       if (counts.po_mapping_rows) parts.push(`${counts.po_mapping_rows} CO mappings`);
 
+<<<<<<< Updated upstream
       const summaryMsg = parts.length > 0
         ? `Imported ${parts.join(', ')}.`
         : 'No sections found.';
@@ -76,6 +89,15 @@ export function SyllabusActions() {
         : '';
 
       toast.success(`${summaryMsg}${warningSuffix} Review and save.`, { id: tid });
+=======
+      toast.success(
+        parts.length > 0
+          ? `Imported ${parts.join(', ')}. Review and save.`
+          : 'No sections found — review the form.',
+        { id: tid },
+      );
+
+>>>>>>> Stashed changes
       router.push('/bos/syllabus/new');
     } catch (err) {
       toast.error((err as Error).message, { id: tid });
@@ -148,6 +170,7 @@ function triggerBrowserDownload(blob: Blob, filename: string) {
   URL.revokeObjectURL(url);
 }
 
+<<<<<<< Updated upstream
 function parseFilename(header: string | null): string | null {
   if (!header) return null;
   const m = header.match(/filename="([^"]+)"/);
@@ -156,6 +179,10 @@ function parseFilename(header: string | null): string | null {
 
 /**
  * Per-row "Export to Excel" helper used by the row-actions dropdown.
+=======
+/**
+ * Trigger an XLSX export for a single syllabus. Used by row-actions.
+>>>>>>> Stashed changes
  */
 export async function exportSyllabusToXlsx(
   syllabusId: string,
@@ -170,6 +197,10 @@ export async function exportSyllabusToXlsx(
     }
     const blob = await res.blob();
     const filename =
+<<<<<<< Updated upstream
+=======
+      // Use the Content-Disposition filename if the server set one
+>>>>>>> Stashed changes
       parseFilename(res.headers.get('Content-Disposition')) ??
       `${courseCode ?? 'syllabus'}.xlsx`;
     triggerBrowserDownload(blob, filename);
@@ -178,3 +209,12 @@ export async function exportSyllabusToXlsx(
     toast.error((e as Error).message, { id: tid });
   }
 }
+<<<<<<< Updated upstream
+=======
+
+function parseFilename(header: string | null): string | null {
+  if (!header) return null;
+  const m = header.match(/filename="([^"]+)"/);
+  return m ? m[1] : null;
+}
+>>>>>>> Stashed changes

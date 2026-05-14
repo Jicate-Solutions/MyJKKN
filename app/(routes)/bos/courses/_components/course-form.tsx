@@ -1,5 +1,6 @@
 'use client';
 
+import * as React from 'react';
 import { useEffect } from 'react';
 import { useForm, Controller, type UseFormReturn, type FieldPath } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -18,15 +19,41 @@ import {
   COURSE_LEVEL_VALUES,
   type CourseFormInput,
 } from '@/lib/services/bos/courses-schemas';
+import { useCourseTypeOptions } from '@/hooks/bos/use-course-types';
+import type { BosBoard } from '@/types/bos';
 
 interface Props {
   defaultValues?: Partial<CourseFormInput>;
+  boards?: BosBoard[];                 // Required for save (Zod blocks if missing); shown as a select
+  boardsLoading?: boolean;
   onSubmit: (values: CourseFormInput) => Promise<void>;
   submitting?: boolean;
   submitLabel?: string;
 }
 
-export function CourseForm({ defaultValues, onSubmit, submitting, submitLabel = 'Save' }: Props) {
+export function CourseForm({ defaultValues, boards, boardsLoading, onSubmit, submitting, submitLabel = 'Save' }: Props) {
+  // Live course_type list from COE — falls back to the bundled list while loading
+  // or on outage so the form is never blocked.
+  const courseTypesQ = useCourseTypeOptions();
+  const courseTypeOptions: readonly string[] =
+    courseTypesQ.options.length > 0 ? courseTypesQ.options : COURSE_TYPE_VALUES;
+
+  // Sort boards by COE's board_order ascending; nulls/undefined sink to the bottom.
+  // Memoize so the searchable list isn't re-sorted on every keystroke.
+  const boardOptions = React.useMemo(() => {
+    const list = boards ? [...boards] : [];
+    list.sort((a, b) => {
+      const ao = a.board_order ?? Number.POSITIVE_INFINITY;
+      const bo = b.board_order ?? Number.POSITIVE_INFINITY;
+      if (ao !== bo) return ao - bo;
+      return a.board_code.localeCompare(b.board_code);
+    });
+    return list.map((b) => ({
+      value: b.id,
+      label: b.board_name ? `${b.board_code} — ${b.board_name}` : b.board_code,
+    }));
+  }, [boards]);
+
   const form = useForm<CourseFormInput>({
     resolver: zodResolver(courseFormSchema),
     defaultValues: {
@@ -35,9 +62,14 @@ export function CourseForm({ defaultValues, onSubmit, submitting, submitLabel = 
       course_category: 'Theory',
       course_part_master: 'Part III',
       course_type: 'Core',
+<<<<<<< Updated upstream
       // course_level intentionally omitted — some courses genuinely have no
       // Roman-numeral tier, so blank is the right default. The schema is now
       // optional, so submitting without a Level is valid.
+=======
+      // course_level intentionally omitted — Level dropdown starts blank so
+      // the user must make a deliberate I..XX choice (validated by Zod).
+>>>>>>> Stashed changes
       exam_duration: 3,
       credit: 3,
       theory_hours: 0,
@@ -64,6 +96,29 @@ export function CourseForm({ defaultValues, onSubmit, submitting, submitLabel = 
     <form onSubmit={form.handleSubmit(onSubmit)} className='space-y-6 max-w-3xl'>
       <fieldset className='space-y-3 rounded-lg border p-4'>
         <legend className='px-2 text-sm font-semibold'>Identity</legend>
+        <div className='grid grid-cols-2 gap-3'>
+          <Field label='Board' error={form.formState.errors.board_id?.message}>
+            <SearchableSelect
+              value={form.watch('board_id') ?? ''}
+              onValueChange={(v) =>
+                form.setValue('board_id', v, { shouldValidate: true, shouldDirty: true })
+              }
+              options={boardOptions}
+              loading={boardsLoading}
+              disabled={!boardsLoading && boardOptions.length === 0}
+              placeholder={
+                boardsLoading
+                  ? 'Loading boards…'
+                  : boardOptions.length === 0
+                    ? 'No boards available for this institution'
+                    : 'Select board'
+              }
+              searchPlaceholder='Search board…'
+              emptyMessage='No matching boards'
+              className='w-full justify-between'
+            />
+          </Field>
+        </div>
         <div className='grid grid-cols-2 gap-3'>
           <Field label='Course Code' error={form.formState.errors.course_code?.message}>
             <Input
@@ -93,6 +148,7 @@ export function CourseForm({ defaultValues, onSubmit, submitting, submitLabel = 
           <SelectField name='course_part_master' form={form} label='Part' options={COURSE_PART_VALUES} />
         </div>
         <div className='grid grid-cols-[2fr_1fr] gap-3'>
+<<<<<<< Updated upstream
           <SelectField name='course_type' form={form} label='Type' options={COURSE_TYPE_VALUES} />
           <Field label='Level' error={form.formState.errors.course_level?.message}>
             <Controller
@@ -116,6 +172,22 @@ export function CourseForm({ defaultValues, onSubmit, submitting, submitLabel = 
               )}
             />
           </Field>
+=======
+          <SelectField
+            name='course_type'
+            form={form}
+            label={courseTypesQ.isLoading ? 'Type (loading…)' : 'Type'}
+            options={courseTypeOptions}
+          />
+          <SelectField
+            name='course_level'
+            form={form}
+            label='Level'
+            options={COURSE_LEVEL_VALUES}
+            placeholder='Select level'
+            disabled={!form.watch('course_type')}
+          />
+>>>>>>> Stashed changes
         </div>
       </fieldset>
 
@@ -170,12 +242,14 @@ function Field({ label, error, children }: { label: string; error?: string; chil
 }
 
 function SelectField({
-  name, form, label, options,
+  name, form, label, options, disabled, placeholder,
 }: {
   name: FieldPath<CourseFormInput>;
   form: UseFormReturn<CourseFormInput>;
   label: string;
   options: readonly string[];
+  disabled?: boolean;
+  placeholder?: string;
 }) {
   const error = form.formState.errors[name]?.message as string | undefined;
   // Controller binds Radix Select to react-hook-form's controlled state from
@@ -184,6 +258,7 @@ function SelectField({
   // 'I' not appearing in the trigger even though defaultValues set it).
   return (
     <Field label={label} error={error}>
+<<<<<<< Updated upstream
       <Controller
         name={name}
         control={form.control}
@@ -199,6 +274,18 @@ function SelectField({
           </Select>
         )}
       />
+=======
+      <Select
+        value={value}
+        onValueChange={(v) => form.setValue(name, v as never, { shouldValidate: true, shouldDirty: true })}
+        disabled={disabled}
+      >
+        <SelectTrigger><SelectValue placeholder={placeholder} /></SelectTrigger>
+        <SelectContent>
+          {options.map((o) => <SelectItem key={o} value={o}>{o}</SelectItem>)}
+        </SelectContent>
+      </Select>
+>>>>>>> Stashed changes
     </Field>
   );
 }

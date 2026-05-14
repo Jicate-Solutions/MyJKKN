@@ -23,8 +23,13 @@ export type CourseType =
   | 'Practical' | 'Project'
   | 'Skill Enhancement Practical' | 'Skill Enhancement';
 
+<<<<<<< Updated upstream
 /** Roman numerals I..XX (1..20). Pairs with CourseType in COE to form
  *  course_type_code (e.g., "Core" + "I" => "Core-I"). */
+=======
+/** Roman numerals I..XX (maps to 1..20). Pairs with CourseType to form
+ *  course_type_code (e.g., "Core" + "I" => "Core-I") on the COE side. */
+>>>>>>> Stashed changes
 export type CourseLevel =
   | 'I' | 'II' | 'III' | 'IV' | 'V'
   | 'VI' | 'VII' | 'VIII' | 'IX' | 'X'
@@ -43,6 +48,8 @@ export interface BosCourseMaster {
   institution_code: string;
   regulation_id: string | null;
   regulation_code: string;
+  board_id: string | null;          // Owning Board of Studies (UUID)
+  board_code?: string | null;       // Convenience: COE may include in joined responses
   course_code: string;
   course_name: string;
   course_title?: string;     // COE alias for course_name — appears in single-record GET responses
@@ -50,7 +57,12 @@ export interface BosCourseMaster {
   display_code: string;
   course_category: CourseCategory;
   course_type: CourseType | null;
+<<<<<<< Updated upstream
   course_level: CourseLevel | null;   // Roman numeral I..XX
+=======
+  course_level: CourseLevel | null;          // Roman numeral I..XX
+  course_type_code?: string | null;          // COE-computed: `${course_type}-${course_level}` (e.g., "Core-I")
+>>>>>>> Stashed changes
   course_part_master: CoursePart | null;
   credit: number;
   theory_credit: number | null;
@@ -83,14 +95,23 @@ export function isLocked(row: { course_status?: string | null; courses_status?: 
   return v?.toLowerCase() === 'locked';
 }
 
+<<<<<<< Updated upstream
 /** The 14-field manual form (Section 2 + optional course_level). */
+=======
+/** The 15-field manual form (per design Section 2, plus course_level and board_id). */
+>>>>>>> Stashed changes
 export interface BosCourseFormData {
   course_code: string;
   course_name: string;
+  board_id: string;
   course_category: CourseCategory;
   course_part_master: CoursePart;
   course_type: CourseType;
+<<<<<<< Updated upstream
   course_level?: CourseLevel;          // optional — see Zod schema for rationale
+=======
+  course_level: CourseLevel;
+>>>>>>> Stashed changes
   exam_duration: number;
   credit: number;
   theory_hours: number;
@@ -138,6 +159,23 @@ export interface BosCourseMappingDetailed extends BosCourseMapping {
 export interface BosCourseListResponse {
   data: BosCourseMaster[];
   metadata: { total: number; limit: number; offset: number };
+}
+
+/** COE master row from GET /api/v1/course-info — single source of truth for course_type. */
+export interface CoeCourseInfo {
+  id: string;
+  course_type: string;
+  display_code: string;
+  description: string | null;
+  sort_order: number;
+  status: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CoeCourseInfoListResponse {
+  data: CoeCourseInfo[];
+  total: number;
 }
 
 export interface BosBulkImportResponse {

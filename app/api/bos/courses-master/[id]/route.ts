@@ -96,6 +96,13 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     if ('course_name' in updates) updates.course_title = updates.course_name;
     if ('credit' in updates) updates.credits = updates.credit;
 
+    // Board code travels alongside board_id so COE persists both lookup keys.
+    // It's not part of the Zod-validated form (it's client-resolved), so we read
+    // it from the request body and attach it directly.
+    if (typeof body.board_code === 'string' && body.board_code.length > 0) {
+      updates.board_code = body.board_code;
+    }
+
     // Recompute totals if both sides were sent
     if ('internal_max_mark' in updates && 'external_max_mark' in updates) {
       const i = (updates.internal_max_mark as number | undefined) ?? 0;

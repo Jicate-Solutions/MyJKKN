@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { CoeRestClient, CoeApiError } from '@/lib/services/coe/coe-rest-client';
-import { resolveBosAccess, resolveCoeInstitutionId } from '@/lib/utils/bos/bos-access';
+import { resolveBosAccess, resolveCoeInstitutionCode } from '@/lib/utils/bos/bos-access';
 
 interface CoeBoard {
   id: string;
@@ -36,23 +36,21 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ data: [], count: 0 });
     }
 
-    const coeInstitutionId = await resolveCoeInstitutionId(targetMyJkknId);
-    if (!coeInstitutionId) {
-      console.warn('[GET /api/bos/boards] Could not resolve COE institution id for MyJKKN id:', targetMyJkknId);
+    const institutionCode = await resolveCoeInstitutionCode(targetMyJkknId);
+    if (!institutionCode) {
+      console.warn('[GET /api/bos/boards] Could not resolve COE institution_code for MyJKKN id:', targetMyJkknId);
       return NextResponse.json({ data: [], count: 0 });
     }
 
     const coe = CoeRestClient.create();
     let raw: unknown;
     try {
-      raw = await coe.get<unknown>('/api/v1/boards', {
-        institutions_id: coeInstitutionId,
-        is_active: 'true',
+      raw = await coe.get<unknown>('/api/public/boards', {
+        institution_code: institutionCode,
       });
     } catch (coeErr) {
-      // COE returns 404 when the institution has no boards configured — treat as empty.
       if (coeErr instanceof CoeApiError && coeErr.status === 404) {
-        console.warn('[GET /api/bos/boards] COE returned 404 for coeInstitutionId=%s (myJkknId=%s) — no boards configured', coeInstitutionId, targetMyJkknId);
+        console.warn('[GET /api/bos/boards] COE /api/public/boards 404 for institution_code=%s (myJkknId=%s)', institutionCode, targetMyJkknId);
         return NextResponse.json({ data: [], count: 0 });
       }
       throw coeErr;

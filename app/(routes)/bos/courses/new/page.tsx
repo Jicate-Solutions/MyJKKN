@@ -13,6 +13,7 @@ import { InstitutionPicker, type InstitutionOption } from '../../_components/ins
 import { CourseForm } from '../_components/course-form';
 import { useCreateBosCourse } from '@/hooks/bos/use-bos-courses';
 import { useBosRegulationOptions } from '@/hooks/bos/use-bos-scheme-options';
+<<<<<<< Updated upstream
 import { useBosBoardScope } from '@/hooks/bos/use-bos-board-scope';
 
 interface CoeBoard {
@@ -21,6 +22,9 @@ interface CoeBoard {
   board_name: string;
   board_type?: string | null;
 }
+=======
+import { useBosBoards } from '@/hooks/bos/use-bos-boards';
+>>>>>>> Stashed changes
 
 export default function NewCoursePage() {
   const router = useRouter();
@@ -88,11 +92,20 @@ export default function NewCoursePage() {
   const { data: regulationsData, isLoading: regulationsLoading } = useBosRegulationOptions(lookupIds);
   const regulations = regulationsData?.data ?? [];
 
+<<<<<<< Updated upstream
   const ready =
     !!institutionId &&
     institutionCode.trim().length > 0 &&
     boardCode.trim().length > 0 &&
     regulationCode.trim().length > 0;
+=======
+  // Boards are scoped to the picked institution (MyJKKN UUID). For non-super-admins
+  // the route auto-restricts to their own scope, so the institutionId hint is
+  // harmless if it doesn't match.
+  const { data: boards, isLoading: boardsLoading } = useBosBoards(institutionId);
+
+  const ready = !!institutionId && institutionCode.trim().length > 0 && regulationCode.trim().length > 0;
+>>>>>>> Stashed changes
 
   return (
     <PermissionGuard module='academic.bos-courses' action='create'>
@@ -168,25 +181,33 @@ export default function NewCoursePage() {
             <CourseForm
               submitting={create.isPending}
               submitLabel='Create Course'
+              boards={boards}
+              boardsLoading={boardsLoading}
               onSubmit={async (form) => {
                 try {
-                  const result = await create.mutateAsync({
+                  // Resolve human-readable board_code from the picked board_id so
+                  // COE persists both lookup keys (defensive — see toCoeCreatePayload).
+                  const board_code = boards?.find((b) => b.id === form.board_id)?.board_code;
+                  await create.mutateAsync({
                     form,
                     context: {
                       institution_id: institutionId!,
                       institution_code: institutionCode,
                       regulation_code: regulationCode,
+<<<<<<< Updated upstream
                       board_id: boardId,
                       board_code: boardCode,
+=======
+                      board_code,
+>>>>>>> Stashed changes
                     },
-                  }) as { _upsertAction?: string };
-                  toast.success(
-                    result?._upsertAction === 'updated'
-                      ? 'Course already existed — updated successfully'
-                      : 'Course created'
-                  );
+                  });
+                  toast.success('Course created');
                   router.push('/bos/courses');
                 } catch (e) {
+                  // Server returns 409 with a descriptive message when course_code
+                  // collides — surface that verbatim so the user knows to pick a
+                  // unique code or open the existing course to edit it.
                   toast.error((e as Error).message);
                 }
               }}

@@ -1,11 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
+<<<<<<< Updated upstream
 import {
   resolveBosAccess,
   resolveBosBoardScope,
   guardInstitutionWrite,
   guardSyllabusEdit,
 } from '@/lib/utils/bos/bos-access';
+=======
+import { resolveBosAccess, applyInstitutionScope, guardInstitutionWrite, readableInstitutionIds } from '@/lib/utils/bos/bos-access';
+>>>>>>> Stashed changes
 import { BosCourseSyllabus, UpdateBosSyllabusDto } from '@/types/bos';
 
 /**
@@ -51,9 +55,18 @@ export async function GET(
       .select('*')
       .eq('id', id);
 
-    // Apply institution scope if not super admin
-    if (!scope.isSuperAdmin) {
-      query = query.eq('institutions_id', scope.institutionsId);
+    // CAS-aware institution scope. For Arts & Science colleges the user's
+    // profile.institution_id points to one of two MyJKKN UUIDs (Aided or
+    // Self) but syllabi may be stored under the sibling UUID — so we filter
+    // by the full allInstitutionIds list, never a single UUID.
+    const allowedIds = readableInstitutionIds(scope);
+    if (allowedIds !== null) {
+      if (allowedIds.length === 0) {
+        return NextResponse.json({ error: 'Syllabus not found' }, { status: 404 });
+      }
+      query = allowedIds.length === 1
+        ? query.eq('institutions_id', allowedIds[0])
+        : query.in('institutions_id', allowedIds);
     }
 
     const { data, error } = await query.maybeSingle();

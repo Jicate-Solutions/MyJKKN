@@ -48,12 +48,30 @@ const SECTION_LABELS: Array<[keyof ImportSummaryCounts, string]> = [
   ['po_mapping_rows', 'PO Mapping'],
 ];
 
+<<<<<<< Updated upstream
+=======
+/**
+ * Per-row / per-section import issues dialog.
+ *
+ * Surfaces three categories of feedback from the extract API:
+ *   - Successful sections (green check) with row counts
+ *   - Empty sections (amber warning) — sheet present but no rows parsed
+ *   - Skipped rows (red X) — specific rows that didn't parse
+ *
+ * Dismissing this does not undo the import — successfully parsed data is
+ * already in the form. User can edit the file and re-import to fix issues.
+ */
+>>>>>>> Stashed changes
 export function SyllabusImportIssuesDialog({
   open,
   onOpenChange,
   warnings,
   summary = {},
 }: Props) {
+<<<<<<< Updated upstream
+=======
+  // Group warnings by section for nicer rendering
+>>>>>>> Stashed changes
   const bySection = new Map<string, ImportWarning[]>();
   for (const w of warnings) {
     const list = bySection.get(w.section) ?? [];
@@ -62,6 +80,10 @@ export function SyllabusImportIssuesDialog({
   }
 
   const filledSections = SECTION_LABELS.filter(([key]) => (summary[key] ?? 0) > 0);
+<<<<<<< Updated upstream
+=======
+  const emptySections = SECTION_LABELS.filter(([key]) => (summary[key] ?? 0) === 0);
+>>>>>>> Stashed changes
   const totalRowsImported = SECTION_LABELS.reduce(
     (sum, [key]) => sum + (summary[key] ?? 0),
     0,
@@ -82,13 +104,18 @@ export function SyllabusImportIssuesDialog({
               <AlertDialogDescription className='text-sm text-muted-foreground mt-1'>
                 {warnings.length === 0
                   ? 'Import completed cleanly.'
+<<<<<<< Updated upstream
                   : `${warnings.length} issue${warnings.length === 1 ? '' : 's'} found. Successfully parsed data has already been loaded into the form — review and save, or correct your file and re-import.`}
+=======
+                  : `${warnings.length} issue${warnings.length === 1 ? '' : 's'} found. Successfully parsed data has already been loaded into the form — you can review and save, or correct your file and re-import.`}
+>>>>>>> Stashed changes
               </AlertDialogDescription>
             </div>
           </div>
         </AlertDialogHeader>
 
         <div className='space-y-4'>
+<<<<<<< Updated upstream
           <div className='grid grid-cols-3 gap-3'>
             <div className='bg-green-50 dark:bg-green-900/10 border border-green-200 dark:border-green-800 rounded-lg p-3'>
               <div className='text-xs text-green-600 dark:text-green-400 font-medium mb-1'>Rows imported</div>
@@ -106,6 +133,41 @@ export function SyllabusImportIssuesDialog({
 
           <div className='border rounded-lg p-3'>
             <h4 className='text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2'>Section status</h4>
+=======
+          {/* Summary cards */}
+          <div className='grid grid-cols-3 gap-3'>
+            <div className='bg-green-50 dark:bg-green-900/10 border border-green-200 dark:border-green-800 rounded-lg p-3'>
+              <div className='text-xs text-green-600 dark:text-green-400 font-medium mb-1'>
+                Rows imported
+              </div>
+              <div className='text-2xl font-bold text-green-700 dark:text-green-300'>
+                {totalRowsImported}
+              </div>
+            </div>
+            <div className='bg-blue-50 dark:bg-blue-900/10 border border-blue-200 dark:border-blue-800 rounded-lg p-3'>
+              <div className='text-xs text-blue-600 dark:text-blue-400 font-medium mb-1'>
+                Sections filled
+              </div>
+              <div className='text-2xl font-bold text-blue-700 dark:text-blue-300'>
+                {filledSections.length}
+              </div>
+            </div>
+            <div className='bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-800 rounded-lg p-3'>
+              <div className='text-xs text-amber-600 dark:text-amber-400 font-medium mb-1'>
+                Issues
+              </div>
+              <div className='text-2xl font-bold text-amber-700 dark:text-amber-300'>
+                {warnings.length}
+              </div>
+            </div>
+          </div>
+
+          {/* Per-section status badges */}
+          <div className='border rounded-lg p-3'>
+            <h4 className='text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2'>
+              Section status
+            </h4>
+>>>>>>> Stashed changes
             <div className='flex flex-wrap gap-2'>
               {SECTION_LABELS.map(([key, label]) => {
                 const count = summary[key] ?? 0;
@@ -120,7 +182,15 @@ export function SyllabusImportIssuesDialog({
                         : 'bg-muted/60 text-muted-foreground'
                     }
                   >
+<<<<<<< Updated upstream
                     {ok ? <CheckCircle2 className='h-3 w-3 mr-1' /> : <XCircle className='h-3 w-3 mr-1' />}
+=======
+                    {ok ? (
+                      <CheckCircle2 className='h-3 w-3 mr-1' />
+                    ) : (
+                      <XCircle className='h-3 w-3 mr-1' />
+                    )}
+>>>>>>> Stashed changes
                     {label}
                     {ok && <span className='ml-1 font-mono'>({count})</span>}
                   </Badge>
@@ -129,16 +199,32 @@ export function SyllabusImportIssuesDialog({
             </div>
           </div>
 
+<<<<<<< Updated upstream
           {warnings.length > 0 && (
             <div className='space-y-3'>
               <h4 className='text-xs font-semibold uppercase tracking-wider text-muted-foreground'>Details</h4>
+=======
+          {/* Detailed warnings */}
+          {warnings.length > 0 && (
+            <div className='space-y-3'>
+              <h4 className='text-xs font-semibold uppercase tracking-wider text-muted-foreground'>
+                Details
+              </h4>
+>>>>>>> Stashed changes
               {Array.from(bySection.entries()).map(([section, list]) => (
                 <div
                   key={section}
                   className='border border-amber-200 dark:border-amber-800 rounded-lg p-3 bg-amber-50/50 dark:bg-amber-900/5'
                 >
                   <div className='flex items-center gap-2 mb-2'>
+<<<<<<< Updated upstream
                     <Badge variant='outline' className='text-xs bg-amber-100 text-amber-800 border-amber-300'>
+=======
+                    <Badge
+                      variant='outline'
+                      className='text-xs bg-amber-100 text-amber-800 border-amber-300'
+                    >
+>>>>>>> Stashed changes
                       {section}
                     </Badge>
                     <span className='text-xs text-muted-foreground'>
@@ -168,9 +254,18 @@ export function SyllabusImportIssuesDialog({
             </div>
           )}
 
+<<<<<<< Updated upstream
           {warnings.length > 0 && (
             <div className='bg-blue-50 dark:bg-blue-900/10 border border-blue-200 dark:border-blue-800 rounded-lg p-4'>
               <h4 className='font-semibold text-blue-800 dark:text-blue-200 text-sm mb-1'>Common fixes:</h4>
+=======
+          {/* Common fixes hint */}
+          {warnings.length > 0 && (
+            <div className='bg-blue-50 dark:bg-blue-900/10 border border-blue-200 dark:border-blue-800 rounded-lg p-4'>
+              <h4 className='font-semibold text-blue-800 dark:text-blue-200 text-sm mb-1'>
+                Common fixes:
+              </h4>
+>>>>>>> Stashed changes
               <ul className='text-xs text-blue-700 dark:text-blue-300 space-y-1'>
                 <li>• Each row in Objectives / COs needs a non-empty Description.</li>
                 <li>• Each row in Units needs a Unit value (I, II, III, …).</li>

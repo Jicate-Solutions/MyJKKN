@@ -32,7 +32,11 @@ export class BosBoardService {
       const err = await res.json().catch(() => ({ error: 'Failed to fetch boards' }));
       throw new Error(err.error ?? 'Failed to fetch boards');
     }
-    return res.json();
+    // Route returns { data: BosBoard[], count } — unwrap so callers see a plain array
+    // matching the declared return type. Tolerate older shapes for safety.
+    const json = await res.json();
+    if (Array.isArray(json)) return json as BosBoard[];
+    return (json?.data ?? []) as BosBoard[];
   }
 
   static async getBoard(id: string): Promise<BosBoard> {
