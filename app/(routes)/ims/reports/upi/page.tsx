@@ -25,7 +25,6 @@ import {
 } from 'lucide-react';
 import { BeatLoader } from 'react-spinners';
 import { useRouter } from 'next/navigation';
-import { ImsPageGuard } from '@/components/ims/ims-page-guard';
 
 const formatCurrency = (value: number) =>
   new Intl.NumberFormat('en-IN', {
@@ -37,14 +36,6 @@ const formatCurrency = (value: number) =>
 type DatePreset = 'today' | 'week' | 'month' | 'custom';
 
 export default function UpiAuditReportPage() {
-  return (
-    <ImsPageGuard module="ims.reports" action="view">
-      <UpiAuditReportPageInner />
-    </ImsPageGuard>
-  );
-}
-
-function UpiAuditReportPageInner() {
   const router = useRouter();
   const { storeId, institutionId } = useImsStoreContext();
 

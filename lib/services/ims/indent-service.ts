@@ -1,7 +1,6 @@
 // lib/services/ims/indent-service.ts
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
-import { ImsActivityLogService } from './activity-log-service';
 import type {
   ImsIndentRequest,
   ImsIndentWithItems,
@@ -183,7 +182,6 @@ export class ImsIndentService {
           indent_number: indentNumber,
           department_id: data.department_id || null,
           requested_by: userId,
-          requested_at: new Date().toISOString(),
           required_date: data.required_date || null,
           purpose: data.purpose,
           urgency: data.urgency,
@@ -218,17 +216,6 @@ export class ImsIndentService {
 
       if (itemsError) throw itemsError;
 
-      // Phase F: log to activity trail (non-fatal on failure)
-      await ImsActivityLogService.log({
-        entityType: 'indent',
-        entityId: indent.id,
-        institutionId: data.institution_id,
-        action: 'raised',
-        actorId: userId,
-        notes: data.purpose,
-        metadata: { indent_number: indentNumber, item_count: indentItems.length },
-      });
-
       return indent as ImsIndentRequest;
     } catch (error) {
       const errDetail = (error as any)?.message ?? (error as any)?.details ?? JSON.stringify(error);
@@ -242,8 +229,7 @@ export class ImsIndentService {
    */
   static async approveIndent(
     id: string,
-    userId: string,
-    notes?: string
+    userId: string
   ): Promise<ImsIndentRequest> {
     try {
       const { data, error } = await this.supabase
@@ -260,16 +246,6 @@ export class ImsIndentService {
 
       if (error) throw error;
 
-      // Phase F: log to activity trail
-      await ImsActivityLogService.log({
-        entityType: 'indent',
-        entityId: id,
-        institutionId: data.institution_id,
-        action: 'approved',
-        actorId: userId,
-        notes: notes ?? null,
-      });
-
       return data as ImsIndentRequest;
     } catch (error) {
       const errDetail = (error as any)?.message ?? (error as any)?.details ?? JSON.stringify(error);
@@ -279,27 +255,20 @@ export class ImsIndentService {
   }
 
   /**
-   * Reject an indent with a REQUIRED reason (Phase F: rejection accountability).
-   * Uses the new dedicated rejected_by + rejected_at columns rather than
-   * overwriting approved_by/approved_at (which previously conflated the two).
+   * Reject an indent with a reason.
    */
   static async rejectIndent(
     id: string,
     userId: string,
     reason: string
   ): Promise<ImsIndentRequest> {
-    // Phase F: rejection reason is required for accountability
-    if (!reason || !reason.trim()) {
-      throw new Error('Rejection reason is required');
-    }
-
     try {
       const { data, error } = await this.supabase
         .from('ims_indent_requests')
         .update({
           status: 'rejected',
-          rejected_by: userId,
-          rejected_at: new Date().toISOString(),
+          approved_by: userId,
+          approved_at: new Date().toISOString(),
           rejection_reason: reason,
           updated_at: new Date().toISOString(),
         })
@@ -308,16 +277,6 @@ export class ImsIndentService {
         .single();
 
       if (error) throw error;
-
-      // Phase F: log to activity trail with mandatory reason
-      await ImsActivityLogService.log({
-        entityType: 'indent',
-        entityId: id,
-        institutionId: data.institution_id,
-        action: 'rejected',
-        actorId: userId,
-        notes: reason,
-      });
 
       return data as ImsIndentRequest;
     } catch (error) {

@@ -1,9 +1,7 @@
 // lib/services/ims/stock-adjustment-service.ts
 // Updated: 2026-02-21 — Multi-store support (store_id as primary scope)
-// Updated: 2026-04-28 — Phase F: activity log integration + reason validation
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
-import { ImsActivityLogService } from './activity-log-service';
 import type {
   ImsFinancialTransaction,
   ImsAdjustmentType,
@@ -96,11 +94,6 @@ export class ImsStockAdjustmentService {
     },
     userId: string
   ): Promise<ImsFinancialTransaction> {
-    // Phase F: adjustment reason is required for accountability (audit/compliance)
-    if (!data.reason || !data.reason.trim()) {
-      throw new Error('Adjustment reason is required');
-    }
-
     try {
       const isNegative = [
         'damage',
@@ -186,25 +179,6 @@ export class ImsStockAdjustmentService {
           store_id: data.store_id || null,
         });
       }
-
-      // Phase F: log to activity trail with mandatory reason as notes
-      await ImsActivityLogService.log({
-        entityType: 'adjustment',
-        entityId: transaction.id,
-        institutionId: data.institution_id,
-        action: 'adjusted',
-        actorId: userId,
-        notes: data.reason,
-        metadata: {
-          item_id: data.item_id,
-          item_name: item.name,
-          item_code: item.code,
-          adjustment_type: data.adjustment_type,
-          quantity: data.quantity,
-          quantity_delta: quantityDelta,
-          adjustment_value: adjustmentValue,
-        },
-      });
 
       return transaction as ImsFinancialTransaction;
     } catch (error) {

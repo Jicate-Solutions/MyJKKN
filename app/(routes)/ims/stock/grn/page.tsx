@@ -55,8 +55,6 @@ import { useAuth } from '@/hooks/use-auth';
 import { useImsStoreContext } from '@/hooks/ims/use-ims-store-context';
 import { GRN_STATUS_CONFIG } from '@/types/ims/grn';
 import type { ImsGoodsReceivedNote, ImsGRNStatus } from '@/types/ims';
-import { ImsPageGuard } from '@/components/ims/ims-page-guard';
-import { usePermissions } from '@/hooks/use-permissions';
 
 const GRN_STATUSES: ImsGRNStatus[] = [
   'draft',
@@ -67,21 +65,9 @@ const GRN_STATUSES: ImsGRNStatus[] = [
 ];
 
 export default function GRNListPage() {
-  return (
-    <ImsPageGuard module="ims.stock.grn" action="view">
-      <GRNListPageInner />
-    </ImsPageGuard>
-  );
-}
-
-function GRNListPageInner() {
   const { profile } = useAuth();
   const { storeId, institutionId } = useImsStoreContext();
   const userId = profile?.id ?? '';
-  const { canAccess, isSuperAdmin } = usePermissions();
-  const canCreate = isSuperAdmin || canAccess('ims.stock.grn', 'create');
-  const canReceive = isSuperAdmin || canAccess('ims.stock.grn', 'receive');
-  const canEditGRN = isSuperAdmin || canAccess('ims.stock.grn', 'edit');
 
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
@@ -101,12 +87,7 @@ function GRNListPageInner() {
   const approveMutation = useApproveImsGRN();
   const cancelMutation = useCancelImsGRN();
 
-  // getGRNs returns { data, metadata } (paginated wrapper). Unwrap defensively.
-  const grns: ImsGoodsReceivedNote[] = Array.isArray(grnData?.data)
-    ? grnData.data
-    : Array.isArray(grnData)
-      ? grnData
-      : [];
+  const grns: ImsGoodsReceivedNote[] = Array.isArray(grnData) ? grnData : [];
 
   const handleVerify = async (id: string) => {
     try {
@@ -146,14 +127,12 @@ function GRNListPageInner() {
               Track and manage goods received from suppliers
             </p>
           </div>
-          {canCreate && (
-            <Button asChild>
-              <Link href="/ims/stock/grn/new">
-                <Plus className="mr-2 h-4 w-4" />
-                New GRN
-              </Link>
-            </Button>
-          )}
+          <Button asChild>
+            <Link href="/ims/stock/grn/new">
+              <Plus className="mr-2 h-4 w-4" />
+              New GRN
+            </Link>
+          </Button>
         </div>
 
         {/* Filters */}
@@ -265,7 +244,7 @@ function GRNListPageInner() {
                             </Button>
 
                             {(grn.status === 'draft' ||
-                              grn.status === 'pending_verification') && canReceive && (
+                              grn.status === 'pending_verification') && (
                               <Button
                                 variant="ghost"
                                 size="icon"
@@ -277,7 +256,7 @@ function GRNListPageInner() {
                               </Button>
                             )}
 
-                            {grn.status === 'verified' && canReceive && (
+                            {grn.status === 'verified' && (
                               <Button
                                 variant="ghost"
                                 size="icon"
@@ -290,7 +269,7 @@ function GRNListPageInner() {
                             )}
 
                             {grn.status !== 'approved' &&
-                              grn.status !== 'cancelled' && canEditGRN && (
+                              grn.status !== 'cancelled' && (
                                 <AlertDialog>
                                   <AlertDialogTrigger asChild>
                                     <Button

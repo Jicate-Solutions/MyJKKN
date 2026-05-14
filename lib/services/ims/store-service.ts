@@ -83,15 +83,7 @@ export class ImsStoreService {
         },
       };
     } catch (error) {
-      const e = error as { message?: string; code?: string; details?: string; hint?: string };
-      console.error(
-        '[ImsStoreService] Error in getStores:',
-        e?.message ?? String(error),
-        '| code:', e?.code,
-        '| details:', e?.details,
-        '| hint:', e?.hint,
-        '| raw:', JSON.stringify(error, Object.getOwnPropertyNames(error ?? {}))
-      );
+      console.error('[ImsStoreService] Error in getStores:', error);
       throw error;
     }
   }
@@ -113,15 +105,7 @@ export class ImsStoreService {
 
       return data as ImsStoreWithRelations;
     } catch (error) {
-      const e = error as { message?: string; code?: string; details?: string; hint?: string };
-      console.error(
-        '[ImsStoreService] Error in getStore:',
-        e?.message ?? String(error),
-        '| code:', e?.code,
-        '| details:', e?.details,
-        '| hint:', e?.hint,
-        '| raw:', JSON.stringify(error, Object.getOwnPropertyNames(error ?? {}))
-      );
+      console.error('[ImsStoreService] Error in getStore:', error);
       throw error;
     }
   }
