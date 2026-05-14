@@ -187,8 +187,11 @@ function HRAssetsContent() {
           }));
           setMyAssignments(enriched);
         }
-      } catch (e) {
-        if (!cancelled) setError(e instanceof Error ? e.message : String(e));
+      } catch (e: any) {
+        if (!cancelled) {
+          const msg = e?.message ?? e?.error_description ?? e?.details ?? (typeof e === 'string' ? e : JSON.stringify(e));
+          setError(msg);
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }
