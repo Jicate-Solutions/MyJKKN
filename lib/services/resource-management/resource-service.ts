@@ -197,27 +197,19 @@ export class ResourceService {
         throw new Error('Institution is required');
       }
 
-      // Use resource_code from resourceData if not provided as parameter
-      const resourceCode = customResourceCode || resourceData.resource_code;
+      // Use resource_code from resourceData if not provided as parameter.
+      // We may rewrite this several times below if the pre-INSERT check or the
+      // DB unique constraint reports a collision — see resolveAvailableResourceCode
+      // for why a single MAX+1 isn't enough under concurrent JKKN-family creates.
+      let resourceCode = customResourceCode || resourceData.resource_code;
       console.log('Resource code being used:', resourceCode);
 
-      // Check if resource code already exists (if provided)
       if (resourceCode) {
-        const { data: existingCode, error: codeCheckError } = await this.supabase
-          .from('resources')
-          .select('id')
-          .eq('resource_code', resourceCode)
-          .maybeSingle();
-
-        if (codeCheckError) {
-          console.error('Error checking resource code:', codeCheckError);
-        }
-
-        if (existingCode) {
-          throw new Error(
-            'A resource with this code already exists. Please use a different code.'
-          );
-        }
+        resourceCode = await this.resolveAvailableResourceCode(
+          resourceCode,
+          resourceData.parent_category_id,
+          resourceData.institution_id
+        );
       }
 
       // Check if resource name already exists in the same location
@@ -303,11 +295,54 @@ export class ResourceService {
         caretaker_user_ids: dbData.caretaker_user_ids
       });
 
-      const { data: resource, error } = await (this.supabase as any)
-        .from('resources')
-        .insert(dbData)
-        .select()
-        .single();
+      let resource: any = null;
+      let insertError: any = null;
+
+      // Retry only on resource_code unique-constraint collisions. Name/location
+      // duplicates were already filtered above and shouldn't be auto-rewritten.
+      const MAX_INSERT_ATTEMPTS = 5;
+      for (let attempt = 1; attempt <= MAX_INSERT_ATTEMPTS; attempt++) {
+        const { data, error: err } = await (this.supabase as any)
+          .from('resources')
+          .insert(dbData)
+          .select()
+          .single();
+
+        if (!err) {
+          resource = data;
+          insertError = null;
+          break;
+        }
+
+        const isResourceCodeCollision =
+          err.code === '23505' &&
+          typeof err.message === 'string' &&
+          err.message.toLowerCase().includes('resource_code');
+
+        if (!isResourceCodeCollision || attempt === MAX_INSERT_ATTEMPTS) {
+          insertError = err;
+          break;
+        }
+
+        if (!resourceData.parent_category_id || !resourceData.institution_id) {
+          insertError = err;
+          break;
+        }
+
+        // Another insert won the race for our resource_code. Re-derive a fresh
+        // code from MAX(suffix) and try again with that value.
+        const fresh = await this.resolveAvailableResourceCode(
+          dbData.resource_code,
+          resourceData.parent_category_id,
+          resourceData.institution_id
+        );
+        console.warn(
+          `Resource code collision on ${dbData.resource_code}; retrying with ${fresh} (attempt ${attempt + 1}/${MAX_INSERT_ATTEMPTS})`
+        );
+        dbData.resource_code = fresh;
+      }
+
+      const error = insertError;
 
       if (error) {
         console.error('Database error creating resource:', error);
@@ -771,6 +806,146 @@ export class ResourceService {
   }
 
   /**
+   * Return a resource_code that is currently free in the database, starting
+   * from the caller-supplied candidate and bumping the numeric suffix on each
+   * collision. Used by createResource() to close the read-then-INSERT race
+   * window that the form's auto-generation cannot fix on its own.
+   *
+   * Why this is needed even after getResourceCountForIdGeneration returns
+   * MAX+1: the form auto-generates the code at category/institution selection
+   * time and caches it in React state. While the user fills out the rest of
+   * the form (often several minutes), other JKKN-family institutions sharing
+   * the same `RES-<CAT>-JKKN-` prefix keep advancing the global suffix. By
+   * submit time, the cached code is stale and the pre-INSERT existence check
+   * — or the DB UNIQUE constraint — fires. Confirmed in production 2026-05-14
+   * for JKKN College of Pharmacy (codes 0004→0009 minted in a 20-minute
+   * window across two concurrent users; a third user's stale 0006 form kept
+   * losing the race).
+   *
+   * Behavior:
+   *   - If the candidate isn't taken, returns it unchanged.
+   *   - If taken, computes MAX(suffix) for the prefix family and returns
+   *     prefix + (MAX+1). Repeats up to 5 times in case the DB advances mid
+   *     loop (e.g. two browser tabs racing).
+   *   - If the candidate doesn't match the RES-<CAT>-<INST>-<NNNN> shape, or
+   *     the category/institution can't be resolved, throws the standard
+   *     "already exists" error so the user can pick a manual code instead of
+   *     us silently inserting under an unexpected one.
+   */
+  static async resolveAvailableResourceCode(
+    candidateCode: string,
+    categoryId?: string | null,
+    institutionId?: string | null
+  ): Promise<string> {
+    const MAX_REGEN_ATTEMPTS = 5;
+
+    const prefix = await this.resolveResourceCodePrefix(
+      candidateCode,
+      categoryId,
+      institutionId
+    );
+
+    let code = candidateCode;
+    for (let attempt = 0; attempt <= MAX_REGEN_ATTEMPTS; attempt++) {
+      const { data: existing } = await (this.supabase as any)
+        .from('resources')
+        .select('id')
+        .eq('resource_code', code)
+        .maybeSingle();
+
+      if (!existing) {
+        return code;
+      }
+
+      if (!prefix) {
+        throw new Error(
+          'A resource with this code already exists. Please use a different code.'
+        );
+      }
+
+      const nextSuffix = (await this.fetchMaxResourceCodeSuffix(prefix)) + 1;
+      code = `${prefix}${String(nextSuffix).padStart(4, '0')}`;
+    }
+
+    throw new Error(
+      'A resource with this code already exists. Please use a different code.'
+    );
+  }
+
+  /**
+   * Rebuild the `RES-<CAT>-<INST>-` prefix either from category/institution
+   * names (matches generateResourceCode exactly) or by parsing the candidate
+   * code itself. Returns null when neither path yields a usable prefix.
+   */
+  private static async resolveResourceCodePrefix(
+    candidateCode: string,
+    categoryId?: string | null,
+    institutionId?: string | null
+  ): Promise<string | null> {
+    if (categoryId && institutionId) {
+      const [{ data: category }, { data: institution }] = await Promise.all([
+        this.supabase
+          .from('resource_parent_categories')
+          .select('name')
+          .eq('id', categoryId)
+          .maybeSingle(),
+        this.supabase
+          .from('institutions')
+          .select('name')
+          .eq('id', institutionId)
+          .maybeSingle()
+      ]);
+
+      if (category?.name && institution?.name) {
+        const categoryCode = category.name
+          .replace(/[^a-zA-Z]/g, '')
+          .substring(0, 3)
+          .toUpperCase()
+          .padEnd(3, 'X');
+        const institutionCode = institution.name
+          .replace(/[^a-zA-Z]/g, '')
+          .substring(0, 4)
+          .toUpperCase()
+          .padEnd(4, 'X');
+        return `RES-${categoryCode}-${institutionCode}-`;
+      }
+    }
+
+    const parts = candidateCode.split('-');
+    if (parts.length === 4 && parts[0] === 'RES' && /^\d+$/.test(parts[3])) {
+      return `${parts[0]}-${parts[1]}-${parts[2]}-`;
+    }
+
+    return null;
+  }
+
+  /**
+   * Highest numeric suffix currently used by any row sharing the given prefix.
+   * Returns 0 when the prefix has no rows yet.
+   */
+  private static async fetchMaxResourceCodeSuffix(prefix: string): Promise<number> {
+    const { data, error } = await (this.supabase as any)
+      .from('resources')
+      .select('resource_code')
+      .like('resource_code', `${prefix}%`);
+
+    if (error) {
+      console.error('Error fetching resource_code suffix MAX:', error);
+      return 0;
+    }
+
+    let maxSuffix = 0;
+    for (const row of (data ?? []) as { resource_code: string }[]) {
+      const suffixStr = row.resource_code.substring(prefix.length);
+      const suffix = parseInt(suffixStr, 10);
+      if (Number.isFinite(suffix) && suffix > maxSuffix) {
+        maxSuffix = suffix;
+      }
+    }
+    return maxSuffix;
+  }
+
+  /**
    * Get count of resources by category and institution for ID generation
    */
   /**
@@ -801,58 +976,11 @@ export class ResourceService {
     institutionId: string
   ): Promise<number> {
     try {
-      // Resolve names so we can rebuild the same prefix generateResourceCode would build.
-      const [{ data: category }, { data: institution }] = await Promise.all([
-        this.supabase
-          .from('resource_parent_categories')
-          .select('name')
-          .eq('id', categoryId)
-          .maybeSingle(),
-        this.supabase
-          .from('institutions')
-          .select('name')
-          .eq('id', institutionId)
-          .maybeSingle()
-      ]);
-
-      if (!category?.name || !institution?.name) {
-        return 0;
-      }
-
-      const categoryCode = category.name
-        .replace(/[^a-zA-Z]/g, '')
-        .substring(0, 3)
-        .toUpperCase()
-        .padEnd(3, 'X');
-      const institutionCode = institution.name
-        .replace(/[^a-zA-Z]/g, '')
-        .substring(0, 4)
-        .toUpperCase()
-        .padEnd(4, 'X');
-
-      const prefix = `RES-${categoryCode}-${institutionCode}-`;
-
-      // Fetch every code that shares this prefix. We intentionally ignore
-      // institution_id because the prefix itself collapses several institutions
-      // into one family — and the unique constraint on resource_code is GLOBAL,
-      // not per-institution.
-      const { data, error } = await (this.supabase as any)
-        .from('resources')
-        .select('resource_code')
-        .like('resource_code', `${prefix}%`);
-
-      if (error) throw error;
-
-      let maxSuffix = 0;
-      for (const row of (data ?? []) as { resource_code: string }[]) {
-        const suffixStr = row.resource_code.substring(prefix.length);
-        const suffix = parseInt(suffixStr, 10);
-        if (Number.isFinite(suffix) && suffix > maxSuffix) {
-          maxSuffix = suffix;
-        }
-      }
-
-      return maxSuffix;
+      // Shares prefix/MAX primitives with resolveAvailableResourceCode so the
+      // form's preview code stays in lockstep with the createResource retry logic.
+      const prefix = await this.resolveResourceCodePrefix('', categoryId, institutionId);
+      if (!prefix) return 0;
+      return await this.fetchMaxResourceCodeSuffix(prefix);
     } catch (error) {
       console.error('Error getting resource count:', error);
       return 0; // Return 0 on error to allow fallback to random ID
