@@ -18,6 +18,7 @@
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { createServiceRoleClient } from '@/lib/supabase/server';
 import type { LeaveApprovalStep } from '@/types/hr';
 import type {
   HRRecruitmentCandidate,
@@ -316,7 +317,13 @@ export class RecruitmentService {
     roleCategory: RoleCategory,
     monthlySalaryBand: MonthlySalaryBand | null
   ): Promise<LeaveApprovalStep[]> {
-    const { data: flows, error } = await supabase
+    // hr_approval_flows is read-only configuration data, not per-user PII. The
+    // table's RLS (hr_organization_id = auth_hr_organization_id()) hid rows from
+    // any user lacking a user_hr_access mapping, surfacing as a misleading
+    // "No recruitment approval flows configured" error even when flows exist.
+    // Service-role read bypasses RLS so any authenticated user can submit.
+    const adminClient = createServiceRoleClient();
+    const { data: flows, error } = await adminClient
       .from('hr_approval_flows')
       .select('*')
       .eq('hr_organization_id', hrOrgId)
