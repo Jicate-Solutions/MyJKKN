@@ -563,32 +563,14 @@ export async function POST(request: NextRequest) {
     }
 
     // ── Generate resource_code per row + check for in-file duplicates ────
-    // Counter keyed by (parent_category_id, institution_id) so resource_codes
-    // are sequential per category-institution pair. We seed each counter from
-    // the existing count in the DB so codes don't collide with already-saved
-    // resources.
-    const codeCounterKey = (parentId: string, instId: string) =>
-      `${parentId}::${instId}`;
-    const codeCounters = new Map<string, number>();
-
-    const seedKeys = [
-      ...new Set(
-        resolvedRows.map((r) =>
-          codeCounterKey(r.data.parent_category_id, r.data.institution_id)
-        )
-      )
-    ];
-
-    for (const key of seedKeys) {
-      const [parentId, instId] = key.split('::');
-      const { count } = await supabase
-        .from('resources')
-        .select('id', { count: 'exact', head: true })
-        .eq('parent_category_id', parentId)
-        .eq('institution_id', instId);
-      codeCounters.set(key, count ?? 0);
-    }
-
+    //
+    // resource_code is globally unique, and its `RES-<CAT>-<INST>-` prefix is
+    // derived from a 3-char + 4-char alpha truncation of the names. Multiple
+    // distinct institutions collapse to the same 4-char institution code (the
+    // 11 JKKN-family colleges all compress to "JKKN"). So we must key the
+    // counter on the resolved PREFIX string — not on (category_id, institution_id)
+    // — and seed it from the MAX existing suffix across the whole prefix
+    // family (handles cross-institution collisions AND gaps left by deletes).
     const parentIdToName = new Map(
       (parents ?? []).map((p: any) => [p.id, p.name])
     );
@@ -596,10 +578,56 @@ export async function POST(request: NextRequest) {
       (institutions ?? []).map((i: any) => [i.id, i.name])
     );
 
+    const buildPrefix = (parentId: string, instId: string): string => {
+      const catName = parentIdToName.get(parentId) ?? '';
+      const instName = institutionIdToName.get(instId) ?? '';
+      const categoryCode = catName
+        .replace(/[^a-zA-Z]/g, '')
+        .substring(0, 3)
+        .toUpperCase()
+        .padEnd(3, 'X');
+      const institutionCode = instName
+        .replace(/[^a-zA-Z]/g, '')
+        .substring(0, 4)
+        .toUpperCase()
+        .padEnd(4, 'X');
+      return `RES-${categoryCode}-${institutionCode}-`;
+    };
+
+    // Counter keyed by the resolved RES-<CAT>-<INST>- prefix.
+    const codeCounters = new Map<string, number>();
+    const uniquePrefixes = new Set(
+      resolvedRows.map((r) =>
+        buildPrefix(r.data.parent_category_id, r.data.institution_id)
+      )
+    );
+
+    // For each unique prefix, query the MAX existing numeric suffix.
+    await Promise.all(
+      [...uniquePrefixes].map(async (prefix) => {
+        const { data: existing } = await (supabase as any)
+          .from('resources')
+          .select('resource_code')
+          .like('resource_code', `${prefix}%`);
+        let maxSuffix = 0;
+        for (const row of (existing ?? []) as { resource_code: string }[]) {
+          const suffixStr = row.resource_code.substring(prefix.length);
+          const suffix = parseInt(suffixStr, 10);
+          if (Number.isFinite(suffix) && suffix > maxSuffix) {
+            maxSuffix = suffix;
+          }
+        }
+        codeCounters.set(prefix, maxSuffix);
+      })
+    );
+
     const insertPayload = resolvedRows.map(({ data }) => {
-      const key = codeCounterKey(data.parent_category_id, data.institution_id);
-      const current = codeCounters.get(key) ?? 0;
-      codeCounters.set(key, current + 1);
+      const prefix = buildPrefix(
+        data.parent_category_id,
+        data.institution_id
+      );
+      const current = codeCounters.get(prefix) ?? 0;
+      codeCounters.set(prefix, current + 1);
 
       const resourceCode = generateResourceCode(
         parentIdToName.get(data.parent_category_id) ?? data.parent_category_name,

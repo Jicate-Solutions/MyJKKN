@@ -773,20 +773,86 @@ export class ResourceService {
   /**
    * Get count of resources by category and institution for ID generation
    */
+  /**
+   * Returns the seed value for the next sequential resource_code suffix.
+   *
+   * Despite the legacy name, this no longer returns a row COUNT. It returns
+   * the MAX numeric suffix already used for the same RES-<CAT>-<INST>-
+   * prefix family, so the generator (which always adds 1) produces a code
+   * that cannot collide.
+   *
+   * Why this matters: the prefix is derived from the FIRST 3 alpha chars of
+   * the category and the FIRST 4 alpha chars of the institution name. JKKN
+   * has 11 institutions that all compress to "JKKN" (JKKN College of
+   * Pharmacy, JKKN College of Engineering and Technology, JKKN Main Office,
+   * etc.) — so two distinct institutions creating resources in the same
+   * category would race on the same suffix and one would always lose to a
+   * 23505 (unique violation) at insert time. Scoping the lookup to a single
+   * (category, institution) row COUNT was the original bug: at College of
+   * Pharmacy with zero existing rows the next code was 0001, which clashes
+   * with Main Office's existing 0001.
+   *
+   * Using MAX across the prefix family also fixes the secondary bug where
+   * deleting a row left a gap (COUNT=N-1) and the next insert reused an
+   * already-taken suffix.
+   */
   static async getResourceCountForIdGeneration(
     categoryId: string,
     institutionId: string
   ): Promise<number> {
     try {
-      const { count, error} = await this.supabase
+      // Resolve names so we can rebuild the same prefix generateResourceCode would build.
+      const [{ data: category }, { data: institution }] = await Promise.all([
+        this.supabase
+          .from('resource_parent_categories')
+          .select('name')
+          .eq('id', categoryId)
+          .maybeSingle(),
+        this.supabase
+          .from('institutions')
+          .select('name')
+          .eq('id', institutionId)
+          .maybeSingle()
+      ]);
+
+      if (!category?.name || !institution?.name) {
+        return 0;
+      }
+
+      const categoryCode = category.name
+        .replace(/[^a-zA-Z]/g, '')
+        .substring(0, 3)
+        .toUpperCase()
+        .padEnd(3, 'X');
+      const institutionCode = institution.name
+        .replace(/[^a-zA-Z]/g, '')
+        .substring(0, 4)
+        .toUpperCase()
+        .padEnd(4, 'X');
+
+      const prefix = `RES-${categoryCode}-${institutionCode}-`;
+
+      // Fetch every code that shares this prefix. We intentionally ignore
+      // institution_id because the prefix itself collapses several institutions
+      // into one family — and the unique constraint on resource_code is GLOBAL,
+      // not per-institution.
+      const { data, error } = await (this.supabase as any)
         .from('resources')
-        .select('*', { count: 'exact', head: true })
-        .eq('parent_category_id', categoryId)
-        .eq('institution_id', institutionId);
+        .select('resource_code')
+        .like('resource_code', `${prefix}%`);
 
       if (error) throw error;
 
-      return count || 0;
+      let maxSuffix = 0;
+      for (const row of (data ?? []) as { resource_code: string }[]) {
+        const suffixStr = row.resource_code.substring(prefix.length);
+        const suffix = parseInt(suffixStr, 10);
+        if (Number.isFinite(suffix) && suffix > maxSuffix) {
+          maxSuffix = suffix;
+        }
+      }
+
+      return maxSuffix;
     } catch (error) {
       console.error('Error getting resource count:', error);
       return 0; // Return 0 on error to allow fallback to random ID
