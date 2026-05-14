@@ -61,7 +61,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { usePermissions } from '@/hooks/use-permissions';
-import { useJkknInstitutions } from '@/hooks/use-jkkn-institutions';
+import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import {
   useImsStores,
   useCreateImsStore,
@@ -111,8 +111,12 @@ const emptyFormData: StoreFormData = {
 export default function StoresPage() {
   const router = useRouter();
   const { isSuperAdmin, userProfile } = usePermissions();
-  const { data: jkknInstitutionData, isLoading: institutionsLoading } = useJkknInstitutions({ limit: 100 });
-  const institutions = jkknInstitutionData?.data ?? [];
+  // Use local Supabase institutions (UUID-keyed) — matches the type of
+  // ims_stores.institution_id and the convention used across admission,
+  // internships, HR, etc. The JKKN central API returns numeric counselling_code
+  // as `id`, which 400'd against the UUID column (same bug fixed in
+  // internships/cycles on 2026-05-10).
+  const { institutions, loading: institutionsLoading } = useInstitutionsWithAccess({ isActive: true });
 
   // Filters
   const [search, setSearch] = useState('');
