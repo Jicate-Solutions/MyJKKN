@@ -91,7 +91,6 @@ export function guardInstitutionWrite(
 ): string | null {
   if (scope.isSuperAdmin) return null;
   if (!targetInstitutionsId) return null;
-<<<<<<< Updated upstream
   // CAS-aware: a user whose primary institution is one sibling of a CAS pair
   // (Aided/SF) is allowed to write to either sibling — BoS treats the pair as
   // one logical institution per counselling_code. Without this, the strict
@@ -102,17 +101,6 @@ export function guardInstitutionWrite(
   ]);
   if (allowed.size === 0) return null; // No scope to enforce (super-admin handled above).
   if (!allowed.has(targetInstitutionsId)) {
-=======
-
-  // CAS-aware: allow writes to any sibling institution under the same COE unit.
-  // For CAS users, allInstitutionIds contains both Aided + Self UUIDs so a user
-  // whose profile.institution_id is Aided can still edit a Self-owned record.
-  const allowed = scope.allInstitutionIds.length > 0
-    ? scope.allInstitutionIds
-    : (scope.institutionsId ? [scope.institutionsId] : []);
-
-  if (allowed.length > 0 && !allowed.includes(targetInstitutionsId)) {
->>>>>>> Stashed changes
     return 'Forbidden: you can only manage BoS records for your own institution';
   }
   return null;
@@ -205,8 +193,7 @@ export async function canAccessBos(
 /**
  * Re-export — COE institution mapping is shared with Internal Marks.
  */
-<<<<<<< Updated upstream
-export { resolveCoeInstitutionId } from '@/lib/utils/internal-marks/internal-marks-access';
+export { resolveCoeInstitutionId, resolveCoeInstitutionCode } from '@/lib/utils/internal-marks/internal-marks-access';
 
 // ── Board-level scoping (Phase 1 of BOS access tightening) ──────────────────
 // Layers on top of resolveBosAccess / guardInstitutionWrite. Adds two new
@@ -492,6 +479,3 @@ export function guardPrincipalApprovalOnly(
   }
   return null;
 }
-=======
-export { resolveCoeInstitutionId, resolveCoeInstitutionCode } from '@/lib/utils/internal-marks/internal-marks-access';
->>>>>>> Stashed changes

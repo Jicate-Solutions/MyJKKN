@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import * as React from 'react';
 import { useEffect } from 'react';
@@ -62,14 +62,9 @@ export function CourseForm({ defaultValues, boards, boardsLoading, onSubmit, sub
       course_category: 'Theory',
       course_part_master: 'Part III',
       course_type: 'Core',
-<<<<<<< Updated upstream
       // course_level intentionally omitted — some courses genuinely have no
       // Roman-numeral tier, so blank is the right default. The schema is now
       // optional, so submitting without a Level is valid.
-=======
-      // course_level intentionally omitted — Level dropdown starts blank so
-      // the user must make a deliberate I..XX choice (validated by Zod).
->>>>>>> Stashed changes
       exam_duration: 3,
       credit: 3,
       theory_hours: 0,
@@ -148,7 +143,6 @@ export function CourseForm({ defaultValues, boards, boardsLoading, onSubmit, sub
           <SelectField name='course_part_master' form={form} label='Part' options={COURSE_PART_VALUES} />
         </div>
         <div className='grid grid-cols-[2fr_1fr] gap-3'>
-<<<<<<< Updated upstream
           <SelectField name='course_type' form={form} label='Type' options={COURSE_TYPE_VALUES} />
           <Field label='Level' error={form.formState.errors.course_level?.message}>
             <Controller
@@ -172,22 +166,6 @@ export function CourseForm({ defaultValues, boards, boardsLoading, onSubmit, sub
               )}
             />
           </Field>
-=======
-          <SelectField
-            name='course_type'
-            form={form}
-            label={courseTypesQ.isLoading ? 'Type (loading…)' : 'Type'}
-            options={courseTypeOptions}
-          />
-          <SelectField
-            name='course_level'
-            form={form}
-            label='Level'
-            options={COURSE_LEVEL_VALUES}
-            placeholder='Select level'
-            disabled={!form.watch('course_type')}
-          />
->>>>>>> Stashed changes
         </div>
       </fieldset>
 
@@ -258,7 +236,6 @@ function SelectField({
   // 'I' not appearing in the trigger even though defaultValues set it).
   return (
     <Field label={label} error={error}>
-<<<<<<< Updated upstream
       <Controller
         name={name}
         control={form.control}
@@ -274,18 +251,6 @@ function SelectField({
           </Select>
         )}
       />
-=======
-      <Select
-        value={value}
-        onValueChange={(v) => form.setValue(name, v as never, { shouldValidate: true, shouldDirty: true })}
-        disabled={disabled}
-      >
-        <SelectTrigger><SelectValue placeholder={placeholder} /></SelectTrigger>
-        <SelectContent>
-          {options.map((o) => <SelectItem key={o} value={o}>{o}</SelectItem>)}
-        </SelectContent>
-      </Select>
->>>>>>> Stashed changes
     </Field>
   );
 }

@@ -1,15 +1,11 @@
-import { NextRequest, NextResponse } from 'next/server';
+﻿import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
-<<<<<<< Updated upstream
 import {
   resolveBosAccess,
   resolveBosBoardScope,
   guardInstitutionWrite,
   guardSyllabusEdit,
 } from '@/lib/utils/bos/bos-access';
-=======
-import { resolveBosAccess, applyInstitutionScope, guardInstitutionWrite, readableInstitutionIds } from '@/lib/utils/bos/bos-access';
->>>>>>> Stashed changes
 import { BosCourseSyllabus, UpdateBosSyllabusDto } from '@/types/bos';
 
 /**
@@ -57,7 +53,7 @@ export async function GET(
 
     // CAS-aware institution scope. For Arts & Science colleges the user's
     // profile.institution_id points to one of two MyJKKN UUIDs (Aided or
-    // Self) but syllabi may be stored under the sibling UUID — so we filter
+    // Self) but syllabi may be stored under the sibling UUID â€” so we filter
     // by the full allInstitutionIds list, never a single UUID.
     const allowedIds = readableInstitutionIds(scope);
     if (allowedIds !== null) {
@@ -144,7 +140,7 @@ export async function PUT(
     // Step 2: Resolve board-aware scope
     const scope = await resolveBosBoardScope(user.id);
 
-    // Step 3: Fetch existing syllabus — need board_id + created_by for the
+    // Step 3: Fetch existing syllabus â€” need board_id + created_by for the
     // creator/chairman edit gate, plus institutions_id for the institution backstop.
     const { data: existingSyllabus, error: fetchError } = await supabase
       .from('bos_course_syllabi')
@@ -175,7 +171,7 @@ export async function PUT(
     }
 
     // Step 4b: Creator / chairman / super-admin gate (spec: only the author or
-    // the board chairman can edit a published syllabus — members are view-only).
+    // the board chairman can edit a published syllabus â€” members are view-only).
     const editDeny = guardSyllabusEdit(
       scope,
       { board_id: existingSyllabus.board_id, created_by: existingSyllabus.created_by },

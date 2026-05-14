@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useEffect, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -13,7 +13,6 @@ import { InstitutionPicker, type InstitutionOption } from '../../_components/ins
 import { CourseForm } from '../_components/course-form';
 import { useCreateBosCourse } from '@/hooks/bos/use-bos-courses';
 import { useBosRegulationOptions } from '@/hooks/bos/use-bos-scheme-options';
-<<<<<<< Updated upstream
 import { useBosBoardScope } from '@/hooks/bos/use-bos-board-scope';
 
 interface CoeBoard {
@@ -22,9 +21,6 @@ interface CoeBoard {
   board_name: string;
   board_type?: string | null;
 }
-=======
-import { useBosBoards } from '@/hooks/bos/use-bos-boards';
->>>>>>> Stashed changes
 
 export default function NewCoursePage() {
   const router = useRouter();
@@ -92,20 +88,11 @@ export default function NewCoursePage() {
   const { data: regulationsData, isLoading: regulationsLoading } = useBosRegulationOptions(lookupIds);
   const regulations = regulationsData?.data ?? [];
 
-<<<<<<< Updated upstream
   const ready =
     !!institutionId &&
     institutionCode.trim().length > 0 &&
     boardCode.trim().length > 0 &&
     regulationCode.trim().length > 0;
-=======
-  // Boards are scoped to the picked institution (MyJKKN UUID). For non-super-admins
-  // the route auto-restricts to their own scope, so the institutionId hint is
-  // harmless if it doesn't match.
-  const { data: boards, isLoading: boardsLoading } = useBosBoards(institutionId);
-
-  const ready = !!institutionId && institutionCode.trim().length > 0 && regulationCode.trim().length > 0;
->>>>>>> Stashed changes
 
   return (
     <PermissionGuard module='academic.bos-courses' action='create'>
@@ -194,12 +181,8 @@ export default function NewCoursePage() {
                       institution_id: institutionId!,
                       institution_code: institutionCode,
                       regulation_code: regulationCode,
-<<<<<<< Updated upstream
                       board_id: boardId,
                       board_code: boardCode,
-=======
-                      board_code,
->>>>>>> Stashed changes
                     },
                   });
                   toast.success('Course created');

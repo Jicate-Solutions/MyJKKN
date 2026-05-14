@@ -1,4 +1,4 @@
-// lib/services/bos/courses-schemas.ts
+﻿// lib/services/bos/courses-schemas.ts
 import { z } from 'zod';
 
 export const COURSE_PART_VALUES = ['Part I','Part II','Part III','Part IV','Part V'] as const;
@@ -35,44 +35,25 @@ export const COURSE_GROUP_VALUES = [
   'Elective - IV','Elective - V','Elective - VI',
 ] as const;
 
-<<<<<<< Updated upstream
 /** Roman numerals I..XX (1..20) — COE pairs (course_type, course_level) into
  *  course_type_code (e.g., "Core" + "I" => "Core-I"). */
-=======
-/**
- * Roman numerals I..XX (1..20) for the course_level field.
- * COE pairs (course_type, course_level) into the composite key course_type_code
- * (e.g., "Core" + "I" => "Core-I"); we send the parts and let COE compose.
- */
->>>>>>> Stashed changes
 export const COURSE_LEVEL_VALUES = [
   'I','II','III','IV','V','VI','VII','VIII','IX','X',
   'XI','XII','XIII','XIV','XV','XVI','XVII','XVIII','XIX','XX',
 ] as const;
 
-<<<<<<< Updated upstream
 /** Manual form schema — exactly the 13 fields per design Section 2. */
-=======
-/** Manual form schema — exactly the 15 fields per design Section 2 (plus board_id, course_level). */
->>>>>>> Stashed changes
 export const courseFormSchema = z.object({
   course_code:       z.string().min(3).max(50).regex(/^[A-Z0-9]+$/i, 'Letters & digits only'),
   course_name:       z.string().min(3).max(255),
   board_id:          z.string().uuid('Select a board'),
   course_category:   z.enum(COURSE_CATEGORY_VALUES),
   course_part_master: z.enum(COURSE_PART_VALUES),
-<<<<<<< Updated upstream
   course_type:       z.enum(COURSE_TYPE_VALUES),
   // Optional: some legacy / non-tiered courses (e.g., Internship, Project) have
   // no Roman-numeral level. Allow blank rather than forcing a default that
   // could silently corrupt those rows on save.
   course_level:      z.enum(COURSE_LEVEL_VALUES).optional(),
-=======
-  // course_type is sourced from COE's /api/v1/course-info master at runtime
-  // (46+ values and growing). Don't gate it with z.enum — COE rejects unknowns.
-  course_type:       z.string().min(1, 'Course type is required'),
-  course_level:      z.enum(COURSE_LEVEL_VALUES),
->>>>>>> Stashed changes
   exam_duration:     z.coerce.number().int().min(0).max(8),
   credit:            z.coerce.number().min(0).max(10),
   theory_hours:      z.coerce.number().int().min(0).max(40),
@@ -92,7 +73,6 @@ export function toCoeCreatePayload(
     regulation_code: string;
     institutions_id: string;
     regulation_id?: string;
-<<<<<<< Updated upstream
     /**
      * Board the course belongs to (COE board_code). Required for the
      * board-scope filter on /bos/courses to surface the new row; without it
@@ -101,11 +81,6 @@ export function toCoeCreatePayload(
      */
     board_code?: string;
     board_id?: string;
-=======
-    /** Resolved from boards list on the client; sent alongside board_id so COE
-     *  persists the human-readable code regardless of which key its schema uses. */
-    board_code?: string;
->>>>>>> Stashed changes
   }
 ) {
   return {
@@ -120,31 +95,17 @@ export function toCoeCreatePayload(
     course_name: form.course_name.trim(),
     course_title: form.course_name.trim(),   // COE POST endpoint requires course_title
     display_code: form.course_code.toUpperCase(),  // mirror; UNIQUE in DB
-<<<<<<< Updated upstream
     // QP (Question Paper) code mirrors the course_code by default. COE expects
     // it on the question paper join; defaulting to course_code keeps the
     // mapping 1:1 unless an institution explicitly overrides.
     qp_code: form.course_code.toUpperCase(),
-=======
-    // Board of Studies that owns this course. Send both keys — board_id (UUID)
-    // and board_code (human-readable) — so COE persists whichever its schema
-    // uses. Same defensive duplication as credit/credits and course_name/course_title.
-    board_id: form.board_id,
-    board_code: ctx.board_code,
->>>>>>> Stashed changes
     course_category: form.course_category,
     course_type: form.course_type,
     course_level: form.course_level,
     course_part_master: form.course_part_master,
-<<<<<<< Updated upstream
     // COE accepts both `credit` (singular, canonical) and `credits` (plural
     // alias) in different code paths. Send both so whichever the POST endpoint
     // persists, the GET response will read back correctly.
-=======
-    // COE POST endpoint requires 'credits' (plural); singular 'credit' is silently
-    // dropped. Send both so the row is correct regardless of which alias COE picks.
-    // (Mirrors the PUT-side fix in courses-master/[id]/route.ts.)
->>>>>>> Stashed changes
     credit: form.credit,
     credits: form.credit,
     exam_duration: form.exam_duration,

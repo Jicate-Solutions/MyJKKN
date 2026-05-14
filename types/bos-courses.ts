@@ -23,13 +23,8 @@ export type CourseType =
   | 'Practical' | 'Project'
   | 'Skill Enhancement Practical' | 'Skill Enhancement';
 
-<<<<<<< Updated upstream
 /** Roman numerals I..XX (1..20). Pairs with CourseType in COE to form
  *  course_type_code (e.g., "Core" + "I" => "Core-I"). */
-=======
-/** Roman numerals I..XX (maps to 1..20). Pairs with CourseType to form
- *  course_type_code (e.g., "Core" + "I" => "Core-I") on the COE side. */
->>>>>>> Stashed changes
 export type CourseLevel =
   | 'I' | 'II' | 'III' | 'IV' | 'V'
   | 'VI' | 'VII' | 'VIII' | 'IX' | 'X'
@@ -57,12 +52,8 @@ export interface BosCourseMaster {
   display_code: string;
   course_category: CourseCategory;
   course_type: CourseType | null;
-<<<<<<< Updated upstream
   course_level: CourseLevel | null;   // Roman numeral I..XX
-=======
-  course_level: CourseLevel | null;          // Roman numeral I..XX
-  course_type_code?: string | null;          // COE-computed: `${course_type}-${course_level}` (e.g., "Core-I")
->>>>>>> Stashed changes
+  course_type_code?: string | null;   // COE-computed: `${course_type}-${course_level}` (e.g., "Core-I")
   course_part_master: CoursePart | null;
   credit: number;
   theory_credit: number | null;
@@ -95,11 +86,7 @@ export function isLocked(row: { course_status?: string | null; courses_status?: 
   return v?.toLowerCase() === 'locked';
 }
 
-<<<<<<< Updated upstream
 /** The 14-field manual form (Section 2 + optional course_level). */
-=======
-/** The 15-field manual form (per design Section 2, plus course_level and board_id). */
->>>>>>> Stashed changes
 export interface BosCourseFormData {
   course_code: string;
   course_name: string;
@@ -107,11 +94,7 @@ export interface BosCourseFormData {
   course_category: CourseCategory;
   course_part_master: CoursePart;
   course_type: CourseType;
-<<<<<<< Updated upstream
   course_level?: CourseLevel;          // optional — see Zod schema for rationale
-=======
-  course_level: CourseLevel;
->>>>>>> Stashed changes
   exam_duration: number;
   credit: number;
   theory_hours: number;

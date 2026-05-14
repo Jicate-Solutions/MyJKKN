@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { use } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -18,13 +18,13 @@ export default function EditCoursePage({ params }: { params: Promise<{ id: strin
   const searchParams = useSearchParams();
   const { data: course, isLoading } = useBosCourse(id);
   const update = useUpdateBosCourse();
-  // Edit page doesn't know the MyJKKN institution UUID — rely on the user's
+  // Edit page doesn't know the MyJKKN institution UUID â€” rely on the user's
   // server-side scope (works for non-super-admins). Super-admins editing
   // foreign-institution courses is a known gap; add a reverse-lookup if needed.
   const { data: boards, isLoading: boardsLoading } = useBosBoards();
 
   // Hard-lock check: trust the URL param (set from list row data which is reliable)
-  // as well as the fetched course — whichever says locked wins.
+  // as well as the fetched course â€” whichever says locked wins.
   const lockedFromUrl = searchParams.get('course_status')?.toLowerCase() === 'locked';
   const courseIsLocked = lockedFromUrl || isLocked(course);
 
@@ -40,7 +40,7 @@ export default function EditCoursePage({ params }: { params: Promise<{ id: strin
           {isLoading ? (
             <Skeleton className='h-96 w-full' />
           ) : courseIsLocked ? (
-            // Hard block — render regardless of whether course data has loaded,
+            // Hard block â€” render regardless of whether course data has loaded,
             // because lockedFromUrl is already definitive while the fetch is in flight.
             <div className='flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800'>
               <Lock className='h-5 w-5 shrink-0' />
@@ -69,15 +69,8 @@ export default function EditCoursePage({ params }: { params: Promise<{ id: strin
                 course_category: course.course_category,
                 course_part_master: course.course_part_master ?? 'Part III',
                 course_type: (course.course_type as never) ?? 'Core',
-<<<<<<< Updated upstream
                 // Leave Level blank for legacy / non-tiered courses (e.g.,
-                // Internship) — don't silently substitute 'I' on save.
-=======
-                // Leave course_level undefined (not 'I') when COE has no value yet —
-                // the dropdown's placeholder prompts the user to pick, and Zod will
-                // block submit until they do. Avoids silently overwriting a real
-                // legacy value with a default the user didn't choose.
->>>>>>> Stashed changes
+                // Internship) â€” don't silently substitute 'I' on save.
                 course_level: (course.course_level as never) ?? undefined,
                 exam_duration: course.exam_duration ?? 3,
                 credit: course.credit ?? course.credits ?? 3,
@@ -88,7 +81,7 @@ export default function EditCoursePage({ params }: { params: Promise<{ id: strin
                 total_max_mark: course.total_max_mark ?? 100,
               }}
               onSubmit={async (form) => {
-                // Final server-side guard — 423 response means COE confirmed lock.
+                // Final server-side guard â€” 423 response means COE confirmed lock.
                 try {
                   // Resolve board_code from the boards list so the PUT request carries
                   // both lookup keys to COE (mirrors the create flow).

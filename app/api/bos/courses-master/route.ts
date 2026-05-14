@@ -1,4 +1,4 @@
-// app/api/bos/courses-master/route.ts
+﻿// app/api/bos/courses-master/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { CoeRestClient, CoeApiError } from '@/lib/services/coe/coe-rest-client';
@@ -208,7 +208,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-<<<<<<< Updated upstream
     const {
       institution_id,
       institution_code,
@@ -217,9 +216,6 @@ export async function POST(request: NextRequest) {
       board_code,
       board_id,
     } = body.context ?? {};
-=======
-    const { institution_id, institution_code, regulation_code, regulation_id, board_code } = body.context ?? {};
->>>>>>> Stashed changes
     if (!institution_id || !institution_code || !regulation_code) {
       return NextResponse.json(
         { error: 'context.institution_id, .institution_code, .regulation_code required' },
@@ -250,10 +246,7 @@ export async function POST(request: NextRequest) {
       regulation_code,
       regulation_id,
       board_code,
-<<<<<<< Updated upstream
       board_id,
-=======
->>>>>>> Stashed changes
     };
 
     // Pre-flight duplicate check — course_code must be unique per institution.

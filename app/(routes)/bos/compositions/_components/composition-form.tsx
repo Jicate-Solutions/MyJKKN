@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useEffect, useRef } from 'react';
 import { useForm } from 'react-hook-form';
@@ -173,47 +173,11 @@ export function CompositionForm({
       : []),
   ];
 
-<<<<<<< Updated upstream
   // ── Constituted By ─────────────────────────────────────────────────────────
   // Migration 20260424 converted bos_compositions.constituted_by from a
   // staff(id) FK to VARCHAR(255) free text. Users enter authority labels here
   // (e.g. "Principal", "Academic Council", "Vice Chancellor") rather than a
   // specific staff record — so this is a plain text input, not a picker.
-=======
-  // ── Principal staff (Constituted By) ─────────────────────────────────────────
-  // CAS institutions have two MyJKKN UUIDs (Aided + SF); the principal may be
-  // stored under either. Pass all sibling IDs via institution_ids so both are
-  // searched in a single query.
-  const staffInstitutionIds: string[] = isSuperAdmin
-    ? (allInstitutions.find((i) => i.myjkkn_institution_ids.includes(institutionsId))?.myjkkn_institution_ids ?? (institutionsId ? [institutionsId] : []))
-    : (ownCtx?.myjkkn_institution_ids?.length ? ownCtx.myjkkn_institution_ids : ownCtx?.myjkkn_id ? [ownCtx.myjkkn_id] : []);
-
-  const { data: principalStaff = [] } = useQuery<StaffOption[]>({
-    queryKey: ['staff', 'category', 'Principal', staffInstitutionIds.join(',')],
-    enabled: staffInstitutionIds.length > 0,
-    queryFn: async () => {
-      const params = new URLSearchParams({ category_name: 'Principal', limit: '50' });
-      if (staffInstitutionIds.length === 1) {
-        params.set('institution_id', staffInstitutionIds[0]);
-      } else {
-        params.set('institution_ids', staffInstitutionIds.join(','));
-      }
-      const res = await fetch(`/api/staff?${params}`);
-      if (!res.ok) return [];
-      const json = await res.json();
-      return (json?.data ?? []) as StaffOption[];
-    },
-    staleTime: 5 * 60 * 1000,
-  });
-
-  const constitutedByOptions = [
-    { value: '', label: '— None —' },
-    ...principalStaff.map((s) => ({
-      value: `${s.first_name} ${s.last_name}`.trim(),
-      label: `${s.first_name} ${s.last_name}${s.staff_id ? ` (${s.staff_id})` : ''}`.trim(),
-    })),
-  ];
->>>>>>> Stashed changes
 
   const handleStartDateChange = (value: string) => {
     form.setValue('term_start_date', value);
