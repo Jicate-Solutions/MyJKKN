@@ -2,7 +2,7 @@ export const dynamic = 'force-dynamic';
 
 import { NextResponse , connection } from 'next/server';
 import { z } from 'zod';
-import { getAuthSession } from '@/lib/supabase/server';
+import { getAuthSession, createServerSupabaseClient } from '@/lib/supabase/server';
 import { ServiceRequestService } from '@/lib/services/service-requests/service-request-service';
 import { createServiceRequestSchema, type CreateServiceRequestDto } from '@/types/service-request';
 import type { ServiceRequestFilters } from '@/types/service-request';
@@ -15,12 +15,35 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    // Institution scoping: only super_admin sees cross-institutional data.
+    // Everyone else gets pinned to their own profile.institution_id, regardless
+    // of any institution_id the client tries to pass. RLS already enforces this
+    // for SELECT, but the explicit filter here is defense in depth — it keeps
+    // counts and pagination metadata honest, and it stops a client filter
+    // dropdown from quietly leaking another institution's IDs into the URL.
+    const supabase = await createServerSupabaseClient();
+    const { data: profile } = await (supabase as any)
+      .from('profiles')
+      .select('role, institution_id')
+      .eq('id', session.user.id)
+      .single();
+
+    if (!profile) {
+      return NextResponse.json({ error: 'User profile not found' }, { status: 404 });
+    }
+
+    const isSuperAdmin = profile.role === 'super_admin';
+    const requestedInstitutionId = new URL(request.url).searchParams.get('institution_id');
+    const effectiveInstitutionId = isSuperAdmin
+      ? (requestedInstitutionId || undefined)
+      : (profile.institution_id || undefined);
+
     const { searchParams } = new URL(request.url);
     const filters: ServiceRequestFilters = {
       status: searchParams.get('status') as any || undefined,
       service_type_id: searchParams.get('service_type_id') || undefined,
       priority: searchParams.get('priority') as any || undefined,
-      institution_id: searchParams.get('institution_id') || undefined,
+      institution_id: effectiveInstitutionId,
       search: searchParams.get('search') || undefined,
       submitted_from: searchParams.get('submitted_from') || undefined,
       submitted_to: searchParams.get('submitted_to') || undefined,

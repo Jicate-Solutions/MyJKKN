@@ -8292,9 +8292,15 @@ WHERE role_key = 'hod';
 -- Returns JSONB with 4 tile values for the logged-in HOD
 CREATE OR REPLACE FUNCTION public.fn_hod_metrics()
 RETURNS jsonb
--- Updated: 2026-04-16 - Added fn_principal_metrics for Dashboard v2 Principal hero strip
--- Principal-scoped hero: (1) OHS via fn_dashboard_metrics, (2) Staff attendance (not_available),
--- (3) hostel_incidents today, (4) pending approvals from user_notifications.
+-- Updated: 2026-05-14 - Fix enum throw + rewire pending_approvals to service_requests.
+--   * Bug 1: status NOT IN ('resolved','closed') -- 'resolved' isn't in
+--     incident_status_enum (reported, under_investigation, action_taken,
+--     closed, reopened). 'closed' is the only terminal state.
+--   * Bug 2: pending_approvals counted user_notifications, not service-request
+--     approvals on the principal's desk. Rewired to count service_requests
+--     where the caller matches the current step's approver_role OR is in
+--     approver_user_ids, scoped to the caller's own institution. Same
+--     predicate the /service-requests/approvals inbox uses.
 CREATE OR REPLACE FUNCTION public.fn_principal_metrics()
   RETURNS jsonb
   LANGUAGE plpgsql
@@ -8303,6 +8309,7 @@ CREATE OR REPLACE FUNCTION public.fn_principal_metrics()
 AS $function$
 DECLARE
   v_user_id uuid := auth.uid();
+  v_user_role text;
   v_institution_id uuid;
   v_today date;
   v_ohs_score int := 0;
@@ -8315,92 +8322,57 @@ DECLARE
 BEGIN
   v_today := (CURRENT_DATE AT TIME ZONE 'Asia/Kolkata')::date;
 
-  SELECT institution_id INTO v_institution_id
+  SELECT institution_id, role
+    INTO v_institution_id, v_user_role
   FROM profiles WHERE id = v_user_id;
 
   IF v_institution_id IS NULL THEN
     RETURN jsonb_build_object(
-      'health_score', jsonb_build_object(
-        'score', 0, 'band', 'red',
-        'components', '{}'::jsonb,
-        'data_source', 'no_institution'
-      ),
-      'staff_attendance', jsonb_build_object(
-        'present', 0, 'total', 0, 'pct', 0,
-        'data_source', 'not_available'
-      ),
-      'incidents', jsonb_build_object(
-        'today_count', 0, 'open_count', 0,
-        'data_source', 'no_institution'
-      ),
-      'pending_approvals', jsonb_build_object(
-        'count', 0,
-        'data_source', 'no_institution'
-      ),
-      'scope', jsonb_build_object(
-        'user_id', v_user_id,
-        'institution_id', NULL,
-        'computed_at', now()
-      )
+      'health_score',     jsonb_build_object('score',0,'band','red','components','{}'::jsonb,'data_source','no_institution'),
+      'staff_attendance', jsonb_build_object('present',0,'total',0,'pct',0,'data_source','not_available'),
+      'incidents',        jsonb_build_object('today_count',0,'open_count',0,'data_source','no_institution'),
+      'pending_approvals',jsonb_build_object('count',0,'data_source','no_institution'),
+      'scope',            jsonb_build_object('user_id',v_user_id,'institution_id',NULL,'computed_at',now())
     );
   END IF;
 
-  -- 1) OHS via fn_dashboard_metrics (reuse existing RPC)
   BEGIN
     v_dashboard_data := fn_dashboard_metrics(v_institution_id);
-    v_ohs_score := COALESCE((v_dashboard_data->'ohs'->>'score')::int, 0);
-    v_ohs_band := COALESCE(v_dashboard_data->'ohs'->>'band', 'red');
+    v_ohs_score      := COALESCE((v_dashboard_data->'ohs'->>'score')::int, 0);
+    v_ohs_band       := COALESCE(v_dashboard_data->'ohs'->>'band', 'red');
     v_ohs_components := COALESCE(v_dashboard_data->'ohs'->'components', '{}'::jsonb);
   EXCEPTION WHEN OTHERS THEN
-    v_ohs_score := 0;
-    v_ohs_band := 'red';
-    v_ohs_components := '{}'::jsonb;
+    v_ohs_score := 0; v_ohs_band := 'red'; v_ohs_components := '{}'::jsonb;
   END;
 
-  -- 2) Staff attendance today — no table exists yet
-  -- Future: will query hr_daily_attendance when HR module ships
-
-  -- 3) Incidents today (hostel_incidents scoped to institution)
   SELECT
     COUNT(*) FILTER (WHERE incident_date::date = v_today),
-    COUNT(*) FILTER (WHERE status NOT IN ('resolved', 'closed'))
+    COUNT(*) FILTER (WHERE status <> 'closed'::incident_status_enum)
   INTO v_incidents_today, v_incidents_open
   FROM hostel_incidents
   WHERE institution_id = v_institution_id;
 
-  -- 4) Pending approvals (user_notifications requiring acknowledgment)
   SELECT COUNT(*) INTO v_pending_approvals
-  FROM user_notifications un
-  JOIN notifications n ON n.id = un.notification_id
-  WHERE un.user_id = v_user_id
-    AND un.acknowledged_at IS NULL
-    AND n.requires_acknowledgment = TRUE
-    AND (n.expires_at IS NULL OR n.expires_at > now());
+  FROM service_requests sr
+  WHERE sr.institution_id = v_institution_id
+    AND sr.status IN ('submitted','in_review')
+    AND EXISTS (
+      SELECT 1
+      FROM service_request_approval_steps s
+      WHERE s.service_type_id = sr.service_type_id
+        AND s.step_order      = sr.current_approval_step
+        AND (
+          s.approver_role = v_user_role
+          OR v_user_id = ANY(s.approver_user_ids)
+        )
+    );
 
   RETURN jsonb_build_object(
-    'health_score', jsonb_build_object(
-      'score', v_ohs_score,
-      'band', v_ohs_band,
-      'components', v_ohs_components
-    ),
-    'staff_attendance', jsonb_build_object(
-      'present', 0,
-      'total', 0,
-      'pct', 0,
-      'data_source', 'not_available'
-    ),
-    'incidents', jsonb_build_object(
-      'today_count', v_incidents_today,
-      'open_count', v_incidents_open
-    ),
-    'pending_approvals', jsonb_build_object(
-      'count', v_pending_approvals
-    ),
-    'scope', jsonb_build_object(
-      'user_id', v_user_id,
-      'institution_id', v_institution_id,
-      'computed_at', now()
-    )
+    'health_score',     jsonb_build_object('score',v_ohs_score,'band',v_ohs_band,'components',v_ohs_components),
+    'staff_attendance', jsonb_build_object('present',0,'total',0,'pct',0,'data_source','not_available'),
+    'incidents',        jsonb_build_object('today_count',v_incidents_today,'open_count',v_incidents_open),
+    'pending_approvals',jsonb_build_object('count',v_pending_approvals),
+    'scope',            jsonb_build_object('user_id',v_user_id,'institution_id',v_institution_id,'computed_at',now())
   );
 END;
 $function$;
