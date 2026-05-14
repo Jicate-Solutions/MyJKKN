@@ -2,7 +2,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { CoeRestClient, CoeApiError } from '@/lib/services/coe/coe-rest-client';
-import { canAccessBos, resolveBosAccess, resolveCoeInstitutionId, applyInstitutionScope, guardInstitutionWrite } from '@/lib/utils/bos/bos-access';
+import {
+  canAccessBos,
+  resolveBosAccess,
+  resolveBosBoardScope,
+  resolveCoeInstitutionId,
+  applyInstitutionScope,
+  guardInstitutionWrite,
+} from '@/lib/utils/bos/bos-access';
 import { courseFormSchema, toCoeCreatePayload } from '@/lib/services/bos/courses-schemas';
 import type { BosCourseMaster, BosCourseListResponse } from '@/types/bos-courses';
 
@@ -36,9 +43,13 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const [hasAccess, scope] = await Promise.all([
+    // Resolve permission + board-aware scope in parallel. boardsOf will be
+    // used below to restrict non-admin callers to courses whose programme is
+    // assigned to a board they belong to.
+    const [hasAccess, scope, boardScope] = await Promise.all([
       canAccessBos(user.id, 'academic.bos-courses', 'view'),
       resolveBosAccess(user.id),
+      resolveBosBoardScope(user.id),
     ]);
 
     if (!hasAccess) {
@@ -52,6 +63,57 @@ export async function GET(request: NextRequest) {
 
     if (!effectiveInstitutionId && !scope.isSuperAdmin) {
       return NextResponse.json({ error: 'institution_id is required' }, { status: 400 });
+    }
+
+    // Board-scoped filter for non-super-admins:
+    //   - super-admin → sees all courses for the institution(s) in scope
+    //   - everyone else → sees only courses whose board_code is assigned to
+    //     one of their compositions (boardsOf). Empty boards → empty list.
+    //
+    // Courses are board-level entities in COE; we use COE's /api/v1/boards
+    // to translate the user's board_ids (= COE board UUIDs stored on
+    // bos_compositions.board_id) into board_codes, then filter the courses
+    // response by board_code.
+    //
+    // (Course-scheme / course-mapping is the program_code-level filter and
+    // lives in /api/bos/course-mapping — not here.)
+    let allowedBoardCodes: Set<string> | null = null;
+    if (!scope.isSuperAdmin) {
+      const userBoardIds = Array.from(boardScope.boardsOf);
+      if (userBoardIds.length === 0) {
+        return NextResponse.json({ data: [] });
+      }
+      // The COE boards fetch needs the COE institution id. We resolve it
+      // here even though the All-institutions path below doesn't use it,
+      // because a non-super-admin always has a single effective institution.
+      const coeInstForBoards = effectiveInstitutionId
+        ? await resolveCoeInstitutionId(effectiveInstitutionId)
+        : null;
+      if (coeInstForBoards) {
+        try {
+          const coe = CoeRestClient.create();
+          const coeBoardsRaw = await coe.get<unknown>('/api/v1/boards', {
+            institutions_id: coeInstForBoards,
+            is_active: 'true',
+          });
+          interface CoeBoard { id: string; board_code: string }
+          const coeBoards: CoeBoard[] = Array.isArray(coeBoardsRaw)
+            ? (coeBoardsRaw as CoeBoard[])
+            : ((coeBoardsRaw as { data?: CoeBoard[] })?.data ?? []);
+          allowedBoardCodes = new Set(
+            coeBoards
+              .filter((b) => userBoardIds.includes(b.id))
+              .map((b) => b.board_code?.toUpperCase())
+              .filter((c): c is string => !!c)
+          );
+        } catch (boardsErr) {
+          console.error('[bos/courses-master] failed to load COE boards for board-scope filter', boardsErr);
+          allowedBoardCodes = new Set();
+        }
+      }
+      if (!allowedBoardCodes || allowedBoardCodes.size === 0) {
+        return NextResponse.json({ data: [] });
+      }
     }
 
     const client = CoeRestClient.create();
@@ -84,7 +146,32 @@ export async function GET(request: NextRequest) {
     });
 
     // COE may return all courses regardless of institutions_id — filter defensively.
-    return NextResponse.json(filterByInstitution(raw, coeInstitutionId));
+    const institutionFiltered = filterByInstitution(raw, coeInstitutionId);
+
+    // Board-scope filter for non-admins: restrict to courses whose board_code
+    // belongs to one of the user's boards. Applied AFTER the COE call because
+    // COE's /api/v1/courses doesn't expose a multi-board filter — we'd need
+    // N parallel requests otherwise. board_code is part of the COE course
+    // payload even though the typed BosCourseMaster doesn't declare it
+    // (the file's comment says extra COE columns are passed through).
+    if (allowedBoardCodes) {
+      const keep = (c: BosCourseMaster & { board_code?: string }): boolean => {
+        const code = (c.board_code ?? '').toUpperCase();
+        return code !== '' && allowedBoardCodes!.has(code);
+      };
+      if (Array.isArray(institutionFiltered)) {
+        return NextResponse.json((institutionFiltered as (BosCourseMaster & { board_code?: string })[]).filter(keep));
+      }
+      const wrapped = institutionFiltered as BosCourseListResponse;
+      if (wrapped && Array.isArray(wrapped.data)) {
+        return NextResponse.json({
+          ...wrapped,
+          data: (wrapped.data as (BosCourseMaster & { board_code?: string })[]).filter(keep),
+        });
+      }
+    }
+
+    return NextResponse.json(institutionFiltered);
   } catch (error) {
     if (error instanceof CoeApiError) {
       return NextResponse.json({ error: error.message }, { status: error.status });
@@ -121,10 +208,23 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { institution_id, institution_code, regulation_code, regulation_id } = body.context ?? {};
+    const {
+      institution_id,
+      institution_code,
+      regulation_code,
+      regulation_id,
+      board_code,
+      board_id,
+    } = body.context ?? {};
     if (!institution_id || !institution_code || !regulation_code) {
       return NextResponse.json(
         { error: 'context.institution_id, .institution_code, .regulation_code required' },
+        { status: 400 }
+      );
+    }
+    if (!board_code) {
+      return NextResponse.json(
+        { error: 'context.board_code is required — pick a board on the form' },
         { status: 400 }
       );
     }
@@ -140,7 +240,14 @@ export async function POST(request: NextRequest) {
     }
 
     const client = CoeRestClient.create();
-    const ctx = { institutions_id: coeInstitutionId, institution_code, regulation_code, regulation_id };
+    const ctx = {
+      institutions_id: coeInstitutionId,
+      institution_code,
+      regulation_code,
+      regulation_id,
+      board_code,
+      board_id,
+    };
 
     // Upsert: check if a course with this code already exists for the institution.
     const searchRaw = await client.get<unknown>('/api/v1/courses', {

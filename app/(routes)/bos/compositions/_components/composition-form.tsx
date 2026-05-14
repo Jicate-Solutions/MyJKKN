@@ -32,7 +32,6 @@ interface BosInstitutionOption {
 }
 
 interface Board { id: string; board_code: string; board_name: string; }
-interface StaffOption { id: string; first_name: string; last_name: string; staff_id?: string; }
 
 // ── Schema ────────────────────────────────────────────────────────────────────
 
@@ -174,39 +173,11 @@ export function CompositionForm({
       : []),
   ];
 
-  // ── Principal staff (Constituted By) ─────────────────────────────────────────
-  // CAS institutions have two MyJKKN UUIDs (Aided + SF); the principal may be
-  // stored under either. Pass all sibling IDs via institution_ids so both are
-  // searched in a single query.
-  const staffInstitutionIds: string[] = isSuperAdmin
-    ? (allInstitutions.find((i) => i.myjkkn_institution_ids.includes(institutionsId))?.myjkkn_institution_ids ?? (institutionsId ? [institutionsId] : []))
-    : (ownCtx?.myjkkn_institution_ids?.length ? ownCtx.myjkkn_institution_ids : ownCtx?.myjkkn_id ? [ownCtx.myjkkn_id] : []);
-
-  const { data: principalStaff = [] } = useQuery<StaffOption[]>({
-    queryKey: ['staff', 'principal', staffInstitutionIds.join(',')],
-    enabled: staffInstitutionIds.length > 0,
-    queryFn: async () => {
-      const params = new URLSearchParams({ role_key: 'principal', limit: '50' });
-      if (staffInstitutionIds.length === 1) {
-        params.set('institution_id', staffInstitutionIds[0]);
-      } else {
-        params.set('institution_ids', staffInstitutionIds.join(','));
-      }
-      const res = await fetch(`/api/staff?${params}`);
-      if (!res.ok) return [];
-      const json = await res.json();
-      return (json?.data ?? []) as StaffOption[];
-    },
-    staleTime: 5 * 60 * 1000,
-  });
-
-  const constitutedByOptions = [
-    { value: '', label: '— None —' },
-    ...principalStaff.map((s) => ({
-      value: `${s.first_name} ${s.last_name}`.trim(),
-      label: `${s.first_name} ${s.last_name}${s.staff_id ? ` (${s.staff_id})` : ''}`.trim(),
-    })),
-  ];
+  // ── Constituted By ─────────────────────────────────────────────────────────
+  // Migration 20260424 converted bos_compositions.constituted_by from a
+  // staff(id) FK to VARCHAR(255) free text. Users enter authority labels here
+  // (e.g. "Principal", "Academic Council", "Vice Chancellor") rather than a
+  // specific staff record — so this is a plain text input, not a picker.
 
   const handleStartDateChange = (value: string) => {
     form.setValue('term_start_date', value);
@@ -378,22 +349,21 @@ export function CompositionForm({
           </CardHeader>
           <CardContent className='px-4 pb-4 space-y-3'>
 
-            {/* Constituted By — principal staff dropdown */}
+            {/* Constituted By — free-text authority label (Principal / Academic Council / VC) */}
             <FormField
               control={form.control}
               name='constituted_by'
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>Constituted By</FormLabel>
-                  <SearchableSelect
-                    value={field.value ?? ''}
-                    onValueChange={field.onChange}
-                    options={constitutedByOptions}
-                    placeholder={!institutionsId ? 'Select institution first' : 'Select principal'}
-                    searchPlaceholder='Search staff…'
-                    disabled={!institutionsId}
-                    className='w-full'
-                  />
+                  <FormControl>
+                    <Input
+                      placeholder='e.g. Principal, Academic Council, Vice Chancellor'
+                      maxLength={255}
+                      {...field}
+                      value={field.value ?? ''}
+                    />
+                  </FormControl>
                   <FormMessage />
                 </FormItem>
               )}

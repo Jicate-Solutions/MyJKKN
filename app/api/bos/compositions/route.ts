@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { BosCompositionFilters, CreateBosCompositionDto } from '@/types/bos';
-import { resolveBosAccess, guardInstitutionWrite } from '@/lib/utils/bos/bos-access';
+import {
+  resolveBosBoardScope,
+  compositionScopeFilter,
+  guardInstitutionWrite,
+} from '@/lib/utils/bos/bos-access';
 
 // ── GET /api/bos/compositions ─────────────────────────────────────────────────
 export async function GET(request: NextRequest) {
@@ -12,7 +16,16 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const scope = await resolveBosAccess(user.id);
+    // Use the board-aware scope: super-admin sees all, principal sees every
+    // composition in their institution(s), regular members see comps they
+    // belong to OR comps they created (bootstrap case — new HOD has no member
+    // row yet for the comp they just made).
+    const scope = await resolveBosBoardScope(user.id);
+    const scopeFilter = compositionScopeFilter(scope);
+
+    // For compositions specifically we cannot early-return on 'none' because
+    // a user with zero memberships might still have created comps that are
+    // pending member setup. We let the query run with a created_by filter.
 
     const { searchParams } = new URL(request.url);
 
@@ -72,6 +85,27 @@ export async function GET(request: NextRequest) {
     } else if (filters.institutionsId) {
       query = query.eq('institutions_id', filters.institutionsId);
     }
+
+    // Board-membership + creator scope (layered on the institution clause above):
+    //   super-admin  → no extra filter
+    //   principal    → institution filter above is sufficient
+    //   everyone else → row must be one of (member-of OR created-by-me).
+    //                   PostgREST `.or()` accepts a comma-separated condition list;
+    //                   we use `id.in.(uuid,uuid,...)` to express the member set
+    //                   in a single clause instead of N `id.eq.` clauses.
+    if (!scope.isSuperAdmin && !scope.isPrincipal) {
+      const memberIds = scope.memberOf.size > 0 ? Array.from(scope.memberOf) : [];
+      const orClauses: string[] = [`created_by.eq.${user.id}`];
+      if (memberIds.length > 0) {
+        orClauses.push(`id.in.(${memberIds.join(',')})`);
+      }
+      query = query.or(orClauses.join(','));
+    }
+    // Reference scopeFilter to silence the "unused" warning while we keep the
+    // discriminated union available for future tightening (e.g. principal
+    // explicit institution filter when allInstitutionIds is partial).
+    void scopeFilter;
+
     if (filters.boardId) query = query.eq('board_id', filters.boardId);
     if (filters.academicYear) query = query.eq('academic_year', filters.academicYear);
     if (filters.isActive !== undefined) query = query.eq('is_active', filters.isActive);
@@ -114,8 +148,31 @@ export async function GET(request: NextRequest) {
       },
     });
   } catch (error) {
-    console.error('[bos/compositions] GET error:', error);
-    return NextResponse.json({ error: 'Failed to fetch compositions' }, { status: 500 });
+    // Log full Postgres error (code + message + hint) so missing-column /
+    // bad-filter cases like the unapplied 'created_by' migration surface in
+    // the server console instead of being swallowed by the generic 500.
+    const pgErr = error as { code?: string; message?: string; hint?: string; details?: string };
+    console.error('[bos/compositions] GET error:', {
+      code: pgErr.code,
+      message: pgErr.message,
+      hint: pgErr.hint,
+      details: pgErr.details,
+    });
+    // 42703 = undefined_column. Most likely cause: 20260514 RLS migration
+    // (which adds bos_compositions.created_by) has not been applied yet.
+    if (pgErr.code === '42703') {
+      return NextResponse.json(
+        {
+          error:
+            'Database schema is out of date — run `supabase db push` to apply pending migrations (missing column: created_by).',
+        },
+        { status: 500 }
+      );
+    }
+    return NextResponse.json(
+      { error: pgErr.message ?? 'Failed to fetch compositions' },
+      { status: 500 }
+    );
   }
 }
 
@@ -128,23 +185,58 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const scope = await resolveBosAccess(user.id);
+    const scope = await resolveBosBoardScope(user.id);
     const body: CreateBosCompositionDto = await request.json();
 
-    if (!body.institutions_id || !body.board_id || !body.composition_title) {
+    // Principal cannot create compositions — they're read-only on board data.
+    if (scope.isPrincipal) {
       return NextResponse.json(
-        { error: 'institutions_id, board_id, and composition_title are required' },
+        { error: 'Forbidden: principals cannot create compositions' },
+        { status: 403 }
+      );
+    }
+
+    if (!body.board_id || !body.composition_title) {
+      return NextResponse.json(
+        { error: 'board_id and composition_title are required' },
         { status: 400 }
       );
     }
 
-    const deny = guardInstitutionWrite(scope, body.institutions_id);
+    // Source-of-truth for institution: the HOD's own staff/profile record
+    // (scope.userInstitutionId). Client-supplied institutions_id is IGNORED for
+    // non-super-admins to prevent cross-institution writes via tampered bodies.
+    let institutionsId: string | undefined;
+    if (scope.isSuperAdmin) {
+      institutionsId = body.institutions_id;
+      if (!institutionsId) {
+        return NextResponse.json(
+          { error: 'institutions_id is required for super-admin requests' },
+          { status: 400 }
+        );
+      }
+    } else {
+      institutionsId = scope.userInstitutionId ?? undefined;
+      if (!institutionsId) {
+        return NextResponse.json(
+          { error: 'Your account has no institution assignment — cannot create composition' },
+          { status: 403 }
+        );
+      }
+    }
+
+    // Backstop institution-level check (super-admin trivially passes).
+    const deny = guardInstitutionWrite(scope, institutionsId);
     if (deny) return NextResponse.json({ error: deny }, { status: 403 });
 
     // Normalize empty strings → null for optional date/text columns so Postgres
     // doesn't reject them with "invalid input syntax for type date: ''"
+    // created_by is stamped from the auth user so the GET visibility guard can
+    // see this row even before bos_members rows exist for it.
     const payload = {
       ...body,
+      institutions_id: institutionsId,
+      created_by: user.id,
       ratified_date: body.ratified_date || null,
       term_end_date: body.term_end_date || null,
       constituted_by: body.constituted_by || null,

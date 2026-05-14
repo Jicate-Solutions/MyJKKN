@@ -555,6 +555,9 @@ export interface BosComposition {
   ratified_by_gc: boolean;
   ratified_date?: string;
   notes?: string;
+  // Auth user who created the row — used as a bootstrap permission gate
+  // (creator can edit/delete + manage members before a chairman is appointed).
+  created_by?: string | null;
   created_at: string;
   updated_at: string;
   // Joined fields
@@ -565,7 +568,7 @@ export interface BosComposition {
 
 export type CreateBosCompositionDto = Omit<
   BosComposition,
-  'id' | 'created_at' | 'updated_at' | 'board' | 'members' | 'member_count'
+  'id' | 'created_at' | 'updated_at' | 'created_by' | 'board' | 'members' | 'member_count'
 >;
 export type UpdateBosCompositionDto = Partial<CreateBosCompositionDto>;
 

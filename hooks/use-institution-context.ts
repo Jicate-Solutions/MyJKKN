@@ -56,6 +56,34 @@ export function useInstitutionContext(): UseQueryResult<InstitutionContext, Erro
   });
 }
 
+// ── useInstitutionContextById ─────────────────────────────────────────────────
+// Resolves any MyJKKN institution UUID to its full InstitutionContext
+// (counselling_code + all sibling MyJKKN UUIDs for CAS Aided+Self).
+// Use this when the institution-of-interest is NOT the logged-in user's own —
+// e.g. a super-admin viewing a composition tied to a specific institution,
+// or any flow that needs to expand a single institutions_id to its CAS siblings.
+
+export function useInstitutionContextById(
+  institutionId: string | undefined | null
+): UseQueryResult<InstitutionContext, Error> {
+  return useQuery<InstitutionContext, Error>({
+    queryKey: institutionContextKeys.byId(institutionId ?? ''),
+    queryFn: async () => {
+      const res = await fetch(
+        `/api/institutions/resolve?institutionId=${institutionId}`
+      );
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error ?? 'Failed to resolve institution context');
+      }
+      const json = await res.json();
+      return json.data as InstitutionContext;
+    },
+    enabled: !!institutionId,
+    ...QUERY_CONFIG.USER_SESSION_DATA,
+  });
+}
+
 // ── useInstitutionContextByCode ───────────────────────────────────────────────
 // Resolves by counselling_code — used after a super-admin picks an institution
 // from the picker, or when you already know the code (e.g., from a URL param).

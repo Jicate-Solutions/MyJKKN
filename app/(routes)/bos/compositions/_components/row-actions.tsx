@@ -28,6 +28,11 @@ import {
 import { BosComposition } from '@/types/bos';
 import { useDeleteBosComposition } from '@/hooks/bos/use-bos-compositions';
 import { usePermissions } from '@/hooks/use-permissions';
+import {
+  useBosBoardScope,
+  canEditComposition,
+  canDeleteComposition,
+} from '@/hooks/bos/use-bos-board-scope';
 import { logger } from '@/lib/utils/enhanced-logger';
 
 interface DataTableRowActionsProps<TData> {
@@ -39,10 +44,17 @@ export function DataTableRowActions<TData>({ row }: DataTableRowActionsProps<TDa
   const router = useRouter();
   const [showDeleteAlert, setShowDeleteAlert] = useState(false);
   const { canAccess, isSuperAdmin } = usePermissions();
+  const boardScope = useBosBoardScope();
   const deleteComposition = useDeleteBosComposition();
 
-  const canEdit = isSuperAdmin || canAccess('academic.bos-compositions', 'edit');
-  const canDelete = isSuperAdmin || canAccess('academic.bos-compositions', 'delete');
+  // Two layers must both pass:
+  //   1. Role-permission gate (does the role grant edit/delete in principle?)
+  //   2. Board-scope gate (is THIS user chairman of THIS composition?)
+  // Members who are not chairman get only "View Members".
+  const hasRolePermEdit = isSuperAdmin || canAccess('academic.bos-compositions', 'edit');
+  const hasRolePermDelete = isSuperAdmin || canAccess('academic.bos-compositions', 'delete');
+  const canEdit = hasRolePermEdit && canEditComposition(boardScope, composition.id);
+  const canDelete = hasRolePermDelete && canDeleteComposition(boardScope, composition.id);
 
   const handleDelete = async () => {
     try {
@@ -57,7 +69,9 @@ export function DataTableRowActions<TData>({ row }: DataTableRowActionsProps<TDa
     }
   };
 
-  if (!canEdit && !canDelete) return null;
+  // The dropdown always exposes "View Members" — only Edit/Delete are gated.
+  // Hiding the trigger entirely would block view-only members and principals
+  // from reaching the composition detail page.
 
   return (
     <>

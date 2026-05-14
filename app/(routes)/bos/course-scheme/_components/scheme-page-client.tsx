@@ -30,7 +30,9 @@ export function SchemePageClient() {
 
   const { data, isLoading } = useBosCourseScheme(filters);
   const { data: semestersData } = useBosSemesters(filters, myjkknInstitutionIds);
-  const { data: programOptions } = useBosProgramOptions(myjkknInstitutionIds);
+  // Mirror the dropdown's scoping so PDF program-name lookup uses the same set.
+  const programScopeId = isSuperAdmin ? undefined : institutionId;
+  const { data: programOptions } = useBosProgramOptions(myjkknInstitutionIds, programScopeId);
   const { data: regulationOptions } = useBosRegulationOptions(myjkknInstitutionIds);
 
   const programName = useMemo(
@@ -156,6 +158,7 @@ export function SchemePageClient() {
               myjkknInstitutionIds={myjkknInstitutionIds}
               value={filters}
               onChange={setFilters}
+              isSuperAdmin={isSuperAdmin}
             />
           )}
         </div>

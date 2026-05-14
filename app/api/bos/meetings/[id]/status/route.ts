@@ -1,9 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { BosMeetingStatus, BOS_MEETING_NEXT_STATUS } from '@/types/bos';
+import {
+  resolveBosBoardScope,
+  guardCompositionWrite,
+  guardPrincipalApprovalOnly,
+} from '@/lib/utils/bos/bos-access';
 
 // ── PATCH /api/bos/meetings/[id]/status ──────────────────────────────────────
 // Transitions a meeting to the next valid state in the state machine.
+// Access:
+//   - super-admin              → any transition
+//   - principal (governor)     → status transitions only, within their institution
+//   - composition members      → any transition for meetings in their composition
 export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -19,15 +28,28 @@ export async function PATCH(
     const body = await request.json();
     const newStatus: BosMeetingStatus = body.status;
 
-    // Fetch current meeting
+    // Fetch current meeting — include institution + composition for the gate.
     const { data: meeting, error: fetchError } = await supabase
       .from('bos_meetings')
-      .select('status')
+      .select('status, institutions_id, composition_id')
       .eq('id', id)
       .single();
 
     if (fetchError || !meeting) {
       return NextResponse.json({ error: 'Meeting not found' }, { status: 404 });
+    }
+
+    // Authorization: principal carve-out runs first because guardCompositionWrite
+    // unconditionally denies principals. Members must be in bos_members for
+    // this composition. Super-admin passes through both.
+    const scope = await resolveBosBoardScope(user.id);
+    const meetingRow = meeting as { institutions_id: string | null; composition_id: string | null; status: string };
+    if (scope.isPrincipal) {
+      const denyPrincipal = guardPrincipalApprovalOnly(scope, 'status', meetingRow.institutions_id);
+      if (denyPrincipal) return NextResponse.json({ error: denyPrincipal }, { status: 403 });
+    } else {
+      const denyMember = guardCompositionWrite(scope, meetingRow.composition_id);
+      if (denyMember) return NextResponse.json({ error: denyMember }, { status: 403 });
     }
 
     const currentStatus = meeting.status as BosMeetingStatus;

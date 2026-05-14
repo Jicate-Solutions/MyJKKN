@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { BosMeetingStatus, BosMeetingType, CreateBosMeetingDto } from '@/types/bos';
-import { resolveBosAccess, guardInstitutionWrite } from '@/lib/utils/bos/bos-access';
+import {
+  resolveBosBoardScope,
+  compositionScopeFilter,
+  guardInstitutionWrite,
+  guardCompositionChairman,
+} from '@/lib/utils/bos/bos-access';
 
 // ── GET /api/bos/meetings ─────────────────────────────────────────────────────
 export async function GET(request: NextRequest) {
@@ -12,7 +17,16 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const scope = await resolveBosAccess(user.id);
+    const scope = await resolveBosBoardScope(user.id);
+    const scopeFilter = compositionScopeFilter(scope);
+
+    // No BoS access at all → return empty list without hitting the DB.
+    if (scopeFilter.kind === 'none') {
+      return NextResponse.json({
+        data: [],
+        metadata: { total: 0, page: 1, limit: 20, totalPages: 0 },
+      });
+    }
 
     const { searchParams } = new URL(request.url);
     const boardId = searchParams.get('boardId') ?? undefined;
@@ -64,6 +78,14 @@ export async function GET(request: NextRequest) {
       query = query.eq('institutions_id', scope.institutionsId);
     }
 
+    // Board-membership scope (layered on the institution scope above).
+    //  - 'all'           : super-admin — no filter
+    //  - 'byInstitution' : principal — already covered by the institution clause above
+    //  - 'byComposition' : member/chairman — restrict by composition_id
+    if (scopeFilter.kind === 'byComposition') {
+      query = query.in('composition_id', scopeFilter.ids);
+    }
+
     if (boardId) query = query.eq('board_id', boardId);
     if (compositionId) query = query.eq('composition_id', compositionId);
     if (academicYear) query = query.eq('academic_year', academicYear);
@@ -109,7 +131,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const scope = await resolveBosAccess(user.id);
+    const scope = await resolveBosBoardScope(user.id);
     const body: CreateBosMeetingDto = await request.json();
 
     if (!body.institutions_id || !body.board_id || !body.composition_id) {
@@ -119,8 +141,13 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const deny = guardInstitutionWrite(scope, body.institutions_id);
-    if (deny) return NextResponse.json({ error: deny }, { status: 403 });
+    // Institution backstop (CAS-aware) + chairman-only gate.
+    // Only the board chairman of the composition can schedule a meeting.
+    // Principals are read-only; regular members cannot create meetings.
+    const denyInst = guardInstitutionWrite(scope, body.institutions_id);
+    if (denyInst) return NextResponse.json({ error: denyInst }, { status: 403 });
+    const denyComp = guardCompositionChairman(scope, body.composition_id);
+    if (denyComp) return NextResponse.json({ error: denyComp }, { status: 403 });
 
     // Auto-assign meeting_number: count existing meetings for this board + academic_year + 1
     const { count: existingCount } = await supabase

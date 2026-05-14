@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
-import { resolveBosAccess, applyInstitutionScope, guardInstitutionWrite } from '@/lib/utils/bos/bos-access';
+import {
+  resolveBosAccess,
+  resolveBosBoardScope,
+  compositionScopeFilter,
+  applyInstitutionScope,
+  guardInstitutionWrite,
+} from '@/lib/utils/bos/bos-access';
 import { BosCourseSyllabus, BosSyllabusListResponse, CreateBosSyllabusDto } from '@/types/bos';
 
 /**
@@ -34,8 +40,18 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Step 2: Resolve institution scope
-    const scope = await resolveBosAccess(user.id);
+    // Step 2: Resolve institution + board-membership scope.
+    // Syllabi have board_id but no composition_id, so members are filtered by
+    // boardsOf (the union of board_ids across their active compositions).
+    const scope = await resolveBosBoardScope(user.id);
+    const scopeFilter = compositionScopeFilter(scope);
+
+    if (scopeFilter.kind === 'none') {
+      return NextResponse.json({
+        data: [],
+        metadata: { total: 0, page: 1, limit: 50, totalPages: 0 },
+      } as BosSyllabusListResponse);
+    }
 
     // Step 3: Parse query parameters
     const { searchParams } = new URL(request.url);
@@ -80,6 +96,23 @@ export async function GET(request: NextRequest) {
       query = query.in('institutions_id', filterIds);
     } else {
       query = query.eq('institutions_id', filterIds[0]);
+    }
+
+    // Board-membership scope (after the institution filter).
+    //  - 'all'           : super-admin — no extra filter
+    //  - 'byInstitution' : principal — institution filter above is sufficient
+    //  - 'byComposition' : member/chairman — restrict by board_id ∈ boardsOf.
+    //                      (Schema has board_id, no composition_id; we use the
+    //                      board set derived during scope resolution.)
+    if (scopeFilter.kind === 'byComposition') {
+      const boardIds = Array.from(scope.boardsOf);
+      if (boardIds.length === 0) {
+        return NextResponse.json({
+          data: [],
+          metadata: { total: 0, page, limit, totalPages: 0 },
+        } as BosSyllabusListResponse);
+      }
+      query = query.in('board_id', boardIds);
     }
 
     // Apply filters

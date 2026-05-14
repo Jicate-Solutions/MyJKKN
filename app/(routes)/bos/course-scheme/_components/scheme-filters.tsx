@@ -11,12 +11,15 @@ export function SchemeFiltersBar({
   myjkknInstitutionIds,
   value,
   onChange,
+  isSuperAdmin = false,
 }: {
   institutionId: string;
   /** All related MyJKKN UUIDs for the selected institution (>1 for CAS Aided+Self). */
   myjkknInstitutionIds?: string[];
   value: SchemeFilters | null;
   onChange: (v: SchemeFilters | null) => void;
+  /** When true, bypass BoS board-member scoping on the Program dropdown. */
+  isSuperAdmin?: boolean;
 }) {
   const [program, setProgram] = useState(value?.program_code ?? '');
   const [regulation, setRegulation] = useState(value?.regulation_code ?? '');
@@ -34,7 +37,13 @@ export function SchemeFiltersBar({
     ? myjkknInstitutionIds
     : institutionId;
 
-  const { data: programsData, isLoading: programsLoading } = useBosProgramOptions(lookupIds);
+  // Non-super-admin users see only programmes governed by a BoS board they
+  // belong to (any member_type), unless they hold an institution-wide governor
+  // role (principal/HOD/etc) — see CHAIRMAN_ROLES in /api/bos/programs.
+  // The flag is presence-only on the server; the value itself is ignored.
+  const programScopeId = isSuperAdmin ? undefined : institutionId;
+
+  const { data: programsData, isLoading: programsLoading } = useBosProgramOptions(lookupIds, programScopeId);
   const { data: regulationsData, isLoading: regulationsLoading } = useBosRegulationOptions(lookupIds);
 
   const programs = programsData?.data ?? [];

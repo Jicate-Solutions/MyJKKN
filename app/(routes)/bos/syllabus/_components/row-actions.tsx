@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation';
 import { Row } from '@tanstack/react-table';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useDeleteBosSyllabus } from '@/hooks/bos/use-bos-syllabus';
+import { useBosBoardScope, canEditSyllabus } from '@/hooks/bos/use-bos-board-scope';
+import { useAuth } from '@/hooks/use-auth-provider';
 import { ReviseDialog } from '@/components/bos/revise-dialog';
 import { DuplicateDialog } from '@/components/bos/duplicate-dialog';
 import type { BosCourseSyllabus, BosCourseObjectivesContent, BosCourseLearnOutcomesContent } from '@/types/bos';
@@ -17,10 +19,11 @@ import {
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
-import { MoreHorizontal, Edit2, Copy, History, Trash2, FileDown, Loader2 } from 'lucide-react';
+import { MoreHorizontal, Edit2, Copy, History, Trash2, FileDown, Loader2, FileSpreadsheet } from 'lucide-react';
 import { toast } from 'sonner';
 import { getInstitutionHeader } from '@/lib/utils/internal-marks/institution-header';
 import { generateCourseSyllabusPDF, extractPOKeys } from '@/lib/utils/bos/course-syllabus-pdf';
+import { exportSyllabusToXlsx } from './syllabus-actions';
 
 // ── PDF Download Button ───────────────────────────────────────────────────────
 
@@ -130,20 +133,32 @@ export function DataTableRowActions<TData extends BosCourseSyllabus>({
   // institutionName is consumed by SyllabusPdfDownloadButton rendered alongside this component
   const router = useRouter();
   const { canAccess } = usePermissions();
+  const { profile } = useAuth();
+  const boardScope = useBosBoardScope();
   const syllabus = row.original as BosCourseSyllabus;
   const deleteBosSyllabus = useDeleteBosSyllabus();
 
-  const canEdit = canAccess('academic.bos-syllabus', 'edit');
-  const canDelete = canAccess('academic.bos-syllabus', 'delete');
+  // Per spec: only the creator, the board chairman, or super-admin can edit
+  // a published syllabus. All other board members are view-only.
+  // hasRolePermEdit is the legacy module-level gate; the syllabus-specific
+  // creator/chairman check is layered on top.
+  const hasRolePermEdit = canAccess('academic.bos-syllabus', 'edit');
+  const hasRolePermDelete = canAccess('academic.bos-syllabus', 'delete');
+  const boardOwnership = canEditSyllabus(
+    boardScope,
+    { board_id: syllabus.board_id ?? null, created_by: syllabus.created_by ?? null },
+    profile?.id ?? null,
+  );
+  const canEdit = hasRolePermEdit && boardOwnership;
+  const canDelete = hasRolePermDelete && boardOwnership;
 
   const [reviseDialogOpen, setReviseDialogOpen] = useState(false);
   const [duplicateDialogOpen, setDuplicateDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
 
-  if (!canEdit && !canDelete) {
-    return null;
-  }
+  // View History is unconditional for users with view access, so we always
+  // render the dropdown — Edit/Delete entries are individually gated below.
 
   const handleDelete = async () => {
     setIsDeleting(true);
@@ -183,6 +198,12 @@ export function DataTableRowActions<TData extends BosCourseSyllabus>({
           <DropdownMenuItem onClick={() => router.push(`/bos/syllabus/${syllabus.id}/history`)}>
             <History className='h-4 w-4 mr-2' />
             View History
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onClick={() => exportSyllabusToXlsx(syllabus.id, syllabus.course_code)}
+          >
+            <FileSpreadsheet className='h-4 w-4 mr-2' />
+            Export to Excel
           </DropdownMenuItem>
           {canDelete && (
             <DropdownMenuItem

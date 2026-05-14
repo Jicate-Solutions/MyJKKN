@@ -55,7 +55,7 @@ export default function EditMeetingPage({ params }: EditMeetingPageProps) {
 
   if (isLoading) {
     return (
-      <div className='max-w-3xl space-y-4'>
+      <div className='space-y-4'>
         <Skeleton className='h-10 w-64' />
         <Skeleton className='h-4 w-80' />
         {Array.from({ length: 3 }).map((_, i) => (
@@ -68,13 +68,13 @@ export default function EditMeetingPage({ params }: EditMeetingPageProps) {
   if (!meeting) return null;
 
   return (
-    <div className='max-w-3xl'>
+    <div>
       <PageHeader
         title='Edit Meeting'
         description={`Meeting #${meeting.meeting_number}/${meeting.academic_year}`}
       />
 
-      <div className='mt-6'>
+      <div className='mt-4'>
         <MeetingForm
           meeting={meeting}
           isSubmitting={updateMeeting.isPending}

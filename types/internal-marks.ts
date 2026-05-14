@@ -265,6 +265,14 @@ export interface CiaMarkSyncRecord {
   exam_registration_id: string;
   submission_date: string;
   cia_round: number;
+  /**
+   * Assessment / CIA setting id this round belongs to.
+   * Required by the intended unique-key scope (institution → session →
+   * assessment → course → round → learner). Optional in the type until COE
+   * accepts the field on /api/v1/cia-marks/sync — see project memory
+   * `cia-marks-assessment-scope` for the coordination state.
+   */
+  cia_setting_id?: string;
   marks_status: 'Draft' | 'Submitted' | 'Approved' | 'Rejected' | string;
   total_internal_marks: number;
   max_internal_marks: number;

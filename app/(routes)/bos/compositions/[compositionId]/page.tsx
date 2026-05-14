@@ -32,7 +32,13 @@ import {
 import { useBosComposition } from '@/hooks/bos/use-bos-compositions';
 import { useBosMembersByComposition, useRemoveBosMember } from '@/hooks/bos/use-bos-members';
 import { usePermissions } from '@/hooks/use-permissions';
-import { useInstitutionContext } from '@/hooks/use-institution-context';
+import {
+  useBosBoardScope,
+  canEditComposition,
+  canManageMembers,
+} from '@/hooks/bos/use-bos-board-scope';
+import { useAuth } from '@/hooks/use-auth-provider';
+import { useInstitutionContextById } from '@/hooks/use-institution-context';
 import {
   BosMember,
   BosMemberType,
@@ -131,15 +137,32 @@ export default function CompositionDetailPage({ params }: CompositionDetailPageP
   const { compositionId } = use(params);
   const router = useRouter();
   const { canAccess, isSuperAdmin } = usePermissions();
+  const boardScope = useBosBoardScope();
+  const { profile } = useAuth();
   const { data: composition, isLoading: loadingComposition } = useBosComposition(compositionId);
   const { data: members = [], isLoading: loadingMembers } = useBosMembersByComposition(compositionId);
   const removeMember = useRemoveBosMember();
   const [addDialogOpen, setAddDialogOpen] = useState(false);
 
-  const canEdit = isSuperAdmin || canAccess('academic.bos-compositions', 'edit');
+  // Bootstrap case: the user who created this row keeps edit + member-roster
+  // access until a chairman is appointed. Without it the creator can't
+  // finish setting up their own composition.
+  const createdByMe = !!(composition?.created_by && profile?.id && composition.created_by === profile.id);
 
-  // Resolve all sibling institution IDs (needed for CAS Aided+Self programme lookup).
-  const institutionCtx = useInstitutionContext();
+  // canEdit drives header "Edit" button + the BoardProgrammesCard.
+  // canManage drives the per-member "Add"/"Remove" controls. They differ in
+  // intent today (programmes editing vs roster management) but both unlock
+  // for: super-admin, chairman of this comp, or creator of this comp.
+  const hasRolePermEdit = isSuperAdmin || canAccess('academic.bos-compositions', 'edit');
+  const canEdit = hasRolePermEdit && canEditComposition(boardScope, compositionId, createdByMe);
+  const canManage = hasRolePermEdit && canManageMembers(boardScope, compositionId, createdByMe);
+
+  // Resolve all sibling institution IDs for the COMPOSITION'S institution
+  // (not the logged-in user's). For CAS colleges, this expands a single
+  // institutions_id into the pair of Aided + Self-Financing UUIDs via the
+  // shared counselling_code. Needed so regulations/taxonomy/programmes
+  // lookups don't miss rows stored under the sibling UUID.
+  const institutionCtx = useInstitutionContextById(composition?.institutions_id);
   const allInstitutionIds: string[] = institutionCtx.data?.myjkkn_institution_ids?.length
     ? institutionCtx.data.myjkkn_institution_ids
     : composition?.institutions_id ? [composition.institutions_id] : [];
@@ -148,29 +171,34 @@ export default function CompositionDetailPage({ params }: CompositionDetailPageP
 
   const [selectedRegulationId, setSelectedRegulationId] = useState('');
 
-  // Regulations for this institution
+  // CAS-aware: a composition may be tied to one of two sibling institution
+  // UUIDs (Aided/Self-Financing), but the regulation + taxonomy rows might
+  // live under either. Pass the full sibling list so both are searched.
+  const institutionIdsCsv = allInstitutionIds.join(',');
+
+  // Regulations for this institution (all CAS siblings)
   const { data: regulations = [], isLoading: loadingRegs } = useQuery<Regulation[]>({
-    queryKey: ['bos', 'regulations', composition?.institutions_id],
+    queryKey: ['bos', 'regulations', institutionIdsCsv],
     queryFn: async () => {
-      const res = await fetch(`/api/bos/regulations?institutionId=${composition!.institutions_id}`);
+      const res = await fetch(`/api/bos/regulations?institutionIds=${institutionIdsCsv}`);
       if (!res.ok) return [];
       const json = await res.json();
       return json.data ?? [];
     },
-    enabled: !!composition?.institutions_id,
+    enabled: allInstitutionIds.length > 0,
     staleTime: 5 * 60 * 1000,
   });
 
   // Taxonomy assignments — only regulations with a taxonomy can have PO/PSO
   const { data: taxonomyAssignments = [] } = useQuery<{ regulation_id: string }[]>({
-    queryKey: ['bos', 'taxonomy-assignments', composition?.institutions_id],
+    queryKey: ['bos', 'taxonomy-assignments', institutionIdsCsv],
     queryFn: async () => {
-      const res = await fetch(`/api/bos/taxonomy?institutionsId=${composition!.institutions_id}`);
+      const res = await fetch(`/api/bos/taxonomy?institutionsIds=${institutionIdsCsv}`);
       if (!res.ok) return [];
       const json = await res.json();
       return json.data ?? [];
     },
-    enabled: !!composition?.institutions_id,
+    enabled: allInstitutionIds.length > 0,
     staleTime: 5 * 60 * 1000,
   });
 
@@ -297,7 +325,7 @@ export default function CompositionDetailPage({ params }: CompositionDetailPageP
                     ({activeMembers.length} active)
                   </span>
                 </CardTitle>
-                {canEdit && (
+                {canManage && (
                   <Button size='sm' variant='outline' onClick={() => setAddDialogOpen(true)}>
                     <Plus className='mr-2 h-4 w-4' />
                     Add Member
@@ -310,7 +338,7 @@ export default function CompositionDetailPage({ params }: CompositionDetailPageP
                 <div className='text-center py-8 text-muted-foreground'>
                   <Users className='h-8 w-8 mx-auto mb-2 opacity-40' />
                   <p className='text-sm'>No members added yet.</p>
-                  {canEdit && (
+                  {canManage && (
                     <Button variant='link' size='sm' onClick={() => setAddDialogOpen(true)}>
                       Add the first member →
                     </Button>
@@ -330,7 +358,7 @@ export default function CompositionDetailPage({ params }: CompositionDetailPageP
                           <MemberCard
                             key={member.id}
                             member={member}
-                            canEdit={canEdit}
+                            canEdit={canManage}
                             onRemove={handleRemoveMember}
                           />
                         ))}
@@ -416,6 +444,8 @@ export default function CompositionDetailPage({ params }: CompositionDetailPageP
       )}
 
       {/* ── Add Member Dialog ───────────────────────────────────────────── */}
+      {/* AddMemberDialog resolves CAS siblings itself via useInstitutionContextById
+          (no need to pass allInstitutionIds — see FacilitatorPicker). */}
       {composition.institutions_id && (
         <AddMemberDialog
           open={addDialogOpen}

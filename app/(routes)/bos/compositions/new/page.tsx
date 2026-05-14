@@ -19,7 +19,14 @@ export default function NewCompositionPage() {
       router.push(`/bos/compositions/${created.id}`);
     } catch (error) {
       logger.error('academic/bos', 'Failed to create composition', error);
-      toast.error('Failed to create composition');
+      // Surface the server's specific error (e.g. UNIQUE(board_id, term_start_date)
+      // → "A composition for this board already exists for the selected term
+      // start date."). Without this, users see only a generic message and can't
+      // tell why their submission failed.
+      const message = error instanceof Error
+        ? error.message
+        : 'Failed to create composition';
+      toast.error(message);
     }
   };
 

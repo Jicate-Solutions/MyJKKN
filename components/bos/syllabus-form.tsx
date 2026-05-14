@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, type ChangeEvent } from 'react';
 import { useCreateBosSyllabus, useUpdateBosSyllabus, useBosSyllabus } from '@/hooks/bos/use-bos-syllabus';
 import { useBosTaxonomy } from '@/hooks/bos/use-bos-taxonomy';
 import { usePermissions } from '@/hooks/use-permissions';
@@ -24,7 +24,12 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { SearchableSelect } from '@/components/ui/searchable-select';
 import { useBosCourses } from '@/hooks/bos/use-bos-courses';
 import { useInstitutionContext } from '@/hooks/use-institution-context';
-import { X, Trash2, BookOpen, Plus, FlaskConical, BookText, Check } from 'lucide-react';
+import { X, Trash2, BookOpen, Plus, FlaskConical, BookText, Check, Upload, Loader2, FileText } from 'lucide-react';
+import {
+  SyllabusImportIssuesDialog,
+  type ImportWarning,
+  type ImportSummaryCounts,
+} from '@/components/bos/syllabus-import-issues-dialog';
 
 interface Institution { id: string; name: string; myjkkn_institution_ids: string[]; display_name?: string; }
 interface Regulation { id: string; title: string; regulation_code: string; regulation_year?: string; }
@@ -81,6 +86,15 @@ export function SyllabusForm({
   }[]>([]);
   const [courseCodeError, setCourseCodeError] = useState<string | null>(null);
 
+  // ── Import-from-document state ─────────────────────────────────────────────
+  const [isImporting, setIsImporting] = useState(false);
+  const [importError, setImportError] = useState<string | null>(null);
+  const [importSummary, setImportSummary] = useState<string | null>(null);
+  const [importIssuesOpen, setImportIssuesOpen] = useState(false);
+  const [importWarnings, setImportWarnings] = useState<ImportWarning[]>([]);
+  const [importCounts, setImportCounts] = useState<ImportSummaryCounts>({});
+  const importInputRef = useRef<HTMLInputElement>(null);
+
   const [formData, setFormData] = useState<Partial<BosCourseSyllabus>>(
     existingSyllabus || {
       institutions_id: userProfile?.institution_id || '',
@@ -129,6 +143,142 @@ export function SyllabusForm({
       : undefined,
   );
   const courseOptions = coursesData?.data ?? [];
+
+  // Read sessionStorage handoff from the list page Import button — runs once
+  // on mount, consume-and-delete so a refresh doesn't replay the data.
+  useEffect(() => {
+    if (isEditingProp || syllabusProp) return;
+    if (typeof window === 'undefined') return;
+    const raw = sessionStorage.getItem('bos.syllabus.import.handoff');
+    if (!raw) return;
+    try {
+      const payload = JSON.parse(raw) as {
+        data: any;
+        summary: Record<string, number>;
+        warnings?: ImportWarning[];
+      };
+      sessionStorage.removeItem('bos.syllabus.import.handoff');
+      if (payload.warnings && payload.warnings.length > 0) {
+        setImportWarnings(payload.warnings);
+        setImportCounts(payload.summary as ImportSummaryCounts);
+        setImportIssuesOpen(true);
+      }
+      setFormData((prev) => ({
+        ...prev,
+        course_objectives: payload.data.course_objectives ?? prev.course_objectives,
+        course_learning_outcomes:
+          payload.data.course_learning_outcomes ?? prev.course_learning_outcomes,
+        course_content: payload.data.course_content ?? prev.course_content,
+        textbooks: payload.data.textbooks ?? prev.textbooks,
+        web_resources: payload.data.web_resources ?? prev.web_resources,
+        pedagogy: payload.data.pedagogy ?? prev.pedagogy,
+        po_mappings: payload.data.po_mappings ?? prev.po_mappings,
+      }));
+      const s = payload.summary ?? {};
+      const parts: string[] = [];
+      if (s.objectives) parts.push(`${s.objectives} objectives`);
+      if (s.clos) parts.push(`${s.clos} COs`);
+      if (s.units) parts.push(`${s.units} units`);
+      if (s.textbooks) parts.push(`${s.textbooks} textbooks`);
+      if (s.references) parts.push(`${s.references} references`);
+      if (s.web_resources) parts.push(`${s.web_resources} web resources`);
+      if (s.pedagogy) parts.push(`${s.pedagogy} pedagogy methods`);
+      if (s.po_mapping_rows) parts.push(`PO mapping (${s.po_mapping_rows} rows)`);
+      if (parts.length > 0) {
+        setImportSummary(`Imported: ${parts.join(', ')}. Fill Basic Info and Save.`);
+      }
+    } catch {
+      sessionStorage.removeItem('bos.syllabus.import.handoff');
+    }
+  }, [isEditingProp, syllabusProp]);
+
+  // Per-form import handler used by the upload card on the Basic Info tab.
+  // Non-destructive merge — only fills sections that are currently empty.
+  const handleImportFile = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsImporting(true);
+    setImportError(null);
+    setImportSummary(null);
+
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const res = await fetch('/api/bos/syllabus/extract', { method: 'POST', body: fd });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to extract syllabus');
+
+      const { data, summary, warnings } = json as {
+        data: any;
+        summary: Record<string, number>;
+        warnings?: ImportWarning[];
+      };
+
+      if (warnings && warnings.length > 0) {
+        setImportWarnings(warnings);
+        setImportCounts(summary as ImportSummaryCounts);
+        setImportIssuesOpen(true);
+      }
+
+      setFormData((prev) => {
+        const isEmpty = (val: any, listKey: string) =>
+          !val || !Array.isArray(val[listKey]) || val[listKey].length === 0;
+        return {
+          ...prev,
+          course_objectives:
+            isEmpty(prev.course_objectives, 'objectives')
+              ? data.course_objectives
+              : prev.course_objectives,
+          course_learning_outcomes:
+            isEmpty(prev.course_learning_outcomes, 'clos')
+              ? data.course_learning_outcomes
+              : prev.course_learning_outcomes,
+          course_content:
+            isEmpty(prev.course_content, 'units') && isEmpty(prev.course_content, 'topics')
+              ? data.course_content
+              : prev.course_content,
+          textbooks:
+            isEmpty(prev.textbooks, 'primary') && isEmpty(prev.textbooks, 'references')
+              ? data.textbooks
+              : prev.textbooks,
+          web_resources:
+            isEmpty(prev.web_resources, 'resources')
+              ? data.web_resources
+              : prev.web_resources,
+          pedagogy:
+            isEmpty(prev.pedagogy, 'methods')
+              ? data.pedagogy
+              : prev.pedagogy,
+          po_mappings:
+            isEmpty(prev.po_mappings, 'mappings')
+              ? data.po_mappings
+              : prev.po_mappings,
+        };
+      });
+
+      const parts: string[] = [];
+      if (summary.objectives) parts.push(`${summary.objectives} objectives`);
+      if (summary.clos) parts.push(`${summary.clos} COs`);
+      if (summary.units) parts.push(`${summary.units} units`);
+      if (summary.textbooks) parts.push(`${summary.textbooks} textbooks`);
+      if (summary.references) parts.push(`${summary.references} references`);
+      if (summary.web_resources) parts.push(`${summary.web_resources} web resources`);
+      if (summary.pedagogy) parts.push(`${summary.pedagogy} pedagogy methods`);
+      if (summary.po_mapping_rows) parts.push(`PO mapping (${summary.po_mapping_rows} rows)`);
+
+      setImportSummary(
+        parts.length > 0
+          ? `Imported: ${parts.join(', ')}`
+          : 'No recognisable sections were found in the document.',
+      );
+    } catch (err) {
+      setImportError(err instanceof Error ? err.message : 'Failed to import syllabus');
+    } finally {
+      setIsImporting(false);
+      if (importInputRef.current) importInputRef.current.value = '';
+    }
+  };
 
   const handleSaveAndNext = async (nextTab: string) => {
     try {
@@ -392,6 +542,87 @@ export function SyllabusForm({
 
         {/* Basic Information */}
         <TabsContent value="basic" className="space-y-4">
+          {/* ── Import from Document ───────────────────────────────────── */}
+          <Card className="border-dashed border-primary/30 bg-primary/5">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base flex items-center gap-2">
+                <Upload className="h-4 w-4" />
+                Import from Document
+              </CardTitle>
+              <CardDescription>
+                Upload a syllabus PDF, Word, or Excel file to auto-fill Objectives,
+                COs, Content, Resources, Pedagogy, and PO Mappings. Basic Info
+                fields stay manual. Existing entries are preserved (non-destructive).
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="flex items-center gap-3">
+                <input
+                  ref={importInputRef}
+                  type="file"
+                  accept=".pdf,.docx,.xlsx,.xls"
+                  onChange={handleImportFile}
+                  disabled={isImporting}
+                  className="hidden"
+                  id="syllabus-import-input"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => importInputRef.current?.click()}
+                  disabled={isImporting}
+                  className="gap-2"
+                >
+                  {isImporting ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Extracting…
+                    </>
+                  ) : (
+                    <>
+                      <FileText className="h-4 w-4" />
+                      Choose file (.pdf / .docx / .xlsx)
+                    </>
+                  )}
+                </Button>
+                <span className="text-xs text-muted-foreground">Max 10 MB</span>
+              </div>
+
+              {importSummary && (
+                <Alert className="border-green-300 bg-green-50 dark:bg-green-950/30">
+                  <AlertDescription className="text-sm text-green-800 dark:text-green-200 flex items-start justify-between gap-2">
+                    <span>{importSummary}</span>
+                    <button
+                      type="button"
+                      onClick={() => setImportSummary(null)}
+                      className="text-green-700 hover:text-green-900 shrink-0"
+                      aria-label="Dismiss"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </AlertDescription>
+                </Alert>
+              )}
+
+              {importError && (
+                <Alert variant="destructive">
+                  <AlertDescription className="text-sm flex items-start justify-between gap-2">
+                    <span>{importError}</span>
+                    <button
+                      type="button"
+                      onClick={() => setImportError(null)}
+                      className="shrink-0 hover:opacity-80"
+                      aria-label="Dismiss"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </AlertDescription>
+                </Alert>
+              )}
+            </CardContent>
+          </Card>
+
           <Card>
             <CardHeader>
               <CardTitle>Course Information</CardTitle>
@@ -816,6 +1047,13 @@ export function SyllabusForm({
           </AlertDescription>
         </Alert>
       )}
+
+      <SyllabusImportIssuesDialog
+        open={importIssuesOpen}
+        onOpenChange={setImportIssuesOpen}
+        warnings={importWarnings}
+        summary={importCounts}
+      />
     </form>
   );
 }

@@ -24,6 +24,7 @@ import type { MeetingSearchParams } from './data-table-schema';
 import { BosMeeting } from '@/types/bos';
 import { BosMeetingService } from '@/lib/services/bos/bos-meeting-service';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useBosBoardScope } from '@/hooks/bos/use-bos-board-scope';
 import { logger } from '@/lib/utils/enhanced-logger';
 
 interface MeetingDataTableProps {
@@ -34,6 +35,7 @@ export function MeetingDataTable({ search }: MeetingDataTableProps) {
   const router = useRouter();
   const { canAccess, isSuperAdmin, userProfile, isLoading: permissionsLoading } =
     usePermissions();
+  const bosScope = useBosBoardScope();
 
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<{
@@ -44,9 +46,15 @@ export function MeetingDataTable({ search }: MeetingDataTableProps) {
 
   const isReady = !permissionsLoading && !!userProfile;
 
+  // Meeting creation is restricted to the board chairman (or super-admin).
+  // The role-permission check stays as the upstream gate, but the chairman
+  // requirement is layered on top — a regular member with create permission
+  // still won't see the button unless they chair an active composition.
   const canCreate = useMemo(
-    () => isSuperAdmin || canAccess('bos.meetings', 'create'),
-    [isSuperAdmin, canAccess]
+    () =>
+      isSuperAdmin ||
+      (canAccess('bos.meetings', 'create') && bosScope.isChairmanIn.size > 0),
+    [isSuperAdmin, canAccess, bosScope.isChairmanIn]
   );
   const canEdit = useMemo(
     () => isSuperAdmin || canAccess('bos.meetings', 'edit'),

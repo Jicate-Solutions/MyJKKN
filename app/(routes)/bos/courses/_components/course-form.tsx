@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect } from 'react';
-import { useForm, type UseFormReturn, type FieldPath } from 'react-hook-form';
+import { useForm, Controller, type UseFormReturn, type FieldPath } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -9,11 +9,13 @@ import { Label } from '@/components/ui/label';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
+import { SearchableSelect } from '@/components/ui/searchable-select';
 import {
   courseFormSchema,
   COURSE_PART_VALUES,
   COURSE_CATEGORY_VALUES,
   COURSE_TYPE_VALUES,
+  COURSE_LEVEL_VALUES,
   type CourseFormInput,
 } from '@/lib/services/bos/courses-schemas';
 
@@ -33,6 +35,9 @@ export function CourseForm({ defaultValues, onSubmit, submitting, submitLabel = 
       course_category: 'Theory',
       course_part_master: 'Part III',
       course_type: 'Core',
+      // course_level intentionally omitted — some courses genuinely have no
+      // Roman-numeral tier, so blank is the right default. The schema is now
+      // optional, so submitting without a Level is valid.
       exam_duration: 3,
       credit: 3,
       theory_hours: 0,
@@ -83,10 +88,34 @@ export function CourseForm({ defaultValues, onSubmit, submitting, submitLabel = 
             />
           </Field>
         </div>
-        <div className='grid grid-cols-3 gap-3'>
+        <div className='grid grid-cols-2 gap-3'>
           <SelectField name='course_category' form={form} label='Category' options={COURSE_CATEGORY_VALUES} />
           <SelectField name='course_part_master' form={form} label='Part' options={COURSE_PART_VALUES} />
+        </div>
+        <div className='grid grid-cols-[2fr_1fr] gap-3'>
           <SelectField name='course_type' form={form} label='Type' options={COURSE_TYPE_VALUES} />
+          <Field label='Level' error={form.formState.errors.course_level?.message}>
+            <Controller
+              name='course_level'
+              control={form.control}
+              render={({ field }) => (
+                <SearchableSelect
+                  value={(field.value as string) ?? ''}
+                  onValueChange={(v) =>
+                    // Empty string means "cleared" — keep the field truly empty
+                    // so the optional Zod check stays happy and we don't send
+                    // an empty string to COE.
+                    field.onChange(v === '' ? undefined : v)
+                  }
+                  options={COURSE_LEVEL_VALUES.map((v) => ({ value: v, label: v }))}
+                  placeholder='Select level'
+                  searchPlaceholder='Search level…'
+                  emptyMessage='No matching level'
+                  className='w-full justify-between'
+                />
+              )}
+            />
+          </Field>
         </div>
       </fieldset>
 
@@ -148,16 +177,28 @@ function SelectField({
   label: string;
   options: readonly string[];
 }) {
-  const value = form.watch(name) as string | undefined;
   const error = form.formState.errors[name]?.message as string | undefined;
+  // Controller binds Radix Select to react-hook-form's controlled state from
+  // the very first render — fixes the case where `form.watch(name)` briefly
+  // returned undefined and the trigger showed blank (e.g., the level default
+  // 'I' not appearing in the trigger even though defaultValues set it).
   return (
     <Field label={label} error={error}>
-      <Select value={value} onValueChange={(v) => form.setValue(name, v as never)}>
-        <SelectTrigger><SelectValue /></SelectTrigger>
-        <SelectContent>
-          {options.map((o) => <SelectItem key={o} value={o}>{o}</SelectItem>)}
-        </SelectContent>
-      </Select>
+      <Controller
+        name={name}
+        control={form.control}
+        render={({ field }) => (
+          <Select
+            value={(field.value as string) ?? ''}
+            onValueChange={field.onChange}
+          >
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {options.map((o) => <SelectItem key={o} value={o}>{o}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        )}
+      />
     </Field>
   );
 }

@@ -23,6 +23,14 @@ export type CourseType =
   | 'Practical' | 'Project'
   | 'Skill Enhancement Practical' | 'Skill Enhancement';
 
+/** Roman numerals I..XX (1..20). Pairs with CourseType in COE to form
+ *  course_type_code (e.g., "Core" + "I" => "Core-I"). */
+export type CourseLevel =
+  | 'I' | 'II' | 'III' | 'IV' | 'V'
+  | 'VI' | 'VII' | 'VIII' | 'IX' | 'X'
+  | 'XI' | 'XII' | 'XIII' | 'XIV' | 'XV'
+  | 'XVI' | 'XVII' | 'XVIII' | 'XIX' | 'XX';
+
 export type EvaluationType = 'CIA' | 'ESE' | 'CIA + ESE';
 export type ResultType = 'Mark' | 'Status' | 'comment' | 'credit';
 export type CourseGroup =
@@ -42,6 +50,7 @@ export interface BosCourseMaster {
   display_code: string;
   course_category: CourseCategory;
   course_type: CourseType | null;
+  course_level: CourseLevel | null;   // Roman numeral I..XX
   course_part_master: CoursePart | null;
   credit: number;
   theory_credit: number | null;
@@ -74,13 +83,14 @@ export function isLocked(row: { course_status?: string | null; courses_status?: 
   return v?.toLowerCase() === 'locked';
 }
 
-/** The 13-field manual form (per design Section 2). */
+/** The 14-field manual form (Section 2 + optional course_level). */
 export interface BosCourseFormData {
   course_code: string;
   course_name: string;
   course_category: CourseCategory;
   course_part_master: CoursePart;
   course_type: CourseType;
+  course_level?: CourseLevel;          // optional — see Zod schema for rationale
   exam_duration: number;
   credit: number;
   theory_hours: number;

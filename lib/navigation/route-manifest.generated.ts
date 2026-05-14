@@ -1092,10 +1092,41 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "iconName": "Megaphone",
         "children": [
           {
+            "path": "/admission/marketing/automations",
+            "label": "Automations",
+            "iconName": "Megaphone",
+            "children": [
+              {
+                "path": "/admission/marketing/automations/monitoring",
+                "label": "Monitoring",
+                "iconName": "Megaphone",
+                "children": []
+              },
+              {
+                "path": "/admission/marketing/automations/roi",
+                "label": "Roi",
+                "iconName": "Megaphone",
+                "children": []
+              },
+              {
+                "path": "/admission/marketing/automations/segments",
+                "label": "Segments",
+                "iconName": "Megaphone",
+                "children": []
+              }
+            ]
+          },
+          {
             "path": "/admission/marketing/campaigns",
             "label": "Campaigns",
             "iconName": "Megaphone",
             "children": [
+              {
+                "path": "/admission/marketing/campaigns/compare",
+                "label": "Compare",
+                "iconName": "Megaphone",
+                "children": []
+              },
               {
                 "path": "/admission/marketing/campaigns/monitoring",
                 "label": "Monitoring",
@@ -1103,15 +1134,9 @@ export const ROUTE_MANIFEST: RouteNode[] = [
                 "children": []
               },
               {
-                "path": "/admission/marketing/campaigns/roi",
-                "label": "Roi",
-                "iconName": "Megaphone",
-                "children": []
-              },
-              {
-                "path": "/admission/marketing/campaigns/segments",
-                "label": "Segments",
-                "iconName": "Megaphone",
+                "path": "/admission/marketing/campaigns/new",
+                "label": "New",
+                "iconName": "Plus",
                 "children": []
               }
             ]

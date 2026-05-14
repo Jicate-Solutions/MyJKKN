@@ -47,6 +47,7 @@ import {
 import { Badge } from '@/components/ui/badge';
 
 import { useAddBosMember } from '@/hooks/bos/use-bos-members';
+import { useInstitutionContextById } from '@/hooks/use-institution-context';
 import {
   BosMemberType,
   BOS_MEMBER_TYPE_LABELS,
@@ -92,6 +93,12 @@ interface AddMemberDialogProps {
   open: boolean;
   onClose: () => void;
   compositionId: string;
+  /**
+   * The composition's own institutions_id. The FacilitatorPicker uses this
+   * to resolve the full CAS sibling pair (Aided + Self-Financing) via
+   * `useInstitutionContextById`, so the staff search spans both UUIDs
+   * automatically — no need to pass siblings in.
+   */
   institutionsId: string;
 }
 
@@ -362,11 +369,38 @@ function FacilitatorPicker({
   const [rows, setRows] = useState<FacilitatorRow[]>([]);
   const [loading, setLoading] = useState(false);
 
+  // Resolve the composition's institution to its full CAS sibling pair via
+  // COE API (Arts Aided + Self-Financing share one counselling_code → two
+  // MyJKKN UUIDs). React Query caches the result per institution_id, so this
+  // is effectively free once any component on the page has fetched the same
+  // id (the composition page itself does).
+  const institutionCtx = useInstitutionContextById(institutionsId);
+  const allInstitutionIds: string[] =
+    institutionCtx.data?.myjkkn_institution_ids?.length
+      ? institutionCtx.data.myjkkn_institution_ids
+      : institutionsId
+        ? [institutionsId]
+        : [];
+  // Send csv when we have the pair, single id otherwise (server expands
+  // either way — but the csv form makes the URL self-documenting).
+  const idsCsv = allInstitutionIds.length > 1
+    ? allInstitutionIds.join(',')
+    : null;
+
   useEffect(() => {
     if (selected) return;
+    // Wait for the institution context to resolve before firing the staff
+    // query. Without this guard, the first request races and only includes
+    // the single institutionsId — defeating the CAS expansion.
+    if (institutionCtx.isLoading) return;
     let cancelled = false;
     setLoading(true);
-    const params = new URLSearchParams({ institutionsId, limit: '200' });
+    const params = new URLSearchParams({ limit: '200' });
+    if (idsCsv) {
+      params.set('institutionsIds', idsCsv);
+    } else {
+      params.set('institutionsId', institutionsId);
+    }
     if (search) params.set('search', search);
     fetch(`/api/bos/lookup/facilitators?${params.toString()}`)
       .then((r) => (r.ok ? r.json() : Promise.reject(r)))
@@ -374,7 +408,7 @@ function FacilitatorPicker({
       .catch((err) => { if (!cancelled) logger.error('academic/bos', 'Facilitator fetch failed', err); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [search, institutionsId, selected]);
+  }, [search, institutionsId, idsCsv, selected, institutionCtx.isLoading]);
 
   if (selected) {
     return (

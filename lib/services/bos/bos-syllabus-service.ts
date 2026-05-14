@@ -104,8 +104,12 @@ export class BosSyllabusService {
   static async deleteSyllabus(id: string): Promise<void> {
     const res = await fetch(`${this.baseUrl}/${id}`, { method: 'DELETE' });
     if (!res.ok && res.status !== 204) {
-      const err = await res.json().catch(() => ({ error: 'Failed to delete syllabus' }));
-      throw new Error(err.error ?? 'Failed to delete syllabus');
+      const err = await res
+        .json()
+        .catch(() => ({ error: 'Failed to delete syllabus' }));
+      const base = err.error ?? 'Failed to delete syllabus';
+      const detail = err.details ? ` — ${err.details}` : '';
+      throw new Error(`${base}${detail}`);
     }
   }
 

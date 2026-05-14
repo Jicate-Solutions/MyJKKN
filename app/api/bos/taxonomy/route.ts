@@ -14,16 +14,48 @@ export async function GET(request: NextRequest) {
     const scope = await resolveBosAccess(user.id);
 
     const { searchParams } = new URL(request.url);
-    const institutionsId = scope.isSuperAdmin
-      ? (searchParams.get('institutionsId') ?? undefined)
-      : (scope.institutionsId ?? undefined);
+
+    // CAS-aware institution scoping (matches the pattern used in
+    // /api/bos/compositions GET):
+    //   • super-admin → trust client-supplied ids
+    //   • non-admin   → accept client list, but validate each id against the
+    //                   user's own scope (allInstitutionIds covers CAS siblings)
+    //   • fallback    → use scope.allInstitutionIds when client passes nothing
+    // Accepts `institutionsId` (single, legacy) or `institutionsIds` (csv).
+    let ids: string[] = [];
+    const csv = searchParams.get('institutionsIds');
+    const single = searchParams.get('institutionsId');
+    const clientIds = csv
+      ? csv.split(',').filter(Boolean)
+      : single
+        ? [single]
+        : [];
+
+    if (scope.isSuperAdmin) {
+      ids = clientIds;
+    } else {
+      const allowed = new Set([
+        ...(scope.institutionsId ? [scope.institutionsId] : []),
+        ...scope.allInstitutionIds,
+      ]);
+      ids = clientIds.filter((id) => allowed.has(id));
+      if (ids.length === 0) {
+        ids = scope.allInstitutionIds.length > 0
+          ? scope.allInstitutionIds
+          : scope.institutionsId
+            ? [scope.institutionsId]
+            : [];
+      }
+    }
 
     let query = supabase
       .from('bos_regulation_taxonomies')
       .select('id, regulation_id, taxonomy_type, institutions_id, created_at, updated_at');
 
-    if (institutionsId) {
-      query = query.eq('institutions_id', institutionsId);
+    if (ids.length === 1) {
+      query = query.eq('institutions_id', ids[0]);
+    } else if (ids.length > 1) {
+      query = query.in('institutions_id', ids);
     }
 
     const { data, error } = await query;

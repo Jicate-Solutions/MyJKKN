@@ -61,6 +61,9 @@ export default function EditCoursePage({ params }: { params: Promise<{ id: strin
                 course_category: course.course_category,
                 course_part_master: course.course_part_master ?? 'Part III',
                 course_type: (course.course_type as never) ?? 'Core',
+                // Leave Level blank for legacy / non-tiered courses (e.g.,
+                // Internship) — don't silently substitute 'I' on save.
+                course_level: (course.course_level as never) ?? undefined,
                 exam_duration: course.exam_duration ?? 3,
                 credit: course.credit ?? course.credits ?? 3,
                 theory_hours: course.theory_hours ?? 0,
