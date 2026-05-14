@@ -3483,6 +3483,31 @@ BEGIN
 END;
 $$;
 
+-- Resolve role_key -> user_ids for approver selection (and similar non-admin flows)
+-- Created: 2026-05-14 - user_roles SELECT RLS only allows super_admin/admin/roles.edit
+-- to read other users' rows. Non-admin callers picking a role filter in dropdowns
+-- (Resource Management approver chain, etc.) need this RPC to bypass RLS for a
+-- narrow read-only lookup. Returns IDs only; downstream code re-queries profiles
+-- with the user's own RLS context, so this does not widen profile access.
+CREATE OR REPLACE FUNCTION public.get_user_ids_by_role_key(p_role_key text)
+RETURNS SETOF uuid
+LANGUAGE sql
+SECURITY DEFINER
+STABLE
+SET search_path = public
+AS $$
+  SELECT ur.user_id
+  FROM user_roles ur
+  INNER JOIN custom_roles cr ON ur.role_id = cr.id
+  WHERE cr.role_key = p_role_key
+$$;
+
+REVOKE ALL ON FUNCTION public.get_user_ids_by_role_key(text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.get_user_ids_by_role_key(text) TO authenticated;
+
+COMMENT ON FUNCTION public.get_user_ids_by_role_key(text) IS
+'Returns user IDs assigned to the given role_key. SECURITY DEFINER bypasses user_roles RLS so non-admin callers (e.g. resource owners building an approver chain) can resolve role -> users. Read-only.';
+
 -- Check permission
 CREATE OR REPLACE FUNCTION public.check_permission(permission_key text)
 RETURNS boolean

@@ -549,7 +549,9 @@ export class OrganizationService {
     isActive?: boolean,
     userId?: string,
     entityType: EntityType | 'all' = 'institution'
-  ): Promise<{ id: string; name: string; counselling_code: string }[]> {
+  ): Promise<
+    { id: string; name: string; counselling_code: string; entity_type: EntityType }[]
+  > {
     try {
       // If userId is provided, use institution filtering
       if (userId) {
@@ -561,14 +563,15 @@ export class OrganizationService {
         return institutions.map((inst) => ({
           id: inst.id,
           name: inst.name,
-          counselling_code: inst.counselling_code
+          counselling_code: inst.counselling_code,
+          entity_type: inst.entity_type
         }));
       }
 
       // Fallback to direct query (for super admin or service contexts)
       let query = this.supabase
         .from('institutions')
-        .select('id, name, counselling_code');
+        .select('id, name, counselling_code, entity_type');
 
       if (isActive !== undefined) {
         query = query.eq('is_active', isActive);

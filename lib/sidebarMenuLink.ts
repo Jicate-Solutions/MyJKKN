@@ -695,7 +695,7 @@ export function GetPages(pathname: string): MenuGroup[] {
       menus: [
         {
           href: '/academic/years',
-          label: 'Academic Years',
+          label: 'Academic Management',
           active: pathname === '/academic/years',
           icon: CalendarDays,
           submenus: []

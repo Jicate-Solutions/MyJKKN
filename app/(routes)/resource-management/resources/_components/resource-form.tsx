@@ -32,7 +32,21 @@ import {
   SelectTrigger,
   SelectValue
 } from '@/components/ui/select';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger
+} from '@/components/ui/popover';
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList
+} from '@/components/ui/command';
 import { Input } from '@/components/ui/input';
+import { cn } from '@/lib/utils';
 import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
@@ -56,7 +70,16 @@ import { useProfilesForSelection } from '@/hooks/organization/use-profiles';
 import { SubCategoryService } from '@/lib/services/resource-management/sub-category-service';
 import { ResourceService } from '@/lib/services/resource-management/resource-service';
 import { generateResourceCode, isValidResourceCode } from '@/lib/utils/resource-id-generator';
-import { Loader2, Upload, Trash2, Eye, RefreshCw, Search } from 'lucide-react';
+import {
+  Loader2,
+  Upload,
+  Trash2,
+  Eye,
+  RefreshCw,
+  Search,
+  Check,
+  ChevronsUpDown
+} from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { ApproverSelector } from './approver-selector';
 import Image from 'next/image';
@@ -175,11 +198,16 @@ export function ResourceForm({ resource, mode }: ResourceFormProps) {
   // Caretaker search & filter state (must be at component level, not inside render prop)
   const [caretakerSearch, setCaretakerSearch] = useState('');
   const [caretakerRoleFilter, setCaretakerRoleFilter] = useState<string>('all');
+  const [caretakerRoleOpen, setCaretakerRoleOpen] = useState(false);
 
   const { institutions: accessibleInstitutions } = useUserInstitutionAccess();
   const institutionId = accessibleInstitutions[0]?.institution_id;
+  // Resources can be tied to any organizational entity, not just educational
+  // institutions — administration offices and companies own physical resources
+  // (printers, vehicles, equipment) too. Pass `entityType: 'all'` to surface
+  // institution + admin_office + company + school in the dropdown.
   const { institutions, loading: loadingInstitutions } =
-    useInstitutionsWithAccess();
+    useInstitutionsWithAccess({ entityType: 'all' });
   const { categories: parentCategories, loading: loadingParent } =
     useParentCategoriesSelect();
   const { categories: subcategories, loading: loadingSubcategories } =
@@ -725,7 +753,21 @@ export function ResourceForm({ resource, mode }: ResourceFormProps) {
                       <SelectContent>
                         {institutions.map((inst: any) => (
                           <SelectItem key={inst.id} value={inst.id}>
-                            {inst.name}
+                            <span className='flex items-center gap-2'>
+                              <span>{inst.name}</span>
+                              {inst.entity_type &&
+                                inst.entity_type !== 'institution' && (
+                                  <span className='text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-muted text-muted-foreground'>
+                                    {inst.entity_type === 'admin_office'
+                                      ? 'Admin Office'
+                                      : inst.entity_type === 'company'
+                                        ? 'Company'
+                                        : inst.entity_type === 'school'
+                                          ? 'School'
+                                          : inst.entity_type}
+                                  </span>
+                                )}
+                            </span>
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -781,6 +823,7 @@ export function ResourceForm({ resource, mode }: ResourceFormProps) {
                     <FormControl>
                       <Input
                         placeholder='e.g., A Block'
+                        maxLength={50}
                         {...field}
                         value={field.value || ''}
                       />
@@ -799,6 +842,7 @@ export function ResourceForm({ resource, mode }: ResourceFormProps) {
                     <FormControl>
                       <Input
                         placeholder='e.g., 2nd Block'
+                        maxLength={50}
                         {...field}
                         value={field.value || ''}
                       />
@@ -817,6 +861,7 @@ export function ResourceForm({ resource, mode }: ResourceFormProps) {
                     <FormControl>
                       <Input
                         placeholder='e.g., 3rd Floor'
+                        maxLength={100}
                         {...field}
                         value={field.value || ''}
                       />
@@ -835,6 +880,7 @@ export function ResourceForm({ resource, mode }: ResourceFormProps) {
                     <FormControl>
                       <Input
                         placeholder='e.g., 301'
+                        maxLength={50}
                         {...field}
                         value={field.value || ''}
                       />
@@ -909,22 +955,88 @@ export function ResourceForm({ resource, mode }: ResourceFormProps) {
                                 className='pl-9 h-9'
                               />
                             </div>
-                            <Select
-                              value={caretakerRoleFilter}
-                              onValueChange={setCaretakerRoleFilter}
+                            <Popover
+                              open={caretakerRoleOpen}
+                              onOpenChange={setCaretakerRoleOpen}
                             >
-                              <SelectTrigger className='w-[180px] h-9'>
-                                <SelectValue placeholder='Filter by role' />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value='all'>All Roles</SelectItem>
-                                {availableRoles.map((role) => (
-                                  <SelectItem key={role} value={role}>
-                                    {role.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
+                              <PopoverTrigger asChild>
+                                <Button
+                                  type='button'
+                                  variant='outline'
+                                  role='combobox'
+                                  aria-expanded={caretakerRoleOpen}
+                                  className='w-[180px] h-9 justify-between font-normal'
+                                >
+                                  <span className='truncate'>
+                                    {caretakerRoleFilter === 'all'
+                                      ? 'All Roles'
+                                      : caretakerRoleFilter
+                                          .replace(/_/g, ' ')
+                                          .replace(/\b\w/g, (c) =>
+                                            c.toUpperCase()
+                                          )}
+                                  </span>
+                                  <ChevronsUpDown className='ml-2 h-4 w-4 shrink-0 opacity-50' />
+                                </Button>
+                              </PopoverTrigger>
+                              <PopoverContent
+                                className='w-[--radix-popover-trigger-width] p-0'
+                                align='end'
+                              >
+                                <Command>
+                                  <CommandInput placeholder='Search roles...' />
+                                  <CommandList>
+                                    <CommandEmpty>No roles found.</CommandEmpty>
+                                    <CommandGroup>
+                                      <CommandItem
+                                        value='All Roles'
+                                        onSelect={() => {
+                                          setCaretakerRoleFilter('all');
+                                          setCaretakerRoleOpen(false);
+                                        }}
+                                      >
+                                        <Check
+                                          className={cn(
+                                            'mr-2 h-4 w-4',
+                                            caretakerRoleFilter === 'all'
+                                              ? 'opacity-100'
+                                              : 'opacity-0'
+                                          )}
+                                        />
+                                        All Roles
+                                      </CommandItem>
+                                      {availableRoles.map((role) => {
+                                        const label = role
+                                          .replace(/_/g, ' ')
+                                          .replace(/\b\w/g, (c) =>
+                                            c.toUpperCase()
+                                          );
+                                        return (
+                                          <CommandItem
+                                            key={role}
+                                            value={label}
+                                            onSelect={() => {
+                                              setCaretakerRoleFilter(role);
+                                              setCaretakerRoleOpen(false);
+                                            }}
+                                          >
+                                            <Check
+                                              className={cn(
+                                                'mr-2 h-4 w-4',
+                                                caretakerRoleFilter === role
+                                                  ? 'opacity-100'
+                                                  : 'opacity-0'
+                                              )}
+                                            />
+                                            {label}
+                                          </CommandItem>
+                                        );
+                                      })}
+                                    </CommandGroup>
+                                  </CommandList>
+                                </Command>
+                              </PopoverContent>
+                            </Popover>
                           </div>
                           {/* Select All / Deselect All for visible filtered results */}
                           <div className='flex items-center justify-between'>
@@ -1117,6 +1229,7 @@ export function ResourceForm({ resource, mode }: ResourceFormProps) {
                     <FormControl>
                       <Input
                         placeholder='e.g., ABC Supplies Inc.'
+                        maxLength={200}
                         {...field}
                         value={field.value || ''}
                       />
@@ -1136,6 +1249,7 @@ export function ResourceForm({ resource, mode }: ResourceFormProps) {
                       <Input
                         type='email'
                         placeholder='e.g., vendor@example.com'
+                        maxLength={100}
                         {...field}
                         value={field.value || ''}
                       />
@@ -1154,6 +1268,7 @@ export function ResourceForm({ resource, mode }: ResourceFormProps) {
                     <FormControl>
                       <Input
                         placeholder='e.g., +91 98765 43210'
+                        maxLength={30}
                         {...field}
                         value={field.value || ''}
                       />
@@ -1172,6 +1287,7 @@ export function ResourceForm({ resource, mode }: ResourceFormProps) {
                     <FormControl>
                       <Input
                         placeholder='Street address, P.O. box'
+                        maxLength={255}
                         {...field}
                         value={field.value || ''}
                       />
@@ -1190,6 +1306,7 @@ export function ResourceForm({ resource, mode }: ResourceFormProps) {
                     <FormControl>
                       <Input
                         placeholder='Apartment, suite, unit, building, floor'
+                        maxLength={255}
                         {...field}
                         value={field.value || ''}
                       />
@@ -1208,6 +1325,7 @@ export function ResourceForm({ resource, mode }: ResourceFormProps) {
                     <FormControl>
                       <Input
                         placeholder='City name'
+                        maxLength={100}
                         {...field}
                         value={field.value || ''}
                       />
@@ -1226,6 +1344,7 @@ export function ResourceForm({ resource, mode }: ResourceFormProps) {
                     <FormControl>
                       <Input
                         placeholder='State or province'
+                        maxLength={100}
                         {...field}
                         value={field.value || ''}
                       />
@@ -1244,6 +1363,7 @@ export function ResourceForm({ resource, mode }: ResourceFormProps) {
                     <FormControl>
                       <Input
                         placeholder='ZIP or postal code'
+                        maxLength={20}
                         {...field}
                         value={field.value || ''}
                       />
