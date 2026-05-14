@@ -17,7 +17,7 @@ const TEAM_NAV_ITEMS = [
     title: 'Members',
     href: '/admission/counselors/team',
     icon: Users,
-    description: 'Counselor roster & status',
+    description: 'Manage counselors',
   },
   {
     title: 'Roster',

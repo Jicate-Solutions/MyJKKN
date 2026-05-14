@@ -14,7 +14,7 @@ import { FavoriteStar } from '../Favorites/FavoriteStar';
 import { derivePageInfo } from '@/lib/navigation/derive-page-info';
 
 interface NavbarProps {
-  title: string;
+  title?: string;
 }
 
 export function Navbar({ title }: NavbarProps) {
@@ -32,6 +32,8 @@ export function Navbar({ title }: NavbarProps) {
     }
   })();
 
+  const resolvedTitle = title ?? currentPage?.title ?? '';
+
   const handleLogout = async () => {
     try {
       await AuthService.signOut();
@@ -45,7 +47,7 @@ export function Navbar({ title }: NavbarProps) {
       <div className='mx-4 sm:mx-8 flex h-14 items-center justify-between'>
         <div className='flex items-center space-x-4 lg:space-x-0'>
           <SheetMenu />
-          <h1 className='font-bold text-foreground text-sm sm:text-base truncate max-w-[180px] sm:max-w-[300px] md:max-w-none'>{title}</h1>
+          <h1 className='font-bold text-foreground text-sm sm:text-base truncate max-w-[180px] sm:max-w-[300px] md:max-w-none'>{resolvedTitle}</h1>
           {currentPage && (
             <FavoriteStar
               pagePath={currentPage.path}
