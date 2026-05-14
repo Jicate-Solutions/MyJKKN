@@ -724,19 +724,59 @@ export const resourceSchema = z.object({
   subcategory_id: z.string().nullish(), // Made optional - not all resources need sub-categorization
   institution_id: z.string().min(1, 'Institution is required'),
   department_id: z.string().nullish(),
-  building_number: z.string().nullish(),
-  block_number: z.string().nullish(),
-  floor_number: z.string().nullish(),
-  room_number: z.string().nullish(),
+  // Length caps below mirror the DB schema. Mirror tightly so the user gets an
+  // inline error instead of a 22001 string_data_right_truncation from Postgres.
+  building_number: z
+    .string()
+    .max(50, 'Building number must be 50 characters or fewer')
+    .nullish(),
+  block_number: z
+    .string()
+    .max(50, 'Block number must be 50 characters or fewer')
+    .nullish(),
+  floor_number: z
+    .string()
+    .max(100, 'Floor number must be 100 characters or fewer')
+    .nullish(),
+  room_number: z
+    .string()
+    .max(50, 'Room number must be 50 characters or fewer')
+    .nullish(),
   location_notes: z.string().nullish(),
-  vendor_name: z.string().nullish(),
-  vendor_email: z.string().email().nullish().or(z.literal('')),
-  vendor_mobile: z.string().nullish(),
-  vendor_address_line1: z.string().nullish(),
-  vendor_address_line2: z.string().nullish(),
-  vendor_city: z.string().nullish(),
-  vendor_state: z.string().nullish(),
-  vendor_zip: z.string().nullish(),
+  vendor_name: z
+    .string()
+    .max(200, 'Vendor name must be 200 characters or fewer')
+    .nullish(),
+  vendor_email: z
+    .string()
+    .email()
+    .max(100, 'Vendor email must be 100 characters or fewer')
+    .nullish()
+    .or(z.literal('')),
+  vendor_mobile: z
+    .string()
+    .max(30, 'Vendor mobile must be 30 characters or fewer')
+    .nullish(),
+  vendor_address_line1: z
+    .string()
+    .max(255, 'Address line 1 must be 255 characters or fewer')
+    .nullish(),
+  vendor_address_line2: z
+    .string()
+    .max(255, 'Address line 2 must be 255 characters or fewer')
+    .nullish(),
+  vendor_city: z
+    .string()
+    .max(100, 'Vendor city must be 100 characters or fewer')
+    .nullish(),
+  vendor_state: z
+    .string()
+    .max(100, 'Vendor state must be 100 characters or fewer')
+    .nullish(),
+  vendor_zip: z
+    .string()
+    .max(20, 'Vendor ZIP/postal code must be 20 characters or fewer')
+    .nullish(),
   vendor_contract_details: z.string().nullish(),
   vendor_support_contact: z.string().nullish(),
   initial_stock_quantity: z.number().min(0).nullish().default(1), // Made optional with default 1

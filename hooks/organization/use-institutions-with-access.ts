@@ -18,7 +18,12 @@ export function useInstitutionsWithAccess(
   const { isSuperAdmin, isAdmissionGlobalUser } = usePermissions();
 
   const [institutions, setInstitutions] = useState<
-    Array<{ id: string; name: string; counselling_code: string }>
+    Array<{
+      id: string;
+      name: string;
+      counselling_code: string;
+      entity_type: EntityType;
+    }>
   >([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
