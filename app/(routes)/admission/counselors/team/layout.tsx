@@ -58,7 +58,7 @@ const TEAM_TAB_META = [
     match: '/admission/counselors/team/activity',
     crumb: 'Activity',
     contentTitle: 'Team — Activity',
-    subtitle: 'Last 50 lead cascade and reassignment events.',
+    subtitle: 'Day-by-day counselor activity log with type breakdown and 7-day trend.',
   },
   // Members (root) — must be last so longer prefixes match first.
   {
