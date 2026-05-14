@@ -1,0 +1,303 @@
+'use client';
+// app/(routes)/resource-management/resources/_components/download-resource-template.tsx
+//
+// Generates an Excel template for bulk resource import.
+//
+// Sheets:
+//   1. Instructions       - field reference + how to use
+//   2. Resources          - the data sheet users fill in
+//   3. Reference: Categories
+//   4. Reference: Subcategories (with parent linkage)
+//   5. Reference: Institutions
+//   6. Reference: Departments (with institution linkage)
+//
+// Why all reference sheets are embedded: users typing names is the failure
+// mode (typos, case mismatch, missing rows). Embedding the exact valid names
+// inside the workbook means they can copy-paste from the reference into the
+// Resources sheet and be guaranteed a match against the server-side lookup.
+
+import { useState } from 'react';
+import { FileDown, Loader2 } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import * as XLSX from 'xlsx';
+import { toast } from 'react-hot-toast';
+import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
+import { useDepartments } from '@/hooks/organization/use-departments';
+import { useParentCategoriesSelect } from '@/hooks/resource-management/use-parent-categories';
+import { SubCategoryService } from '@/lib/services/resource-management/sub-category-service';
+
+/**
+ * The 22-column header row in the order the import API expects.
+ * Keep this in sync with the API route's column index map.
+ */
+const TEMPLATE_HEADERS = [
+  'name',
+  'description',
+  'parent_category_name',
+  'subcategory_name',
+  'institution_name',
+  'department_name',
+  'status',
+  'booking_type',
+  'initial_stock_quantity',
+  'building_number',
+  'block_number',
+  'floor_number',
+  'room_number',
+  'location_notes',
+  'vendor_name',
+  'vendor_email',
+  'vendor_mobile',
+  'vendor_address_line1',
+  'vendor_city',
+  'vendor_state',
+  'vendor_zip',
+  'purchase_date',
+  'warranty_expiry_date'
+] as const;
+
+const COLUMN_WIDTHS = [
+  30, // name
+  40, // description
+  25, // parent_category_name
+  25, // subcategory_name
+  35, // institution_name
+  25, // department_name
+  15, // status
+  15, // booking_type
+  10, // initial_stock_quantity
+  20, // building_number
+  20, // block_number
+  20, // floor_number
+  20, // room_number
+  35, // location_notes
+  25, // vendor_name
+  30, // vendor_email
+  20, // vendor_mobile
+  35, // vendor_address_line1
+  20, // vendor_city
+  20, // vendor_state
+  15, // vendor_zip
+  15, // purchase_date
+  18 // warranty_expiry_date
+];
+
+const INSTRUCTIONS: (string | undefined)[][] = [
+  ['Bulk Resource Import — Instructions'],
+  [],
+  ['HOW TO USE'],
+  ['1. Open the "Resources" sheet and fill one row per resource.'],
+  ['2. For name-based fields (institution, department, categories), copy values exactly from the Reference sheets below.'],
+  ['3. Save the file as .xlsx and upload it via the "Bulk Upload" button on the Resources page.'],
+  ['4. Any row that fails validation is rejected with a row-level error message; valid rows are inserted.'],
+  [],
+  ['REQUIRED FIELDS'],
+  ['• name                    — Resource name. Max 200 chars. Must be unique within the same institution + location.'],
+  ['• parent_category_name    — Must match a value in "Reference: Categories" exactly.'],
+  ['• institution_name        — Must match a value in "Reference: Institutions" exactly.'],
+  ['• status                  — One of: available, occupied, maintenance, out_of_order, retired'],
+  ['• booking_type            — One of: reservation, walk_in, both'],
+  [],
+  ['OPTIONAL FIELDS'],
+  ['• description             — Free text.'],
+  ['• subcategory_name        — Must match a value in "Reference: Subcategories" AND belong to the chosen parent category.'],
+  ['• department_name         — Must match a value in "Reference: Departments" AND belong to the chosen institution.'],
+  ['• initial_stock_quantity  — Whole number ≥ 0. Defaults to 1 if blank.'],
+  ['• building_number         — Max 50 chars.'],
+  ['• block_number            — Max 50 chars.'],
+  ['• floor_number            — Max 100 chars.'],
+  ['• room_number             — Max 50 chars.'],
+  ['• location_notes          — Free text.'],
+  ['• vendor_name             — Max 200 chars.'],
+  ['• vendor_email            — Valid email format, max 100 chars.'],
+  ['• vendor_mobile           — Max 30 chars (supports international format).'],
+  ['• vendor_address_line1    — Max 255 chars.'],
+  ['• vendor_city             — Max 100 chars.'],
+  ['• vendor_state            — Max 100 chars.'],
+  ['• vendor_zip              — Max 20 chars.'],
+  ['• purchase_date           — YYYY-MM-DD (e.g. 2024-08-15).'],
+  ['• warranty_expiry_date    — YYYY-MM-DD.'],
+  [],
+  ['NOT INCLUDED IN BULK IMPORT'],
+  ['• Caretakers, approver chain, images, custom attributes, tags.'],
+  ['  Edit each resource after creation to assign these.'],
+  [],
+  ['NOTES'],
+  ['• resource_code is auto-generated by the system per row (RES-CAT-INST-NNNN).'],
+  ['• Empty rows are skipped silently.'],
+  ['• Dropdown lists are provided for status and booking_type — pick from the dropdown to avoid typos.']
+];
+
+/**
+ * Single example row showing typical formatting. Users delete this before
+ * filling their own data, OR keep it as the 1st row — it will validate fine.
+ */
+const SAMPLE_ROW = {
+  name: 'Lecture Hall A101',
+  description: 'Large lecture hall with projector',
+  parent_category_name: '[Pick from Reference: Categories]',
+  subcategory_name: '[Pick from Reference: Subcategories]',
+  institution_name: '[Pick from Reference: Institutions]',
+  department_name: '',
+  status: 'available',
+  booking_type: 'reservation',
+  initial_stock_quantity: 1,
+  building_number: 'A Block',
+  block_number: '',
+  floor_number: 'Ground Floor',
+  room_number: '101',
+  location_notes: 'Near main entrance',
+  vendor_name: '',
+  vendor_email: '',
+  vendor_mobile: '',
+  vendor_address_line1: '',
+  vendor_city: '',
+  vendor_state: '',
+  vendor_zip: '',
+  purchase_date: '',
+  warranty_expiry_date: ''
+};
+
+export default function DownloadResourceTemplate() {
+  const [downloading, setDownloading] = useState(false);
+  const { institutions } = useInstitutionsWithAccess({ entityType: 'all' });
+  const { data: departmentsData } = useDepartments({ limit: 500 });
+  const { categories: parentCategories } = useParentCategoriesSelect();
+
+  const departments = departmentsData?.data || [];
+
+  const handleDownload = async () => {
+    setDownloading(true);
+    try {
+      // Fetch ALL subcategories. The hook variant requires a parentId; we want
+      // every subcategory across every parent for the reference sheet.
+      const { data: allSubsResp } = await SubCategoryService.getSubCategories({
+        page: 1,
+        limit: 500
+      });
+      const allSubcategories = allSubsResp || [];
+
+      const wb = XLSX.utils.book_new();
+
+      // ── Sheet 1: Instructions ────────────────────────────────────────────
+      const instructionsWs = XLSX.utils.aoa_to_sheet(INSTRUCTIONS);
+      instructionsWs['!cols'] = [{ wch: 95 }];
+      XLSX.utils.book_append_sheet(wb, instructionsWs, 'Instructions');
+
+      // ── Sheet 2: Resources (the data sheet) ──────────────────────────────
+      const dataAoa: (string | number)[][] = [
+        TEMPLATE_HEADERS as unknown as string[],
+        TEMPLATE_HEADERS.map((h) => (SAMPLE_ROW as any)[h] ?? '')
+      ];
+      const resourcesWs = XLSX.utils.aoa_to_sheet(dataAoa);
+      resourcesWs['!cols'] = COLUMN_WIDTHS.map((w) => ({ wch: w }));
+
+      // Best-effort dropdown validations for enum columns (G=status, H=booking_type).
+      // SheetJS Community lacks full data-validation support but emits the
+      // structure that Excel/LibreOffice tend to honour for simple list types.
+      (resourcesWs as any)['!dataValidation'] = [
+        {
+          type: 'list',
+          sqref: 'G2:G1000',
+          formula1: '"available,occupied,maintenance,out_of_order,retired"',
+          showDropDown: true
+        },
+        {
+          type: 'list',
+          sqref: 'H2:H1000',
+          formula1: '"reservation,walk_in,both"',
+          showDropDown: true
+        }
+      ];
+
+      XLSX.utils.book_append_sheet(wb, resourcesWs, 'Resources');
+
+      // ── Sheet 3: Reference: Categories ───────────────────────────────────
+      const categoriesAoa = [
+        ['Parent Category Name'],
+        ...parentCategories.map((c: any) => [c.name])
+      ];
+      const categoriesWs = XLSX.utils.aoa_to_sheet(categoriesAoa);
+      categoriesWs['!cols'] = [{ wch: 35 }];
+      XLSX.utils.book_append_sheet(wb, categoriesWs, 'Reference: Categories');
+
+      // ── Sheet 4: Reference: Subcategories ────────────────────────────────
+      const parentNameById = new Map(
+        parentCategories.map((c: any) => [c.id, c.name])
+      );
+      const subcategoriesAoa = [
+        ['Parent Category', 'Subcategory Name'],
+        ...allSubcategories.map((s: any) => [
+          parentNameById.get(s.parent_category_id) ?? '',
+          s.name
+        ])
+      ];
+      const subcategoriesWs = XLSX.utils.aoa_to_sheet(subcategoriesAoa);
+      subcategoriesWs['!cols'] = [{ wch: 35 }, { wch: 35 }];
+      XLSX.utils.book_append_sheet(
+        wb,
+        subcategoriesWs,
+        'Reference: Subcategories'
+      );
+
+      // ── Sheet 5: Reference: Institutions ─────────────────────────────────
+      const institutionsAoa = [
+        ['Institution Name', 'Entity Type'],
+        ...institutions.map((i: any) => [i.name, i.entity_type ?? 'institution'])
+      ];
+      const institutionsWs = XLSX.utils.aoa_to_sheet(institutionsAoa);
+      institutionsWs['!cols'] = [{ wch: 50 }, { wch: 18 }];
+      XLSX.utils.book_append_sheet(
+        wb,
+        institutionsWs,
+        'Reference: Institutions'
+      );
+
+      // ── Sheet 6: Reference: Departments ──────────────────────────────────
+      const institutionNameById = new Map(
+        institutions.map((i: any) => [i.id, i.name])
+      );
+      const departmentsAoa = [
+        ['Institution', 'Department Name'],
+        ...departments.map((d: any) => [
+          institutionNameById.get(d.institution_id) ?? '',
+          d.department_name
+        ])
+      ];
+      const departmentsWs = XLSX.utils.aoa_to_sheet(departmentsAoa);
+      departmentsWs['!cols'] = [{ wch: 50 }, { wch: 35 }];
+      XLSX.utils.book_append_sheet(
+        wb,
+        departmentsWs,
+        'Reference: Departments'
+      );
+
+      // ── Write file ────────────────────────────────────────────────────────
+      const stamp = new Date().toISOString().split('T')[0];
+      XLSX.writeFile(wb, `resources_bulk_import_template_${stamp}.xlsx`);
+
+      toast.success('Template downloaded');
+    } catch (err) {
+      console.error('[download-resource-template] failed:', err);
+      toast.error('Failed to generate template');
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  return (
+    <Button
+      variant='outline'
+      onClick={handleDownload}
+      disabled={downloading}
+      className='w-full sm:w-auto'
+    >
+      {downloading ? (
+        <Loader2 className='mr-2 h-4 w-4 animate-spin' />
+      ) : (
+        <FileDown className='mr-2 h-4 w-4' />
+      )}
+      Download Template
+    </Button>
+  );
+}

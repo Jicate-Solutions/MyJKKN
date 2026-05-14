@@ -25,6 +25,8 @@ import {
 } from '@/hooks/resource-management/use-resources';
 import { ResourceEmptyState } from './_components/resource-empty-state';
 import { ResourceFiltersComponent } from './_components/resource-filters';
+import DownloadResourceTemplate from './_components/download-resource-template';
+import BulkUploadResources from './_components/bulk-upload-resources';
 import type { Resource, ResourceFilters } from '@/types/resource-management';
 import { usePermissions } from '@/hooks/use-permissions';
 import Loading from '@/components/Loading/Loading';
@@ -290,9 +292,15 @@ export default function ResourcesPage() {
     );
   }
 
-  // Table tools (Create button)
+  // Table tools (Create button + bulk import controls)
   const tableTools = (
-    <>
+    <div className='flex flex-col gap-2 sm:flex-row sm:items-center'>
+      {canCreateResources && (
+        <>
+          <DownloadResourceTemplate />
+          <BulkUploadResources onImported={fetchResources} />
+        </>
+      )}
       {canCreateResources ? (
         <Button asChild>
           <Link href='/resource-management/resources/new'>
@@ -306,7 +314,7 @@ export default function ResourcesPage() {
           Create Resource
         </Button>
       )}
-    </>
+    </div>
   );
 
   // Server-side pagination configuration
