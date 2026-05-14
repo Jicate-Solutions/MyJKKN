@@ -99,7 +99,11 @@ function HRAutomationContent() {
           .order('fired_at', { ascending: false })
           .limit(500);
 
-        if (qErr) throw qErr;
+        if (qErr) {
+          // PostgrestError has .message; default Error.toString() gives [object Object].
+          const msg = qErr.message ?? (typeof qErr === 'string' ? qErr : JSON.stringify(qErr));
+          throw new Error(msg);
+        }
         if (cancelled) return;
         // PostgREST returns the joined staff as an object (single FK) when the
         // relationship is many-to-one; tolerate array shape just in case.
