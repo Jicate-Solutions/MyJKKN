@@ -212,6 +212,26 @@ const config: ModuleNavConfig = {
       ],
     },
     {
+      label: 'Performance Reviews',
+      icon: 'ClipboardCheck',
+      href: '/hr/performance-reviews',
+      matchPaths: ['/hr/performance-reviews'],
+      children: [
+        {
+          label: 'My Appraisal',
+          icon: 'ClipboardCheck',
+          href: '/hr/performance-reviews',
+          exact: true,
+        },
+        {
+          label: 'Team Reviews',
+          icon: 'UsersRound',
+          href: '/hr/performance-reviews/team',
+          matchPaths: ['/hr/performance-reviews/team'],
+        },
+      ],
+    },
+    {
       label: 'Policies',
       icon: 'ShieldCheck',
       href: '/hr/policies',
