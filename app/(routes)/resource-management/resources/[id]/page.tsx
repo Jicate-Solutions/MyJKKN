@@ -4,9 +4,10 @@
 
 
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
+import { QrLabelSheet } from '@/components/resource-management/qr-label-sheet';
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -66,6 +67,8 @@ export default function ResourceDetailsPage({
   params
 }: ResourceDetailsPageProps) {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const printLabelMode = searchParams?.get('print-label') === '1';
   const [id, setId] = useState<string | null>(null);
 
   // Unwrap params
@@ -130,6 +133,46 @@ export default function ResourceDetailsPage({
               Back to Resources
             </Button>
           </Card>
+        </div>
+      </ContentLayout>
+    );
+  }
+
+  // Wave 1.5 PR-2: short-circuit into the printable label sheet when the
+  // ?print-label=1 query is set. Replaces the entire detail UI with a
+  // 24-up A4 sheet for the current resource's qr_code_token.
+  if (printLabelMode) {
+    const token = (resource as any).qr_code_token as string | null | undefined;
+    return (
+      <ContentLayout title='Resource QR Label'>
+        <div className='space-y-4'>
+          <div className='flex items-center gap-3'>
+            <Button variant='ghost' size='sm' asChild>
+              <Link href={`/resource-management/resources/${id}`}>
+                <ArrowLeft className='mr-2 h-4 w-4' /> Back to resource
+              </Link>
+            </Button>
+            <div>
+              <h1 className='text-xl font-bold'>{resource.name}</h1>
+              <p className='text-sm text-muted-foreground'>
+                A4 sheet, 24 labels. Print on plain paper and cut.
+              </p>
+            </div>
+          </div>
+          {token ? (
+            <QrLabelSheet
+              token={token}
+              resourceCode={resource.resource_code}
+              resourceName={resource.name}
+            />
+          ) : (
+            <Card className='p-6 text-center'>
+              <p className='text-sm text-muted-foreground'>
+                This resource has no QR token yet. Open it in edit mode to
+                trigger token generation.
+              </p>
+            </Card>
+          )}
         </div>
       </ContentLayout>
     );
