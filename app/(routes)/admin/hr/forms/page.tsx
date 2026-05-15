@@ -125,41 +125,6 @@ async function HrFormsIndexContent() {
                   </TableCell>
                 </TableRow>
               ) : (
-<<<<<<< HEAD
-                forms.map((form) => (
-                  <TableRow key={form.id}>
-                    <TableCell>
-                      <code className="text-xs">{form.form_key}</code>
-                    </TableCell>
-                    <TableCell>{form.form_title}</TableCell>
-                    <TableCell>
-                      <Badge
-                        variant={form.classification === 'major' ? 'default' : 'outline'}
-                      >
-                        {form.classification}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant={form.is_published ? 'default' : 'outline'}>
-                        {form.is_published ? 'Published' : 'Draft'}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant={form.draft_schema ? 'secondary' : 'outline'}>
-                        {form.draft_schema ? 'Yes' : 'No'}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      <Button asChild size="sm" variant="outline">
-                        <Link href={`/admin/hr/forms/${form.id}/builder`}>
-                          <Pencil className="mr-1 h-3.5 w-3.5" />
-                          Open builder
-                        </Link>
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                ))
-=======
                 forms.map((form) => {
                   const stepsLive = form.approval_workflow?.steps?.length ?? 0;
                   const stepsDraft =
@@ -198,17 +163,24 @@ async function HrFormsIndexContent() {
                         )}
                       </TableCell>
                       <TableCell>
-                        <Button variant="outline" size="sm" asChild>
-                          <Link href={`/admin/hr/forms/${form.id}/workflow`}>
-                            <Workflow className="h-3 w-3 mr-1" />
-                            Edit workflow
-                          </Link>
-                        </Button>
+                        <div className="flex gap-2">
+                          <Button asChild size="sm" variant="outline">
+                            <Link href={`/admin/hr/forms/${form.id}/builder`}>
+                              <Pencil className="mr-1 h-3.5 w-3.5" />
+                              Builder
+                            </Link>
+                          </Button>
+                          <Button variant="outline" size="sm" asChild>
+                            <Link href={`/admin/hr/forms/${form.id}/workflow`}>
+                              <Workflow className="h-3 w-3 mr-1" />
+                              Workflow
+                            </Link>
+                          </Button>
+                        </div>
                       </TableCell>
                     </TableRow>
                   );
                 })
->>>>>>> cb5c854ae (feat(hr/forms): workflow engine + WhatsApp notifications + per-form approval chain editor)
               )}
             </TableBody>
           </Table>
