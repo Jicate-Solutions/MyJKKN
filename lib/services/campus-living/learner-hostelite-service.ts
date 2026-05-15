@@ -21,6 +21,7 @@ import {
   type LearnerGatePassSummary,
   type LearnerAttendanceSummary,
   type LearnerVacateRequestSummary,
+  type LearnerLeaveSummary,
 } from '@/types/campus-living';
 
 const VIEW_SELECT = [
@@ -178,16 +179,16 @@ export class LearnerHosteliteService {
 
   // ── Detail bundle (BUG-003326) ────────────────────────────────────────
   // Parallel-fetch for the read-only detail drawer triggered by row-click.
-  // 6 independent queries fired via Promise.all:
+  // 7 independent queries fired via Promise.all:
   //   1. learner row from v_learner_hostelites (with year_of_study + alloc FKs)
   //   2. hostel profile (learner_hostel_profiles)
   //   3. current allocation + JOIN block/room/bed for display names
   //   4. last 5 gate-passes
   //   5. last 5 attendance entries
   //   6. open vacate request (any non-completed/cancelled status)
-  //
-  // Leaves dropped per /assumption-thrash Round 1 #2 — no /campus-living/leaves
-  // route exists yet for the "View all" link.
+  //   7. last 5 hostel_leave_requests (2026-05-15 — slice added once
+  //      /campus-living/leave UI route existed; was deferred in PR #822 per
+  //      /assumption-thrash Round 1 #2).
   static async getLearnerDetailBundle(learnerId: string): Promise<LearnerDetailBundle> {
     try {
       const supabase = createClientSupabaseClient();
@@ -199,6 +200,7 @@ export class LearnerHosteliteService {
         gpRes,
         attRes,
         vacRes,
+        leaveRes,
       ] = await Promise.all([
         (supabase as any)
           .from('v_learner_hostelites')
@@ -243,6 +245,12 @@ export class LearnerHosteliteService {
           .order('created_at', { ascending: false })
           .limit(1)
           .maybeSingle(),
+        supabase
+          .from('hostel_leave_requests')
+          .select('id, status, leave_type, reason, from_date, to_date, created_at')
+          .eq('learner_id', learnerId)
+          .order('created_at', { ascending: false })
+          .limit(5),
       ]);
 
       if (learnerRes.error || !learnerRes.data) {
@@ -286,6 +294,7 @@ export class LearnerHosteliteService {
       const recentGatePasses = (gpRes.data ?? []) as LearnerGatePassSummary[];
       const recentAttendance = (attRes.data ?? []) as LearnerAttendanceSummary[];
       const openVacateRequest = (vacRes.data as LearnerVacateRequestSummary | null) ?? null;
+      const recentLeaves = (leaveRes.data ?? []) as LearnerLeaveSummary[];
 
       return {
         learner,
@@ -294,6 +303,7 @@ export class LearnerHosteliteService {
         recentGatePasses,
         recentAttendance,
         openVacateRequest,
+        recentLeaves,
       };
     } catch (error) {
       logger.error('campus-living/learner-hostelite', 'getLearnerDetailBundle failed', error);

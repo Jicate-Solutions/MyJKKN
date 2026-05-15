@@ -216,6 +216,20 @@ export interface LearnerVacateRequestSummary {
   created_at: string;
 }
 
+// Added 2026-05-15: 4th drawer slice. Originally deferred per
+// /assumption-thrash Round 1 #2 when no /campus-living/leave UI route existed.
+// Route landed (singular, confirmed by Agent C audit 2026-05-10) so the slice
+// ships now.
+export interface LearnerLeaveSummary {
+  id: string;
+  status: LeaveStatus;
+  leave_type: HostelLeaveType | null;
+  reason: string | null;
+  from_date: string;
+  to_date: string;
+  created_at: string;
+}
+
 export interface LearnerDetailBundle {
   learner: LearnerHostelite;
   hostelProfile: LearnerHostelProfile | null;
@@ -223,6 +237,7 @@ export interface LearnerDetailBundle {
   recentGatePasses: LearnerGatePassSummary[];
   recentAttendance: LearnerAttendanceSummary[];
   openVacateRequest: LearnerVacateRequestSummary | null;
+  recentLeaves: LearnerLeaveSummary[];
 }
 
 // ─── Hostel leave (mirrors migration 20260222000015 + 20260424 approval-chain rewire) ───
