@@ -244,7 +244,7 @@ CREATE POLICY p_hr_memos_staff_read_own ON public.hr_memos
     FOR SELECT TO authenticated
     USING (
         staff_id IN (
-            SELECT id FROM public.staff WHERE auth_user_id = auth.uid()
+            SELECT id FROM public.staff WHERE profile_id = auth.uid()
         )
     );
 
@@ -255,12 +255,12 @@ CREATE POLICY p_hr_memos_staff_update_own ON public.hr_memos
     FOR UPDATE TO authenticated
     USING (
         staff_id IN (
-            SELECT id FROM public.staff WHERE auth_user_id = auth.uid()
+            SELECT id FROM public.staff WHERE profile_id = auth.uid()
         )
     )
     WITH CHECK (
         staff_id IN (
-            SELECT id FROM public.staff WHERE auth_user_id = auth.uid()
+            SELECT id FROM public.staff WHERE profile_id = auth.uid()
         )
     );
 
@@ -281,7 +281,7 @@ CREATE POLICY p_hr_memo_transitions_staff_read_own ON public.hr_memo_state_trans
         memo_id IN (
             SELECT id FROM public.hr_memos
             WHERE staff_id IN (
-                SELECT id FROM public.staff WHERE auth_user_id = auth.uid()
+                SELECT id FROM public.staff WHERE profile_id = auth.uid()
             )
         )
     );
