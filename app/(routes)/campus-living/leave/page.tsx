@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -30,7 +31,8 @@ import {
   AlertTriangle,
   Calendar,
   Download,
-  User
+  User,
+  X,
 } from 'lucide-react';
 
 
@@ -57,10 +59,21 @@ const leaveTypeConfig: Record<string, { label: string; color: string }> = {
 
 export default function LeaveRequestsPage() {
   const { profile } = useAuth();
-  const { data: requestsData, isLoading } = useHostelLeaveRequests(profile?.institution_id ?? '');
+  const searchParams = useSearchParams();
+  const learnerId = searchParams.get('learner') ?? undefined;
+  const { data: requestsData, isLoading } = useHostelLeaveRequests(
+    profile?.institution_id ?? '',
+    learnerId ? { learner_id: learnerId } : undefined,
+  );
   const requests = (requestsData as any)?.data ?? [] as any[];
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState('pending');
+
+  // First-row learner label powers the "Filtered to learner X" chip when the
+  // page is opened via the residents drawer deep-link (?learner=<id>).
+  const learnerLabel = learnerId
+    ? (requests[0] as any)?.learner?.full_name ?? (requests[0] as any)?.learner?.email ?? learnerId
+    : null;
 
   const getFilteredRequests = (tab: string) => {
     return requests.filter((r: any) => {
@@ -116,6 +129,20 @@ export default function LeaveRequestsPage() {
             </Link>
           </Button>
         </div>
+
+        {/* Deep-link chip when arrived via ?learner=… from residents drawer */}
+        {learnerId && (
+          <div className="flex items-center gap-2 rounded-md border border-dashed bg-muted/40 px-3 py-2 text-sm">
+            <span className="text-muted-foreground">Filtered to learner:</span>
+            <span className="font-medium">{learnerLabel}</span>
+            <Button variant="ghost" size="sm" className="h-7 px-2 ml-auto" asChild>
+              <Link href="/campus-living/leave">
+                <X className="h-3.5 w-3.5 mr-1" />
+                Clear
+              </Link>
+            </Button>
+          </div>
+        )}
 
         {/* Summary */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
