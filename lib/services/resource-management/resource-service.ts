@@ -98,6 +98,14 @@ export class ResourceService {
         query = query.eq('status', 'available');
       }
 
+      // Wave 1.5 HR-adapter substrate (PR-1): scope to current assignment
+      if (filters.assignee_type) {
+        query = query.eq('assignee_type', filters.assignee_type);
+      }
+      if (filters.assignee_id) {
+        query = query.eq('assignee_id', filters.assignee_id);
+      }
+
       // Apply sorting
       const sortBy = filters.sortBy || 'created_at';
       const sortOrder = filters.sortOrder || 'desc';

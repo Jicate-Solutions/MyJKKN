@@ -626,6 +626,10 @@ export interface ResourceFilters {
   booking_type?: BookingType;
   caretaker_user_ids?: string[]; // Filter by multiple caretakers
   available_on?: string; // Date filter for availability
+  // Wave 1.5 HR-adapter substrate (PR-1): filter by current assignment.
+  // Used by /hr/my-assets (PR-3) to scope to assignee_type='staff' + me.
+  assignee_type?: 'staff' | 'student' | 'vendor' | 'none';
+  assignee_id?: string;
   page?: number;
   limit?: number;
   sortBy?: 'name' | 'created_at' | 'status';
