@@ -170,7 +170,7 @@ function TerminationListContent() {
             Termination Cases
           </CardTitle>
           <CardDescription>
-            Director-approved staff terminations with the SEDC -> Legal -> Director
+            Director-approved staff terminations with the SEDC &rarr; Legal &rarr; Director
             approval chain. Separate from resignation: requires documented grounds
             and a 3-step sign-off before the case can complete.
           </CardDescription>
