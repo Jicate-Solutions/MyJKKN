@@ -29,6 +29,7 @@ import type {
   RoleCategory,
   MonthlySalaryBand,
 } from '@/types/hr-recruitment';
+import { POLICY_KEYS } from '@/lib/policies/keys';
 
 // =====================================================================================
 // Extended list filters (Phase 1A follow-up)
@@ -115,7 +116,7 @@ export class RecruitmentService {
     const { data: enforceData, error: enforceErr } = await supabase.rpc(
       'fn_get_policy_bool',
       {
-        p_key: 'hr.recruitment.approvals.enforce_scoping',
+        p_key: POLICY_KEYS.HR_RECRUITMENT_APPROVALS_ENFORCE_SCOPING,
         p_default: false,
         p_scope_id: null,
       }
@@ -140,7 +141,7 @@ export class RecruitmentService {
 
     // Step 4: scope_rules → scope for this role (or _default fallback).
     const { data: rulesData } = await supabase.rpc('fn_get_policy', {
-      p_key: 'hr.recruitment.approvals.scope_rules',
+      p_key: POLICY_KEYS.HR_RECRUITMENT_APPROVALS_SCOPE_RULES,
       p_scope_id: null,
     });
     const rules = (rulesData ?? {}) as ScopeRules;
