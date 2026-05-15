@@ -182,6 +182,20 @@ export interface Resource {
   tags?: string[];
   usage_count?: number;
   reservation_count?: number;
+  // ===== Wave 1.5 HR-adapter substrate (PR-1) =====
+  // Polymorphic assignee (which entity currently holds this resource).
+  // 'none' means the resource is unassigned and back in the pool.
+  assignee_type?: 'staff' | 'student' | 'vendor' | 'none';
+  // UUID of the assignee; interpretation depends on assignee_type.
+  // NULL when assignee_type is 'none'.
+  assignee_id?: string | null;
+  // Opaque token printed on the physical QR sticker (e.g. `res_<uuidhex>`).
+  // Auto-generated on INSERT via tg_resources_set_qr_token trigger.
+  qr_code_token?: string | null;
+  // Timestamp of most recent assignToStaff()/assignTo*() call.
+  assigned_at?: string | null;
+  // Timestamp of most recent markReturned() call. Retained across re-assigns.
+  returned_at?: string | null;
   created_at: string;
   updated_at: string;
   created_by: string;
