@@ -1,6 +1,10 @@
 import { z } from 'zod';
 
 // ─── Basic schema (always required — verbatim from former inline staffSchema) ──
+//
+// 2026-05-15: email + institution_email become optional when login_enabled=false
+// (view-only / labour staff). The required-when-login-enabled rule is enforced
+// in a superRefine below so the per-field error message stays specific.
 export const basicStaffSchema = z.object({
   first_name: z.string().min(2, 'First name must be at least 2 characters'),
   last_name: z.string().min(1, 'Last name must be at least one characters'),
@@ -12,7 +16,11 @@ export const basicStaffSchema = z.object({
   blood_group: z
     .enum(['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-', 'A1+', 'A1B'])
     .optional(),
-  email: z.string().email('Invalid email format'),
+  email: z
+    .string()
+    .email('Invalid email format')
+    .optional()
+    .or(z.literal('')),
   institution_email: z
     .string()
     .email('Invalid email format')
@@ -20,7 +28,8 @@ export const basicStaffSchema = z.object({
       (val) => val.toLowerCase().endsWith('@jkkn.ac.in'),
       'Institution email must use @jkkn.ac.in domain (e.g., staff@jkkn.ac.in)'
     )
-    .optional(),
+    .optional()
+    .or(z.literal('')),
   phone: z.string().min(10, 'Phone number must be at least 10 characters'),
   staff_id: z.string().optional(),
   profile_picture: z.string().optional(),
@@ -37,7 +46,12 @@ export const basicStaffSchema = z.object({
   institution_id: z.string().min(1, 'Institution is required'),
   // Department is now conditionally required based on category.is_teaching (see superRefine below)
   department_id: z.string().optional().nullable(),
-  is_active: z.boolean().default(true)
+  is_active: z.boolean().default(true),
+  // 2026-05-15: when false, staff is "view-only" — no login, emails optional.
+  // The form auto-derives this from selected category's allows_login unless
+  // the user has manually toggled it. The "email required when login-enabled"
+  // refinement lives on fullStaffSchema below (can't .merge() a refined schema).
+  login_enabled: z.boolean().default(true)
 });
 
 // ─── Repeater item schemas (used inside extendedStaffSchema) ──────────────────
@@ -138,7 +152,20 @@ export const extendedStaffSchema = z.object({
 });
 
 // Combined schema (used at submit time when extended toggle is on AND user clicks Save & Publish)
-export const fullStaffSchema = basicStaffSchema.merge(extendedStaffSchema);
+// The login_enabled-conditional email check lives here so .merge() composes.
+export const fullStaffSchema = basicStaffSchema
+  .merge(extendedStaffSchema)
+  .superRefine((data, ctx) => {
+    // Email is required ONLY for login-enabled staff. For view-only staff
+    // (login_enabled=false) the service auto-generates synthetic emails.
+    if (data.login_enabled !== false && (!data.email || data.email.trim() === '')) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['email'],
+        message: 'Personal email is required for login-enabled staff'
+      });
+    }
+  });
 
 export type BasicFormValues    = z.infer<typeof basicStaffSchema>;
 export type ExtendedFormValues = z.infer<typeof extendedStaffSchema>;

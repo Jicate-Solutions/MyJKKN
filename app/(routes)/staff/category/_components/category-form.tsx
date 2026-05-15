@@ -35,7 +35,10 @@ const categorySchema = z.object({
   description: z.string().optional(),
   is_teaching: z.boolean().default(false),
   shows_extended_profile: z.boolean().default(false),
-  is_active: z.boolean().default(true)
+  is_active: z.boolean().default(true),
+  // Added: 2026-05-15. When off, new staff in this category default to
+  // login_enabled=false (view-only). Per-row override on staff still wins.
+  allows_login: z.boolean().default(true)
 });
 
 type FormValues = z.infer<typeof categorySchema>;
@@ -75,7 +78,8 @@ export function CategoryForm({ category, isEditing }: CategoryFormProps) {
       description: category?.description || '',
       is_teaching: category?.is_teaching ?? false,
       shows_extended_profile: category?.shows_extended_profile ?? false,
-      is_active: category?.is_active ?? true
+      is_active: category?.is_active ?? true,
+      allows_login: category?.allows_login ?? true
     }
   });
 
@@ -194,6 +198,31 @@ export function CategoryForm({ category, isEditing }: CategoryFormProps) {
                       <FormLabel>Active Status</FormLabel>
                       <div className='text-sm text-muted-foreground'>
                         Disable to temporarily hide this category
+                      </div>
+                    </div>
+                    <FormControl>
+                      <Switch
+                        checked={field.value}
+                        onCheckedChange={field.onChange}
+                      />
+                    </FormControl>
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name='allows_login'
+                render={({ field }) => (
+                  <FormItem className='flex flex-row items-center justify-between rounded-lg border p-3 shadow-sm'>
+                    <div className='space-y-0.5'>
+                      <FormLabel>Login default (new staff can sign in)</FormLabel>
+                      <div className='text-sm text-muted-foreground'>
+                        When off, new staff added to this category default to
+                        &quot;view-only&quot; (no login, no real email needed).
+                        Use this for labour-grade categories like Driver, Security,
+                        Maintenance, Cooking Master, etc. Per-row override on staff
+                        still wins.
                       </div>
                     </div>
                     <FormControl>
