@@ -192,6 +192,14 @@ export const POLICY_KEYS = {
   // Consumed by lib/services/hr/form-submission-notifications.ts.
   // Director can edit copy live via /admin/policies/platform-policies UI.
   HR_FORMS_NOTIFICATION_TEMPLATES: 'hr.forms.notification_templates',
+
+  // T8.6 Multi-role Dashboard Refinements (2026-05-15) ------------------------
+  // Maps role_key -> ordered array of widget IDs to render on /dashboard.
+  // The "_default" entry is the fallback used when a user's primary role has
+  // no explicit mapping (keeps surface non-empty for new/unknown roles).
+  // Consumed by lib/services/dashboard/widget-config-service.ts; edited via
+  // /admin/dashboard/widget-config (Director-only). No deploy needed.
+  DASHBOARD_ROLE_WIDGETS: 'dashboard.role_widgets',
 } as const;
 
 export type PolicyKey = typeof POLICY_KEYS[keyof typeof POLICY_KEYS];
