@@ -65,7 +65,7 @@ VALUES
     NULL,
     true
   )
-ON CONFLICT (policy_key, scope_type, scope_id) DO NOTHING;
+ON CONFLICT (policy_key, scope_type, COALESCE(scope_id, '00000000-0000-0000-0000-000000000000'::uuid)) DO NOTHING;
 
 -- ----------------------------------------------------------------------------
 -- Smoke test
