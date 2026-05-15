@@ -338,3 +338,76 @@ export interface LeaveFilters {
   learner_id?: string;
   search?: string;
 }
+
+// ─── Hostel Wardens ────────────────────────────────────────────────────
+// Mirrors `hostel_wardens` table (supabase/migrations) + supabase.ts enums.
+
+export type WardenDesignation =
+  | 'chief_warden'
+  | 'warden'
+  | 'deputy_warden'
+  | 'floor_supervisor'
+  | 'night_watcher';
+
+export type WardenShift = 'day' | 'night' | 'full_time';
+
+export const WARDEN_DESIGNATIONS: WardenDesignation[] = [
+  'chief_warden',
+  'warden',
+  'deputy_warden',
+  'floor_supervisor',
+  'night_watcher',
+];
+
+export const WARDEN_SHIFTS: WardenShift[] = ['day', 'night', 'full_time'];
+
+export interface HostelWarden {
+  id: string;
+  institution_id: string;
+  block_id: string | null;
+  staff_id: string;
+  user_id: string;
+  designation: WardenDesignation;
+  shift: WardenShift | null;
+  phone: string;
+  assigned_floors: number[] | null;
+  is_active: boolean | null;
+  is_residential: boolean | null;
+  assigned_at: string;
+  relieved_at: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface CreateHostelWardenDTO {
+  institution_id: string;
+  block_id?: string | null;
+  staff_id: string;
+  user_id: string;
+  designation: WardenDesignation;
+  shift?: WardenShift | null;
+  phone: string;
+  assigned_floors?: number[] | null;
+  is_active?: boolean | null;
+  is_residential?: boolean | null;
+  assigned_at: string;
+  relieved_at?: string | null;
+}
+
+export interface UpdateHostelWardenDTO {
+  block_id?: string | null;
+  designation?: WardenDesignation;
+  shift?: WardenShift | null;
+  phone?: string;
+  assigned_floors?: number[] | null;
+  is_active?: boolean | null;
+  is_residential?: boolean | null;
+  relieved_at?: string | null;
+}
+
+export interface WardenFilters {
+  block_id?: string;
+  designation?: WardenDesignation;
+  is_active?: boolean;
+  search?: string;
+}

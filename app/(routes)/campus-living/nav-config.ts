@@ -27,6 +27,7 @@ const config: ModuleNavConfig = {
       matchPaths: [
         '/campus-living/residents',
         '/campus-living/blocks',
+        '/campus-living/wardens',
         '/campus-living/allocations',
         '/campus-living/my-hostel',
         '/campus-living/vacate-requests',
@@ -43,6 +44,12 @@ const config: ModuleNavConfig = {
           icon: 'Building2',
           href: '/campus-living/blocks',
           matchPaths: ['/campus-living/blocks'],
+        },
+        {
+          label: 'Wardens',
+          icon: 'ShieldCheck',
+          href: '/campus-living/wardens',
+          matchPaths: ['/campus-living/wardens'],
         },
         {
           label: 'Allocations',
