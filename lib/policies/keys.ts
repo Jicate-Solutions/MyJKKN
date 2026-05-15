@@ -90,6 +90,78 @@ export const POLICY_KEYS = {
   VOICE_MEMO_MONITOR_REFRESH_INTERVAL_SECONDS: 'voice_memo_monitor.refresh_interval_seconds',
   VOICE_MEMO_MONITOR_COST_ALERT_DAILY_INR: 'voice_memo_monitor.cost_alert_daily_inr',
   VOICE_MEMO_MONITOR_DIRECTOR_DIGEST_CATEGORIES: 'voice_memo_monitor.director_digest_categories',
+
+  // HR gap-closure Wave 1 (Workisy gap-analysis 2026-05-14) —
+  // 20 director-tweakable HR config rows. All seeded as is_system=true
+  // global defaults in migration 20260515000002_seed_hr_gap_policies.sql.
+  // Per-institution override allowed (scope_type='institution', scope_id=<inst>).
+  // Director edits via the HR admin policy UI (Agent β cluster, /admin/hr-policies/*).
+
+  // -- Automation rules --------------------------------------------------------
+  // Array of rule definitions consumed by HR triggers. Empty = no automations.
+  // Consumer: lib/services/hr/automation-engine.ts (Agent γ ships consumer).
+  HR_AUTOMATION_RULES: 'hr.automation_rules',
+
+  // -- Onboarding -------------------------------------------------------------
+  // Object: { pre_joining: string[], d_day: string[], post_joining: string[] }
+  // Consumer: app/(routes)/hr/onboarding/* (Agent β ships UI).
+  HR_ONBOARDING_BUCKET_DEFINITIONS: 'hr.onboarding.bucket_definitions',
+  // Boolean. true = new hires self-mark tasks complete; false = HR admin marks.
+  HR_ONBOARDING_SELF_SERVICE_ENABLED: 'hr.onboarding.self_service_enabled',
+
+  // -- Offboarding ------------------------------------------------------------
+  // Array of step codes rendered in order on the exit checklist.
+  HR_OFFBOARDING_WORKFLOW_STEPS: 'hr.offboarding.workflow_steps',
+
+  // -- Probation --------------------------------------------------------------
+  // Integer months added to joining date when no explicit probation end set.
+  HR_PROBATION_DEFAULT_DURATION_MONTHS: 'hr.probation.default_duration_months',
+
+  // -- Shifts -----------------------------------------------------------------
+  // Array of shift labels available in the work-schedule picker.
+  HR_SHIFTS_TYPES: 'hr.shifts.types',
+  // Boolean. true = configured break window counts as paid working hours.
+  HR_SHIFTS_BREAK_PAID_BY_DEFAULT: 'hr.shifts.break_paid_by_default',
+
+  // -- Attendance (new — distinct from HR_ATT_* attendance-engine keys) ------
+  // Array of marking modes shown on attendance screen (manual/location/selfie/biometric).
+  HR_ATTENDANCE_ALLOWED_MODES: 'hr.attendance.allowed_modes',
+  // Boolean. true = staff can mark from any campus site without flag.
+  // DISTINCT from HR_ATT_CROSS_COLLEGE_PROXY_ENABLED (that one is class-proxy only).
+  HR_ATTENDANCE_ALLOW_MULTI_SITE: 'hr.attendance.allow_multi_site',
+  // Array of channels accepted for attendance marking (web/app/biometric/whatsapp/slack/lens).
+  HR_ATTENDANCE_CHANNELS: 'hr.attendance.channels',
+
+  // -- Assets -----------------------------------------------------------------
+  // Object mapping category -> string[] of items, e.g.
+  // { electronics: ["laptop", "phone"], furniture: ["chair"] }.
+  HR_ASSETS_CATEGORY_DEFINITIONS: 'hr.assets.category_definitions',
+
+  // -- Payroll ----------------------------------------------------------------
+  // Array of component definitions { code, label, kind: "earning"|"deduction", taxable }.
+  // Consumer: lib/services/hr/payroll/payslip-generator.ts (Agent δ ships consumer).
+  HR_PAYROLL_COMPONENT_DEFINITIONS: 'hr.payroll.component_definitions',
+  // Array of disbursement channels (bank_transfer/cheque/cash).
+  HR_PAYROLL_DISBURSEMENT_CHANNELS: 'hr.payroll.disbursement_channels',
+  // Object: { gross: string, net: string, ctc: string } — formula expressions
+  // referencing component codes from HR_PAYROLL_COMPONENT_DEFINITIONS.
+  HR_PAYROLL_FORMULA: 'hr.payroll.formula',
+  // Boolean. true = post-run bank-debit reconciliation fires.
+  HR_PAYROLL_RECONCILIATION_ENABLED: 'hr.payroll.reconciliation_enabled',
+
+  // -- Compliance -------------------------------------------------------------
+  // Object: { employee_contrib_pct, employer_contrib_pct, wage_ceiling_inr, lop_config }.
+  HR_COMPLIANCE_EPF: 'hr.compliance.epf',
+  // Object: { employee_contrib_pct, employer_contrib_pct, wage_ceiling_inr, applicable_below_ceiling_only }.
+  HR_COMPLIANCE_ESI: 'hr.compliance.esi',
+  // Object: per-state-code -> array of { min, max, tax } slab brackets.
+  HR_COMPLIANCE_PT: 'hr.compliance.pt',
+  // Object: per-state-code -> { employee, employer, frequency }.
+  HR_COMPLIANCE_LWF: 'hr.compliance.lwf',
+
+  // -- Dashboard --------------------------------------------------------------
+  // Array of { label, role_keys: string[] } — how HR dashboard widgets cluster roles.
+  HR_DASHBOARD_ROLE_GROUPS: 'hr.dashboard.role_groups',
 } as const;
 
 export type PolicyKey = typeof POLICY_KEYS[keyof typeof POLICY_KEYS];
