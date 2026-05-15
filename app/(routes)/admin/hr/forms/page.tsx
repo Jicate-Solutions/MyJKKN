@@ -10,13 +10,15 @@
 //
 // Spec: specs/wave-3-policy-driven-hr-manual-2026-05-15.md §W3-M9
 // =====================================================================
-import { FileText, AlertTriangle } from 'lucide-react';
+import Link from 'next/link';
+import { FileText, AlertTriangle, Pencil } from 'lucide-react';
 
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import {
   Card,
   CardContent,
@@ -76,13 +78,12 @@ async function HrFormsIndexContent() {
     <div className="space-y-6">
       <Alert>
         <FileText className="h-4 w-4" />
-        <AlertTitle>Form Builder substrate (Wave 3 — M9)</AlertTitle>
+        <AlertTitle>HR Form Builder (Wave 3 — M9)</AlertTitle>
         <AlertDescription>
-          Tables, types, and service skeleton are in place. The visual
-          drag-drop builder, per-widget renderers (text, file upload,
-          signature, conditional logic, etc.), and the approval-workflow
-          engine ship in follow-up PRs. Each row below links to the
-          eventual builder — placeholder for now.
+          Drag-and-drop visual builder is live. Click "Open builder" on any
+          form to assemble widgets (text, file upload, signature,
+          conditional logic, and more), then save a draft or publish to
+          make it live for staff.
         </AlertDescription>
       </Alert>
 
@@ -146,8 +147,13 @@ async function HrFormsIndexContent() {
                         {form.draft_schema ? 'Yes' : 'No'}
                       </Badge>
                     </TableCell>
-                    <TableCell className="text-xs text-muted-foreground">
-                      Schema pending — builder in follow-up PR
+                    <TableCell>
+                      <Button asChild size="sm" variant="outline">
+                        <Link href={`/admin/hr/forms/${form.id}/builder`}>
+                          <Pencil className="mr-1 h-3.5 w-3.5" />
+                          Open builder
+                        </Link>
+                      </Button>
                     </TableCell>
                   </TableRow>
                 ))
