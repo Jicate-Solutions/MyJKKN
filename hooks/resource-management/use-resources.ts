@@ -15,7 +15,23 @@ import type {
 } from '@/types/resource-management';
 import { useAuth } from '@/hooks/use-auth';
 
-// Hook for managing resources list with filters and pagination
+/**
+ * Hook for managing resources list with filters and pagination.
+ *
+ * Wave 1.5 (PR-1) — ResourceFilters now supports two HR-adapter filters:
+ *   - `assignee_type`: 'staff' | 'student' | 'vendor' | 'none'
+ *   - `assignee_id`: string (UUID)
+ *
+ * Example — fetch the assets assigned to the current staff member:
+ *
+ *   const { resources } = useResources({
+ *     assignee_type: 'staff',
+ *     assignee_id: currentUser.id,
+ *   });
+ *
+ * Existing callers (no args, or filtering by category/status/etc.) keep
+ * their current behavior — both new fields are optional on ResourceFilters.
+ */
 export function useResources(initialFilters: ResourceFilters = {}) {
   const [resources, setResources] = useState<Resource[]>([]);
   const [loading, setLoading] = useState(false);

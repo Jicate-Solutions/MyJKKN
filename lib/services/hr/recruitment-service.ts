@@ -316,12 +316,17 @@ export class RecruitmentService {
     roleCategory: RoleCategory,
     monthlySalaryBand: MonthlySalaryBand | null
   ): Promise<LeaveApprovalStep[]> {
-    const { data: flows, error } = await supabase
-      .from('hr_approval_flows')
-      .select('*')
-      .eq('hr_organization_id', hrOrgId)
-      .eq('flow_for', 'recruitment_approval')
-      .eq('is_active', true);
+    // hr_approval_flows is read-only configuration data, not per-user PII.
+    // The table's RLS (hr_organization_id = auth_hr_organization_id()) hid
+    // rows from any user lacking a user_hr_access mapping, surfacing as a
+    // misleading "No recruitment approval flows configured" error even when
+    // flows exist. fn_list_active_approval_flows is a SECURITY DEFINER helper
+    // that bypasses RLS for this read (see migration
+    // 20260514090000_create_fn_list_active_approval_flows.sql).
+    const { data: flows, error } = await supabase.rpc(
+      'fn_list_active_approval_flows',
+      { p_hr_org_id: hrOrgId, p_flow_for: 'recruitment_approval' }
+    );
 
     if (error) throw error;
     if (!flows || flows.length === 0) {
