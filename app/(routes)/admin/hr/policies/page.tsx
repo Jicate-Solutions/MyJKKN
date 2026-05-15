@@ -12,7 +12,7 @@
 // Permission: super_admin / admin only (PermissionGuard).
 // =====================================================================
 import Link from 'next/link';
-import { ArrowRight, ScrollText, History } from 'lucide-react';
+import { ArrowRight, ScrollText, History, Sparkles } from 'lucide-react';
 
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
@@ -27,6 +27,11 @@ import {
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+
+import { createClient } from '@/lib/supabase/server';
+
+// Force dynamic — the pending-promotion banner is a live count.
+export const dynamic = 'force-dynamic';
 
 // ---------------------------------------------------------------------------
 // Editor catalog — Wave 3 batches M1-M10. New routes get added here as
@@ -159,7 +164,16 @@ export default function HrPoliciesIndexPage() {
   );
 }
 
-function HrPoliciesIndexContent() {
+async function HrPoliciesIndexContent() {
+  // Live count of pending W3-M10 promotion suggestions for the banner.
+  // RLS lets every authenticated user read; non-admins still see the count
+  // so they can ask the Director to weigh in if useful.
+  const supabase = await createClient();
+  const { count: pendingPromotionCount } = await supabase
+    .from('hr_policy_promotion_suggestions')
+    .select('id', { count: 'exact', head: true })
+    .eq('status', 'pending');
+
   return (
     <div className="space-y-6">
       <div className="flex items-start justify-between gap-4">
@@ -180,6 +194,10 @@ function HrPoliciesIndexContent() {
         </Button>
       </div>
 
+      {pendingPromotionCount !== null && pendingPromotionCount > 0 && (
+        <PromotionSuggestionsBanner count={pendingPromotionCount} />
+      )}
+
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {POLICY_EDITORS.map((entry) => (
           <PolicyEditorCard key={entry.href} entry={entry} />
@@ -191,6 +209,31 @@ function HrPoliciesIndexContent() {
         agents add new cards to this index as each batch lands.
       </p>
     </div>
+  );
+}
+
+function PromotionSuggestionsBanner({ count }: { count: number }) {
+  return (
+    <Alert>
+      <Sparkles className="h-4 w-4" />
+      <AlertTitle>
+        {count} promotion suggestion{count === 1 ? '' : 's'} waiting
+      </AlertTitle>
+      <AlertDescription className="flex items-start justify-between gap-3">
+        <span>
+          The weekly auto-promote detector flagged {count === 1 ? 'a policy' : 'policies'} that
+          {' '}{count === 1 ? 'has' : 'have'} been identical across every institution for at
+          least six months. Review and decide whether to promote {count === 1 ? 'it' : 'them'} to
+          a global default.
+        </span>
+        <Button asChild size="sm" variant="default" className="shrink-0">
+          <Link href="/admin/hr/policies/promotion-suggestions">
+            <ArrowRight className="h-4 w-4 mr-1" />
+            Review
+          </Link>
+        </Button>
+      </AlertDescription>
+    </Alert>
   );
 }
 
