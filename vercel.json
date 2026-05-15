@@ -52,6 +52,10 @@
       "schedule": "*/15 * * * *"
     },
     {
+      "path": "/api/cron/hr-retirement-eligibility-detector?secret=${CRON_SECRET}",
+      "schedule": "0 2 1 * *"
+    },
+    {
       "path": "/api/cron/sync-inbound-calls",
       "schedule": "*/15 * * * *"
     },
