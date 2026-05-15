@@ -2007,6 +2007,10 @@ $$;
 --      auth-linked profiles on duplicate emails. auth.users grants SELECT only to postgres,
 --      so SECURITY INVOKER would fail for any caller other than a superuser (42501 error).
 --      search_path pinned to public to close the classic definer-hijack vector.
+-- Updated: 2026-05-15 - View-only staff support. When NEW.login_enabled = false the linked
+--   profile is forced is_active=false and is_login_disabled=true. The profile row is still
+--   created (preserves FK chains in HR/attendance/audit) but is unreachable from Google OAuth
+--   (which restricts to @jkkn.ac.in — synthetic @nolog.jkkn.local emails can never match).
 CREATE OR REPLACE FUNCTION public.sync_staff_to_profiles()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -2036,17 +2040,20 @@ BEGIN
 
         IF existing_profile_id IS NOT NULL THEN
             UPDATE profiles
-            SET email          = NEW.institution_email,
-                full_name      = CONCAT(NEW.first_name, ' ', NEW.last_name),
-                phone_number   = NEW.phone,
-                avatar_url     = COALESCE(NEW.profile_picture, avatar_url),
-                institution_id = NEW.institution_id,
-                department_id  = NEW.department_id,
-                gender         = NEW.gender,
-                designation    = NEW.designation,
-                role           = NEW.role_key,
-                is_active      = NEW.is_active,
-                updated_at     = NOW()
+            SET email             = NEW.institution_email,
+                full_name         = CONCAT(NEW.first_name, ' ', NEW.last_name),
+                phone_number      = NEW.phone,
+                avatar_url        = COALESCE(NEW.profile_picture, avatar_url),
+                institution_id    = NEW.institution_id,
+                department_id     = NEW.department_id,
+                gender            = NEW.gender,
+                designation       = NEW.designation,
+                role              = NEW.role_key,
+                -- View-only staff get is_active=false, is_login_disabled=true
+                is_active         = CASE WHEN NEW.login_enabled = false THEN false
+                                         ELSE NEW.is_active END,
+                is_login_disabled = (NEW.login_enabled = false),
+                updated_at        = NOW()
             WHERE id = existing_profile_id;
             NEW.profile_id := existing_profile_id;
         ELSE
@@ -2054,7 +2061,7 @@ BEGIN
             INSERT INTO profiles (
                 id, email, full_name, phone_number, avatar_url,
                 institution_id, department_id, gender, designation,
-                role, is_pre_registered, is_active
+                role, is_pre_registered, is_active, is_login_disabled
             ) VALUES (
                 existing_profile_id,
                 NEW.institution_email,
@@ -2067,7 +2074,9 @@ BEGIN
                 NEW.designation,
                 NEW.role_key,
                 true,
-                NEW.is_active
+                CASE WHEN NEW.login_enabled = false THEN false
+                     ELSE NEW.is_active END,
+                (NEW.login_enabled = false)
             );
             NEW.profile_id := existing_profile_id;
         END IF;
