@@ -11,11 +11,7 @@
 // Spec: specs/wave-3-policy-driven-hr-manual-2026-05-15.md §W3-M9
 // =====================================================================
 import Link from 'next/link';
-<<<<<<< HEAD
-import { FileText, AlertTriangle, Pencil } from 'lucide-react';
-=======
-import { FileText, AlertTriangle, Workflow } from 'lucide-react';
->>>>>>> cb5c854ae (feat(hr/forms): workflow engine + WhatsApp notifications + per-form approval chain editor)
+import { FileText, AlertTriangle, Pencil, Workflow } from 'lucide-react';
 
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
