@@ -1014,4 +1014,69 @@ export class ResourceService {
       // Don't throw error as this is non-critical
     }
   }
+
+  // ===== Wave 1.5 HR-adapter substrate (PR-1) =====
+
+  /**
+   * Assign a resource to a staff member.
+   *
+   * Sets assignee_type='staff', assignee_id=staffId, assigned_at=now(), and
+   * clears returned_at so the resource shows as currently held.
+   *
+   * Throws on Supabase error (RLS, CHECK violation, missing row).
+   */
+  static async assignToStaff(
+    resourceId: string,
+    staffId: string
+  ): Promise<Resource> {
+    const { data: resource, error } = await (this.supabase as any)
+      .from('resources')
+      .update({
+        assignee_type: 'staff',
+        assignee_id: staffId,
+        assigned_at: new Date().toISOString(),
+        returned_at: null,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', resourceId)
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Error assigning resource to staff:', error);
+      throw new Error(error.message || 'Failed to assign resource to staff');
+    }
+
+    return resource as Resource;
+  }
+
+  /**
+   * Mark a resource as returned to the pool.
+   *
+   * Sets assignee_type='none', clears assignee_id, and stamps returned_at=now().
+   * assigned_at is intentionally retained so the previous-assignment history is
+   * preserved until the next assign call overwrites it.
+   *
+   * Throws on Supabase error.
+   */
+  static async markReturned(resourceId: string): Promise<Resource> {
+    const { data: resource, error } = await (this.supabase as any)
+      .from('resources')
+      .update({
+        assignee_type: 'none',
+        assignee_id: null,
+        returned_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', resourceId)
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Error marking resource returned:', error);
+      throw new Error(error.message || 'Failed to mark resource returned');
+    }
+
+    return resource as Resource;
+  }
 }
