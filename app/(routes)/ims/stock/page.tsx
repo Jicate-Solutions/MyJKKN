@@ -77,13 +77,7 @@ export default function StockLevelsPage() {
 
   const { data: categories } = useImsCategoriesForSelect(storeId || undefined);
 
-  // getStockSummary returns { data, metadata } (paginated wrapper). Unwrap defensively
-  // so the page works whether the service ever switches to a flat-array contract.
-  const items: ImsStockSummary[] = Array.isArray(stockData?.data)
-    ? stockData.data
-    : Array.isArray(stockData)
-      ? stockData
-      : [];
+  const items: ImsStockSummary[] = Array.isArray(stockData) ? stockData : [];
 
   const summaryStats = useMemo(() => {
     const totalItems = items.length;

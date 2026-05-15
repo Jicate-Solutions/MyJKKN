@@ -33,6 +33,7 @@ import { NewStructureForm } from '../../_components/fees-structure-form';
 import { FeeStructureService } from '@/lib/services/admission/fee-structure-service';
 import { BillingCategoryService } from '@/lib/services/billing/categories/billing-category-service';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { getErrorMessage } from '@/lib/utils';
 import type { FeeStructureMatrixDimensions } from '@/types/admission';
 import type { BillingCategory } from '@/types/billing';
 
@@ -167,7 +168,7 @@ function CloneFeeStructurePageContent({ id }: { id: string }) {
       })
       .catch((err) => {
         if (cancelled) return;
-        setError(err instanceof Error ? err.message : 'Failed to load source structure');
+        setError(getErrorMessage(err) || 'Failed to load source structure');
         setLoading(false);
       });
 

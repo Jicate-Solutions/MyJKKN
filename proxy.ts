@@ -32,6 +32,7 @@ const PUBLIC_PATHS_SET = new Set([
 // Public path prefixes (for dynamic routes like /apply/[slug])
 const PUBLIC_PATH_PREFIXES = [
   '/apply/', // Public admission form builder pages — no login
+  '/c/', // Public campaign link shortener pages — no login
 ];
 
 // Regex for static assets - single check instead of multiple endsWith

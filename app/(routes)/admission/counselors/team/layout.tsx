@@ -35,10 +35,18 @@ const TEAM_TAB_META = [
     subtitle: '7-day availability schedule for each counselor.',
   },
   {
+    // /allocation/<id> — per-source assignment workspace. Must come BEFORE the
+    // bare /allocation entry so startsWith picks the longer prefix first.
+    match: '/admission/counselors/team/allocation/',
+    crumb: 'Allocation',
+    contentTitle: 'Team — Allocation',
+    subtitle: 'Assign counselors and distribute leads for this source.',
+  },
+  {
     match: '/admission/counselors/team/allocation',
     crumb: 'Allocation',
     contentTitle: 'Team — Allocation',
-    subtitle: 'Institution and lead-source allocation per counselor.',
+    subtitle: 'Click a source to manage counselor assignment and lead distribution.',
   },
   {
     match: '/admission/counselors/team/rules',
@@ -50,7 +58,7 @@ const TEAM_TAB_META = [
     match: '/admission/counselors/team/activity',
     crumb: 'Activity',
     contentTitle: 'Team — Activity',
-    subtitle: 'Last 50 lead cascade and reassignment events.',
+    subtitle: 'Day-by-day counselor activity log with type breakdown and 7-day trend.',
   },
   // Members (root) — must be last so longer prefixes match first.
   {

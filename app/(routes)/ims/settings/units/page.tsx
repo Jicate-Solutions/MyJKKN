@@ -52,7 +52,6 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { usePermissions } from '@/hooks/use-permissions';
-import { ImsPageGuard } from '@/components/ims/ims-page-guard';
 import {
   useImsUnits,
   useCreateImsUnit,
@@ -79,16 +78,7 @@ const emptyFormData: UnitFormData = {
 };
 
 export default function UnitsPage() {
-  return (
-    <ImsPageGuard module="ims.settings.units" action="manage">
-      <UnitsPageInner />
-    </ImsPageGuard>
-  );
-}
-
-function UnitsPageInner() {
-  const { isSuperAdmin, canAccess } = usePermissions();
-  const canManage = isSuperAdmin || canAccess('ims.settings.units', 'manage');
+  const { isSuperAdmin } = usePermissions();
 
   // Filters
   const [search, setSearch] = useState('');
@@ -225,12 +215,10 @@ function UnitsPageInner() {
               Define measurement units for inventory items
             </p>
           </div>
-          {canManage && (
-            <Button onClick={handleAddNew}>
-              <Plus className="h-4 w-4 mr-2" />
-              Add Unit
-            </Button>
-          )}
+          <Button onClick={handleAddNew}>
+            <Plus className="h-4 w-4 mr-2" />
+            Add Unit
+          </Button>
         </div>
 
         {/* Search */}
@@ -302,24 +290,18 @@ function UnitsPageInner() {
                               </Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end">
-                              {canManage && (
-                                <DropdownMenuItem onClick={() => handleEdit(unit)}>
-                                  <Pencil className="h-4 w-4 mr-2" />
-                                  Edit
-                                </DropdownMenuItem>
-                              )}
-                              {canManage && (
-                                <>
-                                  <DropdownMenuSeparator />
-                                  <DropdownMenuItem
-                                    className="text-red-600 focus:text-red-600"
-                                    onClick={() => handleDeleteClick(unit)}
-                                  >
-                                    <Trash2 className="h-4 w-4 mr-2" />
-                                    Delete
-                                  </DropdownMenuItem>
-                                </>
-                              )}
+                              <DropdownMenuItem onClick={() => handleEdit(unit)}>
+                                <Pencil className="h-4 w-4 mr-2" />
+                                Edit
+                              </DropdownMenuItem>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem
+                                className="text-red-600 focus:text-red-600"
+                                onClick={() => handleDeleteClick(unit)}
+                              >
+                                <Trash2 className="h-4 w-4 mr-2" />
+                                Delete
+                              </DropdownMenuItem>
                             </DropdownMenuContent>
                           </DropdownMenu>
                         </TableCell>

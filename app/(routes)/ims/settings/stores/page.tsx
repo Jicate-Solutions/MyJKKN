@@ -61,7 +61,6 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { usePermissions } from '@/hooks/use-permissions';
-import { ImsPageGuard } from '@/components/ims/ims-page-guard';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import {
   useImsStores,
@@ -110,17 +109,8 @@ const emptyFormData: StoreFormData = {
 };
 
 export default function StoresPage() {
-  return (
-    <ImsPageGuard module="ims.settings.stores" action="manage">
-      <StoresPageInner />
-    </ImsPageGuard>
-  );
-}
-
-function StoresPageInner() {
   const router = useRouter();
-  const { isSuperAdmin, userProfile, canAccess } = usePermissions();
-  const canManageStores = isSuperAdmin || canAccess('ims.settings.stores', 'manage');
+  const { isSuperAdmin, userProfile } = usePermissions();
   // Use local Supabase institutions (UUID-keyed) — matches the type of
   // ims_stores.institution_id and the convention used across admission,
   // internships, HR, etc. The JKKN central API returns numeric counselling_code

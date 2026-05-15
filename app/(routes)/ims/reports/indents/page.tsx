@@ -30,7 +30,6 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import type { ImsIndentSummary, ImsIndentByDepartment } from '@/types/ims';
-import { ImsPageGuard } from '@/components/ims/ims-page-guard';
 
 const formatCurrency = (value: number) =>
   new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 2 }).format(value);
@@ -53,14 +52,6 @@ function getStatusBadge(status: string, count: number) {
 }
 
 export default function IndentsReportPage() {
-  return (
-    <ImsPageGuard module="ims.reports" action="view">
-      <IndentsReportPageInner />
-    </ImsPageGuard>
-  );
-}
-
-function IndentsReportPageInner() {
   const { isLoading: permissionsLoading } = usePermissions();
   const { storeId, institutionId } = useImsStoreContext();
 

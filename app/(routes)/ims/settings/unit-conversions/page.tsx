@@ -56,7 +56,6 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { usePermissions } from '@/hooks/use-permissions';
-import { ImsPageGuard } from '@/components/ims/ims-page-guard';
 import { useImsStoreContext } from '@/hooks/ims/use-ims-store-context';
 import {
   useImsUnitConversions,
@@ -88,16 +87,7 @@ const emptyFormData: ConversionFormData = {
 };
 
 export default function UnitConversionsPage() {
-  return (
-    <ImsPageGuard module="ims.settings.units" action="manage">
-      <UnitConversionsPageInner />
-    </ImsPageGuard>
-  );
-}
-
-function UnitConversionsPageInner() {
-  const { isSuperAdmin, canAccess } = usePermissions();
-  const canManage = isSuperAdmin || canAccess('ims.settings.units', 'manage');
+  const { isSuperAdmin } = usePermissions();
   const { storeId } = useImsStoreContext();
 
   // Filter state
@@ -264,12 +254,10 @@ function UnitConversionsPageInner() {
               Define conversion factors between units of measurement
             </p>
           </div>
-          {canManage && (
-            <Button onClick={handleAddNew}>
-              <Plus className="h-4 w-4 mr-2" />
-              Add Conversion
-            </Button>
-          )}
+          <Button onClick={handleAddNew}>
+            <Plus className="h-4 w-4 mr-2" />
+            Add Conversion
+          </Button>
         </div>
 
         {/* Filters */}
@@ -364,24 +352,20 @@ function UnitConversionsPageInner() {
                                 </Button>
                               </DropdownMenuTrigger>
                               <DropdownMenuContent align="end">
-                                {canManage && (
-                                  <DropdownMenuItem
-                                    onClick={() => handleEdit(conversion)}
-                                  >
-                                    <Pencil className="h-4 w-4 mr-2" />
-                                    Edit
-                                  </DropdownMenuItem>
-                                )}
-                                {canManage && <DropdownMenuSeparator />}
-                                {canManage && (
-                                  <DropdownMenuItem
-                                    className="text-red-600 focus:text-red-600"
-                                    onClick={() => handleDeleteClick(conversion)}
-                                  >
-                                    <Trash2 className="h-4 w-4 mr-2" />
-                                    Delete
-                                  </DropdownMenuItem>
-                                )}
+                                <DropdownMenuItem
+                                  onClick={() => handleEdit(conversion)}
+                                >
+                                  <Pencil className="h-4 w-4 mr-2" />
+                                  Edit
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem
+                                  className="text-red-600 focus:text-red-600"
+                                  onClick={() => handleDeleteClick(conversion)}
+                                >
+                                  <Trash2 className="h-4 w-4 mr-2" />
+                                  Delete
+                                </DropdownMenuItem>
                               </DropdownMenuContent>
                             </DropdownMenu>
                           </TableCell>

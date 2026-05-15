@@ -540,10 +540,10 @@ export function CounselorDetailsDialog({
                         className="h-8 px-2 flex-shrink-0"
                       >
                         <Link
-                          href={`/admission/settings/sources/${m.source.id}`}
+                          href={`/admission/counselors/team/allocation/${m.source.id}`}
                         >
                           <ExternalLink className="h-3.5 w-3.5" />
-                          <span className="sr-only">Open source</span>
+                          <span className="sr-only">Open source assignment</span>
                         </Link>
                       </Button>
                     )}
