@@ -12,7 +12,7 @@
 // Permission: super_admin / admin only (PermissionGuard).
 // =====================================================================
 import Link from 'next/link';
-import { ArrowRight, ScrollText, History } from 'lucide-react';
+import { ArrowRight, ScrollText, History, FileDown } from 'lucide-react';
 
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
@@ -172,12 +172,20 @@ function HrPoliciesIndexContent() {
             Draft → Publish with a mandatory reason recorded in the audit log.
           </AlertDescription>
         </Alert>
-        <Button asChild variant="outline" className="shrink-0">
-          <Link href="/admin/hr/policies/audit-log">
-            <History className="h-4 w-4 mr-2" />
-            View audit log
-          </Link>
-        </Button>
+        <div className="flex shrink-0 gap-2">
+          <Button asChild variant="default">
+            <Link href="/admin/hr/policies/export-manual">
+              <FileDown className="h-4 w-4 mr-2" />
+              Export manual
+            </Link>
+          </Button>
+          <Button asChild variant="outline">
+            <Link href="/admin/hr/policies/audit-log">
+              <History className="h-4 w-4 mr-2" />
+              View audit log
+            </Link>
+          </Button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
