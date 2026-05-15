@@ -11,7 +11,11 @@
 // Spec: specs/wave-3-policy-driven-hr-manual-2026-05-15.md §W3-M9
 // =====================================================================
 import Link from 'next/link';
+<<<<<<< HEAD
 import { FileText, AlertTriangle, Pencil } from 'lucide-react';
+=======
+import { FileText, AlertTriangle, Workflow } from 'lucide-react';
+>>>>>>> cb5c854ae (feat(hr/forms): workflow engine + WhatsApp notifications + per-form approval chain editor)
 
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
@@ -113,17 +117,19 @@ async function HrFormsIndexContent() {
                 <TableHead>Classification</TableHead>
                 <TableHead>Published</TableHead>
                 <TableHead>Draft present</TableHead>
-                <TableHead>Builder</TableHead>
+                <TableHead>Workflow</TableHead>
+                <TableHead>Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {forms.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-center text-muted-foreground">
+                  <TableCell colSpan={7} className="text-center text-muted-foreground">
                     No forms found.
                   </TableCell>
                 </TableRow>
               ) : (
+<<<<<<< HEAD
                 forms.map((form) => (
                   <TableRow key={form.id}>
                     <TableCell>
@@ -157,19 +163,87 @@ async function HrFormsIndexContent() {
                     </TableCell>
                   </TableRow>
                 ))
+=======
+                forms.map((form) => {
+                  const stepsLive = form.approval_workflow?.steps?.length ?? 0;
+                  const stepsDraft =
+                    form.draft_approval_workflow?.steps?.length ?? null;
+                  return (
+                    <TableRow key={form.id}>
+                      <TableCell>
+                        <code className="text-xs">{form.form_key}</code>
+                      </TableCell>
+                      <TableCell>{form.form_title}</TableCell>
+                      <TableCell>
+                        <Badge
+                          variant={form.classification === 'major' ? 'default' : 'outline'}
+                        >
+                          {form.classification}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant={form.is_published ? 'default' : 'outline'}>
+                          {form.is_published ? 'Published' : 'Draft'}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant={form.draft_schema ? 'secondary' : 'outline'}>
+                          {form.draft_schema ? 'Yes' : 'No'}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-xs">
+                        {stepsLive === 0 && stepsDraft == null ? (
+                          <span className="text-muted-foreground">empty</span>
+                        ) : (
+                          <span>
+                            {stepsLive} step{stepsLive === 1 ? '' : 's'}
+                            {stepsDraft != null ? ` · ${stepsDraft} draft` : ''}
+                          </span>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <Button variant="outline" size="sm" asChild>
+                          <Link href={`/admin/hr/forms/${form.id}/workflow`}>
+                            <Workflow className="h-3 w-3 mr-1" />
+                            Edit workflow
+                          </Link>
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })
+>>>>>>> cb5c854ae (feat(hr/forms): workflow engine + WhatsApp notifications + per-form approval chain editor)
               )}
             </TableBody>
           </Table>
         </CardContent>
       </Card>
 
+      <Card>
+        <CardHeader>
+          <CardTitle>Recent submissions</CardTitle>
+          <CardDescription>
+            Submissions land in <code className="text-xs">hr_form_submissions</code>{' '}
+            once a form is published and submitted. Open each one to see the
+            approval history and advance / reject the workflow.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Button variant="outline" asChild>
+            <Link href="/admin/hr/forms/submissions">
+              View submissions queue
+            </Link>
+          </Button>
+        </CardContent>
+      </Card>
+
       <p className="text-sm text-muted-foreground">
-        Follow-up PRs (each module in its own PR):
-        visual drag-drop builder at{' '}
-        <code className="text-xs">/admin/hr/forms/[id]/builder</code> — per-widget
-        renderers (text, textarea, number, date, dropdown, radio, checkbox,
-        file upload, signature, conditional logic) — workflow engine wiring
-        approval steps to staff + HOD + CAO — WhatsApp notification dispatch.
+        Follow-up scope still open: visual drag-drop builder at{' '}
+        <code className="text-xs">/admin/hr/forms/[id]/builder</code> with
+        per-widget renderers (text, textarea, number, date, dropdown, radio,
+        checkbox, file upload, signature, conditional logic). The workflow
+        engine + WhatsApp + in-app notifications + per-form approval chain
+        editor shipped in this PR.
       </p>
     </div>
   );

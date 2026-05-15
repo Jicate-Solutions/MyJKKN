@@ -182,6 +182,16 @@ export const POLICY_KEYS = {
   // Editable via /admin/hr/recruitment-approvals-scope (super-admin UI).
   HR_RECRUITMENT_APPROVALS_ENFORCE_SCOPING: 'hr.recruitment.approvals.enforce_scoping',
   HR_RECRUITMENT_APPROVALS_SCOPE_RULES: 'hr.recruitment.approvals.scope_rules',
+
+  // -- Forms (W3-M9 follow-up — workflow engine + notifications) -------------
+  // Object: per-event notification templates rendered by the form-submission
+  // workflow engine. Keys = event name; values = { in_app_title, in_app_body,
+  // whatsapp_body } string templates. Supports placeholders:
+  //   {form_title}, {submitter_name}, {step_label}, {actor_name},
+  //   {reason}, {submission_url}
+  // Consumed by lib/services/hr/form-submission-notifications.ts.
+  // Director can edit copy live via /admin/policies/platform-policies UI.
+  HR_FORMS_NOTIFICATION_TEMPLATES: 'hr.forms.notification_templates',
 } as const;
 
 export type PolicyKey = typeof POLICY_KEYS[keyof typeof POLICY_KEYS];
