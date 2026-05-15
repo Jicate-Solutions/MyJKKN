@@ -128,6 +128,12 @@ const config: ModuleNavConfig = {
       matchPaths: ['/hr/onboarding'],
     },
     {
+      label: 'My Assets',
+      icon: 'Laptop',
+      href: '/hr/my-assets',
+      matchPaths: ['/hr/my-assets'],
+    },
+    {
       label: 'Offboarding',
       icon: 'LogOut',
       href: '/hr/offboarding',
