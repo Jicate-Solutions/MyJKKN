@@ -168,6 +168,20 @@ export const POLICY_KEYS = {
   // -- Dashboard --------------------------------------------------------------
   // Array of { label, role_keys: string[] } — how HR dashboard widgets cluster roles.
   HR_DASHBOARD_ROLE_GROUPS: 'hr.dashboard.role_groups',
+
+  // Nav landing pages (super-admin-tunable redirect targets for /admin module roots).
+  // Consumed by app/(routes)/admin/page.tsx, /admin/lti/page.tsx, /admin/pde/page.tsx.
+  // Editable via /admin/landing-pages — zero-deploy redirect retargeting.
+  NAV_ADMIN_DEFAULT_LANDING: 'nav.admin.default_landing',
+  NAV_ADMIN_LTI_DEFAULT_LANDING: 'nav.admin.lti.default_landing',
+  NAV_ADMIN_PDE_DEFAULT_LANDING: 'nav.admin.pde.default_landing',
+
+  // HR Recruitment approvals — viewer-scope enforcement.
+  // Consumed by lib/services/hr/recruitment-service.ts (resolveViewerScope).
+  // Master toggle (boolean) + per-role scope_rules (JSONB object).
+  // Editable via /admin/hr/recruitment-approvals-scope (super-admin UI).
+  HR_RECRUITMENT_APPROVALS_ENFORCE_SCOPING: 'hr.recruitment.approvals.enforce_scoping',
+  HR_RECRUITMENT_APPROVALS_SCOPE_RULES: 'hr.recruitment.approvals.scope_rules',
 } as const;
 
 export type PolicyKey = typeof POLICY_KEYS[keyof typeof POLICY_KEYS];
