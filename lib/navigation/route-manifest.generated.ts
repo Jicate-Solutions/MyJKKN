@@ -585,13 +585,33 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "path": "/admin/hr/forms",
             "label": "Forms",
             "iconName": "FileText",
+            "children": [
+              {
+                "path": "/admin/hr/forms/submissions",
+                "label": "Submissions",
+                "iconName": "FileText",
+                "children": []
+              }
+            ]
+          },
+          {
+            "path": "/admin/hr/memos",
+            "label": "HR Memos",
+            "iconName": "AlertTriangle",
             "children": []
           },
           {
             "path": "/admin/hr/offboarding",
             "label": "Offboarding Workflow",
             "iconName": "LogOut",
-            "children": []
+            "children": [
+              {
+                "path": "/admin/hr/offboarding/retirements",
+                "label": "Retirements",
+                "iconName": "CalendarClock",
+                "children": []
+              }
+            ]
           },
           {
             "path": "/admin/hr/onboarding-checklists",
@@ -800,6 +820,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
                 "children": []
               },
               {
+                "path": "/admin/hr/policies/promotion-suggestions",
+                "label": "Promotion Suggestions",
+                "iconName": "FileText",
+                "children": []
+              },
+              {
                 "path": "/admin/hr/policies/rd",
                 "label": "Rd",
                 "iconName": "FileText",
@@ -881,6 +907,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             ]
           },
           {
+            "path": "/admin/hr/promotions",
+            "label": "Promotions",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
             "path": "/admin/hr/recruitment-approvals-scope",
             "label": "Recruitment Approvals Scope",
             "iconName": "ShieldCheck",
@@ -897,6 +929,25 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "label": "Shift Templates",
             "iconName": "FileText",
             "children": []
+          },
+          {
+            "path": "/admin/hr/terminations",
+            "label": "Terminations",
+            "iconName": "Gavel",
+            "children": []
+          },
+          {
+            "path": "/admin/hr/training",
+            "label": "Training",
+            "iconName": "Dumbbell",
+            "children": [
+              {
+                "path": "/admin/hr/training/new",
+                "label": "New",
+                "iconName": "Plus",
+                "children": []
+              }
+            ]
           }
         ]
       },
@@ -2942,6 +2993,19 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         ]
       },
       {
+        "path": "/hr/forms",
+        "label": "Forms",
+        "iconName": "FileText",
+        "children": [
+          {
+            "path": "/hr/forms/inbox",
+            "label": "Inbox",
+            "iconName": "Inbox",
+            "children": []
+          }
+        ]
+      },
+      {
         "path": "/hr/leave",
         "label": "Leave",
         "iconName": "CalendarOff",
@@ -2985,6 +3049,19 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         ]
       },
       {
+        "path": "/hr/memos",
+        "label": "Memos",
+        "iconName": "FileText",
+        "children": [
+          {
+            "path": "/hr/memos/my",
+            "label": "My",
+            "iconName": "FileText",
+            "children": []
+          }
+        ]
+      },
+      {
         "path": "/hr/my-assets",
         "label": "My Assets",
         "iconName": "FileText",
@@ -3020,6 +3097,19 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "label": "Policies",
         "iconName": "BookText",
         "children": []
+      },
+      {
+        "path": "/hr/promotions",
+        "label": "Promotions",
+        "iconName": "FileText",
+        "children": [
+          {
+            "path": "/hr/promotions/apply",
+            "label": "Apply",
+            "iconName": "FileText",
+            "children": []
+          }
+        ]
       },
       {
         "path": "/hr/recruitment",
@@ -3070,6 +3160,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           }
         ]
+      },
+      {
+        "path": "/hr/training",
+        "label": "Training",
+        "iconName": "Dumbbell",
+        "children": []
       }
     ]
   },
