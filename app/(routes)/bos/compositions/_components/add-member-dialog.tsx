@@ -100,6 +100,18 @@ interface AddMemberDialogProps {
    * automatically — no need to pass siblings in.
    */
   institutionsId: string;
+  /**
+   * IDs of staff already present on this composition. The FacilitatorPicker
+   * filters them out so the same person can't be added twice. The DB also
+   * enforces this via uniq_bos_members_composition_staff — this prop is just
+   * the UX softener so the user never sees the duplicate option.
+   */
+  assignedStaffIds?: readonly string[];
+  /**
+   * IDs of external experts already present on this composition. See
+   * `assignedStaffIds` — same rationale, mirrored for the expert picker.
+   */
+  assignedExpertIds?: readonly string[];
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -109,8 +121,20 @@ export function AddMemberDialog({
   onClose,
   compositionId,
   institutionsId,
+  assignedStaffIds,
+  assignedExpertIds,
 }: AddMemberDialogProps) {
   const addMember = useAddBosMember();
+  // Stable Set references so the pickers can do O(1) `.has(id)` filtering
+  // without rebuilding the set on every keystroke.
+  const assignedStaffSet = useMemo(
+    () => new Set(assignedStaffIds ?? []),
+    [assignedStaffIds],
+  );
+  const assignedExpertSet = useMemo(
+    () => new Set(assignedExpertIds ?? []),
+    [assignedExpertIds],
+  );
 
   const [memberType, setMemberType] = useState<BosMemberType>('internal_member');
 
@@ -279,6 +303,7 @@ export function AddMemberDialog({
               selected={selectedExpert}
               onSelect={handleSelectExpert}
               onClear={handleClearSelection}
+              excludeIds={assignedExpertSet}
             />
           ) : (
             <FacilitatorPicker
@@ -286,6 +311,7 @@ export function AddMemberDialog({
               selected={selectedFacilitator}
               onSelect={handleSelectFacilitator}
               onClear={handleClearSelection}
+              excludeIds={assignedStaffSet}
             />
           )}
 
@@ -359,11 +385,14 @@ function FacilitatorPicker({
   selected,
   onSelect,
   onClear,
+  excludeIds,
 }: {
   institutionsId: string;
   selected: FacilitatorRow | null;
   onSelect: (row: FacilitatorRow) => void;
   onClear: () => void;
+  /** Staff IDs already on the composition — hidden from the list. */
+  excludeIds?: ReadonlySet<string>;
 }) {
   const [search, setSearch] = useState('');
   const [rows, setRows] = useState<FacilitatorRow[]>([]);
@@ -410,6 +439,14 @@ function FacilitatorPicker({
     return () => { cancelled = true; };
   }, [search, institutionsId, idsCsv, selected, institutionCtx.isLoading]);
 
+  // Hide staff that are already on this composition. Filtering on the client
+  // is sufficient because the lookup endpoint returns a capped page (limit
+  // 200) and the assigned set is small (a composition rarely exceeds a
+  // dozen members).
+  const visibleRows = excludeIds && excludeIds.size > 0
+    ? rows.filter((r) => !excludeIds.has(r.id))
+    : rows;
+
   if (selected) {
     return (
       <div className='space-y-2'>
@@ -441,11 +478,15 @@ function FacilitatorPicker({
               <Loader2 className='mr-2 h-3 w-3 animate-spin' />
               Loading…
             </div>
-          ) : rows.length === 0 ? (
-            <CommandEmpty>No staff found.</CommandEmpty>
+          ) : visibleRows.length === 0 ? (
+            <CommandEmpty>
+              {rows.length === 0
+                ? 'No staff found.'
+                : 'All matching staff are already members.'}
+            </CommandEmpty>
           ) : (
             <CommandGroup>
-              {rows.map((row) => {
+              {visibleRows.map((row) => {
                 const fullName = `${row.first_name} ${row.last_name}`.trim();
                 const subline = [row.designation, row.department?.department_name]
                   .filter(Boolean)
@@ -479,11 +520,14 @@ function ExpertPicker({
   selected,
   onSelect,
   onClear,
+  excludeIds,
 }: {
   memberType: BosMemberType;
   selected: BosExternalExpert | null;
   onSelect: (row: BosExternalExpert) => void;
   onClear: () => void;
+  /** Expert IDs already on the composition — hidden from the list. */
+  excludeIds?: ReadonlySet<string>;
 }) {
   const [search, setSearch] = useState('');
   const [rows, setRows] = useState<BosExternalExpert[]>([]);
@@ -506,6 +550,12 @@ function ExpertPicker({
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [search, selected]);
+
+  // Hide experts already on this composition. Same approach as
+  // FacilitatorPicker — see the comment there.
+  const visibleRows = excludeIds && excludeIds.size > 0
+    ? rows.filter((r) => !excludeIds.has(r.id))
+    : rows;
 
   if (selected) {
     return (
@@ -536,11 +586,15 @@ function ExpertPicker({
               <Loader2 className='mr-2 h-3 w-3 animate-spin' />
               Loading…
             </div>
-          ) : rows.length === 0 ? (
-            <CommandEmpty>No experts found.</CommandEmpty>
+          ) : visibleRows.length === 0 ? (
+            <CommandEmpty>
+              {rows.length === 0
+                ? 'No experts found.'
+                : 'All matching experts are already members.'}
+            </CommandEmpty>
           ) : (
             <CommandGroup>
-              {rows.map((row) => {
+              {visibleRows.map((row) => {
                 const subline = [row.designation, row.institution_name]
                   .filter(Boolean)
                   .join(' • ');

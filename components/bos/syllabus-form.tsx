@@ -1436,9 +1436,37 @@ function ContentEditor({ content, onChange }: any) {
     const newUnits = [...units];
     newUnits[unitIdx].chapters = [
       ...(newUnits[unitIdx].chapters || []),
-      { chapter_number: (newUnits[unitIdx].chapters?.length || 0) + 1, title: '', sections: '' },
+      { chapter_number: (newUnits[unitIdx].chapters?.length || 0) + 1, title: '', sections: '', subtopics: [] },
     ];
     onChange({ ...content, units: newUnits });
+  };
+
+  const addSubtopic = (unitIdx: number, chIdx: number) => {
+    const newChapters = [...(units[unitIdx].chapters || [])];
+    const existing = newChapters[chIdx].subtopics || [];
+    newChapters[chIdx] = {
+      ...newChapters[chIdx],
+      subtopics: [...existing, { number: existing.length + 1, title: '' }],
+    };
+    updateUnit(unitIdx, 'chapters', newChapters);
+  };
+
+  const updateSubtopic = (unitIdx: number, chIdx: number, stIdx: number, title: string) => {
+    const newChapters = [...(units[unitIdx].chapters || [])];
+    const subtopics = (newChapters[chIdx].subtopics || []).map((s: any, i: number) =>
+      i === stIdx ? { ...s, title } : s
+    );
+    newChapters[chIdx] = { ...newChapters[chIdx], subtopics };
+    updateUnit(unitIdx, 'chapters', newChapters);
+  };
+
+  const removeSubtopic = (unitIdx: number, chIdx: number, stIdx: number) => {
+    const newChapters = [...(units[unitIdx].chapters || [])];
+    const subtopics = (newChapters[chIdx].subtopics || [])
+      .filter((_: any, i: number) => i !== stIdx)
+      .map((s: any, i: number) => ({ ...s, number: i + 1 }));
+    newChapters[chIdx] = { ...newChapters[chIdx], subtopics };
+    updateUnit(unitIdx, 'chapters', newChapters);
   };
 
   const addTopic = () => {
@@ -1584,6 +1612,40 @@ function ContentEditor({ content, onChange }: any) {
                         }}
                         className="h-7 text-xs text-muted-foreground bg-muted/30 border-muted"
                       />
+
+                      {/* Sub-topics */}
+                      {(ch.subtopics?.length ?? 0) > 0 && (
+                        <div className="mt-2 ml-3 space-y-1.5 border-l-2 border-muted pl-3">
+                          {ch.subtopics.map((st: any, stIdx: number) => (
+                            <div key={stIdx} className="flex items-start gap-2 group/sub">
+                              <span className="mt-1.5 shrink-0 text-[10px] font-semibold text-muted-foreground tabular-nums">
+                                {ch.chapter_number}.{st.number}
+                              </span>
+                              <MathInput
+                                placeholder="Sub-topic title"
+                                value={st.title}
+                                onChange={(v) => updateSubtopic(unitIdx, chIdx, stIdx, v)}
+                                className="flex-1 text-xs"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => removeSubtopic(unitIdx, chIdx, stIdx)}
+                                className="mt-1 rounded p-0.5 text-muted-foreground opacity-0 group-hover/sub:opacity-100 hover:bg-destructive/10 hover:text-destructive transition-all"
+                                title="Remove sub-topic"
+                              >
+                                <X className="h-3 w-3" />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => addSubtopic(unitIdx, chIdx)}
+                        className="mt-1 inline-flex items-center gap-1 rounded-md border border-dashed px-2 py-0.5 text-[11px] font-medium text-muted-foreground hover:border-primary/50 hover:text-primary transition-colors"
+                      >
+                        <Plus className="h-3 w-3" /> Add Sub-topic
+                      </button>
                     </div>
                     <button
                       type="button"

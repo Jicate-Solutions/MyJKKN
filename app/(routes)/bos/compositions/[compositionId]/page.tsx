@@ -445,13 +445,22 @@ export default function CompositionDetailPage({ params }: CompositionDetailPageP
 
       {/* ── Add Member Dialog ───────────────────────────────────────────── */}
       {/* AddMemberDialog resolves CAS siblings itself via useInstitutionContextById
-          (no need to pass allInstitutionIds — see FacilitatorPicker). */}
+          (no need to pass allInstitutionIds — see FacilitatorPicker).
+          We pass the currently-assigned staff/expert IDs so the pickers can
+          hide them — preventing the same person from being added twice. The
+          DB also enforces uniqueness (see 20260516 migration). */}
       {composition.institutions_id && (
         <AddMemberDialog
           open={addDialogOpen}
           onClose={() => setAddDialogOpen(false)}
           compositionId={compositionId}
           institutionsId={composition.institutions_id}
+          assignedStaffIds={members
+            .map((m) => m.staff_id)
+            .filter((id): id is string => !!id)}
+          assignedExpertIds={members
+            .map((m) => m.expert_id)
+            .filter((id): id is string => !!id)}
         />
       )}
     </div>

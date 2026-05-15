@@ -13,7 +13,12 @@ export interface ParsedSyllabus {
     units: Array<{
       unit_id: string;
       unit_title: string;
-      chapters: Array<{ chapter_number: number; title: string; sections: string }>;
+      chapters: Array<{
+        chapter_number: number;
+        title: string;
+        sections: string;
+        subtopics?: Array<{ number: number; title: string }>;
+      }>;
       remarks: string;
     }>;
   };
@@ -423,6 +428,7 @@ function parseUnitsSheet(rows: SheetRows) {
   const unitCol = findCol(headers, 'unit');
   const titleCol = findCol(headers, 'unit title', 'title');
   const chapterCol = findCol(headers, 'chapter', 'topic', 'content');
+  const subtopicCol = findCol(headers, 'sub-topic', 'subtopic', 'sub topic');
   const sectionsCol = findCol(headers, 'sections', 'section');
   const remarksCol = findCol(headers, 'remarks', 'book reference', 'reference');
 
@@ -446,12 +452,24 @@ function parseUnitsSheet(rows: SheetRows) {
       unitMap.set(unitId, unit);
     }
     const chapterTitle = chapterCol >= 0 ? (row[chapterCol] ?? '').trim() : '';
+    const subtopicTitle = subtopicCol >= 0 ? (row[subtopicCol] ?? '').trim() : '';
     if (chapterTitle) {
-      unit.chapters.push({
+      const newChapter: ParsedSyllabus['course_content']['units'][number]['chapters'][number] = {
         chapter_number: unit.chapters.length + 1,
         title: chapterTitle,
         sections: sectionsCol >= 0 ? (row[sectionsCol] ?? '').trim() : '',
-      });
+      };
+      // Same row can carry both a chapter and its first sub-topic.
+      if (subtopicTitle) {
+        newChapter.subtopics = [{ number: 1, title: subtopicTitle }];
+      }
+      unit.chapters.push(newChapter);
+    } else if (subtopicTitle && unit.chapters.length > 0) {
+      // Chapter blank + sub-topic filled → attach to the most-recent chapter.
+      const last = unit.chapters[unit.chapters.length - 1];
+      const subs = last.subtopics ?? [];
+      subs.push({ number: subs.length + 1, title: subtopicTitle });
+      last.subtopics = subs;
     }
   }
   for (const u of Array.from(unitMap.values())) {

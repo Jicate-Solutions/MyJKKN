@@ -1,6 +1,6 @@
 'use client';
 
-import { use, useState } from 'react';
+import { use, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { format } from 'date-fns';
 import {
@@ -30,10 +30,14 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { SearchableSelect } from '@/components/ui/searchable-select';
+import { useQuery } from '@tanstack/react-query';
+import { useBosInstitutionScope } from '@/hooks/bos/use-bos-institution-scope';
 import { AgendaTab } from './_components/agenda-tab';
 import { AttendanceTab } from './_components/attendance-tab';
 import { DocumentsTab } from './_components/documents-tab';
 import { SyllabusTab } from './_components/syllabi-tab';
+import { MembersTab } from './_components/members-tab';
 
 import { useBosMeeting, useTransitionBosMeetingStatus } from '@/hooks/bos/use-bos-meetings';
 import { usePermissions } from '@/hooks/use-permissions';
@@ -77,27 +81,100 @@ interface TransitionMetadata {
 interface TransitionDialogProps {
   open: boolean;
   nextStatus: BosMeetingStatus;
+  /** Used to scope the principal lookup to staff in this meeting's institution. */
+  institutionsId: string;
   onConfirm: (meta: TransitionMetadata) => void;
   onCancel: () => void;
   isPending: boolean;
 }
 
-function TransitionDialog({ open, nextStatus, onConfirm, onCancel, isPending }: TransitionDialogProps) {
+// Staff row shape returned by /api/staff (only the fields we use)
+interface PrincipalStaff {
+  id: string;
+  staff_id?: string | null;
+  first_name?: string | null;
+  last_name?: string | null;
+  designation?: string | null;
+}
+
+function buildStaffDisplayName(s: PrincipalStaff): string {
+  const full = `${s.first_name ?? ''} ${s.last_name ?? ''}`.trim();
+  return full || s.staff_id || 'Unnamed';
+}
+
+function TransitionDialog({
+  open,
+  nextStatus,
+  institutionsId,
+  onConfirm,
+  onCancel,
+  isPending,
+}: TransitionDialogProps) {
   const [approver, setApprover] = useState('');
   const [ratifiedDate, setRatifiedDate] = useState('');
   const [minutesSummary, setMinutesSummary] = useState('');
 
+  const isApproval = nextStatus === 'principal_approved' || nextStatus === 'minutes_approved';
+  const isRatification = nextStatus === 'ratified';
+  const isMinutesDraft = nextStatus === 'minutes_drafted';
+
+  // CAS-aware institution scope. The meeting's institutions_id may be one
+  // half of an Aided + Self-Financing pair, but the principal could be
+  // registered under the sibling UUID. useBosInstitutionScope expands the
+  // single id into the full pair via the COE-authoritative resolver, so we
+  // never silently miss data for CAS colleges.
+  const instScope = useBosInstitutionScope(institutionsId);
+
+  // Fetch staff with employment_categories.category_name = 'Principal'.
+  // Per project memory, this is the canonical way to look up principals —
+  // do NOT use role_key=principal (different table, drifts out of sync).
+  // Filter by the CAS-expanded institution_ids list (not the single id)
+  // so a principal living on the SF sibling is still visible to Aided users.
+  const { data: principalsData, isLoading: loadingPrincipals } = useQuery({
+    queryKey: ['staff', 'principals', instScope.csv],
+    queryFn: async () => {
+      const params = new URLSearchParams({
+        category_name: 'Principal',
+        isActive: 'true',
+        limit: '50',
+      });
+      if (instScope.csv) params.set('institution_ids', instScope.csv);
+      const res = await fetch(`/api/staff?${params}`);
+      if (!res.ok) throw new Error('Failed to load principals');
+      return res.json() as Promise<{ data: PrincipalStaff[] }>;
+    },
+    enabled: open && isApproval && !instScope.isLoading && !!instScope.csv,
+    staleTime: 10 * 60 * 1000,
+  });
+
+  // Option value = staff.id (opaque UUID — won't collide with cmdk's value
+  // normalization inside a Radix Dialog). Display string is resolved at
+  // submit time so the persisted approver field remains human-readable.
+  const principalOptions = useMemo(() => {
+    return (principalsData?.data ?? []).map((s) => {
+      const name = buildStaffDisplayName(s);
+      const label = s.designation ? `${name} — ${s.designation}` : name;
+      return { value: s.id, label };
+    });
+  }, [principalsData]);
+
   const handleConfirm = () => {
+    // Resolve the selected staff id back to the human-readable display
+    // string that gets stored in principal_approved_by / minutes_approved_by.
+    let approverDisplay = approver.trim();
+    if (approverDisplay && principalsData?.data) {
+      const staff = principalsData.data.find((s) => s.id === approverDisplay);
+      if (staff) {
+        const name = buildStaffDisplayName(staff);
+        approverDisplay = staff.designation ? `${name}, ${staff.designation}` : name;
+      }
+    }
     onConfirm({
-      approver: approver.trim() || undefined,
+      approver: approverDisplay || undefined,
       ratified_date: ratifiedDate || undefined,
       minutes_summary: minutesSummary.trim() || undefined,
     });
   };
-
-  const isApproval = nextStatus === 'principal_approved' || nextStatus === 'minutes_approved';
-  const isRatification = nextStatus === 'ratified';
-  const isMinutesDraft = nextStatus === 'minutes_drafted';
 
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v) onCancel(); }}>
@@ -110,11 +187,30 @@ function TransitionDialog({ open, nextStatus, onConfirm, onCancel, isPending }: 
           {isApproval && (
             <div className='space-y-2'>
               <Label>Approved by</Label>
-              <Input
-                placeholder='e.g. Dr. K. Rajamani, Principal'
+              <SearchableSelect
                 value={approver}
-                onChange={(e) => setApprover(e.target.value)}
+                onValueChange={setApprover}
+                options={principalOptions}
+                placeholder={
+                  instScope.isLoading
+                    ? 'Resolving institution…'
+                    : loadingPrincipals
+                      ? 'Loading principals…'
+                      : principalOptions.length === 0
+                        ? 'No principals found for this institution'
+                        : 'Select principal'
+                }
+                searchPlaceholder='Search principal…'
+                loading={instScope.isLoading || loadingPrincipals}
+                disabled={instScope.isLoading || loadingPrincipals || principalOptions.length === 0}
+                className='w-full'
+                modal
               />
+              {instScope.isCAS && !loadingPrincipals && (
+                <p className='text-[11px] text-muted-foreground'>
+                  Searching across both Aided & Self-Financing campuses.
+                </p>
+              )}
             </div>
           )}
           {isRatification && (
@@ -439,6 +535,7 @@ export default function MeetingDetailPage({ params }: MeetingDetailPageProps) {
                   </Badge>
                 )}
               </TabsTrigger>
+              <TabsTrigger value='members'>Members</TabsTrigger>
               <TabsTrigger value='documents'>Documents</TabsTrigger>
               <TabsTrigger value='syllabus'>Syllabus</TabsTrigger>
             </TabsList>
@@ -453,6 +550,14 @@ export default function MeetingDetailPage({ params }: MeetingDetailPageProps) {
                 compositionId={meeting.composition_id}
                 institutionsId={meeting.institutions_id}
                 canEdit={canEdit}
+                meetingStatus={meeting.status}
+              />
+            </TabsContent>
+
+            <TabsContent value='members'>
+              <MembersTab
+                meetingId={meetingId}
+                compositionId={meeting.composition_id}
                 meetingStatus={meeting.status}
               />
             </TabsContent>
@@ -482,6 +587,7 @@ export default function MeetingDetailPage({ params }: MeetingDetailPageProps) {
         <TransitionDialog
           open={showTransitionDialog}
           nextStatus={nextStatus}
+          institutionsId={meeting.institutions_id}
           onConfirm={handleTransitionConfirm}
           onCancel={() => setShowTransitionDialog(false)}
           isPending={isTransitioning || transitionStatus.isPending}

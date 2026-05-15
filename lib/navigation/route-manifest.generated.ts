@@ -1736,6 +1736,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         ]
       },
       {
+        "path": "/bos/email-settings",
+        "label": "Email Settings",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
         "path": "/bos/experts",
         "label": "Experts",
         "iconName": "UserCheck",

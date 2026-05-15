@@ -139,6 +139,31 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Reject duplicates: the same staff or expert cannot be on the same
+    // composition twice. The DB enforces this via partial unique indexes
+    // (20260516_bos_members_no_duplicates.sql), but checking here lets us
+    // return a friendly 409 Conflict instead of a raw 23505 error.
+    if (body.staff_id || body.expert_id) {
+      const dupQuery = supabase
+        .from('bos_members')
+        .select('id, display_name')
+        .eq('composition_id', body.composition_id)
+        .limit(1);
+      if (body.staff_id) {
+        dupQuery.eq('staff_id', body.staff_id);
+      } else if (body.expert_id) {
+        dupQuery.eq('expert_id', body.expert_id);
+      }
+      const { data: existingDup } = await dupQuery.maybeSingle();
+      if (existingDup) {
+        const who = (existingDup as { display_name?: string | null }).display_name ?? 'This person';
+        return NextResponse.json(
+          { error: `${who} is already a member of this composition.` },
+          { status: 409 }
+        );
+      }
+    }
+
     // Auto-assign sort_order: count existing members + 1
     const { count } = await supabase
       .from('bos_members')
@@ -168,6 +193,16 @@ export async function POST(request: NextRequest) {
       hint: pgErr.hint,
       details: pgErr.details,
     });
+    // 23505 = unique_violation — the partial unique indexes from
+    // 20260516_bos_members_no_duplicates.sql triggered. The API pre-check above
+    // catches the common case; this branch handles concurrent inserts that
+    // raced past it.
+    if (pgErr.code === '23505') {
+      return NextResponse.json(
+        { error: 'This person is already a member of this composition.' },
+        { status: 409 }
+      );
+    }
     // 42703 = undefined column — most likely the 20260514 RLS migration that
     // adds bos_compositions.created_by hasn't been applied yet, so the parent
     // composition lookup above fails and we end up in the chairman branch

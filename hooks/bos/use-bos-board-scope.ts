@@ -102,10 +102,21 @@ export function useBosBoardScope(): BosBoardScopeClient {
 // check logic so the rules stay consistent with the server.
 
 export function canCreateComposition(scope: BosBoardScopeClient): boolean {
-  if (scope.isLoading) return false;
+  // While the scope is still loading we used to fail-closed (return false),
+  // which hid the New Composition button during the /api/bos/scope round trip.
+  // For HOD/Faculty the answer is "true" regardless of scope (only Principal
+  // is explicitly denied), so failing-closed produced a visible glitch:
+  // permission-passing users saw no button until the scope resolved.
+  // We now fail-open during loading and rely on the explicit isPrincipal check
+  // once data arrives. The role-permission gate (canAccess('...','create'))
+  // upstream still blocks users who lack the perm, and the server still
+  // enforces all write authorization, so this is purely a UX softening.
   if (scope.isSuperAdmin) return true;
-  // Principals cannot create compositions (read-only on board data).
-  if (scope.isPrincipal) return false;
+  // Principals cannot create compositions (read-only on board data). Only
+  // applied once we *know* the role — while loading, isPrincipal is false
+  // by default, so principals briefly see the button and then it disappears.
+  // That's an acceptable trade vs. permanently hiding it for HOD.
+  if (!scope.isLoading && scope.isPrincipal) return false;
   // HOD / facilitator etc.: the *first* composition might not exist yet, so
   // we don't require existing membership — the server enforces institution
   // ownership via scope.userInstitutionId. The role-permission system

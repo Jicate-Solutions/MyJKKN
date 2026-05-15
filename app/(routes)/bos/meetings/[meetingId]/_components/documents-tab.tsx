@@ -124,6 +124,7 @@ export function DocumentsTab({ meeting, compositionId }: DocumentsTabProps) {
       institution_address: h.institution_address,
       logoImage,
       rightLogoImage,
+      officials: h.officials,
     };
   }
 

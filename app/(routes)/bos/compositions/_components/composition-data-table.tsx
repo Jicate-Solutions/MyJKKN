@@ -25,7 +25,10 @@ import { BosComposition } from '@/types/bos';
 import { BosCompositionService } from '@/lib/services/bos/bos-composition-service';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useBosBoardScope, canCreateComposition } from '@/hooks/bos/use-bos-board-scope';
+import { bosCompositionKeys } from '@/hooks/bos/use-bos-compositions';
+import { useDataTableRefreshOnInvalidate } from '@/hooks/use-data-table-refresh';
 import { logger } from '@/lib/utils/enhanced-logger';
+import { useQueryClient } from '@tanstack/react-query';
 
 interface CompositionDataTableProps {
   search: CompositionSearchParams;
@@ -33,9 +36,16 @@ interface CompositionDataTableProps {
 
 export function CompositionDataTable({ search }: CompositionDataTableProps) {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const { canAccess, isSuperAdmin, userProfile, isLoading: permissionsLoading } =
     usePermissions();
   const boardScope = useBosBoardScope();
+
+  // Re-fetch table rows when any code path invalidates the bos-compositions
+  // cache (create/update/delete mutations elsewhere in the app). Without this
+  // bridge, mutations would only refresh React-Query observers, not this
+  // table's internal fetchData state.
+  const refetchKey = useDataTableRefreshOnInvalidate(bosCompositionKeys.all);
 
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<{
@@ -133,6 +143,10 @@ export function CompositionDataTable({ search }: CompositionDataTableProps) {
       );
       toast.success(`${count} composition${count > 1 ? 's' : ''} deleted`);
       pendingDelete.resetSelection();
+      // Bulk delete bypasses useDeleteBosComposition's invalidation, so fire
+      // it manually here. The refetchKey bridge above picks this up and the
+      // table re-fetches without a manual page refresh.
+      queryClient.invalidateQueries({ queryKey: bosCompositionKeys.all });
     } catch (error) {
       logger.error('academic/bos', 'Error deleting compositions', error);
       toast.error('Failed to delete some compositions');
@@ -215,6 +229,7 @@ export function CompositionDataTable({ search }: CompositionDataTableProps) {
           columnResizingTableId: 'bos-compositions-table',
         }}
         renderToolbarContent={renderCustomToolbar}
+        refetchKey={refetchKey}
       />
 
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>

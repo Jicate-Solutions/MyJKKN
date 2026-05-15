@@ -217,7 +217,16 @@ function generateOfficalFormat(
       html += `<h3>Unit ${unit.unit_id}: ${unit.unit_title}</h3>`;
       const chapters = unit.chapters as Array<Record<string, unknown>> || [];
       chapters.forEach((chapter: Record<string, unknown>) => {
-        html += `<p><strong>Chapter ${chapter.chapter_number}: ${chapter.title}</strong></p><p>${chapter.sections}</p>`;
+        html += `<p><strong>Chapter ${chapter.chapter_number}: ${chapter.title}</strong></p>`;
+        if (chapter.sections) html += `<p>${chapter.sections}</p>`;
+        const subtopics = chapter.subtopics as Array<Record<string, unknown>> || [];
+        if (subtopics.length > 0) {
+          html += '<ul style="margin: 4px 0 10px 24px; padding-left: 0;">';
+          subtopics.forEach((st: Record<string, unknown>) => {
+            html += `<li><strong>${chapter.chapter_number}.${st.number}</strong> ${st.title ?? ''}</li>`;
+          });
+          html += '</ul>';
+        }
       });
     });
   }

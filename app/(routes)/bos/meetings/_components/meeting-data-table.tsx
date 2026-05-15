@@ -25,7 +25,10 @@ import { BosMeeting } from '@/types/bos';
 import { BosMeetingService } from '@/lib/services/bos/bos-meeting-service';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useBosBoardScope } from '@/hooks/bos/use-bos-board-scope';
+import { bosMeetingKeys } from '@/hooks/bos/use-bos-meetings';
+import { useDataTableRefreshOnInvalidate } from '@/hooks/use-data-table-refresh';
 import { logger } from '@/lib/utils/enhanced-logger';
+import { useQueryClient } from '@tanstack/react-query';
 
 interface MeetingDataTableProps {
   search: MeetingSearchParams;
@@ -33,9 +36,13 @@ interface MeetingDataTableProps {
 
 export function MeetingDataTable({ search }: MeetingDataTableProps) {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const { canAccess, isSuperAdmin, userProfile, isLoading: permissionsLoading } =
     usePermissions();
   const bosScope = useBosBoardScope();
+
+  // Bridge React-Query invalidations into the fetchDataFn-driven table.
+  const refetchKey = useDataTableRefreshOnInvalidate(bosMeetingKeys.all);
 
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<{
@@ -133,6 +140,7 @@ export function MeetingDataTable({ search }: MeetingDataTableProps) {
       );
       toast.success(`${count} meeting${count > 1 ? 's' : ''} deleted`);
       pendingDelete.resetSelection();
+      queryClient.invalidateQueries({ queryKey: bosMeetingKeys.all });
     } catch (error) {
       logger.error('academic/bos', 'Error deleting meetings', error);
       toast.error('Failed to delete some meetings');
@@ -215,6 +223,7 @@ export function MeetingDataTable({ search }: MeetingDataTableProps) {
           columnResizingTableId: 'bos-meetings-table',
         }}
         renderToolbarContent={renderCustomToolbar}
+        refetchKey={refetchKey}
       />
 
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>

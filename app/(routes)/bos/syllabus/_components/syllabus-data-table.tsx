@@ -8,6 +8,7 @@ import { BosCourseSyllabus } from '@/types/bos';
 import { BosSyllabusService } from '@/lib/services/bos/bos-syllabus-service';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useDeleteBosSyllabus } from '@/hooks/bos/use-bos-syllabus';
+import { useDataTableRefreshOnInvalidate } from '@/hooks/use-data-table-refresh';
 import { Button } from '@/components/ui/button';
 import { Plus } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -24,6 +25,10 @@ export function SyllabusDataTable({ search }: SyllabusDataTableProps) {
   const router = useRouter();
   const { canAccess, isSuperAdmin, userProfile, isLoading: permissionsLoading } = usePermissions();
   const deleteBosSyllabus = useDeleteBosSyllabus();
+  // The syllabus list query lives under ['bos', 'syllabi', ...] (see
+  // hooks/bos/use-bos-syllabus.ts). The table fetches via fetchDataFn so it
+  // never observes that query directly — this bridge re-fetches on invalidate.
+  const refetchKey = useDataTableRefreshOnInvalidate(['bos', 'syllabi']);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -164,6 +169,7 @@ export function SyllabusDataTable({ search }: SyllabusDataTableProps) {
           enableColumnResizing: true,
           columnResizingTableId: 'bos-syllabi-table',
         }}
+        refetchKey={refetchKey}
         renderToolbarContent={({ selectedRows, allSelectedIds, totalSelectedCount }) => (
           <div className='flex gap-2'>
             {canCreate && (

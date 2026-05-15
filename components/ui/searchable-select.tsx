@@ -34,6 +34,14 @@ interface SearchableSelectProps {
   loading?: boolean;
   /** Applied to the trigger button (use to set width, e.g. "w-[220px]") */
   className?: string;
+  /**
+   * Set to `true` when rendering this inside a Radix `Dialog`. Without it,
+   * the Popover portals outside the Dialog DOM and Dialog's pointer-down-
+   * outside handler races (and beats) cmdk's `onSelect` — clicks appear to
+   * do nothing. Defaults to `false` for page-level usage so the page can
+   * still scroll while the popover is open.
+   */
+  modal?: boolean;
 }
 
 /**
@@ -51,13 +59,14 @@ export function SearchableSelect({
   disabled = false,
   loading = false,
   className,
+  modal = false,
 }: SearchableSelectProps) {
   const [open, setOpen] = React.useState(false);
 
   const selectedLabel = options.find((o) => o.value === value)?.label;
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover open={open} onOpenChange={setOpen} modal={modal}>
       <PopoverTrigger asChild>
         <Button
           variant='outline'

@@ -146,16 +146,20 @@ export async function buildSyllabusTemplate(): Promise<ArrayBuffer> {
   });
 
   addSheet(wb, SHEET_NAMES.units, {
-    headers: ['Unit *', 'Title', 'Chapter', 'Remarks'],
+    headers: ['Unit *', 'Title', 'Chapter', 'Sub-topic', 'Remarks'],
     rows: [
-      ['I', 'Reciprocal Equations', 'Reciprocal Equations - Standard form', 'Book 1 - Chapter 6'],
-      ['I', 'Reciprocal Equations', "Horner's method for roots of polynomials", ''],
-      ['II', 'Series', 'Summation of Series: Binomial-Exponential-Logarithmic', 'Book 1 - Chapter 3'],
-      ['III', 'Matrices', 'Inverse of a square matrix, Characteristic equation', 'Book 2 - Chapter 2'],
-      ['IV', 'Trigonometry', 'Expansions of sinθ, cosθ in powers of sinθ, cosθ', 'Book 3 - Chapter 3'],
-      ['V', 'Hyperbolic Functions', 'Relation between circular and hyperbolic functions', 'Book 3 - Chapter 4'],
+      ['I', 'Reciprocal Equations', 'Reciprocal Equations - Standard form', '', 'Book 1 - Chapter 6'],
+      ['I', '', '', 'Definition and properties of reciprocal equations', ''],
+      ['I', '', '', 'Roots of standard reciprocal equations', ''],
+      ['I', 'Reciprocal Equations', "Horner's method for roots of polynomials", '', ''],
+      ['II', 'Series', 'Summation of Series: Binomial-Exponential-Logarithmic', '', 'Book 1 - Chapter 3'],
+      ['II', '', '', 'Binomial series expansion', ''],
+      ['II', '', '', 'Exponential and logarithmic series', ''],
+      ['III', 'Matrices', 'Inverse of a square matrix, Characteristic equation', '', 'Book 2 - Chapter 2'],
+      ['IV', 'Trigonometry', 'Expansions of sinθ, cosθ in powers of sinθ, cosθ', '', 'Book 3 - Chapter 3'],
+      ['V', 'Hyperbolic Functions', 'Relation between circular and hyperbolic functions', '', 'Book 3 - Chapter 4'],
     ],
-    colWidths: [10, 28, 60, 30],
+    colWidths: [10, 28, 50, 40, 30],
     validations: [{ sqref: 'A2:A60', values: ROMAN_NUMERALS, errorTitle: 'Invalid unit', error: 'Pick a Roman numeral I-X.' }],
   });
 
@@ -252,21 +256,25 @@ export async function buildSyllabusWorkbook(syllabus: BosCourseSyllabus): Promis
   for (const u of units) {
     const chapters = u.chapters ?? [];
     if (chapters.length === 0) {
-      unitRows.push([u.unit_id ?? '', u.unit_title ?? '', '', u.remarks ?? '']);
+      unitRows.push([u.unit_id ?? '', u.unit_title ?? '', '', '', u.remarks ?? '']);
     } else {
       chapters.forEach((ch: any, idx: number) => {
         unitRows.push([
-          u.unit_id ?? '', u.unit_title ?? '', ch.title ?? '',
+          u.unit_id ?? '', u.unit_title ?? '', ch.title ?? '', '',
           idx === 0 ? (u.remarks ?? '') : '',
         ]);
+        const subtopics = ch.subtopics ?? [];
+        for (const st of subtopics) {
+          unitRows.push([u.unit_id ?? '', '', '', st.title ?? '', '']);
+        }
       });
     }
   }
   const unitRowCount = Math.max(unitRows.length + 5, 60);
   addSheet(wb, SHEET_NAMES.units, {
-    headers: ['Unit *', 'Title', 'Chapter', 'Remarks'],
+    headers: ['Unit *', 'Title', 'Chapter', 'Sub-topic', 'Remarks'],
     rows: unitRows,
-    colWidths: [10, 28, 60, 30],
+    colWidths: [10, 28, 50, 40, 30],
     validations: [{ sqref: `A2:A${unitRowCount}`, values: ROMAN_NUMERALS }],
   });
 

@@ -9,12 +9,22 @@ const PAGE_H = 297;
 const CONTENT_W = PAGE_W - MARGIN * 2;
 
 // ── Institution header data ───────────────────────────────────────────────────
+export interface BosPdfOfficials {
+  secretary_name: string;
+  principal_name: string;
+  contact_cell?: string;
+  contact_web?: string;
+  contact_email?: string;
+}
+
 export interface BosPdfHeader {
   institution_name: string;
   institution_accreditation?: string;
   institution_address?: string;
   logoImage?: string;
   rightLogoImage?: string;
+  /** Letterhead-style officials line rendered below the institutional banner. */
+  officials?: BosPdfOfficials;
 }
 
 // ── Shared drawing helpers ────────────────────────────────────────────────────
@@ -57,6 +67,47 @@ function divider(doc: jsPDF, y: number): number {
   doc.setLineWidth(0.5);
   doc.line(MARGIN, y, PAGE_W - MARGIN, y);
   return y + 5;
+}
+
+// Letterhead-style officials block: Secretary on the left, Principal (with
+// credentials and contact info) on the right. Sits between the institutional
+// banner and the divider line on every BoS PDF.
+function drawOfficials(doc: jsPDF, officials: BosPdfOfficials, y: number): number {
+  const leftX = MARGIN;
+  const rightX = PAGE_W - MARGIN;
+  const lineGap = 4;
+
+  // Left: Secretary name (bold) + role on the next line.
+  doc.setTextColor(0, 0, 0);
+  doc.setFont('times', 'bold');
+  doc.setFontSize(10);
+  doc.text(officials.secretary_name, leftX, y);
+  doc.setFont('times', 'normal');
+  doc.setFontSize(9);
+  doc.text('Secretary', leftX, y + lineGap + 0.5);
+  const leftBottom = y + lineGap + 0.5;
+
+  // Right: Principal title line, then cell, then web + email — right-aligned.
+  doc.setFont('times', 'bold');
+  doc.setFontSize(10);
+  doc.text(officials.principal_name, rightX, y, { align: 'right' });
+
+  let rightY = y + lineGap + 0.5;
+  doc.setFont('times', 'normal');
+  doc.setFontSize(8);
+  if (officials.contact_cell) {
+    doc.text(`Cell: ${officials.contact_cell}`, rightX, rightY, { align: 'right' });
+    rightY += lineGap;
+  }
+  if (officials.contact_web || officials.contact_email) {
+    const parts: string[] = [];
+    if (officials.contact_web) parts.push(`Web: ${officials.contact_web}`);
+    if (officials.contact_email) parts.push(`E-Mail: ${officials.contact_email}`);
+    doc.text(parts.join('   '), rightX, rightY, { align: 'right' });
+    rightY += lineGap;
+  }
+
+  return Math.max(leftBottom, rightY) + 2;
 }
 
 function fmtDate(iso?: string | null): string {
@@ -133,15 +184,19 @@ export interface MeetingNoticeParams {
   collegeName?: string;
 }
 
-export function generateMeetingNoticePdf({
+// Shared builder — produces an in-memory jsPDF doc. Both the browser
+// "save as PDF" wrapper and the server "produce a Buffer for email attach"
+// helper call this so the rendered output is byte-identical.
+export function buildMeetingNoticeDoc({
   header,
   principalName = 'Principal',
   meeting,
   agendaItems,
   chairmanName,
-}: MeetingNoticeParams): void {
+}: MeetingNoticeParams): jsPDF {
   const doc = new jsPDF('portrait', 'mm', 'a4');
   let y = drawBanner(doc, header, PAGE_W, MARGIN);
+  if (header.officials) y = drawOfficials(doc, header.officials, y);
   y = divider(doc, y);
 
   // Title
@@ -229,7 +284,20 @@ export function generateMeetingNoticePdf({
   doc.text('Principal', PAGE_W - MARGIN, y + 5, { align: 'right' });
 
   timestamp(doc);
-  doc.save(`meeting-notice-${meeting.meeting_number}-${meeting.academic_year}.pdf`);
+  return doc;
+}
+
+// Browser entry point — kicks off a download via the user's File Save dialog.
+export function generateMeetingNoticePdf(params: MeetingNoticeParams): void {
+  const doc = buildMeetingNoticeDoc(params);
+  doc.save(`meeting-notice-${params.meeting.meeting_number}-${params.meeting.academic_year}.pdf`);
+}
+
+// Server entry point — produces a Buffer suitable for email attachment etc.
+export function buildMeetingNoticePdfBuffer(params: MeetingNoticeParams): Buffer {
+  const doc = buildMeetingNoticeDoc(params);
+  const arrayBuffer = doc.output('arraybuffer');
+  return Buffer.from(arrayBuffer);
 }
 
 // ── 2. Minutes of Meeting ─────────────────────────────────────────────────────
@@ -253,6 +321,7 @@ export function generateMinutesPdf({
 }: MinutesParams): void {
   const doc = new jsPDF('portrait', 'mm', 'a4');
   let y = drawBanner(doc, header, PAGE_W, MARGIN);
+  if (header.officials) y = drawOfficials(doc, header.officials, y);
   y = divider(doc, y);
 
   // Title
@@ -394,6 +463,7 @@ export function generateCallLetterPdf({
 }: CallLetterParams): void {
   const doc = new jsPDF('portrait', 'mm', 'a4');
   let y = drawBanner(doc, header, PAGE_W, MARGIN);
+  if (header.officials) y = drawOfficials(doc, header.officials, y);
   y = divider(doc, y);
 
   // Title
