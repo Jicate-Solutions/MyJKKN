@@ -200,7 +200,11 @@ function FunnelVisualization({
 function HotLeadsList({
   institutionId
 }: {
-  institutionId: string;
+  // `undefined` = "All Institutions" mode. The leads API treats omitted
+  // institution_id as "every institution the caller's RLS allows" for
+  // super-admin / admission-global users, and falls back to the user's
+  // profile.institution_id otherwise.
+  institutionId: string | undefined;
 }) {
   const { leads, isLoading } = useAdmissionLeads({
     institution_id: institutionId,
@@ -276,8 +280,15 @@ function AdmissionDashboardPageContent() {
   // Get latest unread briefing for popup
   const { data: latestBriefingNotification } = useLatestUnreadBriefing(profile?.id);
 
-  const { summary, isLoading: summaryLoading, refetch } = useDashboardSummary(institutionId || '');
-  const { funnel, isLoading: funnelLoading } = useFunnelSummary(institutionId || '');
+  // Pass `institutionId` through untouched — when undefined (= "All Institutions"),
+  // both hooks forward it as `institutionId ?? null` to the server-side RPCs
+  // (`get_admission_dashboard_summary_aggregate`, `get_admission_funnel_summary_aggregate`),
+  // which aggregate across every institution the caller's RLS allows. The old
+  // `institutionId || ''` collapsed undefined to '' — and '' is NOT coalesced by
+  // `??` downstream, so the empty string flowed into the RPC as a UUID parameter
+  // and matched zero rows. The dashboard appeared totally empty in "All" mode.
+  const { summary, isLoading: summaryLoading, refetch } = useDashboardSummary(institutionId);
+  const { funnel, isLoading: funnelLoading } = useFunnelSummary(institutionId);
 
   const isLoading = accessLoading || summaryLoading || funnelLoading;
 
@@ -383,32 +394,35 @@ function AdmissionDashboardPageContent() {
             onOpenChange={setShowBriefingPopup}
           />
 
-          {/* KPI Cards */}
-          {/*
-            Hot Leads KPI: when no specific institution is selected, the detail
-            section below shows "Select a specific institution to see hot leads".
-            We render the KPI as "—" (with explanatory description) instead of a
-            number so the two zones agree. Approach (b) chosen over (a) so the
-            4-column grid layout stays balanced.
-          */}
+          {/* KPI Cards.
+              All four tiles render the live counts from the funnel + summary
+              RPCs in both modes:
+                - "All Institutions" → aggregate across every institution the
+                  caller's RLS allows (server-side RPC supports `p_institution_id
+                  = null`).
+                - Single institution → filtered to that institution.
+              The "Select an institution" gate that used to dash-out Hot/Priority
+              Leads was a workaround for the earlier `institutionId || ''` bug;
+              with the call site fixed, the gate is no longer needed. */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             <KPICard
               title="Total Active Leads"
               value={funnel?.activeTotal ?? 0}
+              description={institutionId ? 'In this institution' : 'Across all institutions'}
               icon={Users}
               color="text-blue-600"
             />
             <KPICard
               title="Hot Leads"
-              value={institutionId ? (funnel?.hotLeads || 0) : '—'}
-              description={institutionId ? 'High engagement prospects' : 'Select an institution'}
+              value={funnel?.hotLeads ?? 0}
+              description="High engagement prospects"
               icon={Flame}
               color="text-orange-600"
             />
             <KPICard
               title="Priority Leads"
-              value={institutionId ? (funnel?.priorityLeads || 0) : '—'}
-              description={institutionId ? 'Flagged for immediate action' : 'Select an institution'}
+              value={funnel?.priorityLeads ?? 0}
+              description="Flagged for immediate action"
               icon={Star}
               color="text-yellow-600"
             />
@@ -458,13 +472,10 @@ function AdmissionDashboardPageContent() {
                 </div>
               </CardHeader>
               <CardContent>
-                {institutionId ? (
-                  <HotLeadsList institutionId={institutionId} />
-                ) : (
-                  <div className="text-center py-8 text-muted-foreground text-xs">
-                    Select a specific institution to see hot leads
-                  </div>
-                )}
+                {/* HotLeadsList accepts undefined = "All Institutions";
+                    its own empty state ("No hot leads yet") handles the
+                    no-data case without needing an outer gate. */}
+                <HotLeadsList institutionId={institutionId} />
               </CardContent>
             </Card>
           </div>

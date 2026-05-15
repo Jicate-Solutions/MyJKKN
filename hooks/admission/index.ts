@@ -293,12 +293,23 @@ export type {
 // ============================================
 
 export function useAdmissionLeads(filters?: LeadFilters) {
+  // Super-admins and admission-global users (admission_admin etc.) can fetch
+  // leads across every institution they have RLS access to — they shouldn't
+  // need to pick one to load the list. Same pattern as useAdmissionDashboard /
+  // useFunnelAnalyticsDashboard, which are also team-wide views.
+  //
+  // Non-global users keep the institution_id gate. The leads API route already
+  // falls back to `profile.institution_id` when no filter is supplied, so the
+  // call still scopes appropriately even if a caller forgets to pass one.
+  const { isSuperAdmin, isAdmissionGlobalUser } = usePermissions();
+  const isGlobalUser = isSuperAdmin || isAdmissionGlobalUser;
+
   const query = useQuery({
     queryKey: ['admission-leads', filters],
     queryFn: async () => {
       return LeadService.getLeads(filters || {});
     },
-    enabled: !!filters?.institution_id
+    enabled: isGlobalUser || !!filters?.institution_id,
   });
 
   return {
@@ -1130,7 +1141,7 @@ export function useFunnelAnalyticsDashboard(filtersOrId?: string | any) {
       // to a server-side aggregate RPC (single COUNT(*) GROUP BY stage).
       let leadsQuery = (supabase as any)
         .from('admission_leads')
-        .select('id, stage, funnel_stage, stage_changed_at, created_at, is_hot_lead, combined_score, counselor_id, counselor:admission_counselors(name)')
+        .select('id, full_name, first_name, last_name, stage, funnel_stage, stage_changed_at, created_at, is_hot_lead, combined_score, counselor_id, counselor:admission_counselors(name)')
         .range(0, 99999);
       if (institutionId) leadsQuery = leadsQuery.eq('institution_id', institutionId);
       const { data: leads } = await leadsQuery;
@@ -1205,8 +1216,15 @@ export function useFunnelAnalyticsDashboard(filtersOrId?: string | any) {
           const entered = l.stage_changed_at ? new Date(l.stage_changed_at).getTime() : new Date(l.created_at).getTime();
           const daysInStage = Math.round((now - entered) / (1000 * 60 * 60 * 24));
           const urgencyLevel = daysInStage > 30 ? 'critical' : daysInStage > 21 ? 'high' : 'medium';
+          // Resolve lead name from whichever column is populated. The form
+          // writes full_name eagerly on submit, but legacy rows + bulk imports
+          // only have first_name + last_name. Falling back to a truncated UUID
+          // last so the table never renders blank.
+          const composedName = [l.first_name, l.last_name].filter(Boolean).join(' ').trim();
+          const leadName = l.full_name || composedName || `Lead ${String(l.id).slice(0, 8)}`;
           return {
             leadId: l.id,
+            leadName,
             currentStage: l.stage || l.funnel_stage,
             counselorName: l.counselor?.name || null,
             daysInStage,
