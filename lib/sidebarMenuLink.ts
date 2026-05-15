@@ -76,7 +76,8 @@ import {
   Activity,
   Lightbulb,
   BookOpenCheck,
-  UsersRound
+  UsersRound,
+  Wallet
 } from 'lucide-react';
 import { CustomRole } from '@/types/auth';
 // FEATURE_FLAGS import removed - not used in sidebar filtering
@@ -284,18 +285,14 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/admin/lti/launches': 'lti.launches.view',
 
   // Billing Management - Admin/Staff Views
-  '/billing/categories/parent-categories': 'billing.parent_categories.view',
-  '/billing/categories/parent-categories/new':
-    'billing.parent_categories.create',
-  '/billing/categories/parent-categories/[id]/edit':
-    'billing.parent_categories.edit',
-  '/billing/categories/sub-categories': 'billing.sub_categories.view',
-  '/billing/categories/sub-categories/new': 'billing.sub_categories.create',
-  '/billing/categories/sub-categories/[id]/edit': 'billing.sub_categories.edit',
-  '/billing/categories/item-categories': 'billing.item_categories.view',
-  '/billing/categories/item-categories/new': 'billing.item_categories.create',
-  '/billing/categories/item-categories/[id]/edit':
-    'billing.item_categories.edit',
+  // '/billing' is the synthetic anchor row that owns the billing-slug
+  // accordion (see comment in the Billing & Accounts group below). It
+  // shares its gate with the All Bills submenu so a role with
+  // billing.schedule.view sees both the parent and its accordion children.
+  '/billing': 'billing.schedule.view',
+  '/billing/categories': 'billing.categories.view',
+  '/billing/categories/new': 'billing.categories.create',
+  '/billing/categories/[id]/edit': 'billing.categories.edit',
   '/billing/schedule': 'billing.schedule.view',
   '/billing/schedule/new': 'billing.schedule.create',
   '/billing/schedule/bulk-create': 'billing.schedule.create',
@@ -1318,46 +1315,47 @@ export function GetPages(pathname: string): MenuGroup[] {
       groupLabel: 'Billing & Accounts',
       menus: [
         {
-          href: '/billing/categories',
-          label: 'Categories',
-          active: pathname.startsWith('/billing/categories'),
-          icon: FolderTree,
+          // Synthetic /billing anchor row. Under Wave 2b PR-S2 only ONE
+          // row per URL slug renders an accordion; the anchor selection
+          // (components/Navbar/menu.tsx:269-281) has two passes — the
+          // first pass picks any row whose href exactly matches `/<slug>`,
+          // and the second pass falls back to the first row per slug.
+          // Putting `/billing` here wins the first pass regardless of
+          // declaration order, freeing the visual ordering of the other
+          // billing rows from anchor-selection constraints. Without this
+          // row, the first /billing/* row would auto-discover bogus
+          // siblings (/billing/onboarding, /billing/payment) from the
+          // route manifest.
+          href: '/billing',
+          label: 'Billing',
+          active: pathname === '/billing',
+          icon: Wallet,
           submenus: [
-            {
-              href: '/billing/categories/parent-categories',
-              label: 'All Parent Categories',
-              active: pathname === '/billing/categories/parent-categories'
-            },
-            {
-              href: '/billing/categories/sub-categories',
-              label: 'All Sub Categories',
-              active: pathname === '/billing/categories/sub-categories'
-            },
-            {
-              href: '/billing/categories/item-categories',
-              label: 'All Item Categories',
-              active: pathname === '/billing/categories/item-categories'
-            }
-          ]
-        },
-        {
-          href: '/billing/schedule',
-          label: 'Schedule',
-          active: pathname.startsWith('/billing/schedule'),
-          icon: Calendar,
-          submenus: [
-            {
-              href: '/billing/schedule/students',
-              label: 'Student Search',
-              active: pathname.startsWith('/billing/schedule/students')
-            },
             {
               href: '/billing/schedule',
               label: 'All Bills',
               active: pathname === '/billing/schedule'
+            },
+            {
+              href: '/billing/schedule/students',
+              label: 'Search Learners',
+              active: pathname.startsWith('/billing/schedule/students')
             }
           ]
         },
+        {
+          href: '/billing/categories',
+          label: 'Categories',
+          active: pathname.startsWith('/billing/categories'),
+          icon: FolderTree,
+          submenus: [],
+          // Categories is a single-page module post the 2026-04-28 3-tier
+          // collapse. `noSubmenus: true` is defensive — even though the
+          // synthetic /billing anchor above wins anchor selection today,
+          // this row stays a plain link if anchor logic ever changes.
+          noSubmenus: true
+        },
+       
         {
           href: '/billing/receipts',
           label: 'Receipts',
@@ -2170,7 +2168,7 @@ export function GetRoleBasedPages(
             const requiredPermission = MENU_PERMISSIONS[normalizeRoute(submenu.href)];
             if (!requiredPermission) return false; // Changed to false to be consistent
 
-            // Hide "Student Search" submenu for students
+            // Hide "Search Learners" submenu for students
             if (isStudent && submenu.href === '/billing/schedule/students') {
               return false;
             }

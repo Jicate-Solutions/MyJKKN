@@ -1,6 +1,7 @@
 /**
  * Bulk Receipt Service — turns a parsed Excel upload into N billing_receipts
- * (one per student) with M billing_receipt_items (one per bill row).
+ * (one per (student, paid_date, payment_mode) bucket) with M billing_receipt_items
+ * (one per bill row).
  *
  * Designed to be called server-side ONLY (from the bulk-import API route).
  * Browser callers should not import this file because it relies on a
@@ -10,6 +11,11 @@
  * so that bill-status recomputation and auto-invoice generation stay in one
  * place — there's a single source of truth for "what happens when a receipt
  * is created", and we don't risk drift between single-receipt and bulk paths.
+ *
+ * 2026-05-15: refactored grouping from {student} to {student, paid_date,
+ * payment_mode} so a single student paying multiple bills on different days
+ * gets one receipt per (date, mode) tuple instead of all bills being forced
+ * into one date. Per-row payment metadata flows from the Excel template.
  */
 
 import { SupabaseClient } from '@supabase/supabase-js';
@@ -17,41 +23,61 @@ import { BillingReceiptService } from './billing-receipt-service';
 import type {
   BulkReceiptRow,
   BulkReceiptCreated,
-  BulkReceiptImportError
+  BulkReceiptImportError,
+  BulkReceiptPaymentMode
 } from '@/lib/utils/mappings/bulk-receipt-excel-mappings';
-import type { CreateReceiptDto, PaymentMode } from '@/types/billing-schedule';
+import type { CreateReceiptDto } from '@/types/billing-schedule';
 
-export interface BulkReceiptBatchMetadata {
-  payment_mode: PaymentMode;
-  payment_paid_date: string;
-  /** When 'student', payer_name comes from the row's student_name. */
-  payer_mode: 'student' | 'fixed';
-  payer_name_fixed?: string;
-  payer_contact?: string;
-  payment_reference_number?: string;
-  payment_remarks?: string;
+/**
+ * Optional default applied by the importer when a row lacks its own
+ * accountant_id. The whole batch carries one accountant — typically the
+ * authenticated super-admin who uploaded the file.
+ */
+export interface BulkReceiptBatchDefaults {
   accountant_id?: string;
 }
 
+/**
+ * One bucket = one billing_receipt on commit. Carries the per-row payment
+ * metadata that was identical across every row in the bucket (by definition
+ * of the group key).
+ */
 export interface BulkReceiptStudentGroup {
   student_id: string;
   institution_id: string;
   roll_number: string;
   student_name: string;
+  payment_mode: BulkReceiptPaymentMode;
+  payment_paid_date: string;
+  payer_name: string;
+  payer_contact: string | null;
+  payment_reference_number: string | null;
+  payment_remarks: string | null;
   rows: BulkReceiptRow[]; // each carries bill_id + paid_amount
+  row_numbers: number[]; // for traceability in error messages and preview
 }
 
 /**
- * Group cleaned rows by student. Each row already carries
- * _resolved_student_id and _resolved_institution_id from the validator —
- * if either is missing we drop the row with an error and the caller
- * surfaces it.
+ * Group cleaned rows by (student_id, payment_paid_date, payment_mode).
+ *
+ * Two rows for the same student with DIFFERENT (date, mode) end up in
+ * separate groups → separate receipts. This matches the real-world case
+ * where a student paid different bills on different days. The other
+ * per-row metadata (payer name, contact, reference, remarks) is taken
+ * from the FIRST row in the bucket — different rows with the same key
+ * but different payer name are extremely unusual and not worth a
+ * separate receipt for.
  */
-export function groupRowsByStudent(
+export function groupRowsByStudentAndPayment(
   rows: Array<{ rowNumber: number; cleaned: BulkReceiptRow }>,
   errors: BulkReceiptImportError[]
 ): BulkReceiptStudentGroup[] {
   const map = new Map<string, BulkReceiptStudentGroup>();
+  // Per-group bill_id → row index, so duplicate-bill detection is O(1)
+  // instead of group.rows.find() which is O(n). Without this, a group
+  // with N bills costs O(N²) total to build — pathological for a
+  // single student who owes many small bills (e.g. monthly hostel fees).
+  const billIdxByGroup = new Map<string, Map<string, number>>();
 
   for (const { rowNumber, cleaned } of rows) {
     const sid = cleaned._resolved_student_id;
@@ -65,26 +91,38 @@ export function groupRowsByStudent(
       continue;
     }
 
-    let group = map.get(sid);
+    const key = `${sid}::${cleaned.payment_paid_date}::${cleaned.payment_mode}`;
+
+    let group = map.get(key);
+    let billIdx = billIdxByGroup.get(key);
     if (!group) {
       group = {
         student_id: sid,
         institution_id: iid,
         roll_number: cleaned.roll_number,
         student_name: cleaned.student_name,
-        rows: []
+        payment_mode: cleaned.payment_mode,
+        payment_paid_date: cleaned.payment_paid_date,
+        payer_name: cleaned.payer_name,
+        payer_contact: cleaned.payer_contact,
+        payment_reference_number: cleaned.payment_reference_number,
+        payment_remarks: cleaned.payment_remarks,
+        rows: [],
+        row_numbers: []
       };
-      map.set(sid, group);
+      billIdx = new Map<string, number>();
+      map.set(key, group);
+      billIdxByGroup.set(key, billIdx);
     }
-    // If the same bill_id appears twice for the same student in the upload,
-    // collapse into one item with summed amount. This is forgiving of
-    // accidental duplicate rows in the Excel, but the validator should
-    // have caught the obvious case earlier.
-    const existing = group.rows.find((r) => r.bill_id === cleaned.bill_id);
-    if (existing) {
-      existing.paid_amount += cleaned.paid_amount;
+    // If the same bill_id appears twice in the same bucket, collapse into
+    // one item with summed amount. Forgiving of accidental duplicate rows.
+    const existingIdx = billIdx!.get(cleaned.bill_id);
+    if (existingIdx !== undefined) {
+      group.rows[existingIdx]!.paid_amount += cleaned.paid_amount;
     } else {
+      billIdx!.set(cleaned.bill_id, group.rows.length);
       group.rows.push(cleaned);
+      group.row_numbers.push(rowNumber);
     }
   }
 
@@ -92,14 +130,14 @@ export function groupRowsByStudent(
 }
 
 /**
- * Create a single billing_receipt + items for one student group.
+ * Create a single billing_receipt + items for one student/date/mode group.
  *
  * Returns either the success summary OR an error. We do NOT throw — bulk
  * import is partial-success and the route needs to keep going.
  */
 export async function createReceiptForStudentGroup(
   group: BulkReceiptStudentGroup,
-  meta: BulkReceiptBatchMetadata,
+  defaults: BulkReceiptBatchDefaults,
   supabaseClient: SupabaseClient
 ): Promise<
   | { ok: true; receipt: BulkReceiptCreated }
@@ -112,7 +150,7 @@ export async function createReceiptForStudentGroup(
   if (totalAmount <= 0) {
     return {
       ok: false,
-      rowNumbers: [],
+      rowNumbers: group.row_numbers,
       message: `No positive paid amounts for student ${group.student_name} — receipt skipped.`
     };
   }
@@ -120,17 +158,14 @@ export async function createReceiptForStudentGroup(
   const dto: CreateReceiptDto = {
     student_id: group.student_id,
     institution_id: group.institution_id,
-    payment_mode: meta.payment_mode,
-    payment_reference_number: meta.payment_reference_number,
+    payment_mode: group.payment_mode,
+    payment_reference_number: group.payment_reference_number ?? undefined,
     payment_amount: totalAmount,
-    payment_paid_date: meta.payment_paid_date,
-    payer_name:
-      meta.payer_mode === 'fixed' && meta.payer_name_fixed
-        ? meta.payer_name_fixed
-        : group.student_name || group.roll_number, // fallback if name is empty
-    payer_contact: meta.payer_contact,
-    accountant_id: meta.accountant_id,
-    payment_remarks: meta.payment_remarks,
+    payment_paid_date: group.payment_paid_date,
+    payer_name: group.payer_name || group.student_name || group.roll_number,
+    payer_contact: group.payer_contact ?? undefined,
+    accountant_id: defaults.accountant_id,
+    payment_remarks: group.payment_remarks ?? undefined,
     receipt_items: group.rows.map((r) => ({
       bill_id: r.bill_id,
       amount_paid: r.paid_amount
@@ -157,6 +192,6 @@ export async function createReceiptForStudentGroup(
   } catch (err) {
     const message =
       err instanceof Error ? err.message : 'Unknown error creating receipt';
-    return { ok: false, rowNumbers: [], message };
+    return { ok: false, rowNumbers: group.row_numbers, message };
   }
 }
