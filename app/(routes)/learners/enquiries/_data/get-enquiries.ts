@@ -202,7 +202,15 @@ async function getEnquiriesInner(
     if (error.code === 'PGRST103') {
       console.warn('[getEnquiries] Pagination range exceeds available rows, returning empty result');
     } else {
-      console.error('[getEnquiries] Error fetching enquiries:', error);
+      // Supabase errors are plain objects, not Error instances — log every
+      // diagnostic field explicitly so console.error doesn't render '{}'.
+      console.error('[getEnquiries] Error fetching enquiries:', {
+        code: error.code,
+        message: error.message,
+        details: error.details,
+        hint: error.hint,
+        statusFilter: lifecycle_status,
+      });
     }
     return {
       data: [],
@@ -277,7 +285,13 @@ async function getEnquiriesInner(
   const { count, error: countError } = await countQuery;
 
   if (countError) {
-    console.error('[getEnquiries] Error fetching count:', countError);
+    console.error('[getEnquiries] Error fetching count:', {
+      code: countError.code,
+      message: countError.message,
+      details: countError.details,
+      hint: countError.hint,
+      statusFilter: lifecycle_status,
+    });
   }
 
   const totalPages = count ? Math.ceil(count / limit) : 0;
