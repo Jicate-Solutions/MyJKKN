@@ -133,20 +133,39 @@ export async function proxy(request: NextRequest) {
             return cookie?.value ?? '';
           },
           async set(name: string, value: string, options: CookieOptions) {
-            res.cookies.set({ name, value });
+            // CRITICAL: forward Supabase's cookie options (maxAge, path,
+            // sameSite, secure) verbatim. Dropping them downgrades the
+            // persistent auth cookie to a session cookie on every token
+            // refresh, which is why iOS PWA users were logged out on every
+            // app-close. Sister code in lib/supabase/server.ts already does
+            // this correctly — proxy.ts was the outlier.
+            res.cookies.set({ name, value, ...options });
           },
           async remove(name: string, options: CookieOptions) {
-            res.cookies.delete(name);
+            // Match Supabase's expected delete semantics: write an empty
+            // value with maxAge: 0 carrying the same path/domain so the
+            // browser actually evicts the cookie scope-correctly.
+            res.cookies.set({ name, value: '', ...options, maxAge: 0 });
           }
         }
       }
     );
 
-    // Get and verify user - this sends a request to Supabase Auth server every time
+    // Get and verify user - this sends a request to Supabase Auth server every time.
+    // Mobile networks (LTE handoffs, cell switches, weak signal) routinely produce
+    // a single transient 5xx or network error here. Without a retry, that one
+    // failure logs the user out. Match the profile-fetch retry pattern below
+    // (single retry after 200 ms) — cheap, bounded, eliminates the largest class
+    // of "logged out for no reason" mobile failures.
+    let authResult = await supabase.auth.getUser();
+    if (authResult.error && !authResult.data.user) {
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      authResult = await supabase.auth.getUser();
+    }
     const {
       data: { user },
       error: userError
-    } = await supabase.auth.getUser();
+    } = authResult;
 
     if (userError) {
       // FIXED: Clear stale profile cache on auth error to prevent stuck loading states
