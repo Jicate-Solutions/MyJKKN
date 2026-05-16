@@ -454,6 +454,57 @@ export class RecruitmentService {
   ): Promise<HRRecruitmentCandidate> {
     const candidate = await this.getCandidate(supabase, id);
     if (!candidate) throw new Error('Candidate not found');
+
+    // ---------------------------------------------------------------------
+    // Role-match enforcement (config-driven via platform_policies, 2026-05-16).
+    // Master toggle: hr.recruitment.approvals.enforce_role_match (bool, default FALSE).
+    // Override list: hr.recruitment.approvals.override_roles    (array).
+    // When master toggle is OFF, behavior is unchanged from pre-2026-05-16.
+    // ---------------------------------------------------------------------
+    const { data: enforceData } = await supabase.rpc('fn_get_policy_bool', {
+      p_key: POLICY_KEYS.HR_RECRUITMENT_APPROVALS_ENFORCE_ROLE_MATCH,
+      p_default: false,
+      p_scope_id: null,
+    });
+    if (enforceData === true) {
+      const chainForCheck = candidate.approval_chain ?? [];
+      const stepForCheck = chainForCheck[candidate.current_step];
+      const expectedRole = (stepForCheck?.approver_role ?? '').toLowerCase();
+
+      // Caller's role_keys (may be multiple).
+      const { data: roleRows } = await supabase
+        .from('user_roles')
+        .select('custom_roles!inner(role_key)')
+        .eq('user_id', approverId);
+      const userRoles = (
+        (roleRows ?? []) as unknown as Array<{ custom_roles?: { role_key?: string } }>
+      )
+        .map((r) => r.custom_roles?.role_key?.toLowerCase())
+        .filter((k): k is string => !!k);
+
+      // Override roles (always-allowed admins / break-glass).
+      const { data: overrideData } = await supabase.rpc('fn_get_policy', {
+        p_key: POLICY_KEYS.HR_RECRUITMENT_APPROVALS_OVERRIDE_ROLES,
+        p_scope_id: null,
+      });
+      const overrideRoles = (Array.isArray(overrideData) ? overrideData : [])
+        .filter((v): v is string => typeof v === 'string')
+        .map((v) => v.toLowerCase());
+
+      // is_super_admin RPC bypass (always allowed).
+      const { data: isSuperAdmin } = await supabase.rpc('is_super_admin');
+
+      const roleMatches = expectedRole && userRoles.includes(expectedRole);
+      const isOverride = userRoles.some((r) => overrideRoles.includes(r));
+      if (!isSuperAdmin && !roleMatches && !isOverride) {
+        throw new Error(
+          `Only users with role '${expectedRole}' can approve this step. ` +
+            `You have roles: [${userRoles.join(', ') || 'none'}]. ` +
+            `Director can change this policy at /admin/hr/recruitment-approvals-scope.`
+        );
+      }
+    }
+
     if (!['pending_approval', 'submitted'].includes(candidate.status)) {
       throw new Error(`Cannot approve candidate in status '${candidate.status}'`);
     }
