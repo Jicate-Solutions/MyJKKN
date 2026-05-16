@@ -1467,7 +1467,14 @@ export const PERMISSION_CATEGORIES = [
       // Parent portal
       { key: 'campus_living.parent_portal.view_child', label: 'Parent Portal — View Child' },
       { key: 'campus_living.parent_portal.consent', label: 'Parent Portal — Provide Consent' },
-      { key: 'campus_living.parent_portal.pay_fee', label: 'Parent Portal — Pay Fee' }
+      { key: 'campus_living.parent_portal.pay_fee', label: 'Parent Portal — Pay Fee' },
+
+      // Premium Stay (paid SKU — added 2026-05-16 in Wave 1 spec)
+      { key: 'campus_living.premium.configure_tier', label: 'Premium Stay — Configure Tier Policy' },
+      { key: 'campus_living.premium.pick_room', label: 'Premium Stay — Self-Pick Room (Learner)' },
+      { key: 'campus_living.premium.invite_roommate', label: 'Premium Stay — Invite Roommate' },
+      { key: 'campus_living.premium.override_pick', label: 'Premium Stay — Override Pick (Chief Warden)' },
+      { key: 'campus_living.premium.view_dashboard', label: 'Premium Stay — View Dashboard' }
     ]
   },
   {
