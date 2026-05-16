@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
@@ -16,7 +16,7 @@ import { Badge } from '@/components/ui/badge';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from '@/components/ui/dialog';
-import { ExternalLink, AlertTriangle, ArrowRight, GraduationCap, Users, Lightbulb, Bug, Briefcase, Calendar } from 'lucide-react';
+import { ExternalLink, AlertTriangle, ArrowRight, GraduationCap, Users, Lightbulb, Bug, Briefcase, Calendar, CheckCircle2, Circle, ClipboardCheck } from 'lucide-react';
 import {
   useCandidate,
   usePackages,
@@ -27,6 +27,7 @@ import {
   useUpdateCandidateStatus,
 } from '@/hooks/hr/use-recruitment';
 import { useAlumniSignal } from '@/hooks/hr/use-alumni-signal';
+import { useAuth } from '@/hooks/use-auth';
 import {
   CANDIDATE_STATUS_LABELS,
   ROLE_CATEGORY_LABELS,
@@ -73,6 +74,24 @@ export default function CandidateDetailPage() {
   const counterPackage = useCounterPackage();
   const withdraw = useWithdrawCandidate();
   const updateStatus = useUpdateCandidateStatus();
+
+  // ζ FINDING #5 — Onboarding read-side rendering.
+  // role_specific_details.onboarding_steps is populated by
+  // /api/hr/recruitment/candidates/[id]/onboarding/start (POST) but had
+  // zero render surface until this PR. Toggle/complete-step API does NOT
+  // exist yet (see TODO inside the section); this PR is read-only.
+  const { profile } = useAuth();
+  const canEditOnboarding = useMemo(() => {
+    if (!profile) return false;
+    if (profile.is_super_admin === true) return true;
+    const roles = profile.user_roles ?? [];
+    return roles.some(
+      (r) =>
+        r.role_key === 'hr_officer' ||
+        r.role_key === 'hr_head' ||
+        r.role_key === 'director_jkkn'
+    );
+  }, [profile]);
 
   // Salary breakdown is captured as 5 typed number fields (Basic / HRA / DA /
   // Special / Other) instead of a raw JSON textarea. On submit we fold the
@@ -508,7 +527,98 @@ export default function CandidateDetailPage() {
           </Card>
         )}
 
-        {/* 4. Package negotiation history */}
+        {/* 4. Onboarding progress (ζ FINDING #5) — only for joined candidates with stamped steps */}
+        {candidate.status === 'joined' && Array.isArray((candidate.role_specific_details as Record<string, unknown> | undefined)?.onboarding_steps) && ((candidate.role_specific_details as Record<string, unknown>).onboarding_steps as unknown[]).length > 0 && (() => {
+          const details = (candidate.role_specific_details ?? {}) as Record<string, unknown>;
+          const steps = details.onboarding_steps as Array<{
+            index: number;
+            step: string;
+            completed: boolean;
+            completed_at: string | null;
+            completed_by: string | null;
+          }>;
+          const checklistName = (details.onboarding_checklist_name as string | undefined) ?? null;
+          const startedAt = (details.onboarding_started_at as string | undefined) ?? null;
+          const completedCount = steps.filter((s) => s.completed).length;
+          const progressPct = steps.length > 0 ? Math.round((completedCount / steps.length) * 100) : 0;
+
+          return (
+            <Card>
+              <CardHeader className="pb-2">
+                <div className="flex items-start justify-between gap-2 flex-wrap">
+                  <div>
+                    <CardTitle className="text-sm flex items-center gap-1.5">
+                      <ClipboardCheck className="h-4 w-4 text-muted-foreground" />
+                      Onboarding Progress
+                    </CardTitle>
+                    {checklistName && (
+                      <p className="text-xs text-muted-foreground mt-0.5">{checklistName}</p>
+                    )}
+                    {startedAt && (
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        Started {new Date(startedAt).toLocaleString()}
+                      </p>
+                    )}
+                  </div>
+                  <Badge variant="outline" className="text-xs">
+                    {completedCount} / {steps.length} done · {progressPct}%
+                  </Badge>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {/* Progress bar */}
+                <div className="w-full h-1.5 bg-muted rounded-full overflow-hidden mb-3">
+                  <div
+                    className="h-full bg-emerald-500 transition-all"
+                    style={{ width: `${progressPct}%` }}
+                  />
+                </div>
+
+                <ol className="space-y-2">
+                  {steps.map((s) => (
+                    <li
+                      key={s.index}
+                      className={`flex items-start gap-2 text-sm border rounded px-2 py-1.5 ${s.completed ? 'bg-emerald-50/40 dark:bg-emerald-900/10 border-emerald-200 dark:border-emerald-900/40' : ''}`}
+                    >
+                      {s.completed ? (
+                        <CheckCircle2 className="h-4 w-4 mt-0.5 shrink-0 text-emerald-600" aria-label="Completed" />
+                      ) : (
+                        <Circle className="h-4 w-4 mt-0.5 shrink-0 text-muted-foreground" aria-label="Pending" />
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-xs text-muted-foreground font-mono">{s.index + 1}.</span>
+                          <span className={s.completed ? 'line-through text-muted-foreground' : ''}>{s.step}</span>
+                        </div>
+                        {s.completed && s.completed_at && (
+                          <p className="text-xs text-muted-foreground mt-0.5">
+                            Completed {new Date(s.completed_at).toLocaleString()}
+                            {s.completed_by && (
+                              <> &middot; <span className="font-mono">{s.completed_by.slice(0, 8)}…</span></>
+                            )}
+                          </p>
+                        )}
+                      </div>
+                    </li>
+                  ))}
+                </ol>
+
+                {/* Scope note — toggle wiring deferred to a follow-up PR.
+                    Reason: a new API route (POST /candidates/[id]/onboarding/complete-step)
+                    is required to mutate role_specific_details.onboarding_steps[N].completed
+                    with audit trail. Multi-file scope; this PR is render-only per ζ FINDING #5. */}
+                {canEditOnboarding && completedCount < steps.length && (
+                  <p className="text-xs text-muted-foreground mt-3 italic">
+                    Step-completion toggle is coming in a follow-up PR. For now, steps update
+                    only via the onboarding API (POST <code className="text-xs">/onboarding/complete-step</code> — not yet implemented).
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+          );
+        })()}
+
+        {/* 5. Package negotiation history */}
         <Card>
           <CardHeader>
             <div className="flex items-center justify-between gap-2">
@@ -594,7 +704,7 @@ export default function CandidateDetailPage() {
           </CardContent>
         </Card>
 
-        {/* 5. Bottom actions */}
+        {/* 6. Bottom actions */}
         {(canWithdraw || canMarkJoined) && (
           <div className="flex gap-2 flex-wrap">
             {canWithdraw && (
