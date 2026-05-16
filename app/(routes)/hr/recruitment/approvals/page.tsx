@@ -1,8 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useQueryClient } from '@tanstack/react-query';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
   Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator,
@@ -20,7 +21,6 @@ import { AlertCircle, AlertTriangle } from 'lucide-react';
 import { useCandidates, useApproveCandidate, useRejectCandidate } from '@/hooks/hr/use-recruitment';
 import { useAlumniSignalBulk } from '@/hooks/hr/use-alumni-signal-bulk';
 import { AlumniSignalLine } from '../_components/alumni-signal-line';
-import { usePermissions } from '@/hooks/use-permissions';
 import {
   CANDIDATE_STATUS_LABELS,
   ROLE_CATEGORY_LABELS,
@@ -46,31 +46,32 @@ const STATUS_COLORS: Record<CandidateStatus, string> = {
 type ViewMode = 'mine' | 'all';
 
 export default function RecruitmentApprovalsPage() {
-  const { isSuperAdmin, canAccess } = usePermissions();
-
   const [viewMode, setViewMode] = useState<ViewMode>('mine');
+  const [userId, setUserId] = useState<string | null>(null);
 
-  // Fetch pending candidates
-  const { data, isLoading, error: fetchError } = useCandidates({
-    status: ['submitted', 'pending_approval'],
-  });
+  useEffect(() => {
+    const supabase = createClientSupabaseClient();
+    supabase.auth.getUser().then(({ data }) => {
+      setUserId(data.user?.id ?? null);
+    });
+  }, []);
 
-  const allPending = data?.data ?? [];
+  // "Awaiting my action" — server-side filter via pending_for_me + approver_id.
+  // The service matches approval_chain[current_step].approver_user_id against
+  // the caller's id, so this returns only candidates actually routed to me.
+  const mineFilters = userId
+    ? { status: ['submitted', 'pending_approval'] as CandidateStatus[], pending_for_me: true, approver_id: userId }
+    : null;
+  const allFilters = { status: ['submitted', 'pending_approval'] as CandidateStatus[] };
 
-  // "Awaiting my action" — filter to candidates where current_step approver_role
-  // matches a permission the user has. Uses canAccess('hr.recruitment', 'approve')
-  // as a proxy — full role matching would require a DB join we don't have client-side.
-  // TODO: Phase 1A follow-up — add `pending_for_me=true` filter to the list API.
-  const canApprove = isSuperAdmin || canAccess('hr.recruitment', 'approve');
+  const { data, isLoading, error: fetchError } = useCandidates(
+    viewMode === 'mine' ? (mineFilters ?? allFilters) : allFilters,
+  );
 
-  const myPending = canApprove ? allPending : allPending.filter((c) => {
-    const step = (c.approval_chain ?? [])[c.current_step];
-    if (!step) return false;
-    // Best-effort: surface all pending if user has any recruitment approve perm
-    return true;
-  });
-
-  const displayCandidates = viewMode === 'mine' ? myPending : allPending;
+  // While the auth lookup is in flight, hold the "mine" view as loading so we
+  // never render the unfiltered list under the "Awaiting my action" tab.
+  const awaitingAuth = viewMode === 'mine' && userId === null;
+  const displayCandidates = awaitingAuth ? [] : (data?.data ?? []);
 
   // T8.5 — bulk-fetch alumni signals for all displayed candidates so each
   // row can show JKKN history inline without N detail fetches.
@@ -174,7 +175,7 @@ export default function RecruitmentApprovalsPage() {
           </CardHeader>
           <CardContent className="space-y-3">
             {/* Skeleton loading */}
-            {isLoading && (
+            {(isLoading || awaitingAuth) && (
               <div className="space-y-3">
                 {[1, 2, 3].map((i) => (
                   <div key={i} className="border rounded-md p-3">
@@ -203,11 +204,11 @@ export default function RecruitmentApprovalsPage() {
             )}
 
             {/* Empty states */}
-            {!isLoading && !fetchError && displayCandidates.length === 0 && (
+            {!isLoading && !awaitingAuth && !fetchError && displayCandidates.length === 0 && (
               <p className="text-sm text-muted-foreground py-4 text-center">
                 {viewMode === 'mine'
-                  ? 'Nothing pending your approval right now.'
-                  : 'No candidates in the pipeline.'}
+                  ? 'You have no candidates awaiting your action.'
+                  : 'There are no pending candidates.'}
               </p>
             )}
 
