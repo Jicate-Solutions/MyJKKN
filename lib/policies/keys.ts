@@ -155,6 +155,22 @@ export const POLICY_KEYS = {
   // Boolean. true = post-run bank-debit reconciliation fires.
   HR_PAYROLL_RECONCILIATION_ENABLED: 'hr.payroll.reconciliation_enabled',
 
+  // T4.2 deduction-engine knobs (Director-locked spec 2026-05-15).
+  // Seeded as global rows by 20260626000000_hr_pay_components_and_payslip_line_items.sql.
+  // Editable via /admin/hr/policies/payroll-* UIs (ships in a later T-sprint).
+  // Consumer: lib/services/hr/payroll/deduction-engine.ts.
+  //
+  // tds_slabs: { regime, fiscal_year, slabs:[{upto_inr,rate_pct}], rebate_87a_*, surcharge_thresholds, cess_pct }
+  HR_PAYROLL_TDS_SLABS: 'hr.payroll.tds_slabs',
+  // pf_rate: { employee_pct, employer_pct, ceiling_inr, applies_above_ceiling }
+  HR_PAYROLL_PF_RATE: 'hr.payroll.pf_rate',
+  // esi_rate: { employee_pct, employer_pct, ceiling_inr, applies_above_ceiling }
+  HR_PAYROLL_ESI_RATE: 'hr.payroll.esi_rate',
+  // professional_tax: { state, slabs_monthly:[{upto_inr,amount_inr}], frequency }
+  HR_PAYROLL_PROFESSIONAL_TAX: 'hr.payroll.professional_tax',
+  // standard_deduction: { amount_inr, applies_to_regime, applies_to_old_regime_amount_inr, section }
+  HR_PAYROLL_STANDARD_DEDUCTION: 'hr.payroll.standard_deduction',
+
   // -- Compliance -------------------------------------------------------------
   // Object: { employee_contrib_pct, employer_contrib_pct, wage_ceiling_inr, lop_config }.
   HR_COMPLIANCE_EPF: 'hr.compliance.epf',
