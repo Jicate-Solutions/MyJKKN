@@ -199,6 +199,17 @@ export const POLICY_KEYS = {
   HR_RECRUITMENT_APPROVALS_ENFORCE_SCOPING: 'hr.recruitment.approvals.enforce_scoping',
   HR_RECRUITMENT_APPROVALS_SCOPE_RULES: 'hr.recruitment.approvals.scope_rules',
 
+  // HR Recruitment approvals — role-match enforcement on Approve action.
+  // Consumed by lib/services/hr/recruitment-service.ts (approveCandidate).
+  // Seeded by 20260516120000_seed_recruitment_role_enforcement_policies.sql.
+  // Editable via /admin/hr/recruitment-approvals-scope (super-admin UI).
+  // When enforce_role_match=true, the caller's role_keys must include
+  // approval_chain[current_step].approver_role OR overlap with override_roles
+  // OR the caller must be super_admin. When false (default), today's behavior
+  // is preserved — any user with hr.recruitment.approve can approve any step.
+  HR_RECRUITMENT_APPROVALS_ENFORCE_ROLE_MATCH: 'hr.recruitment.approvals.enforce_role_match',
+  HR_RECRUITMENT_APPROVALS_OVERRIDE_ROLES: 'hr.recruitment.approvals.override_roles',
+
   // -- Forms (W3-M9 follow-up — workflow engine + notifications) -------------
   // Object: per-event notification templates rendered by the form-submission
   // workflow engine. Keys = event name; values = { in_app_title, in_app_body,
