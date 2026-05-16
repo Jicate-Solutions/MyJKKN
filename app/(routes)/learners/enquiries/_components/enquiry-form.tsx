@@ -60,6 +60,8 @@ import { BillingCategoryService } from '@/lib/services/billing/categories/billin
 import { LookupService } from '@/lib/services/admission/lookup-service';
 import { logActivityForCurrentUser } from '@/lib/utils/activity-logger-client';
 import { AdmissionFeesActivityTemplates } from '@/lib/utils/admission-fees-activity-templates';
+import { IncompleteFeeBanner, getMissingFeeDimensions } from './incomplete-fee-banner';
+import { getErrorMessage } from '@/lib/utils';
 import type {
   AdmissionFeeStructureWithItems,
   FeeStructureMatrixDimensions,
@@ -1280,41 +1282,105 @@ export function EnquiryForm({
         }
       }
 
-      // Plan 6 Task 5 — post-save: resolve fee_items via RPC + log activity.
-      // Best-effort; never blocks UX. Skip when the lead is in legacy_fee_mode
-      // (no matrix match expected) or when finance is disabled for this view.
+      // Post-save: resolve fee_items + log activity. Two paths now:
+      //   (a) Legacy + admitted + all 8 fee-matrix dims present →
+      //       admission_adopt_structure_for_lead (flips legacy_fee_mode=false
+      //       AND resolves atomically). This is the "Fees Setup Pending" tab
+      //       flow — the row falls out of that tab on success.
+      //   (b) Already matrix-driven (!legacy) → existing resolveForLearner.
+      // Both wrapped so failures don't block submit (best-effort).
       const isLegacy =
         (result as { legacy_fee_mode?: boolean } | undefined)?.legacy_fee_mode ?? false;
-      if (result?.id && !isLegacy && canViewFinance) {
-        try {
-          const resolution = await FeeResolutionService.resolveForLearner(result.id);
-          if (resolution.matched) {
+      const isAdmitted = (result as { lifecycle_status?: string } | undefined)?.lifecycle_status === 'admitted';
+      const missingFeeDims = getMissingFeeDimensions(result as any);
+      const hasAllFeeDims = missingFeeDims.length === 0;
+
+      if (result?.id && canViewFinance) {
+        if (isLegacy && isAdmitted && hasAllFeeDims) {
+          // Path (a): adopt structure flow
+          try {
+            const adoption = await FeeResolutionService.adoptStructureForLead(result.id);
+            toast.success(
+              `Fee structure applied — ${adoption.itemCount} item${adoption.itemCount === 1 ? '' : 's'}, total ₹${adoption.total.toLocaleString('en-IN')}`,
+              { duration: 5000 },
+            );
             await logActivityForCurrentUser({
               actionType: 'enquiry.fee_resolved',
               resourceType: 'learner',
               resourceId: result.id,
               description: AdmissionFeesActivityTemplates.enquiry.fee_resolved(
-                resolution.items.length,
-                resolution.total,
+                adoption.itemCount,
+                adoption.total,
               ),
               metadata: {
                 learner_id: result.id,
-                count: resolution.items.length,
-                total: resolution.total,
+                count: adoption.itemCount,
+                total: adoption.total,
+                via: 'adopt_structure_for_lead',
               },
             });
-          } else {
-            await logActivityForCurrentUser({
-              actionType: 'enquiry.fee_match_failed',
-              resourceType: 'learner',
-              resourceId: result.id,
-              description: AdmissionFeesActivityTemplates.enquiry.fee_match_failed(),
-              metadata: { learner_id: result.id },
-            });
+          } catch (err) {
+            const msg = getErrorMessage(err);
+            if (msg.includes('adopt_structure_no_match')) {
+              toast(
+                'Profile saved. No matching fee structure for this combination — create one in Settings → Fees Structure.',
+                { duration: 6000, icon: '⚠️' },
+              );
+              await logActivityForCurrentUser({
+                actionType: 'enquiry.fee_match_failed',
+                resourceType: 'learner',
+                resourceId: result.id,
+                description: AdmissionFeesActivityTemplates.enquiry.fee_match_failed(),
+                metadata: { learner_id: result.id, via: 'adopt_structure_for_lead' },
+              });
+            } else if (msg.includes('permission_denied')) {
+              toast.error(
+                "Profile saved, but you don't have permission to apply fee structures. Ask an admin.",
+                { duration: 6000 },
+              );
+            } else {
+              console.error('[enquiry-form] Adopt structure failed:', err);
+              toast.error('Profile saved, but fee structure could not be applied.');
+            }
           }
-        } catch (err) {
-          console.error('[enquiry-form] Post-save fee resolution failed:', err);
-          // best-effort — never block submit on this
+        } else if (isLegacy && isAdmitted) {
+          // Saved but still incomplete — explicit "we know, here's why" toast
+          toast(
+            `Profile saved. Fee structure will be applied once the following ${missingFeeDims.length === 1 ? 'field is' : 'fields are'} filled.`,
+            { duration: 6000, icon: 'ℹ️' },
+          );
+        } else if (!isLegacy) {
+          // Path (b): existing matrix-driven resolve
+          try {
+            const resolution = await FeeResolutionService.resolveForLearner(result.id);
+            if (resolution.matched) {
+              await logActivityForCurrentUser({
+                actionType: 'enquiry.fee_resolved',
+                resourceType: 'learner',
+                resourceId: result.id,
+                description: AdmissionFeesActivityTemplates.enquiry.fee_resolved(
+                  resolution.items.length,
+                  resolution.total,
+                ),
+                metadata: {
+                  learner_id: result.id,
+                  count: resolution.items.length,
+                  total: resolution.total,
+                },
+              });
+            } else {
+              await logActivityForCurrentUser({
+                actionType: 'enquiry.fee_match_failed',
+                resourceType: 'learner',
+                resourceId: result.id,
+                description: AdmissionFeesActivityTemplates.enquiry.fee_match_failed(),
+                metadata: { learner_id: result.id },
+              });
+            }
+          } catch (err) {
+            console.error('[enquiry-form] Post-save fee resolution failed:', err);
+            // best-effort — never block submit on this
+          }
         }
       }
 
@@ -1623,6 +1689,11 @@ export function EnquiryForm({
   return (
     <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit, onInvalid)} className="space-y-6">
+        {/* Fees Setup Pending banner — shows when admitted+legacy. Lists the
+            fee-matrix dimensions still missing; on save (commitSubmit), if
+            all 8 dims are filled, admission_adopt_structure_for_lead fires. */}
+        <IncompleteFeeBanner learner={learner} />
+
         {/* Task 15 — QR button for student self-fill; only shown on edit (learner exists) and not student view */}
         {!isStudentView && (savedEnquiryId ?? learner?.id) && (
           <div className="flex items-center justify-end gap-2 pb-2">

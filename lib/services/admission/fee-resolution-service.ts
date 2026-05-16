@@ -7,6 +7,14 @@ import type {
 } from '@/types/admission';
 import { FeeStructureService } from './fee-structure-service';
 
+export interface AdoptStructureResult {
+  success: boolean;
+  learnerId: string;
+  items: ResolvedFeeItem[];
+  itemCount: number;
+  total: number;
+}
+
 /**
  * UI-facing facade over admission_resolve_fee_items_for_lead.
  *
@@ -40,5 +48,40 @@ export class FeeResolutionService {
     dims: FeeStructureMatrixDimensions,
   ): Promise<AdmissionFeeStructureWithItems | null> {
     return FeeStructureService.findByDimensions(dims);
+  }
+
+  /**
+   * Atomically flip legacy_fee_mode=false + resolve fee_items, in one RPC.
+   * Used by the "Fees Setup Pending" tab save flow to migrate a legacy
+   * admitted row onto the new fee structure matrix.
+   *
+   * RPC raises (which Supabase surfaces as a PostgrestError) on:
+   *   - permission_denied: caller lacks admission_fees.manage_adjustments
+   *   - learner_not_found: bad UUID
+   *   - adopt_structure_no_match: 8-dim lookup returned zero results
+   * Caller should inspect error.message to branch toast messaging.
+   */
+  static async adoptStructureForLead(learnerId: string): Promise<AdoptStructureResult> {
+    const supabase = createClientSupabaseClient();
+    const { data, error } = await supabase.rpc('admission_adopt_structure_for_lead', {
+      p_learner_id: learnerId,
+    });
+    if (error) throw error;
+
+    const payload = (data ?? {}) as {
+      success?: boolean;
+      learner_id?: string;
+      fee_items?: ResolvedFeeItem[];
+      item_count?: number;
+    };
+    const items = payload.fee_items ?? [];
+    const total = items.reduce((sum, it) => sum + Number(it.amount || 0), 0);
+    return {
+      success: payload.success ?? false,
+      learnerId: payload.learner_id ?? learnerId,
+      items,
+      itemCount: payload.item_count ?? items.length,
+      total,
+    };
   }
 }

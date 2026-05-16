@@ -12,6 +12,34 @@ import { createClient } from '@/lib/supabase/server';
 
 import type { LearnerProfile } from '@/types/learner-profile';
 
+/**
+ * Virtual lifecycle_status sentinel handled by getEnquiries: expands to
+ * lifecycle_status='admitted' AND legacy_fee_mode=true and annotates each row
+ * with resolution_status / missing_fields from
+ * vw_learners_profile_fee_backfill_status so the "Fees Setup Pending" tab can
+ * render badges.
+ */
+export const FEES_SETUP_PENDING = 'fees_setup_pending';
+
+/**
+ * Per-row fee-backfill annotations merged onto rows when fetched for the
+ * "Fees Setup Pending" tab. Columns key off these to render badges.
+ */
+export type FeeBackfillAnnotations = {
+  _resolution_status?:
+    | 'tier1_ready'
+    | 'tier2_ready'
+    | 'missing_fields'
+    | 'no_structure'
+    | 'ambiguous_strict'
+    | 'ambiguous_relaxed'
+    | 'unclassified';
+  _missing_fields?: string[];
+  _matched_structure_id?: string | null;
+};
+
+export type EnrichedLearnerProfile = LearnerProfile & FeeBackfillAnnotations;
+
 interface GetEnquiriesParams {
   page?: number;
   limit?: number;
@@ -25,7 +53,7 @@ interface GetEnquiriesParams {
 }
 
 interface GetEnquiriesResult {
-  data: LearnerProfile[];
+  data: EnrichedLearnerProfile[];
   metadata: {
     total_items: number;
     page: number;
@@ -94,8 +122,12 @@ async function getEnquiriesInner(
       { count: 'exact' }
     );
 
-  // Filter for enquiry statuses
-  if (lifecycle_status) {
+  // Filter for enquiry statuses.
+  // The 'fees_setup_pending' sentinel is a virtual tab: expand to admitted+legacy.
+  const isFeesSetupPending = lifecycle_status === FEES_SETUP_PENDING;
+  if (isFeesSetupPending) {
+    query = query.eq('lifecycle_status', 'admitted').eq('legacy_fee_mode', true);
+  } else if (lifecycle_status) {
     query = query.eq('lifecycle_status', lifecycle_status);
   } else {
     query = query.in('lifecycle_status', ['admitted', 'pending']);
@@ -184,7 +216,9 @@ async function getEnquiriesInner(
     .select('*', { count: 'exact', head: true });
 
   // Apply the same filters as the main query
-  if (lifecycle_status) {
+  if (isFeesSetupPending) {
+    countQuery = countQuery.eq('lifecycle_status', 'admitted').eq('legacy_fee_mode', true);
+  } else if (lifecycle_status) {
     countQuery = countQuery.eq('lifecycle_status', lifecycle_status);
   } else {
     countQuery = countQuery.in('lifecycle_status', ['admitted', 'pending']);
@@ -248,8 +282,49 @@ async function getEnquiriesInner(
 
   const totalPages = count ? Math.ceil(count / limit) : 0;
 
+  let enriched: EnrichedLearnerProfile[] = (data as EnrichedLearnerProfile[]) || [];
+
+  // For the "Fees Setup Pending" tab, annotate each row with the view's
+  // resolution_status + missing_fields so columns can render badges. Done
+  // as a second query so we don't reshape the existing main-table query.
+  if (isFeesSetupPending && enriched.length > 0) {
+    const ids = enriched.map(r => r.id);
+    const { data: statusRows, error: statusError } = await supabase
+      .from('vw_learners_profile_fee_backfill_status')
+      .select('learner_id, resolution_status, missing_fields, matched_structure_id')
+      .in('learner_id', ids);
+
+    if (statusError) {
+      console.error('[getEnquiries] Error fetching fee-backfill status:', statusError);
+      // Fail open: rows still render, just without badges.
+    } else if (statusRows) {
+      const byId = new Map<string, {
+        resolution_status: string;
+        missing_fields: string[] | null;
+        matched_structure_id: string | null;
+      }>();
+      for (const r of statusRows as any[]) {
+        byId.set(r.learner_id, {
+          resolution_status: r.resolution_status,
+          missing_fields: r.missing_fields ?? null,
+          matched_structure_id: r.matched_structure_id ?? null,
+        });
+      }
+      enriched = enriched.map(row => {
+        const s = byId.get(row.id);
+        if (!s) return row;
+        return {
+          ...row,
+          _resolution_status: s.resolution_status as FeeBackfillAnnotations['_resolution_status'],
+          _missing_fields: s.missing_fields ?? undefined,
+          _matched_structure_id: s.matched_structure_id ?? undefined,
+        };
+      });
+    }
+  }
+
   return {
-    data: (data as LearnerProfile[]) || [],
+    data: enriched,
     metadata: {
       total_items: count || 0,
       page,
