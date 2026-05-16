@@ -205,14 +205,23 @@ const FEE_FIELD_LABELS: Record<string, string> = {
   institution_id: 'Institution',
 };
 
+// Labels here must signal "needs user attention" — a green/solid "Ready"
+// badge would mislead finance staff into thinking the row needs no action.
+// Even tier2 (matches without quota) requires a manual decision because
+// adopting it overrides the learner's recorded quota.
 const RESOLUTION_STATUS_BADGES: Record<
   NonNullable<FeeBackfillAnnotations['_resolution_status']>,
   { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline'; className?: string }
 > = {
-  tier1_ready: { label: 'Ready', variant: 'default', className: 'bg-emerald-600 hover:bg-emerald-700' },
-  tier2_ready: { label: 'Ready (no quota)', variant: 'default', className: 'bg-sky-600 hover:bg-sky-700' },
+  // tier1_ready shouldn't normally appear in this tab — the bulk-adopt
+  // migration drains it. If a row slips in (e.g. freshly created
+  // admitted+legacy since the migration), surface it as "Auto-applying" so
+  // it's obvious the user doesn't need to do anything — re-running the bulk
+  // job clears it.
+  tier1_ready: { label: 'Auto-applying', variant: 'outline', className: 'border-emerald-500 text-emerald-700' },
+  tier2_ready: { label: 'Quota Mismatch', variant: 'outline', className: 'border-amber-500 text-amber-700' },
   missing_fields: { label: 'Missing Fields', variant: 'outline', className: 'border-amber-500 text-amber-700' },
-  no_structure: { label: 'No Structure', variant: 'outline', className: 'border-zinc-500 text-zinc-700' },
+  no_structure: { label: 'No Fee Structure', variant: 'outline', className: 'border-rose-500 text-rose-700' },
   ambiguous_strict: { label: 'Multiple Matches', variant: 'outline', className: 'border-orange-500 text-orange-700' },
   ambiguous_relaxed: { label: 'Multiple Matches', variant: 'outline', className: 'border-orange-500 text-orange-700' },
   unclassified: { label: 'Unclassified', variant: 'outline' },
