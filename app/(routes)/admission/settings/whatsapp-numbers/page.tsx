@@ -65,6 +65,9 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { cn } from '@/lib/utils';
 import { PersonalConnectionTab } from './_components/personal-connection-tab';
+import { getPolicyBool } from '@/lib/policies/get-policy-client';
+import { POLICY_KEYS } from '@/lib/policies/keys';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { NumberDetailSheet } from './_components/number-detail-sheet';
 import { PersonalTemplatesTab } from './_components/personal-templates-tab';
 import { AutoTriggerTab } from './_components/auto-trigger-tab';
@@ -780,7 +783,7 @@ function WhatsAppNumbersContent() {
                 )}
 
                 {personalWaDeptId ? (
-                  <PersonalConnectionTab departmentId={personalWaDeptId} />
+                  <ByowGatedConnectionTab departmentId={personalWaDeptId} />
                 ) : (
                   <p className="text-sm text-muted-foreground py-8 text-center">
                     {isSuperAdmin
@@ -883,4 +886,44 @@ function WhatsAppNumbersContent() {
 
 export default function WhatsAppNumbersPage() {
   return <WhatsAppNumbersContent />;
+}
+
+// ----------------------------------------------------------------------------
+// BYOW kill-switch wrapper (v4 spec — auto-disable when Railway service unhealthy)
+// Reads wa_byow.is_enabled from platform_policies; if false (auto-flipped by
+// cron after N consecutive health failures, OR manually disabled by super_admin),
+// hides the QR scanner UI and shows a clear banner explaining what to do.
+// Per-department override supported via policy scope_id.
+// ----------------------------------------------------------------------------
+function ByowGatedConnectionTab({ departmentId }: { departmentId: string }) {
+  const { data: enabled, isLoading } = useQuery({
+    queryKey: ['wa_byow.is_enabled', departmentId],
+    queryFn: () =>
+      getPolicyBool(POLICY_KEYS.WA_BYOW_IS_ENABLED, true, departmentId),
+    staleTime: 60_000, // 1 min — re-check often enough that admin re-enable shows up quickly
+  });
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (enabled === false) {
+    return (
+      <Alert variant="destructive">
+        <AlertTriangle className="h-4 w-4" />
+        <AlertTitle>Personal WhatsApp temporarily disabled</AlertTitle>
+        <AlertDescription>
+          The BYOW WhatsApp service health check failed. Use Meta Business
+          templates instead, or contact your administrator if you need this
+          re-enabled.
+        </AlertDescription>
+      </Alert>
+    );
+  }
+
+  return <PersonalConnectionTab departmentId={departmentId} />;
 }

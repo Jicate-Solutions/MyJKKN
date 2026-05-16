@@ -52,6 +52,7 @@ import { LogActivityDialog } from '@/components/solutions/pipeline/log-activity-
 import { LostReasonDialog } from '@/components/solutions/pipeline/lost-reason-dialog';
 import { ConvertToClientDialog } from '@/components/solutions/pipeline/convert-to-client-dialog';
 import { FileUpload } from '@/components/solutions/pipeline/file-upload';
+import { ProspectAttachmentsCard } from '@/components/solutions/pipeline/prospect-attachments-card';
 import type { PipelineStage, SolutionType } from '@/lib/services/solutions/types';
 import {
   PIPELINE_STAGE_LABELS,
@@ -410,6 +411,9 @@ export function ProspectDetail({ prospectId }: ProspectDetailProps) {
               />
             </CardContent>
           </Card>
+
+          {/* Attachments Card (sh_prospect_attachments substrate) */}
+          <ProspectAttachmentsCard prospectId={prospectId} />
 
           {/* Follow-up Card */}
           <Card>

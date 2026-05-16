@@ -118,6 +118,7 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 import { StallsSection } from './_components/stalls-section';
+import { ExpoLeadsDataTable } from './_components/expo-leads-data-table';
 
 // ─── Status helpers ────────────────────────────────────────────────────────
 
@@ -278,134 +279,10 @@ function getStageColor(stage: string): string {
 }
 
 function ExpoLeadsTab({ eventId }: { eventId: string }) {
-  const [leads, setLeads] = useState<AdmissionLead[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [total, setTotal] = useState(0);
-
-  const fetchLeads = useCallback(async () => {
-    setIsLoading(true);
-    try {
-      const result = await LeadService.getLeads({
-        expo_event_id: eventId,
-        limit: 100,
-        sort_by: 'created_at',
-        sort_order: 'desc',
-      });
-      setLeads(result.data || []);
-      setTotal(result.metadata.total);
-    } catch (err) {
-      console.error('[expo/leads-tab] Failed to fetch leads:', err);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [eventId]);
-
-  useEffect(() => {
-    fetchLeads();
-  }, [fetchLeads]);
-
-  if (isLoading) {
-    return (
-      <div className="space-y-3">
-        {Array.from({ length: 5 }).map((_, i) => (
-          <Skeleton key={i} className="h-12 w-full" />
-        ))}
-      </div>
-    );
-  }
-
-  if (leads.length === 0) {
-    return (
-      <Card>
-        <CardContent className="py-10 text-center">
-          <UserCheck className="h-10 w-10 mx-auto text-muted-foreground mb-3" />
-          <p className="text-muted-foreground">No leads captured for this event yet.</p>
-          <p className="text-xs text-muted-foreground mt-1">
-            Leads will appear here when team members capture them via the capture form.
-          </p>
-        </CardContent>
-      </Card>
-    );
-  }
-
-  return (
-    <Card>
-      <CardHeader className="pb-3">
-        <div className="flex items-center justify-between">
-          <CardTitle className="text-base">
-            Captured Leads ({total})
-          </CardTitle>
-          <Link href={`/admission/leads?expo_event_id=${eventId}`}>
-            <Button variant="outline" size="sm">View in CRM</Button>
-          </Link>
-        </div>
-      </CardHeader>
-      <CardContent>
-        <div className="rounded-md border">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>Phone</TableHead>
-                <TableHead>Parent</TableHead>
-                <TableHead>Stage</TableHead>
-                <TableHead>Counselor</TableHead>
-                <TableHead>Captured</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {leads.map((lead) => (
-                <TableRow key={lead.id}>
-                  <TableCell>
-                    <Link
-                      href={`/admission/leads/${lead.id}`}
-                      className="font-medium text-primary hover:underline"
-                    >
-                      {lead.full_name || `${lead.first_name} ${lead.last_name || ''}`}
-                    </Link>
-                    {lead.email && (
-                      <p className="text-xs text-muted-foreground">{lead.email}</p>
-                    )}
-                  </TableCell>
-                  <TableCell className="text-sm">{lead.phone}</TableCell>
-                  <TableCell>
-                    <div className="text-sm">{lead.parent_name || '—'}</div>
-                    {lead.parent_phone && (
-                      <p className="text-xs text-muted-foreground">{lead.parent_phone}</p>
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    <Badge className={`text-xs ${getStageColor(lead.funnel_stage)}`}>
-                      {(lead.funnel_stage || 'new').replace(/_/g, ' ')}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="text-sm">
-                    {lead.counselor?.name || <span className="text-muted-foreground">Unassigned</span>}
-                  </TableCell>
-                  <TableCell className="text-xs text-muted-foreground">
-                    {new Date(lead.created_at).toLocaleDateString('en-IN', {
-                      day: '2-digit',
-                      month: 'short',
-                      hour: '2-digit',
-                      minute: '2-digit',
-                    })}
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
-        {total > 100 && (
-          <p className="text-xs text-muted-foreground mt-2 text-center">
-            Showing first 100 of {total} leads.{' '}
-            <Link href={`/admission/leads?expo_event_id=${eventId}`} className="text-primary hover:underline">
-              View all in CRM
-            </Link>
-          </p>
-        )}
-      </CardContent>
-    </Card>
-  );
+  // Delegates to the advanced DataTable wrapper. Server-paginated, sortable,
+  // searchable, filterable by stage + source, exportable, with date range,
+  // column visibility/resize/reorder. See expo-leads-data-table.tsx.
+  return <ExpoLeadsDataTable eventId={eventId} />;
 }
 
 function formatCurrency(amount: number): string {

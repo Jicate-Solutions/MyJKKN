@@ -45,10 +45,15 @@ export function useBosExperts(
     institutionsId: profile?.institution_id ?? filters.institutionsId,
   };
 
+  // Super-admins have no institution_id but should still see the list (the
+  // API already returns all institutions' rows when none is supplied).
+  const enabled =
+    !!profile && (!!scopedFilters.institutionsId || !!profile.is_super_admin);
+
   return useQuery({
     queryKey: bosExpertKeys.list(scopedFilters),
     queryFn: () => BosExpertService.getExperts(scopedFilters),
-    enabled: !!profile?.institution_id,
+    enabled,
     placeholderData: (previousData) => previousData,
     ...QUERY_CONFIG.SEMI_STABLE_DATA,
   });

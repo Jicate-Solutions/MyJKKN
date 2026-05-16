@@ -1,32 +1,38 @@
 import type { Metadata, Viewport } from 'next';
-import localFont from 'next/font/local';
+import { Poppins, Noto_Sans_Tamil } from 'next/font/google';
 import './globals.css';
 import { PushNotificationProvider } from '@/components/notifications/push-notification-provider';
+import { InstallPromptBanner } from '@/components/pwa/install-prompt-banner';
 import { PWAProvider } from '@/components/pwa/pwa-provider';
 import { ThemeProvider } from '@/providers/theme-provider';
 import { AuthProvider } from '@/hooks/use-auth-provider';
+import { ReactQueryProvider } from '@/providers/query-client-provider';
 import { SpeedInsights } from '@vercel/speed-insights/next';
 import Script from 'next/script';
 import { PreviewBanner } from '@/components/layout/preview-banner';
 
-// Self-hosted to avoid build-time fetches to fonts.gstatic.com. To add a weight,
-// see docs/fixes/2026-04/2026-04-30-FIX-build-econnreset-self-host-poppins.md.
-const poppins = localFont({
-  src: [
-    { path: '../public/fonts/poppins/Poppins-Regular.woff2', weight: '400', style: 'normal' },
-    { path: '../public/fonts/poppins/Poppins-Medium.woff2', weight: '500', style: 'normal' },
-    { path: '../public/fonts/poppins/Poppins-SemiBold.woff2', weight: '600', style: 'normal' },
-    { path: '../public/fonts/poppins/Poppins-Bold.woff2', weight: '700', style: 'normal' }
-  ],
+const poppins = Poppins({
+  weight: ['100', '200', '300', '400', '500', '600', '700', '800', '900'],
+  subsets: ['latin'],
   display: 'swap',
   variable: '--font-poppins'
 });
 
+const notoSansTamil = Noto_Sans_Tamil({
+  weight: ['400', '500', '600', '700'],
+  subsets: ['tamil'],
+  display: 'swap',
+  variable: '--font-noto-tamil'
+});
+
+// Allow pinch-zoom for accessibility (WCAG 2.5.5 target size, 1.4.4 resize text).
+// Locking userScalable / maximumScale soft-fails low-vision users and is widely
+// considered an anti-pattern; we trust the responsive layout to behave well at
+// any zoom level instead of disabling the gesture.
 export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
-  maximumScale: 1,
-  userScalable: false,
+  userScalable: true,
   viewportFit: 'cover'
 };
 
@@ -188,24 +194,27 @@ export default function RootLayout({
           href='https://apis.google.com'
         />
       </head>
-      <body className={`${poppins.variable} font-sans antialiased`} suppressHydrationWarning>
-        <ThemeProvider
-          attribute='class'
-          defaultTheme='light'
-          enableSystem
-          disableTransitionOnChange
-          storageKey='theme-preference'
-        >
-          <AuthProvider>
-            <PWAProvider>
-              {/* Sticky preview banner — renders only when a preview session
-                  cookie is active. Non-dismissible by design. */}
-              <PreviewBanner />
-              <PushNotificationProvider>{children}</PushNotificationProvider>
-              <SpeedInsights />
-            </PWAProvider>
-          </AuthProvider>
-        </ThemeProvider>
+      <body className={`${poppins.variable} ${notoSansTamil.variable} font-sans antialiased`} suppressHydrationWarning>
+        <ReactQueryProvider>
+          <ThemeProvider
+            attribute='class'
+            defaultTheme='light'
+            enableSystem
+            disableTransitionOnChange
+            storageKey='theme-preference'
+          >
+            <AuthProvider>
+              <PWAProvider>
+                {/* Sticky preview banner — renders only when a preview session
+                    cookie is active. Non-dismissible by design. */}
+                <PreviewBanner />
+                <PushNotificationProvider>{children}</PushNotificationProvider>
+                <InstallPromptBanner />
+                <SpeedInsights />
+              </PWAProvider>
+            </AuthProvider>
+          </ThemeProvider>
+        </ReactQueryProvider>
         <Script
           src='https://accounts.google.com/gsi/client'
           strategy='lazyOnload'

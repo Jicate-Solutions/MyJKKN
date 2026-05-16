@@ -130,8 +130,10 @@ export function useCallMutations() {
       if (!res.ok) { const err = await res.json().catch(() => ({ message: 'Failed to log call' })); throw new Error(err.message || 'Failed to log call'); }
       return (await res.json()).data;
     },
-    onSuccess: () => {
-      toast.success('Call logged');
+    onSuccess: (_data, variables) => {
+      // Toast message reflects mode — keeps the counselor's mental model aligned
+      // with the dialog they just closed (Update Lead vs Log Call).
+      toast.success(variables.update_only ? 'Lead updated' : 'Call logged');
       invalidateCallQueries();
       queryClient.invalidateQueries({ queryKey: ['admission-leads'] });
       queryClient.invalidateQueries({ queryKey: ['admission-lead'] });
@@ -139,6 +141,11 @@ export function useCallMutations() {
       queryClient.invalidateQueries({ queryKey: ['lead-activities'] });
       queryClient.invalidateQueries({ queryKey: ['counselor-daily-view'] });
       queryClient.invalidateQueries({ queryKey: ['funnel-summary'] });
+      // ── Phase 1 consolidation (2026-05-12) ──
+      // Hot/priority/tag/stage changes flow into these dashboard aggregates;
+      // invalidate so badges and counts refresh after a counselor save.
+      queryClient.invalidateQueries({ queryKey: ['counselor-performance'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
     },
     onError: (error: Error) => { toast.error(error.message || 'Failed to log call'); },
   });

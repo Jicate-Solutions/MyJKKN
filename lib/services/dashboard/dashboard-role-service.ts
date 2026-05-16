@@ -47,7 +47,8 @@ const DIRECTOR_ROLES = new Set([
 const COUNSELOR_ROLES = new Set([
   'admission',
   'admission_staff',
-  'counselor'
+  'admission_counselor',
+  'expo_counselor'
 ]);
 
 const FACULTY_ROLES = new Set([

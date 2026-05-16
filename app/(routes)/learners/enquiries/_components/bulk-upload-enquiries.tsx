@@ -398,7 +398,6 @@ export default function BulkUploadEnquiries({ onSuccess }: { onSuccess?: () => v
               // SECTION 9: Counseling
               counseling_applied: sanitizeValue(mappedData.counseling_applied, 'text'),
               quota: sanitizeValue(mappedData.quota, 'text', 'quota'),
-              category: sanitizeValue(mappedData.category, 'text'),
 
               // SECTION 9: Reference
               reference_type: sanitizeValue(mappedData.reference_type, 'text'),
@@ -821,7 +820,6 @@ export default function BulkUploadEnquiries({ onSuccess }: { onSuccess?: () => v
             // Counseling
             counseling_applied: data.counseling_applied === 'TRUE' || data.counseling_applied === 'true',
             quota: data.quota,
-            category: data.category,
 
             // Reference
             reference_type: data.reference_type,
@@ -1346,7 +1344,6 @@ export default function BulkUploadEnquiries({ onSuccess }: { onSuccess?: () => v
                         {/* SECTION 9: Counseling */}
                         <TableHead className="min-w-[100px]">Counseling</TableHead>
                         <TableHead className="min-w-[100px]">Quota</TableHead>
-                        <TableHead className="min-w-[80px]">Category</TableHead>
 
                         {/* SECTION 10: Reference */}
                         <TableHead className="min-w-[100px]">Ref. Type</TableHead>
@@ -1461,7 +1458,6 @@ export default function BulkUploadEnquiries({ onSuccess }: { onSuccess?: () => v
                           {/* SECTION 9: Counseling */}
                           <TableCell className="text-xs">{row.sanitizedData.counseling_applied || '-'}</TableCell>
                           <TableCell className="text-xs">{row.sanitizedData.quota || '-'}</TableCell>
-                          <TableCell className="text-xs">{row.sanitizedData.category || '-'}</TableCell>
 
                           {/* SECTION 10: Reference */}
                           <TableCell className="text-xs">{row.sanitizedData.reference_type || '-'}</TableCell>

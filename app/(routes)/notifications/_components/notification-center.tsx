@@ -33,6 +33,7 @@ import { RichTextDisplay, stripHtml } from '@/components/ui/rich-text-editor';
 import { formatDistanceToNow, format, isToday, isYesterday } from 'date-fns';
 import toast from 'react-hot-toast';
 import Link from 'next/link';
+import { NotificationBriefing } from '@/components/notifications/notification-briefing';
 
 // ─── Category config ────────────────────────────────────────
 const CATEGORIES = [
@@ -118,26 +119,6 @@ export function NotificationCenter() {
     }
   });
 
-  // Infinite scroll
-  useEffect(() => {
-    if (observerRef.current) observerRef.current.disconnect();
-
-    observerRef.current = new IntersectionObserver(
-      (entries) => {
-        if (entries[0].isIntersecting && hasMore && !isLoading) {
-          loadMore();
-        }
-      },
-      { threshold: 0.5 }
-    );
-
-    if (loadMoreRef.current) {
-      observerRef.current.observe(loadMoreRef.current);
-    }
-
-    return () => observerRef.current?.disconnect();
-  }, [hasMore, isLoading, loadMore]);
-
   // Filter notifications
   const filtered = (notifications || []).filter((n: any) => {
     const notif = n.notification || n;
@@ -166,6 +147,43 @@ export function NotificationCenter() {
   // Group by date
   const grouped = groupByDate(filtered);
 
+  // Infinite scroll
+  // Guard against the "death loop" pattern: when the active filter excludes
+  // every notification in the loaded data set, `filtered.length === 0` causes
+  // the loadMoreRef to occupy the viewport, which fires the observer, which
+  // calls loadMore(), which fetches another page of data that ALSO doesn't
+  // match the filter — infinite loop until has_more is false. Skip loadMore
+  // when we have data but the current filter discards all of it; the user
+  // sees the "No matching notifications" empty state instead. Bug found
+  // 2026-05-04: 5/6 tabs (Announcements, Reminders, etc.) stuck on
+  // "Loading more..." because tab values didn't match dashboard:* category data.
+  const filterExcludesEverything =
+    notifications.length > 0 && filtered.length === 0;
+
+  useEffect(() => {
+    if (observerRef.current) observerRef.current.disconnect();
+
+    observerRef.current = new IntersectionObserver(
+      (entries) => {
+        if (
+          entries[0].isIntersecting &&
+          hasMore &&
+          !isLoading &&
+          !filterExcludesEverything
+        ) {
+          loadMore();
+        }
+      },
+      { threshold: 0.5 }
+    );
+
+    if (loadMoreRef.current) {
+      observerRef.current.observe(loadMoreRef.current);
+    }
+
+    return () => observerRef.current?.disconnect();
+  }, [hasMore, isLoading, loadMore, filterExcludesEverything]);
+
   const handleCardClick = useCallback((item: any) => {
     const id = item.id || item.notification_id;
     setExpandedId((prev) => (prev === id ? null : id));
@@ -177,7 +195,19 @@ export function NotificationCenter() {
   }, [markAsRead]);
 
   return (
-    <div className="max-w-2xl mx-auto pb-24">
+    <div className="pb-24">
+      {/* ─── Director's Briefing (above the fold) ──────────────
+          Editorial × Bloomberg trajectory cards. Replaces 5+ duplicate
+          "Daily digest" cards with one trajectory card per category.
+          Hides itself on error or when no digest data exists. */}
+      <div className="max-w-4xl mx-auto">
+        <NotificationBriefing />
+      </div>
+
+      {/* ─── Chronological log (below the fold) ───────────────
+          Full notification history in standard inbox layout.
+          The briefing is curation; this is comprehensiveness. */}
+      <div className="max-w-2xl mx-auto">
       {/* ─── Header ──────────────────────────── */}
       <div className="flex items-center justify-between mb-4">
         <div>
@@ -192,6 +222,15 @@ export function NotificationCenter() {
           )}
         </div>
         <div className="flex items-center gap-2">
+          {/* Sent → outbox link (companion to inbox; closes the
+              "I broadcast something but can't verify it" audit gap) */}
+          <Link href="/notifications/sent">
+            <Button variant="ghost" size="sm" className="text-xs h-8">
+              <span className="hidden sm:inline">Sent</span>
+              <span className="sm:hidden">↗</span>
+              <span className="ml-1" aria-hidden>→</span>
+            </Button>
+          </Link>
           {unreadCount > 0 && (
             <Button
               variant="ghost"
@@ -507,6 +546,7 @@ export function NotificationCenter() {
             You&apos;re all caught up
           </p>
         )}
+      </div>
       </div>
     </div>
   );

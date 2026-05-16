@@ -40,7 +40,58 @@ export interface SendResult {
 
 const TEMPLATE_NAME = 'exhibition_thankyou';
 const TEMPLATE_LANGUAGE = 'en';
-const DAILY_LIMIT = 950; // Stay under TIER_1K (1000) with safety margin
+
+// =============================================================================
+// Daily-limit policy — config-row (Director's standing rule 2026-04-29)
+// =============================================================================
+//
+// The cap was previously a hardcoded `const DAILY_LIMIT = 950` (TIER_1K with a
+// 50-msg safety margin). It now lives in `whatsapp_send_limits` (singleton row),
+// editable from /admin/whatsapp-limits — zero-deploy tweaks.
+//
+// We read via the SECURITY DEFINER helper `fn_get_whatsapp_daily_limit()` so
+// the call works from any RLS context (service-role, cron, anon). On NULL or
+// any failure we fall back to DAILY_LIMIT_FALLBACK (950) so a missing/broken
+// config can never break sends.
+//
+// Single-flight in-memory cache keyed at module scope: the limit changes
+// rarely (Director-driven), so caching for the lifetime of the Node worker
+// is safe AND avoids hammering the DB on every send. The cache TTL is 60s,
+// which means a Director's edit in /admin/whatsapp-limits takes effect in
+// <=60s on prod without a redeploy.
+
+const DAILY_LIMIT_FALLBACK = 950;
+const DAILY_LIMIT_TTL_MS = 60_000; // 60s — Director edits visible in <=1min
+
+let cachedDailyLimit: number | null = null;
+let cachedDailyLimitFetchedAt: number = 0;
+
+async function getDailyLimit(supabase: any): Promise<number> {
+  const now = Date.now();
+  if (
+    cachedDailyLimit !== null &&
+    now - cachedDailyLimitFetchedAt < DAILY_LIMIT_TTL_MS
+  ) {
+    return cachedDailyLimit;
+  }
+  try {
+    const { data, error } = await supabase.rpc('fn_get_whatsapp_daily_limit');
+    if (error || data == null) {
+      // RPC absent (pre-migration) or row unseeded — fall back, do NOT cache
+      // the fallback (so the next send re-checks once the migration lands).
+      return DAILY_LIMIT_FALLBACK;
+    }
+    const intVal = typeof data === 'number' ? data : parseInt(String(data), 10);
+    if (!Number.isFinite(intVal) || intVal <= 0) {
+      return DAILY_LIMIT_FALLBACK;
+    }
+    cachedDailyLimit = intVal;
+    cachedDailyLimitFetchedAt = now;
+    return intVal;
+  } catch {
+    return DAILY_LIMIT_FALLBACK;
+  }
+}
 
 // =============================================================================
 // Service
@@ -71,7 +122,8 @@ export class ExpoWhatsAppService {
       return { success: false, skipped: true, skipReason: 'no_consent' };
     }
 
-    // 3. Check daily send limit (TIER_1K safety)
+    // 3. Check daily send limit (TIER_1K safety) — value sourced from
+    // whatsapp_send_limits config row via fn_get_whatsapp_daily_limit RPC.
     const today = new Date().toISOString().split('T')[0];
     const { count } = await (supabase as any)
       .from('expo_wa_message_queue')
@@ -79,7 +131,8 @@ export class ExpoWhatsAppService {
       .eq('status', 'sent')
       .gte('created_at', `${today}T00:00:00.000Z`);
 
-    if ((count ?? 0) >= DAILY_LIMIT) {
+    const dailyLimit = await getDailyLimit(supabase);
+    if ((count ?? 0) >= dailyLimit) {
       // Queue for next day instead of sending now
       await this.queueMessage(supabase, input, 'daily_limit_reached');
       return { success: false, skipped: true, skipReason: 'daily_limit_reached' };

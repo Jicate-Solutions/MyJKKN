@@ -53,6 +53,7 @@ export class OrganizationService {
       // Prepare institution data for database insert
       const institutionData: Database['public']['Tables']['institutions']['Insert'] = {
         name: data.name,
+        display_name: data.display_name?.trim() || null,
         counselling_code: data.counselling_code,
         institution_type: data.institution_type,
         category: data.category,
@@ -128,6 +129,7 @@ export class OrganizationService {
       // Prepare institution data for database update
       const institutionData: Database['public']['Tables']['institutions']['Update'] = {
         name: data.name,
+        display_name: data.display_name?.trim() || null,
         counselling_code: data.counselling_code,
         institution_type: data.institution_type,
         category: data.category,
@@ -293,12 +295,9 @@ export class OrganizationService {
         this.supabase.from('bug_reports').delete().eq('institution_id', id)
       ]);
 
-      // Delete billing related data (3-tier categories)
+      // Delete institution-scoped billing data (categories are now global — no cascade)
       await Promise.all([
-        this.supabase.from('billing_student_bills').delete().eq('institution_id', id),
-        this.supabase.from('billing_item_categories').delete().eq('institution_id', id),
-        this.supabase.from('billing_sub_categories').delete().eq('institution_id', id),
-        this.supabase.from('billing_parent_categories').delete().eq('institution_id', id)
+        this.supabase.from('billing_student_bills').delete().eq('institution_id', id)
       ]);
 
       // Delete academic structure
@@ -560,7 +559,9 @@ export class OrganizationService {
     isActive?: boolean,
     userId?: string,
     entityType: EntityType | 'all' = 'institution'
-  ): Promise<{ id: string; name: string; counselling_code: string }[]> {
+  ): Promise<
+    { id: string; name: string; counselling_code: string; entity_type: EntityType }[]
+  > {
     try {
       // If userId is provided, use institution filtering
       if (userId) {
@@ -572,14 +573,15 @@ export class OrganizationService {
         return institutions.map((inst) => ({
           id: inst.id,
           name: inst.name,
-          counselling_code: inst.counselling_code
+          counselling_code: inst.counselling_code,
+          entity_type: inst.entity_type
         }));
       }
 
       // Fallback to direct query (for super admin or service contexts)
       let query = this.supabase
         .from('institutions')
-        .select('id, name, counselling_code');
+        .select('id, name, counselling_code, entity_type');
 
       if (isActive !== undefined) {
         query = query.eq('is_active', isActive);

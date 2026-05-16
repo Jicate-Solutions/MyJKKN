@@ -84,7 +84,7 @@ export default function BillingReportsPage() {
       <PageBreadcrumb
         items={[
           { label: 'Home', href: '/' },
-          { label: 'Billing', href: '/billing/schedule' },
+          { label: 'Billing', href: '/billing' },
           { label: 'Reports', href: '/billing/reports' }
         ]}
       />

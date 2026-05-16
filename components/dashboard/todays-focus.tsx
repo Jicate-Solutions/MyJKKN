@@ -200,29 +200,34 @@ function focusContextFor(
 }
 
 // ============================================================================
-// Card — tone-based styling
+// Card — Tier-D Holographic Glass styling (UX experiment 2026-04-27)
+// Today's Focus is the ONE focal CTA on the dashboard. It earns the full
+// Tier-D treatment (vivid 3-color tone gradient + animated conic shimmer +
+// 4-stop shadow + specular highlight + 1px luminous border + white text).
+// All other dashboard elements stay Tier C or below — Today's Focus is the
+// attention magnet, the rest is calm.
 // ============================================================================
 const TONE_STYLES: Record<
   FocusPayload['tone'],
-  { border: string; bg: string; text: string; badge: string }
+  { bg: string; badge: string; shadow: string }
 > = {
   red: {
-    border: 'border-rose-300 dark:border-rose-700',
-    bg: 'bg-gradient-to-br from-rose-50/90 via-rose-100/50 to-rose-50/70 dark:from-rose-950/50 dark:via-rose-900/30 dark:to-rose-950/50',
-    text: 'text-rose-950 dark:text-rose-50',
-    badge: 'bg-rose-600 text-white'
+    bg: 'bg-gradient-to-br from-rose-500 via-pink-500 to-rose-700',
+    badge: 'bg-white/25 text-white backdrop-blur-sm',
+    shadow:
+      'shadow-[0_16px_40px_-8px_rgba(244,63,94,0.5),0_4px_12px_-2px_rgba(0,0,0,0.18),inset_0_2px_0_rgba(255,255,255,0.55),inset_0_-1px_0_rgba(0,0,0,0.12)]'
   },
   amber: {
-    border: 'border-amber-300 dark:border-amber-700',
-    bg: 'bg-gradient-to-br from-amber-50/90 via-amber-100/50 to-amber-50/70 dark:from-amber-950/50 dark:via-amber-900/30 dark:to-amber-950/50',
-    text: 'text-amber-950 dark:text-amber-50',
-    badge: 'bg-amber-600 text-white'
+    bg: 'bg-gradient-to-br from-amber-500 via-orange-500 to-amber-700',
+    badge: 'bg-white/25 text-white backdrop-blur-sm',
+    shadow:
+      'shadow-[0_16px_40px_-8px_rgba(245,158,11,0.5),0_4px_12px_-2px_rgba(0,0,0,0.18),inset_0_2px_0_rgba(255,255,255,0.55),inset_0_-1px_0_rgba(0,0,0,0.12)]'
   },
   green: {
-    border: 'border-emerald-300 dark:border-emerald-700',
-    bg: 'bg-gradient-to-br from-emerald-50/90 via-emerald-100/50 to-emerald-50/70 dark:from-emerald-950/50 dark:via-emerald-900/30 dark:to-emerald-950/50',
-    text: 'text-emerald-950 dark:text-emerald-50',
-    badge: 'bg-emerald-600 text-white'
+    bg: 'bg-gradient-to-br from-emerald-500 via-teal-500 to-emerald-700',
+    badge: 'bg-white/25 text-white backdrop-blur-sm',
+    shadow:
+      'shadow-[0_16px_40px_-8px_rgba(16,185,129,0.5),0_4px_12px_-2px_rgba(0,0,0,0.18),inset_0_2px_0_rgba(255,255,255,0.55),inset_0_-1px_0_rgba(0,0,0,0.12)]'
   }
 };
 
@@ -230,12 +235,29 @@ export function TodaysFocusCard({ focus }: { focus: FocusPayload }) {
   const styles = TONE_STYLES[focus.tone];
   return (
     <section
-      className={`rounded-2xl border-2 ${styles.border} ${styles.bg} backdrop-blur-sm p-5 sm:p-6 shadow-sm`}
+      className={`relative rounded-2xl ${styles.bg} ${styles.shadow} ring-1 ring-inset ring-white/30 p-5 sm:p-6 overflow-hidden`}
       aria-label="Today's focus"
     >
-      <div className='flex items-start gap-4'>
+      {/* Tier-D holographic shimmer overlay — animated conic gradient
+          rotating 360° every 6s via animate-holo-spin keyframe (defined in
+          tailwind.config.ts). Self-contained inside section's overflow-hidden. */}
+      <span
+        aria-hidden='true'
+        className='pointer-events-none absolute inset-0 animate-holo-spin'
+        style={{
+          background:
+            'conic-gradient(from 45deg at 50% 50%, rgba(255,255,255,0) 0deg, rgba(255,255,255,0.28) 60deg, rgba(255,255,255,0) 120deg, rgba(255,200,255,0.22) 180deg, rgba(255,255,255,0) 240deg, rgba(200,255,255,0.22) 300deg, rgba(255,255,255,0) 360deg)'
+        }}
+      />
+      {/* Static specular highlight — anchored upper-left light cue.
+          Paints above the rotating shimmer so the sheen position stays fixed. */}
+      <span
+        aria-hidden='true'
+        className='pointer-events-none absolute inset-0 rounded-2xl bg-gradient-to-br from-white/30 via-white/0 to-transparent'
+      />
+      <div className='relative z-10 flex items-start gap-4'>
         <div
-          className={`flex h-12 w-12 items-center justify-center rounded-xl ${styles.badge} text-2xl shrink-0 shadow-sm`}
+          className={`flex h-12 w-12 items-center justify-center rounded-xl ${styles.badge} text-2xl shrink-0 shadow-sm ring-1 ring-inset ring-white/30`}
           aria-hidden='true'
         >
           {focus.icon}
@@ -248,18 +270,16 @@ export function TodaysFocusCard({ focus }: { focus: FocusPayload }) {
               Today&rsquo;s Focus
             </span>
           </div>
-          <h2 className={`text-lg sm:text-xl font-bold leading-tight ${styles.text}`}>
+          <h2 className='text-lg sm:text-xl font-bold leading-tight text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.3)]'>
             {focus.headline}
           </h2>
-          <p
-            className={`mt-2 text-sm leading-relaxed ${styles.text} opacity-90 max-w-prose`}
-          >
+          <p className='mt-2 text-sm leading-relaxed text-white/95 max-w-prose'>
             {focus.context}
           </p>
           {focus.action && (
             <Link
               href={focus.action.href}
-              className={`inline-flex items-center gap-1.5 mt-4 px-4 py-2 rounded-lg text-xs font-semibold ${styles.badge} hover:opacity-90 active:scale-[0.98] transition-all shadow-sm`}
+              className='inline-flex items-center gap-1.5 mt-4 px-4 py-2 rounded-lg text-xs font-semibold bg-white text-gray-900 hover:bg-white/95 active:scale-[0.98] transition-all shadow-md ring-1 ring-inset ring-white/40'
             >
               {focus.action.label}
               <span aria-hidden='true'>→</span>

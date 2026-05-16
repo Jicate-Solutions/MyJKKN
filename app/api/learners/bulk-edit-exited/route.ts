@@ -302,9 +302,8 @@ export async function POST(request: NextRequest) {
         const normalized = normalizeDropdownValue(String(mappedData.blood_group), BLOOD_GROUP_VALUES);
         if (normalized) sanitizedData.blood_group = normalized;
       }
-      if (mappedData.admission_year) {
-        sanitizedData.admission_year = mappedData.admission_year;
-      }
+      // admission_year integer + admission_year_id FK are handled together
+      // after program_id is resolved below (lines around the Program block).
 
       // SECTION 2: Parent/Guardian Information
       if (mappedData.father_name) {
@@ -385,6 +384,26 @@ export async function POST(request: NextRequest) {
         }
       } else if (mappedData.program_id) {
         sanitizedData.program_id = mappedData.program_id;
+      }
+
+      // Admission year — Phase D dropped the integer column; the year value
+      // from the Excel cell is used only to resolve the admission_year_id FK.
+      // Institution is fixed by the existing profile (bulk-edit cannot retarget).
+      if (mappedData.admission_year != null && mappedData.admission_year !== '') {
+        const yearInt = Number(mappedData.admission_year);
+        if (Number.isFinite(yearInt) && sanitizedData.program_id && profile.institution_id) {
+          const { resolveAdmissionYearId } = await import(
+            '@/lib/services/admission/resolve-admission-year'
+          );
+          (sanitizedData as any).admission_year_id = await resolveAdmissionYearId(
+            supabase as any,
+            {
+              year: yearInt,
+              institutionId: profile.institution_id,
+              programId: sanitizedData.program_id,
+            }
+          );
+        }
       }
 
       // Semester (resolve name to ID if name provided)
@@ -591,9 +610,6 @@ export async function POST(request: NextRequest) {
       }
       if (mappedData.quota) {
         sanitizedData.quota = sanitizeValue(mappedData.quota, 'text');
-      }
-      if (mappedData.category) {
-        sanitizedData.category = sanitizeValue(mappedData.category, 'text');
       }
       if (mappedData.student_photo_url) {
         sanitizedData.student_photo_url = mappedData.student_photo_url;

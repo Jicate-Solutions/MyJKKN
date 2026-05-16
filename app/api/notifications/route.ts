@@ -49,11 +49,24 @@ export async function GET(request: NextRequest) {
         : undefined
     };
 
-    const notifications = await getNotifications(filters);
+    // Pass the route's cookie-scoped server client so the query runs as
+    // `authenticated`. The service's module-level fallback is anon-keyed and
+    // would trigger 500 "permission denied for function fn_notification_is_for_user"
+    // when an RLS policy on user_notifications invokes that function.
+    const notifications = await getNotifications(filters, supabase);
 
+    // Response keys cover both consumer shapes:
+    //   - `data` / `count` — original API contract (used by future server callers)
+    //   - `notifications` / `unread_count` / `has_more` — what hooks/use-notifications.ts
+    //     expects for the /notifications page list. Without these, the page renders
+    //     "No notifications yet" even though the API returns rows. Bug found 2026-05-04.
+    const limit = filters.limit ?? 20;
     return NextResponse.json({
       data: notifications,
-      count: notifications.length
+      count: notifications.length,
+      notifications,
+      unread_count: notifications.filter((n) => !n.is_read).length,
+      has_more: notifications.length === limit
     });
   } catch (error: any) {
     console.error('Error fetching notifications:', error);

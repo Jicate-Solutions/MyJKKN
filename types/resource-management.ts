@@ -182,6 +182,20 @@ export interface Resource {
   tags?: string[];
   usage_count?: number;
   reservation_count?: number;
+  // ===== Wave 1.5 HR-adapter substrate (PR-1) =====
+  // Polymorphic assignee (which entity currently holds this resource).
+  // 'none' means the resource is unassigned and back in the pool.
+  assignee_type?: 'staff' | 'student' | 'vendor' | 'none';
+  // UUID of the assignee; interpretation depends on assignee_type.
+  // NULL when assignee_type is 'none'.
+  assignee_id?: string | null;
+  // Opaque token printed on the physical QR sticker (e.g. `res_<uuidhex>`).
+  // Auto-generated on INSERT via tg_resources_set_qr_token trigger.
+  qr_code_token?: string | null;
+  // Timestamp of most recent assignToStaff()/assignTo*() call.
+  assigned_at?: string | null;
+  // Timestamp of most recent markReturned() call. Retained across re-assigns.
+  returned_at?: string | null;
   created_at: string;
   updated_at: string;
   created_by: string;
@@ -612,6 +626,10 @@ export interface ResourceFilters {
   booking_type?: BookingType;
   caretaker_user_ids?: string[]; // Filter by multiple caretakers
   available_on?: string; // Date filter for availability
+  // Wave 1.5 HR-adapter substrate (PR-1): filter by current assignment.
+  // Used by /hr/my-assets (PR-3) to scope to assignee_type='staff' + me.
+  assignee_type?: 'staff' | 'student' | 'vendor' | 'none';
+  assignee_id?: string;
   page?: number;
   limit?: number;
   sortBy?: 'name' | 'created_at' | 'status';
@@ -724,19 +742,59 @@ export const resourceSchema = z.object({
   subcategory_id: z.string().nullish(), // Made optional - not all resources need sub-categorization
   institution_id: z.string().min(1, 'Institution is required'),
   department_id: z.string().nullish(),
-  building_number: z.string().nullish(),
-  block_number: z.string().nullish(),
-  floor_number: z.string().nullish(),
-  room_number: z.string().nullish(),
+  // Length caps below mirror the DB schema. Mirror tightly so the user gets an
+  // inline error instead of a 22001 string_data_right_truncation from Postgres.
+  building_number: z
+    .string()
+    .max(50, 'Building number must be 50 characters or fewer')
+    .nullish(),
+  block_number: z
+    .string()
+    .max(50, 'Block number must be 50 characters or fewer')
+    .nullish(),
+  floor_number: z
+    .string()
+    .max(100, 'Floor number must be 100 characters or fewer')
+    .nullish(),
+  room_number: z
+    .string()
+    .max(50, 'Room number must be 50 characters or fewer')
+    .nullish(),
   location_notes: z.string().nullish(),
-  vendor_name: z.string().nullish(),
-  vendor_email: z.string().email().nullish().or(z.literal('')),
-  vendor_mobile: z.string().nullish(),
-  vendor_address_line1: z.string().nullish(),
-  vendor_address_line2: z.string().nullish(),
-  vendor_city: z.string().nullish(),
-  vendor_state: z.string().nullish(),
-  vendor_zip: z.string().nullish(),
+  vendor_name: z
+    .string()
+    .max(200, 'Vendor name must be 200 characters or fewer')
+    .nullish(),
+  vendor_email: z
+    .string()
+    .email()
+    .max(100, 'Vendor email must be 100 characters or fewer')
+    .nullish()
+    .or(z.literal('')),
+  vendor_mobile: z
+    .string()
+    .max(30, 'Vendor mobile must be 30 characters or fewer')
+    .nullish(),
+  vendor_address_line1: z
+    .string()
+    .max(255, 'Address line 1 must be 255 characters or fewer')
+    .nullish(),
+  vendor_address_line2: z
+    .string()
+    .max(255, 'Address line 2 must be 255 characters or fewer')
+    .nullish(),
+  vendor_city: z
+    .string()
+    .max(100, 'Vendor city must be 100 characters or fewer')
+    .nullish(),
+  vendor_state: z
+    .string()
+    .max(100, 'Vendor state must be 100 characters or fewer')
+    .nullish(),
+  vendor_zip: z
+    .string()
+    .max(20, 'Vendor ZIP/postal code must be 20 characters or fewer')
+    .nullish(),
   vendor_contract_details: z.string().nullish(),
   vendor_support_contact: z.string().nullish(),
   initial_stock_quantity: z.number().min(0).nullish().default(1), // Made optional with default 1

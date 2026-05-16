@@ -4,7 +4,7 @@ import { Application } from '@/types/applications';
 import { ApplicationCard } from './application-card';
 import { useEffect, useState } from 'react';
 import { ApplicationGridSkeleton } from './application-grid-skeleton';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence } from 'motion/react';
 
 interface ApplicationGridProps {
   applications: Application[];

@@ -228,19 +228,16 @@ export class ServiceRequestService {
       'Request created'
     );
 
-    // If submitted, create first approval record
-    if (initialStatus === 'submitted' && serviceType.approval_steps?.length > 0) {
-      const firstStep = serviceType.approval_steps
-        .sort((a: any, b: any) => a.step_order - b.step_order)[0];
-
-      await supabase.from('service_request_approvals').insert({
-        service_request_id: request.id,
-        approval_step_id: firstStep.id,
-        step_order: firstStep.step_order,
-        approver_id: userId, // Placeholder - will be resolved by role
-        action: 'pending',
-      });
-    }
+    // NOTE: we used to insert a placeholder "pending" row in
+    // service_request_approvals here with approver_id = userId (the submitter).
+    // That row was supposed to be UPDATED later by the actual approver via
+    // processApproval()'s maybeSingle() + UPDATE path. In practice the
+    // approver could never see the placeholder — RLS on the table only allows
+    // approver_id = auth.uid() OR requester_id = auth.uid() OR super_admin,
+    // and the actual approver matches none of those. maybeSingle() silently
+    // returned null and the code fell through to INSERT, creating a duplicate.
+    // Pending state is already represented by service_requests.status +
+    // current_approval_step; the approvals table is now the action log only.
 
     return request;
   }
@@ -341,21 +338,8 @@ export class ServiceRequestService {
       throw new Error(`Failed to submit request: ${error.message}`);
     }
 
-    // Create first pending approval record
-    const approvalSteps = request.service_type?.approval_steps || [];
-    if (approvalSteps.length > 0) {
-      const firstStep = approvalSteps.sort(
-        (a: any, b: any) => a.step_order - b.step_order
-      )[0];
-
-      await supabase.from('service_request_approvals').insert({
-        service_request_id: id,
-        approval_step_id: firstStep.id,
-        step_order: firstStep.step_order,
-        approver_id: userId, // Placeholder
-        action: 'pending',
-      });
-    }
+    // (Placeholder pending row removed — see createRequest for rationale.
+    //  Pending state lives on service_requests.status + current_approval_step.)
 
     await ServiceRequestTimelineService.addStatusChange(
       id,

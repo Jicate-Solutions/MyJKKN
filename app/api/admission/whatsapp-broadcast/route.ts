@@ -3,23 +3,24 @@ export const dynamic = 'force-dynamic';
 // app/api/admission/whatsapp-broadcast/route.ts
 // POST: Create and execute a WhatsApp broadcast campaign
 // GET: List broadcast campaigns with delivery stats
+//
+// Permission gate is delegated to withAuth({ requirePermission }) — both
+// handlers require admission.marketing.chat.manage. The legacy inline
+// permission check (super_admin || admission.marketing.chat.manage) is
+// replaced by the canonical wrapper triad.
 
-import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
+import { NextResponse } from 'next/server';
+import { withAuth } from '@/lib/auth/with-auth';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { WhatsAppCampaignService } from '@/lib/services/admission/whatsapp-campaign-service';
 import { isWhatsAppConfigured } from '@/lib/services/whatsapp/whatsapp-api-client';
 
 const MAX_BATCH_SIZE = 500;
 
-export async function POST(request: NextRequest) {
+export const POST = withAuth(async (request, auth) => {
   try {
-    const supabase = await createClient();
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    const supabase = auth.supabase;
+    const user = auth.user;
 
     if (!isWhatsAppConfigured()) {
       return NextResponse.json(
@@ -37,27 +38,6 @@ export async function POST(request: NextRequest) {
 
     if (!profile?.institution_id) {
       return NextResponse.json({ error: 'No institution found for user' }, { status: 403 });
-    }
-
-    // Check if user has broadcast permission (not just super_admin)
-    const isSuperAdmin = profile.is_super_admin === true || profile.role === 'super_admin';
-    if (!isSuperAdmin) {
-      // Check custom role permissions
-      const { data: userRolesData } = await supabase
-        .from('user_roles')
-        .select('role_id, custom_roles!inner(permissions)')
-        .eq('user_id', user.id);
-
-      const hasBroadcastPermission = (userRolesData || []).some(
-        (ur: any) => ur.custom_roles?.permissions?.['admission.marketing.chat.manage'] === true
-      );
-
-      if (!hasBroadcastPermission) {
-        return NextResponse.json(
-          { error: 'You do not have permission to send broadcast campaigns' },
-          { status: 403 }
-        );
-      }
     }
 
     const body = await request.json();
@@ -155,39 +135,11 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     );
   }
-}
+}, { allowApiKey: false, requirePermission: 'admission.marketing.chat.manage' });
 
-export async function GET(request: NextRequest) {
+export const GET = withAuth(async (request, _auth) => {
   try {
-    const supabase = await createClient();
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
-    // Check if user has permission to view broadcast campaigns
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('institution_id, role, is_super_admin')
-      .eq('id', user.id)
-      .single();
-
-    const isGetSuperAdmin = profile?.is_super_admin === true || profile?.role === 'super_admin';
-    if (!isGetSuperAdmin) {
-      const { data: getRolesData } = await supabase
-        .from('user_roles')
-        .select('role_id, custom_roles!inner(permissions)')
-        .eq('user_id', user.id);
-
-      const hasViewPermission = (getRolesData || []).some(
-        (ur: any) => ur.custom_roles?.permissions?.['admission.marketing.chat.manage'] === true
-      );
-
-      if (!hasViewPermission) {
-        return NextResponse.json({ error: 'You do not have permission to access broadcasts' }, { status: 403 });
-      }
-    }
+    // Permission gate is enforced in the wrapper (admission.marketing.chat.manage).
 
     const { searchParams } = new URL(request.url);
     const institution_id = searchParams.get('institution_id');
@@ -319,4 +271,4 @@ export async function GET(request: NextRequest) {
       { status: 500 }
     );
   }
-}
+}, { allowApiKey: false, requirePermission: 'admission.marketing.chat.manage' });

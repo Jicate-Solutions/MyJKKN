@@ -3,8 +3,11 @@
 // Added: 2026-04-08
 
 import { notFound } from 'next/navigation';
+import { cookies } from 'next/headers';
 import { createClient } from '@supabase/supabase-js';
 import PublicFormClient from './_components/public-form-client';
+
+const CAMPAIGN_TOKEN_RE = /^[A-Za-z0-9_-]{4,16}$/;
 
 export const dynamic = 'force-dynamic';
 
@@ -101,6 +104,30 @@ export default async function PublicFormPage({ params, searchParams }: PageProps
       ? (programs ?? []).filter((p: any) => form.program_ids.includes(p.id))
       : programs ?? [];
 
+  // Resolve campaign attribution: URL `?c=token` wins over the
+  // mjk_campaign_token cookie (set by /c/[token] redirect). Only links
+  // whose campaign is currently `active` count — others fall through.
+  const cookieStore = await cookies();
+  const cookieToken = cookieStore.get('mjk_campaign_token')?.value;
+  const queryToken = getStr(query.c) ?? cookieToken;
+
+  let campaignLinkId: string | undefined;
+  if (queryToken && CAMPAIGN_TOKEN_RE.test(queryToken)) {
+    const { data: linkRow } = await supabase
+      .from('admission_campaign_links')
+      .select(
+        'id, is_active, campaign:admission_campaigns!inner(status)',
+      )
+      .eq('token', queryToken)
+      .maybeSingle();
+    const campaign = Array.isArray((linkRow as any)?.campaign)
+      ? (linkRow as any).campaign[0]
+      : (linkRow as any)?.campaign;
+    if (linkRow?.is_active && campaign?.status === 'active') {
+      campaignLinkId = (linkRow as any).id as string;
+    }
+  }
+
   return (
     <PublicFormClient
       form={{ ...form, sections: sectionsWithFields }}
@@ -109,6 +136,7 @@ export default async function PublicFormPage({ params, searchParams }: PageProps
       utmSource={getStr(query.utm_source)}
       utmMedium={getStr(query.utm_medium)}
       utmCampaign={getStr(query.utm_campaign)}
+      campaignLinkId={campaignLinkId}
     />
   );
 }

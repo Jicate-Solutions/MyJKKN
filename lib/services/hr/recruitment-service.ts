@@ -29,6 +29,7 @@ import type {
   RoleCategory,
   MonthlySalaryBand,
 } from '@/types/hr-recruitment';
+import { POLICY_KEYS } from '@/lib/policies/keys';
 
 // =====================================================================================
 // Extended list filters (Phase 1A follow-up)
@@ -50,10 +51,132 @@ export interface CandidateFilters extends BaseCandidateFilters {
 }
 
 // =====================================================================================
+// Viewer-scope policy types (platform_policies-driven, 2026-05-11)
+// Seeded by migration 20260511110000_seed_hr_recruitment_approvals_scope_policies.sql
+// Director toggles enforce_scoping + edits scope_rules via
+// /admin/hr/recruitment-approvals-scope (Agent B sister PR).
+// =====================================================================================
+
+export type ScopeOption = 'all' | 'institution' | 'department' | 'hr_organization' | 'self';
+
+export interface ScopeRule {
+  scope: ScopeOption;
+}
+
+/** JSONB shape of platform_policies row `hr.recruitment.approvals.scope_rules`. */
+export type ScopeRules = Record<string, ScopeRule> & { _default?: ScopeRule };
+
+export interface ResolvedViewerScope {
+  /** False when master toggle hr.recruitment.approvals.enforce_scoping is off. */
+  enforced: boolean;
+  /** Resolved scope-rule value for the current viewer's role. */
+  scope: ScopeOption;
+  /** Viewer's institution_id (from staff). Null when no staff record. */
+  institution_id: string | null;
+  /** Viewer's department_id (from staff). Null when no staff record or candidates table lacks the column. */
+  department_id: string | null;
+  /** Viewer's hr_organization_id (from hr_employees). Null when not linked. */
+  hr_organization_id: string | null;
+  /** Viewer profiles.id (= auth.uid). */
+  viewer_id: string | null;
+}
+
+// =====================================================================================
 // Recruitment Service
 // =====================================================================================
 
 export class RecruitmentService {
+  // ----- Viewer-scope resolver (platform_policies-driven) -----
+
+  /**
+   * Resolves the viewer's scope from platform_policies + their role/staff record.
+   * Returns enforced=false when the master toggle is off (back-compat path).
+   *
+   * SQL functions READ at runtime: fn_get_policy_bool + fn_get_policy.
+   * No hardcoded scope decisions in this file — the platform_policies table
+   * is the single source of truth (edited via /admin/hr/recruitment-approvals-scope).
+   *
+   * Seeded keys (migration 20260511110000_seed_hr_recruitment_approvals_scope_policies.sql):
+   *   - hr.recruitment.approvals.enforce_scoping  (boolean, default false)
+   *   - hr.recruitment.approvals.scope_rules       (object, per-role scope mapping)
+   */
+  static async resolveViewerScope(
+    supabase: SupabaseClient
+  ): Promise<ResolvedViewerScope> {
+    const fallback: ResolvedViewerScope = {
+      enforced: false,
+      scope: 'all',
+      institution_id: null,
+      department_id: null,
+      hr_organization_id: null,
+      viewer_id: null,
+    };
+
+    // Step 1: master toggle. If off, behave exactly as pre-2026-05-11.
+    const { data: enforceData, error: enforceErr } = await supabase.rpc(
+      'fn_get_policy_bool',
+      {
+        p_key: POLICY_KEYS.HR_RECRUITMENT_APPROVALS_ENFORCE_SCOPING,
+        p_default: false,
+        p_scope_id: null,
+      }
+    );
+    if (enforceErr || !enforceData) return fallback;
+
+    // Step 2: who is the viewer?
+    const { data: userData } = await supabase.auth.getUser();
+    const viewerId = userData?.user?.id ?? null;
+    if (!viewerId) return fallback;
+
+    // Step 3: viewer's role_key (first match; multi-role is rare for staff).
+    const { data: roleRow } = await supabase
+      .from('user_roles')
+      .select('custom_roles!inner(role_key)')
+      .eq('user_id', viewerId)
+      .limit(1)
+      .maybeSingle();
+    const roleKey =
+      (roleRow as unknown as { custom_roles?: { role_key?: string } } | null)
+        ?.custom_roles?.role_key ?? null;
+
+    // Step 4: scope_rules → scope for this role (or _default fallback).
+    const { data: rulesData } = await supabase.rpc('fn_get_policy', {
+      p_key: POLICY_KEYS.HR_RECRUITMENT_APPROVALS_SCOPE_RULES,
+      p_scope_id: null,
+    });
+    const rules = (rulesData ?? {}) as ScopeRules;
+    const scope: ScopeOption =
+      (roleKey && rules[roleKey]?.scope) ?? rules._default?.scope ?? 'self';
+
+    // Step 5: viewer's institution / department (from staff) + hr_organization
+    // (from hr_employees). Best-effort: missing rows → null → scope falls back
+    // to '_default' rule via the safety filter in listCandidates.
+    const { data: staffRow } = await supabase
+      .from('staff')
+      .select('institution_id, department_id')
+      .eq('user_id', viewerId)
+      .limit(1)
+      .maybeSingle();
+    const { data: empRow } = await supabase
+      .from('hr_employees')
+      .select('hr_organization_id')
+      .eq('user_id', viewerId)
+      .limit(1)
+      .maybeSingle();
+
+    return {
+      enforced: true,
+      scope,
+      institution_id:
+        (staffRow as { institution_id?: string } | null)?.institution_id ?? null,
+      department_id:
+        (staffRow as { department_id?: string } | null)?.department_id ?? null,
+      hr_organization_id:
+        (empRow as { hr_organization_id?: string } | null)?.hr_organization_id ?? null,
+      viewer_id: viewerId,
+    };
+  }
+
   // ----- List / Get -----
 
   static async listCandidates(
@@ -70,6 +193,36 @@ export class RecruitmentService {
       .select('*', { count: 'exact' })
       .order('submitted_at', { ascending: false })
       .range(from, to);
+
+    // Apply viewer-scope policy BEFORE user-provided filters.
+    // User filters narrow further (intersection); never widen.
+    // No-op when hr.recruitment.approvals.enforce_scoping policy is false (default).
+    const viewerScope = await this.resolveViewerScope(supabase);
+    if (viewerScope.enforced) {
+      // Sentinel to lock the query to zero rows when viewer has no scope id
+      // for the required field — fail-closed (better than over-disclosure).
+      const NO_MATCH = '00000000-0000-0000-0000-000000000000';
+      switch (viewerScope.scope) {
+        case 'all':
+          break;
+        case 'institution':
+          q = q.eq('institution_id', viewerScope.institution_id ?? NO_MATCH);
+          break;
+        case 'department':
+          // hr_recruitment_candidates may not carry department_id; fall back
+          // to institution scope so HODs don't get a blanket all-or-none.
+          // TODO: add department_id to hr_recruitment_candidates when role
+          // requisitions become department-typed (T3.2 Interviews work).
+          q = q.eq('institution_id', viewerScope.institution_id ?? NO_MATCH);
+          break;
+        case 'hr_organization':
+          q = q.eq('hr_organization_id', viewerScope.hr_organization_id ?? NO_MATCH);
+          break;
+        case 'self':
+          q = q.eq('submitted_by', viewerScope.viewer_id ?? NO_MATCH);
+          break;
+      }
+    }
 
     if (filters.hr_organization_id) {
       q = q.eq('hr_organization_id', filters.hr_organization_id);
@@ -164,12 +317,17 @@ export class RecruitmentService {
     roleCategory: RoleCategory,
     monthlySalaryBand: MonthlySalaryBand | null
   ): Promise<LeaveApprovalStep[]> {
-    const { data: flows, error } = await supabase
-      .from('hr_approval_flows')
-      .select('*')
-      .eq('hr_organization_id', hrOrgId)
-      .eq('flow_for', 'recruitment_approval')
-      .eq('is_active', true);
+    // hr_approval_flows is read-only configuration data, not per-user PII.
+    // The table's RLS (hr_organization_id = auth_hr_organization_id()) hid
+    // rows from any user lacking a user_hr_access mapping, surfacing as a
+    // misleading "No recruitment approval flows configured" error even when
+    // flows exist. fn_list_active_approval_flows is a SECURITY DEFINER helper
+    // that bypasses RLS for this read (see migration
+    // 20260514090000_create_fn_list_active_approval_flows.sql).
+    const { data: flows, error } = await supabase.rpc(
+      'fn_list_active_approval_flows',
+      { p_hr_org_id: hrOrgId, p_flow_for: 'recruitment_approval' }
+    );
 
     if (error) throw error;
     if (!flows || flows.length === 0) {
@@ -302,7 +460,15 @@ export class RecruitmentService {
 
     const chain = [...(candidate.approval_chain ?? [])];
     const step = chain[candidate.current_step];
-    if (!step) throw new Error('Approval chain exhausted — no pending step found');
+    if (!step) {
+      // BUG-003310 / BUG-003302 — Friendlier wording when the chain is already complete
+      // (covers stale React Query cache showing the candidate as pending after a previous
+      // approver finished the chain, OR a re-click on an already-fully-approved candidate).
+      if (candidate.status === 'approved' || candidate.current_step >= chain.length) {
+        throw new Error('This candidate has already been fully approved.');
+      }
+      throw new Error('Approval chain exhausted — no pending step found');
+    }
 
     step.status = 'approved';
     step.decided_at = new Date().toISOString();

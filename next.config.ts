@@ -1,17 +1,10 @@
 import { withSentryConfig } from '@sentry/nextjs';
-import withSerwistInit from "@serwist/next";
 import type { NextConfig } from 'next';
 
-const withSerwist = withSerwistInit({
-  swSrc: "app/sw.ts",
-  swDest: "public/sw.js",
-  reloadOnOnline: true,
-  cacheOnNavigation: true,
-  disable: process.env.NODE_ENV !== "production",
-  additionalPrecacheEntries: [
-    { url: "/offline", revision: "1" },
-  ],
-});
+// Service worker (PWA) is built by `serwist build` after `next build` —
+// see serwist.config.mjs and the `build` script in package.json.
+// Configurator-mode replaces the previous webpack-only `withSerwistInit`
+// wrapper that silently no-op'd under Turbopack.
 
 const nextConfig: NextConfig = {
   // Cache Components disabled — codebase has 422+ dynamic routes using
@@ -19,41 +12,18 @@ const nextConfig: NextConfig = {
   // migration to use cache / connection() / Suspense before enabling.
   // cacheComponents: true,
 
-  // Exclude heavy runtime libraries from the Next.js module-trace graph.
-  //
-  // Original rationale (jspdf + fflate): jspdf depends on fflate which uses
-  // Node.js Worker via a dynamic `new Worker()` call that Turbopack cannot
-  // resolve at build time — even with `await import('jspdf')` inside a
-  // function, Turbopack still statically traces and bundles the module for
-  // SSR. Marking them as external tells Next.js to skip bundling entirely
-  // and resolve them at runtime via require() — which is never called on
-  // the server anyway.
-  //
-  // 2026-04-24 — extended to cover the remaining heavy libs (docx, exceljs,
-  // xlsx). Context: three consecutive prod deploys (`swa3v92ih`, `hw8vezub8`,
-  // `ctuwp7xm2`) failed with `FATAL ERROR: heap out of memory` at ~4m 40s
-  // into webpack compile — container had 60 GB RAM, Node heap cap 48 GB,
-  // still exhausted. The tipping point was PR #420 (adding `docx` on top of
-  // existing `jspdf`) plus a 354-LOC `bulk-capture-dialog.tsx` growth
-  // landed direct-to-main that inflated static ExcelJS usage. Per-file
-  // `await import()` conversions (#437, #438) chipped at the bundle but
-  // weren't the right layer — the webpack module-trace graph still held
-  // these packages during compile regardless of dynamic-import usage. The
-  // existing jspdf pattern in this array was the right answer — extending
-  // it to the other three libs is the systemic fix.
-  // 2026-04-29 — expanded externalization sweep. Context: Vercel build was
-  // OOM-killed at ~4m 35s into webpack compile on the 4-core / 8 GB build
-  // container after the IMS module merge (commit cec0bd4af). A first-pass
-  // fix adding only `qrcode` was insufficient (local repro with --max-old-
-  // space-size=7168 still OOMed at ~7142 MB). The fix needed to cover all
-  // heavy libs that are *actually* SSR-imported across the codebase:
-  //   - qrcode   → lib/services/ims/payment-service.ts (IMS UPI QR)
-  //   - samlify  → lib/services/saml/saml-idp-service.ts
-  //   - web-push → 6 API routes (notifications, cron) — biggest single win
-  //   - @react-pdf/renderer → app/api/users/permissions-audit/compliance-report/route.ts
-  // jszip, html2canvas, @tiptap/*, react-pdf are client-only — not added.
-  // Same pattern as the 2026-04-24 docx/exceljs/xlsx fix; restores headroom
-  // on the 8 GB container without requiring Enhanced Builds.
+  // Externalize heavy SSR-imported libs so they're not bundled into the
+  // module-trace graph. Two reasons this matters under Turbopack:
+  //   1. jspdf depends on fflate, which uses a dynamic `new Worker()` call
+  //      that Turbopack can't resolve at build time even when wrapped in
+  //      `await import()`. Marking it external skips bundling entirely;
+  //      Next.js resolves it via require() at runtime (which never fires on
+  //      the server for these libs anyway).
+  //   2. Keeps the static module trace small. Originally added as a webpack
+  //      OOM workaround (PR #420 docx + #437/#438 ExcelJS chained heap
+  //      crashes); still load-bearing under Turbopack for build-graph size.
+  // Client-only libs (jszip, html2canvas, @tiptap/*, react-pdf) are NOT
+  // listed here — they need to ship to the browser.
   serverExternalPackages: [
     'jspdf',
     'jspdf-autotable',
@@ -66,11 +36,6 @@ const nextConfig: NextConfig = {
     'web-push',
     '@react-pdf/renderer',
   ],
-
-  // Turbopack is the default bundler in Next.js 16. The @serwist/next plugin
-  // injects a webpack config for SW compilation (production only). This empty
-  // turbopack key tells Next.js we're aware and silences the mismatch error.
-  turbopack: {},
 
   // TEMPORARY: Skip type checking during build (pre-existing type errors from
   // Next.js 16 migration — searchParams must be Promise<> in App Router).
@@ -86,18 +51,6 @@ const nextConfig: NextConfig = {
   transpilePackages: ['@supabase/ssr', '@supabase/supabase-js'],
 
   experimental: {
-    // 2026-04-26 — webpackMemoryOptimizations rewrites webpack's internal
-    // structures to use less heap during compile. Source:
-    // https://nextjs.org/docs/app/guides/memory-usage
-    //
-    // 2026-04-26 (revised) — webpackBuildWorker REMOVED. It runs webpack in
-    // a worker thread which cannot receive function-typed config from the
-    // main thread (functions don't survive postMessage). That bypasses the
-    // user's `webpack: (config) => {...}` callback below, so cache-control
-    // overrides silently no-op. Empirical evidence: PR #503 set
-    // config.cache = false, build still hit PackFileCacheStrategy crash.
-    webpackMemoryOptimizations: true,
-
     // Optimize large barrel-file packages — tree-shake unused exports.
     // NOTE: Only list barrel-file packages here (ones with a large index.js
     // re-exporting many things). Native ESM packages like @supabase/* belong
@@ -116,73 +69,6 @@ const nextConfig: NextConfig = {
       'motion',         // 110 import sites
       'recharts',       // 67 import sites
     ]
-  },
-
-  // 2026-04-26 — Disable webpack persistent (filesystem) cache for production
-  // builds. webpack's PackFileCacheStrategy serializes its internal cache
-  // state to a single JSON string at end of build; once compiled output
-  // crosses a threshold, that string exceeds V8's ~512 MB max-string-length
-  // and JSON.stringify throws `RangeError: Invalid string length` even on a
-  // FRESH build with no cache restore (verified 2026-04-26 with
-  // VERCEL_FORCE_NO_BUILD_CACHE=1 — same crash, no restore involved).
-  //
-  // Setting `cache = false` disables both reads AND writes, preventing
-  // PackFileCacheStrategy from running at all. Tradeoff: no incremental
-  // build benefit, but production builds are infrequent so this is fine.
-  // Reference: https://github.com/webpack/webpack/issues/14914
-  //
-  // NOTE: this callback only takes effect because `experimental.webpackBuildWorker`
-  // is OFF — that flag spawns webpack in a worker thread that doesn't
-  // receive function-typed config from the main thread.
-  webpack: (config, { dev }) => {
-    // Step 2.6 (myjkkn-chain): console.log at top of webpack callback proves
-    // this function is actually running — i.e. webpackBuildWorker is OFF.
-    // If this line does NOT appear in the Vercel build log, the callback is
-    // being silently dropped (worker-thread postMessage strips functions).
-    // See memory: feedback_webpack_build_worker_bypasses_user_callback.md
-    console.log('[webpack-cfg] cache disabled in production — Stream C 2026-04-26');
-    if (!dev) {
-      config.cache = false;
-    }
-
-    // 2026-05-03 — silence "Critical dependency: the request of a dependency
-    // is an expression" warnings emitted by @opentelemetry/instrumentation.
-    // OpenTelemetry uses dynamic require() to load instrumentation plugins at
-    // runtime; webpack can't statically analyze that, so it flags every
-    // import path that reaches this code. The warning is purely informational
-    // — runtime behavior is fine. The chain that surfaces it on every build:
-    //   @sentry/nextjs/build/cjs/index.server.js
-    //     → @sentry/node tracing integrations
-    //       → @prisma/instrumentation, @fastify/otel, etc.
-    //         → nested @opentelemetry/instrumentation copies
-    // This codebase doesn't use Prisma/Fastify directly; the chain is dead
-    // code from Sentry's auto-detected integrations but webpack still walks
-    // it during compile.
-    //
-    // We do NOT externalize these packages via serverExternalPackages because
-    // Sentry's pre-bundled index.server.js bakes in module-id references to
-    // its inner deps — externalizing them at the top-level desyncs the
-    // module-factory map and breaks prerender at runtime (verified 2026-05-03
-    // on 3 pages with `Cannot read properties of undefined (reading 'call')`
-    // at webpack-runtime.js). ignoreWarnings only suppresses the diagnostic;
-    // bundling is unchanged, runtime is unchanged.
-    config.ignoreWarnings = [
-      ...(config.ignoreWarnings ?? []),
-      {
-        module: /node_modules[\\/]@opentelemetry[\\/]instrumentation/,
-        message: /Critical dependency: the request of a dependency is an expression/,
-      },
-      {
-        module: /node_modules[\\/]@prisma[\\/]instrumentation/,
-        message: /Critical dependency: the request of a dependency is an expression/,
-      },
-      {
-        module: /node_modules[\\/]@fastify[\\/]otel/,
-        message: /Critical dependency: the request of a dependency is an expression/,
-      },
-    ];
-
-    return config;
   },
 
   images: {
@@ -334,20 +220,18 @@ const nextConfig: NextConfig = {
   }
 };
 
-// 2026-04-29 — Sentry's webpack plugin is now opt-in via SENTRY_AUTH_TOKEN.
-// Without a token the plugin still walks the full compiled output to inject
-// debug-IDs and process source maps, even though it can't upload them. That
-// pass is a major build-memory consumer (~hundreds of MB on this codebase
-// and contributed to the 8 GB OOM on Vercel's default build container).
-// Vercel doesn't have SENTRY_AUTH_TOKEN set, so we skip the plugin there
-// entirely. Local devs and CI runners that DO set the token still get full
-// source-map upload + auto-instrumentation. Runtime Sentry SDK init in
-// sentry.{client,server,edge}.config.ts is unaffected — it runs at runtime,
-// not build time, so error reporting itself keeps working.
-const baseConfig = withSerwist(nextConfig);
-
-export default process.env.SENTRY_AUTH_TOKEN
-  ? withSentryConfig(baseConfig, {
+// Local builds (CI unset) skip Sentry's webpack plugin entirely. The plugin
+// generates source maps + instruments every module for 646 client pages,
+// pushing local Windows builds past 12 GB heap. Vercel's 8 GB container
+// completes fine because Linux webpack uses less memory and the build
+// container has fewer competing processes than a 16 GB dev laptop.
+//
+// Runtime Sentry is unaffected — Sentry.init / captureException are wired
+// in sentry.*.config.ts / instrumentation.ts and don't depend on the
+// build-time wrapper. Local builds just lose source-map remapping for
+// minified stack traces, which only matters when uploading to Sentry
+// (which requires SENTRY_AUTH_TOKEN that local devs don't have anyway).
+export default process.env.CI ? withSentryConfig(nextConfig, {
   // For all available options, see:
   // https://www.npmjs.com/package/@sentry/webpack-plugin#options
 
@@ -361,14 +245,8 @@ export default process.env.SENTRY_AUTH_TOKEN
   // For all available options, see:
   // https://docs.sentry.io/platforms/javascript/guides/nextjs/manual-setup/
 
-  // 2026-04-29 — disabled to reduce build-time memory pressure. Sentry's
-  // webpack plugin scans + processes source-map files even when no auth
-  // token is set (uploads skip, processing runs). With widenClientFileUpload
-  // OFF the plugin scans only the default narrow set, freeing memory during
-  // the webpack pass on Vercel's 8 GB build container.
-  // Trade-off: stack traces from chunked client files may be slightly less
-  // precise — acceptable for now to keep deploys green.
-  widenClientFileUpload: false,
+  // Upload a larger set of source maps for prettier stack traces (increases build time)
+  widenClientFileUpload: true,
 
   // Route browser requests to Sentry through a Next.js rewrite to circumvent ad-blockers.
   // This can increase your server load as well as your hosting bill.
@@ -389,5 +267,4 @@ export default process.env.SENTRY_AUTH_TOKEN
       removeDebugLogging: true,
     },
   }
-})
-  : baseConfig;
+}) : nextConfig;

@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { toast } from 'sonner';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
@@ -82,16 +83,32 @@ function formatDateTime(dateStr: string | null) {
 
 export default function GatePassesPage() {
   const { profile } = useAuth();
+  const searchParams = useSearchParams();
+  const learnerId = searchParams.get('learner') ?? undefined;
   const institutionId = profile?.institution_id ?? '';
-  const { data: passesRaw, isLoading } = useGatePasses(institutionId);
+  const { data: passesRaw, isLoading } = useGatePasses(
+    institutionId,
+    learnerId ? { learner_id: learnerId } : undefined,
+  );
   const { data: pendingRequests } = usePendingGatePassRequests(institutionId);
   const approveGatePass = useApproveGatePass();
   const rejectGatePass = useRejectGatePass();
 
   const passes = ((passesRaw as any)?.data ?? []) as any[];
-  const pending = (pendingRequests ?? []) as any[];
+
+  // First-row learner label powers the "Filtered to learner X" chip when the
+  // page is opened via the residents drawer deep-link (?learner=<id>).
+  const learnerLabel = learnerId
+    ? (passes[0] as any)?.learner?.full_name ?? (passes[0] as any)?.learner?.email ?? learnerId
+    : null;
+
+  // When deep-linked from ?learner=<id>, the learner-filtered passes belong on the
+  // "All" tab — the Pending tab pulls from a separate institution-wide request hook.
+  const pending = learnerId
+    ? []
+    : ((pendingRequests ?? []) as any[]);
   const [searchQuery, setSearchQuery] = useState('');
-  const [activeTab, setActiveTab] = useState('pending');
+  const [activeTab, setActiveTab] = useState(learnerId ? 'all' : 'pending');
 
   // Reject dialog state
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
@@ -173,18 +190,40 @@ export default function GatePassesPage() {
               Track student exit and entry with QR-based gate pass system
             </p>
           </div>
-          <Button
-            variant="outline"
-            onClick={() =>
-              toast.info('Gate-pass export ships next.', {
-                description: 'CSV export of gate-pass logs will be available once the export endpoint is live.',
-              })
-            }
-          >
-            <Download className="mr-2 h-4 w-4" />
-            Export
-          </Button>
+          <div className="flex gap-2">
+            <Button asChild>
+              <Link href="/campus-living/gate-passes/new">
+                <DoorOpen className="mr-2 h-4 w-4" />
+                Issue Gate Pass
+              </Link>
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() =>
+                toast.info('Gate-pass export ships next.', {
+                  description: 'CSV export of gate-pass logs will be available once the export endpoint is live.',
+                })
+              }
+            >
+              <Download className="mr-2 h-4 w-4" />
+              Export
+            </Button>
+          </div>
         </div>
+
+        {/* Deep-link chip when arrived via ?learner=… from residents drawer */}
+        {learnerId && (
+          <div className="flex items-center gap-2 rounded-md border border-dashed bg-muted/40 px-3 py-2 text-sm">
+            <span className="text-muted-foreground">Filtered to learner:</span>
+            <span className="font-medium">{learnerLabel}</span>
+            <Button variant="ghost" size="sm" className="h-7 px-2 ml-auto" asChild>
+              <Link href="/campus-living/gate-passes">
+                <X className="h-3.5 w-3.5 mr-1" />
+                Clear
+              </Link>
+            </Button>
+          </div>
+        )}
 
         {/* Overdue Alert */}
         {overdueCount > 0 && (

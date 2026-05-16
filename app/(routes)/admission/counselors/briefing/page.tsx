@@ -19,6 +19,7 @@ import { usePermissions } from '@/hooks/use-permissions';
 import { useAuth } from '@/hooks/use-auth';
 import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
 import { useLatestBriefing, useGenerateBriefing } from '@/hooks/admission/use-briefing-notifications';
+import { TodayBriefingStatus } from '@/components/admission/counselors/today-briefing-status';
 import {
   Sparkles,
   TrendingUp,
@@ -256,6 +257,9 @@ function BriefingPageContent() {
       <PermissionGuard module="admission" action="view">
         <ContentLayout title="Daily Briefing">
           <div className="space-y-6">
+            {/* Counselor briefing-adoption panel */}
+            <TodayBriefingStatus institutionId={institutionId} />
+
             {/* Breadcrumb */}
             <Breadcrumb>
               <BreadcrumbList>
@@ -316,6 +320,9 @@ function BriefingPageContent() {
     <PermissionGuard module="admission" action="view">
       <ContentLayout title="Daily Briefing">
         <div className="space-y-4 sm:space-y-6 print:space-y-4">
+          {/* Counselor briefing-adoption panel */}
+          <TodayBriefingStatus institutionId={institutionId} className="print:hidden" />
+
           {/* Staleness Warning Banner */}
           {briefing && stalenessInDays > 0 && (
             <Alert

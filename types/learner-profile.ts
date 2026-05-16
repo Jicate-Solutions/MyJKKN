@@ -12,32 +12,33 @@ import { z } from 'zod';
  * Dynamic fee line item.
  * Stored as JSONB array on learners_profiles.fee_items.
  * category_id soft-references billing_item_categories(id) — the leaf level.
- * parent_category_id / sub_category_id capture the full 3-tier path so reports
- * and read-only views can pivot without re-querying the joins.
- * *_name fields are snapshots taken at add-time to survive renames/deletes.
- * Records written before 2026-04-22 may omit parent/sub IDs (backward compat).
+ * Updated 2026-04-28: collapsed to flat billing_categories. Legacy
+ * parent_category_id / sub_category_id / *_name fields are tolerated on read
+ * for older records but are no longer written.
  */
 export interface LearnerFeeItem {
+  category_id: string;
+  category_name: string;
+  amount: number;
+  // Backward-compat: older records (pre-2026-04-28) may carry these. Ignored.
   parent_category_id?: string;
   parent_category_name?: string;
   sub_category_id?: string;
   sub_category_name?: string;
-  category_id: string;
-  category_name: string;
-  amount: number;
 }
 
 export const learnerFeeItemSchema = z.object({
-  parent_category_id: z.string().uuid('Invalid parent category id').optional(),
-  parent_category_name: z.string().optional(),
-  sub_category_id: z.string().uuid('Invalid sub category id').optional(),
-  sub_category_name: z.string().optional(),
   category_id: z.string().uuid('Invalid category id'),
   category_name: z.string().min(1, 'Category name is required'),
   amount: z.coerce
     .number()
     .int('Amount must be a whole number (no decimals)')
-    .min(0, 'Amount must be non-negative')
+    .min(0, 'Amount must be non-negative'),
+  // Optional legacy fields, accepted but not required.
+  parent_category_id: z.string().uuid().optional(),
+  parent_category_name: z.string().optional(),
+  sub_category_id: z.string().uuid().optional(),
+  sub_category_name: z.string().optional()
 });
 
 /**

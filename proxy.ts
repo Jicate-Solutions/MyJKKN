@@ -32,6 +32,7 @@ const PUBLIC_PATHS_SET = new Set([
 // Public path prefixes (for dynamic routes like /apply/[slug])
 const PUBLIC_PATH_PREFIXES = [
   '/apply/', // Public admission form builder pages — no login
+  '/c/', // Public campaign link shortener pages — no login
 ];
 
 // Regex for static assets - single check instead of multiple endsWith
@@ -57,9 +58,28 @@ const isPublicPath = (path: string): boolean => {
   return false;
 };
 
+// Legacy drip-sequence routes relocated to /automations/ (2026-05-12).
+// Keep these 301s for at least one release cycle / 90 days so external
+// bookmarks and stale links resolve.
+const LEGACY_CAMPAIGN_REDIRECTS: Record<string, string> = {
+  '/admission/marketing/campaigns/monitoring':
+    '/admission/marketing/automations/monitoring',
+  '/admission/marketing/campaigns/roi':
+    '/admission/marketing/automations/roi',
+  '/admission/marketing/campaigns/segments':
+    '/admission/marketing/automations/segments',
+};
+
 export async function proxy(request: NextRequest) {
   try {
     const currentPath = request.nextUrl.pathname;
+
+    const legacyTarget = LEGACY_CAMPAIGN_REDIRECTS[currentPath];
+    if (legacyTarget) {
+      const url = request.nextUrl.clone();
+      url.pathname = legacyTarget;
+      return NextResponse.redirect(url, 301);
+    }
 
     // Helper: inject preconnect hints to speed up Supabase and Google connections
     const addPreconnectHeaders = (response: NextResponse) => {

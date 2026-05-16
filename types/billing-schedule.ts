@@ -89,15 +89,9 @@ export interface StudentBill {
   };
   item_category?: {
     id: string;
-    item_category_name: string;
-    parent_category?: {
-      id: string;
-      parent_category_name: string;
-    };
-    sub_category?: {
-      id: string;
-      sub_category_name: string;
-    };
+    category_name: string;
+    amount?: number | null;
+    frequency?: 'monthly' | 'quarterly' | 'yearly' | 'one-time';
   };
   discounts?: BillingDiscount[];
   receipt_items?: ReceiptItem[];

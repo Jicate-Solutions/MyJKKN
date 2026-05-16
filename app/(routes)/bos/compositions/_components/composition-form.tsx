@@ -1,67 +1,52 @@
-'use client';
+﻿'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
+import { useQuery } from '@tanstack/react-query';
 
 import {
-  Form,
-  FormControl,
-  FormDescription,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
+  Form, FormControl, FormField, FormItem, FormLabel, FormMessage,
 } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
+import { SearchableSelect } from '@/components/ui/searchable-select';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 
 import { BosComposition } from '@/types/bos';
 import { usePermissions } from '@/hooks/use-permissions';
-import { logger } from '@/lib/utils/enhanced-logger';
+import { useInstitutionContext } from '@/hooks/use-institution-context';
+import { useAcademicYears } from '@/hooks/use-academic-years';
 
-// ── Types for dropdowns ───────────────────────────────────────────────────────
+// ── Types ─────────────────────────────────────────────────────────────────────
 
-interface Institution {
+interface BosInstitutionOption {
   id: string;
   name: string;
+  institution_code: string;
+  myjkkn_institution_ids: string[];
 }
 
-interface Board {
-  id: string;
-  board_code: string;
-  board_name: string;
-}
+interface Board { id: string; board_code: string; board_name: string; }
 
-// ── Validation Schema ─────────────────────────────────────────────────────────
+// ── Schema ────────────────────────────────────────────────────────────────────
 
 const compositionFormSchema = z.object({
   institutions_id: z.string().min(1, 'Institution is required'),
-  board_id: z.string().min(1, 'Board is required'),
+  board_id:        z.string().min(1, 'Board is required'),
   composition_title: z.string().min(1, 'Title is required').max(500),
   term_start_date: z.string().min(1, 'Start date is required'),
-  term_end_date: z.string().min(1, 'End date is required'),
-  academic_year: z
-    .string()
-    .regex(/^\d{4}-\d{4}$/, 'Format must be YYYY-YYYY (e.g. 2024-2025)')
-    .min(1, 'Academic year is required'),
-  constituted_by: z.string().optional(),
-  ratified_by_gc: z.boolean(),
-  ratified_date: z.string().optional(),
-  is_active: z.boolean(),
-  notes: z.string().optional(),
+  term_end_date:   z.string().min(1, 'End date is required'),
+  academic_year:   z.string().min(1, 'Academic year is required'),
+  constituted_by:  z.string().optional(),
+  ratified_by_gc:  z.boolean(),
+  ratified_date:   z.string().optional(),
+  is_active:       z.boolean(),
+  notes:           z.string().optional(),
 });
 
 export type CompositionFormValues = z.infer<typeof compositionFormSchema>;
@@ -69,7 +54,7 @@ export type CompositionFormValues = z.infer<typeof compositionFormSchema>;
 // ── Props ─────────────────────────────────────────────────────────────────────
 
 interface CompositionFormProps {
-  composition?: BosComposition; // undefined = create mode
+  composition?: BosComposition;
   isSubmitting: boolean;
   onSubmit: (data: CompositionFormValues) => void;
   onCancel: () => void;
@@ -77,20 +62,12 @@ interface CompositionFormProps {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-/** Given a start date string (YYYY-MM-DD), returns the date 3 years later */
 function addThreeYears(dateStr: string): string {
   if (!dateStr) return '';
   const d = new Date(dateStr);
   if (isNaN(d.getTime())) return '';
   d.setFullYear(d.getFullYear() + 3);
   return d.toISOString().split('T')[0];
-}
-
-/** Derive academic year string from a date string */
-function deriveAcademicYear(dateStr: string): string {
-  if (!dateStr) return '';
-  const year = new Date(dateStr).getFullYear();
-  return `${year}-${year + 1}`;
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -101,26 +78,38 @@ export function CompositionForm({
   onSubmit,
   onCancel,
 }: CompositionFormProps) {
-  const { userProfile, isSuperAdmin, isLoading: permissionsLoading } = usePermissions();
-  const [institutions, setInstitutions] = useState<Institution[]>([]);
-  const [boards, setBoards] = useState<Board[]>([]);
-  const [loadingBoards, setLoadingBoards] = useState(false);
+  const { isSuperAdmin, isLoading: permissionsLoading } = usePermissions();
+
+  // Own institution context for non-admins (auto-fill).
+  const { data: ownCtx, isLoading: ownCtxLoading } = useInstitutionContext();
+
+  // All institutions for super-admin picker — sourced from COE API (canonical names, CAS deduped).
+  const { data: allInstitutions = [], isLoading: allCtxLoading } = useQuery<BosInstitutionOption[]>({
+    queryKey: ['bos', 'institutions'],
+    queryFn: async () => {
+      const r = await fetch('/api/bos/institutions');
+      if (!r.ok) return [];
+      return r.json();
+    },
+    enabled: !!isSuperAdmin,
+    staleTime: 5 * 60 * 1000,
+  });
 
   const form = useForm<CompositionFormValues>({
     resolver: zodResolver(compositionFormSchema),
     defaultValues: composition
       ? {
           institutions_id: composition.institutions_id,
-          board_id: composition.board_id,
+          board_id:        composition.board_id,
           composition_title: composition.composition_title,
           term_start_date: composition.term_start_date,
-          term_end_date: composition.term_end_date,
-          academic_year: composition.academic_year,
-          constituted_by: composition.constituted_by ?? '',
-          ratified_by_gc: composition.ratified_by_gc,
-          ratified_date: composition.ratified_date ?? '',
-          is_active: composition.is_active,
-          notes: composition.notes ?? '',
+          term_end_date:   composition.term_end_date,
+          academic_year:   composition.academic_year,
+          constituted_by:  composition.constituted_by ?? '',
+          ratified_by_gc:  composition.ratified_by_gc,
+          ratified_date:   composition.ratified_date ?? '',
+          is_active:       composition.is_active,
+          notes:           composition.notes ?? '',
         }
       : {
           institutions_id: '',
@@ -140,156 +129,145 @@ export function CompositionForm({
   const ratifiedByGc = form.watch('ratified_by_gc');
   const institutionsId = form.watch('institutions_id');
 
-  // Fetch institutions from COE database
+  // Auto-fill institution for non-super-admins once context resolves.
   useEffect(() => {
-    fetch('/api/bos/institutions')
-      .then((r) => r.json())
-      .then((list: Institution[]) => {
-        setInstitutions(Array.isArray(list) ? list : []);
-        if (!composition && !isSuperAdmin && Array.isArray(list) && list.length === 1) {
-          form.setValue('institutions_id', list[0].id);
-        }
-      })
-      .catch((err) => logger.error('academic/bos', 'Failed to fetch institutions', err));
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Fast path: set institution from profile (non-admin)
-  useEffect(() => {
-    if (!composition && !isSuperAdmin && userProfile?.institution_id) {
-      form.setValue('institutions_id', userProfile.institution_id);
+    if (!composition && !isSuperAdmin && ownCtx?.myjkkn_id) {
+      form.setValue('institutions_id', ownCtx.myjkkn_id);
     }
-  }, [userProfile, composition, isSuperAdmin, form]);
+  }, [ownCtx?.myjkkn_id, isSuperAdmin, composition, form]);
 
-  // Fetch boards when institution changes
+  // Reset board when institution changes (create mode only); skip initial mount.
+  const institutionInitialized = useRef(false);
   useEffect(() => {
-    if (!institutionsId) {
-      setBoards([]);
-      return;
-    }
-    setLoadingBoards(true);
-    fetch(`/api/bos/boards?institutionsId=${institutionsId}`)
-      .then(async (r) => {
-        if (!r.ok) throw new Error(`Boards fetch failed: ${r.status}`);
-        return r.json();
-      })
-      .then((list) => setBoards(Array.isArray(list) ? list : []))
-      .catch((err) => {
-        logger.error('academic/bos', 'Failed to fetch boards', err);
-        setBoards([]);
-      })
-      .finally(() => setLoadingBoards(false));
-
-    // Reset board when institution changes (create mode only)
+    if (!institutionInitialized.current) { institutionInitialized.current = true; return; }
     if (!composition) form.setValue('board_id', '');
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [institutionsId]);
+  }, [institutionsId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // When start date changes: auto-fill end date (+3 years) and academic year
+  // ── Boards ──────────────────────────────────────────────────────────────────
+  // Pass the MyJKKN institution UUID to the boards route.  The server resolves
+  // CAS siblings (Aided+SF) via counselling_code lookup, so a single UUID is
+  // sufficient for both CAS and non-CAS institutions.
+  const boardInstitutionId = isSuperAdmin ? institutionsId || null : ownCtx?.myjkkn_id ?? null;
+
+  const { data: boardsRaw = [], isLoading: loadingBoards } = useQuery<Board[]>({
+    queryKey: ['bos', 'boards', boardInstitutionId],
+    enabled: !!boardInstitutionId,
+    queryFn: async () => {
+      const res = await fetch(`/api/bos/boards?institutionsId=${boardInstitutionId}`);
+      if (!res.ok) return [];
+      const json = await res.json();
+      return (Array.isArray(json) ? json : (json?.data ?? [])) as Board[];
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+
+  // ── Academic years ───────────────────────────────────────────────────────────
+  const { data: academicYearsData } = useAcademicYears(institutionsId || undefined);
+  const academicYears = academicYearsData?.data ?? [];
+
+  // Ensure the current value is always selectable (edit mode — year may be inactive).
+  const academicYearOptions = [
+    ...academicYears.map((ay) => ({ value: ay.academic_year_name, label: ay.academic_year_name })),
+    ...(composition?.academic_year && !academicYears.some((ay) => ay.academic_year_name === composition.academic_year)
+      ? [{ value: composition.academic_year, label: composition.academic_year }]
+      : []),
+  ];
+
+  // ── Constituted By ─────────────────────────────────────────────────────────
+  // Migration 20260424 converted bos_compositions.constituted_by from a
+  // staff(id) FK to VARCHAR(255) free text. Users enter authority labels here
+  // (e.g. "Principal", "Academic Council", "Vice Chancellor") rather than a
+  // specific staff record — so this is a plain text input, not a picker.
+
   const handleStartDateChange = (value: string) => {
     form.setValue('term_start_date', value);
     if (value) {
-      const endDate = addThreeYears(value);
-      form.setValue('term_end_date', endDate);
-      const acYear = deriveAcademicYear(value);
+      form.setValue('term_end_date', addThreeYears(value));
+      const year = new Date(value).getFullYear();
       if (!form.getValues('academic_year')) {
-        form.setValue('academic_year', acYear);
+        form.setValue('academic_year', `${year}-${year + 1}`);
       }
     }
   };
 
-  if (permissionsLoading) {
+  if (permissionsLoading || (!isSuperAdmin && ownCtxLoading) || (isSuperAdmin && allCtxLoading)) {
     return (
-      <div className='space-y-4'>
-        {Array.from({ length: 3 }).map((_, i) => (
-          <Skeleton key={i} className='h-16 w-full' />
-        ))}
+      <div className='space-y-3'>
+        {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className='h-16 w-full' />)}
       </div>
     );
   }
 
   return (
     <Form {...form}>
-      <form onSubmit={form.handleSubmit(onSubmit)} className='space-y-6'>
+      <form onSubmit={form.handleSubmit(onSubmit)} className='space-y-4'>
 
-        {/* ── Institution selector (super admin only) ─────────────────── */}
-        {isSuperAdmin && (
-          <Card>
-            <CardHeader>
-              <CardTitle className='text-base'>Institution</CardTitle>
-            </CardHeader>
-            <CardContent>
+        {/* ── Institution + Board ──────────────────────────────────────────── */}
+        <Card>
+          <CardContent className='pt-4 pb-4 space-y-3'>
+            <div className='grid gap-3 md:grid-cols-2'>
+
+              {/* Institution — super-admin picker / non-admin hidden */}
+              {isSuperAdmin ? (
+                <FormField
+                  control={form.control}
+                  name='institutions_id'
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Institution <span className='text-destructive'>*</span></FormLabel>
+                      <SearchableSelect
+                        value={field.value}
+                        onValueChange={(val) => {
+                          field.onChange(val);
+                          form.setValue('board_id', '');
+                        }}
+                        options={allInstitutions.map((i) => ({ value: i.id, label: i.name }))}
+                        placeholder='Select institution'
+                        searchPlaceholder='Search institution…'
+                        className='w-full'
+                      />
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              ) : (
+                <input type='hidden' {...form.register('institutions_id')} />
+              )}
+
+              {/* Board */}
               <FormField
                 control={form.control}
-                name='institutions_id'
+                name='board_id'
                 render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Institution <span className='text-destructive'>*</span></FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value}>
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder='Select institution first' />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {institutions.map((inst) => (
-                          <SelectItem key={inst.id} value={inst.id}>
-                            {inst.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                  <FormItem className={isSuperAdmin ? '' : 'md:col-span-2'}>
+                    <FormLabel>Board <span className='text-destructive'>*</span></FormLabel>
+                    <SearchableSelect
+                      value={field.value}
+                      onValueChange={field.onChange}
+                      options={boardsRaw.map((b) => ({
+                        value: b.id,
+                        label: `${b.board_name} (${b.board_code})`,
+                      }))}
+                      placeholder={!institutionsId ? 'Select institution first' : 'Select board'}
+                      searchPlaceholder='Search board…'
+                      loading={loadingBoards}
+                      disabled={!institutionsId}
+                      className='w-full'
+                    />
                     <FormMessage />
                   </FormItem>
                 )}
               />
-            </CardContent>
-          </Card>
-        )}
+            </div>
+          </CardContent>
+        </Card>
 
-        {/* ── Composition Details ───────────────────────────────────────── */}
+        {/* ── Composition Details ──────────────────────────────────────────── */}
         <Card>
-          <CardHeader>
-            <CardTitle className='text-base'>Composition Details</CardTitle>
+          <CardHeader className='py-3 px-4'>
+            <CardTitle className='text-sm font-medium'>Composition Details</CardTitle>
           </CardHeader>
-          <CardContent className='space-y-4'>
-
-            {/* Board */}
-            <FormField
-              control={form.control}
-              name='board_id'
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Board <span className='text-destructive'>*</span></FormLabel>
-                  <Select
-                    onValueChange={field.onChange}
-                    value={field.value}
-                    disabled={!institutionsId || loadingBoards}
-                  >
-                    <FormControl>
-                      <SelectTrigger>
-                        <SelectValue placeholder={
-                          !institutionsId ? 'Select institution first'
-                          : loadingBoards ? 'Loading boards...'
-                          : 'Select board'
-                        } />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      {boards.map((b) => (
-                        <SelectItem key={b.id} value={b.id}>
-                          {b.board_name} ({b.board_code})
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <FormDescription>
-                    The BoS board this composition belongs to.
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+          <CardContent className='px-4 pb-4 space-y-3'>
 
             {/* Title */}
             <FormField
@@ -304,42 +282,32 @@ export function CompositionForm({
                       {...field}
                     />
                   </FormControl>
-                  <FormDescription>
-                    Formal title that will appear on meeting notices and official documents.
-                  </FormDescription>
                   <FormMessage />
                 </FormItem>
               )}
             />
 
-            {/* Academic Year */}
-            <FormField
-              control={form.control}
-              name='academic_year'
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Academic Year <span className='text-destructive'>*</span></FormLabel>
-                  <FormControl>
-                    <Input placeholder='e.g. 2024-2025' {...field} />
-                  </FormControl>
-                  <FormDescription>
-                    Auto-filled when you set the start date. Format: YYYY-YYYY.
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-          </CardContent>
-        </Card>
-
-        {/* ── Term Period ───────────────────────────────────────────────── */}
-        <Card>
-          <CardHeader>
-            <CardTitle className='text-base'>Term Period</CardTitle>
-          </CardHeader>
-          <CardContent className='space-y-4'>
-            <div className='grid gap-4 md:grid-cols-2'>
-              {/* Start Date */}
+            {/* Academic Year + Start Date + End Date */}
+            <div className='grid gap-3 md:grid-cols-3'>
+              <FormField
+                control={form.control}
+                name='academic_year'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Academic Year <span className='text-destructive'>*</span></FormLabel>
+                    <SearchableSelect
+                      value={field.value}
+                      onValueChange={field.onChange}
+                      options={academicYearOptions}
+                      placeholder='Select year'
+                      searchPlaceholder='Search year…'
+                      disabled={!institutionsId}
+                      className='w-full'
+                    />
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
               <FormField
                 control={form.control}
                 name='term_start_date'
@@ -353,15 +321,10 @@ export function CompositionForm({
                         onChange={(e) => handleStartDateChange(e.target.value)}
                       />
                     </FormControl>
-                    <FormDescription>
-                      End date and academic year are auto-filled (start + 3 years).
-                    </FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}
               />
-
-              {/* End Date */}
               <FormField
                 control={form.control}
                 name='term_end_date'
@@ -379,14 +342,14 @@ export function CompositionForm({
           </CardContent>
         </Card>
 
-        {/* ── Governance & Status ───────────────────────────────────────── */}
+        {/* ── Governance ───────────────────────────────────────────────────── */}
         <Card>
-          <CardHeader>
-            <CardTitle className='text-base'>Governance &amp; Status</CardTitle>
+          <CardHeader className='py-3 px-4'>
+            <CardTitle className='text-sm font-medium'>Governance &amp; Status</CardTitle>
           </CardHeader>
-          <CardContent className='space-y-4'>
+          <CardContent className='px-4 pb-4 space-y-3'>
 
-            {/* Constituted By */}
+            {/* Constituted By — free-text authority label (Principal / Academic Council / VC) */}
             <FormField
               control={form.control}
               name='constituted_by'
@@ -394,36 +357,49 @@ export function CompositionForm({
                 <FormItem>
                   <FormLabel>Constituted By</FormLabel>
                   <FormControl>
-                    <Input placeholder='e.g. Principal / Academic Council / Vice Chancellor' {...field} />
+                    <Input
+                      placeholder='e.g. Principal, Academic Council, Vice Chancellor'
+                      maxLength={255}
+                      {...field}
+                      value={field.value ?? ''}
+                    />
                   </FormControl>
-                  <FormDescription>
-                    Authority who constituted this composition (for official records).
-                  </FormDescription>
                   <FormMessage />
                 </FormItem>
               )}
             />
 
-            {/* Ratified by Governing Council */}
-            <FormField
-              control={form.control}
-              name='ratified_by_gc'
-              render={({ field }) => (
-                <FormItem className='flex flex-row items-center justify-between rounded-lg border p-4'>
-                  <div className='space-y-0.5'>
-                    <FormLabel className='text-base'>Ratified by Governing Council</FormLabel>
-                    <FormDescription>
-                      Mark when the GC has formally approved this composition.
-                    </FormDescription>
-                  </div>
-                  <FormControl>
-                    <Switch checked={field.value} onCheckedChange={field.onChange} />
-                  </FormControl>
-                </FormItem>
-              )}
-            />
+            {/* Ratified by GC + Active side by side */}
+            <div className='grid gap-3 md:grid-cols-2'>
+              <FormField
+                control={form.control}
+                name='ratified_by_gc'
+                render={({ field }) => (
+                  <FormItem className='flex items-center justify-between rounded-lg border px-3 py-2.5'>
+                    <FormLabel className='text-sm cursor-pointer mb-0'>
+                      Ratified by Governing Council
+                    </FormLabel>
+                    <FormControl>
+                      <Switch checked={field.value} onCheckedChange={field.onChange} />
+                    </FormControl>
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name='is_active'
+                render={({ field }) => (
+                  <FormItem className='flex items-center justify-between rounded-lg border px-3 py-2.5'>
+                    <FormLabel className='text-sm cursor-pointer mb-0'>Active Composition</FormLabel>
+                    <FormControl>
+                      <Switch checked={field.value} onCheckedChange={field.onChange} />
+                    </FormControl>
+                  </FormItem>
+                )}
+              />
+            </div>
 
-            {/* Ratification Date (shown only when ratified_by_gc is true) */}
+            {/* Ratification date (conditional) */}
             {ratifiedByGc && (
               <FormField
                 control={form.control}
@@ -455,40 +431,20 @@ export function CompositionForm({
                       {...field}
                     />
                   </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            {/* Active Status */}
-            <FormField
-              control={form.control}
-              name='is_active'
-              render={({ field }) => (
-                <FormItem className='flex flex-row items-center justify-between rounded-lg border p-4'>
-                  <div className='space-y-0.5'>
-                    <FormLabel className='text-base'>Active Composition</FormLabel>
-                    <FormDescription>
-                      Only active compositions appear when scheduling meetings.
-                    </FormDescription>
-                  </div>
-                  <FormControl>
-                    <Switch checked={field.value} onCheckedChange={field.onChange} />
-                  </FormControl>
                 </FormItem>
               )}
             />
           </CardContent>
         </Card>
 
-        {/* ── Actions ───────────────────────────────────────────────────── */}
+        {/* ── Actions ─────────────────────────────────────────────────────── */}
         <div className='flex justify-end gap-3'>
           <Button type='button' variant='outline' onClick={onCancel} disabled={isSubmitting}>
             Cancel
           </Button>
           <Button type='submit' disabled={isSubmitting}>
             {isSubmitting
-              ? 'Saving...'
+              ? 'Saving…'
               : composition
               ? 'Update Composition'
               : 'Create Composition'}

@@ -1,5 +1,15 @@
 // lib/services/telephony/telephony-service.ts
 // Telephony service for call management in the Admission module
+//
+// Writers paired with their readers (do not collapse without checking both ends):
+//   * admission_call_logs writes here are read by /admission/counselors/calls list
+//     and the call detail page. Idempotency is keyed on call_sid.
+//   * admission_lead_activities writes here are read by the lead detail Activity
+//     tab via lib/services/admission/activity-service.ts. Schema authority lives
+//     in activity-service.ts:5-6 — keep columns aligned (subject/created_by/no extras).
+//   * Outbound logManualCall path and inbound webhook path BOTH write activities;
+//     these are direction-specific event classes, NOT redundant — never collapse.
+//
 // NOTE: This service does NOT import any Supabase client — callers must inject one.
 // API routes should pass createServiceRoleClient(); client components are not
 // expected to call this service directly (they go through API routes).
@@ -15,6 +25,9 @@ import { exotelTimeToIso } from './exotel-time';
 import { normalizePhone, phoneLastDigits } from '@/lib/utils/phone';
 import { logger } from '@/lib/utils/enhanced-logger';
 import { WAEventDispatcher } from '@/lib/services/whatsapp/wa-event-dispatcher';
+// M-1 (2026-05-03): DB-driven ExoPhone → institution resolution. Replaces the
+// inline 5-entry EXOPHONE_MAP that mis-attributed 22-of-27 active DIDs.
+import { resolveInstitutionForExoPhone } from '@/lib/services/admin/exophone-institution-map-service';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // TYPES
@@ -33,6 +46,9 @@ export interface LogCallInput {
   institution_id: string;
   counselor_id?: string;
   phone_called: string;
+  // call_outcome is required ONLY in call mode; for update_only it may be omitted.
+  // Kept as required in the type for backward compat — UI passes a default 'connected'
+  // when update_only is set (it's ignored server-side in update-only branch).
   call_outcome: CallOutcome;
   interest_level?: InterestLevel;
   next_action?: NextAction;
@@ -41,6 +57,19 @@ export interface LogCallInput {
   follow_up_time?: string | null;
   suggested_stage?: string | null;
   accept_stage_change?: boolean;
+
+  // ── Phase 1 consolidation (2026-05-12) ──
+  // update_only=true skips the admission_call_logs.insert and writes only the lead
+  // update + a note-type activity. Used by counselors to update a lead without a call.
+  update_only?: boolean;
+  // manual_stage takes precedence over (suggested_stage + accept_stage_change) when set.
+  // Validated against ALLOWED_STAGE_TRANSITIONS in the API route, not here.
+  manual_stage?: string | null;
+  // Lead flag toggles — null/undefined = leave unchanged; boolean = set to that value.
+  is_hot_lead?: boolean;
+  is_priority?: boolean;
+  // Full tag array (replace semantics). Undefined = leave unchanged.
+  tags?: string[];
 }
 
 export type CallDirection = 'inbound' | 'outbound';
@@ -70,6 +99,19 @@ export interface CallLog {
   created_at: string;
   updated_at: string;
 
+  // Voice-memo pipeline (admission_call_logs.memo_* — written by analyze-voice-memos cron)
+  // Already selected via select('*') in getCallLogs / details routes.
+  memo_audio_url?: string | null;
+  memo_audio_duration_seconds?: number | null;
+  memo_transcript?: string | null;
+  memo_transcript_language?: string | null;
+  memo_sentiment?: string | null;
+  memo_sentiment_score?: number | null;
+  memo_summary?: string | null;
+  memo_categories?: string[] | null;
+  memo_analyze_status?: string | null;
+  memo_analyzed_at?: string | null;
+
   // Relationships (optional populated)
   lead?: { id: string; full_name: string; phone: string };
   counselor?: { id: string; full_name: string };
@@ -87,6 +129,12 @@ export interface CallLogFilters {
   to_date?: string;
   has_notes?: boolean;
   admission_only?: boolean;
+  /**
+   * When provided, restricts results to call logs whose lead_id is in this set.
+   * Used by the API route to mirror admission_leads source-scoping for strict
+   * counselor users. Empty array = no results.
+   */
+  lead_id_in?: string[];
   page?: number;
   limit?: number;
   sort_by?: string;
@@ -234,6 +282,16 @@ export class TelephonyService {
     if (filters.institution_id) query = query.eq('institution_id', filters.institution_id);
     if (filters.lead_id) query = query.eq('lead_id', filters.lead_id);
     if (filters.counselor_id) query = query.eq('counselor_id', filters.counselor_id);
+    // lead_id_in: counselor-visibility scope from the API route. Empty array
+    // means "no accessible leads" — return no rows rather than ignoring the
+    // filter (which would be a permission leak).
+    if (filters.lead_id_in) {
+      if (filters.lead_id_in.length === 0) {
+        query = query.eq('id', '00000000-0000-0000-0000-000000000000');
+      } else {
+        query = query.in('lead_id', filters.lead_id_in);
+      }
+    }
     if (filters.direction) query = query.eq('direction', filters.direction);
     // Use started_at (actual call time) not created_at (DB sync time)
     if (filters.from_date) query = query.gte('started_at', filters.from_date);
@@ -260,7 +318,7 @@ export class TelephonyService {
     if (filters.admission_only) query = query.eq('is_admission_call', true);
 
     query = query
-      .order(filters.sort_by || 'started_at', { ascending: filters.sort_order === 'asc' })
+      .order(filters.sort_by || 'started_at', { ascending: filters.sort_order === 'asc', nullsFirst: false })
       .range(offset, offset + limit - 1);
 
     const { data, count, error } = await query;
@@ -630,19 +688,79 @@ export class TelephonyService {
 
   static async logManualCall(input: LogCallInput, supabase: any): Promise<{ callLog: any; leadUpdated: boolean }> {
     const { mapOutcomeToDisposition } = await import('@/lib/utils/admission/stage-suggestions');
-    const disposition = mapOutcomeToDisposition(input.call_outcome, input.interest_level);
     const followUpDateTime = input.follow_up_date ? (input.follow_up_time ? `${input.follow_up_date}T${input.follow_up_time}:00` : `${input.follow_up_date}T09:00:00`) : null;
-    const { data: callLog, error: callError } = await supabase.from('admission_call_logs').insert({ institution_id: input.institution_id, lead_id: input.lead_id, counselor_id: input.counselor_id || null, direction: 'outbound', status: 'completed', call_disposition: disposition, from_number: 'manual', to_number: input.phone_called, duration_seconds: 0, call_notes: input.call_notes || null, follow_up_date: followUpDateTime, is_admission_call: true }).select().single();
-    if (callError) throw new Error(`Failed to log call: ${callError.message}`);
-    let leadUpdated = false;
-    const leadUpdate: Record<string, any> = { last_contact_at: new Date().toISOString(), updated_at: new Date().toISOString() };
+
+    // ── Resolve target stage (manual override wins over suggested-accept) ──
+    let targetStage: string | null = null;
+    if (input.manual_stage) {
+      targetStage = input.manual_stage;
+    } else if (input.accept_stage_change && input.suggested_stage) {
+      targetStage = input.suggested_stage;
+    }
+
+    // ── Build the lead-update payload (shared by both branches) ──
+    // null/undefined-aware: only set keys the caller actually wants to change so
+    // we don't accidentally null out fields like `tags` on a call-mode save.
+    const leadUpdate: Record<string, any> = { updated_at: new Date().toISOString() };
     if (followUpDateTime) leadUpdate.next_followup_at = followUpDateTime;
-    if (input.accept_stage_change && input.suggested_stage) {
+    if (typeof input.is_hot_lead === 'boolean') leadUpdate.is_hot_lead = input.is_hot_lead;
+    if (typeof input.is_priority === 'boolean') leadUpdate.is_priority = input.is_priority;
+    if (Array.isArray(input.tags)) leadUpdate.tags = input.tags;
+
+    if (targetStage) {
       const { data: cur } = await supabase.from('admission_leads').select('funnel_stage').eq('id', input.lead_id).single();
-      leadUpdate.funnel_stage = input.suggested_stage;
+      leadUpdate.funnel_stage = targetStage;
       leadUpdate.previous_stage = cur?.funnel_stage || 'new';
       leadUpdate.stage_changed_at = new Date().toISOString();
     }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // BRANCH B — Update-only mode (no call attempt, just a lead mutation)
+    // Skip admission_call_logs.insert; write only lead + a note-type activity.
+    // ─────────────────────────────────────────────────────────────────────
+    if (input.update_only) {
+      // For update-only there's no call, so last_contact_at must NOT be bumped
+      // (it tracks actual contact, not internal CRM edits). Use last_activity_at.
+      leadUpdate.last_activity_at = new Date().toISOString();
+
+      const { error: leadError } = await supabase.from('admission_leads').update(leadUpdate).eq('id', input.lead_id);
+      if (leadError) throw new Error(`Failed to update lead: ${leadError.message}`);
+
+      // Write a 'note' activity describing what changed so it surfaces in the
+      // unified Activity timeline. Mirror the pipe-delimited description style
+      // used by inbound-call-sync-service so the timeline renders consistently.
+      const changeParts: string[] = [];
+      if (targetStage) changeParts.push(`Stage: ${targetStage}`);
+      if (typeof input.is_hot_lead === 'boolean') changeParts.push(`Hot: ${input.is_hot_lead ? 'yes' : 'no'}`);
+      if (typeof input.is_priority === 'boolean') changeParts.push(`Priority: ${input.is_priority ? 'yes' : 'no'}`);
+      if (Array.isArray(input.tags)) changeParts.push(`Tags: ${input.tags.join(', ') || '(none)'}`);
+      if (followUpDateTime) changeParts.push(`Follow-up: ${followUpDateTime}`);
+      if (input.call_notes) changeParts.push(input.call_notes);
+
+      await supabase.from('admission_lead_activities').insert({
+        lead_id: input.lead_id,
+        activity_type: 'note',
+        subject: 'Counselor update',
+        description: changeParts.length > 0 ? changeParts.join(' | ') : 'Lead updated',
+        outcome: null,
+        created_by: input.counselor_id || null,
+      });
+
+      return { callLog: null, leadUpdated: true };
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // BRANCH A — Call mode (existing behavior — keep byte-equivalent insert)
+    // ─────────────────────────────────────────────────────────────────────
+    const disposition = mapOutcomeToDisposition(input.call_outcome, input.interest_level);
+    const manualCallSid = `manual-${crypto.randomUUID()}`;
+    const { data: callLog, error: callError } = await supabase.from('admission_call_logs').insert({ call_sid: manualCallSid, institution_id: input.institution_id, lead_id: input.lead_id, counselor_id: input.counselor_id || null, direction: 'outbound', status: 'completed', call_disposition: disposition, from_number: 'manual', to_number: input.phone_called, duration_seconds: 0, call_notes: input.call_notes || null, follow_up_date: followUpDateTime, is_admission_call: true }).select().single();
+    if (callError) throw new Error(`Failed to log call: ${callError.message}`);
+
+    // Call mode bumps last_contact_at (an actual contact happened)
+    leadUpdate.last_contact_at = new Date().toISOString();
+
+    let leadUpdated = false;
     const { error: leadError } = await supabase.from('admission_leads').update(leadUpdate).eq('id', input.lead_id);
     if (!leadError) leadUpdated = true;
     await supabase.from('admission_lead_activities').insert({ lead_id: input.lead_id, activity_type: 'call', subject: `Call ${input.call_outcome}`, description: [`Outcome: ${input.call_outcome}`, input.interest_level ? `Interest: ${input.interest_level}` : null, input.next_action ? `Next: ${input.next_action.replace(/_/g, ' ')}` : null, input.call_notes || null].filter(Boolean).join(' | '), outcome: disposition, created_by: input.counselor_id || null });
@@ -910,6 +1028,11 @@ export class TelephonyService {
           ended_at: exotelTimeToIso(payload.EndTime),
           answered_at: durationSec > 0 ? (exotelTimeToIso(payload.StartTime) || new Date().toISOString()) : null,
           is_admission_call: isAdmissionCall(agentPhone || exoPhone, exoPhone),
+          // Signal 4 prereq: preserve raw DialWhomNumber from Passthru webhook so the
+          // 712+ ExoPhone-bucket rows can be attributed once the Signal 4 helper lands.
+          // Stored unnormalized (as Exotel delivers it) so no precision is lost.
+          // Do NOT consume this column for attribution in this PR — follow-up only.
+          dial_whom_number: dialWhomNumber || null,
         })
         .select('id, status, institution_id, call_sid')
         .single();
@@ -1181,28 +1304,35 @@ export class TelephonyService {
     }
 
     if (finalLeadId) {
-      const activityTitle = isConnected
+      const mappedStatus = isConnected ? 'connected' : 'missed';
+      const activitySubject = isConnected
         ? `Inbound call — ${Math.floor(durationSec / 60)}m ${durationSec % 60}s with ${callContext.agentName || 'agent'}`
         : `Missed inbound call (attempt #${callCount} in 7 days)`;
 
-      await supabase.from('admission_lead_activities').insert({
-        lead_id: finalLeadId,
-        institution_id: institutionId,
-        activity_type: 'call',
-        title: activityTitle,
-        description: isMissed
+      // Bake what was previously the metadata object into a pipe-delimited
+      // description string — match inbound-call-sync-service style. Production
+      // schema for admission_lead_activities has no metadata/title/performed_by/
+      // institution_id columns; writing them silently failed pre-fix.
+      const descriptionParts = [
+        isMissed
           ? `Caller tried to reach ${callContext.department}${callContext.college ? ` (${callContext.college})` : ''}. No one answered.`
           : `Connected with ${callContext.agentName || 'agent'} in ${callContext.department}${callContext.college ? ` (${callContext.college})` : ''}.`,
-        performed_by: counselorId || null,
-        metadata: {
-          call_log_id: callLogId,
-          direction: 'inbound',
-          duration_seconds: durationSec,
-          department: callContext.department,
-          college: callContext.college,
-          call_number_today: callCount,
-          missed_count_today: missedCount,
-        },
+        `Direction: inbound`,
+        durationSec > 0 ? `Duration: ${durationSec}s` : null,
+        callContext.department ? `Department: ${callContext.department}` : null,
+        callContext.college ? `College: ${callContext.college}` : null,
+        `Call #${callCount} today`,
+        missedCount > 0 ? `Missed today: ${missedCount}` : null,
+        `call_log_id: ${callLogId}`,
+      ].filter(Boolean);
+
+      await supabase.from('admission_lead_activities').insert({
+        lead_id: finalLeadId,
+        activity_type: 'call',
+        subject: activitySubject,
+        description: descriptionParts.join(' | '),
+        outcome: mappedStatus,
+        created_by: counselorId || null,
       });
 
       // ── 5. Update lead: last_contacted_at + priority boost ──
@@ -1288,32 +1418,22 @@ export class TelephonyService {
 
   /**
    * Map an ExoPhone number to an institution_id.
-   * Uses a simple mapping table — extend as needed.
+   *
+   * As of 2026-05-03 (M-1, brand-integrity recovery), this reads from the
+   * `exophone_institution_map` DB table via `resolveInstitutionForExoPhone()`.
+   * That helper has a 60s in-memory cache and falls back to a 5-entry hardcoded
+   * map if the DB read fails — zero regression risk relative to the previous
+   * inline EXOPHONE_MAP. Director adds/edits DIDs via /admin/exophone-mapping.
+   *
+   * Per probe-capture-2026-05-03.md (D1): 22 of 27 active inbound DIDs were
+   * silently defaulting to JKKN Pharmacy before this — 8+ institutions
+   * mis-attributed in dashboards.
    */
   private static async getInstitutionForExoPhone(
     exoPhone: string,
-    _supabase: any
+    supabase: any
   ): Promise<string | null> {
-    // ExoPhone → institution mapping
-    // All JKKN ExoPhones map to the primary JKKN institution
-    // This could be moved to a DB config table in the future
-    // Use JKKN College of Pharmacy as default (most admission calls go here)
-    // Production has separate institutions per college — the agent mapping + lead matching
-    // determines the correct institution. This is just the fallback.
-    const DEFAULT_INSTITUTION = process.env.EXOTEL_DEFAULT_INSTITUTION_ID
-      || '5736d86f-5dab-4b7f-9aa1-b3bb1a2dd334'; // JKKN College of Pharmacy (production)
-
-    const EXOPHONE_MAP: Record<string, string> = {
-      '04446313503': DEFAULT_INSTITUTION, // 1-JKKN-COLLEGES (main IVR)
-      '04446313545': DEFAULT_INSTITUTION, // JKKN secondary
-      '04446313596': DEFAULT_INSTITUTION, // JKKN tertiary
-      '04448134434': DEFAULT_INSTITUTION, // JKKN main
-      '04446310202': DEFAULT_INSTITUTION, // Dharmapuri
-    };
-
-    // Strip any prefix and try matching
-    const cleanPhone = exoPhone.replace(/^\+91/, '').replace(/^91/, '');
-    return EXOPHONE_MAP[cleanPhone] || EXOPHONE_MAP[exoPhone] || null;
+    return resolveInstitutionForExoPhone(exoPhone, supabase);
   }
 
   // ═══════════════════════════════════════════════════════════════════════

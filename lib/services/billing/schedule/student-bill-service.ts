@@ -51,17 +51,11 @@ export class StudentBillService {
             name,
             counselling_code
           ),
-          item_category:billing_item_categories(
+          item_category:billing_categories(
             id,
-            item_category_name,
-            parent_category:billing_parent_categories(
-              id,
-              parent_category_name
-            ),
-            sub_category:billing_sub_categories(
-              id,
-              sub_category_name
-            )
+            category_name,
+            amount,
+            frequency
           )
         `
         )
@@ -191,17 +185,11 @@ export class StudentBillService {
             name,
             counselling_code
           ),
-          item_category:billing_item_categories(
+          item_category:billing_categories(
             id,
-            item_category_name,
-            parent_category:billing_parent_categories(
-              id,
-              parent_category_name
-            ),
-            sub_category:billing_sub_categories(
-              id,
-              sub_category_name
-            )
+            category_name,
+            amount,
+            frequency
           )
         `
         )
@@ -310,9 +298,11 @@ export class StudentBillService {
               id,
               name
             ),
-            item_category:billing_item_categories(
+            item_category:billing_categories(
               id,
-              item_category_name
+              category_name,
+              amount,
+              frequency
             )
           `,
           { count: 'exact' }
@@ -354,9 +344,11 @@ export class StudentBillService {
               id,
               name
             ),
-            item_category:billing_item_categories(
+            item_category:billing_categories(
               id,
-              item_category_name
+              category_name,
+              amount,
+              frequency
             )
           `,
           { count: 'exact' }
@@ -538,7 +530,7 @@ export class StudentBillService {
           },
           item_category: {
             id: bill.item_category_id,
-            item_category_name: itemCategoryData?.item_category_name || ''
+            category_name: itemCategoryData?.category_name || ''
           }
         };
       });
@@ -581,17 +573,11 @@ export class StudentBillService {
             name,
             counselling_code
           ),
-          item_category:billing_item_categories(
+          item_category:billing_categories(
             id,
-            item_category_name,
-            parent_category:billing_parent_categories(
-              id,
-              parent_category_name
-            ),
-            sub_category:billing_sub_categories(
-              id,
-              sub_category_name
-            )
+            category_name,
+            amount,
+            frequency
           ),
           discounts:billing_discounts(
             *,
@@ -633,17 +619,11 @@ export class StudentBillService {
         .select(
           `
           *,
-          item_category:billing_item_categories(
+          item_category:billing_categories(
             id,
-            item_category_name,
-            parent_category:billing_parent_categories(
-              id,
-              parent_category_name
-            ),
-            sub_category:billing_sub_categories(
-              id,
-              sub_category_name
-            )
+            category_name,
+            amount,
+            frequency
           ),
           discounts:billing_discounts(*),
           receipt_items:billing_receipt_items(
@@ -670,12 +650,20 @@ export class StudentBillService {
   }
 
   static async bulkCreateStudentBills(
-    bulkData: BulkBillScheduleDto
+    bulkData: BulkBillScheduleDto,
+    onProgress?: (done: number, total: number) => void
   ): Promise<BulkOperationResult> {
     const results: BulkOperationResult = {
       success: [],
       failed: []
     };
+
+    // Total work units = students × bills-per-student. The loop is sequential
+    // (Supabase round-trip per row), so reporting after each iteration gives
+    // truthful, monotonically-increasing progress.
+    const total = bulkData.student_ids.length * bulkData.bills.length;
+    let done = 0;
+    onProgress?.(0, total);
 
     for (const studentId of bulkData.student_ids) {
       for (const billData of bulkData.bills) {
@@ -690,6 +678,9 @@ export class StudentBillService {
             id: studentId,
             error: error instanceof Error ? error.message : 'Unknown error'
           });
+        } finally {
+          done += 1;
+          onProgress?.(done, total);
         }
       }
     }
@@ -794,17 +785,11 @@ export class StudentBillService {
         .select(
           `
           *,
-          item_category:billing_item_categories(
+          item_category:billing_categories(
             id,
-            item_category_name,
-            parent_category:billing_parent_categories(
-              id,
-              parent_category_name
-            ),
-            sub_category:billing_sub_categories(
-              id,
-              sub_category_name
-            )
+            category_name,
+            amount,
+            frequency
           )
         `
         )

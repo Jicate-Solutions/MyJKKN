@@ -65,8 +65,8 @@ export default function BoSDashboard() {
   const { isSuperAdmin, canAccess } = usePermissions();
   const router = useRouter();
 
-  const canCreateMeeting = isSuperAdmin || canAccess('academic.bos-meetings', 'create');
-  const canCreateComposition = isSuperAdmin || canAccess('academic.bos-compositions', 'create');
+  const canCreateMeeting = isSuperAdmin || canAccess('bos.meetings', 'create');
+  const canCreateComposition = isSuperAdmin || canAccess('bos.compositions', 'create');
 
   const { data: meetingsData, isLoading: loadingMeetings } = useBosMeetings({
     institutionsId: profile?.institution_id,

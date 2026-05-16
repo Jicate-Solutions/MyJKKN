@@ -86,7 +86,6 @@ export async function GET(
     last_school: string | null;
     board_of_study: string | null;
     quota: string | null;
-    category: string | null;
     entry_type: string | null;
     permanent_address_street: string | null;
     permanent_address_taluk: string | null;
@@ -122,7 +121,7 @@ export async function GET(
         'id, first_name, last_name, student_email, student_mobile, lifecycle_status, application_id, ' +
         'father_name, father_occupation, father_mobile, mother_name, mother_occupation, mother_mobile, ' +
         'date_of_birth, gender, religion, community, caste, annual_income, ' +
-        'last_school, board_of_study, quota, category, entry_type, ' +
+        'last_school, board_of_study, quota, entry_type, ' +
         'permanent_address_street, permanent_address_taluk, permanent_address_district, ' +
         'permanent_address_pin_code, permanent_address_state, ' +
         'accommodation_type, hostel_type, reference_type, reference_name, reference_contact, ' +

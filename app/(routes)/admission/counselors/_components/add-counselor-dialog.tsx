@@ -69,6 +69,23 @@ type SelectedUser = {
 
 type UserType = 'learner' | 'facilitator';
 
+// Counsellor role options exposed in the Add Counselor dialog. Mirrors the
+// allowlist enforced by assign_counselor_role(p_role_key) — health_counselor
+// is intentionally excluded (its confidentiality contract means it should
+// only be granted via Role Management, not a generic admin UI).
+type CounselorRoleKey =
+  | 'admission_counselor'
+  | 'expo_counselor'
+  | 'learner_counselor'
+  | 'staff_counselor';
+
+const COUNSELOR_ROLE_OPTIONS: { value: CounselorRoleKey; label: string; hint: string }[] = [
+  { value: 'admission_counselor', label: 'Admission Counsellor', hint: 'Lead follow-up, communication, conversion tracking' },
+  { value: 'expo_counselor',      label: 'Expo Counsellor',      hint: 'Expo / field event lead capture and follow-up' },
+  { value: 'learner_counselor',   label: 'Learner Counsellor',   hint: 'Enrolled-learner academic and well-being support' },
+  { value: 'staff_counselor',     label: 'Staff Counsellor',     hint: 'Employee workplace wellness and grievance support' },
+];
+
 export function AddCounselorDialog({
   open,
   onOpenChange,
@@ -78,26 +95,36 @@ export function AddCounselorDialog({
   const { institutions } = useInstitutionsWithAccess();
   const supabase = createClientSupabaseClient();
 
-  // Assigns the counselor role via the SECURITY DEFINER RPC introduced 2026-04-27
-  // (migration 20260427_add_assign_counselor_role_rpc.sql). A direct user_roles
-  // INSERT from the browser is RLS-blocked for admission/admission_staff/counselor
-  // users (the user_roles INSERT policy needs roles.create, which those roles
-  // intentionally lack). The RPC bypasses RLS but re-checks authorization
-  // internally — the caller must have admission.counselors.create and the target
-  // must already have an admission_counselors row.
+  // Assigns the counsellor role via the SECURITY DEFINER RPC introduced
+  // 2026-04-27, extended 2026-04-30 to accept a role_key, and corrected
+  // 2026-05-08 to preserve the user's existing primary role. A direct
+  // user_roles INSERT from the browser is RLS-blocked for admission/
+  // admission_staff users (user_roles INSERT policy needs roles.create,
+  // which those roles intentionally lack). The RPC bypasses RLS but re-
+  // checks authorization internally — the caller must have
+  // admission.counselors.create, the target must already have an
+  // admission_counselors row, and p_role_key must be one of the four
+  // allowlisted counsellor keys.
   //
-  // Two counselors created on 2026-04-27 04:37 UTC ended up with NO user_roles
+  // We pass p_is_primary: false explicitly so the new counsellor role is
+  // ALWAYS additive. Without this the SQL DEFAULT would have flipped the
+  // user's primary role and the AFTER-INSERT sync_primary_role_to_profile
+  // trigger would mirror it into profiles.role, overwriting their prior
+  // identity (e.g. 'student' → 'learner_counselor'). The v3 RPC defaults
+  // already auto-detect this case, but sending false is belt-and-braces.
+  //
+  // Two counsellors created on 2026-04-27 04:37 UTC ended up with NO user_roles
   // entry because the previous "non-blocking best-effort" implementation never
-  // destructured {error} from .insert() — Supabase returns RLS denials in the
-  // result, not as a thrown exception, so the catch block never fired. Returns
-  // {ok, message} so the submit handler can surface failures via toast.
+  // destructured {error} from .insert(). Returns {ok, message} so the submit
+  // handler can surface failures via toast.
   const assignCounselorRole = async (
     profileId: string,
+    roleKey: CounselorRoleKey,
   ): Promise<{ ok: boolean; message?: string }> => {
-    // Cast: the generated supabase types don't include this RPC name yet, same
-    // pattern as lib/services/staff/staff-service.ts:206 for mirror_staff_role.
     const { error } = await (supabase as any).rpc('assign_counselor_role', {
       p_user_id: profileId,
+      p_role_key: roleKey,
+      p_is_primary: false,
     });
     if (error) {
       console.error('[admission/counselors] assign_counselor_role RPC failed:', error);
@@ -108,6 +135,7 @@ export function AddCounselorDialog({
 
   // ---------- State ----------
   const [userType, setUserType] = useState<UserType>('learner');
+  const [roleKey, setRoleKey] = useState<CounselorRoleKey>('admission_counselor');
 
   // Hierarchy filter state
   const [existInstitutionId, setExistInstitutionId] = useState(propInstitutionId || '');
@@ -123,8 +151,10 @@ export function AddCounselorDialog({
   const [userSearchFilter, setUserSearchFilter] = useState('');
   const [selectedUser, setSelectedUser] = useState<SelectedUser | null>(null);
 
-  // Counselor settings
-  const [maxLeads, setMaxLeads] = useState(50);
+  // Counselor settings — 5000 default mirrors the DB column default raised on
+  // 2026-05-11 (was 50, which left 56% of counselors at-cap and invisible to
+  // auto-routing).
+  const [maxLeads, setMaxLeads] = useState(5000);
   const [specializations, setSpecializations] = useState('');
 
   // Submit state
@@ -179,6 +209,7 @@ export function AddCounselorDialog({
   useEffect(() => {
     if (!open) {
       setUserType('learner');
+      setRoleKey('admission_counselor');
       setExistInstitutionId(propInstitutionId || '');
       setDegreeId('');
       setDepartmentId('');
@@ -188,7 +219,7 @@ export function AddCounselorDialog({
       setUserResults([]);
       setUserSearchFilter('');
       setSelectedUser(null);
-      setMaxLeads(50);
+      setMaxLeads(5000);
       setSpecializations('');
     }
   }, [open, propInstitutionId]);
@@ -302,32 +333,124 @@ export function AddCounselorDialog({
 
         setUserResults((data as LearnerResult[]) || []);
       } else {
-        // BUG (2026-04-21): Pre-registered profiles have a `profiles` row but no
-        // corresponding `auth.users` row, so selecting them caused
-        // `admission_counselors_user_id_fkey` (profiles.user_id -> auth.users.id)
-        // to fail at insert time. Filter them out of the picker: a user who has
-        // not yet activated their account cannot be assigned as a counselor.
-        // `is_pre_registered` flips to false on first OAuth/email login.
-        // Using `.not('is_pre_registered', 'is', true)` matches both `false` and
-        // `NULL`, which is defensive given the column is nullable.
-        let query = supabase
-          .from('profiles')
-          .select('id, full_name, email, phone_number, role')
+        // Source of truth for the staff picker is the `staff` table — it covers
+        // BOTH teaching AND non-teaching categories (employment_categories.is_teaching).
+        // The previous implementation filtered `profiles.role IN (...)` against a
+        // hardcoded list ('faculty','hod','staff','digital_coordinator',
+        // 'admission_counselor','expo_counselor'); but staff.role_key is dynamic
+        // (FK to custom_roles.role_key) and sync_staff_to_profiles mirrors it into
+        // profiles.role verbatim, so any non-teaching role_key outside that list
+        // (librarian, lab_technician, office_assistant, custom roles, …) was being
+        // silently dropped. Fixed 2026-05-09.
+        //
+        // Pre-registered filter still applies: profiles with is_pre_registered=true
+        // have no auth.users row, and admission_counselors.user_id FK would 23503
+        // on insert. `is_pre_registered` flips to false on first OAuth/email login.
+        let staffQuery = supabase
+          .from('staff')
+          .select(`
+            id,
+            profile_id,
+            department_id,
+            role_key,
+            first_name,
+            last_name,
+            profile:profile_id (
+              id,
+              full_name,
+              email,
+              phone_number,
+              role,
+              is_pre_registered
+            )
+          `)
           .eq('institution_id', existInstitutionId)
-          .in('role', ['faculty', 'hod', 'staff', 'digital_coordinator'])
+          .eq('is_active', true)
+          .not('profile_id', 'is', null);
+
+        if (departmentId) staffQuery = staffQuery.eq('department_id', departmentId);
+
+        // Fallback: digital_coordinator / admission_counselor / expo_counselor
+        // users may exist as standalone `profiles` rows without a `staff` record
+        // (e.g. counselors hired directly into the admission system). Keep them
+        // pickable to preserve original behavior.
+        let profilesQuery = supabase
+          .from('profiles')
+          .select('id, full_name, email, phone_number, role, department_id')
+          .eq('institution_id', existInstitutionId)
+          .in('role', ['digital_coordinator', 'admission_counselor', 'expo_counselor'])
           .not('is_pre_registered', 'is', true);
 
-        if (departmentId) query = query.eq('department_id', departmentId);
+        if (departmentId) profilesQuery = profilesQuery.eq('department_id', departmentId);
 
-        const { data, error } = await query.order('full_name').limit(200);
+        const [staffRes, profilesRes] = await Promise.all([
+          staffQuery.order('first_name').limit(200),
+          profilesQuery.order('full_name').limit(200),
+        ]);
 
-        if (error) {
-          console.error('[admission/counselors] Facilitator query failed:', error);
-          toast.error('Failed to load facilitators');
+        if (staffRes.error) {
+          console.error('[admission/counselors] Staff query failed:', staffRes.error);
+          toast.error('Failed to load staff');
           return;
         }
+        if (profilesRes.error) {
+          // Non-fatal: staff results are still useful even if the standalone-profile
+          // fallback fails. Surface a warning toast so the operator sees the issue.
+          console.error('[admission/counselors] Standalone profiles fallback failed:', profilesRes.error);
+        }
 
-        setUserResults((data as FacilitatorResult[]) || []);
+        // Merge & dedupe by profile id — selectedUser.id must point at profiles.id
+        // (admission_counselors.user_id -> auth.users.id contract).
+        const seen = new Set<string>();
+        const merged: FacilitatorResult[] = [];
+
+        for (const row of (staffRes.data || []) as Array<{
+          profile_id: string | null;
+          role_key: string | null;
+          profile: {
+            id: string;
+            full_name: string | null;
+            email: string | null;
+            phone_number: string | null;
+            role: string | null;
+            is_pre_registered: boolean | null;
+          } | null;
+        }>) {
+          const p = row.profile;
+          if (!p) continue;
+          if (p.is_pre_registered === true) continue;
+          if (seen.has(p.id)) continue;
+          seen.add(p.id);
+          merged.push({
+            id: p.id,
+            full_name: p.full_name || '',
+            email: p.email || '',
+            phone_number: p.phone_number,
+            role: p.role || row.role_key || 'staff',
+          });
+        }
+
+        for (const row of (profilesRes.data || []) as Array<{
+          id: string;
+          full_name: string | null;
+          email: string | null;
+          phone_number: string | null;
+          role: string | null;
+        }>) {
+          if (seen.has(row.id)) continue;
+          seen.add(row.id);
+          merged.push({
+            id: row.id,
+            full_name: row.full_name || '',
+            email: row.email || '',
+            phone_number: row.phone_number,
+            role: row.role || 'unknown',
+          });
+        }
+
+        merged.sort((a, b) => (a.full_name || '').localeCompare(b.full_name || ''));
+
+        setUserResults(merged);
       }
     } catch (err) {
       console.error('[admission/counselors] Fetch users error:', err);
@@ -343,6 +466,33 @@ export function AddCounselorDialog({
       fetchUsers();
     }
   }, [canFetchUsers, fetchUsers]);
+
+  // ---------- Helpers ----------
+  // Defined ABOVE filteredUsers / the JSX so the useMemo factory can reach
+  // them at render time. Previously they lived below filteredUsers, which
+  // tripped a Temporal Dead Zone ReferenceError ("Cannot access 'getUserName'
+  // before initialization") the moment a non-empty search result set met a
+  // non-empty search query — the predicate ran synchronously during render
+  // and resolved the identifier before the const initializer was reached.
+  const getUserName = (user: LearnerResult | FacilitatorResult) => {
+    if (userType === 'learner') {
+      const learner = user as LearnerResult;
+      return [learner.first_name, learner.last_name].filter(Boolean).join(' ') || '';
+    }
+    return (user as FacilitatorResult).full_name || '';
+  };
+
+  const getUserSubtext = (user: LearnerResult | FacilitatorResult) => {
+    if (userType === 'learner') {
+      const learner = user as LearnerResult;
+      const email = learner.college_email || learner.student_email || '';
+      const parts = [email, learner.roll_number].filter(Boolean);
+      return parts.join(' | ');
+    }
+    const fac = user as FacilitatorResult;
+    const parts = [fac.email, fac.role].filter(Boolean);
+    return parts.join(' | ');
+  };
 
   // ---------- Client-side search filter on loaded results ----------
   const filteredUsers = useMemo(() => {
@@ -468,15 +618,16 @@ export function AddCounselorDialog({
         return;
       }
 
-      // Auto-assign counselor role if user has a profile. We surface failures
-      // via toast — no longer a silent best-effort. Counselor record stays
-      // (it's a successful partial create) so the admin can retry role
-      // assignment from the Manage tab without re-entering the form.
+      // Auto-assign the chosen counsellor role if user has a profile. We
+      // surface failures via toast — no longer a silent best-effort. The
+      // counsellor record stays (it's a successful partial create) so the
+      // admin can retry role assignment from the Manage tab without re-
+      // entering the form.
       if (userId) {
-        const roleResult = await assignCounselorRole(userId);
+        const roleResult = await assignCounselorRole(userId, roleKey);
         if (!roleResult.ok) {
           toast.error(
-            `Counselor created, but role assignment failed: ${roleResult.message ?? 'unknown error'}. Ask an admin to assign the counselor role manually.`,
+            `Counselor created, but role assignment failed: ${roleResult.message ?? 'unknown error'}. Ask an admin to assign the role manually.`,
           );
           onSuccess?.();
           onOpenChange(false);
@@ -493,27 +644,6 @@ export function AddCounselorDialog({
     } finally {
       setIsSubmitting(false);
     }
-  };
-
-  // ---------- Helpers ----------
-  const getUserName = (user: LearnerResult | FacilitatorResult) => {
-    if (userType === 'learner') {
-      const learner = user as LearnerResult;
-      return [learner.first_name, learner.last_name].filter(Boolean).join(' ') || '';
-    }
-    return (user as FacilitatorResult).full_name || '';
-  };
-
-  const getUserSubtext = (user: LearnerResult | FacilitatorResult) => {
-    if (userType === 'learner') {
-      const learner = user as LearnerResult;
-      const email = learner.college_email || learner.student_email || '';
-      const parts = [email, learner.roll_number].filter(Boolean);
-      return parts.join(' | ');
-    }
-    const fac = user as FacilitatorResult;
-    const parts = [fac.email, fac.role].filter(Boolean);
-    return parts.join(' | ');
   };
 
   // Whether the user has set enough filters to show the "select filters" empty state vs "no results"
@@ -565,6 +695,28 @@ export function AddCounselorDialog({
                 Facilitator
               </Button>
             </div>
+          </div>
+
+          {/* Counsellor role selector */}
+          <div className="space-y-1.5">
+            <Label className="text-xs font-medium text-muted-foreground">
+              Counsellor Role <span className="text-red-500">*</span>
+            </Label>
+            <Select value={roleKey} onValueChange={(v) => setRoleKey(v as CounselorRoleKey)}>
+              <SelectTrigger className="w-full h-9 text-sm">
+                <SelectValue placeholder="Select counsellor role" />
+              </SelectTrigger>
+              <SelectContent>
+                {COUNSELOR_ROLE_OPTIONS.map((opt) => (
+                  <SelectItem key={opt.value} value={opt.value}>
+                    <div className="flex flex-col">
+                      <span className="text-sm">{opt.label}</span>
+                      <span className="text-[11px] text-muted-foreground">{opt.hint}</span>
+                    </div>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
           {/* Hierarchy filters */}
@@ -879,7 +1031,7 @@ export function AddCounselorDialog({
               <p className="text-sm text-center">
                 {userType === 'learner'
                   ? 'Select institution and semester above to find learners'
-                  : 'Select an institution above to find facilitators'}
+                  : 'Select an institution above to find staff (teaching & non-teaching)'}
               </p>
             </div>
           )}
@@ -898,7 +1050,7 @@ export function AddCounselorDialog({
                     type="number"
                     min={1}
                     value={maxLeads}
-                    onChange={(e) => setMaxLeads(parseInt(e.target.value) || 50)}
+                    onChange={(e) => setMaxLeads(parseInt(e.target.value) || 5000)}
                     className="h-9 text-sm"
                   />
                 </div>

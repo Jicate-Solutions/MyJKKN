@@ -518,6 +518,10 @@ export const solutionsHubKeys = {
       [...solutionsHubKeys.prospects.all, 'analytics'] as const,
     overdue: () =>
       [...solutionsHubKeys.prospects.all, 'overdue'] as const,
+    attachments: (prospectId: string) =>
+      [...solutionsHubKeys.prospects.all, 'attachments', prospectId] as const,
+    attachmentSignedUrl: (storagePath: string) =>
+      [...solutionsHubKeys.prospects.all, 'attachment-signed-url', storagePath] as const,
   },
 
   products: {

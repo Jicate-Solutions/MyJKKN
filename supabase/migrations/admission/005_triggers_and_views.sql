@@ -159,6 +159,11 @@ CREATE TRIGGER trg_update_consultant_lead_stats
   AFTER INSERT OR DELETE ON consultant_lead_attributions
   FOR EACH ROW EXECUTE FUNCTION update_consultant_stats();
 
+-- Re-attribution (consultant_id changed on existing row) updates both consultants
+CREATE TRIGGER trg_update_consultant_lead_stats_on_update
+  AFTER UPDATE ON consultant_lead_attributions
+  FOR EACH ROW EXECUTE FUNCTION update_consultant_stats_on_update();
+
 -- Updated_at triggers for all consultant tables
 CREATE TRIGGER trg_commission_structures_updated
   BEFORE UPDATE ON consultant_commission_structures

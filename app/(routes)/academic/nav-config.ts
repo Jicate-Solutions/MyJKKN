@@ -272,6 +272,38 @@ const config: ModuleNavConfig = {
         },
       ],
     },
+    {
+      label: 'OBE',
+      icon: 'Target',
+      href: '/academic/obe',
+      matchPaths: ['/academic/obe'],
+      children: [
+        {
+          label: 'Dashboard',
+          icon: 'LayoutDashboard',
+          href: '/academic/obe',
+          exact: true,
+        },
+        {
+          label: 'Regulation Config',
+          icon: 'Settings',
+          href: '/academic/obe/regulation-config',
+          matchPaths: ['/academic/obe/regulation-config'],
+        },
+        {
+          label: 'Program Outcomes',
+          icon: 'Target',
+          href: '/academic/obe/po-pso',
+          matchPaths: ['/academic/obe/po-pso'],
+        },
+        {
+          label: 'CO-PO Mapping',
+          icon: 'Grid3x3',
+          href: '/academic/obe/co-po-mapping',
+          matchPaths: ['/academic/obe/co-po-mapping'],
+        },
+      ],
+    },
   ],
 };
 

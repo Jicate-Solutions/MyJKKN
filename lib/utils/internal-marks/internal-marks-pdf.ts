@@ -1,17 +1,20 @@
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 
-// ─── Number to words ───
-const ones = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten',
-	'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen']
-const tens = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety']
-function numberToWords(n: number): string {
-	if (n === 0) return 'Zero'
-	if (n < 0) return 'Minus ' + numberToWords(-n)
-	if (n < 20) return ones[n]
-	if (n < 100) return tens[Math.floor(n / 10)] + (n % 10 ? ' ' + ones[n % 10] : '')
-	if (n < 1000) return ones[Math.floor(n / 100)] + ' Hundred' + (n % 100 ? ' and ' + numberToWords(n % 100) : '')
-	return String(n)
+// ─── Number to words ──────────────────────────────────────────────────────
+// Single source of truth per COE integration spec §7.5: digit-by-digit ALL CAPS.
+//   0   → "ZERO"
+//   13  → "ONE THREE"
+//   100 → "ONE ZERO ZERO"
+// Replaces the old recursive readable form ("Twenty Eight").
+const DIGIT_WORDS = ['ZERO', 'ONE', 'TWO', 'THREE', 'FOUR', 'FIVE',
+	'SIX', 'SEVEN', 'EIGHT', 'NINE']
+function numberToWords(num: number): string {
+	const n = Math.floor(Math.abs(num))
+	if (n === 0) return num < 0 ? 'MINUS ZERO' : 'ZERO'
+	const numStr = n.toString().padStart(2, '0')
+	const words = numStr.split('').map(d => DIGIT_WORDS[parseInt(d, 10)]).join(' ')
+	return num < 0 ? 'MINUS ' + words : words
 }
 
 export interface LearnerMark {
@@ -30,6 +33,8 @@ export interface ComponentDef {
 
 export interface InternalMarksPDFData {
 	institution_name: string
+	institution_address?: string
+	institution_accreditation?: string
 	program_code: string
 	program_name: string
 	semester: number | string
@@ -50,6 +55,65 @@ const A4_WIDTH = 210
 const A4_HEIGHT = 297
 const MARGIN = 10
 
+// ─── Shared institution banner (logo + name + accreditation + address) ────────
+// Called by every PDF generator so all documents share the same institutional
+// header layout regardless of which college/institution is selected.
+// Detect image format from a data-URL so institutions can store logos as
+// PNG, JPEG, or WebP without the caller needing to know the encoding.
+function detectImageFormat(src: string): string {
+	if (/^data:image\/jpe?g/i.test(src)) return 'JPEG'
+	if (/^data:image\/webp/i.test(src)) return 'WEBP'
+	return 'PNG'
+}
+
+function drawInstitutionBanner(
+	doc: jsPDF,
+	data: {
+		institution_name?: string
+		institution_accreditation?: string
+		institution_address?: string
+		logoImage?: string
+		rightLogoImage?: string
+	},
+	pageWidth: number,
+	y: number,
+): number {
+	const logoSize = 18
+
+	if (data.logoImage) {
+		try { doc.addImage(data.logoImage, detectImageFormat(data.logoImage), MARGIN, y, logoSize, logoSize) } catch {}
+	}
+	if (data.rightLogoImage) {
+		try { doc.addImage(data.rightLogoImage, detectImageFormat(data.rightLogoImage), pageWidth - MARGIN - logoSize, y, logoSize, logoSize) } catch {}
+	}
+
+	// Pack all three lines (name / accreditation / address) inside the 18mm logo
+	// band.  Because logos occupy only the left and right margins, centred text
+	// never overlaps them — so we can use fixed offsets rather than advancing y
+	// past the full logo height between each line.
+	const hasExtra = !!(data.institution_accreditation || data.institution_address)
+	const nameY = hasExtra ? y + 4 : y + 9
+	doc.setFont('times', 'bold')
+	doc.setFontSize(13)
+	doc.setTextColor(0, 0, 0)
+	doc.text(data.institution_name ?? '', pageWidth / 2, nameY, { align: 'center' })
+
+	if (data.institution_accreditation) {
+		doc.setFont('times', 'normal')
+		doc.setFontSize(8)
+		doc.text(data.institution_accreditation, pageWidth / 2, y + 9.5, { align: 'center' })
+	}
+
+	if (data.institution_address) {
+		doc.setFont('times', 'bold')
+		doc.setFontSize(9)
+		doc.text(data.institution_address, pageWidth / 2, y + 14.5, { align: 'center' })
+	}
+
+	// Advance y past the logo area for subsequent content
+	return y + logoSize + (data.institution_address ? 6 : 2)
+}
+
 /**
  * Generates Internal Mark Entry Sheet PDF — Portrait A4, Times New Roman, auto-fit columns
  */
@@ -61,34 +125,7 @@ export function generateInternalMarksPDF(data: InternalMarksPDFData): string {
 	let currentY = MARGIN
 
 	// ========== HEADER ==========
-
-	// JKKN Logo (left side)
-	if (data.logoImage) {
-		try { doc.addImage(data.logoImage, 'PNG', MARGIN, currentY, 16, 16) } catch {}
-	}
-	// College Seal (right side)
-	if (data.rightLogoImage) {
-		try { doc.addImage(data.rightLogoImage, 'PNG', pageWidth - MARGIN - 16, currentY, 16, 16) } catch {}
-	}
-
-	// Institution name
-	doc.setFont('times', 'bold')
-	doc.setFontSize(12)
-	doc.setTextColor(0, 0, 0)
-	doc.text('J.K.K.NATARAJA COLLEGE OF ARTS & SCIENCE (AUTONOMOUS)', pageWidth / 2, currentY + 4, { align: 'center' })
-
-	// Accreditation
-	doc.setFont('times', 'normal')
-	doc.setFontSize(8)
-	doc.text('(Accredited by NAAC, Approved by AICTE, Recognized by UGC Under Section 2(f) & 12(B), Affiliated to Periyar University)', pageWidth / 2, currentY + 9, { align: 'center' })
-
-	currentY += 13
-
-	// Address
-	doc.setFont('times', 'bold')
-	doc.setFontSize(9)
-	doc.text('Komarapalayam - 638 183, Namakkal District, Tamil Nadu', pageWidth / 2, currentY, { align: 'center' })
-	currentY += 5
+	currentY = drawInstitutionBanner(doc, data, pageWidth, currentY)
 
 	// Exam session
 	doc.setFont('times', 'bold')
@@ -119,13 +156,14 @@ export function generateInternalMarksPDF(data: InternalMarksPDFData): string {
 	}
 	currentY += 4.5
 
-	// Row 2: Course & Max Mark
+	// Row 2: Course & Assessment Mark (= sum of component maxes per COE spec §7.2)
 	doc.setFont('times', 'normal')
 	doc.setFontSize(9)
 	const courseText = `Course: ${data.course_code} - ${data.course_name}`
 	const courseLines = doc.splitTextToSize(courseText, tableWidth - 50)
 	doc.text(courseLines, MARGIN, currentY)
-	doc.text(`Max Internal Mark: ${data.internal_max_mark}`, pageWidth - MARGIN, currentY, { align: 'right' })
+	const assessmentMark = data.components.reduce((sum, c) => sum + (c.max_marks || 0), 0)
+	doc.text(`Assessment Mark: ${assessmentMark}`, pageWidth - MARGIN, currentY, { align: 'right' })
 	currentY += courseLines.length > 1 ? courseLines.length * 4 : 4.5
 
 	currentY += 2
@@ -153,7 +191,8 @@ export function generateInternalMarksPDF(data: InternalMarksPDFData): string {
 	data.components.forEach(c => headRow.push(`${c.name}\n(${c.max_marks})`))
 	headRow.push('Total', 'Marks in Words')
 
-	// Build body
+	// Build body — Option B per COE spec §7.3: every learner has every component,
+	// missing component values render as 0 (not '-'), and "Marks in Words" always renders.
 	const bodyRows = data.learners.map(learner => {
 		const row: (string | number)[] = [
 			learner.serial_number,
@@ -162,10 +201,10 @@ export function generateInternalMarksPDF(data: InternalMarksPDFData): string {
 		]
 		data.components.forEach(c => {
 			const mark = learner.component_marks[c.code]
-			row.push(mark != null && mark > 0 ? mark : '-')
+			row.push(mark != null ? mark : 0)
 		})
-		row.push(learner.total > 0 ? learner.total : '-')
-		row.push(learner.total > 0 ? numberToWords(learner.total) : '-')
+		row.push(learner.total)
+		row.push(numberToWords(learner.total))
 		return row
 	})
 
@@ -232,8 +271,9 @@ export function generateInternalMarksPDF(data: InternalMarksPDFData): string {
 
 	doc.setFont('times', 'bold')
 	doc.setFontSize(9)
-	const learnersWithMarks = data.learners.filter(l => l.total > 0).length
-	doc.text(`Total Learners: ${data.learners.length}    Marks Entered: ${learnersWithMarks}    Pending: ${data.learners.length - learnersWithMarks}`, MARGIN, currentY)
+	// Option B per COE spec §7.4: every learner row counts as entered → Pending: 0 always.
+	const totalLearners = data.learners.length
+	doc.text(`Total Learners: ${totalLearners}    Marks Entered: ${totalLearners}    Pending: 0`, MARGIN, currentY)
 	currentY += 14
 
 	// ========== SIGNATURE SECTION ==========
@@ -270,6 +310,37 @@ export function generateInternalMarksPDF(data: InternalMarksPDFData): string {
 
 import type { ConsolidatedReportData } from '@/types/internal-marks'
 
+// ──────────────────────────────────────────────────────────────────────────────
+// SHARED CURRENCY WORDS — Indian number system, shared by form display + PDF
+// ──────────────────────────────────────────────────────────────────────────────
+
+const ONES_W = [
+	'', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine',
+	'Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen',
+	'Seventeen', 'Eighteen', 'Nineteen',
+]
+const TENS_W = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety']
+
+function _numToWords(n: number): string {
+	if (n === 0) return ''
+	if (n < 20) return ONES_W[n]
+	if (n < 100) return TENS_W[Math.floor(n / 10)] + (n % 10 ? ' ' + ONES_W[n % 10] : '')
+	if (n < 1000) return ONES_W[Math.floor(n / 100)] + ' Hundred' + (n % 100 ? ' ' + _numToWords(n % 100) : '')
+	if (n < 100000) return _numToWords(Math.floor(n / 1000)) + ' Thousand' + (n % 1000 ? ' ' + _numToWords(n % 1000) : '')
+	if (n < 10000000) return _numToWords(Math.floor(n / 100000)) + ' Lakh' + (n % 100000 ? ' ' + _numToWords(n % 100000) : '')
+	return _numToWords(Math.floor(n / 10000000)) + ' Crore' + (n % 10000000 ? ' ' + _numToWords(n % 10000000) : '')
+}
+
+/** "ONE THOUSAND TWO HUNDRED RUPEES ONLY" — Indian currency amount to words. */
+export function amountToWords(amount: number): string {
+	const n = Math.floor(Math.abs(amount))
+	const paise = Math.round((Math.abs(amount) - n) * 100)
+	if (n === 0 && paise === 0) return 'ZERO RUPEES ONLY'
+	let result = n > 0 ? _numToWords(n) + ' Rupees' : ''
+	if (paise > 0) result += (result ? ' and ' : '') + _numToWords(paise) + ' Paise'
+	return (result + ' Only').toUpperCase()
+}
+
 const A4_LAND_WIDTH = 297
 const A4_LAND_HEIGHT = 210
 
@@ -286,40 +357,7 @@ export function generateConsolidatedReportPDF(data: ConsolidatedReportData): str
 		let currentY = MARGIN
 
 		// ── HEADER (logos + institution + title) ──
-		if (data.logoImage) {
-			try {
-				doc.addImage(data.logoImage, 'PNG', MARGIN, currentY, 16, 16)
-			} catch {}
-		}
-		if (data.rightLogoImage) {
-			try {
-				doc.addImage(data.rightLogoImage, 'PNG', pageWidth - MARGIN - 16, currentY, 16, 16)
-			} catch {}
-		}
-
-		doc.setFont('times', 'bold')
-		doc.setFontSize(13)
-		doc.setTextColor(0, 0, 0)
-		doc.text('J.K.K.NATARAJA COLLEGE OF ARTS & SCIENCE (AUTONOMOUS)', pageWidth / 2, currentY + 4, {
-			align: 'center',
-		})
-
-		doc.setFont('times', 'normal')
-		doc.setFontSize(8)
-		doc.text(
-			'(Accredited by NAAC, Approved by AICTE, Recognized by UGC Under Section 2(f) & 12(B), Affiliated to Periyar University)',
-			pageWidth / 2,
-			currentY + 9,
-			{ align: 'center' }
-		)
-		currentY += 13
-
-		doc.setFont('times', 'bold')
-		doc.setFontSize(9)
-		doc.text('Komarapalayam - 638 183, Namakkal District, Tamil Nadu', pageWidth / 2, currentY, {
-			align: 'center',
-		})
-		currentY += 5
+		currentY = drawInstitutionBanner(doc, data, pageWidth, currentY)
 
 		doc.setFontSize(11)
 		doc.text(`SEMESTER EXAMINATION - ${data.exam_session}`, pageWidth / 2, currentY, {
@@ -466,4 +504,597 @@ export function generateConsolidatedReportPDF(data: ConsolidatedReportData): str
 	const fileName = `consolidated_${data.program_code}_sem${semRange}_${data.cia_round_name}_${new Date().toISOString().split('T')[0]}.pdf`
 	doc.save(fileName)
 	return fileName
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// BOS CLAIM FORM — Portrait A4, mirrors the official paper claim form
+// ──────────────────────────────────────────────────────────────────────────────
+
+export interface BosClaimPDFData {
+	institution_name: string
+	institution_address?: string
+	institution_accreditation?: string
+	logoImage?: string
+	rightLogoImage?: string
+
+	bos_subject: string   // "Board of Studies of ___" subject line
+	claim_date: string    // formatted e.g. "11/05/2026"
+
+	member_name: string
+	designation?: string
+	college_address?: string
+	position_in_bos?: string
+	mobile?: string
+	email?: string
+
+	remuneration: number
+	ta_amount: number     // travel + DA + other
+	total: number         // remuneration + ta_amount
+
+	bank_name?: string
+	branch_name?: string
+	account_number?: string
+	ifsc_code?: string
+	neft_amount?: number
+	pan_number?: string
+}
+
+export function generateBosClaimPDF(data: BosClaimPDFData): string {
+	const doc = new jsPDF('portrait', 'mm', 'a4')
+	const pageWidth = A4_WIDTH
+	const tableWidth = pageWidth - MARGIN * 2
+	let currentY = MARGIN
+
+	// ── Header ──────────────────────────────────────────────────────────────────
+	currentY = drawInstitutionBanner(doc, data, pageWidth, currentY)
+
+	// ── Form title line ──────────────────────────────────────────────────────────
+	currentY += 2
+	doc.setFont('times', 'normal')
+	doc.setFontSize(10)
+	const subjectLabel = 'Claim Form for BOS of '
+	const datePart = `Date: ${data.claim_date}`
+	doc.text(subjectLabel + data.bos_subject, MARGIN, currentY)
+	doc.text(datePart, pageWidth - MARGIN, currentY, { align: 'right' })
+	// Underline the subject value slot
+	const labelW = doc.getTextWidth(subjectLabel)
+	const dateW = doc.getTextWidth(datePart)
+	doc.setDrawColor(0, 0, 0)
+	doc.line(MARGIN + labelW, currentY + 0.5, pageWidth - MARGIN - dateW - 3, currentY + 0.5)
+	currentY += 7
+
+	// ── Particulars table ────────────────────────────────────────────────────────
+	const particulars: [string, string][] = [
+		['Name of the BOS Member', data.member_name],
+		['Designation', data.designation ?? ''],
+		['College Address', data.college_address ?? ''],
+		['Position in BOS', data.position_in_bos ?? ''],
+		['Mobile No', data.mobile ?? ''],
+		['Mail id', data.email ?? ''],
+		['Amount: Remuneration', `Rs.${data.remuneration.toFixed(2)}`],
+		['Amount: TA', `Rs.${data.ta_amount.toFixed(2)}`],
+		['Amount: Total', `Rs.${data.total.toFixed(2)}`],
+		['Total Amount in Words', amountToWords(data.total)],
+	]
+
+	const colL = 65
+	const colR = tableWidth - colL
+
+	autoTable(doc, {
+		body: particulars,
+		startY: currentY,
+		margin: { left: MARGIN, right: MARGIN },
+		tableWidth,
+		theme: 'grid',
+		styles: {
+			font: 'times', fontSize: 10, cellPadding: 2.5,
+			lineColor: [0, 0, 0], lineWidth: 0.3,
+			textColor: [0, 0, 0], valign: 'middle', minCellHeight: 8, overflow: 'linebreak',
+		},
+		columnStyles: {
+			0: { cellWidth: colL, fontStyle: 'bold' },
+			1: { cellWidth: colR },
+		},
+	})
+
+	currentY = ((doc as jsPDF & { lastAutoTable: { finalY: number } }).lastAutoTable?.finalY ?? currentY + 90) + 5
+
+	// ── NEFT details ─────────────────────────────────────────────────────────────
+	doc.setFont('times', 'bold')
+	doc.setFontSize(8.5)
+	doc.text(
+		'(Provide the following details to enable us to transfer the Claim through NEFT — Write in CAPITAL LETTERS)',
+		MARGIN, currentY, { maxWidth: tableWidth }
+	)
+	currentY += 6
+
+	const neftRows: [string, string][] = [
+		['Name of the Member', data.member_name],
+		['Bank Name', data.bank_name ?? ''],
+		['Branch Name', data.branch_name ?? ''],
+		['Account Number', data.account_number ?? ''],
+		['IFSC Code', data.ifsc_code ?? ''],
+		['Amount', `Rs.${(data.neft_amount ?? data.total).toFixed(2)}`],
+		['PAN Number', data.pan_number ?? ''],
+	]
+
+	autoTable(doc, {
+		body: neftRows,
+		startY: currentY,
+		margin: { left: MARGIN, right: MARGIN },
+		tableWidth,
+		theme: 'grid',
+		styles: {
+			font: 'times', fontSize: 10, cellPadding: 2.5,
+			lineColor: [0, 0, 0], lineWidth: 0.3,
+			textColor: [0, 0, 0], valign: 'middle', minCellHeight: 8,
+		},
+		columnStyles: {
+			0: { cellWidth: colL, fontStyle: 'bold' },
+			1: { cellWidth: colR },
+		},
+	})
+
+	let sigY = ((doc as jsPDF & { lastAutoTable: { finalY: number } }).lastAutoTable?.finalY ?? currentY + 60) + 14
+
+	// ── Signature section ────────────────────────────────────────────────────────
+	if (sigY + 20 > A4_HEIGHT - 15) {
+		doc.addPage()
+		sigY = MARGIN + 10
+	}
+
+	const sigLabels = [
+		['Signature of the BOS', 'Member with Date'],
+		['Signature of the Board', 'Chairman'],
+		['Signature of the', 'Principal'],
+	]
+	const sigW = tableWidth / 3
+
+	doc.setFont('times', 'normal')
+	doc.setFontSize(9)
+	sigLabels.forEach((lines, i) => {
+		const cx = MARGIN + i * sigW + sigW / 2
+		doc.setDrawColor(0, 0, 0)
+		doc.line(MARGIN + i * sigW + 8, sigY, MARGIN + (i + 1) * sigW - 8, sigY)
+		lines.forEach((ln, li) => {
+			doc.text(ln, cx, sigY + 5 + li * 4.5, { align: 'center' })
+		})
+	})
+
+	// ── Footer timestamp ──────────────────────────────────────────────────────────
+	const footerY = A4_HEIGHT - 6
+	doc.setFont('times', 'normal')
+	doc.setFontSize(7)
+	doc.setTextColor(128, 128, 128)
+	doc.text(new Date().toLocaleString('en-IN'), MARGIN, footerY)
+	doc.setTextColor(0, 0, 0)
+
+	const safe = (s: string) => s.replace(/[^\w\s-]/g, '').replace(/\s+/g, '_').slice(0, 40)
+	const fileName = `BOS_Claim_${safe(data.member_name)}_${data.claim_date.replace(/\//g, '-')}.pdf`
+	doc.save(fileName)
+	return fileName
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// COURSE SCHEME REPORT — Portrait A4, all semesters in one PDF
+// Layout matches official "Scheme of Learning and Evaluation" document:
+//   Part | Course Code | Title | Exam(Hrs) | Credits | L | P | Total | CIA | ESE | Total
+//   Two-row header groups "Hours" and "Max. Marks"; totals row per semester.
+// ──────────────────────────────────────────────────────────────────────────────
+
+export interface CourseSchemeReportRow {
+	course_part_master: string | null
+	course_code: string
+	course_name: string
+	exam_duration: number | null
+	credit: number
+	theory_hours: number
+	practical_hours: number
+	internal_max_mark: number
+	external_max_mark: number
+	total_max_mark: number
+}
+
+export interface CourseSchemeReportSemester {
+	semester_code: string
+	semester_label: string
+	courses: CourseSchemeReportRow[]
+}
+
+export interface CourseSchemeReportData {
+	institution_name: string
+	institution_address?: string
+	institution_accreditation?: string
+	logoImage?: string
+	rightLogoImage?: string
+	program_code: string
+	program_name?: string
+	regulation_code?: string
+	academic_year?: string
+	semesters: CourseSchemeReportSemester[]
+}
+
+export function generateCourseSchemeReportPDF(data: CourseSchemeReportData): string {
+	const doc = new jsPDF('portrait', 'mm', 'a4')
+	const pageWidth  = A4_WIDTH
+	const pageHeight = A4_HEIGHT
+	const tableWidth = pageWidth - MARGIN * 2
+
+	// Column widths — fixed cols total 121 mm; title fills the remaining 69 mm
+	const partW   = 14
+	const codeW   = 24
+	const examW   = 11
+	const credW   = 11
+	const lW      = 8
+	const pW      = 8
+	const totHrsW = 10
+	const ciaW    = 10
+	const eseW    = 10
+	const totMksW = 11
+	const titleW  = tableWidth - partW - codeW - examW - credW - lW - pW - totHrsW - ciaW - eseW - totMksW
+
+	const columnStyles: Record<number, object> = {
+		0:  { cellWidth: partW,   halign: 'center' },
+		1:  { cellWidth: codeW,   halign: 'center' },
+		2:  { cellWidth: titleW,  halign: 'left' },
+		3:  { cellWidth: examW,   halign: 'center' },
+		4:  { cellWidth: credW,   halign: 'center' },
+		5:  { cellWidth: lW,      halign: 'center' },
+		6:  { cellWidth: pW,      halign: 'center' },
+		7:  { cellWidth: totHrsW, halign: 'center' },
+		8:  { cellWidth: ciaW,    halign: 'center' },
+		9:  { cellWidth: eseW,    halign: 'center' },
+		10: { cellWidth: totMksW, halign: 'center', fontStyle: 'bold' },
+	}
+
+	// Draws the full institutional header — called once per semester page.
+	// Mirrors the reference "Scheme of Learning and Evaluation" document exactly:
+	//   Institution letterhead → Title 1 → Academic-year line → CBCS line → Title 2 (repeated)
+	function drawPageHeader(): number {
+		let y = MARGIN
+		y = drawInstitutionBanner(doc, data, pageWidth, y)
+
+		// Title 1 — document heading
+		doc.setFont('times', 'bold')
+		doc.setFontSize(12)
+		doc.text('SCHEME OF LEARNING AND EVALUATION', pageWidth / 2, y, { align: 'center' })
+		y += 5
+
+		// Academic-year line (bold, conditional — matches reference PDF style)
+		if (data.academic_year) {
+			doc.setFont('times', 'bold')
+			doc.setFontSize(8)
+			doc.text(
+				`(For the students admitted in the academic year ${data.academic_year} onwards)`,
+				pageWidth / 2, y, { align: 'center' },
+			)
+			y += 4
+		}
+
+		// CBCS framework line — always shown (bold, matches reference PDF)
+		doc.setFont('times', 'bold')
+		doc.setFontSize(8)
+		doc.text('Outcome Based Curriculum Framework with CBCS', pageWidth / 2, y, { align: 'center' })
+		y += 6
+
+		// Program + Regulation metadata line
+		doc.setFont('times', 'bold')
+		doc.setFontSize(9)
+		const programLabel = data.program_name
+			? `Program: ${data.program_code} — ${data.program_name}`
+			: `Program: ${data.program_code}`
+		doc.text(programLabel, MARGIN, y)
+		if (data.regulation_code) {
+			doc.text(`Regulation: ${data.regulation_code}`, pageWidth - MARGIN, y, { align: 'right' })
+		}
+		y += 6
+
+		return y
+	}
+
+	// Draws the three-signature row.
+	// sigY is the top of the blank signing area; a 14 mm gap is reserved above
+	// the line so there is room for an actual signature.
+	function drawSignatures(sigY: number) {
+		const sigWidth = tableWidth / 3
+		const sigLabels = [
+			'Signature of the Board Chairman',
+			'Signature of the CDC Co-ordinator',
+			'Signature of the Principal',
+		]
+		// Blank space above the line for the physical signature (14 mm)
+		const lineY  = sigY + 14
+		const labelY = lineY + 5
+
+		doc.setFont('times', 'normal')
+		doc.setFontSize(9)
+		sigLabels.forEach((label, i) => {
+			const centerX = MARGIN + i * sigWidth + sigWidth / 2
+			doc.setDrawColor(0, 0, 0)
+			doc.line(MARGIN + i * sigWidth + 8, lineY, MARGIN + (i + 1) * sigWidth - 8, lineY)
+			doc.text(label, centerX, labelY, { align: 'center' })
+		})
+	}
+
+	// ── ONE PAGE PER SEMESTER ─────────────────────────────────────────────────
+	data.semesters.forEach((sem, semIdx) => {
+		if (semIdx > 0) doc.addPage()
+
+		let currentY = drawPageHeader()
+
+		// Semester label — centred, boxed
+		doc.setFont('times', 'bold')
+		doc.setFontSize(10)
+		doc.setTextColor(0, 0, 0)
+		doc.setDrawColor(0, 0, 0)
+		const lblW = 80
+		const lblH = 7
+		doc.rect((pageWidth - lblW) / 2, currentY - 1, lblW, lblH)
+		doc.text(sem.semester_label, pageWidth / 2, currentY + 4, { align: 'center' })
+		currentY += lblH + 1
+
+		const totals = sem.courses.reduce(
+			(acc, c) => ({
+				credits:   acc.credits   + (c.credit          ?? 0),
+				theory:    acc.theory    + (c.theory_hours    ?? 0),
+				practical: acc.practical + (c.practical_hours ?? 0),
+				marks:     acc.marks     + (c.total_max_mark  ?? 0),
+			}),
+			{ credits: 0, theory: 0, practical: 0, marks: 0 },
+		)
+
+		const bodyRows = sem.courses.map((c) => [
+			c.course_part_master ?? '-',
+			c.course_code,
+			c.course_name,
+			c.exam_duration ?? '-',
+			c.credit,
+			c.theory_hours    || '-',
+			c.practical_hours || '-',
+			c.theory_hours + c.practical_hours,
+			c.internal_max_mark,
+			c.external_max_mark,
+			c.total_max_mark,
+		])
+
+		autoTable(doc, {
+			head: [
+				[
+					{ content: 'Part',                rowSpan: 2, styles: { valign: 'middle', halign: 'center' } },
+					{ content: 'Course Code',         rowSpan: 2, styles: { valign: 'middle', halign: 'center' } },
+					{ content: 'Title of the Course', rowSpan: 2, styles: { valign: 'middle', halign: 'center' } },
+					{ content: 'Exam\n(Hrs)',          rowSpan: 2, styles: { valign: 'middle', halign: 'center' } },
+					{ content: 'Credits',              rowSpan: 2, styles: { valign: 'middle', halign: 'center' } },
+					{ content: 'Hours',                colSpan: 3, styles: { halign: 'center' } },
+					{ content: 'Max. Marks',           colSpan: 3, styles: { halign: 'center' } },
+				],
+				['L', 'P', 'Total', 'CIA', 'ESE', 'Total'],
+			],
+			body: bodyRows,
+			foot: [[
+				{ content: 'TOTAL', colSpan: 4, styles: { halign: 'right', fontStyle: 'bold', fillColor: [230, 230, 230] } },
+				{ content: String(totals.credits),                   styles: { halign: 'center', fontStyle: 'bold', fillColor: [230, 230, 230] } },
+				{ content: String(totals.theory),                    styles: { halign: 'center', fontStyle: 'bold', fillColor: [230, 230, 230] } },
+				{ content: String(totals.practical),                 styles: { halign: 'center', fontStyle: 'bold', fillColor: [230, 230, 230] } },
+				{ content: String(totals.theory + totals.practical), styles: { halign: 'center', fontStyle: 'bold', fillColor: [230, 230, 230] } },
+				{ content: '', styles: { fillColor: [230, 230, 230] } },
+				{ content: '', styles: { fillColor: [230, 230, 230] } },
+				{ content: String(totals.marks), styles: { halign: 'center', fontStyle: 'bold', fillColor: [230, 230, 230] } },
+			]],
+			startY: currentY,
+			margin: { left: MARGIN, right: MARGIN },
+			tableWidth,
+			theme: 'grid',
+			styles: {
+				font: 'times',
+				fontSize: 8,
+				cellPadding: 1.5,
+				lineColor: [0, 0, 0],
+				lineWidth: 0.3,
+				textColor: [0, 0, 0],
+				valign: 'middle',
+				minCellHeight: 7,
+				overflow: 'linebreak',
+			},
+			headStyles: {
+				font: 'times',
+				fontStyle: 'bold',
+				fillColor: [240, 240, 240],
+				textColor: [0, 0, 0],
+				halign: 'center',
+				fontSize: 8,
+				minCellHeight: 8,
+			},
+			footStyles: {
+				font: 'times',
+				fontStyle: 'bold',
+				fillColor: [230, 230, 230],
+				textColor: [0, 0, 0],
+				fontSize: 8,
+			},
+			columnStyles,
+			didDrawPage: (hookData) => {
+				const footerY = pageHeight - 6
+				doc.setFont('times', 'normal')
+				doc.setFontSize(7)
+				doc.setTextColor(128, 128, 128)
+				doc.text(new Date().toLocaleString('en-IN'), MARGIN, footerY)
+				doc.text(`Page ${hookData.pageNumber}`, pageWidth - MARGIN, footerY, { align: 'right' })
+				doc.setTextColor(0, 0, 0)
+			},
+		})
+
+		// Signatures on this semester's last page — after the table if room permits,
+		// otherwise anchored so the 14 mm blank + line + label (≈ 22 mm total) fits
+		// above the 6 mm footer zone.
+		const finalY = ((doc as jsPDF & { lastAutoTable: { finalY: number } }).lastAutoTable?.finalY ?? currentY + 20)
+		const sigY = Math.min(finalY + 8, pageHeight - 28)
+		drawSignatures(sigY)
+	})
+
+	const safeStr = (s: string) => s.replace(/[^\w\s-]/g, '').replace(/\s+/g, '_').slice(0, 40)
+	const fileName = `Scheme_${safeStr(data.program_code)}_${data.regulation_code ?? ''}_${new Date().toISOString().split('T')[0]}.pdf`
+	doc.save(fileName)
+	return fileName
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// BOS ATTENDANCE CERTIFICATE — Portrait A5, one certificate per page
+// Layout mirrors the official paper attendance certificate form.
+// ──────────────────────────────────────────────────────────────────────────────
+
+const A5_WIDTH  = 148
+const A5_HEIGHT = 210
+
+export interface BosAttendanceCertificateData {
+	institution_name: string
+	institution_address?: string
+	institution_accreditation?: string
+	logoImage?: string
+	rightLogoImage?: string
+
+	member_name: string
+	member_designation?: string
+	member_institution?: string
+
+	board_name: string
+	board_code?: string
+	board_type?: string | null
+
+	meeting_date: string    // pre-formatted, e.g. "12 May 2026"
+	ug_pg?: 'UG' | 'PG' | null  // explicit override; otherwise auto-inferred
+}
+
+// Infer UG/PG from board metadata.
+// Priority: ug_pg override → board_type text → board_code prefix (U* = UG, P* = PG).
+export function inferBoardUgPg(
+	boardType?: string | null,
+	boardCode?: string,
+	boardName?: string,
+): 'UG' | 'PG' | null {
+	const s = `${boardType ?? ''} ${boardCode ?? ''} ${boardName ?? ''}`.toUpperCase()
+	if (/\bUG\b|UNDERGRADUATE/.test(s)) return 'UG'
+	if (/\bPG\b|POSTGRADUATE|POST[\s-]GRADUATE/.test(s)) return 'PG'
+	if (boardCode) {
+		const u = boardCode.toUpperCase()
+		if (u.startsWith('U')) return 'UG'
+		if (u.startsWith('P')) return 'PG'
+	}
+	return null
+}
+
+/**
+ * Generates one A5 Attendance Certificate per entry in `certificates`.
+ * Each certificate is a separate page in the same PDF file.
+ * Pass a single-element array for individual download.
+ */
+export function generateBosAttendanceCertificatePDF(
+	certificates: BosAttendanceCertificateData[],
+	filename?: string,
+): string {
+	const doc = new jsPDF('portrait', 'mm', 'a5')
+	const pageWidth  = A5_WIDTH
+	const pageHeight = A5_HEIGHT
+	const cw = pageWidth - MARGIN * 2   // 128 mm content width
+
+	certificates.forEach((cert, idx) => {
+		if (idx > 0) doc.addPage()
+		let y = MARGIN
+
+		// ── Institution banner ───────────────────────────────────────────────────
+		y = drawInstitutionBanner(doc, cert, pageWidth, y)
+
+		// Separator rule
+		doc.setDrawColor(0, 0, 0)
+		doc.setLineWidth(0.5)
+		doc.line(MARGIN, y, pageWidth - MARGIN, y)
+		y += 8
+
+		// ── Title ────────────────────────────────────────────────────────────────
+		doc.setFont('times', 'bold')
+		doc.setFontSize(13)
+		doc.setTextColor(0, 0, 0)
+		doc.text('ATTENDANCE CERTIFICATE', pageWidth / 2, y, { align: 'center' })
+		const titleW = doc.getTextWidth('ATTENDANCE CERTIFICATE')
+		doc.setLineWidth(0.35)
+		doc.line((pageWidth - titleW) / 2, y + 0.8, (pageWidth + titleW) / 2, y + 0.8)
+		y += 14
+
+		// ── "This is to certify that" ────────────────────────────────────────────
+		doc.setFont('times', 'normal')
+		doc.setFontSize(11)
+		// Non-breaking spaces for paragraph indent
+		doc.text('      This is to certify that', MARGIN, y)
+		y += 9
+
+		// ── Member name (bold, centred, underlined) ──────────────────────────────
+		doc.setFont('times', 'bold')
+		doc.setFontSize(12)
+		const nameText = cert.member_name.toUpperCase()
+		doc.text(nameText, pageWidth / 2, y, { align: 'center' })
+		const nameW = Math.min(doc.getTextWidth(nameText) + 12, cw)
+		doc.setLineWidth(0.3)
+		doc.line((pageWidth - nameW) / 2, y + 0.9, (pageWidth + nameW) / 2, y + 0.9)
+		y += 8
+
+		// ── Designation / institution line (centred, underlined, normal) ─────────
+		const desigParts = [cert.member_designation, cert.member_institution].filter(Boolean)
+		if (desigParts.length > 0) {
+			const desig = desigParts.join(', ')
+			doc.setFont('times', 'normal')
+			doc.setFontSize(10)
+			doc.text(desig, pageWidth / 2, y, { align: 'center' })
+			const desigW = Math.min(doc.getTextWidth(desig) + 8, cw)
+			doc.line((pageWidth - desigW) / 2, y + 0.9, (pageWidth + desigW) / 2, y + 0.9)
+			y += 8
+		}
+
+		// ── Body: "has attended the (UG/PG) Board of Studies…" ──────────────────
+		const ugPg = cert.ug_pg ?? inferBoardUgPg(cert.board_type, cert.board_code, cert.board_name)
+		const ugPgLabel = ugPg ?? 'UG/PG'
+
+		doc.setFont('times', 'normal')
+		doc.setFontSize(11)
+
+		const bodyLine1 = `has attended the (${ugPgLabel}) Board of Studies meeting`
+		doc.text(bodyLine1, pageWidth / 2, y, { align: 'center' })
+		y += 7
+
+		doc.text('in the Department of', pageWidth / 2, y, { align: 'center' })
+		y += 8
+
+		// Department name — bold, centred, underlined
+		doc.setFont('times', 'bold')
+		doc.setFontSize(11)
+		const deptText = cert.board_name.toUpperCase()
+		const deptLines = doc.splitTextToSize(deptText, cw - 8) as string[]
+		doc.text(deptLines, pageWidth / 2, y, { align: 'center' })
+		const deptLineW = Math.min(doc.getTextWidth(deptLines[0]) + 10, cw)
+		doc.setLineWidth(0.3)
+		doc.line((pageWidth - deptLineW) / 2, y + 0.9, (pageWidth + deptLineW) / 2, y + 0.9)
+		y += deptLines.length * 6.5
+
+		// "held in our college on DATE."
+		doc.setFont('times', 'normal')
+		doc.setFontSize(11)
+		doc.text(`held in our college on ${cert.meeting_date}.`, pageWidth / 2, y, { align: 'center' })
+		y += 24
+
+		// ── Principal signature ──────────────────────────────────────────────────
+		doc.setFont('times', 'normal')
+		doc.setFontSize(11)
+		doc.text('Principal,', pageWidth - MARGIN, y, { align: 'right' })
+
+		// ── Footer timestamp ─────────────────────────────────────────────────────
+		doc.setFont('times', 'normal')
+		doc.setFontSize(6)
+		doc.setTextColor(150, 150, 150)
+		doc.text(new Date().toLocaleString('en-IN'), MARGIN, pageHeight - 5)
+		doc.setTextColor(0, 0, 0)
+	})
+
+	const safe = (s: string) => s.replace(/[^\w\s-]/g, '').replace(/\s+/g, '_').slice(0, 40)
+	const outName = filename ?? `BOS_Attendance_${safe(certificates[0]?.board_name ?? 'cert')}_${new Date().toISOString().split('T')[0]}.pdf`
+	doc.save(outName)
+	return outName
 }

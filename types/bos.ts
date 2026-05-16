@@ -8,7 +8,8 @@ export type BosExpertCategory =
   | 'university_nominee'
   | 'subject_expert'
   | 'industry_expert'
-  | 'alumni';
+  | 'alumni'
+  | 'startup';
 
 export type BosMemberType =
   | 'chairman'
@@ -16,7 +17,11 @@ export type BosMemberType =
   | 'university_nominee'
   | 'subject_expert'
   | 'industry_expert'
-  | 'alumni';
+  | 'alumni'
+  | 'startup'
+  | 'hod'
+  | 'facilitator'
+  | 'principal';
 
 export type BosMeetingStatus =
   | 'draft'
@@ -28,7 +33,7 @@ export type BosMeetingStatus =
   | 'minutes_approved'
   | 'ratified';
 
-export type BosMeetingType = 'regular' | 'special' | 'emergency' | 'online';
+export type BosMeetingType = 'regular' | 'special' | 'emergency' | 'online' | 'hybrid';
 
 export type BosAttendanceStatus = 'present' | 'absent' | 'leave_of_absence';
 
@@ -66,6 +71,7 @@ export const BOS_EXPERT_CATEGORY_LABELS: Record<BosExpertCategory, string> = {
   subject_expert: 'Subject Expert',
   industry_expert: 'Industry Expert',
   alumni: 'Alumni',
+  startup: 'Startup',
 };
 
 export const BOS_MEMBER_TYPE_LABELS: Record<BosMemberType, string> = {
@@ -75,6 +81,10 @@ export const BOS_MEMBER_TYPE_LABELS: Record<BosMemberType, string> = {
   subject_expert: 'Subject Expert',
   industry_expert: 'Industry Expert',
   alumni: 'Alumni',
+  startup: 'Startup',
+  hod: 'Head of Department',
+  facilitator: 'Facilitator',
+  principal: 'Principal',
 };
 
 export const BOS_MEETING_STATUS_LABELS: Record<BosMeetingStatus, string> = {
@@ -93,6 +103,7 @@ export const BOS_MEETING_TYPE_LABELS: Record<BosMeetingType, string> = {
   special: 'Special',
   emergency: 'Emergency',
   online: 'Online',
+  hybrid: 'Hybrid',
 };
 
 export const BOS_COURSE_REVIEW_ACTION_LABELS: Record<BosCourseReviewAction, string> = {
@@ -138,6 +149,369 @@ export const BOS_MEETING_NEXT_STATUS: Record<BosMeetingStatus, BosMeetingStatus 
   minutes_approved: 'ratified',
   ratified: null,
 };
+
+// ── Board Programme Mapping ──────────────────────────────────────────────────
+
+export interface BosBoardProgramme {
+  id: string;
+  board_id: string;
+  institutions_id: string;
+  programme_code: string;    // UEN, UCM, UTA…
+  programme_name?: string;
+  is_active: boolean;
+  created_by?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+// ── Programme Outcomes ───────────────────────────────────────────────────────
+
+export interface BosProgrammeOutcome {
+  id: string;
+  institutions_id: string;
+  regulation_id: string;
+  programme_code: string;
+  po_code: string;           // PO1, PO2, …
+  description?: string | null;
+  sort_order: number;
+  created_by?: string;
+  created_at: string;
+  updated_by?: string;
+  updated_at: string;
+}
+
+export interface BosProgrammeSpecificOutcome {
+  id: string;
+  institutions_id: string;
+  regulation_id: string;
+  programme_code: string;
+  pso_code: string;          // PSO1, PSO2, …
+  description?: string | null;
+  sort_order: number;
+  created_by?: string;
+  created_at: string;
+  updated_by?: string;
+  updated_at: string;
+}
+
+/** Summary row returned by GET /api/bos/taxonomy/[regulationId]/programmes */
+export interface BosProgrammeSummary {
+  programme_code: string;
+  programme_name: string;
+  board_id: string;
+  board_name: string;
+  po_count: number;
+  pso_count: number;
+  can_edit: boolean;   // true if current user is chairman for this programme (or super admin)
+  can_view: boolean;   // true if current user is any board member, principal, or super admin
+}
+
+// ── Board (Reference from COE) ───────────────────────────────────────────────
+
+export interface BosBoard {
+  id: string;
+  board_code: string;
+  board_name: string;
+  board_type?: string | null;
+  institutions_id?: string;
+  is_active?: boolean;
+  display_name?: string | null;
+  board_order?: number | null;   // COE-provided ordering; we sort ascending in selects
+}
+
+export interface BosBoardFilters {
+  institutionsId?: string;
+  // Note: boards endpoint doesn't support pagination or filtering
+  // It returns filtered results based on authenticated user's institution scope
+}
+
+// ── Course Syllabus & Learning Outcomes ─────────────────────────────────
+
+export interface BosCourseObjective {
+  id?: string;
+  number: number;
+  description: string;
+}
+
+export interface BosCourseLearnOutcome {
+  clo_number: number;
+  description: string;
+  k_values: string[]; // ['K1', 'K3', 'K5', 'K6'] from taxonomy
+}
+
+export interface BosCourseObjectivesContent {
+  objectives: BosCourseObjective[];
+}
+
+export interface BosCourseLearnOutcomesContent {
+  clos: BosCourseLearnOutcome[];
+}
+
+// ── Course Content: Units & Chapters ───────────────────────────────────
+
+export interface BosChapterSubtopic {
+  number: number;
+  title: string;
+}
+
+export interface BosChapter {
+  chapter_number: number;
+  title: string;
+  sections: string; // "Chapter 1: Sections 13 and 14"
+  subtopics?: BosChapterSubtopic[];
+}
+
+export interface BosUnit {
+  unit_id: string; // "I", "II", "III", "IV", "V"
+  unit_title: string;
+  chapters: BosChapter[];
+}
+
+export interface BosCourseContentData {
+  units: BosUnit[];
+}
+
+// ── Textbooks & References ────────────────────────────────────────────
+
+export interface BosTextbook {
+  title: string;
+  author: string;
+  publication_year: number;
+  publisher?: string;
+}
+
+export interface BosBooksData {
+  primary: BosTextbook[];
+  references: BosTextbook[];
+}
+
+// ── Web Resources ─────────────────────────────────────────────────────
+
+export interface BosWebResource {
+  title: string;
+  url: string;
+}
+
+export interface BosWebResourcesData {
+  resources: BosWebResource[];
+}
+
+// ── Pedagogy Methods ──────────────────────────────────────────────────
+
+export interface BosPedagogyData {
+  methods: string[]; // ["Chalk and talk", "PowerPoint", "E-content", "Group discussion", ...]
+}
+
+// ── Programme Outcome Mappings ────────────────────────────────────────
+
+export interface BosPoMapping {
+  co_id: string; // "CO1", "CO2", etc.
+  pos: Record<string, 'H' | 'M' | 'L'>; // {"PO1": "H", "PO2": "M", ...}
+  psos?: Record<string, 'H' | 'M' | 'L'>; // Optional PSO mappings
+}
+
+export interface BosPOMappingsData {
+  mappings: BosPoMapping[];
+}
+
+// ── Complete Course Syllabus ──────────────────────────────────────────
+
+export interface BosSyllabusContent {
+  course_objectives?: BosCourseObjectivesContent;
+  course_learning_outcomes?: BosCourseLearnOutcomesContent;
+  course_content?: BosCourseContentData;
+  textbooks?: BosBooksData;
+  web_resources?: BosWebResourcesData;
+  pedagogy?: BosPedagogyData;
+  po_mappings?: BosPOMappingsData;
+}
+
+export interface BosCourseSyllabus {
+  id: string;
+  institutions_id: string;
+  board_id: string;
+  regulation_id?: string;
+  composition_id?: string;
+  course_code: string;
+  course_name: string;
+  course_credits?: number;
+  total_hours?: number;
+  contact_hours?: number;
+
+  // Versioning
+  version_number: number;
+  is_latest: boolean;
+  is_archived: boolean;
+  revised_from_syllabus_id?: string;
+
+  // Content (as JSONB)
+  course_objectives?: Record<string, unknown> | BosCourseObjectivesContent;
+  course_learning_outcomes?: Record<string, unknown> | BosCourseLearnOutcomesContent;
+  course_content?: BosCourseContentData;
+  textbooks?: BosBooksData;
+  web_resources?: BosWebResourcesData;
+  pedagogy?: BosPedagogyData;
+  po_mappings?: BosPOMappingsData;
+
+  // Metadata
+  created_by: string; // User ID
+  created_at: string;
+  last_modified_by?: string;
+  last_modified_at?: string;
+
+  // Additional
+  notes?: string;
+  stream?: string; // "Engineering", "Pharmacy", "Nursing", "Dental", "Arts"
+}
+
+export type CreateBosSyllabusDto = Omit<
+  BosCourseSyllabus,
+  'id' | 'created_at' | 'last_modified_at' | 'version_number' | 'is_latest' | 'is_archived'
+>;
+
+export type UpdateBosSyllabusDto = Partial<Omit<
+  BosCourseSyllabus,
+  'id' | 'created_at' | 'created_by' | 'version_number' | 'regulation_id' | 'institutions_id'
+>>;
+
+export interface BosSyllabusFilters {
+  institutionsId?: string;
+  boardId?: string;
+  regulationId?: string;
+  courseCode?: string;
+  stream?: string;
+  isLatest?: boolean;
+  isArchived?: boolean;
+  search?: string;
+  page?: number;
+  limit?: number;
+  sortBy?: string;
+  sortOrder?: 'asc' | 'desc';
+}
+
+// ── Master Taxonomy Frameworks (bos_taxonomy + bos_taxonomy_levels) ──
+
+export interface BosTaxonomyLevel {
+  id: string;
+  taxonomy_id: string;
+  code: string; // 'K1', 'K2', ...
+  name: string; // 'Remember', 'Foundational Knowledge', ...
+  description?: string | null;
+  verb_examples: string[]; // [] for Fink's, ['define','list',...] for Bloom's
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface BosTaxonomy {
+  id: string;
+  institutions_id: string;
+  code: string; // 'blooms' | 'finks' | custom slug
+  name: string; // 'Bloom\'s Taxonomy', 'Fink\'s Taxonomy', ...
+  description?: string | null;
+  is_hierarchical: boolean;
+  is_system: boolean;
+  is_active: boolean;
+  created_by?: string | null;
+  created_at: string;
+  updated_by?: string | null;
+  updated_at: string;
+}
+
+export interface BosTaxonomyWithLevels extends BosTaxonomy {
+  levels: BosTaxonomyLevel[];
+}
+
+export interface BosTaxonomySummary extends BosTaxonomy {
+  level_count: number;
+  institution_name?: string;
+}
+
+export interface CreateBosTaxonomyDto {
+  institutions_id?: string;
+  code: string;
+  name: string;
+  description?: string | null;
+  is_hierarchical?: boolean;
+  is_active?: boolean;
+  levels: Array<{
+    code: string;
+    name: string;
+    description?: string | null;
+    verb_examples?: string[];
+    sort_order?: number;
+  }>;
+}
+
+export type UpdateBosTaxonomyDto = Partial<Omit<CreateBosTaxonomyDto, 'institutions_id'>>;
+
+export interface BosTaxonomyFilters {
+  institutionsId?: string;
+  isActive?: boolean;
+  search?: string;
+  page?: number;
+  limit?: number;
+  sortBy?: string;
+  sortOrder?: 'asc' | 'desc';
+}
+
+// ── Regulation Taxonomy Master ────────────────────────────────────────
+
+export interface BosRegulationTaxonomy {
+  id: string;
+  institutions_id: string;
+  regulation_id: string;
+  taxonomy_type: 'finks' | 'blooms' | string; // Framework choice
+  k_values: Record<string, string>; // {"K1": "Application", "K2": "Foundational", ...}
+  // Per-programme PO definitions: { "UEN": { "PO1": "...", "PO2": "..." }, "UCM": { ... } }
+  // Legacy flat format { "PO1": "..." } is also accepted for backward compat.
+  pos: Record<string, string> | Record<string, Record<string, string>>;
+  psos?: Record<string, string> | Record<string, Record<string, string>>; // PSO definitions (optional)
+  created_by: string;
+  created_at: string;
+  updated_by?: string;
+  updated_at?: string;
+}
+
+export type CreateBosRegulationTaxonomyDto = Omit<
+  BosRegulationTaxonomy,
+  'id' | 'created_at' | 'updated_at' | 'created_by' | 'updated_by'
+>;
+
+export type UpdateBosRegulationTaxonomyDto = Partial<Omit<
+  BosRegulationTaxonomy,
+  'id' | 'created_at' | 'created_by' | 'institutions_id' | 'regulation_id'
+>>;
+
+// ── Syllabus Duplication & Revision ────────────────────────────────────
+
+export interface BosSyllabusDuplicateRequest {
+  source_regulation_id: string;
+  target_regulation_id: string;
+  course_code_mapping: Array<{
+    from: string; // "24UGTA01"
+    to: string;   // "25UGTA01"
+  }>;
+  keep_content?: boolean; // default: true
+}
+
+export interface BosSyllabusRevisionRequest {
+  syllabi_id: string;
+  updated_content: BosSyllabusContent;
+  notes?: string; // "Updated per board feedback"
+}
+
+export interface BosSyllabusHistory {
+  current: BosCourseSyllabus;
+  previous?: BosCourseSyllabus;
+  all_versions: BosCourseSyllabus[];
+}
+
+// ── List Response ─────────────────────────────────────────────────────
+
+export interface BosSyllabusListResponse extends BosListResponse<BosCourseSyllabus> {
+  // Inherits data, metadata from BosListResponse
+}
 
 // ── External Expert ──────────────────────────────────────────────────────────
 
@@ -190,6 +564,9 @@ export interface BosComposition {
   ratified_by_gc: boolean;
   ratified_date?: string;
   notes?: string;
+  // Auth user who created the row — used as a bootstrap permission gate
+  // (creator can edit/delete + manage members before a chairman is appointed).
+  created_by?: string | null;
   created_at: string;
   updated_at: string;
   // Joined fields
@@ -200,7 +577,7 @@ export interface BosComposition {
 
 export type CreateBosCompositionDto = Omit<
   BosComposition,
-  'id' | 'created_at' | 'updated_at' | 'board' | 'members' | 'member_count'
+  'id' | 'created_at' | 'updated_at' | 'created_by' | 'board' | 'members' | 'member_count'
 >;
 export type UpdateBosCompositionDto = Partial<CreateBosCompositionDto>;
 
@@ -397,7 +774,7 @@ export interface BosTaDaClaim {
   institutions_id: string;
   meeting_id: string;
   member_id: string;
-  expert_id: string;
+  expert_id?: string | null;
   travel_mode?: string;
   travel_from?: string;
   travel_to?: string;

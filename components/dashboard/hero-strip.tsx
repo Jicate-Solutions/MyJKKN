@@ -18,14 +18,19 @@ import {
 
 type TileColor = OhsBand | 'neutral';
 
+// Tier-C glass treatment (UX experiment 2026-04-27 — dashboard single-page test).
+// Tone-aware 3-color gradient + readable dark text. NO shimmer (KPI tiles are
+// read-heavy; animation would compete with the number for attention). Cue-stack
+// (cast shadow + inset top sheen + inset ring + specular) added on the wrapper
+// className below. Light/dark mode preserved.
 const TILE_COLOR_CLASS: Record<TileColor, string> = {
   green:
-    'border-emerald-400/40 bg-emerald-50/60 dark:bg-emerald-950/30 text-emerald-950 dark:text-emerald-100',
+    'border-emerald-300/60 bg-gradient-to-br from-emerald-50 via-white to-emerald-100/80 dark:from-emerald-950/50 dark:via-emerald-900/30 dark:to-emerald-950/50 text-emerald-950 dark:text-emerald-100',
   amber:
-    'border-amber-400/40 bg-amber-50/60 dark:bg-amber-950/30 text-amber-950 dark:text-amber-100',
-  red: 'border-rose-400/40 bg-rose-50/60 dark:bg-rose-950/30 text-rose-950 dark:text-rose-100',
+    'border-amber-300/60 bg-gradient-to-br from-amber-50 via-white to-amber-100/80 dark:from-amber-950/50 dark:via-amber-900/30 dark:to-amber-950/50 text-amber-950 dark:text-amber-100',
+  red: 'border-rose-300/60 bg-gradient-to-br from-rose-50 via-white to-rose-100/80 dark:from-rose-950/50 dark:via-rose-900/30 dark:to-rose-950/50 text-rose-950 dark:text-rose-100',
   neutral:
-    'border-neutral-200 bg-white/90 dark:bg-neutral-900/80 dark:border-neutral-800 text-neutral-900 dark:text-neutral-100'
+    'border-neutral-300/60 bg-gradient-to-br from-white via-neutral-50 to-neutral-100/80 dark:from-neutral-900/80 dark:via-neutral-900/50 dark:to-neutral-900/80 text-neutral-900 dark:text-neutral-100'
 };
 
 const BAND_DOT: Record<TileColor, string> = {
@@ -80,36 +85,44 @@ function HeroTile({
   return (
     <Wrapper
       {...wrapperProps}
-      className={`group relative rounded-2xl border ${TILE_COLOR_CLASS[color]} p-5 backdrop-blur-sm transition-all duration-200 ${useOuterLink ? 'hover:shadow-lg hover:-translate-y-0.5 active:scale-[0.98] cursor-pointer focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-emerald-500' : ''}`}
+      className={`group relative rounded-2xl border ${TILE_COLOR_CLASS[color]} p-5 backdrop-blur-sm shadow-[0_8px_24px_-6px_rgba(0,0,0,0.14),0_2px_6px_-1px_rgba(0,0,0,0.08),inset_0_1px_0_rgba(255,255,255,0.7)] ring-1 ring-inset ring-white/40 dark:ring-white/10 overflow-hidden transition-all duration-200 ${useOuterLink ? 'hover:shadow-[0_14px_32px_-6px_rgba(0,0,0,0.22)] hover:-translate-y-0.5 active:scale-[0.98] cursor-pointer focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-emerald-500' : ''}`}
     >
-      <div className='flex items-center justify-between'>
-        <span className='text-xs font-medium uppercase tracking-wider opacity-75'>
-          {label}
-        </span>
-        <span
-          className={`h-2 w-2 rounded-full ${BAND_DOT[color]}`}
-          aria-hidden
-        />
-      </div>
-      <div className='mt-3 text-4xl font-bold tabular-nums leading-none'>
-        {value}
-      </div>
-      <div className='mt-2 text-xs opacity-70 line-clamp-2'>{subtitle}</div>
-      {hint && <div className='mt-1 text-[11px] opacity-60'>{hint}</div>}
-      {footer && (
-        <div className='mt-4 pt-3 border-t border-current/10 text-[11px] opacity-80'>
-          {footer}
+      {/* Tier-C specular highlight — static "light upper-left" cue.
+          Sibling order: paints first, content paints above via z-10. */}
+      <span
+        aria-hidden='true'
+        className='pointer-events-none absolute inset-0 rounded-2xl bg-gradient-to-br from-white/40 via-white/0 to-transparent dark:from-white/12'
+      />
+      <div className='relative z-10'>
+        <div className='flex items-center justify-between'>
+          <span className='text-xs font-medium uppercase tracking-wider opacity-75'>
+            {label}
+          </span>
+          <span
+            className={`h-2 w-2 rounded-full ${BAND_DOT[color]}`}
+            aria-hidden
+          />
         </div>
-      )}
-      {action && (
-        <Link
-          href={action.href}
-          className='mt-3 inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-current/10 hover:bg-current/20 transition-colors'
-        >
-          {action.label}
-          <span aria-hidden='true'>→</span>
-        </Link>
-      )}
+        <div className='mt-3 text-4xl font-bold tabular-nums leading-none'>
+          {value}
+        </div>
+        <div className='mt-2 text-xs opacity-70 line-clamp-2'>{subtitle}</div>
+        {hint && <div className='mt-1 text-[11px] opacity-60'>{hint}</div>}
+        {footer && (
+          <div className='mt-4 pt-3 border-t border-current/10 text-[11px] opacity-80'>
+            {footer}
+          </div>
+        )}
+        {action && (
+          <Link
+            href={action.href}
+            className='mt-3 inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-current/10 hover:bg-current/20 transition-colors'
+          >
+            {action.label}
+            <span aria-hidden='true'>→</span>
+          </Link>
+        )}
+      </div>
     </Wrapper>
   );
 }

@@ -3,7 +3,7 @@
 @tailwind utilities;
 
 body {
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-poppins), var(--font-noto-tamil), Arial, Helvetica, sans-serif;
 }
 
 @layer base {
@@ -407,4 +407,59 @@ body {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+/* ── Tiptap / ProseMirror editor styles ──────────────────────────────────── */
+/* Tiptap ships no default CSS — these are required for table borders and
+   task-list checkboxes to render correctly. */
+.ProseMirror {
+  outline: none;
+}
+
+.ProseMirror table {
+  border-collapse: collapse;
+  table-layout: fixed;
+  width: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+.ProseMirror table td,
+.ProseMirror table th {
+  min-width: 1em;
+  border: 1px solid hsl(var(--border));
+  padding: 6px 8px;
+  vertical-align: top;
+  box-sizing: border-box;
+  position: relative;
+}
+
+.ProseMirror table th {
+  font-weight: 600;
+  background: hsl(var(--muted));
+  text-align: left;
+}
+
+.ProseMirror table .selectedCell::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: hsl(var(--primary) / 0.1);
+  pointer-events: none;
+}
+
+.ProseMirror ul[data-type='taskList'] {
+  list-style: none;
+  padding: 0;
+}
+
+.ProseMirror ul[data-type='taskList'] li {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+
+.ProseMirror ul[data-type='taskList'] li > label {
+  flex-shrink: 0;
+  margin-top: 2px;
 }

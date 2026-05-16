@@ -30,14 +30,18 @@ export const studentSearchKeys = {
   // Key for useStudentsForBulkOperations - can reuse list or be specific
   forBulkOperations: (
     institutionId?: string,
+    degreeId?: string,
     departmentId?: string,
+    programId?: string,
     semesterId?: string
   ) =>
     [
       ...studentSearchKeys.all,
       'forBulk',
       institutionId,
+      degreeId,
       departmentId,
+      programId,
       semesterId
     ] as const
 };
@@ -186,14 +190,18 @@ export function useSearchStudentsByQuery(
 // Hook to get students for bulk operations page
 export function useStudentsForBulkOperations(
   institutionId?: string,
+  degreeId?: string,
   departmentId?: string,
+  programId?: string,
   semesterId?: string
 ) {
   // For bulk operations, we typically want a larger, less paginated list based on broad criteria.
   // We can reuse the searchStudentsForBilling service method with appropriate filters.
   const filters: StudentSearchFiltersType = {
     institution_id: institutionId,
+    degree_id: degreeId,
     department_id: departmentId,
+    program_id: programId,
     semester_id: semesterId,
     limit: 500, // Fetch a larger set for bulk selection, adjust as needed
     page: 1
@@ -202,7 +210,9 @@ export function useStudentsForBulkOperations(
   return useQuery<StudentForBillingListResponse, Error>({
     queryKey: studentSearchKeys.forBulkOperations(
       institutionId,
+      degreeId,
       departmentId,
+      programId,
       semesterId
     ),
     queryFn: () => StudentSearchService.searchStudentsForBilling(filters),

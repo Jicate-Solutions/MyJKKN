@@ -3,12 +3,46 @@
 
 import { getExotelClient, isExotelConfigured, type ExotelCallRecord } from './exotel-client';
 import { TelephonyService } from './telephony-service';
+import { CallPipelineService } from './call-pipeline-service';
 import { isAdmissionCall } from './exotel-agent-map';
 import { resolveCounselorIdForCall } from './call-attribution';
 import { exotelTimeToIso } from './exotel-time';
 import { logger } from '@/lib/utils/enhanced-logger';
+import { getPolicy } from '@/lib/policies/get-policy';
+import { POLICY_KEYS } from '@/lib/policies/keys';
 
 const MODULE = 'telephony/inbound-sync';
+
+// Hardcoded fallbacks if the policy row is missing or malformed. Match the
+// pre-policy production values so behavior is unchanged at deploy time.
+const CDR_SYNC_DEFAULT_LOOKBACK_DAYS = 7;
+const CDR_SYNC_CHUNK_MAX_DAYS = 30; // Exotel CDR max is 31 days
+
+interface CdrSyncConfig {
+  default_lookback_days: number;
+  chunk_max_days: number;
+}
+
+/**
+ * Resolve the CDR sync windowing config from platform_policies, with
+ * defensive fallbacks. Reads `telephony.cdr_sync.config` (object) once per
+ * sync invocation. Director-tweakable via admin UI — no deploy needed.
+ */
+async function resolveCdrSyncConfig(): Promise<CdrSyncConfig> {
+  const raw = await getPolicy<Partial<CdrSyncConfig>>(
+    POLICY_KEYS.TELEPHONY_CDR_SYNC_CONFIG,
+    null
+  );
+  const lookback =
+    raw && typeof raw.default_lookback_days === 'number' && raw.default_lookback_days > 0
+      ? raw.default_lookback_days
+      : CDR_SYNC_DEFAULT_LOOKBACK_DAYS;
+  const chunk =
+    raw && typeof raw.chunk_max_days === 'number' && raw.chunk_max_days > 0 && raw.chunk_max_days <= 31
+      ? raw.chunk_max_days
+      : CDR_SYNC_CHUNK_MAX_DAYS;
+  return { default_lookback_days: lookback, chunk_max_days: chunk };
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // TYPES
@@ -62,11 +96,18 @@ export class InboundCallSyncService {
         error_message: null,
       });
 
+      // Read CDR sync windowing once per invocation (Director-tunable via
+      // platform_policies row `telephony.cdr_sync.config`). Falls back to the
+      // pre-policy hardcoded defaults (7-day lookback, 30-day chunks) if the
+      // row is missing or malformed.
+      const cdrConfig = await resolveCdrSyncConfig();
+
       // Determine date range
       const { fromDate, toDate } = await InboundCallSyncService.resolveDateRange(
         institutionId,
         supabase,
-        options
+        options,
+        cdrConfig.default_lookback_days
       );
 
       logger.info(MODULE, 'Starting inbound CDR sync', {
@@ -74,10 +115,12 @@ export class InboundCallSyncService {
         fromDate,
         toDate,
         fullSync: options.fullSync || false,
+        defaultLookbackDays: cdrConfig.default_lookback_days,
+        chunkMaxDays: cdrConfig.chunk_max_days,
       });
 
-      // Chunk into 30-day windows (Exotel max is 31 days)
-      const chunks = InboundCallSyncService.dateChunks(fromDate, toDate, 30);
+      // Chunk into N-day windows (Exotel max is 31 days). Default 30 from policy.
+      const chunks = InboundCallSyncService.dateChunks(fromDate, toDate, cdrConfig.chunk_max_days);
       let latestCallDate: string | null = null;
 
       for (const [chunkFrom, chunkTo] of chunks) {
@@ -325,7 +368,7 @@ export class InboundCallSyncService {
     );
 
     // Insert new record
-    const { error } = await supabase
+    const { data: insertedCall, error } = await supabase
       .from('admission_call_logs')
       .insert({
         call_sid: record.Sid,
@@ -345,7 +388,16 @@ export class InboundCallSyncService {
         lead_id: leadId,
         counselor_id: counselorId,
         is_admission_call: isAdm,
-      });
+        // TODO(Signal 4): dial_whom_number intentionally omitted here.
+        // Exotel CDR API (/Calls.json) does not expose a per-leg DialWhomNumber
+        // field — the CDR record only has To (the ExoPhone DID, e.g. 04446313503)
+        // and From (caller). The actual agent dialled is only available in the
+        // real-time Passthru webhook payload (persisted by the webhook path above).
+        // Follow-up PR will back-match webhook rows to CDR rows via call_sid and
+        // copy dial_whom_number across where it exists. See: feat/telephony-preserve-dial-whom-number.
+      })
+      .select('id')
+      .single();
 
     if (error) {
       // Handle unique constraint violation (race with webhook)
@@ -353,6 +405,88 @@ export class InboundCallSyncService {
         return { inserted: false, leadMatched: false };
       }
       throw new Error(error.message);
+    }
+
+    // Write a timeline breadcrumb to admission_lead_activities so the lead
+    // detail Activity tab shows the inbound call. Manual logs (logManualCall)
+    // and outbound webhook handlers already do this; pre-fix, the inbound CDR
+    // path skipped it, leaving inbound prospects with "no activity recorded yet"
+    // even when the call_logs row had full transcript + sentiment.
+    //
+    // Skip when no lead matched — don't pollute the timeline with anonymous calls.
+    // Best-effort: failure here MUST NOT roll back the call_logs upsert (CDR sync
+    // must remain resilient to RLS hiccups, transient FK errors, etc.).
+    // Idempotency: the existing-record short-circuit above (call_sid lookup)
+    // ensures this block only fires on genuinely new rows, so re-runs over the
+    // same Exotel page won't double-insert breadcrumbs.
+    if (leadId) {
+      const durationSec = record.Duration ? parseInt(record.Duration, 10) || 0 : 0;
+      const mappedStatus = InboundCallSyncService.mapExotelStatus(record.Status);
+      const descriptionParts = [
+        `Direction: inbound`,
+        `Status: ${mappedStatus}`,
+        durationSec > 0 ? `Duration: ${durationSec}s` : null,
+        record.From ? `From: ${record.From}` : null,
+      ].filter(Boolean);
+
+      await supabase
+        .from('admission_lead_activities')
+        .insert({
+          lead_id: leadId,
+          activity_type: 'call',
+          subject: `Inbound call ${mappedStatus}`,
+          description: descriptionParts.join(' | '),
+          outcome: mappedStatus,
+          created_by: counselorId ?? null,
+        })
+        .then(({ error: actErr }: { error: any }) => {
+          if (actErr) {
+            logger.warn(MODULE, 'Failed to insert lead_activities breadcrumb', {
+              callSid: record.Sid,
+              leadId,
+              error: actErr.message,
+            });
+          }
+        }, (err: unknown) => {
+          logger.warn(MODULE, 'Failed to insert lead_activities breadcrumb', {
+            callSid: record.Sid,
+            leadId,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        });
+    }
+
+    // Run the call pipeline (intelligence submit + auto-SMS + callback queue)
+    // on the newly-inserted row. Pre-fix, only the real-time StatusCallback
+    // webhook path triggered the pipeline — cron-path inserts skipped it
+    // entirely, leaving 475 recordings without intelligence rows over the
+    // 2026-04-11 → 2026-05-02 window. Pipeline is idempotent (early-returns
+    // if intelligence_id is already set) and non-blocking via .catch().
+    if (insertedCall?.id) {
+      const recordingUrl = record.RecordingUrl || record.PreSignedRecordingUrl || undefined;
+      const durationSec = record.Duration ? parseInt(record.Duration, 10) || 0 : 0;
+      const costAmount = record.Price ? parseFloat(record.Price) || 0 : 0;
+      const status = InboundCallSyncService.mapExotelStatus(record.Status);
+
+      CallPipelineService.runPipeline({
+        callLogId: insertedCall.id,
+        callSid: record.Sid,
+        institutionId,
+        direction: 'inbound',
+        status,
+        fromNumber: record.From || '',
+        toNumber: record.To || '',
+        durationSeconds: durationSec,
+        costAmount,
+        recordingUrl,
+        leadId: leadId ?? undefined,
+        counselorId: counselorId ?? undefined,
+      }, supabase).catch((err) =>
+        logger.warn(MODULE, 'Cron-path pipeline invocation failed', {
+          callSid: record.Sid,
+          error: err instanceof Error ? err.message : String(err),
+        })
+      );
     }
 
     return { inserted: true, leadMatched: !!leadId };
@@ -380,11 +514,15 @@ export class InboundCallSyncService {
 
   /**
    * Resolve the sync date range based on options and last sync state.
+   * The default-lookback window (used when no last_synced_call_date cursor
+   * exists) is supplied by the caller from the `telephony.cdr_sync.config`
+   * platform_policies row, with a hardcoded fallback of 7 days at the call site.
    */
   private static async resolveDateRange(
     institutionId: string,
     supabase: any,
-    options: SyncOptions
+    options: SyncOptions,
+    defaultLookbackDays: number = CDR_SYNC_DEFAULT_LOOKBACK_DAYS
   ): Promise<{ fromDate: string; toDate: string }> {
     const toDate = options.toDate || new Date().toISOString().substring(0, 10);
 
@@ -409,9 +547,9 @@ export class InboundCallSyncService {
       }
     }
 
-    // Default: last 7 days for first sync
+    // Default: lookback window (policy-driven, default 7 days) for first sync
     const defaultFrom = new Date();
-    defaultFrom.setDate(defaultFrom.getDate() - 7);
+    defaultFrom.setDate(defaultFrom.getDate() - defaultLookbackDays);
     return { fromDate: defaultFrom.toISOString().substring(0, 10), toDate };
   }
 

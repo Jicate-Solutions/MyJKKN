@@ -2,7 +2,6 @@
 
 import { DataTable } from '@/components/data-table/data-table';
 import { getLeadColumns, FUNNEL_STAGES } from './columns';
-import { ProgramTabs } from './program-tabs';
 import { ConsultantService } from '@/lib/services/admission/consultant-service';
 import { Button } from '@/components/ui/button';
 import { Plus, TrashIcon, Flame, Star, Loader2, Filter, X, RefreshCw } from 'lucide-react';
@@ -13,6 +12,7 @@ import type { AdmissionLead } from '@/types/admission';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useAuth } from '@/hooks/use-auth';
 import { useExpoEvents, useCounselorsList } from '@/hooks/admission';
+import { useActiveLeadSources } from '@/hooks/admission/use-active-lead-sources';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import { useState, useCallback, useRef, useEffect } from 'react';
 import {
@@ -34,29 +34,23 @@ import {
 } from '@/components/ui/select';
 import toast from 'react-hot-toast';
 
-const LEAD_SOURCES = [
-  { value: 'walk_in', label: 'Walk-in' },
-  { value: 'education_fair', label: 'Edu Fair' },
-  { value: 'referral', label: 'Referral' },
-  { value: 'website', label: 'Website' },
-  { value: 'admission_form', label: 'Form' },
-  { value: 'facebook_ads', label: 'Facebook' },
-  { value: 'google_ads', label: 'Google' },
-  { value: 'social_media', label: 'Social' },
-  { value: 'newspaper', label: 'Press' },
-  { value: 'agent', label: 'Agent' },
-  { value: 'publisher', label: 'Publisher' },
-  { value: 'other', label: 'Other' },
-];
+// Source dropdown options now come from useActiveLeadSources() — admin-curated
+// rows in admission_lead_sources_master replace this once-static list.
 
 export function LeadsDataTable() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { canAccess, isSuperAdmin, isAdmissionGlobalUser } = usePermissions();
-  const canBulkDelete = isSuperAdmin || isAdmissionGlobalUser
-    || canAccess('admission', 'leads.delete')
-    || canAccess('admission', 'leads.edit');
+  // 2026-05-11 fix: dropped `isAdmissionGlobalUser` (visibility scope, not a
+  // destructive-action gate) and `leads.edit` (orthogonal to delete) from this
+  // check. Both made the bulk Delete button visible to admission_counselor /
+  // expo_counselor users who have the .edit perm but never the .delete one.
+  // Now matches the per-row canDelete shape in row-actions.tsx.
+  const canBulkDelete = isSuperAdmin || canAccess('admission', 'leads.delete');
   const { profile } = useAuth();
+  const { options: leadSources } = useActiveLeadSources({
+    institutionId: profile?.institution_id ?? null,
+  });
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [selectedForDelete, setSelectedForDelete] = useState<AdmissionLead[]>(
     []
@@ -66,6 +60,25 @@ export function LeadsDataTable() {
   const [refetchKey, setRefetchKey] = useState(0);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
+  // Filter changes need to (a) bump refetchKey so the DataTable refetches AND
+  // (b) reset the URL's ?page= param to 1. Without the page reset, switching
+  // a filter while on page 5 of unfiltered results lands the user on page 5
+  // of the filtered set — which is usually beyond the new last page, so the
+  // API returns an empty page and the table looks broken/unfiltered.
+  const bumpRefetchAndResetPage = useCallback(() => {
+    setRefetchKey((prev) => prev + 1);
+    // Use replaceState (not router.replace) to avoid a Next.js navigation
+    // round-trip — we just want to drop `page` from the URL bar; the
+    // DataTable's URL-state hook will pick up page=1 on its next read.
+    if (typeof window !== 'undefined') {
+      const url = new URL(window.location.href);
+      if (url.searchParams.has('page')) {
+        url.searchParams.delete('page');
+        window.history.replaceState(null, '', url.toString());
+      }
+    }
+  }, []);
+
   // Auto-refetch when page becomes visible (e.g., user navigates back from lead detail/create)
   useEffect(() => {
     const handleFocus = () => setRefetchKey((prev) => prev + 1);
@@ -73,12 +86,27 @@ export function LeadsDataTable() {
     return () => window.removeEventListener('focus', handleFocus);
   }, []);
 
+  // Bridge from lead mutations → this manual-refetch DataTable. The hooks
+  // in hooks/admission/index.ts dispatch a window CustomEvent on every
+  // successful lead mutation (create/update/delete/stage/etc). We listen
+  // and bump refetchKey, which triggers fetchData via the DataTable's
+  // refetchKey prop. Reason for the indirection: this table doesn't use
+  // useQuery (it's a controlled fetchData/refetchKey DataTable), so
+  // queryClient.invalidateQueries doesn't reach it directly.
+  useEffect(() => {
+    const handler = () => setRefetchKey((prev) => prev + 1);
+    window.addEventListener('admission-leads-changed', handler);
+    return () => window.removeEventListener('admission-leads-changed', handler);
+  }, []);
+
   // Attribution map: leadId -> primary consultant name (populated after each page load)
   const [attributionsMap, setAttributionsMap] = useState<Map<string, string>>(new Map());
 
-  // Stage filter from URL (extra filter beyond DataTable's built-in search)
+  // Stage filter from URL (extra filter beyond DataTable's built-in search).
+  // Accepts either ?funnel_stage= (internal contract) or ?status= (public
+  // contract — used by group-dashboard drill-down cards). Both must work.
   const [stageFilter, setStageFilter] = useState<string>(
-    searchParams.get('funnel_stage') || '_all'
+    searchParams.get('funnel_stage') || searchParams.get('status') || '_all'
   );
   // Priority filter from URL
   const [priorityFilter, setPriorityFilter] = useState<string>(
@@ -104,9 +132,21 @@ export function LeadsDataTable() {
   // institution. Non-global users typically have a single institution, so
   // the College dropdown becomes a no-op for them (BUG-003181 asked for this
   // to be visible across roles, not just global admission users).
-  const [collegeFilter, setCollegeFilter] = useState<string | null>(
-    searchParams.get('institution_id') || null
-  );
+  const [collegeFilter, setCollegeFilter] = useState<string | null>(() => {
+    // Singular ?institution_id= is the internal contract.
+    const singular = searchParams.get('institution_id');
+    if (singular) return singular;
+    // Plural ?institution_ids=A,B,C is the public contract from group-dashboard
+    // drill-downs (see lib/dashboard/drilldown-scope.ts:appendDashboardScope).
+    // collegeFilter is single-select today — use the FIRST id; multi-select is
+    // a follow-up if the dashboard ever passes >1 institution.
+    const plural = searchParams.get('institution_ids');
+    if (plural) {
+      const first = plural.split(',')[0]?.trim();
+      return first || null;
+    }
+    return null;
+  });
   // Stale filter — driven by ?stale_min_days=N (e.g. dashboard:rescue daily
   // digest deep-link sends 30). When set, only leads with no contact in N+
   // days are shown. User clears with the X button on the badge.
@@ -138,10 +178,47 @@ export function LeadsDataTable() {
     ? undefined
     : profile?.institution_id;
   const institutionId = collegeFilter || baseInstitutionId;
-  // Institution used by ProgramTabs — tabs only show when we have a single
-  // institution in focus. For global users without a college selected, tabs
-  // hide entirely.
-  const tabsInstitutionId = institutionId || null;
+
+  // Programs list for the main-row Programs Select (promoted from the
+  // secondary ProgramTabs strip on 2026-05-04 to make the dimension a
+  // discoverable filter chip alongside Stage / College / Source). The
+  // secondary horizontal strip was retired entirely 2026-05-11 — the
+  // dropdown is the single source of truth for program filtering.
+  // /api/admission/leads/program-counts endpoint, so the browser cache
+  // absorbs the duplicate request and there is no observable extra cost.
+  const [programOptions, setProgramOptions] = useState<
+    { id: string; name: string; count: number }[]
+  >([]);
+  useEffect(() => {
+    if (!institutionId) {
+      setProgramOptions([]);
+      return;
+    }
+    let cancelled = false;
+    const ctrl = new AbortController();
+    fetch(
+      `/api/admission/leads/program-counts?institution_id=${encodeURIComponent(institutionId)}`,
+      { signal: ctrl.signal }
+    )
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => {
+        if (cancelled || !j?.data) return;
+        setProgramOptions(
+          j.data.map((p: any) => ({
+            id: p.program_id,
+            name: p.program_name,
+            count: p.count,
+          }))
+        );
+      })
+      .catch(() => {
+        // ProgramTabs surfaces fetch errors; no need to double-surface.
+      });
+    return () => {
+      cancelled = true;
+      ctrl.abort();
+    };
+  }, [institutionId, refetchKey]);
 
   // Auto-detect counselor ID for non-manager counselors (they only see assigned leads)
   const [myCounselorId, setMyCounselorId] = useState<string | null>(null);
@@ -317,10 +394,14 @@ export function LeadsDataTable() {
     }
   };
 
-  // Count active advanced filters for badge
-  const activeAdvancedCount = [sourceFilter, counselorFilter, expoFilter]
-    .filter((f) => f !== '_all').length
-    + (collegeFilter ? 1 : 0);
+  // "More" badge counts ONLY filters still hidden inside the advanced
+  // drawer. College + Programs were promoted to the primary filter row
+  // on 2026-05-04 to surface the institutional dimension; they no longer
+  // need to count toward this badge. Source has always been in the
+  // primary row — counting it here was a pre-existing bug we fix in
+  // passing.
+  const activeAdvancedCount = [counselorFilter, expoFilter]
+    .filter((f) => f !== '_all').length;
 
   const clearAllFilters = useCallback(() => {
     setStageFilter('_all');
@@ -335,18 +416,18 @@ export function LeadsDataTable() {
     if (isSuperAdmin || isAdmissionGlobalUser) {
       setCollegeFilter(null);
     }
-    setRefetchKey((prev) => prev + 1);
-  }, [isSuperAdmin, isAdmissionGlobalUser]);
+    bumpRefetchAndResetPage();
+  }, [isSuperAdmin, isAdmissionGlobalUser, bumpRefetchAndResetPage]);
 
   const clearStaleFilter = useCallback(() => {
     setStaleMinDays(null);
-    setRefetchKey((prev) => prev + 1);
-  }, []);
+    bumpRefetchAndResetPage();
+  }, [bumpRefetchAndResetPage]);
 
   const handleProgramSelect = useCallback((programId: string | null) => {
     setProgramFilter(programId);
-    setRefetchKey((prev) => prev + 1);
-  }, []);
+    bumpRefetchAndResetPage();
+  }, [bumpRefetchAndResetPage]);
 
   const handleCollegeSelect = useCallback((value: string) => {
     const next = value === '_all' ? null : value;
@@ -354,8 +435,8 @@ export function LeadsDataTable() {
     // Changing the college invalidates the active program selection since
     // programs are institution-scoped.
     setProgramFilter(null);
-    setRefetchKey((prev) => prev + 1);
-  }, []);
+    bumpRefetchAndResetPage();
+  }, [bumpRefetchAndResetPage]);
 
   const renderCustomToolbar = (props: {
     selectedRows: any[];
@@ -364,45 +445,58 @@ export function LeadsDataTable() {
     resetSelection: () => void;
   }) => (
     <div className="space-y-4 w-full">
-      {/* Row 1: Action button + Filter dropdowns */}
-      <div className="flex w-full py-4 flex-col justify-between sm:flex-row sm:items-center gap-4">
-        {/* Primary action */}
-        {canCreate && (
+      {/* Row 1: Action group (left) + Filter dropdowns (right, wraps on narrow).
+          Layout decisions:
+            - Parent uses `flex-wrap` so the filter strip drops onto a new row
+              instead of overlapping the action buttons at mid widths.
+            - Action group is its own flex container so Add Lead + Refresh stay
+              adjacent regardless of where the filter strip wraps.
+            - Filters use `flex-wrap` (not `overflow-x-auto`) so on desktop
+              they reflow into multiple rows; on mobile they stack cleanly
+              instead of forcing a horizontal scroll. */}
+      <div className="flex w-full flex-wrap items-center justify-between gap-x-3 gap-y-2 py-4">
+        {/* Action group — Add Lead + Refresh always adjacent. */}
+        <div className="flex w-full items-center gap-2 sm:w-auto">
+          {canCreate && (
+            <Button
+              onClick={() => router.push('/admission/leads/new')}
+              size="sm"
+              className="h-8 flex-1 sm:flex-none"
+            >
+              <Plus className="mr-2 h-4 w-4" />
+              Add Lead
+            </Button>
+          )}
+
           <Button
-            onClick={() => router.push('/admission/leads/new')}
+            variant="outline"
             size="sm"
-            className="h-8 shrink-0 w-full sm:w-auto"
+            className="h-8 px-2 shrink-0"
+            onClick={() => {
+              setIsRefreshing(true);
+              setRefetchKey((prev) => prev + 1);
+              setTimeout(() => setIsRefreshing(false), 1000);
+              toast.success('Leads refreshed');
+            }}
+            aria-label="Refresh leads"
           >
-            <Plus className="mr-2 h-4 w-4" />
-            Add Lead
+            <RefreshCw className={`h-3.5 w-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
           </Button>
-        )}
+        </div>
 
-        {/* Refresh button */}
-        <Button
-          variant="outline"
-          size="sm"
-          className="h-8 px-2 shrink-0"
-          onClick={() => {
-            setIsRefreshing(true);
-            setRefetchKey((prev) => prev + 1);
-            setTimeout(() => setIsRefreshing(false), 1000);
-            toast.success('Leads refreshed');
-          }}
-        >
-          <RefreshCw className={`h-3.5 w-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
-        </Button>
-
-        {/* Filter dropdowns — scrollable on mobile */}
-        <div className="flex items-center gap-2 overflow-x-auto pb-1 sm:pb-0 -mx-1 px-1 sm:mx-0 sm:px-0 scrollbar-none">
+        {/* Filter dropdowns — on mobile the chips form a 2-column grid so each
+            occupies half the row, no horizontal overflow. From sm+ they
+            collapse back to inline flex-wrap. flex-1 + min-w on each
+            SelectTrigger lets them share the row width gracefully. */}
+        <div className="grid grid-cols-2 gap-2 w-full sm:flex sm:flex-wrap sm:items-center sm:w-auto">
           <Select
             value={stageFilter}
             onValueChange={(value) => {
               setStageFilter(value);
-              setRefetchKey((prev) => prev + 1);
+              bumpRefetchAndResetPage();
             }}
           >
-            <SelectTrigger className="w-[130px] sm:w-[160px] h-8 text-xs shrink-0">
+            <SelectTrigger className="w-full min-w-[110px] sm:w-[160px] h-8 text-xs flex-1 sm:flex-none">
               <SelectValue placeholder="All Stages" />
             </SelectTrigger>
             <SelectContent>
@@ -415,20 +509,69 @@ export function LeadsDataTable() {
             </SelectContent>
           </Select>
 
+          {/* College / Institution chip — promoted 2026-05-04 from the
+              "More" advanced drawer to a primary filter so the dimension
+              is discoverable to all roles. Single-institution users see a
+              one-option dropdown — harmless, keeps the affordance visible. */}
+          {accessibleInstitutions.length >= 1 && (
+            <Select
+              value={collegeFilter ?? '_all'}
+              onValueChange={handleCollegeSelect}
+            >
+              <SelectTrigger className="w-full min-w-[120px] sm:w-[200px] h-8 text-xs flex-1 sm:flex-none">
+                <SelectValue placeholder="All Colleges" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="_all">All Colleges</SelectItem>
+                {accessibleInstitutions.map((inst: any) => (
+                  <SelectItem key={inst.id} value={inst.id}>
+                    {inst.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+
+          {/* Programs / Interested Courses chip — also promoted 2026-05-04.
+              Disabled until an institution is in focus (programs are
+              institution-scoped). The horizontal ProgramTabs strip below
+              this row remains as a secondary quick-nav. */}
+          <Select
+            value={programFilter ?? '_all'}
+            onValueChange={(value) =>
+              handleProgramSelect(value === '_all' ? null : value)
+            }
+            disabled={!institutionId}
+          >
+            <SelectTrigger className="w-full min-w-[120px] sm:w-[180px] h-8 text-xs flex-1 sm:flex-none">
+              <SelectValue
+                placeholder={institutionId ? 'All Programs' : 'Pick college'}
+              />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="_all">All Programs</SelectItem>
+              {programOptions.map((p) => (
+                <SelectItem key={p.id} value={p.id}>
+                  {p.name} ({p.count})
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
           <Select
             value={sourceFilter}
             onValueChange={(value) => {
               setSourceFilter(value);
-              setRefetchKey((prev) => prev + 1);
+              bumpRefetchAndResetPage();
             }}
           >
-            <SelectTrigger className="w-[120px] sm:w-[150px] h-8 text-xs shrink-0">
+            <SelectTrigger className="w-full min-w-[110px] sm:w-[150px] h-8 text-xs flex-1 sm:flex-none">
               <SelectValue placeholder="All Sources" />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="_all">All Sources</SelectItem>
-              {LEAD_SOURCES.map((src) => (
-                <SelectItem key={src.value} value={src.value}>
+              {leadSources.map((src) => (
+                <SelectItem key={src.masterId} value={src.value}>
                   {src.label}
                 </SelectItem>
               ))}
@@ -444,7 +587,7 @@ export function LeadsDataTable() {
               onClick={() => {
                 const newVal = priorityFilter === 'hot' ? '_all' : 'hot';
                 setPriorityFilter(newVal);
-                setRefetchKey((prev) => prev + 1);
+                bumpRefetchAndResetPage();
               }}
             >
               <Flame className="h-3.5 w-3.5" />
@@ -458,7 +601,7 @@ export function LeadsDataTable() {
               onClick={() => {
                 const newVal = priorityFilter === 'warm' ? '_all' : 'warm';
                 setPriorityFilter(newVal);
-                setRefetchKey((prev) => prev + 1);
+                bumpRefetchAndResetPage();
               }}
             >
               <Star className="h-3.5 w-3.5" />
@@ -497,13 +640,13 @@ export function LeadsDataTable() {
         </div>
       </div>
 
-      {/* Course/Program tab strip — hidden until a single institution is in focus */}
-      <ProgramTabs
-        institutionId={tabsInstitutionId}
-        selectedProgramId={programFilter}
-        onSelect={handleProgramSelect}
-        refetchKey={refetchKey}
-      />
+      {/* Course/Program tab strip removed 2026-05-11 — the primary Programs
+          dropdown in the filter row already shows program names + lead
+          counts and is responsive on mobile. The horizontal strip used
+          overflow-x-auto which forced an awkward scroll on narrow viewports
+          and visually duplicated the dropdown. The dropdown reads
+          programOptions populated by the same /api/admission/leads/program-counts
+          endpoint that previously fed the strip. */}
 
       {/* Stale filter pill — visible whenever ?stale_min_days=N is active.
           Driven by the dashboard:rescue daily-digest deep-link. Click X to
@@ -550,36 +693,15 @@ export function LeadsDataTable() {
         <div className="flex flex-col sm:flex-row sm:items-center gap-2 p-2 bg-muted/30 rounded-md border border-dashed">
           <span className="text-xs text-muted-foreground font-medium shrink-0">Advanced:</span>
           <div className="flex items-center gap-2 flex-wrap">
-            {/* College / Institution filter — visible to all users with
-                access to at least one institution. Super-admin / global
-                users must pick a college here before ProgramTabs can
-                render (ProgramTabs is institution-scoped). Non-global
-                users with one institution see a single-option dropdown,
-                which is harmless and keeps the feature discoverable. */}
-            {accessibleInstitutions.length >= 1 && (
-              <Select
-                value={collegeFilter ?? '_all'}
-                onValueChange={handleCollegeSelect}
-              >
-                <SelectTrigger className="w-full sm:w-[200px] h-8 text-xs">
-                  <SelectValue placeholder="All Colleges" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="_all">All Colleges</SelectItem>
-                  {accessibleInstitutions.map((inst) => (
-                    <SelectItem key={inst.id} value={inst.id}>
-                      {inst.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            )}
-
+            {/* College + Programs filters were promoted to the primary
+                filter row on 2026-05-04 — the advanced drawer now holds
+                only Counselor + Expo, the two narrower dimensions that
+                most users don't need by default. */}
             <Select
               value={counselorFilter}
               onValueChange={(value) => {
                 setCounselorFilter(value);
-                setRefetchKey((prev) => prev + 1);
+                bumpRefetchAndResetPage();
               }}
             >
               <SelectTrigger className="w-full sm:w-[180px] h-8 text-xs">
@@ -600,7 +722,7 @@ export function LeadsDataTable() {
                 value={expoFilter}
                 onValueChange={(value) => {
                   setExpoFilter(value);
-                  setRefetchKey((prev) => prev + 1);
+                  bumpRefetchAndResetPage();
                 }}
               >
                 <SelectTrigger className="w-full sm:w-[180px] h-8 text-xs">

@@ -76,6 +76,33 @@ export class CoeRestClient {
   }
 
   /**
+   * PUT request to COE API. Used for partial updates (e.g. PUT /api/v1/courses/{id}).
+   */
+  async put<T>(path: string, body: unknown): Promise<T> {
+    return this.request<T>('PUT', `${this.baseUrl}${path}`, {
+      body: JSON.stringify(body),
+    });
+  }
+
+  /**
+   * DELETE request to COE API. Supports optional query params (e.g. ?check=true for dry-run).
+   */
+  async delete<T>(
+    path: string,
+    params?: Record<string, string | undefined>
+  ): Promise<T> {
+    const url = new URL(`${this.baseUrl}${path}`);
+    if (params) {
+      Object.entries(params).forEach(([key, value]) => {
+        if (value !== undefined && value !== '') {
+          url.searchParams.set(key, value);
+        }
+      });
+    }
+    return this.request<T>('DELETE', url.toString());
+  }
+
+  /**
    * Internal: sends authenticated request with retry on 429.
    */
   private async request<T>(

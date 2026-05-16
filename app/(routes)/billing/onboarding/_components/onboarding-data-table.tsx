@@ -7,6 +7,11 @@ import {
   useBulkGenerateBills,
 } from '@/hooks/billing/use-onboarding';
 import { getOnboardingColumns } from './columns';
+import {
+  OnboardingFilters as OnboardingFiltersUI,
+  type OnboardingHierarchyFilters,
+  type OnboardingFilterKey,
+} from './onboarding-filters';
 import { DataTable } from '@/components/ui/data-table';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -17,7 +22,7 @@ import type {
   PaymentStatus,
 } from '@/lib/services/billing/onboarding/onboarding-service';
 
-const PAGE_SIZE = 20;
+const DEFAULT_PAGE_SIZE = 20;
 
 type TabValue = 'all' | PaymentStatus;
 
@@ -30,17 +35,40 @@ const TABS: { value: TabValue; label: string }[] = [
 
 export function OnboardingDataTable() {
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [search, setSearch] = useState('');
   const [activeTab, setActiveTab] = useState<TabValue>('all');
+  const [hierarchyFilters, setHierarchyFilters] = useState<OnboardingHierarchyFilters>({});
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const { canAccess, isSuperAdmin, isLoading: permsLoading } = usePermissions();
 
   const filters: OnboardingFilters = {
     page,
-    limit: PAGE_SIZE,
+    limit: pageSize,
     search: search || undefined,
     payment_status: activeTab === 'all' ? undefined : activeTab,
+    ...hierarchyFilters,
   };
+
+  // Filter mutations always reset pagination — staying on page 7 of a list
+  // that just shrunk to 2 pages would show a confusing empty page.
+  const handleFilterChange = useCallback(
+    (key: OnboardingFilterKey, value: string | undefined) => {
+      setHierarchyFilters((prev) => {
+        const next = { ...prev };
+        if (value === undefined) delete next[key];
+        else (next as any)[key] = value;
+        return next;
+      });
+      setPage(1);
+    },
+    []
+  );
+
+  const handleClearFilters = useCallback(() => {
+    setHierarchyFilters({});
+    setPage(1);
+  }, []);
 
   const { data: response, isLoading, isFetching } = useOnboardingLearners(filters);
   const bulkGenerate = useBulkGenerateBills();
@@ -88,9 +116,15 @@ export function OnboardingDataTable() {
     [selectedIds, toggleSelected, toggleAllOnPage, pageRowIds, generatingIds]
   );
 
+  // IMPORTANT: only reset page when the search term ACTUALLY changes.
+  // The DataTable's debounce fires onSearch(globalFilter) on mount even when
+  // globalFilter is unchanged — without this guard, that spurious mount-time
+  // call resets the user's page navigation back to 1.
   const handleSearch = useCallback((query: string) => {
-    setSearch(query);
-    setPage(1);
+    setSearch((prev) => {
+      if (prev !== query) setPage(1);
+      return query;
+    });
   }, []);
 
   const handleTabChange = useCallback((value: string) => {
@@ -100,6 +134,14 @@ export function OnboardingDataTable() {
 
   const handlePageChange = useCallback((newPage: number) => {
     setPage(newPage);
+  }, []);
+
+  // Page size change resets to page 1 — staying on page 7 of a list that
+  // suddenly has 50% as many pages (because rows/page just doubled) would
+  // show a confusing empty page. Mirrors the filter/search reset behavior.
+  const handlePageSizeChange = useCallback((newSize: number) => {
+    setPageSize(newSize);
+    setPage(1);
   }, []);
 
   // Permission for the bulk-generate action — reuses billing.schedule.create
@@ -150,6 +192,13 @@ export function OnboardingDataTable() {
           ))}
         </TabsList>
       </Tabs>
+
+      {/* Advanced hierarchy + bill-status filters */}
+      <OnboardingFiltersUI
+        filters={hierarchyFilters}
+        onFilterChange={handleFilterChange}
+        onClearFilters={handleClearFilters}
+      />
 
       {/* Bulk action toolbar — visible only when ≥1 row selected */}
       {selectedIds.size > 0 && (
@@ -214,6 +263,7 @@ export function OnboardingDataTable() {
                 hasNextPage: metadata.page < metadata.total_pages,
                 hasPreviousPage: metadata.page > 1,
                 onPageChange: handlePageChange,
+                onPageSizeChange: handlePageSizeChange,
                 isLoading: isFetching,
               }
             : undefined

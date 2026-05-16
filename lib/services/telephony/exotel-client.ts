@@ -112,6 +112,14 @@ export interface ExotelUser {
 
 export interface AnalyzeCallParams {
   callSid: string;
+  /**
+   * Stable correlation ID for this submission. Required by Exotel's contract.
+   * MyJKKN passes the call_log UUID (`PipelineContext.callLogId`) so the
+   * intelligence webhook handler can correlate the async result back to the
+   * exact call_log row. Exotel echoes this back as `payload.task_id` in the
+   * webhook body.
+   */
+  taskId: string;
   tasks: ('transcript' | 'summarization' | 'sentiment' | 'categorise')[];
   callbackUrl: string;
   categories?: string[];  // for 'categorise' task
@@ -483,28 +491,54 @@ export class ExotelClient {
     if (params.customField) body.CustomField = params.customField;
     if (params.priority) body.Priority = params.priority;
 
-    return this.request<ExotelSmsResponse>('POST', '/Sms/send', body);
+    // Exotel defaults to XML; appending `.json` selects the JSON variant
+    // (same convention as /Calls.json, /Calls/{sid}.json elsewhere in this
+    // client). Without this, the response is `<TwilioResponse>...</TwilioResponse>`,
+    // request() throws "Exotel API returned non-JSON" even though the SMS
+    // is delivered successfully — pipeline mistakenly logs the call as failed.
+    return this.request<ExotelSmsResponse>('POST', '/Sms/send.json', body);
   }
 
   /**
    * Submit call recording for AI analysis via ExoVoiceAnalyze.
    * Async: POST returns job_id, results arrive at callbackUrl webhook.
    * Endpoint: POST /v1/Accounts/{sid}/Calls/{callSid}/ExoVoiceAnalyze.json
+   *
+   * BODY SHAPE — VERIFIED 2026-05-03 via direct Exotel probe:
+   *   - Content-Type: application/json (NOT form-urlencoded)
+   *   - snake_case keys (NOT TitleCase)
+   *   - `insight_tasks` and `categories` are JSON ARRAYS (not comma strings)
+   *   - `task_id` is REQUIRED — Exotel echoes it back in the callback payload
+   *
+   * Pre-fix shape (TitleCase form-urlencoded with comma strings) returned
+   * HTTP 400 "Invalid request body, failed parsing" — this is why no
+   * transcription has ever been delivered to JKKN since the path was wired.
+   * See `.claude/research/probe-pipeline-2026-05-03.md` for the empirical
+   * test that captured the 400 vs 401 distinction.
+   *
+   * NOTE: This unblocks G1 backfill ONLY once Exotel enables ExoVoiceAnalyze
+   * on the jkkn1 account. Until the account-manager flips that bit, all
+   * submissions return HTTP 401 "This api is not enabled for your account".
+   * This code change is a precondition; it is not sufficient on its own.
    */
   static async analyzeCall(params: AnalyzeCallParams): Promise<AnalyzeCallResponse> {
-    const body: Record<string, string> = {
-      InsightTasks: params.tasks.join(','),
-      CallbackUrl: params.callbackUrl,
-    };
-
-    if (params.categories?.length) {
-      body.Categories = params.categories.join(',');
-    }
+    // Build JSON-shaped body. We're piggybacking the form-encoded `request()`
+    // helper by passing `contentType: 'application/json'`, which causes the
+    // helper to JSON.stringify the body object as-is (see request() line 359-364).
+    // Casting to Record<string, string> is a TS-only workaround for the helper's
+    // restrictive signature — the runtime serialiser handles arrays correctly.
+    const body = {
+      insight_tasks: params.tasks,
+      callback_url: params.callbackUrl,
+      task_id: params.taskId,
+      ...(params.categories?.length ? { categories: params.categories } : {}),
+    } as unknown as Record<string, string>;
 
     return this.request<AnalyzeCallResponse>(
       'POST',
       `/Calls/${params.callSid}/ExoVoiceAnalyze.json`,
-      body
+      body,
+      { contentType: 'application/json' }
     );
   }
 

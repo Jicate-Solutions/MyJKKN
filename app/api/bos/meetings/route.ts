@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { BosMeetingStatus, BosMeetingType, CreateBosMeetingDto } from '@/types/bos';
-import { resolveBosAccess, guardInstitutionWrite } from '@/lib/utils/bos/bos-access';
+import {
+  resolveBosBoardScope,
+  compositionScopeFilter,
+  guardInstitutionWrite,
+  guardCompositionChairman,
+} from '@/lib/utils/bos/bos-access';
 
 // ── GET /api/bos/meetings ─────────────────────────────────────────────────────
 export async function GET(request: NextRequest) {
@@ -12,19 +17,25 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const scope = await resolveBosAccess(user.id);
+    const scope = await resolveBosBoardScope(user.id);
+    const scopeFilter = compositionScopeFilter(scope);
+
+    // No BoS access at all → return empty list without hitting the DB.
+    if (scopeFilter.kind === 'none') {
+      return NextResponse.json({
+        data: [],
+        metadata: { total: 0, page: 1, limit: 20, totalPages: 0 },
+      });
+    }
 
     const { searchParams } = new URL(request.url);
-    // Super admin may pass any institutionsId; others are locked to their own
-    const institutionsId = scope.isSuperAdmin
-      ? (searchParams.get('institutionsId') ?? undefined)
-      : (scope.institutionsId ?? undefined);
     const boardId = searchParams.get('boardId') ?? undefined;
     const compositionId = searchParams.get('compositionId') ?? undefined;
     const academicYear = searchParams.get('academicYear') ?? undefined;
     const status = searchParams.get('status') as BosMeetingStatus | null ?? undefined;
     const meetingType = searchParams.get('meetingType') as BosMeetingType | null ?? undefined;
     const search = searchParams.get('search') ?? undefined;
+    const withMembers = searchParams.get('withMembers') === 'true';
     const page = searchParams.has('page') ? parseInt(searchParams.get('page')!) : 1;
     const limit = Math.min(
       searchParams.has('limit') ? parseInt(searchParams.get('limit')!) : 20,
@@ -33,6 +44,19 @@ export async function GET(request: NextRequest) {
     const offset = (page - 1) * limit;
     const sortBy = searchParams.get('sortBy') ?? 'scheduled_date';
     const sortOrder = searchParams.get('sortOrder') ?? 'desc';
+
+    // withMembers=true: prefer meetings whose composition has active members.
+    // Falls back to all meetings if none found (soft filter — doesn't block new setups).
+    let memberCompositionIds: string[] | undefined;
+    if (withMembers) {
+      const { data: memberRows } = await supabase
+        .from('bos_members')
+        .select('composition_id')
+        .eq('is_active', true);
+      const ids = [...new Set((memberRows ?? []).map((m: any) => m.composition_id).filter(Boolean))];
+      if (ids.length > 0) memberCompositionIds = ids;
+      // If ids.length === 0, fall through and show all meetings for the institution.
+    }
 
     let query = supabase
       .from('bos_meetings')
@@ -44,13 +68,31 @@ export async function GET(request: NextRequest) {
         { count: 'exact' }
       );
 
-    if (institutionsId) query = query.eq('institutions_id', institutionsId);
+    // Institution scope — CAS-aware: include both Aided + Self-Financing UUIDs.
+    if (scope.isSuperAdmin) {
+      const institutionsId = searchParams.get('institutionsId') ?? undefined;
+      if (institutionsId) query = query.eq('institutions_id', institutionsId);
+    } else if (scope.allInstitutionIds.length > 1) {
+      query = query.in('institutions_id', scope.allInstitutionIds);
+    } else if (scope.institutionsId) {
+      query = query.eq('institutions_id', scope.institutionsId);
+    }
+
+    // Board-membership scope (layered on the institution scope above).
+    //  - 'all'           : super-admin — no filter
+    //  - 'byInstitution' : principal — already covered by the institution clause above
+    //  - 'byComposition' : member/chairman — restrict by composition_id
+    if (scopeFilter.kind === 'byComposition') {
+      query = query.in('composition_id', scopeFilter.ids);
+    }
+
     if (boardId) query = query.eq('board_id', boardId);
     if (compositionId) query = query.eq('composition_id', compositionId);
     if (academicYear) query = query.eq('academic_year', academicYear);
     if (status) query = query.eq('status', status);
     if (meetingType) query = query.eq('meeting_type', meetingType);
     if (search) query = query.ilike('meeting_title', `%${search}%`);
+    if (memberCompositionIds) query = query.in('composition_id', memberCompositionIds);
 
     query = query
       .order(sortBy, { ascending: sortOrder !== 'desc' })
@@ -89,7 +131,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const scope = await resolveBosAccess(user.id);
+    const scope = await resolveBosBoardScope(user.id);
     const body: CreateBosMeetingDto = await request.json();
 
     if (!body.institutions_id || !body.board_id || !body.composition_id) {
@@ -99,8 +141,13 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const deny = guardInstitutionWrite(scope, body.institutions_id);
-    if (deny) return NextResponse.json({ error: deny }, { status: 403 });
+    // Institution backstop (CAS-aware) + chairman-only gate.
+    // Only the board chairman of the composition can schedule a meeting.
+    // Principals are read-only; regular members cannot create meetings.
+    const denyInst = guardInstitutionWrite(scope, body.institutions_id);
+    if (denyInst) return NextResponse.json({ error: denyInst }, { status: 403 });
+    const denyComp = guardCompositionChairman(scope, body.composition_id);
+    if (denyComp) return NextResponse.json({ error: denyComp }, { status: 403 });
 
     // Auto-assign meeting_number: count existing meetings for this board + academic_year + 1
     const { count: existingCount } = await supabase

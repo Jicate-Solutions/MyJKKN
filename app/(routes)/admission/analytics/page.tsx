@@ -1,5 +1,7 @@
 'use client';
 
+export const navMeta = { label: 'Funnel Analytics', icon: 'TrendingUp' } as const;
+
 import { useState } from 'react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
@@ -55,7 +57,7 @@ import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import Link from 'next/link';
 import { toast } from 'sonner';
-import { AdmissionErrorBoundary, CounselorPerformanceDashboard, SourceROIDashboard, ProgramFunnelCard, DropoffAnalysisCard } from '@/components/admission';
+import { AdmissionErrorBoundary, CounselorPerformanceDashboard, SourceROIDashboard, ProgramFunnelCard, DropoffAnalysisCard, SourceCoverageDashboard } from '@/components/admission';
 
 const FUNNEL_STAGES = [
   { key: 'new', label: 'New', color: 'bg-blue-500' },
@@ -349,6 +351,10 @@ function StuckLeadsTable({
 }: {
   stuckLeads: Array<{
     leadId: string;
+    // Resolved upstream from admission_leads.full_name (preferred), then
+    // first_name + last_name, then `Lead <id-prefix>` as last resort —
+    // see useFunnelAnalyticsDashboard's stuck-leads projection.
+    leadName: string;
     currentStage: string;
     counselorName: string | null;
     daysInStage: number;
@@ -387,9 +393,10 @@ function StuckLeadsTable({
               <Link
                 href={`/admission/leads/${lead.leadId}`}
                 className="flex items-center gap-2 font-medium hover:underline"
+                title={`Lead ID: ${lead.leadId}`}
               >
-                {lead.isHotLead && <Flame className="h-4 w-4 text-orange-500" />}
-                {lead.leadId.slice(0, 8)}...
+                {lead.isHotLead && <Flame className="h-4 w-4 text-orange-500 shrink-0" />}
+                <span className="truncate max-w-[200px]">{lead.leadName}</span>
               </Link>
             </TableCell>
             <TableCell>
@@ -604,6 +611,7 @@ function AdmissionAnalyticsPageContent() {
                 <TabsTrigger value="programs">Programs</TabsTrigger>
                 <TabsTrigger value="counselors">Leaderboard</TabsTrigger>
                 <TabsTrigger value="sources">Source ROI</TabsTrigger>
+                <TabsTrigger value="source-coverage">Source Coverage</TabsTrigger>
               </TabsList>
             </div>
 
@@ -659,6 +667,10 @@ function AdmissionAnalyticsPageContent() {
               {(isSuperAdmin || !!institutionId) && (
                 <SourceROIDashboard institutionId={institutionId} />
               )}
+            </TabsContent>
+
+            <TabsContent value="source-coverage" className="mt-4">
+              <SourceCoverageDashboard institutionId={institutionId} />
             </TabsContent>
           </Tabs>
         </div>

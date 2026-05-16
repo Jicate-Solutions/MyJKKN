@@ -41,6 +41,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import { AdmissionErrorBoundary } from '@/components/admission';
 import { useAuth } from '@/hooks/use-auth';
+import { useActiveLeadSources } from '@/hooks/admission/use-active-lead-sources';
 import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
 import { usePermissions } from '@/hooks/use-permissions';
 import {
@@ -53,19 +54,28 @@ import {
   useFormViewCounts,
 } from '@/hooks/admission/use-form-analytics';
 import { FormBuilderService } from '@/lib/services/admission/form-builder-service';
+import type { AdmissionForm, LeadSource } from '@/types/admission';
 import { Plus, FileText, BarChart3, Link2, Pencil, Trash2, Copy } from 'lucide-react';
 import toast from 'react-hot-toast';
+
+// Channel attribution options come from useActiveLeadSources() — admin-curated
+// rows in admission_lead_sources_master replace this once-static list.
 
 function FormsListContent() {
   const router = useRouter();
   const { profile } = useAuth();
+  const { options: leadSourceOptions } = useActiveLeadSources({
+    institutionId: profile?.institution_id ?? null,
+  });
   const { selectedInstitutionId, getAccessibleInstitutionIds } =
     useUserInstitutionAccess();
-  const { isSuperAdmin, canAccess } = usePermissions();
-  const canEditForms = canAccess('admission', 'edit')
+  const { canAccess } = usePermissions();
+  const canEditForms = canAccess('admission.settings.forms', 'manage')
+    || canAccess('admission', 'edit')
     || canAccess('admission', 'manage')
     || canAccess('admission', 'settings.edit');
-  const canDeleteForms = canAccess('admission', 'delete')
+  const canDeleteForms = canAccess('admission.settings.forms', 'manage')
+    || canAccess('admission', 'delete')
     || canAccess('admission', 'manage')
     || canAccess('admission', 'settings.delete');
   const [createOpen, setCreateOpen] = useState(false);
@@ -76,20 +86,30 @@ function FormsListContent() {
     templateId: '',
   });
 
-  // Super admins see forms from ALL institutions they can access.
-  // Regular users see only forms for their current institution context.
+  // Trust the access RPC: scope='all' roles return many ids, single-
+  // institution roles return one. RLS still gates rows at the DB, so
+  // passing the full list is always safe.
   const accessibleIds = getAccessibleInstitutionIds();
-  const formsQueryScope = isSuperAdmin
-    ? accessibleIds.length > 0
-      ? accessibleIds
-      : selectedInstitutionId
-    : selectedInstitutionId;
+  const formsQueryScope = accessibleIds.length > 0 ? accessibleIds : selectedInstitutionId;
   const { data: forms = [], isLoading } = useAdmissionForms(formsQueryScope || undefined);
   const { data: templates = [] } = useFormTemplates();
   const formIds = forms.map((f) => f.id);
   const { data: submissionCounts = {} } = useFormSubmissionCounts(formIds);
   const { data: viewCounts = {} } = useFormViewCounts(formIds);
-  const { createForm, createFromTemplate, deleteForm } = useFormMutations();
+  const { createForm, createFromTemplate, deleteForm, duplicateForm } =
+    useFormMutations();
+
+  // Duplicate-form dialog state. duplicateSource holds the form being
+  // cloned (used for the dialog header & default source/description);
+  // duplicate holds the user-edited overrides for the new form.
+  const [duplicateSource, setDuplicateSource] = useState<AdmissionForm | null>(
+    null
+  );
+  const [duplicate, setDuplicate] = useState<{
+    name: string;
+    slug: string;
+    lead_source: LeadSource;
+  }>({ name: '', slug: '', lead_source: 'website' });
 
   const handleNameChange = (name: string) => {
     setNewForm((prev) => ({
@@ -100,6 +120,7 @@ function FormsListContent() {
   };
 
   const handleCreate = async () => {
+    if (createForm.isPending || createFromTemplate.isPending) return;
     if (!selectedInstitutionId || !profile?.id) {
       toast.error('Institution context required');
       return;
@@ -148,6 +169,80 @@ function FormsListContent() {
       await deleteForm.mutateAsync(formId);
     } catch {
       // Error handled by hook
+    }
+  };
+
+  // Open the duplicate dialog primed with the source form's metadata.
+  // Default suggestion: same source as the original — admin can change it
+  // (e.g. clone the Website form, switch lead_source to 'whatsapp').
+  const openDuplicate = (source: AdmissionForm) => {
+    setDuplicateSource(source);
+    const suggestedName = `${source.name} (Copy)`;
+    setDuplicate({
+      name: suggestedName,
+      slug: FormBuilderService.generateSlug(suggestedName),
+      lead_source: source.lead_source ?? 'website',
+    });
+  };
+
+  // When the admin retypes the name OR flips the lead_source picker, we
+  // re-derive the slug. Picking 'whatsapp' nudges the slug toward the
+  // user's preferred 'whatsapp-admission-2026' shape.
+  const handleDuplicateNameChange = (name: string) => {
+    setDuplicate((prev) => ({
+      ...prev,
+      name,
+      slug: FormBuilderService.generateSlug(name),
+    }));
+  };
+
+  const handleDuplicateSourceChange = (lead_source: LeadSource) => {
+    setDuplicate((prev) => {
+      const isWhatsApp = lead_source === 'whatsapp';
+      // Auto-suggest a channel-prefixed slug when the admin picks a source
+      // whose channel name doesn't already appear in the slug. Only nudge
+      // when the slug still looks auto-generated from the name (i.e. the
+      // admin hasn't typed a custom slug yet).
+      const currentDerived = FormBuilderService.generateSlug(prev.name);
+      const slugIsAutoFromName = prev.slug === currentDerived;
+      let nextSlug = prev.slug;
+      if (slugIsAutoFromName && isWhatsApp && !prev.slug.includes('whatsapp')) {
+        nextSlug = 'whatsapp-admission-2026';
+      }
+      return { ...prev, lead_source, slug: nextSlug };
+    });
+  };
+
+  const handleDuplicate = async () => {
+    if (duplicateForm.isPending) return;
+    if (!duplicateSource || !profile?.id) return;
+    if (!duplicate.name.trim() || !duplicate.slug.trim()) {
+      toast.error('Name and slug are required');
+      return;
+    }
+
+    const slugAvailable = await FormBuilderService.isSlugAvailable(
+      duplicate.slug
+    );
+    if (!slugAvailable) {
+      toast.error('Slug already taken. Please choose another.');
+      return;
+    }
+
+    try {
+      const cloned = await duplicateForm.mutateAsync({
+        sourceFormId: duplicateSource.id,
+        overrides: {
+          name: duplicate.name.trim(),
+          slug: duplicate.slug.trim(),
+          lead_source: duplicate.lead_source,
+        },
+        userId: profile.id,
+      });
+      setDuplicateSource(null);
+      router.push(`/admission/settings/forms/${cloned.id}`);
+    } catch {
+      // Error toast handled by mutation hook
     }
   };
 
@@ -272,6 +367,17 @@ function FormsListContent() {
                     <Button size="sm" variant="ghost" onClick={() => handleCopyLink(form.slug)}>
                       <Link2 className="h-3.5 w-3.5" />
                     </Button>
+                    {canEditForms && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        title="Clone form (e.g. for a new channel)"
+                        onClick={() => openDuplicate(form)}
+                      >
+                        <Copy className="h-3.5 w-3.5 mr-1" />
+                        Clone
+                      </Button>
+                    )}
                     {canDeleteForms && (
                       <Button
                         size="sm"
@@ -366,6 +472,87 @@ function FormsListContent() {
             </DialogFooter>
           </DialogContent>
         </Dialog>
+
+        {/* Duplicate form dialog — opened from the Copy icon on each card.
+            Reuses an existing form's sections / fields / branding so admins
+            can ship a new-channel form (e.g. a WhatsApp-source clone of the
+            Website form) without rebuilding the schema from scratch. */}
+        <Dialog
+          open={!!duplicateSource}
+          onOpenChange={(open) => !open && setDuplicateSource(null)}
+        >
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Duplicate Form</DialogTitle>
+              <DialogDescription>
+                {duplicateSource ? (
+                  <>
+                    Cloning <strong>{duplicateSource.name}</strong> — all
+                    sections, fields, and branding are copied. The new form
+                    starts as a draft so you can review before publishing.
+                  </>
+                ) : null}
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="dup-name">Form Name *</Label>
+                <Input
+                  id="dup-name"
+                  placeholder="e.g., WhatsApp Admission 2026"
+                  value={duplicate.name}
+                  onChange={(e) => handleDuplicateNameChange(e.target.value)}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="dup-slug">Public URL Slug *</Label>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-muted-foreground">/apply/</span>
+                  <Input
+                    id="dup-slug"
+                    placeholder="whatsapp-admission-2026"
+                    value={duplicate.slug}
+                    onChange={(e) =>
+                      setDuplicate((p) => ({ ...p, slug: e.target.value }))
+                    }
+                  />
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="dup-source">Lead Source</Label>
+                <Select
+                  value={duplicate.lead_source}
+                  onValueChange={(v) =>
+                    handleDuplicateSourceChange(v as LeadSource)
+                  }
+                >
+                  <SelectTrigger id="dup-source">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {leadSourceOptions.map((opt) => (
+                      <SelectItem key={opt.masterId} value={opt.value}>
+                        {opt.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  Submissions from this form attribute leads to this source in
+                  the leads module.
+                </p>
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setDuplicateSource(null)}>
+                Cancel
+              </Button>
+              <Button onClick={handleDuplicate} disabled={duplicateForm.isPending}>
+                {duplicateForm.isPending ? 'Duplicating...' : 'Duplicate Form'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     </ContentLayout>
   );
@@ -374,7 +561,7 @@ function FormsListContent() {
 export default function AdmissionFormsPage() {
   return (
     <AdmissionErrorBoundary>
-      <PermissionGuard module="admission" action="view">
+      <PermissionGuard module="admission.settings.forms" action="view">
         <FormsListContent />
       </PermissionGuard>
     </AdmissionErrorBoundary>

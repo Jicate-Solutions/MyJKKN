@@ -52,11 +52,14 @@ export default async function UsersPage() {
   } catch (error) {
     // Gracefully handle errors during build-time or when API is unavailable
     console.warn('[users/page] Failed to fetch stats, using defaults');
+    // Shape MUST match UserStats — UsersClientWrapper reads stats.total /
+    // .active / .inactive / .byRole / .byInstitution.
     institutionStats = {
-      totalUsers: 0,
-      activeUsers: 0,
-      inactiveUsers: 0,
-      usersByRole: {}
+      total: 0,
+      active: 0,
+      inactive: 0,
+      byRole: {},
+      byInstitution: {}
     };
   }
 

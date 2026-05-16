@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useCallback, useLayoutEffect, useRef } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence } from 'motion/react';
 import {
   Home,
   MoreHorizontal,
@@ -34,9 +34,10 @@ import { ICON_MAP } from '@/lib/navigation/page-registry';
 import { MODULES, getModulesBySection } from '@/lib/navigation/modules';
 import { BottomNavItem } from './bottom-nav-item';
 import { BottomNavSubmenu } from './bottom-nav-submenu';
-import { BottomNavMoreMenu } from './bottom-nav-more-menu';
+import { BottomNavMoreMenu, GROUP_TILE_GRADIENTS } from './bottom-nav-more-menu';
 import { BottomNavMinimized } from './bottom-nav-minimized';
 import { BottomNavGroup, FlatMenuItem, ActivePageInfo } from './types';
+import { AttentionBar } from '@/components/attention-bar';
 
 /**
  * Resolve a section's icon by deriving from MODULES — single source of truth.
@@ -174,8 +175,20 @@ export function BottomNavbar() {
       };
     }
 
-    // Enrich permissions with dynamic expo access for assigned team members
-    const enrichedPermissions = isExpoTeamMember
+    // Enrich permissions with dynamic expo access for assigned team members.
+    // 2026-05-11: counselor roles whose Marketing access was explicitly
+    // revoked must NOT get expo visibility re-granted via team-membership
+    // enrichment. Without this carve-out, the mobile Marketing module entry
+    // re-appears for admission_counselor / learner_counselor / staff_counselor
+    // users who happen to be on any expo team. Mirrors menu.tsx logic so
+    // desktop sidebar and mobile bottom-nav stay in lock-step.
+    const EXPO_ENRICHMENT_SKIP_ROLES = new Set([
+      'admission_counselor',
+      'learner_counselor',
+      'staff_counselor',
+    ]);
+    const skipExpoEnrichment = EXPO_ENRICHMENT_SKIP_ROLES.has(userProfile.role || '');
+    const enrichedPermissions = isExpoTeamMember && !skipExpoEnrichment
       ? { ...permissions, 'admission.marketing.expos.view': true }
       : permissions;
 
@@ -269,14 +282,6 @@ export function BottomNavbar() {
     return allNavGroups.slice(0, 4);
   }, [allNavGroups, favoritesNavGroup]);
 
-  // Remaining groups for "More" menu — start from index 3 if favorites took a slot
-  const moreNavGroups = useMemo(() => {
-    if (favoritesNavGroup) {
-      return allNavGroups.slice(3);
-    }
-    return allNavGroups.slice(4);
-  }, [allNavGroups, favoritesNavGroup]);
-
   // All groups including favorites for lookup purposes
   // Regular groups come first so pathname matching prefers module context over favorites
   const allGroupsWithFavorites = useMemo(() => {
@@ -359,13 +364,16 @@ export function BottomNavbar() {
     }
   }, [currentActivePage, setActivePage, isLoading, setMinimized]);
 
-  // Sync activeNavId with pathname when it changes (but not while user is browsing)
+  // Sync activeNavId with pathname when it changes (but not while user is browsing).
+  // Use the primitive id string as the dep — the group object reference changes on every
+  // render (filteredPages depends on pathname), which would cause an infinite setState loop
+  // if the full object were in the deps array.
+  const currentActiveGroupId = currentActiveGroup?.id ?? null;
   useEffect(() => {
-    // Only sync when not expanded - don't override user's manual selection while browsing
-    if (!isExpanded && currentActiveGroup && currentActiveGroup.id !== activeNavId) {
-      setActiveNav(currentActiveGroup.id);
+    if (!isExpanded && currentActiveGroupId && currentActiveGroupId !== activeNavId) {
+      setActiveNav(currentActiveGroupId);
     }
-  }, [currentActiveGroup, activeNavId, setActiveNav, isExpanded]);
+  }, [currentActiveGroupId, activeNavId, setActiveNav, isExpanded]);
 
   // Handle nav item click - simplified toggle logic with atomic state update
   const handleNavClick = useCallback(
@@ -451,6 +459,12 @@ export function BottomNavbar() {
   // Always show full navbar - never minimized
   return (
     <>
+      {/* Attention Bar — Phase 2 pill above the bottom-nav strip.
+          Self-contained: fixed positioning, hidden on lg+, renders nothing
+          when the resolver returns null. Sits at z-[75] (BELOW the nav at
+          z-[80]) so the More-drawer backdrop covers it during nav interactions. */}
+      <AttentionBar />
+
       {/* Backdrop when submenu expanded - only for submenu, not More menu */}
       <AnimatePresence>
         {isExpanded && !isMoreMenuOpen && (
@@ -497,7 +511,10 @@ export function BottomNavbar() {
           onItemClick={handleSubmenuClick}
         />
 
-        {/* Nav items */}
+        {/* Nav items — Tier-D glass strip per UX directive 2026-04-27.
+            Every item gets a 3-color holographic gradient via tileGradient.
+            Modules use GROUP_TILE_GRADIENTS by groupLabel; Search + More
+            get utility-color defaults. */}
         <div className="flex items-center justify-around">
           {primaryNavGroups.map((group) => (
             <BottomNavItem
@@ -507,12 +524,12 @@ export function BottomNavbar() {
               label={group.groupLabel}
               isActive={effectiveActiveNavId === group.id}
               hasSubmenu={group.menus.length > 1}
-              customColor={group.id === 'favorites' ? 'text-yellow-600 dark:text-yellow-500' : undefined}
+              tileGradient={GROUP_TILE_GRADIENTS[group.groupLabel] ?? GROUP_TILE_GRADIENTS['Overview']}
               onClick={() => handleNavClick(group.id)}
             />
           ))}
 
-          {/* Search button */}
+          {/* Search button — utility cyan-blue gradient */}
           <BottomNavItem
             id="search"
             icon={Search}
@@ -520,28 +537,31 @@ export function BottomNavbar() {
             isActive={false}
             hasSubmenu={false}
             hideIndicator={true}
+            tileGradient="bg-gradient-to-br from-cyan-400 via-blue-500 to-indigo-600"
             onClick={openSearch}
           />
 
-          {/* More button if there are additional groups */}
-          {moreNavGroups.length > 0 && (
-            <BottomNavItem
-              id="more"
-              icon={MoreHorizontal}
-              label="More"
-              isActive={true} // Always show as active/highlighted
-              hasSubmenu={true}
-              hideIndicator={true} // Remove underline
-              customColor="text-rose-700" // Dark rose color
-              onClick={handleMoreClick}
-            />
-          )}
+          {/* More button — always visible. Drawer is the menu hub: full module
+              list + favorites + global search. Rose-pink-rose holographic
+              gradient (carries forward the previous rose-700 customColor). */}
+          <BottomNavItem
+            id="more"
+            icon={MoreHorizontal}
+            label="More"
+            isActive={isMoreMenuOpen}
+            hasSubmenu={true}
+            hideIndicator={true} // Remove underline
+            tileGradient="bg-gradient-to-br from-rose-400 via-pink-500 to-rose-700"
+            onClick={handleMoreClick}
+          />
         </div>
       </motion.nav>
 
-      {/* More menu sheet */}
+      {/* More menu sheet — feeds the FULL accessible module list, not the
+          slice past primary. Drawer's own usePageFavorites hook handles
+          favorites; passing allGroupsWithFavorites would double-render. */}
       <BottomNavMoreMenu
-        groups={moreNavGroups}
+        groups={allNavGroups}
         isOpen={isMoreMenuOpen}
         onClose={() => setMoreMenuOpen(false)}
         onItemClick={handleMoreItemClick}

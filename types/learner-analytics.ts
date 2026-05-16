@@ -73,7 +73,6 @@ export interface TalukContribution {
 
 export interface TrendMetrics {
   genderRatio: GenderRatio;
-  categoryMix: CategoryMix[];
   communityMix: CommunityMix[];
   firstGenerationPercentage: number;
   incomeDistribution: IncomeDistribution[];
@@ -87,12 +86,6 @@ export interface GenderRatio {
   other?: number;
   malePercentage: number;
   femalePercentage: number;
-}
-
-export interface CategoryMix {
-  category: string; // SC/ST/OBC/General
-  count: number;
-  percentage: number;
 }
 
 export interface CommunityMix {

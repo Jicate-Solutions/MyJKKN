@@ -17,6 +17,8 @@ import type {
   HRDashboardPayload,
   DashboardMode,
   DashboardAccessLogEntry,
+  RecentActivitiesPayload,
+  EmployeeDistributionPayload,
 } from '@/types/hr-dashboard';
 import { REALTIME_INVALIDATION_MAP } from '@/types/hr-dashboard';
 
@@ -140,4 +142,61 @@ export async function logDashboardAccess(payload: HRDashboardPayload): Promise<v
   } catch {
     /* best-effort; swallow */
   }
+}
+
+// =====================================================================================
+// T3.3 — Recent Activities feed hook
+// =====================================================================================
+
+const ACTIVITIES_KEY = 'hr-dashboard-activities';
+
+export function useRecentActivities(opts?: { hoursBack?: number; limit?: number }) {
+  const hoursBack = opts?.hoursBack ?? 24;
+  const limit = opts?.limit ?? 20;
+
+  return useQuery<RecentActivitiesPayload>({
+    queryKey: [ACTIVITIES_KEY, hoursBack, limit],
+    queryFn: async () => {
+      const params = new URLSearchParams({
+        hours_back: String(hoursBack),
+        limit: String(limit),
+      });
+      const res = await fetch(`${DASHBOARD_BASE}/activities?${params.toString()}`, {
+        cache: 'no-store',
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body?.error || `Activities fetch failed: ${res.status}`);
+      }
+      return (await res.json()) as RecentActivitiesPayload;
+    },
+    staleTime: 60_000,
+    retry: 1,
+    retryDelay: 2000,
+  });
+}
+
+// =====================================================================================
+// T3.5 — Employee distribution donut hook
+// =====================================================================================
+
+const DISTRIBUTION_KEY = 'hr-dashboard-employee-distribution';
+
+export function useEmployeeDistribution() {
+  return useQuery<EmployeeDistributionPayload>({
+    queryKey: [DISTRIBUTION_KEY],
+    queryFn: async () => {
+      const res = await fetch(`${DASHBOARD_BASE}/employee-distribution`, {
+        cache: 'no-store',
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body?.error || `Distribution fetch failed: ${res.status}`);
+      }
+      return (await res.json()) as EmployeeDistributionPayload;
+    },
+    staleTime: 5 * 60_000, // 5 min — staff churn is slow
+    retry: 1,
+    retryDelay: 2000,
+  });
 }

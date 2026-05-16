@@ -1,7 +1,7 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "nextjs",
-  "ignoreCommand": "git diff HEAD^ HEAD --quiet -- . ':(exclude)supabase' ':(exclude)docs' ':(exclude)specs' ':(exclude).claude' ':(exclude).github' ':(exclude)*.md'",
+  "ignoreCommand": "git diff \"${VERCEL_GIT_PREVIOUS_SHA:-HEAD~20}\" HEAD --quiet -- . ':(exclude)supabase' ':(exclude)docs' ':(exclude)specs' ':(exclude).claude' ':(exclude).github' ':(exclude)*.md' 2>/dev/null || exit 1",
   "regions": ["bom1"],
   "git": {
     "deploymentEnabled": false
@@ -48,6 +48,14 @@
       "schedule": "7 * * * *"
     },
     {
+      "path": "/api/cron/counselor-shift-flip?secret=${CRON_SECRET}",
+      "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/cron/hr-retirement-eligibility-detector?secret=${CRON_SECRET}",
+      "schedule": "0 2 1 * *"
+    },
+    {
       "path": "/api/cron/sync-inbound-calls",
       "schedule": "*/15 * * * *"
     },
@@ -66,6 +74,66 @@
     {
       "path": "/api/cron/sentry-lane-2?secret=${CRON_SECRET}",
       "schedule": "29 */6 * * *"
+    },
+    {
+      "path": "/api/cron/attention-bar-prune?secret=${CRON_SECRET}",
+      "schedule": "47 18 * * *"
+    },
+    {
+      "path": "/api/cron/duty-log-retention?secret=${CRON_SECRET}",
+      "schedule": "0 3 * * 0"
+    },
+    {
+      "path": "/api/cron/prospect-reminders?secret=${CRON_SECRET}",
+      "schedule": "23 8 * * *"
+    },
+    {
+      "path": "/api/cron/jicate-booking-reconcile",
+      "schedule": "17 2 * * *"
+    },
+    {
+      "path": "/api/cron/whatsapp-byow-health",
+      "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/cron/whatsapp-byow-connection-pulse",
+      "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/whatsapp-byow-bypass-detect",
+      "schedule": "0 9 * * 1"
+    },
+    {
+      "path": "/api/cron/whatsapp-byow-monthly-audit",
+      "schedule": "0 4 1 * *"
+    },
+    {
+      "path": "/api/cron/whatsapp-byow-synthetic-audit",
+      "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/cron/callback-queue-expire?secret=${CRON_SECRET}",
+      "schedule": "13 * * * *"
+    },
+    {
+      "path": "/api/cron/form-abandon-recovery?secret=${CRON_SECRET}",
+      "schedule": "*/30 * * * *"
+    },
+    {
+      "path": "/api/cron/analyze-calls?secret=${CRON_SECRET}",
+      "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/cron/analyze-voice-memos?secret=${CRON_SECRET}",
+      "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/hr/document-expiry-reminders?secret=${CRON_SECRET}",
+      "schedule": "0 7 * * *"
+    },
+    {
+      "path": "/api/cron/hr-policy-promote-detector?secret=${CRON_SECRET}",
+      "schedule": "0 2 * * 1"
     }
   ]
 }

@@ -1,5 +1,10 @@
 import { NextResponse } from 'next/server';
 
+// Defensive: although passthru is currently a no-op acknowledger, set
+// maxDuration to 30 so we never exceed Vercel's 10s default if this path
+// gets future logic. Matches the rest of the telephony webhook family.
+export const maxDuration = 30;
+
 // Passthru endpoint — not used. Exotel calls are handled via
 // StatusCallback on each ExoPhone + cron sync at /api/admission/calls/sync.
 export async function POST() {

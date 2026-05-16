@@ -24,7 +24,11 @@ import type { MeetingSearchParams } from './data-table-schema';
 import { BosMeeting } from '@/types/bos';
 import { BosMeetingService } from '@/lib/services/bos/bos-meeting-service';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useBosBoardScope } from '@/hooks/bos/use-bos-board-scope';
+import { bosMeetingKeys } from '@/hooks/bos/use-bos-meetings';
+import { useDataTableRefreshOnInvalidate } from '@/hooks/use-data-table-refresh';
 import { logger } from '@/lib/utils/enhanced-logger';
+import { useQueryClient } from '@tanstack/react-query';
 
 interface MeetingDataTableProps {
   search: MeetingSearchParams;
@@ -32,8 +36,13 @@ interface MeetingDataTableProps {
 
 export function MeetingDataTable({ search }: MeetingDataTableProps) {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const { canAccess, isSuperAdmin, userProfile, isLoading: permissionsLoading } =
     usePermissions();
+  const bosScope = useBosBoardScope();
+
+  // Bridge React-Query invalidations into the fetchDataFn-driven table.
+  const refetchKey = useDataTableRefreshOnInvalidate(bosMeetingKeys.all);
 
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<{
@@ -44,16 +53,22 @@ export function MeetingDataTable({ search }: MeetingDataTableProps) {
 
   const isReady = !permissionsLoading && !!userProfile;
 
+  // Meeting creation is restricted to the board chairman (or super-admin).
+  // The role-permission check stays as the upstream gate, but the chairman
+  // requirement is layered on top — a regular member with create permission
+  // still won't see the button unless they chair an active composition.
   const canCreate = useMemo(
-    () => isSuperAdmin || canAccess('academic.bos-meetings', 'create'),
-    [isSuperAdmin, canAccess]
+    () =>
+      isSuperAdmin ||
+      (canAccess('bos.meetings', 'create') && bosScope.isChairmanIn.size > 0),
+    [isSuperAdmin, canAccess, bosScope.isChairmanIn]
   );
   const canEdit = useMemo(
-    () => isSuperAdmin || canAccess('academic.bos-meetings', 'edit'),
+    () => isSuperAdmin || canAccess('bos.meetings', 'edit'),
     [isSuperAdmin, canAccess]
   );
   const canDelete = useMemo(
-    () => isSuperAdmin || canAccess('academic.bos-meetings', 'delete'),
+    () => isSuperAdmin || canAccess('bos.meetings', 'delete'),
     [isSuperAdmin, canAccess]
   );
 
@@ -81,7 +96,7 @@ export function MeetingDataTable({ search }: MeetingDataTableProps) {
           academicYear: search.academic_year,
           status: search.status,
           meetingType: search.meeting_type,
-          institutionsId: !isSuperAdmin ? userProfile?.institution_id : undefined,
+          institutionsId: search.institutionsId || (!isSuperAdmin ? userProfile?.institution_id : undefined),
         });
 
         return {
@@ -125,6 +140,7 @@ export function MeetingDataTable({ search }: MeetingDataTableProps) {
       );
       toast.success(`${count} meeting${count > 1 ? 's' : ''} deleted`);
       pendingDelete.resetSelection();
+      queryClient.invalidateQueries({ queryKey: bosMeetingKeys.all });
     } catch (error) {
       logger.error('academic/bos', 'Error deleting meetings', error);
       toast.error('Failed to delete some meetings');
@@ -207,6 +223,7 @@ export function MeetingDataTable({ search }: MeetingDataTableProps) {
           columnResizingTableId: 'bos-meetings-table',
         }}
         renderToolbarContent={renderCustomToolbar}
+        refetchKey={refetchKey}
       />
 
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>

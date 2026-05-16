@@ -8,97 +8,79 @@ export const dynamic = 'force-dynamic';
  *   hr_organization_id=<uuid>               (optional; HR Officer uses their own, super admin = null)
  *   institution_id=<uuid>                   (optional; for institution-scoped banners)
  *
- * Role detection is server-side via profiles.role (+ is_super_admin).
+ * Role detection is server-side via the union of profiles.role and
+ * user_roles (+ is_super_admin), so secondary HR-operator roles (e.g.
+ * a COO who is also an HR Admin) get the operational layout instead of
+ * silently falling into the Director fallback.
  * Non-HR users → 403 (route-level gate; page-level redirect to /dashboard
  * with toast is the UX per decision #13, but the API is still denied).
+ *
+ * Permission gate is delegated to the canonical withAuth({ requirePermission })
+ * triad (is_super_admin + is_admin + user_has_permission('hr.dashboard.view')).
+ * Adding a new role to the dashboard is now a 1-row DB grant
+ * (`custom_roles.permissions['hr.dashboard.view'] = true`), not a code change.
  */
 
-import { createServerClient } from '@supabase/ssr';
-import { cookies } from 'next/headers';
 import { NextResponse, connection } from 'next/server';
-import type { NextRequest } from 'next/server';
-import type { CookieOptions } from '@supabase/ssr';
+import { withAuth } from '@/lib/auth/with-auth';
 import { HRDashboardService } from '@/lib/services/hr/dashboard-service';
 import type { DashboardMode, ViewerRole } from '@/types/hr-dashboard';
 
-async function getClient() {
-  const cookieStore = await cookies();
-  return createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        get(name: string) {
-          return cookieStore.get(name)?.value;
-        },
-        set(name: string, value: string, options: CookieOptions) {
-          try {
-            cookieStore.set({ name, value, ...options });
-          } catch {}
-        },
-        remove(name: string, options: CookieOptions) {
-          try {
-            cookieStore.set({ name, value: '', ...options });
-          } catch {}
-        },
-      },
-    }
-  );
-}
-
-export async function GET(request: NextRequest) {
+export const GET = withAuth(async (request, auth) => {
   await connection();
   try {
-    const supabase = await getClient();
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser();
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    const supabase = auth.supabase;
+    const userId = auth.user.id;
 
-    // Resolve viewer role from profile
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('role, is_super_admin, institution_id')
-      .eq('id', user.id)
-      .maybeSingle();
+    // Resolve viewer role from BOTH profile.role (legacy single role) AND
+    // user_roles (multi-role system). A user can hold hr_admin as a secondary
+    // role while their profiles.role is something else entirely (e.g. coo +
+    // hr_admin); reading profile.role alone silently drops them into the
+    // Director fallback layout. Same antipattern as the staff picker bug
+    // documented in feedback_staff_picker_must_query_staff_table_not_role_allowlist.
+    const [{ data: profile }, { data: userRoles }] = await Promise.all([
+      supabase
+        .from('profiles')
+        .select('role, is_super_admin, institution_id')
+        .eq('id', userId)
+        .maybeSingle(),
+      supabase
+        .from('user_roles')
+        .select('is_primary, custom_roles!inner(role_key)')
+        .eq('user_id', userId),
+    ]);
 
     const isSuperAdmin = !!profile?.is_super_admin;
-    const role = (profile?.role as string | undefined) ?? '';
-
-    // Gate: use canonical MyJKKN permission helper instead of hardcoding role_keys.
-    // `user_has_permission` includes super-admin bypass + multi-role OR-merge + legacy
-    // profiles.role fallback — matches the standardized RLS policy pattern used across
-    // all MyJKKN modules. Adding a new role to the dashboard is now a 1-row DB grant
-    // (`custom_roles.permissions.hr.dashboard.view = true`), not a code change.
-    const { data: canViewDashboard, error: permError } = await supabase.rpc(
-      'user_has_permission',
-      { permission_name: 'hr.dashboard.view' }
+    const profileRole = (profile?.role as string | undefined) ?? '';
+    const userRoleKeys: string[] = Array.isArray(userRoles)
+      ? userRoles
+          .map((r: any) => r?.custom_roles?.role_key)
+          .filter((k: any): k is string => typeof k === 'string')
+      : [];
+    // Full role set the caller holds. profileRole is included for users on
+    // the legacy single-role path who don't have a user_roles row yet.
+    const allRoleKeys = new Set<string>(
+      [profileRole, ...userRoleKeys].filter(Boolean)
     );
-    if (permError) {
-      console.error('[hr/dashboard] permission-check RPC failed', permError);
-      return NextResponse.json({ error: 'Permission check failed' }, { status: 500 });
-    }
-    if (!canViewDashboard) {
-      return NextResponse.json({ error: 'Forbidden — hr.dashboard.view required' }, { status: 403 });
-    }
 
     // Layout branching (NOT a gate): which dashboard layout does this role see?
-    // Role-keys that map to the operational HR Officer layout (4 daily quadrants).
-    // Everyone else with the permission sees the strategic Director layout.
-    // `hr_officer` is intentionally absent — no custom_roles row exists on prod; it
-    // only survives here as the internal `ViewerRole` bucket label.
+    // Any user holding any HR_OPERATOR role — primary or secondary — gets the
+    // operational HR Officer layout. Everyone else with hr.dashboard.view
+    // permission sees the strategic Director layout.
     const HR_OPERATOR_ROLES = new Set(['hr_admin', 'hr_manager', 'hr_head']);
+    const hasHrOperatorRole = [...allRoleKeys].some((k) =>
+      HR_OPERATOR_ROLES.has(k)
+    );
     const viewer_role: ViewerRole = isSuperAdmin
       ? 'super_admin'
-      : HR_OPERATOR_ROLES.has(role)
+      : hasHrOperatorRole
       ? 'hr_officer'
       : 'director';
 
-    // display_role gives the UI a human label matching the exact role_key,
-    // since viewer_role normalises hr_head/hr_admin/hr_manager → 'hr_officer'.
+    // display_role gives the UI a human label matching the exact role_key.
+    // Prefer the HR-relevant role label when the user holds multiple roles
+    // (so a COO who is also HR Admin sees "HR Admin" on the HR dashboard,
+    // not "COO"). Fall back to profile.role label, then to viewer_role.
     const ROLE_DISPLAY_LABELS: Record<string, string> = {
       super_admin: 'Super Admin',
       hr_head: 'HR Head',
@@ -108,8 +90,12 @@ export async function GET(request: NextRequest) {
       director: 'Director',
       admin: 'Admin',
     };
+    const hrRelevantRole = ['hr_head', 'hr_admin', 'hr_manager'].find((k) =>
+      allRoleKeys.has(k)
+    );
     const display_role =
-      ROLE_DISPLAY_LABELS[role] ??
+      (hrRelevantRole && ROLE_DISPLAY_LABELS[hrRelevantRole]) ??
+      ROLE_DISPLAY_LABELS[profileRole] ??
       viewer_role.replace('_', ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 
     const url = new URL(request.url);
@@ -124,7 +110,7 @@ export async function GET(request: NextRequest) {
       const { data: access } = await supabase
         .from('user_hr_access')
         .select('hr_organization_id')
-        .eq('user_id', user.id)
+        .eq('user_id', userId)
         .limit(1)
         .maybeSingle();
       hrOrgId = (access?.hr_organization_id as string | null) ?? null;
@@ -155,4 +141,4 @@ export async function GET(request: NextRequest) {
       { status: 500 }
     );
   }
-}
+}, { allowApiKey: false, requirePermission: 'hr.dashboard.view' });

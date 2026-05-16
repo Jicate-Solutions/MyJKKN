@@ -3,6 +3,7 @@
 
 import { BaseService, type BaseListResponse } from '../base-service';
 import { logger } from '@/lib/utils/enhanced-logger';
+import { getPolicyInt } from '@/lib/policies/get-policy-client';
 import type {
   ContentOrder,
   ContentDeliverable,
@@ -91,19 +92,38 @@ export interface UpdateDeliverableInput {
 }
 
 // ============================================
-// CONSTANTS
+// THRESHOLDS (policy-as-config — runtime read)
 // ============================================
 
-// Approval thresholds from spec
-const CONTENT_SELF_CLAIM_THRESHOLD = 50000; // <= 50K: self-claim/HOD
-const REVISION_FLAG_THRESHOLD = 3; // >3 revisions flags to MD
-
-export function getApprovalLevel(amount: number): 'self' | 'hod' | 'md' {
-  return amount <= CONTENT_SELF_CLAIM_THRESHOLD ? 'self' : 'md';
+// Approval + revision thresholds resolved from platform_policies via
+// fn_get_policy. Defaults match the historical hardcoded values so any
+// failure in the resolver degrades to safe behavior.
+//
+// Keys (seeded via 20260429000010_solutions_hub_thresholds_policy.sql):
+//   solutions.content.self_claim_threshold     = 50000  (<= self/HOD, > MD)
+//   solutions.content.revision_flag_threshold  = 3      (> flags to MD)
+//
+// `as any` cast: keys not yet in lib/policies/keys.ts; that PolicyKey
+// extension is a follow-up cleanup PR per the migration plan.
+export async function getSolutionsThresholds(): Promise<{
+  selfClaim: number;
+  revisionFlag: number;
+}> {
+  const [selfClaim, revisionFlag] = await Promise.all([
+    getPolicyInt('solutions.content.self_claim_threshold' as any, 50000),
+    getPolicyInt('solutions.content.revision_flag_threshold' as any, 3),
+  ]);
+  return { selfClaim, revisionFlag };
 }
 
-export function shouldFlagToMD(revisionCount: number): boolean {
-  return revisionCount > REVISION_FLAG_THRESHOLD;
+export async function getApprovalLevel(amount: number): Promise<'self' | 'hod' | 'md'> {
+  const { selfClaim } = await getSolutionsThresholds();
+  return amount <= selfClaim ? 'self' : 'md';
+}
+
+export async function shouldFlagToMD(revisionCount: number): Promise<boolean> {
+  const { revisionFlag } = await getSolutionsThresholds();
+  return revisionCount > revisionFlag;
 }
 
 // ============================================
@@ -544,7 +564,7 @@ export class ContentService extends BaseService {
     if (error) throw new Error(`Failed to request revision: ${error.message}`);
 
     // Flag to MD if revision count exceeds threshold
-    if (shouldFlagToMD(newRevisionCount)) {
+    if (await shouldFlagToMD(newRevisionCount)) {
       logger.warn('solutions/content', `Deliverable ${id} has ${newRevisionCount} revisions - flagging to MD`);
     }
 
@@ -643,11 +663,14 @@ export class ContentService extends BaseService {
     // Valid status values for safe counting
     const validStatuses: DeliverableStatus[] = ['pending', 'in_progress', 'review', 'revision', 'approved', 'delivered'];
 
+    // Resolve revision-flag threshold once for the whole loop (per-request cache).
+    const { revisionFlag } = await getSolutionsThresholds();
+
     data?.forEach((deliverable) => {
       if (deliverable.status && validStatuses.includes(deliverable.status as DeliverableStatus)) {
         stats.byStatus[deliverable.status as DeliverableStatus]++;
       }
-      if (shouldFlagToMD(deliverable.revision_count)) {
+      if (deliverable.revision_count > revisionFlag) {
         stats.flaggedForMD++;
       }
     });
@@ -679,6 +702,5 @@ export const contentService = {
   getDeliverableStats: ContentService.getDeliverableStats.bind(ContentService),
   getApprovalLevel,
   shouldFlagToMD,
-  CONTENT_SELF_CLAIM_THRESHOLD,
-  REVISION_FLAG_THRESHOLD,
+  getSolutionsThresholds,
 };

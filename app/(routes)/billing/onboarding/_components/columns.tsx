@@ -1,8 +1,10 @@
 'use client';
 
+import Link from 'next/link';
 import { ColumnDef } from '@tanstack/react-table';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
+import { LifecycleStatusBadge } from '@/components/learners/lifecycle-status-badge';
 import type { OnboardingLearner } from '@/lib/services/billing/onboarding/onboarding-service';
 import { OnboardingRowActions } from './row-actions';
 
@@ -66,7 +68,14 @@ export function getOnboardingColumns(opts: {
         const learner = row.original;
         return (
           <div>
-            <div className="font-medium">{learner.first_name} {learner.last_name || ''}</div>
+            {/* Name links to the learner detail page. Using next/link gives
+                prefetching + ctrl-click new-tab for free. */}
+            <Link
+              href={`/learners/profiles/${learner.id}`}
+              className="font-medium text-green-600 hover:underline dark:text-green-400"
+            >
+              {learner.first_name} {learner.last_name || ''}
+            </Link>
             <div className="text-xs text-muted-foreground">{learner.application_id || ''}</div>
           </div>
         );
@@ -143,19 +152,7 @@ export function getOnboardingColumns(opts: {
         <div className="text-green-600 dark:text-green-400">{formatCurrency(row.original.total_paid)}</div>
       ),
     },
-    {
-      accessorKey: 'total_balance',
-      header: 'Balance',
-      size: 120,
-      cell: ({ row }) => {
-        const balance = row.original.total_balance;
-        return (
-          <div className={balance > 0 ? 'text-red-600 dark:text-red-400 font-medium' : 'text-green-600 dark:text-green-400 font-medium'}>
-            {formatCurrency(balance)}
-          </div>
-        );
-      },
-    },
+   
     {
       id: 'payment_status',
       header: 'Payment Status',
@@ -169,21 +166,16 @@ export function getOnboardingColumns(opts: {
       },
     },
     {
-      accessorKey: 'days_pending',
-      header: 'Days',
-      size: 80,
-      cell: ({ row }) => {
-        const days = row.original.days_pending;
-        return (
-          <span className={days > 14 ? 'text-red-600 font-medium' : days > 7 ? 'text-yellow-600' : ''}>
-            {days}d
-          </span>
-        );
-      },
+      accessorKey: 'lifecycle_status',
+      header: 'Learner Status',
+      size: 140,
+      cell: ({ row }) => (
+        <LifecycleStatusBadge status={row.original.lifecycle_status} />
+      ),
     },
     {
       id: 'actions',
-      header: '',
+      header: 'Actions',
       size: 60,
       cell: ({ row }) => <OnboardingRowActions learner={row.original} />,
     },

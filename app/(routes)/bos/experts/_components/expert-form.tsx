@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -33,8 +33,7 @@ import {
   BOS_EXPERT_CATEGORY_LABELS,
 } from '@/types/bos';
 import { usePermissions } from '@/hooks/use-permissions';
-
-interface Institution { id: string; name: string; }
+import { useInstitutionContext, useAllInstitutionContexts } from '@/hooks/use-institution-context';
 
 // ── Validation Schema ─────────────────────────────────────────────────────────
 
@@ -53,6 +52,7 @@ const expertFormSchema = z.object({
     'subject_expert',
     'industry_expert',
     'alumni',
+    'startup',
   ]),
   specialization: z.string().optional(),
   qualifications: z.string().optional(),
@@ -74,8 +74,12 @@ interface ExpertFormProps {
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export function ExpertForm({ expert, isSubmitting, onSubmit, onCancel }: ExpertFormProps) {
-  const { userProfile, isSuperAdmin, isLoading: permissionsLoading } = usePermissions();
-  const [institutions, setInstitutions] = useState<Institution[]>([]);
+  const { isSuperAdmin, isLoading: permissionsLoading } = usePermissions();
+  // Non-admins: own institution resolved automatically.
+  // Super-admins: disabled (returns undefined); they pick from the dropdown.
+  const { data: institutionCtx } = useInstitutionContext();
+  // Super-admin institution list for the picker dropdown.
+  const { data: allContexts = [] } = useAllInstitutionContexts();
 
   const form = useForm<ExpertFormValues>({
     resolver: zodResolver(expertFormSchema),
@@ -114,26 +118,11 @@ export function ExpertForm({ expert, isSubmitting, onSubmit, onCancel }: ExpertF
         },
   });
 
-  // Fetch institutions from COE database
+  // Auto-set institution for non-admins once context resolves.
   useEffect(() => {
-    fetch('/api/bos/institutions')
-      .then((r) => r.json())
-      .then((list: Institution[]) => {
-        setInstitutions(Array.isArray(list) ? list : []);
-        if (!expert && !isSuperAdmin && Array.isArray(list) && list.length === 1) {
-          form.setValue('institutions_id', list[0].id);
-        }
-      })
-      .catch(() => {});
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Fast path: set institution from profile (non-admin)
-  useEffect(() => {
-    if (!expert && !isSuperAdmin && userProfile?.institution_id) {
-      form.setValue('institutions_id', userProfile.institution_id);
-    }
-  }, [userProfile, expert, isSuperAdmin, form]);
+    if (expert || isSuperAdmin || !institutionCtx?.myjkkn_id) return;
+    form.setValue('institutions_id', institutionCtx.myjkkn_id, { shouldValidate: true });
+  }, [institutionCtx?.myjkkn_id, isSuperAdmin, expert, form]);
 
   if (permissionsLoading) {
     return (
@@ -147,15 +136,15 @@ export function ExpertForm({ expert, isSubmitting, onSubmit, onCancel }: ExpertF
 
   return (
     <Form {...form}>
-      <form onSubmit={form.handleSubmit(onSubmit)} className='space-y-6'>
+      <form onSubmit={form.handleSubmit(onSubmit)} className='space-y-4'>
 
         {/* ── Institution selector (super admin only) ─────────────────── */}
         {isSuperAdmin && (
           <Card>
-            <CardHeader>
+            <CardHeader className='pb-3'>
               <CardTitle className='text-base'>Institution</CardTitle>
             </CardHeader>
-            <CardContent>
+            <CardContent className='pt-0'>
               <FormField
                 control={form.control}
                 name='institutions_id'
@@ -169,9 +158,9 @@ export function ExpertForm({ expert, isSubmitting, onSubmit, onCancel }: ExpertF
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        {institutions.map((inst) => (
-                          <SelectItem key={inst.id} value={inst.id}>
-                            {inst.name}
+                        {allContexts.map((ctx) => (
+                          <SelectItem key={ctx.myjkkn_id} value={ctx.myjkkn_id}>
+                            {ctx.name}
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -186,11 +175,11 @@ export function ExpertForm({ expert, isSubmitting, onSubmit, onCancel }: ExpertF
 
         {/* ── Identity ─────────────────────────────────────────────────── */}
         <Card>
-          <CardHeader>
+          <CardHeader className='pb-3'>
             <CardTitle className='text-base'>Expert Identity</CardTitle>
           </CardHeader>
-          <CardContent className='space-y-4'>
-            <div className='grid gap-4 md:grid-cols-4'>
+          <CardContent className='pt-0 space-y-3'>
+            <div className='grid gap-3 md:grid-cols-4'>
               {/* Title */}
               <FormField
                 control={form.control}
@@ -233,7 +222,7 @@ export function ExpertForm({ expert, isSubmitting, onSubmit, onCancel }: ExpertF
               </div>
             </div>
 
-            <div className='grid gap-4 md:grid-cols-2'>
+            <div className='grid gap-3 md:grid-cols-2'>
               {/* Category */}
               <FormField
                 control={form.control}
@@ -253,9 +242,6 @@ export function ExpertForm({ expert, isSubmitting, onSubmit, onCancel }: ExpertF
                         ))}
                       </SelectContent>
                     </Select>
-                    <FormDescription>
-                      UGC-defined category for this BoS member position.
-                    </FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -281,11 +267,11 @@ export function ExpertForm({ expert, isSubmitting, onSubmit, onCancel }: ExpertF
 
         {/* ── Affiliation ────────────────────────────────────────────────── */}
         <Card>
-          <CardHeader>
+          <CardHeader className='pb-3'>
             <CardTitle className='text-base'>Affiliation</CardTitle>
           </CardHeader>
-          <CardContent className='space-y-4'>
-            <div className='grid gap-4 md:grid-cols-2'>
+          <CardContent className='pt-0 space-y-3'>
+            <div className='grid gap-3 md:grid-cols-2'>
               <FormField
                 control={form.control}
                 name='institution_name'
@@ -295,9 +281,6 @@ export function ExpertForm({ expert, isSubmitting, onSubmit, onCancel }: ExpertF
                     <FormControl>
                       <Input placeholder='e.g. Anna University' {...field} />
                     </FormControl>
-                    <FormDescription>
-                      Where the expert is currently employed.
-                    </FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -355,11 +338,11 @@ export function ExpertForm({ expert, isSubmitting, onSubmit, onCancel }: ExpertF
 
         {/* ── Contact ───────────────────────────────────────────────────── */}
         <Card>
-          <CardHeader>
+          <CardHeader className='pb-3'>
             <CardTitle className='text-base'>Contact Details</CardTitle>
           </CardHeader>
-          <CardContent className='space-y-4'>
-            <div className='grid gap-4 md:grid-cols-2'>
+          <CardContent className='pt-0 space-y-3'>
+            <div className='grid gap-3 md:grid-cols-2'>
               <FormField
                 control={form.control}
                 name='email'
@@ -369,9 +352,6 @@ export function ExpertForm({ expert, isSubmitting, onSubmit, onCancel }: ExpertF
                     <FormControl>
                       <Input type='email' placeholder='expert@institution.ac.in' {...field} />
                     </FormControl>
-                    <FormDescription>
-                      Used for call letter dispatch (Phase 5+).
-                    </FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -400,9 +380,9 @@ export function ExpertForm({ expert, isSubmitting, onSubmit, onCancel }: ExpertF
                   <FormLabel>Address</FormLabel>
                   <FormControl>
                     <Textarea
-                      placeholder='Full postal address for call letters and TA/DA billing'
+                      placeholder='Full postal address'
                       className='resize-none'
-                      rows={3}
+                      rows={2}
                       {...field}
                     />
                   </FormControl>
@@ -415,7 +395,7 @@ export function ExpertForm({ expert, isSubmitting, onSubmit, onCancel }: ExpertF
 
         {/* ── Settings ──────────────────────────────────────────────────── */}
         <Card>
-          <CardContent className='p-6 space-y-4'>
+          <CardContent className='p-4 space-y-3'>
             <FormField
               control={form.control}
               name='notes'

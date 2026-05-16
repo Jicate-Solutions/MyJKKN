@@ -5,7 +5,8 @@ import {
   Palette,
   Gauge,
   Shield,
-  Bug
+  Bug,
+  HelpCircle
 } from 'lucide-react';
 import { BugReportCategory } from '@/types/bugs';
 
@@ -57,6 +58,12 @@ const categoryConfig: Record<
     icon: Bug,
     colorClass:
       'bg-gray-100 text-gray-800 hover:bg-gray-200 hover:text-gray-800 border-gray-200 dark:bg-gray-700 dark:text-gray-200'
+  },
+  question: {
+    label: 'Question',
+    icon: HelpCircle,
+    colorClass:
+      'bg-teal-100 text-teal-800 hover:bg-teal-200 hover:text-teal-800 border-teal-200 dark:bg-teal-900 dark:text-teal-200'
   }
 };
 

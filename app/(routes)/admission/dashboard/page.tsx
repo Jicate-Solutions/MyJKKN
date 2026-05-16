@@ -49,6 +49,12 @@ import { AdmissionErrorBoundary } from '@/components/admission';
 import { BriefingNotificationBanner } from '@/components/admission/briefing-notification-banner';
 import { BriefingPopup } from '@/components/admission/briefing-popup';
 
+// navMeta — declares this page for sidebar auto-discovery, matching the
+// canonical `{ label, icon }` shape used by `/admin/counselors/rule-types`.
+// Aligns discoverability with `/admission/group-dashboard` so both admission
+// dashboards render consistently in nav scaffolding.
+export const navMeta = { label: 'Admission Dashboard', icon: 'LayoutDashboard' } as const;
+
 // Funnel stages with colors — matches admission_lead_stage enum
 const FUNNEL_STAGES = [
   { key: 'new', label: 'New', color: 'bg-blue-500' },
@@ -62,6 +68,9 @@ const FUNNEL_STAGES = [
   { key: 'application_submitted', label: 'Application Submitted', color: 'bg-rose-500' },
   { key: 'documents_pending', label: 'Documents Pending', color: 'bg-orange-500' },
   { key: 'documents_verified', label: 'Documents Verified', color: 'bg-amber-500' },
+  { key: 'interview_scheduled', label: 'Interview Scheduled', color: 'bg-yellow-500' },
+  { key: 'interview_completed', label: 'Interview Completed', color: 'bg-yellow-600' },
+  { key: 'interviewed', label: 'Interviewed', color: 'bg-yellow-400' },
   { key: 'offer_sent', label: 'Offer Sent', color: 'bg-green-500' },
   { key: 'offer_accepted', label: 'Offer Accepted', color: 'bg-emerald-500' },
   { key: 'token_paid', label: 'Token Paid', color: 'bg-teal-500' },
@@ -71,7 +80,9 @@ const FUNNEL_STAGES = [
   { key: 'confirmed', label: 'Confirmed', color: 'bg-green-600' },
   { key: 'declined', label: 'Declined', color: 'bg-red-500' },
   { key: 'withdrew', label: 'Withdrew', color: 'bg-red-400' },
-  { key: 'expired', label: 'Expired', color: 'bg-gray-400' }
+  { key: 'expired', label: 'Expired', color: 'bg-gray-400' },
+  { key: 'lost', label: 'Lost', color: 'bg-gray-500' },
+  { key: 'dormant', label: 'Dormant', color: 'bg-gray-300' }
 ];
 
 function DashboardSkeleton() {
@@ -151,7 +162,7 @@ function KPICard({
 function FunnelVisualization({
   funnelData
 }: {
-  funnelData: { total: number; byStage: Record<string, number>; hotLeads: number; priorityLeads: number } | undefined;
+  funnelData: { total: number; activeTotal?: number; byStage: Record<string, number>; hotLeads: number; priorityLeads: number } | undefined;
 }) {
   if (!funnelData) return null;
 
@@ -165,7 +176,13 @@ function FunnelVisualization({
 
         return (
           <div key={stage.key} className="flex items-center gap-3">
-            <div className="w-32 text-sm text-muted-foreground truncate">{stage.label}</div>
+            {/*
+              `title` attr — fixed-width label column truncates long stage names
+              like "Application Submitted", "Documents Pending", "Follow-up
+              Scheduled". Native browser tooltip reveals the full name on hover
+              without adding a Tooltip primitive dep.
+            */}
+            <div className="w-32 text-sm text-muted-foreground truncate" title={stage.label}>{stage.label}</div>
             <div className="flex-1 h-6 bg-muted rounded-full overflow-hidden">
               <div
                 className={`h-full ${stage.color} transition-all duration-500`}
@@ -183,7 +200,11 @@ function FunnelVisualization({
 function HotLeadsList({
   institutionId
 }: {
-  institutionId: string;
+  // `undefined` = "All Institutions" mode. The leads API treats omitted
+  // institution_id as "every institution the caller's RLS allows" for
+  // super-admin / admission-global users, and falls back to the user's
+  // profile.institution_id otherwise.
+  institutionId: string | undefined;
 }) {
   const { leads, isLoading } = useAdmissionLeads({
     institution_id: institutionId,
@@ -259,8 +280,15 @@ function AdmissionDashboardPageContent() {
   // Get latest unread briefing for popup
   const { data: latestBriefingNotification } = useLatestUnreadBriefing(profile?.id);
 
-  const { summary, isLoading: summaryLoading, refetch } = useDashboardSummary(institutionId || '');
-  const { funnel, isLoading: funnelLoading } = useFunnelSummary(institutionId || '');
+  // Pass `institutionId` through untouched — when undefined (= "All Institutions"),
+  // both hooks forward it as `institutionId ?? null` to the server-side RPCs
+  // (`get_admission_dashboard_summary_aggregate`, `get_admission_funnel_summary_aggregate`),
+  // which aggregate across every institution the caller's RLS allows. The old
+  // `institutionId || ''` collapsed undefined to '' — and '' is NOT coalesced by
+  // `??` downstream, so the empty string flowed into the RPC as a UUID parameter
+  // and matched zero rows. The dashboard appeared totally empty in "All" mode.
+  const { summary, isLoading: summaryLoading, refetch } = useDashboardSummary(institutionId);
+  const { funnel, isLoading: funnelLoading } = useFunnelSummary(institutionId);
 
   const isLoading = accessLoading || summaryLoading || funnelLoading;
 
@@ -366,32 +394,42 @@ function AdmissionDashboardPageContent() {
             onOpenChange={setShowBriefingPopup}
           />
 
-          {/* KPI Cards */}
+          {/* KPI Cards.
+              All four tiles render the live counts from the funnel + summary
+              RPCs in both modes:
+                - "All Institutions" → aggregate across every institution the
+                  caller's RLS allows (server-side RPC supports `p_institution_id
+                  = null`).
+                - Single institution → filtered to that institution.
+              The "Select an institution" gate that used to dash-out Hot/Priority
+              Leads was a workaround for the earlier `institutionId || ''` bug;
+              with the call site fixed, the gate is no longer needed. */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             <KPICard
               title="Total Active Leads"
-              value={funnel?.total || 0}
+              value={funnel?.activeTotal ?? 0}
+              description={institutionId ? 'In this institution' : 'Across all institutions'}
               icon={Users}
               color="text-blue-600"
             />
             <KPICard
               title="Hot Leads"
-              value={funnel?.hotLeads || 0}
+              value={funnel?.hotLeads ?? 0}
               description="High engagement prospects"
               icon={Flame}
               color="text-orange-600"
             />
             <KPICard
               title="Priority Leads"
-              value={funnel?.priorityLeads || 0}
+              value={funnel?.priorityLeads ?? 0}
               description="Flagged for immediate action"
               icon={Star}
               color="text-yellow-600"
             />
             <KPICard
-              title="Conversion Rate"
-              value={summary?.conversionRate ? `${(summary.conversionRate ?? 0).toFixed(1)}%` : '0%'}
-              description="Lead to enrollment"
+              title="Application Start Rate"
+              value={`${(summary?.applicationStartRate ?? 0).toFixed(1)}%`}
+              description="Lead → Application Started"
               icon={Target}
               color="text-green-600"
             />
@@ -434,13 +472,10 @@ function AdmissionDashboardPageContent() {
                 </div>
               </CardHeader>
               <CardContent>
-                {institutionId ? (
-                  <HotLeadsList institutionId={institutionId} />
-                ) : (
-                  <div className="text-center py-8 text-muted-foreground text-xs">
-                    Select a specific institution to see hot leads
-                  </div>
-                )}
+                {/* HotLeadsList accepts undefined = "All Institutions";
+                    its own empty state ("No hot leads yet") handles the
+                    no-data case without needing an outer gate. */}
+                <HotLeadsList institutionId={institutionId} />
               </CardContent>
             </Card>
           </div>

@@ -51,23 +51,31 @@ export interface AttributionInput {
  * department/operational roles whose members staff inbound queues.
  */
 const STAFF_ROLES = [
+  'accountant_assistant',
+  'accounts',
+  'admin',
+  'administrator',
   'admission',
   'admission_counselor',
   'admission_staff',
-  'admin',
-  'super_admin',
-  'administrator',
-  'executive_admin_officer',
-  'faculty',
-  'hod',
-  'principal',
-  'accounts',
-  'accountant_assistant',
   'cao',
   'ceo',
   'coo',
+  'executive_admin_officer',
+  'faculty',
+  'hod',
   'hr_admin',
+  'principal',
   'staff',
+  'super_admin',
+  // New counselor taxonomy (PRs #528/#538 — 2026-04-27):
+  // additive seed of 4 counselor sub-roles, then 14-user reassignment.
+  // All 4 active admission_counselors profiles use these new role values,
+  // so omitting them collapses Signal 3 attribution to ~0% on the cohort.
+  'counselor',
+  'health_counselor',
+  'learner_counselor',
+  'staff_counselor',
 ];
 
 /**

@@ -1,0 +1,89 @@
+parent_category_name,sub_category_name,item_category_name,amount,frequency,is_active,notes
+ENGINEERING,UG REGULAR - 1ST YEAR (ONE TIME),Application Fee,5000.00,one-time,true,Charged only in first year
+ENGINEERING,UG REGULAR - 1ST YEAR (ONE TIME),University Fee,8000.00,one-time,true,Charged only in first year
+ENGINEERING,UG REGULAR - 1ST TO 4TH YEAR,Tuition Fees,150000.00,yearly,true,Charged every academic year
+ENGINEERING,UG REGULAR - 1ST TO 4TH YEAR,Transport Fees,5000.00,yearly,true,Annual transport fee
+ENGINEERING,UG REGULAR - 1ST TO 4TH YEAR,Placement Fees,2000.00,yearly,true,Annual placement cell fee
+ENGINEERING,UG REGULAR - 1ST TO 4TH YEAR,Uniform Fees,3000.00,yearly,true,Annual uniform allocation
+ENGINEERING,UG REGULAR - 1ST TO 4TH YEAR,Hostel Fees,8000.00,monthly,true,For hostel residents only
+ENGINEERING,UG REGULAR - 1ST TO 4TH YEAR,Exam Fees,1500.00,per-semester,true,Per semester examination fee
+ENGINEERING,LATERAL ENTRY - 2ND YEAR (ONE TIME),Application Fee,5000.00,one-time,true,Charged only in second year (lateral entry)
+ENGINEERING,LATERAL ENTRY - 2ND YEAR (ONE TIME),University Fee,8000.00,one-time,true,Charged only in second year (lateral entry)
+ENGINEERING,LATERAL ENTRY - 2ND TO 4TH YEAR,Tuition Fees,150000.00,yearly,true,Charged every academic year
+ENGINEERING,LATERAL ENTRY - 2ND TO 4TH YEAR,Transport Fees,5000.00,yearly,true,Annual transport fee
+ENGINEERING,LATERAL ENTRY - 2ND TO 4TH YEAR,Placement Fees,2000.00,yearly,true,Annual placement cell fee
+ENGINEERING,LATERAL ENTRY - 2ND TO 4TH YEAR,Uniform Fees,3000.00,yearly,true,Annual uniform allocation
+ENGINEERING,LATERAL ENTRY - 2ND TO 4TH YEAR,Hostel Fees,8000.00,monthly,true,For hostel residents only
+ENGINEERING,LATERAL ENTRY - 2ND TO 4TH YEAR,Exam Fees,1500.00,per-semester,true,Per semester examination fee
+NURSING,UG REGULAR - 1ST YEAR (ONE TIME),Application Fee,5000.00,one-time,true,Charged only in first year
+NURSING,UG REGULAR - 1ST YEAR (ONE TIME),University Fee,8000.00,one-time,true,Charged only in first year
+NURSING,UG REGULAR - 1ST TO 3RD YEAR,Tuition Fees + Uniform + Hospital Training,80000.00,yearly,true,Includes tuition uniform and clinical training
+NURSING,UG REGULAR - 1ST TO 3RD YEAR,Transport Fees,5000.00,yearly,true,Annual transport fee
+NURSING,UG REGULAR - 1ST TO 3RD YEAR,Hostel Fees,7000.00,monthly,true,For hostel residents only
+NURSING,UG REGULAR - 1ST TO 3RD YEAR,Exam Fees,1200.00,per-semester,true,Per semester examination fee
+NURSING,PBBSC & PG REGULAR - 1ST YEAR (ONE TIME),Application Fee,6000.00,one-time,true,Charged only in first year
+NURSING,PBBSC & PG REGULAR - 1ST YEAR (ONE TIME),University Fee,10000.00,one-time,true,Charged only in first year
+NURSING,PBBSC & PG REGULAR - 1ST TO 2ND YEAR,Tuition Fees,120000.00,yearly,true,Annual tuition for postgraduate
+NURSING,PBBSC & PG REGULAR - 1ST TO 2ND YEAR,Transport Fees,5000.00,yearly,true,Annual transport fee
+NURSING,PBBSC & PG REGULAR - 1ST TO 2ND YEAR,Hostel Fees,7000.00,monthly,true,For hostel residents only
+NURSING,PBBSC & PG REGULAR - 1ST TO 2ND YEAR,Exam Fees,1500.00,per-semester,true,Per semester examination fee
+PHARMACY,UG REGULAR - 1ST YEAR (ONE TIME),Application Fee,5000.00,one-time,true,Charged only in first year
+PHARMACY,UG REGULAR - 1ST YEAR (ONE TIME),University Fee,8000.00,one-time,true,Charged only in first year
+PHARMACY,UG REGULAR - 1ST TO 4TH YEAR,Tuition Fees,100000.00,yearly,true,Annual tuition fees
+PHARMACY,UG REGULAR - 1ST TO 4TH YEAR,Transport Fees,5000.00,yearly,true,Annual transport fee
+PHARMACY,UG REGULAR - 1ST TO 4TH YEAR,Hostel Fees,7000.00,monthly,true,For hostel residents only
+PHARMACY,UG REGULAR - 1ST TO 4TH YEAR,Exam Fees,1200.00,per-semester,true,Per semester examination fee
+PHARMACY,LATERAL ENTRY - 2ND YEAR (ONE TIME),Application Fee,5000.00,one-time,true,Charged only in second year (lateral entry)
+PHARMACY,LATERAL ENTRY - 2ND YEAR (ONE TIME),University Fee,8000.00,one-time,true,Charged only in second year (lateral entry)
+PHARMACY,LATERAL ENTRY - 2ND TO 4TH YEAR,Tuition Fees,100000.00,yearly,true,Annual tuition fees
+PHARMACY,LATERAL ENTRY - 2ND TO 4TH YEAR,Transport Fees,5000.00,yearly,true,Annual transport fee
+PHARMACY,LATERAL ENTRY - 2ND TO 4TH YEAR,Hostel Fees,7000.00,monthly,true,For hostel residents only
+PHARMACY,LATERAL ENTRY - 2ND TO 4TH YEAR,Exam Fees,1200.00,per-semester,true,Per semester examination fee
+PHARMACY,PHARMD - 1ST YEAR (ONE TIME),Application Fee,8000.00,one-time,true,Charged only in first year
+PHARMACY,PHARMD - 1ST YEAR (ONE TIME),University Fee,12000.00,one-time,true,Charged only in first year
+PHARMACY,PHARMD - 1ST TO 6TH YEAR (HOSTEL CANDIDATE),Tuition Fees + Hostel Fees,180000.00,yearly,true,Includes tuition and hostel for resident candidates
+PHARMACY,PHARMD - 1ST TO 6TH YEAR (DAY SCHOLAR),Tuition Fees,120000.00,yearly,true,Tuition only for day scholar candidates
+PHARMACY,PHARMD - 1ST TO 6TH YEAR,Transport Fees,5000.00,yearly,true,Annual transport fee
+PHARMACY,PHARMD - 1ST TO 6TH YEAR,Exam Fees,1500.00,per-semester,true,Per semester examination fee
+PHARMACY,PHARMD PB - 4TH YEAR (ONE TIME),Application Fee,8000.00,one-time,true,Charged only in fourth year
+PHARMACY,PHARMD PB - 4TH YEAR (ONE TIME),University Fee,12000.00,one-time,true,Charged only in fourth year
+PHARMACY,PHARMD PB - 4TH TO 6TH YEAR (HOSTEL CANDIDATE),Tuition Fees + Hostel Fees,180000.00,yearly,true,Includes tuition and hostel for resident candidates
+PHARMACY,PHARMD PB - 4TH TO 6TH YEAR (DAY SCHOLAR),Tuition Fees,120000.00,yearly,true,Tuition only for day scholar candidates
+PHARMACY,PHARMD PB - 4TH TO 6TH YEAR,Transport Fees,5000.00,yearly,true,Annual transport fee
+PHARMACY,PHARMD PB - 4TH TO 6TH YEAR,Exam Fees,1500.00,per-semester,true,Per semester examination fee
+PHARMACY,PG REGULAR - 1ST YEAR (ONE TIME),Application Fee,6000.00,one-time,true,Charged only in first year
+PHARMACY,PG REGULAR - 1ST YEAR (ONE TIME),University Fee,10000.00,one-time,true,Charged only in first year
+PHARMACY,PG REGULAR - 1ST TO 2ND YEAR,Tuition Fees,120000.00,yearly,true,Annual tuition for postgraduate
+PHARMACY,PG REGULAR - 1ST TO 2ND YEAR,Transport Fees,5000.00,yearly,true,Annual transport fee
+PHARMACY,PG REGULAR - 1ST TO 2ND YEAR,Hostel Fees,7000.00,monthly,true,For hostel residents only
+PHARMACY,PG REGULAR - 1ST TO 2ND YEAR,Exam Fees,1500.00,per-semester,true,Per semester examination fee
+ALLIED HEALTH SCIENCE,UG REGULAR - 1ST YEAR (ONE TIME),Application Fee,5000.00,one-time,true,Charged only in first year
+ALLIED HEALTH SCIENCE,UG REGULAR - 1ST YEAR (ONE TIME),University Fee,8000.00,one-time,true,Charged only in first year
+ALLIED HEALTH SCIENCE,UG REGULAR - 1ST TO 3RD YEAR,Tuition Fees + Uniform + Hospital Training,75000.00,yearly,true,Includes tuition uniform and clinical training
+ALLIED HEALTH SCIENCE,UG REGULAR - 1ST TO 3RD YEAR,Transport Fees,5000.00,yearly,true,Annual transport fee
+ALLIED HEALTH SCIENCE,UG REGULAR - 1ST TO 3RD YEAR,Hostel Fees,6500.00,monthly,true,For hostel residents only
+ALLIED HEALTH SCIENCE,UG REGULAR - 1ST TO 3RD YEAR,Exam Fees,1000.00,per-semester,true,Per semester examination fee
+ALLIED HEALTH SCIENCE,UG REGULAR - 4TH YEAR (INTERNSHIP),Internship Fees,50000.00,yearly,true,Fourth year internship fee
+ALLIED HEALTH SCIENCE,UG REGULAR - 4TH YEAR (INTERNSHIP),Transport Fees,5000.00,yearly,true,Annual transport fee
+ALLIED HEALTH SCIENCE,UG REGULAR - 4TH YEAR (INTERNSHIP),Hostel Fees,6500.00,monthly,true,For hostel residents only
+DENTAL,BDS - 1ST YEAR (ONE TIME),Application Fee,5000.00,one-time,true,Charged only in first year
+DENTAL,BDS - 1ST YEAR (ONE TIME),University Fee,8000.00,one-time,true,Charged only in first year
+DENTAL,BDS - 1ST TO 4TH YEAR (HOSTEL CANDIDATE),Tuition Fees + Instruments + Hostel Fees,250000.00,yearly,true,Includes tuition instruments and hostel for resident candidates
+DENTAL,BDS - 1ST TO 4TH YEAR (DAY SCHOLAR),Tuition Fees + Instruments,200000.00,yearly,true,Tuition and instruments only for day scholar candidates
+DENTAL,BDS - 1ST TO 4TH YEAR,Transport Fees,5000.00,yearly,true,Annual transport fee
+DENTAL,BDS - 1ST TO 4TH YEAR,Exam Fees,1500.00,per-semester,true,Per semester examination fee
+DENTAL,BDS - 5TH YEAR (INTERNSHIP),Internship Fees,75000.00,yearly,true,Fifth year internship fee
+DENTAL,BDS - 5TH YEAR (INTERNSHIP),Transport Fees,5000.00,yearly,true,Annual transport fee
+DENTAL,BDS - 5TH YEAR (INTERNSHIP),Hostel Fees,8000.00,monthly,true,For hostel residents only
+DENTAL,MDS - 1ST YEAR (ONE TIME),Application Fee,6000.00,one-time,true,Charged only in first year
+DENTAL,MDS - 1ST YEAR (ONE TIME),University Fee,10000.00,one-time,true,Charged only in first year
+DENTAL,MDS - 1ST TO 3RD YEAR,Tuition Fees,200000.00,yearly,true,Annual tuition for postgraduate
+DENTAL,MDS - 1ST TO 3RD YEAR,Instrument Fees,30000.00,yearly,true,Annual instrument and equipment fee
+DENTAL,MDS - 1ST TO 3RD YEAR,Transport Fees,5000.00,yearly,true,Annual transport fee
+DENTAL,MDS - 1ST TO 3RD YEAR,Hostel Fees,8000.00,monthly,true,For hostel residents only
+DENTAL,MDS - 1ST TO 3RD YEAR,Exam Fees,1500.00,per-semester,true,Per semester examination fee
+EDUCATION,UG REGULAR - 1ST TO 2ND YEAR,Application Fee,3000.00,one-time,true,Charged in first year only
+EDUCATION,UG REGULAR - 1ST TO 2ND YEAR,University Fee,5000.00,one-time,true,Charged in first year only
+EDUCATION,UG REGULAR - 1ST TO 2ND YEAR,Tuition Fees,50000.00,yearly,true,Annual tuition fees
+EDUCATION,UG REGULAR - 1ST TO 2ND YEAR,Uniform Fees,2000.00,yearly,true,Annual uniform allocation
+EDUCATION,UG REGULAR - 1ST TO 2ND YEAR,Exam Fees,800.00,per-semester,true,Per semester examination fee

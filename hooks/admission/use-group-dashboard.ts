@@ -7,17 +7,50 @@ import { GroupDashboardService } from '@/lib/services/admission/group-dashboard-
 
 export const groupDashboardKeys = {
   all: ['admission-group-dashboard'] as const,
-  overview: (institutionIds?: string[]) =>
-    [...groupDashboardKeys.all, 'overview', institutionIds ?? 'all'] as const,
-  duplicates: () => [...groupDashboardKeys.all, 'duplicates'] as const,
-  seatAnalytics: (institutionId?: string) =>
-    [...groupDashboardKeys.all, 'seats', institutionId ?? 'all'] as const,
-  sourceAnalytics: (institutionId?: string) =>
-    [...groupDashboardKeys.all, 'sources', institutionId ?? 'all'] as const,
-  geographyAnalytics: (institutionId?: string) =>
-    [...groupDashboardKeys.all, 'geography', institutionId ?? 'all'] as const,
-  institutionComparison: () =>
-    [...groupDashboardKeys.all, 'comparison'] as const,
+  overview: (institutionIds?: string[], admissionYearId?: string | null, programStartYear?: number | null) =>
+    [
+      ...groupDashboardKeys.all,
+      'overview',
+      institutionIds ?? 'all',
+      admissionYearId ?? 'no-ay',
+      programStartYear ?? 'no-year',
+    ] as const,
+  seatAnalytics: (institutionId?: string, programStartYear?: number | null) =>
+    [
+      ...groupDashboardKeys.all,
+      'seats',
+      institutionId ?? 'all',
+      programStartYear ?? 'no-year',
+    ] as const,
+  seatDailyPivot: (institutionIds?: string[], admissionYear?: number, excludeBulkMigrated?: boolean) =>
+    [
+      ...groupDashboardKeys.all,
+      'seat-daily-pivot',
+      institutionIds ?? 'all',
+      admissionYear ?? 'no-year',
+      excludeBulkMigrated ?? false,
+    ] as const,
+  sourceAnalytics: (institutionIds?: string[], admissionYear?: number | null) =>
+    [
+      ...groupDashboardKeys.all,
+      'sources',
+      institutionIds ?? 'all',
+      admissionYear ?? 'no-year',
+    ] as const,
+  geographyAnalytics: (institutionIds?: string[], admissionYear?: number | null) =>
+    [
+      ...groupDashboardKeys.all,
+      'geography',
+      institutionIds ?? 'all',
+      admissionYear ?? 'no-year',
+    ] as const,
+  institutionComparison: (institutionIds?: string[], admissionYear?: number | null) =>
+    [
+      ...groupDashboardKeys.all,
+      'comparison',
+      institutionIds ?? 'all',
+      admissionYear ?? 'no-year',
+    ] as const,
 };
 
 // Invalidates all seat-analytics queries when learners_profiles changes (near-realtime).
@@ -46,56 +79,107 @@ function useSeatsRealtimeInvalidation() {
   }, [queryClient]);
 }
 
-export function useGroupDashboard(institutionIds?: string[]) {
+export function useGroupDashboard(
+  institutionIds?: string[],
+  admissionYearId?: string | null,
+  programStartYear?: number | null
+) {
   return useQuery({
-    queryKey: groupDashboardKeys.overview(institutionIds),
-    queryFn: () => GroupDashboardService.getGroupDashboard(institutionIds),
+    queryKey: groupDashboardKeys.overview(institutionIds, admissionYearId, programStartYear),
+    queryFn: () =>
+      GroupDashboardService.getGroupDashboard(institutionIds, admissionYearId, programStartYear),
     staleTime: 5 * 60 * 1000,
     refetchOnWindowFocus: true,
+    // Wait until we know which year to query — prevents an all-time fetch
+    // before GroupAdmissionYearSelect resolves the default cohort.
+    enabled: programStartYear !== null && programStartYear !== undefined,
   });
 }
 
-export function useCrossCampusDuplicates() {
-  return useQuery({
-    queryKey: groupDashboardKeys.duplicates(),
-    queryFn: () => GroupDashboardService.findCrossCampusDuplicates(),
-    staleTime: 10 * 60 * 1000,
-  });
-}
-
-export function useSeatAnalytics(institutionId?: string) {
+export function useSeatAnalytics(
+  institutionId?: string,
+  programStartYear?: number | null
+) {
   useSeatsRealtimeInvalidation();
   return useQuery({
-    queryKey: groupDashboardKeys.seatAnalytics(institutionId),
-    queryFn: () => GroupDashboardService.getSeatAnalytics(institutionId),
+    queryKey: groupDashboardKeys.seatAnalytics(institutionId, programStartYear),
+    queryFn: () => GroupDashboardService.getSeatAnalytics(institutionId, programStartYear),
     staleTime: 30_000,
     refetchOnWindowFocus: false,
+    // Wait until a year is selected if it's expected to be set; allow null/undefined
+    // for the "active-only default" path.
+    enabled: programStartYear === undefined || programStartYear === null
+      ? true
+      : Number.isFinite(programStartYear),
   });
 }
 
-export function useSourceAnalytics(institutionId?: string) {
+export function useSeatDailyPivot(
+  institutionIds: string[] | undefined,
+  admissionYear: number | null,
+  excludeBulkMigrated = false
+) {
+  useSeatsRealtimeInvalidation();
   return useQuery({
-    queryKey: groupDashboardKeys.sourceAnalytics(institutionId),
-    queryFn: () => GroupDashboardService.getSourceAnalytics(institutionId),
+    queryKey: groupDashboardKeys.seatDailyPivot(institutionIds, admissionYear ?? undefined, excludeBulkMigrated),
+    // institutionIds === undefined  =>  super-admin "all institutions"; service resolves them via RLS.
+    // institutionIds === []         =>  scoped user with no access; service short-circuits to [].
+    queryFn: () =>
+      GroupDashboardService.getSeatDailyPivot(institutionIds, admissionYear!, excludeBulkMigrated),
     staleTime: 60_000,
     refetchOnWindowFocus: false,
+    // Wait until we know which year to query. We allow institutionIds === undefined
+    // (super-admin path) but block when it's an empty array (no access).
+    enabled:
+      admissionYear !== null && admissionYear !== undefined
+      && (institutionIds === undefined || institutionIds.length > 0),
   });
 }
 
-export function useGeographyAnalytics(institutionId?: string) {
+export function useSourceAnalytics(
+  institutionIds: string[] | undefined,
+  admissionYear: number | null
+) {
+  useSeatsRealtimeInvalidation();
   return useQuery({
-    queryKey: groupDashboardKeys.geographyAnalytics(institutionId),
-    queryFn: () => GroupDashboardService.getGeographyAnalytics(institutionId),
+    queryKey: groupDashboardKeys.sourceAnalytics(institutionIds, admissionYear),
+    queryFn: () => GroupDashboardService.getSourceAnalytics(institutionIds, admissionYear),
     staleTime: 60_000,
     refetchOnWindowFocus: false,
+    enabled:
+      admissionYear !== null && admissionYear !== undefined
+      && (institutionIds === undefined || institutionIds.length > 0),
   });
 }
 
-export function useInstitutionComparison() {
+export function useGeographyAnalytics(
+  institutionIds: string[] | undefined,
+  admissionYear: number | null
+) {
+  useSeatsRealtimeInvalidation();
   return useQuery({
-    queryKey: groupDashboardKeys.institutionComparison(),
-    queryFn: () => GroupDashboardService.getInstitutionComparison(),
+    queryKey: groupDashboardKeys.geographyAnalytics(institutionIds, admissionYear),
+    queryFn: () => GroupDashboardService.getGeographyAnalytics(institutionIds, admissionYear),
     staleTime: 60_000,
     refetchOnWindowFocus: false,
+    enabled:
+      admissionYear !== null && admissionYear !== undefined
+      && (institutionIds === undefined || institutionIds.length > 0),
+  });
+}
+
+export function useInstitutionComparison(
+  institutionIds: string[] | undefined,
+  admissionYear: number | null
+) {
+  useSeatsRealtimeInvalidation();
+  return useQuery({
+    queryKey: groupDashboardKeys.institutionComparison(institutionIds, admissionYear),
+    queryFn: () => GroupDashboardService.getInstitutionComparison(institutionIds, admissionYear),
+    staleTime: 60_000,
+    refetchOnWindowFocus: false,
+    enabled:
+      admissionYear !== null && admissionYear !== undefined
+      && (institutionIds === undefined || institutionIds.length > 0),
   });
 }

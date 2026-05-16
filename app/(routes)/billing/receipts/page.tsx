@@ -44,7 +44,7 @@ export default async function BillingReceiptsPage({
       <PageBreadcrumb
         items={[
           { label: 'Home', href: '/' },
-          { label: 'Billing', href: '/billing/schedule' },
+          { label: 'Billing', href: '/billing' },
           { label: 'Receipts', href: '/billing/receipts' }
         ]}
       />

@@ -1,5 +1,12 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import type { LearnerProfile } from '@/types/learner-profile';
+import type {
+  AccountTransitionDocumentEntry,
+  AccountTransitionResult,
+} from '@/types/admission';
+import { AccountTransitionService } from '@/lib/services/admission/account-transition-service';
+import { AdmissionSettingsService } from '@/lib/services/admission/admission-settings-service';
+import { FeeChangeEventService } from '@/lib/services/admission/fee-change-event-service';
 // FEE_STRUCTURE_CONFIG removed 2026-04-15 — dynamic fee_items flow replaces it.
 
 // ============================================
@@ -36,6 +43,7 @@ export interface OnboardingLearner extends LearnerProfile {
 }
 
 export type PaymentStatus = 'unpaid' | 'partially_paid' | 'fully_paid';
+export type BillStatus = 'generated' | 'not_generated';
 
 export interface OnboardingFilters {
   search?: string;           // matches name, email, phone, application_id
@@ -43,7 +51,14 @@ export interface OnboardingFilters {
   degree_id?: string;
   department_id?: string;
   program_id?: string;
+  // NOTE: semester/section filters intentionally absent — onboarding cohort is
+  // by design first-semester-only (newly admitted learners), so filtering by
+  // them is meaningless. If multi-semester onboarding is ever introduced,
+  // re-add semester_id/section_id here and the corresponding .eq() clauses.
   payment_status?: PaymentStatus;
+  // Computed from joined bills — 'generated' = bills.length > 0, 'not_generated' = bills.length === 0.
+  // Filtered post-fetch (same path as payment_status).
+  bill_status?: BillStatus;
   page?: number;             // 1-based, default 1
   limit?: number;            // default 20
   sortBy?: keyof LearnerProfile;
@@ -127,6 +142,7 @@ export class OnboardingService {
       department_id,
       program_id,
       payment_status,
+      bill_status,
       page = 1,
       limit = 20,
       sortBy = 'updated_at',
@@ -158,7 +174,8 @@ export class OnboardingService {
         )
         .eq('lifecycle_status', 'account');
 
-      // Academic filters
+      // Academic filters (Institution → Degree → Department → Programme).
+      // Onboarding cohort is first-semester-only, so semester/section omitted.
       if (institution_id) query = query.eq('institution_id', institution_id);
       if (degree_id) query = query.eq('degree_id', degree_id);
       if (department_id) query = query.eq('department_id', department_id);
@@ -181,11 +198,20 @@ export class OnboardingService {
       // Sorting
       query = query.order(sortBy as string, { ascending: sortDirection === 'asc' });
 
+      // DB-level pagination — only when no computed filter is set.
+      // payment_status and bill_status are both derived from joined bill rows,
+      // so they must be filtered post-fetch; that path paginates in memory below.
+      const offset = (page - 1) * limit;
+      const requiresPostFilter = !!(payment_status || bill_status);
+      if (!requiresPostFilter) {
+        query = query.range(offset, offset + limit - 1);
+      }
+
       const { data: rawData, error, count } = await query;
 
       if (error) throw error;
 
-      // Map rows → OnboardingLearner; apply payment_status post-filter
+      // Map rows → OnboardingLearner; compute totals from joined bills.
       const mapped: OnboardingLearner[] = (rawData ?? []).map((row: any) => {
         const bills: OnboardingBillSummary[] = (row.bills ?? []).map((b: any) => ({
           id: b.id,
@@ -210,32 +236,42 @@ export class OnboardingService {
         };
       });
 
-      // Post-filter by payment_status
-      const filtered = payment_status
-        ? mapped.filter(
+      if (requiresPostFilter) {
+        // Post-filter on computed fields, then paginate in memory.
+        // `count` from Supabase reflects pre-filter total, so it's unusable here.
+        let filtered = mapped;
+        if (payment_status) {
+          filtered = filtered.filter(
             (l) =>
               computePaymentStatus(l.total_fees, l.total_balance) === payment_status
-          )
-        : mapped;
+          );
+        }
+        if (bill_status) {
+          filtered = filtered.filter((l) =>
+            bill_status === 'generated' ? l.bills.length > 0 : l.bills.length === 0
+          );
+        }
+        const total = filtered.length;
+        return {
+          data: filtered.slice(offset, offset + limit),
+          metadata: {
+            total,
+            page,
+            limit,
+            total_pages: Math.max(1, Math.ceil(total / limit)),
+          },
+        };
+      }
 
-      // Paginate post-filter results
-      const total = payment_status ? filtered.length : (count ?? 0);
-      const offset = (page - 1) * limit;
-      const paginated = payment_status
-        ? filtered.slice(offset, offset + limit)
-        : filtered; // DB-level pagination already applied via range below
-
-      // For non-payment_status queries apply DB-level pagination
-      // (we re-run or slice — for simplicity we slice the already-fetched page)
-      const finalData = payment_status ? paginated : filtered.slice(0, limit);
-
+      // No computed filter — DB-level pagination already applied.
+      const total = count ?? 0;
       return {
-        data: finalData,
+        data: mapped,
         metadata: {
           total,
           page,
           limit,
-          total_pages: Math.ceil(total / limit),
+          total_pages: Math.max(1, Math.ceil(total / limit)),
         },
       };
     } catch (error) {
@@ -318,17 +354,16 @@ export class OnboardingService {
       const { data: userData } = await supabase.auth.getUser();
       const currentUserId = userData?.user?.id ?? null;
 
-      // Fetch billing item categories for this institution (used as fallback for legacy columns)
+      // Fetch billing categories (global, no institution filter as of 2026-04-28)
       const { data: itemCategories } = await supabase
-        .from('billing_item_categories')
-        .select('id, item_category_name, institution_id')
-        .eq('institution_id', learner.institution_id)
+        .from('billing_categories')
+        .select('id, category_name')
         .eq('is_active', true);
 
       const categoryLookup: Record<string, string> = {};
       if (itemCategories) {
         for (const cat of itemCategories) {
-          categoryLookup[cat.item_category_name] = cat.id;
+          categoryLookup[cat.category_name] = cat.id;
         }
       }
 
@@ -417,55 +452,53 @@ export class OnboardingService {
 
   /**
    * Admission team calls this to send a learner to the accounts team.
-   * 1. Validates lifecycle_status is admitted, pending, or approved.
-   * 2. Validates all required finance fields are filled (draft for accounts).
-   * 3. Updates lifecycle_status → 'account'.
    *
-   * Bills are NOT auto-created. The accounts team creates bills manually
-   * from the onboarding page using the captured fee_items as a reference.
+   * Plan 4 (2026-05-05): refactored to delegate to
+   * AccountTransitionService.transitionToAccount, which calls the atomic
+   * SECURITY DEFINER RPC `admission_account_transition_with_bills`. The RPC
+   * does:
+   *   1. Permission check (admission_documents.manage)
+   *   2. Lead status validation (admitted | pending | approved)
+   *   3. Fee structure resolution (or legacy_fee_mode fee_items check)
+   *   4. Required documents validation
+   *   5. Documents UPSERT
+   *   6. lifecycle_status → 'account'
+   *   7. Bill auto-generation (idempotent)
+   * All in one transaction — any failure rolls back everything.
+   *
+   * Backward-compat: existing callers pass only `learnerId`. If the
+   * institution has `required_documents_for_account_transition` set AND no
+   * documents are passed, the RPC will throw `required_documents_missing: ...`.
+   * UI callers should use the AccountTransitionDialog (Plan 4 Task 11) to
+   * collect documents and pass them via `receivedDocuments`.
+   *
+   * Legacy `validateFinanceFields` removed — the RPC does its own fee
+   * resolution validation.
    */
-  static async markAsAccount(learnerId: string): Promise<void> {
+  static async markAsAccount(
+    learnerId: string,
+    receivedDocuments?: AccountTransitionDocumentEntry[],
+  ): Promise<AccountTransitionResult> {
     try {
       const supabase = this.supabase as any;
 
-      // Fetch current learner
-      const { data: learner, error: fetchError } = await supabase
+      // Read institution to fetch required-documents config.
+      const { data: lp, error: readError } = await supabase
         .from('learners_profiles')
-        .select('*')
+        .select('institution_id')
         .eq('id', learnerId)
         .single();
+      if (readError) throw readError;
+      if (!lp) throw new Error(`Learner ${learnerId} not found`);
 
-      if (fetchError) throw fetchError;
-      if (!learner) throw new Error(`Learner ${learnerId} not found`);
+      const settings = await AdmissionSettingsService.getByInstitution(lp.institution_id);
+      const required = settings?.required_documents_for_account_transition ?? [];
 
-      // Guard: must be in a pre-billing status
-      const allowedStatuses = ['admitted', 'pending', 'approved'];
-      if (!allowedStatuses.includes(learner.lifecycle_status)) {
-        throw new Error(
-          `Cannot mark as account: learner is '${learner.lifecycle_status}'. Must be enquiry, pending, or approved.`
-        );
-      }
-
-      // Validate finance fields
-      const validation = this.validateFinanceFields(learner as LearnerProfile);
-      if (!validation.valid) {
-        throw new Error(
-          `Finance fields incomplete. Missing: ${(validation as ValidationFailure).missing.join(', ')}`
-        );
-      }
-
-      // Transition to 'account'
-      const { error: updateError } = await supabase
-        .from('learners_profiles')
-        .update({ lifecycle_status: 'account', updated_at: new Date().toISOString() })
-        .eq('id', learnerId);
-
-      if (updateError) throw updateError;
-
-      // NOTE: Bills are not auto-created here. Accounts team creates them
-      // manually in /billing/onboarding once the learner appears there.
-      // createBillsFromProfile() remains as a callable helper if you ever
-      // want to opt back into auto-creation per-learner.
+      return AccountTransitionService.transitionToAccount({
+        learner_id: learnerId,
+        required_documents: required,
+        received_documents: receivedDocuments ?? [],
+      });
     } catch (error) {
       console.error('[billing/onboarding] markAsAccount failed:', error);
       throw error;
@@ -497,6 +530,14 @@ export class OnboardingService {
         throw new Error(
           `Cannot approve: learner is '${learner.lifecycle_status}', expected 'account'`
         );
+      }
+
+      // Plan 5 Task 11: block activation while a fee-change event is pending review.
+      // The reconciliation must complete (approve/reject) before the learner can
+      // transition to 'active' — otherwise bills/credits could go stale.
+      const hasPending = await FeeChangeEventService.hasPendingForLearner(learnerId);
+      if (hasPending) {
+        throw new Error('Cannot activate: a pending fee-change event must be resolved first');
       }
 
       // Check all bills are paid

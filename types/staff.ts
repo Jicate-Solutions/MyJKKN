@@ -1,11 +1,30 @@
 // types/staff.ts
 
+// ─── Extended profile repeater item shapes ──────────────────────────
+export interface BadgeItem        { label: string; color?: string; }
+export interface QualificationItem { degree: string; institution: string; year: number | string; specialization?: string; }
+export interface SpecialisationItem { name: string; }
+export interface ExperienceEntryItem { role: string; organisation: string; from: string; to?: string | null; description?: string; }
+export interface ResearchFocusItem { area: string; description?: string; }
+export interface PublicationItem  { title: string; journal?: string; year?: number | string; doi?: string; url?: string; type?: string; }
+export interface FundedProjectItem { title: string; agency?: string; amount?: string; year?: number | string; status?: string; }
+export interface CertificationItem { name: string; issuer?: string; year?: number | string; credential_url?: string; }
+export interface AwardItem        { title: string; awarded_by?: string; year?: number | string; description?: string; }
+export interface MembershipItem   { body: string; role?: string; since?: number | string; }
+export interface PhdScholarItem   { name: string; topic?: string; year?: number | string; status?: string; }
+export interface FaqItem          { question: string; answer: string; }
+export interface AchievementItem  { title: string; description?: string; date?: string; featured?: boolean; category?: string; }
+
 export interface EmploymentCategory {
   id: string;
   category_name: string;
   description?: string | null;
   is_teaching: boolean;
+  shows_extended_profile: boolean;
   is_active: boolean;
+  // When false, new staff in this category default to login_enabled=false
+  // (view-only). Per-row override on staff still wins.
+  allows_login: boolean;
   created_at: string;
   updated_at: string;
   created_by?: string | null;
@@ -16,7 +35,9 @@ export interface CreateEmploymentCategoryDto {
   category_name: string;
   description?: string;
   is_teaching?: boolean;
+  shows_extended_profile?: boolean;
   is_active?: boolean;
+  allows_login?: boolean;
 }
 
 export interface UpdateEmploymentCategoryDto
@@ -81,6 +102,37 @@ export interface Staff {
   department_id: string | null;
   role_key: string;
 
+  // Extended faculty profile fields (all required at type level — DB has defaults)
+  has_extended_profile: boolean;
+  slug: string | null;
+  status: 'draft' | 'published';
+  display_order: number;
+  experience_years: number;
+  research_papers: number;
+  phd_scholars: number;
+  awards_won: number;
+  pg_dissertations_guided: number;
+  ug_projects_guided: number;
+  qualification_summary: string | null;
+  professional_summary: string | null;
+  mentoring_description: string | null;
+  google_scholar_url: string | null;
+  researchgate_url: string | null;
+  orcid_url: string | null;
+  badges: BadgeItem[];
+  qualifications: QualificationItem[];
+  specialisations: SpecialisationItem[];
+  experience_entries: ExperienceEntryItem[];
+  research_focus_areas: ResearchFocusItem[];
+  publications: PublicationItem[];
+  funded_projects: FundedProjectItem[];
+  certifications: CertificationItem[];
+  awards: AwardItem[];
+  memberships: MembershipItem[];
+  phd_scholars_list: PhdScholarItem[];
+  faqs: FaqItem[];
+  achievements: AchievementItem[];
+
   // Related data
   category?: EmploymentCategory;
   institution?: {
@@ -95,6 +147,9 @@ export interface Staff {
 
   // Audit fields
   is_active: boolean;
+  // View-only / labour staff have login_enabled=false; their linked profile
+  // is is_active=false and emails are synthetic @nolog.jkkn.local.
+  login_enabled: boolean;
   created_at: string;
   updated_at: string;
   created_by?: string;
@@ -108,7 +163,9 @@ export interface CreateStaffDto {
   date_of_birth: string;
   marital_status: MaritalStatus;
   blood_group?: BloodGroup;
-  email: string;
+  // Optional for view-only staff (login_enabled=false). Service will generate
+  // a deterministic synthetic email at @nolog.jkkn.local when blank.
+  email?: string;
   phone: string;
   staff_id?: string;
   profile_picture?: string;
@@ -120,10 +177,45 @@ export interface CreateStaffDto {
   designation: string;
   category_id: string;
   institution_id: string;
-  institution_email: string;
+  // Optional for view-only staff (same generation rule as email).
+  institution_email?: string;
   department_id?: string | null;
   role_key: string;
   is_active?: boolean;
+  // Default true. Set false to mark this staff as "view-only" — they cannot
+  // log in and their linked profile is deactivated by the trigger.
+  login_enabled?: boolean;
+
+  // All extended profile fields are optional on create
+  has_extended_profile?: boolean;
+  slug?: string | null;
+  status?: 'draft' | 'published';
+  display_order?: number;
+  experience_years?: number;
+  research_papers?: number;
+  phd_scholars?: number;
+  awards_won?: number;
+  pg_dissertations_guided?: number;
+  ug_projects_guided?: number;
+  qualification_summary?: string | null;
+  professional_summary?: string | null;
+  mentoring_description?: string | null;
+  google_scholar_url?: string | null;
+  researchgate_url?: string | null;
+  orcid_url?: string | null;
+  badges?: BadgeItem[];
+  qualifications?: QualificationItem[];
+  specialisations?: SpecialisationItem[];
+  experience_entries?: ExperienceEntryItem[];
+  research_focus_areas?: ResearchFocusItem[];
+  publications?: PublicationItem[];
+  funded_projects?: FundedProjectItem[];
+  certifications?: CertificationItem[];
+  awards?: AwardItem[];
+  memberships?: MembershipItem[];
+  phd_scholars_list?: PhdScholarItem[];
+  faqs?: FaqItem[];
+  achievements?: AchievementItem[];
 }
 
 // Reserved role keys that MUST NOT appear in the Staff onboarding dropdown.
@@ -133,7 +225,8 @@ export const RESERVED_STAFF_ROLE_KEYS = new Set([
   'super_admin',
   'administrator',
   'admission',
-  'counselor',
+  'admission_counselor',
+  'expo_counselor',
   'guest'
 ]);
 
@@ -151,6 +244,7 @@ export interface StaffFilters {
   role_key?: string;
   is_teaching?: boolean;
   isActive?: boolean;
+  login_enabled?: boolean;
   page?: number;
   limit?: number;
 }

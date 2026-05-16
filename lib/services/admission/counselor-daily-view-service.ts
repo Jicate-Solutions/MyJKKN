@@ -627,7 +627,7 @@ export class CounselorDailyViewService {
    *
    * Uses the SECURITY DEFINER RPC `get_counselor_profiles_for_institution` which
    * bypasses user_roles RLS and checks both sources in one query:
-   *   - profiles.role = 'counselor'  (primary role)
+   *   - profiles.role IN ('admission_counselor', 'expo_counselor')  (primary role)
    *   - user_roles + custom_roles junction (multi-role users)
    *
    * The previous client-side multi-step approach silently returned an incomplete

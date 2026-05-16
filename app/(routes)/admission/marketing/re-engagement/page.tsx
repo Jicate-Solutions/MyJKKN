@@ -95,6 +95,11 @@ import {
   type SequenceTemplate,
 } from '@/lib/services/whatsapp/whatsapp-reengagement-service';
 
+// Form-abandon recovery surface — Path A B7. Hour-2 nudge is invisible to the
+// Day-14+ cold-lead detector, so we surface its diagnostic + KPI inline here
+// rather than build a parallel page.
+import { Hourglass } from 'lucide-react';
+
 
 /**
  * navMeta — documents that this page is invoked via a button/row-click on
@@ -342,6 +347,209 @@ function CreateCampaignDialog() {
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+// =============================================================================
+// Form Abandons Tab Component (Path A B7 — Hour-2 nudge surface)
+// =============================================================================
+//
+// Reads /api/admission/re-engagement/form-abandons. Shows:
+//   - Stat card: Total / Matched / Recovered / Anonymous over last 24h.
+//   - Table: recent abandon log rows with the matched lead (if any),
+//            recovery status, abandon time, reason from metadata.
+
+interface FormAbandonRow {
+  id: string;
+  session_id: string;
+  form_id: string | null;
+  abandoned_at: string;
+  matched_lead_id: string | null;
+  recovery_triggered_at: string | null;
+  detection_window_hours: number | null;
+  metadata: Record<string, unknown> | null;
+  created_at: string;
+  lead?: {
+    id: string;
+    full_name: string | null;
+    phone: string | null;
+    email: string | null;
+    funnel_stage: string | null;
+  } | null;
+}
+
+interface FormAbandonStats {
+  total: number;
+  matched: number;
+  recovered: number;
+  anonymous: number;
+  last_24h_count: number;
+}
+
+function FormAbandonsTab({ institutionId }: { institutionId: string }) {
+  const [rows, setRows] = useState<FormAbandonRow[]>([]);
+  const [stats, setStats] = useState<FormAbandonStats>({
+    total: 0,
+    matched: 0,
+    recovered: 0,
+    anonymous: 0,
+    last_24h_count: 0,
+  });
+  const [isLoading, setIsLoading] = useState(false);
+  const [windowChoice, setWindowChoice] = useState<'24h' | '7d'>('7d');
+
+  const reload = async () => {
+    setIsLoading(true);
+    try {
+      const params = new URLSearchParams();
+      if (institutionId) params.set('institution_id', institutionId);
+      params.set('window', windowChoice);
+      const res = await fetch(`/api/admission/re-engagement/form-abandons?${params.toString()}`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to load');
+      setRows(data.rows ?? []);
+      setStats(data.stats ?? stats);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to load form abandons');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    reload();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [institutionId, windowChoice]);
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="text-lg font-semibold">Form Abandons</h3>
+          <p className="text-sm text-muted-foreground">
+            Sessions that started the public application form but never submitted. Matched
+            opted-in leads are auto-routed to the gentle re-engagement WhatsApp sequence.
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Select value={windowChoice} onValueChange={(v: any) => setWindowChoice(v)}>
+            <SelectTrigger className="w-[140px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="24h">Last 24 hours</SelectItem>
+              <SelectItem value="7d">Last 7 days</SelectItem>
+            </SelectContent>
+          </Select>
+          <Button size="sm" variant="outline" onClick={reload} disabled={isLoading}>
+            <RefreshCw className={cn('h-4 w-4 mr-2', isLoading && 'animate-spin')} />
+            Refresh
+          </Button>
+        </div>
+      </div>
+
+      {/* Stat row */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <Card>
+          <CardContent className="pt-6">
+            <p className="text-sm text-muted-foreground">Total Abandons (24h)</p>
+            <p className="text-2xl font-bold">{stats.total}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-6">
+            <p className="text-sm text-muted-foreground">Matched to Lead</p>
+            <p className="text-2xl font-bold text-blue-600">{stats.matched}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-6">
+            <p className="text-sm text-muted-foreground">Recovery Triggered</p>
+            <p className="text-2xl font-bold text-green-600">{stats.recovered}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-6">
+            <p className="text-sm text-muted-foreground">Anonymous Abandons</p>
+            <p className="text-2xl font-bold text-amber-600">{stats.anonymous}</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Table */}
+      <Card>
+        {isLoading ? (
+          <div className="flex items-center justify-center py-12">
+            <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+          </div>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Abandoned</TableHead>
+                <TableHead>Lead</TableHead>
+                <TableHead>Stage</TableHead>
+                <TableHead>Recovery</TableHead>
+                <TableHead>Reason</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {rows.map((row) => {
+                const reason = (row.metadata as any)?.reason ?? '—';
+                const recoveredAt = row.recovery_triggered_at;
+                const lead = row.lead;
+                return (
+                  <TableRow key={row.id}>
+                    <TableCell>
+                      <p>{formatDistanceToNow(new Date(row.abandoned_at), { addSuffix: true })}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {format(new Date(row.abandoned_at), 'MMM d, HH:mm')}
+                      </p>
+                    </TableCell>
+                    <TableCell>
+                      {lead ? (
+                        <div>
+                          <p className="font-medium">{lead.full_name || 'Unknown'}</p>
+                          <p className="text-xs text-muted-foreground">{lead.phone || lead.email || ''}</p>
+                        </div>
+                      ) : (
+                        <Badge variant="outline">Anonymous</Badge>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {lead?.funnel_stage ? (
+                        <Badge variant="secondary" className="text-xs">{lead.funnel_stage}</Badge>
+                      ) : (
+                        '—'
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {recoveredAt ? (
+                        <Badge className="bg-green-100 text-green-800 dark:bg-green-900/30">
+                          Triggered
+                        </Badge>
+                      ) : (
+                        <Badge variant="outline">Not sent</Badge>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <span className="text-xs text-muted-foreground">{String(reason)}</span>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+              {rows.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
+                    No form abandons recorded in this window.
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        )}
+      </Card>
+    </div>
   );
 }
 
@@ -661,6 +869,21 @@ function ColdLeadReengagementPageContent() {
   const neverEngaged = stats.neverEngaged;
   const activeCampaigns = stats.activeCampaigns;
 
+  // Form-abandon recovery summary (24h) — Path A B7. The full table lives in
+  // the Form Abandons tab; this card is a teaser for the summary row so
+  // Director sees the Hour-2 nudge volume next to the cold-lead row.
+  const [formAbandonCount, setFormAbandonCount] = useState<number | null>(null);
+  useEffect(() => {
+    if (!institutionId) return;
+    const params = new URLSearchParams({ institution_id: institutionId, window: '24h', limit: '1' });
+    fetch(`/api/admission/re-engagement/form-abandons?${params.toString()}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (data?.stats) setFormAbandonCount(data.stats.last_24h_count ?? data.stats.total ?? 0);
+      })
+      .catch(() => {});
+  }, [institutionId]);
+
   const filteredLeads = coldLeads.filter((lead: any) => {
     const matchesSearch = !searchTerm ||
       lead.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -728,7 +951,7 @@ function ColdLeadReengagementPageContent() {
           </div>
 
           {/* Summary Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
             <Card>
               <CardContent className="pt-6">
                 <div className="flex items-center gap-3">
@@ -785,6 +1008,22 @@ function ColdLeadReengagementPageContent() {
                 </div>
               </CardContent>
             </Card>
+            <Card>
+              <CardContent className="pt-6">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 rounded-lg bg-rose-100 dark:bg-rose-900/30">
+                    <Hourglass className="h-5 w-5 text-rose-600 dark:text-rose-400" />
+                  </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground">Form Abandons (24h)</p>
+                    <p className="text-2xl font-bold text-rose-600">
+                      {formAbandonCount ?? '—'}
+                    </p>
+                    <p className="text-xs text-muted-foreground">Hour-2 nudge candidates</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
           </div>
 
           {/* Tabs */}
@@ -793,6 +1032,7 @@ function ColdLeadReengagementPageContent() {
               <TabsTrigger value="leads">Cold Leads</TabsTrigger>
               <TabsTrigger value="campaigns">Campaigns</TabsTrigger>
               <TabsTrigger value="wa-sequences">WhatsApp Sequences</TabsTrigger>
+              <TabsTrigger value="form-abandons">Form Abandons</TabsTrigger>
               <TabsTrigger value="analytics">Analytics</TabsTrigger>
             </TabsList>
 
@@ -1004,6 +1244,11 @@ function ColdLeadReengagementPageContent() {
                 coldLeadCount={totalColdLeads}
                 createdBy={profile?.id || ''}
               />
+            </TabsContent>
+
+            {/* Form Abandons Tab — Path A B7 (Hour-2 nudge) */}
+            <TabsContent value="form-abandons" className="space-y-4">
+              <FormAbandonsTab institutionId={institutionId} />
             </TabsContent>
 
             {/* Analytics Tab */}

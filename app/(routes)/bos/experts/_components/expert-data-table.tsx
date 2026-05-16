@@ -24,7 +24,10 @@ import type { ExpertSearchParams } from './data-table-schema';
 import { BosExternalExpert } from '@/types/bos';
 import { BosExpertService } from '@/lib/services/bos/bos-expert-service';
 import { usePermissions } from '@/hooks/use-permissions';
+import { bosExpertKeys } from '@/hooks/bos/use-bos-experts';
+import { useDataTableRefreshOnInvalidate } from '@/hooks/use-data-table-refresh';
 import { logger } from '@/lib/utils/enhanced-logger';
+import { useQueryClient } from '@tanstack/react-query';
 
 interface ExpertDataTableProps {
   search: ExpertSearchParams;
@@ -32,8 +35,13 @@ interface ExpertDataTableProps {
 
 export function ExpertDataTable({ search }: ExpertDataTableProps) {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const { canAccess, isSuperAdmin, userProfile, isLoading: permissionsLoading } =
     usePermissions();
+
+  // Bridge: rerun fetchData whenever the bos-experts cache is invalidated
+  // anywhere (create/update from the new/edit pages, optimistic deletes, etc.).
+  const refetchKey = useDataTableRefreshOnInvalidate(bosExpertKeys.all);
 
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<{
@@ -84,7 +92,7 @@ export function ExpertDataTable({ search }: ExpertDataTableProps) {
               : search.is_active === 'false'
               ? false
               : undefined,
-          institutionsId: !isSuperAdmin ? userProfile?.institution_id : undefined,
+          institutionsId: search.institutionsId || (!isSuperAdmin ? userProfile?.institution_id : undefined),
         });
 
         return {
@@ -124,6 +132,7 @@ export function ExpertDataTable({ search }: ExpertDataTableProps) {
       );
       toast.success(`${count} expert${count > 1 ? 's' : ''} removed`);
       pendingDelete.resetSelection();
+      queryClient.invalidateQueries({ queryKey: bosExpertKeys.all });
     } catch (error) {
       logger.error('academic/bos', 'Error deleting experts', error);
       toast.error('Failed to remove some experts');
@@ -206,6 +215,7 @@ export function ExpertDataTable({ search }: ExpertDataTableProps) {
           columnResizingTableId: 'bos-experts-table',
         }}
         renderToolbarContent={renderCustomToolbar}
+        refetchKey={refetchKey}
       />
 
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>

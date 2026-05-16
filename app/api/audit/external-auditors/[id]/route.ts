@@ -5,36 +5,26 @@ export const dynamic = 'force-dynamic';
 //              Body: { extend_days?: number }
 //   - DELETE : immediate revoke — set is_active=false + expires_at=now() on all rows.
 //   [id] is the profiles.id (user_id), not user_institution_access.id.
+//
+// Permission gate is delegated to withAuth({ requirePermission:
+// 'audit.external_auditor.manage' }) — the wrapper triad covers super_admin
+// + is_admin + user_has_permission. Legacy 'registrar' hardcode and the
+// get_user_merged_permissions RPC fallback are retired; users who need to
+// manage external auditors must be granted audit.external_auditor.manage
+// via Role Management UI.
 
 import { NextResponse, connection } from 'next/server';
-import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { withAuth } from '@/lib/auth/with-auth';
 
-async function requireManagePermission(supabase: any) {
-  const { data: userData, error: userError } = await supabase.auth.getUser();
-  if (userError || !userData?.user) return { ok: false as const, status: 401, error: 'Unauthorized' };
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('is_super_admin, role')
-    .eq('id', userData.user.id)
-    .maybeSingle();
-  if (profile?.is_super_admin === true) return { ok: true as const, userId: userData.user.id as string };
-  if (profile?.role === 'super_admin' || profile?.role === 'admin' || profile?.role === 'administrator' || profile?.role === 'registrar') {
-    return { ok: true as const, userId: userData.user.id as string };
-  }
-  const { data: merged } = await supabase.rpc('get_user_merged_permissions', { p_user_id: userData.user.id });
-  if (merged && typeof merged === 'object' && merged['audit.external_auditor.manage'] === true) {
-    return { ok: true as const, userId: userData.user.id as string };
-  }
-  return { ok: false as const, status: 403, error: 'Forbidden' };
-}
-
-export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
+export const PATCH = withAuth(async (request, auth, context) => {
   await connection();
   try {
-    const { id: userId } = await params;
-    const supabase = await createServerSupabaseClient();
-    const guard = await requireManagePermission(supabase);
-    if (!guard.ok) return NextResponse.json({ error: guard.error }, { status: guard.status });
+    const params = (await context?.params) as { id?: string } | undefined;
+    const userId = params?.id;
+    if (!userId) {
+      return NextResponse.json({ error: 'user id is required' }, { status: 400 });
+    }
+    const supabase = auth.supabase;
 
     const body = await request.json().catch(() => ({}));
     const extendDays = Math.max(1, Math.min(90, Number(body?.extend_days ?? 7)));
@@ -91,15 +81,17 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       { status: 500 }
     );
   }
-}
+}, { allowApiKey: false, requirePermission: 'audit.external_auditor.manage' });
 
-export async function DELETE(_request: Request, { params }: { params: Promise<{ id: string }> }) {
+export const DELETE = withAuth(async (_request, auth, context) => {
   await connection();
   try {
-    const { id: userId } = await params;
-    const supabase = await createServerSupabaseClient();
-    const guard = await requireManagePermission(supabase);
-    if (!guard.ok) return NextResponse.json({ error: guard.error }, { status: guard.status });
+    const params = (await context?.params) as { id?: string } | undefined;
+    const userId = params?.id;
+    if (!userId) {
+      return NextResponse.json({ error: 'user id is required' }, { status: 400 });
+    }
+    const supabase = auth.supabase;
 
     const nowIso = new Date().toISOString();
     const { error: updErr } = await (supabase as any)
@@ -127,4 +119,4 @@ export async function DELETE(_request: Request, { params }: { params: Promise<{ 
       { status: 500 }
     );
   }
-}
+}, { allowApiKey: false, requirePermission: 'audit.external_auditor.manage' });

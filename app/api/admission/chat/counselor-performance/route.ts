@@ -2,19 +2,21 @@ export const dynamic = 'force-dynamic';
 
 // GET /api/admission/chat/counselor-performance
 // Counselor performance metrics and response time distribution
+//
+// Permission gate is delegated to withAuth({ requirePermission:
+// 'admission.counselors.performance.view' }). The wrapper triad handles
+// super-admin bypass + is_admin + user_has_permission. Per-institution
+// access is still scoped here via profile.institution_id match.
 
-import { NextRequest, NextResponse , connection } from 'next/server';
-import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { NextResponse, connection } from 'next/server';
+import { withAuth } from '@/lib/auth/with-auth';
 import { WhatsAppCounselorAnalyticsService } from '@/lib/services/whatsapp/whatsapp-counselor-analytics-service';
 
-export async function GET(request: NextRequest) {
+export const GET = withAuth(async (request, auth) => {
   await connection();
   try {
-    const supabase = await createServerSupabaseClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    const supabase = auth.supabase;
+    const user = auth.user;
 
     const { searchParams } = new URL(request.url);
     const institutionId = searchParams.get('institution_id');
@@ -26,7 +28,13 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'institution_id is required' }, { status: 400 });
     }
 
-    // Verify institution access (super admins can access any institution)
+    // Verify institution access (super admins can access any institution).
+    // The wrapper has already confirmed the user has the permission key; we
+    // additionally enforce that non-global users can only query their own
+    // institution. Cross-institution access for global-scope roles is granted
+    // via custom_roles.institution_scope='all' (RLS-side); we enforce the
+    // same here so this analytics endpoint matches the data the user could
+    // see via RLS-bound queries.
     const { data: profile } = await supabase
       .from('profiles')
       .select('institution_id, is_super_admin, role')
@@ -35,21 +43,18 @@ export async function GET(request: NextRequest) {
 
     const isSuperAdmin = profile?.is_super_admin === true || profile?.role === 'super_admin';
 
-    // Check custom role permissions for non-super-admins
-    let hasAccess = isSuperAdmin;
-    if (!hasAccess) {
-      const { data: userRolesData } = await supabase
+    if (!isSuperAdmin && profile?.institution_id !== institutionId) {
+      // Allow if user has any role with institution_scope='all'.
+      const { data: scopedRoles } = await supabase
         .from('user_roles')
-        .select('role_id, custom_roles!inner(role_key, permissions, institution_scope)')
+        .select('custom_roles!inner(institution_scope)')
         .eq('user_id', user.id);
-
-      hasAccess = (userRolesData || []).some(
-        (ur: any) => ur.custom_roles?.permissions?.['admission.counselors.performance.view'] === true
+      const hasGlobalScope = (scopedRoles || []).some(
+        (ur: any) => ur.custom_roles?.institution_scope === 'all'
       );
-    }
-
-    if (!hasAccess && profile?.institution_id !== institutionId) {
-      return NextResponse.json({ error: 'Access denied' }, { status: 403 });
+      if (!hasGlobalScope) {
+        return NextResponse.json({ error: 'Access denied' }, { status: 403 });
+      }
     }
 
     // If counselor_id provided, return timeline for that counselor
@@ -89,4 +94,4 @@ export async function GET(request: NextRequest) {
       { status: 500 }
     );
   }
-}
+}, { allowApiKey: false, requirePermission: 'admission.counselors.performance.view' });

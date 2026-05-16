@@ -9,6 +9,12 @@ import type {
 
 export class HostelAttendanceService {
   // ── List attendance with filters ──────────────────────────────────
+  // History page passes (block_id?, date?, date_from?, date_to?, learner_id?).
+  // The relation columns (`learner`, `block`) are joined here so the history
+  // table can render a friendly Learner + Block label without a second query
+  // per row — service was previously raw-only which left the page rendering
+  // `record.block ?? '-'` against `block_id` (a UUID) and a missing learner
+  // name entirely. Joining via the existing FK constraints is cheap.
   static async getAttendance(
     institutionId: string | undefined,
     filters?: AttendanceFilters,
@@ -17,14 +23,33 @@ export class HostelAttendanceService {
   ) {
     try {
       const supabase = createClientSupabaseClient();
+      const extended = filters as
+        | (AttendanceFilters & { learner_id?: string; date_from?: string; date_to?: string })
+        | undefined;
       let query = supabase
         .from('hostel_attendance')
-        .select('*', { count: 'exact' });
+        .select(
+          '*, learner:profiles!hostel_attendance_learner_id_fkey(id, full_name, email), block:hostel_blocks!block_id(id, name, code)',
+          { count: 'exact' }
+        );
 
       if (institutionId) query = query.eq('institution_id', institutionId);
       if (filters?.block_id) query = query.eq('block_id', filters.block_id);
       if (filters?.date) query = query.eq('date', filters.date);
       if (filters?.status) query = query.eq('evening_status', filters.status);
+      // Optional learner narrowing — used by deep-links from the residents
+      // detail drawer (`/campus-living/attendance/history?learner=<id>`).
+      if (extended?.learner_id) {
+        query = query.eq('learner_id', extended.learner_id);
+      }
+      // Optional date-range narrowing — used by the history page's From/To
+      // pickers. Existing `date` (exact-match) still wins when supplied.
+      if (!filters?.date && extended?.date_from) {
+        query = query.gte('date', extended.date_from);
+      }
+      if (!filters?.date && extended?.date_to) {
+        query = query.lte('date', extended.date_to);
+      }
 
       const from = (page - 1) * pageSize;
       query = query.order('date', { ascending: false }).range(from, from + pageSize - 1);

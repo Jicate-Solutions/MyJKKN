@@ -6,6 +6,7 @@ import { NextResponse , connection } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import type { CookieOptions } from '@supabase/ssr';
+import { getStaffScope } from '@/lib/services/staff/staff-scope';
 
 // Create admin client for database operations (bypasses RLS)
 const supabaseAdmin = createClient(
@@ -83,10 +84,21 @@ export async function PATCH(
     const isSuperAdmin =
       userProfile.is_super_admin || userProfile.role === 'super_admin';
 
-    // Get the staff record to verify ownership for faculty users
+    // Resolve staff module scope (defence-in-depth alongside the RLS
+    // policies on public.staff from Batch A).
+    const scope = isSuperAdmin
+      ? ('all_institutions' as const)
+      : await getStaffScope(supabase, session.user.id);
+
+    if (scope === 'none') {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+
+    // Get the target staff record (need profile_id + institution_id to
+    // enforce scope ownership rules).
     const { data: staffRecord, error: staffFetchError } = await supabaseAdmin
       .from('staff')
-      .select('id, institution_email')
+      .select('id, profile_id, institution_id, institution_email')
       .eq('id', id)
       .single();
 
@@ -94,6 +106,14 @@ export async function PATCH(
       return NextResponse.json(
         { error: 'Staff record not found' },
         { status: 404 }
+      );
+    }
+
+    // own_records: target row must belong to this user (profile_id link).
+    if (scope === 'own_records' && staffRecord.profile_id !== session.user.id) {
+      return NextResponse.json(
+        { error: 'Forbidden', code: 'STAFF_OWN_RECORD_VIOLATION' },
+        { status: 403 }
       );
     }
 
@@ -139,9 +159,10 @@ export async function PATCH(
       .select(
         `
         *,
-        category:employment_categories(id, category_name),
+        category:employment_categories(id, category_name, is_teaching, shows_extended_profile),
         institution:institutions(id, name, counselling_code),
-        department:departments(id, department_name)
+        department:departments(id, department_name),
+        role:custom_roles!role_key(id, role_key, role_name, description, is_system_role)
       `
       )
       .single();

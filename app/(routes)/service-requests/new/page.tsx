@@ -118,7 +118,11 @@ export default function NewServiceRequestPage() {
         </BreadcrumbList>
       </Breadcrumb>
 
-      <div className="space-y-6 mt-4">
+      {/* Mobile bottom-nav (z-[80]) + AttentionBar (z-[75]) both fix to the
+          bottom on <lg screens and would otherwise occlude the Next / Submit
+          button. pb-28 = 112px clearance; lg:pb-6 resets at the breakpoint
+          where both bars are hidden. */}
+      <div className="space-y-6 mt-4 pb-28 lg:pb-6">
         <div>
           <h1 className="text-2xl font-bold">New Service Request</h1>
           <p className="text-muted-foreground">

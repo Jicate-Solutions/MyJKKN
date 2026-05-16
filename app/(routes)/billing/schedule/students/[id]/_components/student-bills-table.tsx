@@ -58,6 +58,8 @@ import {
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu';
 import { usePermissions } from '@/hooks/use-permissions';
+import { toast } from 'react-hot-toast';
+import { StudentBillService } from '@/lib/services/billing/schedule/student-bill-service';
 import type { StudentBill } from '@/types/billing-schedule';
 import { Card } from '@/components/ui/card';
 
@@ -185,11 +187,19 @@ export function StudentBillsTable({
   const handleDeleteBill = async (billId: string) => {
     try {
       setDeletingBillId(billId);
-      // TODO: Implement delete bill functionality
-      console.log('Deleting bill:', billId);
+      // Was previously a TODO stub that only console.log'd the id and called
+      // onRefresh, which made the UI behave as if the delete succeeded while
+      // leaving the row in the database. Now actually issues the delete.
+      // FK cascades (billing_receipt_items, billing_discounts,
+      // payment_transaction_items) clean up child rows automatically.
+      await StudentBillService.deleteStudentBill(billId);
+      toast.success('Bill deleted');
       onRefresh();
     } catch (error) {
       console.error('Error deleting bill:', error);
+      toast.error(
+        error instanceof Error ? error.message : 'Failed to delete bill'
+      );
     } finally {
       setDeletingBillId(null);
     }
@@ -359,7 +369,7 @@ export function StudentBillsTable({
                       {bill.bill_description}
                     </h3>
                     <p className='text-xs text-muted-foreground mt-1'>
-                      {bill.item_category?.item_category_name}
+                      {bill.item_category?.category_name}
                     </p>
                   </div>
                 </div>
@@ -460,8 +470,7 @@ export function StudentBillsTable({
                 <div>
                   <p className='text-xs text-muted-foreground'>Category</p>
                   <p className='text-xs text-gray-600 dark:text-gray-400 mt-1 truncate'>
-                    {bill.item_category?.parent_category?.parent_category_name}{' '}
-                    → {bill.item_category?.sub_category?.sub_category_name}
+                    {bill.item_category?.category_name || '—'}
                   </p>
                 </div>
               </div>
@@ -551,15 +560,13 @@ export function StudentBillsTable({
                 <TableCell className='max-w-xs'>
                   <div className='space-y-1'>
                     <div className='text-sm font-medium text-gray-900 dark:text-gray-100'>
-                      {bill.item_category?.item_category_name}
+                      {bill.item_category?.category_name}
                     </div>
-                    <div className='text-xs text-muted-foreground truncate'>
-                      {
-                        bill.item_category?.parent_category
-                          ?.parent_category_name
-                      }{' '}
-                      → {bill.item_category?.sub_category?.sub_category_name}
-                    </div>
+                    {bill.item_category?.frequency && (
+                      <div className='text-xs text-muted-foreground capitalize'>
+                        {bill.item_category.frequency}
+                      </div>
+                    )}
                   </div>
                 </TableCell>
                 <TableCell>

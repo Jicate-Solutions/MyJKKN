@@ -26,6 +26,7 @@ import {
   resolveStaffFiltersForUser
 } from '@/lib/utils/staff-search';
 import { RESERVED_STAFF_ROLE_KEYS } from '@/types/staff';
+import { generateSyntheticEmail } from './synthetic-email';
 
 interface CreateStaffDto {
   first_name: string;
@@ -34,7 +35,9 @@ interface CreateStaffDto {
   date_of_birth: string;
   marital_status: 'single' | 'married' | 'divorced' | 'widow';
   blood_group?: string;
-  email: string;
+  // Optional for view-only staff (login_enabled=false). Service generates a
+  // deterministic synthetic email at @nolog.jkkn.local when blank.
+  email?: string;
   phone: string;
   staff_id?: string;
   profile_picture?: string;
@@ -44,13 +47,17 @@ interface CreateStaffDto {
   pincode?: string;
   date_of_joining: string;
   designation: string;
-  institution_email: string;
+  // Optional for view-only staff (same generation rule as email).
+  institution_email?: string;
   category_id: string;
   institution_id: string;
   // Nullable: teaching staff require it, non-teaching must leave null
   department_id?: string | null;
   role_key: string;
   is_active: boolean;
+  // Default true. Set false to mark this staff as "view-only" — they cannot
+  // log in and their linked profile is deactivated by the DB trigger.
+  login_enabled?: boolean;
 }
 
 interface UpdateStaffDto extends Partial<CreateStaffDto> {
@@ -82,6 +89,32 @@ export class StaffService {
           `Role "${data.role_key}" cannot be assigned via staff onboarding`
         );
       }
+
+      // View-only / labour staff: generate deterministic synthetic emails when
+      // login_enabled=false and emails are blank. Synthetic domain is
+      // @nolog.jkkn.local so Google OAuth (restricted to @jkkn.ac.in) cannot
+      // match — and the DB trigger flips the linked profile to is_active=false.
+      // Added: 2026-05-15. Spec: 2026-05-15-staff-bulk-upload-labour-employees-design.md
+      const loginEnabled = data.login_enabled !== false; // default true
+      if (!loginEnabled) {
+        if (!data.email || data.email.trim() === '') {
+          data.email = generateSyntheticEmail('personal', data.staff_id, data.phone);
+        }
+        if (!data.institution_email || data.institution_email.trim() === '') {
+          data.institution_email = generateSyntheticEmail('institution', data.staff_id, data.phone);
+        }
+      } else {
+        // Login staff still require both emails (existing behaviour). The caller
+        // (form / bulk-upload) is responsible for validating they're non-empty.
+        if (!data.email) {
+          throw new Error('Email is required for login-enabled staff');
+        }
+        if (!data.institution_email) {
+          throw new Error('Institution email is required for login-enabled staff');
+        }
+      }
+      // Persist the flag through to the DB (default true if undefined).
+      data.login_enabled = loginEnabled;
 
       // Normalize empty optional unique fields to null so Postgres UNIQUE
       // doesn't treat '' as a colliding value across rows.
@@ -221,16 +254,25 @@ export class StaffService {
       }
 
       // Profile auto-creation is handled by the database trigger (sync_staff_to_profiles)
-      // The trigger creates/updates a profile when staff with institution_email is created
+      // The trigger creates/updates a profile when staff with institution_email is created.
+      // For view-only staff (login_enabled=false) the trigger flips the profile to
+      // is_active=false and is_login_disabled=true (added 2026-05-15).
+      const isViewOnly = (staff as any)?.login_enabled === false;
       if (staff?.institution_email) {
         console.log(
-          `✓ Staff created successfully. Profile will be auto-created by database trigger for ${staff.institution_email}`
+          `✓ Staff created successfully. Profile auto-created by trigger for ${staff.institution_email}${
+            isViewOnly ? ' (view-only — deactivated)' : ''
+          }`
         );
 
         if (!suppressToast) {
-          toast.success(
-            `Staff created successfully! User can now login with Google using ${staff.institution_email}`
-          );
+          if (isViewOnly) {
+            toast.success(`View-only staff added — no login created`);
+          } else {
+            toast.success(
+              `Staff created successfully! User can now login with Google using ${staff.institution_email}`
+            );
+          }
         }
       } else {
         console.log(
@@ -1051,7 +1093,40 @@ export class StaffService {
     filters: StaffDashboardFilters,
     supabase: ReturnType<typeof createClientSupabaseClient>
   ): Promise<StaffOverviewStats> {
-    let query = (supabase as any).from('staff').select('*');
+    // Tightened from select('*') to an explicit column list so the dashboard
+    // does NOT pull the 13 new JSONB array columns (badges, qualifications,
+    // specialisations, experience_entries, research_focus_areas, publications,
+    // funded_projects, certifications, awards, memberships, phd_scholars_list,
+    // faqs, achievements) or the markdown text fields (qualification_summary,
+    // professional_summary, mentoring_description) added in the staff-extended-
+    // faculty-fields work. The columns enumerated below are the union of every
+    // property accessed downstream in this function:
+    //   - is_active                                            (active/inactive count)
+    //   - date_of_joining                                      (newHires + averageTenure)
+    //   - institution_email                                    (staffWithProfiles)
+    //   - requiredFields:  first_name, last_name, email, phone,
+    //                      designation, date_of_birth, date_of_joining
+    //   - optionalFields:  staff_id, profile_picture, address, state,
+    //                      district, pincode, institution_email
+    let query = (supabase as any).from('staff').select(
+      [
+        'is_active',
+        'date_of_joining',
+        'first_name',
+        'last_name',
+        'email',
+        'phone',
+        'designation',
+        'date_of_birth',
+        'staff_id',
+        'profile_picture',
+        'address',
+        'state',
+        'district',
+        'pincode',
+        'institution_email'
+      ].join(', ')
+    );
 
     // Apply filters
     if (filters.institutionId) {

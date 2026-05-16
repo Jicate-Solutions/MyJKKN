@@ -22,11 +22,18 @@ export function useAddBosMember() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (data: CreateBosMemberDto) => BosMemberService.addMember(data),
-    onSuccess: (newMember) => {
+    onSuccess: (newMember, variables) => {
+      const compositionId = newMember.composition_id ?? variables.composition_id;
+      // Write the new member into the cache immediately so the list re-renders
+      // without waiting for the background GET to complete.
+      queryClient.setQueryData<BosMember[]>(
+        bosMemberKeys.byComposition(compositionId),
+        (old = []) => [...old, newMember],
+      );
+      // Invalidate so the list is eventually reconciled with the server.
       queryClient.invalidateQueries({
-        queryKey: bosMemberKeys.byComposition(newMember.composition_id),
+        queryKey: bosMemberKeys.byComposition(compositionId),
       });
-      // Also invalidate composition detail so member_count refreshes
       queryClient.invalidateQueries({ queryKey: ['bos-compositions', 'detail'] });
     },
   });
@@ -50,7 +57,13 @@ export function useRemoveBosMember() {
   return useMutation({
     mutationFn: ({ id, compositionId }: { id: string; compositionId: string }) =>
       BosMemberService.removeMember(id).then(() => ({ compositionId })),
-    onSuccess: ({ compositionId }) => {
+    onSuccess: ({ compositionId }, variables) => {
+      // Immediately remove the member from cache so the list re-renders without
+      // waiting for the background GET to complete.
+      queryClient.setQueryData<BosMember[]>(
+        bosMemberKeys.byComposition(compositionId),
+        (old = []) => old.filter((m) => m.id !== variables.id),
+      );
       queryClient.invalidateQueries({
         queryKey: bosMemberKeys.byComposition(compositionId),
       });

@@ -22,7 +22,6 @@ import type {
   UpdateServiceRequestDto,
   ProcessApprovalDto,
   ServiceRequestAnalytics,
-  ServiceRequestApproval,
 } from '@/types/service-request';
 
 // =====================================================
@@ -123,10 +122,16 @@ export function useServiceRequest(id: string) {
 }
 
 /**
- * Fetch pending approvals for the current user
+ * Fetch pending approvals for the current user.
+ *
+ * The API returns rows from service_requests (with embedded service_type,
+ * requester, institution), not wrapped ServiceRequestApproval records.
+ * Don't restore the ServiceRequestApproval[] type here — the previous
+ * mistyping caused the inbox page to reshape rows through `a.service_request`
+ * and silently drop everything.
  */
 export function usePendingApprovals(filters?: { service_type_id?: string; page?: number; limit?: number }) {
-  return useQuery<{ data: ServiceRequestApproval[]; metadata: { total: number } }>({
+  return useQuery<ServiceRequestListResponse>({
     queryKey: serviceRequestKeys.pendingApprovals(filters),
     queryFn: async () => {
       const params = new URLSearchParams();

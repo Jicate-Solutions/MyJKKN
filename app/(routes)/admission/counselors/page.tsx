@@ -1,8 +1,6 @@
 'use client';
 
 import { useState, useMemo, Suspense } from 'react';
-import { AddCounselorDialog } from './_components/add-counselor-dialog';
-import { CounselorList } from './_components/counselor-list';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
   Breadcrumb,
@@ -22,6 +20,8 @@ import {
   SelectTrigger,
   SelectValue
 } from '@/components/ui/select';
+import { DataAlertBanner } from '@/components/shared/data-alert-banner/data-alert-banner';
+import { useUnassignedLeadsCount } from '@/hooks/admission/use-unassigned-leads-count';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import { useAuth } from '@/hooks/use-auth';
 import { usePermissions } from '@/hooks/use-permissions';
@@ -37,13 +37,11 @@ import {
   Star,
   RefreshCw,
   Download,
-  UserPlus,
-  User,
   MessageSquare,
   Clock,
   Target,
   Award,
-  Loader2
+  Loader2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { AdmissionErrorBoundary } from '@/components/admission';
@@ -58,6 +56,8 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+
+// ---------------------------------------------------------------------------
 
 const DATE_RANGES = [
   { value: '7', label: 'Last 7 days' },
@@ -495,20 +495,19 @@ function CounselorLeaderboard({
 
 function CounselorPerformancePageContent() {
   const { profile } = useAuth();
-  const { isSuperAdmin, isAdmissionGlobalUser, canAccess } = usePermissions();
+  const { isSuperAdmin, isAdmissionGlobalUser } = usePermissions();
   const isGlobalUser = isSuperAdmin || isAdmissionGlobalUser;
   const { institutions } = useInstitutionsWithAccess();
   const [chosenInstitutionId, setChosenInstitutionId] = useState<string>('');
   // Global users (super admins + admission role) see all institutions by default; can optionally filter.
   // Single-institution users auto-resolve to their own institution.
   const defaultInstitutionId = isGlobalUser ? undefined : profile?.institution_id;
+  const { counts: unassignedCounts, loading: unassignedLoading } = useUnassignedLeadsCount();
   // For global users: no selection or "__all" → undefined (all institutions)
   const resolvedChoice = chosenInstitutionId === '__all' ? undefined : chosenInstitutionId;
   const institutionId = resolvedChoice || (institutions.length === 1 ? institutions[0]?.id : defaultInstitutionId) || undefined;
   const [dateRange, setDateRange] = useState('30');
   const [isRefetching, setIsRefetching] = useState(false);
-  const [showAddDialog, setShowAddDialog] = useState(false);
-  const [view, setView] = useState<'performance' | 'manage'>('performance');
 
   // Calculate date range for query — memoized so the object reference is stable
   // and the React Query key doesn't change on every render (which would cause infinite refetches)
@@ -545,7 +544,7 @@ function CounselorPerformancePageContent() {
   const goldCount = counselors.filter(c => c.conversionRate >= 30).length;
 
   return (
-    <PermissionGuard module="admission" action="view">
+    <PermissionGuard module="admission" action="counselors.view">
       <ContentLayout title="Counselor Performance">
         <div className="space-y-6">
           {/* Header */}
@@ -606,43 +605,23 @@ function CounselorPerformancePageContent() {
                     <RefreshCw className="h-4 w-4" />
                   )}
                 </Button>
-                {canAccess('admission', 'counselors.create') && (
-                  <Button size="sm" onClick={() => setShowAddDialog(true)}>
-                    <UserPlus className="h-4 w-4 mr-2" />
-                    <span className="hidden sm:inline">Add Counselor</span>
-                    <span className="sm:hidden">Add</span>
-                  </Button>
-                )}
               </div>
             </div>
           </div>
 
-          {/* View Toggle */}
-          <div className="flex gap-1 bg-muted p-1 rounded-lg w-fit">
-            <Button
-              variant={view === 'performance' ? 'default' : 'ghost'}
-              size="sm"
-              onClick={() => setView('performance')}
-            >
-              Performance
-            </Button>
-            <Button
-              variant={view === 'manage' ? 'default' : 'ghost'}
-              size="sm"
-              onClick={() => setView('manage')}
-            >
-              Manage
-            </Button>
-          </div>
+          {/* Unassigned-leads alert banner — live count, always shown above leaderboard */}
+          <DataAlertBanner
+            count={unassignedCounts?.unassigned ?? 0}
+            total={unassignedCounts?.total}
+            loading={unassignedLoading}
+            severity="warning"
+            title="{count} leads unassigned ({pct}%)"
+            description="{count} of {total} total leads have no counselor assigned. Assign them now so no enquiry goes unattended."
+            cta={{ href: '/admission/leads?filter=unassigned', label: 'Bulk-assign →' }}
+          />
 
-          {view === 'manage' ? (
-            <CounselorList
-              onRefresh={() => refetch()}
-              institutionId={institutionId}
-              isGlobalUser={isGlobalUser}
-            />
-          ) : (
-            <>
+          {/* TODO(@quickwin-d): briefing-status panel mounts here in follow-up PR */}
+
           {error && (
             <Card className="border-red-200 bg-red-50">
               <CardContent className="pt-4">
@@ -724,18 +703,7 @@ function CounselorPerformancePageContent() {
               <CounselorLeaderboard counselors={counselors} dateRange={dateRange} />
             </>
           )}
-            </>
-          )}
         </div>
-
-        <AddCounselorDialog
-          open={showAddDialog}
-          onOpenChange={setShowAddDialog}
-          institutionId={institutionId}
-          onSuccess={() => {
-            refetch();
-          }}
-        />
       </ContentLayout>
     </PermissionGuard>
   );

@@ -467,8 +467,15 @@ END;
 $$;
 
 -- Consultant: update lead stats
+-- SECURITY DEFINER required: inner SELECT COUNT(*) over consultant_lead_attributions
+-- would otherwise run under the inserting user's RLS scope and overwrite the
+-- stored counter with a partial (often zero) count. See
+-- 20260506_fix_consultant_stats_security_definer.sql.
 CREATE OR REPLACE FUNCTION update_consultant_stats()
-RETURNS TRIGGER LANGUAGE plpgsql AS $$
+RETURNS TRIGGER LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
 BEGIN
   UPDATE education_consultants SET
     total_leads_referred = COALESCE((
@@ -476,6 +483,31 @@ BEGIN
       WHERE consultant_id = COALESCE(NEW.consultant_id, OLD.consultant_id)
     ), 0)
   WHERE id = COALESCE(NEW.consultant_id, OLD.consultant_id);
+  RETURN COALESCE(NEW, OLD);
+END;
+$$;
+
+-- Consultant: update lead stats on UPDATE (re-attribution between consultants)
+CREATE OR REPLACE FUNCTION update_consultant_stats_on_update()
+RETURNS TRIGGER LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  IF NEW.consultant_id IS DISTINCT FROM OLD.consultant_id THEN
+    UPDATE education_consultants SET
+      total_leads_referred = COALESCE((
+        SELECT COUNT(*) FROM consultant_lead_attributions
+        WHERE consultant_id = OLD.consultant_id
+      ), 0)
+    WHERE id = OLD.consultant_id;
+  END IF;
+  UPDATE education_consultants SET
+    total_leads_referred = COALESCE((
+      SELECT COUNT(*) FROM consultant_lead_attributions
+      WHERE consultant_id = NEW.consultant_id
+    ), 0)
+  WHERE id = NEW.consultant_id;
   RETURN NEW;
 END;
 $$;

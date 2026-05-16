@@ -1,6 +1,9 @@
 import * as React from "react"
 
-const MOBILE_BREAKPOINT = 768
+// Aligned with bottom-navbar.tsx `lg:hidden` (≥1024px hides the strip).
+// The previous 768 left the 768-1023px range with BOTH bottom-strip AND
+// no sidebar; 1024 collapses that ghost zone — tablets get desktop sidebar.
+const MOBILE_BREAKPOINT = 1024
 
 export function useIsMobile() {
   // Initialize with a check for SSR - default to false on server

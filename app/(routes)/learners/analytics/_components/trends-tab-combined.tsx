@@ -117,7 +117,6 @@ export function TrendsTabCombined({ basicData, advancedData, filters }: TrendsTa
     });
   }
 
-  const sortedCategories = advancedData ? [...advancedData.categoryMix].sort((a, b) => b.count - a.count) : [];
   const sortedCommunities = advancedData ? [...advancedData.communityMix].sort((a, b) => b.count - a.count) : [];
   const sortedIncome = advancedData ? [...advancedData.incomeDistribution].sort((a, b) => b.count - a.count) : [];
 
@@ -388,31 +387,6 @@ export function TrendsTabCombined({ basicData, advancedData, filters }: TrendsTa
                         <Tooltip />
                         <Legend />
                       </PieChart>
-                    </ResponsiveContainer>
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* Category Mix */}
-              <Card>
-                <CardHeader>
-                  <CardTitle>Category Distribution</CardTitle>
-                  <CardDescription>SC/ST/OBC/General breakdown</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="h-[400px]">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={sortedCategories}>
-                        <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
-                        <XAxis dataKey="category" tick={{ fontSize: 12 }} />
-                        <YAxis tick={{ fontSize: 12 }} />
-                        <Tooltip />
-                        <Bar dataKey="count" fill="#3B82F6" radius={[8, 8, 0, 0]}>
-                          {sortedCategories.map((_, index) => (
-                            <Cell key={`cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
-                          ))}
-                        </Bar>
-                      </BarChart>
                     </ResponsiveContainer>
                   </div>
                 </CardContent>

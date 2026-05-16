@@ -12,6 +12,11 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse, connection } from 'next/server';
 import { createServiceRoleClient, getAuthUser } from '@/lib/supabase/server';
 import { sanitizeSearch } from '@/lib/config/pagination';
+import {
+  getCounselorScope,
+  buildLeadVisibilityOr,
+  isUserInLeadViewAllowlist,
+} from '@/lib/api-helpers/admission-counselor-scope';
 
 // Retry only on undici / Node fetch transient failures (cold-start flakes on
 // Windows + Turbopack). Postgres errors should surface immediately without retry.
@@ -97,6 +102,25 @@ export async function GET(request: NextRequest) {
     );
   }
 
+  // Defense-in-depth role allowlist (2026-05-11). The permission gate above
+  // only checks admission.leads.view, which is grantable via Role Management
+  // UI to ANY role. faculty/hod/principal/student all held it in production
+  // and were seeing the full leads list. This check mirrors the SQL helper
+  // _user_in_admission_lead_allowlist(uuid) used by adm_leads_select RLS, so
+  // the API (service-role) and RLS (authenticated) enforce the same gate.
+  // super_admin bypasses via isSuperAdmin already.
+  if (!isSuperAdmin) {
+    const inAllowlist = await retryOnFetchFailure(() =>
+      isUserInLeadViewAllowlist(supabase, user.id)
+    );
+    if (!inAllowlist) {
+      return NextResponse.json(
+        { error: 'Forbidden: role is not permitted to view admission leads' },
+        { status: 403 }
+      );
+    }
+  }
+
   // Cross-institution access flag drives the "show all institutions vs scope
   // to own" branch below. True when super_admin OR any of the user's roles is
   // institution_scope='all' OR the user's effective admission module scope is
@@ -123,7 +147,12 @@ export async function GET(request: NextRequest) {
   const page = parseInt(searchParams.get('page') || '1', 10);
   const limit = Math.min(parseInt(searchParams.get('limit') || '50', 10), 200);
   const search = searchParams.get('search') || undefined;
-  const sortBy = searchParams.get('sort_by') || 'created_at';
+  // Default sort = last_activity_at DESC so dedup'd leads (e.g. an
+  // existing lead re-captured by a new campaign submission) bubble to
+  // the top instead of staying buried at their original created_at.
+  // Set via migration K; bumped on every admission_lead_source_captures
+  // insert. Callers can still override with ?sort_by=created_at.
+  const sortBy = searchParams.get('sort_by') || 'last_activity_at';
   const sortOrder = searchParams.get('sort_order') || 'desc';
   const funnelStage = searchParams.get('funnel_stage') || undefined;
   const priority = searchParams.get('priority') || undefined;
@@ -168,6 +197,8 @@ export async function GET(request: NextRequest) {
         state,
         parent_name,
         parent_phone,
+        program_id,
+        alternative_programs,
         interested_programs,
         preferred_channel,
         counselor_id,
@@ -178,12 +209,33 @@ export async function GET(request: NextRequest) {
         institution:institutions(id, name)
       `, { count: 'exact' });
 
-    // 5. Apply institution scoping (manual RLS replacement)
-    // Super admins and admission global users can see all institutions.
-    // Counselors and other users are scoped to their own institution.
+    // 5. Compute counselor scope FIRST so its strict-counselor decision
+    //    can override the role-level institution_scope='all' flag.
+    //    The role-level "all institutions" was originally for admission
+    //    OFFICE staff. Strict counselors (counselor role with no
+    //    admin/admission override) must NEVER inherit cross-institution
+    //    visibility — they must see only their directly-assigned leads.
+    const scope = await getCounselorScope(supabase, user.id);
+
+    // 5a. Institution scoping.
+    //
+    // Two flavours:
+    //   - EXPLICIT (user picked an institution from the College dropdown):
+    //     always honored, regardless of strict-counselor status. The user
+    //     wants to narrow further to that one institution.
+    //   - IMPLICIT (no UI selection): only applied for non-strict-counselor
+    //     non-global users — clamps them to their own profile.institution_id.
+    //     Strict counselors' visibility is governed entirely by the OR clause
+    //     in 5b (counselor_id / assigned_counselor_id), since they may
+    //     legitimately own leads across institutions if assigned that way.
+    //
+    // 2026-05-11: previously the EXPLICIT branch was nested inside
+    // `if (!scope.isStrictCounselor)`, so a counselor's College dropdown
+    // selection was silently dropped — they saw their full cross-institution
+    // scope despite picking one institution. Moved out so user intent wins.
     if (institutionId) {
       query = query.eq('institution_id', institutionId);
-    } else if (!isAdmissionGlobalUser) {
+    } else if (!scope.isStrictCounselor && !isAdmissionGlobalUser) {
       if (!profile.institution_id) {
         // User has no institution assigned — return empty result
         return NextResponse.json({
@@ -192,6 +244,36 @@ export async function GET(request: NextRequest) {
         });
       }
       query = query.eq('institution_id', profile.institution_id);
+    }
+
+    // 5b. Counselor visibility — mirrors the RLS in
+    // supabase/migrations/20260510210000_admission_leads_strict_counselor_visibility.sql
+    // and 20260510220000_admission_leads_exclude_referral_for_counselors.sql.
+    // For users who hold one of the 4 counselor role_keys without a broader
+    // admission/admin role, restrict visibility to:
+    //   - leads where counselor_id = user's admission_counselors.id, OR
+    //   - leads where assigned_counselor_id = user.id
+    // AND
+    //   - source <> 'referral' (referrals belong to consultants, not counselors)
+    //
+    // CRITICAL: this branch is taken regardless of isAdmissionGlobalUser
+    // because admission_counselor role is configured institution_scope='all'
+    // in custom_roles — that flag is for admission OFFICE staff to see all
+    // institutions, NOT for counselors to bypass strict-visibility.
+    if (scope.isStrictCounselor) {
+      const orClause = buildLeadVisibilityOr(scope, user.id);
+      if (!orClause) {
+        // Counselor has no admission_counselors row.
+        // Strict-mode: nothing visible.
+        return NextResponse.json({
+          data: [],
+          metadata: { total: 0, page, limit, totalPages: 0 },
+        });
+      }
+      // Apply OR (assigned_counselor_id OR counselor_id matches) AND
+      // source <> 'referral'. PostgREST's chained .or().neq() builds
+      // exactly that conjunction.
+      query = query.or(orClause).neq('source', 'referral');
     }
 
     // 6. Apply filters
@@ -232,11 +314,23 @@ export async function GET(request: NextRequest) {
       query = query.eq('wa_opt_in', true);
     }
 
-    // Filter by program — `interested_programs` is a uuid[] column.
-    // `.contains()` translates to the PostgreSQL `@>` array-contains operator,
-    // so this returns rows whose interested_programs array includes programId.
+    // Filter by program — match against ALL three program-id storage columns
+    // since the 2026-04-21 split:
+    //   - program_id (single uuid, primary)            → `eq`
+    //   - alternative_programs (uuid[], multi-select) → `cs` (array contains)
+    //   - interested_programs (legacy uuid[])         → `cs` (pre-split rows)
+    // The `.or(...)` chain emits one PostgREST `or=(...)` clause so the user
+    // sees every lead that lists this program in any of the three columns.
+    // UUIDs are safe to interpolate (alphanumeric + dashes only — no escape
+    // hazards in the PostgREST OR syntax).
     if (programId) {
-      query = query.contains('interested_programs', [programId]);
+      query = query.or(
+        [
+          `program_id.eq.${programId}`,
+          `alternative_programs.cs.{${programId}}`,
+          `interested_programs.cs.{${programId}}`,
+        ].join(','),
+      );
     }
 
     if (search) {
@@ -278,18 +372,32 @@ export async function GET(request: NextRequest) {
 
     if (error) throw error;
 
-    // 8. Resolve program IDs on `interested_programs` to names server-side so
-    //    the client never renders raw UUIDs while a client-side map loads.
-    //    `interested_programs` is a uuid[] / text[] column — Supabase can't
-    //    auto-join it, so we batch-fetch the names here and inject them.
+    // 8. Resolve program IDs to names server-side so the client never renders
+    //    raw UUIDs while a client-side map loads.
+    //
+    //    Three columns can hold program IDs since the 2026-04-21 split:
+    //      - program_id (uuid)            : the primary "Interested Program"
+    //      - alternative_programs (uuid[]): backup picks (multi-select)
+    //      - interested_programs (uuid[]) : LEGACY column, kept for ~350 pre-
+    //                                       split rows; no new writes go here
+    //
+    //    Earlier this endpoint only read `interested_programs`, so every lead
+    //    created since the split (including all gate-entry captures) had an
+    //    empty Interested Courses cell. Now we union all three sources, dedupe
+    //    via Set, batch-resolve the names, and emit them in primary-then-alts
+    //    order so the table's "show first 2 + N more" UI puts the primary first.
     const rows = data || [];
-    const programIds = Array.from(
-      new Set(
-        rows.flatMap((r: any) =>
-          Array.isArray(r.interested_programs) ? r.interested_programs : []
-        )
-      )
-    ) as string[];
+    const programIdSet = new Set<string>();
+    for (const r of rows as any[]) {
+      if (typeof r.program_id === 'string' && r.program_id) programIdSet.add(r.program_id);
+      if (Array.isArray(r.alternative_programs)) {
+        r.alternative_programs.forEach((id: string) => id && programIdSet.add(id));
+      }
+      if (Array.isArray(r.interested_programs)) {
+        r.interested_programs.forEach((id: string) => id && programIdSet.add(id));
+      }
+    }
+    const programIds = [...programIdSet];
 
     let programNameMap = new Map<string, string>();
     if (programIds.length) {
@@ -304,14 +412,30 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    const enriched = rows.map((r: any) => ({
-      ...r,
-      interested_program_names: Array.isArray(r.interested_programs)
-        ? r.interested_programs
-            .map((id: string) => programNameMap.get(id))
-            .filter(Boolean)
-        : [],
-    }));
+    const enriched = rows.map((r: any) => {
+      // Build the per-lead name list in display order:
+      //   primary (program_id) → alternatives (alternative_programs[])
+      //   → legacy (interested_programs[], for pre-split rows only)
+      // Dedupe within the lead so a primary that was also marked as an alt
+      // doesn't render twice.
+      const seen = new Set<string>();
+      const names: string[] = [];
+      const push = (id: string | null | undefined) => {
+        if (!id || seen.has(id)) return;
+        const name = programNameMap.get(id);
+        if (!name) return;
+        seen.add(id);
+        names.push(name);
+      };
+      push(r.program_id);
+      if (Array.isArray(r.alternative_programs)) {
+        r.alternative_programs.forEach(push);
+      }
+      if (Array.isArray(r.interested_programs)) {
+        r.interested_programs.forEach(push);
+      }
+      return { ...r, interested_program_names: names };
+    });
 
     return NextResponse.json({
       data: enriched,

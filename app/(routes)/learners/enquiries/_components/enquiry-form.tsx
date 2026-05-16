@@ -25,6 +25,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import type { LearnerProfile } from '@/types/learner-profile';
@@ -42,6 +52,20 @@ import { FinanceDetailsSection } from './form-sections/finance-details';
 import { uploadProfileImage } from './profile-image-upload';
 import { usePermissions } from '@/hooks/use-permissions';
 
+// Plan 6 / Task 5 — pre-submit confirmation dialog wiring
+import { PreSubmitConfirmationDialog } from './pre-submit-confirmation-dialog';
+import { AdmissionSettingsService } from '@/lib/services/admission/admission-settings-service';
+import { FeeResolutionService } from '@/lib/services/admission/fee-resolution-service';
+import { BillingCategoryService } from '@/lib/services/billing/categories/billing-category-service';
+import { LookupService } from '@/lib/services/admission/lookup-service';
+import { logActivityForCurrentUser } from '@/lib/utils/activity-logger-client';
+import { AdmissionFeesActivityTemplates } from '@/lib/utils/admission-fees-activity-templates';
+import type {
+  AdmissionFeeStructureWithItems,
+  FeeStructureMatrixDimensions,
+  ResolvedFeeItem,
+} from '@/types/admission';
+
 // Import location data for converting names to IDs
 import {
   indianStates,
@@ -49,6 +73,11 @@ import {
   getTaluksByDistrict
 } from '@/lib/data/locations';
 import toast from 'react-hot-toast';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
+
+// Task 15 — student-self-fill QR + per-section status chips
+import { ShowStudentQRButton } from '@/components/admission/show-student-qr-button';
+import { StudentSectionStatusChip } from './student-section-status-chip';
 
 /**
  * Complete Enquiry Form Schema
@@ -126,7 +155,6 @@ export const enquiryFormSchema = z.object({
   counseling_number: z.string().nullable().optional(),
   scholarship_type: z.string().min(1, 'Scholarship type is required'),
   quota: z.string().nullable().optional(),
-  category: z.string().nullable().optional(),
   entry_type: z.string().min(1, 'Entry type is required'),
 
   // Course Selection
@@ -407,7 +435,6 @@ const fieldToTabMap: Record<string, string> = {
   counseling_number: 'academic-information',
   scholarship_type: 'academic-information',
   quota: 'academic-information',
-  category: 'academic-information',
   entry_type: 'academic-information',
 
   // Course Selection
@@ -478,6 +505,84 @@ export function EnquiryForm({
   const [showCancelDialog, setShowCancelDialog] = useState(false);
   const [pendingImageFile, setPendingImageFile] = useState<File | null>(null);
 
+  // Task 15 — per-section student-fill status (sourced from admission_lead_activities)
+  type SectionKey = 'basic' | 'academic' | 'contact';
+  type SectionStatus = { filled: boolean; filledAt: string | null; filledBy: 'student' | 'admission_override' | null };
+  const [sectionStatus, setSectionStatus] = useState<Record<SectionKey, SectionStatus>>({
+    basic:    { filled: false, filledAt: null, filledBy: null },
+    academic: { filled: false, filledAt: null, filledBy: null },
+    contact:  { filled: false, filledAt: null, filledBy: null },
+  });
+
+  useEffect(() => {
+    const learnerProfileId = savedEnquiryId ?? learner?.id;
+    if (!learnerProfileId) return;
+    const supabase = createClientSupabaseClient();
+    (async () => {
+      // Resolve learner_profile_id → admission_leads.id
+      const { data: leadRow } = await supabase
+        .from('admission_leads')
+        .select('id')
+        .eq('learner_profile_id', learnerProfileId)
+        .maybeSingle();
+      if (!leadRow?.id) return;
+      const { data: rows } = await supabase
+        .from('admission_lead_activities')
+        .select('subject, description, created_at')
+        .eq('lead_id', leadRow.id)
+        .eq('activity_type', 'student_section_filled')
+        .order('created_at', { ascending: false });
+      if (!rows) return;
+      const next: Record<SectionKey, SectionStatus> = {
+        basic:    { filled: false, filledAt: null, filledBy: null },
+        academic: { filled: false, filledAt: null, filledBy: null },
+        contact:  { filled: false, filledAt: null, filledBy: null },
+      };
+      for (const r of rows) {
+        const desc = r.description || '';
+        const isOverride = /admission override/i.test(desc);
+        const m = desc.match(/Filled (basic|academic|contact)/i);
+        const section = m?.[1]?.toLowerCase() as SectionKey | undefined;
+        if (!section || !next[section]) continue;
+        if (next[section].filled) continue; // keep most recent (already top-sorted)
+        next[section] = {
+          filled: true,
+          filledAt: r.created_at,
+          filledBy: isOverride ? 'admission_override' : 'student',
+        };
+      }
+      setSectionStatus(next);
+    })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [savedEnquiryId, learner?.id]);
+
+  // Task 16: override flow — confirm dialog before admission edits a
+  // student-fillable section; records the override in the activity log on save.
+  // The `canOverrideStudentSection` derived boolean lives further down in the
+  // file (after the usePermissions() call at line ~597) — moving it here
+  // would create a TDZ ReferenceError because `isSuperAdminUser` etc. are
+  // not yet in scope at this depth.
+  const [overrideDialog, setOverrideDialog] = useState<'basic' | 'academic' | 'contact' | null>(null);
+  const [sectionOverrideMode, setSectionOverrideMode] = useState<{
+    basic: boolean; academic: boolean; contact: boolean;
+  }>({ basic: false, academic: false, contact: false });
+
+  // ========================================================================
+  // Plan 6 / Task 5 — Pre-submit confirmation dialog state.
+  // The flow: form submit → check institution's pre_submit_dialog_enabled →
+  // if enabled, fetch matrix preview, open dialog, wait for user → confirm
+  // calls commitSubmit which runs the existing save path + post-save fee
+  // resolution + activity log. If disabled, save proceeds inline.
+  // The dialog is bypassed entirely when:
+  //   - onSubmitProp is set (custom flows like change-request approval)
+  //   - the lead is in legacy_fee_mode (no matrix to preview)
+  //   - institution_id is missing (can't look up the setting)
+  // ========================================================================
+  const [preSubmitOpen, setPreSubmitOpen] = useState(false);
+  const [pendingFormValues, setPendingFormValues] = useState<EnquiryFormValues | null>(null);
+  const [previewMatch, setPreviewMatch] = useState<AdmissionFeeStructureWithItems | null>(null);
+  const [previewItems, setPreviewItems] = useState<ResolvedFeeItem[]>([]);
+
   const formTabs = visibleTabs
     ? ALL_TABS.filter(tab => visibleTabs.includes(tab.id))
     : ALL_TABS;
@@ -497,6 +602,13 @@ export function EnquiryForm({
     isSuperAdminUser || isAdmissionGlobalUser
     || canAccess('learners', 'finance.edit')
     || canAccess('learners', 'admissions.edit');
+  // Task 16 — derive AFTER usePermissions() is called above, otherwise
+  // the references hit a temporal dead zone (the override-state useState
+  // calls live earlier in the function body).
+  const canOverrideStudentSection =
+    isSuperAdminUser
+    || isAdmissionGlobalUser
+    || canAccess('learners', 'profile.student_section.override') === true;
 
   // Filter out finance tab if user lacks permission
   const filteredFormTabs = canViewFinance
@@ -584,7 +696,6 @@ export function EnquiryForm({
           counseling_number: learner.counseling_number || '',
           scholarship_type: learner.scholarship_type || '',
           quota: learner.quota || '',
-          category: learner.category || '',
           entry_type: learner.entry_type || '',
 
           // Course Selection
@@ -738,7 +849,6 @@ export function EnquiryForm({
           counseling_number: '',
           scholarship_type: '',
           quota: '',
-          category: '',
           entry_type: '',
 
           // Course Selection
@@ -870,13 +980,10 @@ export function EnquiryForm({
       aadhar_number: values.aadhar_number || undefined,
       blood_group: values.blood_group || undefined,
       student_photo_url: values.student_photo_url || undefined,
-      // 2026-04-23: write BOTH admission_year_id (FK source-of-truth) and
-      // admission_year (legacy integer for B2A back-compat). The integer is
-      // not derived here — caller (course-selection.tsx) syncs it via setValue
-      // when the user picks an admission_year row, so values.admission_year
-      // is already the matching program_start_year.
+      // 2026-05-02 (Phase D): integer admission_year column dropped. Only the
+      // FK is written. course-selection.tsx still keeps the integer in form
+      // state for display/validation purposes, but it never reaches the DB.
       admission_year_id: formatUUID(values.admission_year_id),
-      admission_year: values.admission_year || undefined,
       enquiry_date: values.enquiry_date || undefined,
 
       // Family Information (NOT NULL fields) - Convert to UPPERCASE
@@ -911,7 +1018,6 @@ export function EnquiryForm({
       counseling_number: values.counseling_number || undefined,
       scholarship_type: values.scholarship_type || undefined,
       quota: values.quota || undefined,
-      category: values.category || undefined,
       entry_type: values.entry_type || '',
 
       // Course Selection (UUID fields - must be undefined if empty)
@@ -1111,6 +1217,150 @@ export function EnquiryForm({
     }
   };
 
+  // ========================================================================
+  // Plan 6 / Task 5 — commitSubmit
+  // The actual save path. Used by both the inline (no-dialog) submit and the
+  // pre-submit dialog's onConfirm callback. After save it best-effort calls
+  // FeeResolutionService.resolveForLearner + logs enquiry.fee_resolved or
+  // enquiry.fee_match_failed (only when not delegated to onSubmitProp and
+  // not in legacy mode).
+  // ========================================================================
+  const commitSubmit = async (values: EnquiryFormValues) => {
+    setIsSubmitting(true);
+    try {
+      // Upload pending image file first (if exists)
+      if (pendingImageFile) {
+        console.log('[enquiry-form] Uploading pending image file...');
+        try {
+          const imageUrl = await uploadProfileImage(pendingImageFile);
+          values.student_photo_url = imageUrl; // Update form value with uploaded URL
+          console.log('[enquiry-form] Image uploaded successfully:', imageUrl);
+          toast.success('Image uploaded successfully');
+        } catch (error) {
+          console.error('[enquiry-form] Image upload failed:', error);
+          toast.error('Failed to upload image. Please try again.');
+          setIsSubmitting(false);
+          return; // Don't proceed if image upload fails
+        }
+      }
+
+      const data = formatFormDataForAPI(values);
+
+      // Allow overriding submission logic (e.g. for change requests)
+      if (onSubmitProp) {
+        console.log('[enquiry-form] Using custom onSubmit handler');
+        await onSubmitProp(data);
+        setIsSubmitting(false);
+        return;
+      }
+
+      let result: LearnerProfile;
+
+      if (learner) {
+        result = await LearnerProfileService.updateLearnerProfile(learner.id, data);
+        const isProfile = ['active', 'inactive', 'graduated', 'exited'].includes(learner.lifecycle_status);
+        toast.success(isProfile ? 'Profile updated successfully' : 'Admitted updated successfully');
+      } else if (savedEnquiryId) {
+        // Update existing draft with final submission
+        result = await LearnerProfileService.updateLearnerProfile(savedEnquiryId, data);
+        toast.success('Admitted submitted successfully');
+      } else {
+        result = await LearnerProfileService.createLearnerProfile(data as any);
+        toast.success('Admitted created successfully');
+      }
+
+      // Check if user account was created
+      // @ts-expect-error - Temporary metadata from service
+      const userCreation = result._userCreation;
+      if (userCreation) {
+        if (userCreation.success) {
+          toast.success(userCreation.message, { duration: 5000 });
+        } else {
+          toast.error(`User creation failed: ${userCreation.message}`, { duration: 5000 });
+        }
+      }
+
+      // Plan 6 Task 5 — post-save: resolve fee_items via RPC + log activity.
+      // Best-effort; never blocks UX. Skip when the lead is in legacy_fee_mode
+      // (no matrix match expected) or when finance is disabled for this view.
+      const isLegacy =
+        (result as { legacy_fee_mode?: boolean } | undefined)?.legacy_fee_mode ?? false;
+      if (result?.id && !isLegacy && canViewFinance) {
+        try {
+          const resolution = await FeeResolutionService.resolveForLearner(result.id);
+          if (resolution.matched) {
+            await logActivityForCurrentUser({
+              actionType: 'enquiry.fee_resolved',
+              resourceType: 'learner',
+              resourceId: result.id,
+              description: AdmissionFeesActivityTemplates.enquiry.fee_resolved(
+                resolution.items.length,
+                resolution.total,
+              ),
+              metadata: {
+                learner_id: result.id,
+                count: resolution.items.length,
+                total: resolution.total,
+              },
+            });
+          } else {
+            await logActivityForCurrentUser({
+              actionType: 'enquiry.fee_match_failed',
+              resourceType: 'learner',
+              resourceId: result.id,
+              description: AdmissionFeesActivityTemplates.enquiry.fee_match_failed(),
+              metadata: { learner_id: result.id },
+            });
+          }
+        } catch (err) {
+          console.error('[enquiry-form] Post-save fee resolution failed:', err);
+          // best-effort — never block submit on this
+        }
+      }
+
+      // Clear pending image after successful submission
+      setPendingImageFile(null);
+
+      // Task 16: write override audit rows for any section edited under override mode
+      const overriddenSections = (Object.keys(sectionOverrideMode) as Array<'basic' | 'academic' | 'contact'>)
+        .filter((s) => sectionOverrideMode[s]);
+      if (overriddenSections.length > 0 && result?.id) {
+        try {
+          const supabase = createClientSupabaseClient();
+          const { data: leadRow } = await supabase
+            .from('admission_leads')
+            .select('id')
+            .eq('learner_profile_id', result.id)
+            .maybeSingle();
+          if (leadRow?.id) {
+            const rows = overriddenSections.map((s) => ({
+              lead_id: leadRow.id,
+              activity_type: 'student_section_filled',
+              subject: `Admission override — ${s} section`,
+              description: `Filled ${s} section as admission override`,
+            }));
+            await supabase.from('admission_lead_activities').insert(rows);
+          }
+        } catch (err) {
+          console.error('[enquiry-form] Override audit log write failed:', err);
+          // best-effort — never block save on this
+        }
+        setSectionOverrideMode({ basic: false, academic: false, contact: false });
+      }
+
+      if (onSuccess) {
+        onSuccess(result);
+      } else {
+        router.push(`/learners/enquiries/${result.id}`);
+      }
+    } catch (error) {
+      console.error('[enquiry-form] Error saving enquiry:', error);
+      toast.error('Failed to save enquiry');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   // Submit form (with validation)
   const onSubmit = async (values: EnquiryFormValues) => {
     // Prevent double-click
@@ -1123,7 +1373,7 @@ export function EnquiryForm({
     if (!validation.success) {
       const errors = validation.error.flatten().fieldErrors;
       const errorKeys = Object.keys(errors);
-      
+
       // Auto-switch to tab with first error
       if (errorKeys.length > 0) {
         const firstErrorField = errorKeys[0];
@@ -1197,74 +1447,159 @@ export function EnquiryForm({
       return;
     }
 
-    setIsSubmitting(true);
-    try {
-      // Upload pending image file first (if exists)
-      if (pendingImageFile) {
-        console.log('[enquiry-form] Uploading pending image file...');
-        try {
-          const imageUrl = await uploadProfileImage(pendingImageFile);
-          values.student_photo_url = imageUrl; // Update form value with uploaded URL
-          console.log('[enquiry-form] Image uploaded successfully:', imageUrl);
-          toast.success('Image uploaded successfully');
-        } catch (error) {
-          console.error('[enquiry-form] Image upload failed:', error);
-          toast.error('Failed to upload image. Please try again.');
-          setIsSubmitting(false);
-          return; // Don't proceed if image upload fails
+    // ======================================================================
+    // Plan 6 / Task 5 — Pre-submit confirmation dialog interception.
+    // Before invoking commitSubmit, check the institution's
+    // pre_submit_dialog_enabled setting. When ON, fetch the matrix preview
+    // and open the dialog; commitSubmit fires from the dialog's onConfirm.
+    // Bypass when:
+    //   - onSubmitProp is set (custom delegate, e.g. change-request approval)
+    //   - lead is already in legacy_fee_mode (no matrix to preview)
+    //   - finance not viewable in this context (e.g. student view)
+    //   - institution_id missing (can't look up the setting)
+    // ======================================================================
+    const isLegacy =
+      (learner as { legacy_fee_mode?: boolean } | undefined)?.legacy_fee_mode ?? false;
+    const canRunDialog =
+      !onSubmitProp &&
+      canViewFinance &&
+      !isLegacy &&
+      !!values.institution_id;
+
+    if (canRunDialog) {
+      let dialogEnabled = true; // The DDL default is true; treat unknown as ON.
+      try {
+        const settings = await AdmissionSettingsService.getByInstitution(values.institution_id!);
+        dialogEnabled = settings?.pre_submit_dialog_enabled ?? true;
+      } catch (err) {
+        console.error('[enquiry-form] Failed to load admission settings:', err);
+        // soft-fail: fall through to inline submit if the lookup blew up
+        dialogEnabled = false;
+      }
+
+      if (dialogEnabled) {
+        // Build the preview by remapping form fields to dim shape and calling
+        // FeeResolutionService.previewMatchByDimensions. previewItems is a
+        // best-effort projection — empty when no match, in which case the
+        // dialog's "no fee structure matched" banner shows.
+        //
+        // The 3 demographic dims (quota / community / accommodation) live on
+        // the form as TEXT fields but the matrix needs FK ids. For LOADED
+        // learners (edit mode) the parent passes already-resolved FK ids on
+        // the `learner` prop; for NEW enquiries we resolve TEXT→FK here so
+        // the preview matches what FinanceDetailsSection already shows.
+        const learnerLike = (learner ?? {}) as {
+          quota_id?: string;
+          community_category_id?: string;
+          accommodation_type_id?: string;
+        };
+
+        const resolveLookupId = (
+          text: string | null | undefined,
+          rows: Array<{ id: string; code: string; name: string }>,
+        ): string | undefined => {
+          if (!text) return undefined;
+          const norm = text.trim().toLowerCase();
+          if (!norm) return undefined;
+          const match = rows.find(
+            (r) => r.code.toLowerCase() === norm || r.name.toLowerCase() === norm,
+          );
+          return match?.id;
+        };
+
+        let resolvedQuotaId = learnerLike.quota_id;
+        let resolvedCommunityId = learnerLike.community_category_id;
+        let resolvedAccommodationId = learnerLike.accommodation_type_id;
+
+        if (!resolvedQuotaId || !resolvedCommunityId || !resolvedAccommodationId) {
+          try {
+            const [quotas, communities, accommodations] = await Promise.all([
+              !resolvedQuotaId
+                ? LookupService.listQuotas(true)
+                : Promise.resolve([]),
+              !resolvedCommunityId
+                ? LookupService.listCommunityCategories(true)
+                : Promise.resolve([]),
+              !resolvedAccommodationId && values.institution_id
+                ? LookupService.listAccommodationTypes(values.institution_id, true)
+                : Promise.resolve([]),
+            ]);
+            if (!resolvedQuotaId) {
+              resolvedQuotaId = resolveLookupId(values.quota, quotas);
+            }
+            if (!resolvedCommunityId) {
+              resolvedCommunityId = resolveLookupId(values.community, communities);
+            }
+            if (!resolvedAccommodationId) {
+              resolvedAccommodationId = resolveLookupId(
+                values.accommodation_type,
+                accommodations,
+              );
+            }
+          } catch (err) {
+            console.error('[enquiry-form] TEXT→FK lookup failed:', err);
+          }
         }
-      }
 
-      const data = formatFormDataForAPI(values);
+        const dims: Partial<FeeStructureMatrixDimensions> = {
+          institution_id: values.institution_id ?? undefined,
+          degree_id: values.degree_id ?? undefined,
+          department_id: values.department_id ?? undefined,
+          // Form column is `program_id` (singular); dim shape uses British `programme_id`.
+          programme_id: values.program_id ?? undefined,
+          quota_id: resolvedQuotaId,
+          community_category_id: resolvedCommunityId,
+          accommodation_type_id: resolvedAccommodationId,
+          admission_year_id: values.admission_year_id ?? undefined,
+        };
+        const allDimsPresent = !!(
+          dims.institution_id &&
+          dims.degree_id &&
+          dims.department_id &&
+          dims.programme_id &&
+          dims.quota_id &&
+          dims.community_category_id &&
+          dims.accommodation_type_id &&
+          dims.admission_year_id
+        );
 
-      // Allow overriding submission logic (e.g. for change requests)
-      if (onSubmitProp) {
-        console.log('[enquiry-form] Using custom onSubmit handler');
-        await onSubmitProp(data);
-        setIsSubmitting(false);
-        return;
-      }
-
-      let result: LearnerProfile;
-
-      if (learner) {
-        result = await LearnerProfileService.updateLearnerProfile(learner.id, data);
-        const isProfile = ['active', 'inactive', 'graduated', 'exited'].includes(learner.lifecycle_status);
-        toast.success(isProfile ? 'Profile updated successfully' : 'Admitted updated successfully');
-      } else if (savedEnquiryId) {
-        // Update existing draft with final submission
-        result = await LearnerProfileService.updateLearnerProfile(savedEnquiryId, data);
-        toast.success('Admitted submitted successfully');
-      } else {
-        result = await LearnerProfileService.createLearnerProfile(data as any);
-        toast.success('Admitted created successfully');
-      }
-
-      // Check if user account was created
-      // @ts-expect-error - Temporary metadata from service
-      const userCreation = result._userCreation;
-      if (userCreation) {
-        if (userCreation.success) {
-          toast.success(userCreation.message, { duration: 5000 });
-        } else {
-          toast.error(`User creation failed: ${userCreation.message}`, { duration: 5000 });
+        let match: AdmissionFeeStructureWithItems | null = null;
+        let items: ResolvedFeeItem[] = [];
+        if (allDimsPresent) {
+          try {
+            match = await FeeResolutionService.previewMatchByDimensions(
+              dims as FeeStructureMatrixDimensions,
+            );
+            if (match?.items?.length) {
+              // Look up category labels (admission_fee_structure_items only
+              // carries billing_category_id, not the human label).
+              const categories =
+                await BillingCategoryService.getActiveBillingCategories().catch(() => []);
+              const labelById: Record<string, string> = {};
+              for (const cat of categories) labelById[cat.id] = cat.category_name;
+              items = match.items.map((it) => ({
+                category_id: it.billing_category_id,
+                category_name:
+                  labelById[it.billing_category_id] ?? it.billing_category_id,
+                amount: Number(it.amount ?? 0),
+                source: 'structure',
+              }));
+            }
+          } catch (err) {
+            console.error('[enquiry-form] previewMatchByDimensions failed:', err);
+          }
         }
-      }
 
-      // Clear pending image after successful submission
-      setPendingImageFile(null);
-
-      if (onSuccess) {
-        onSuccess(result);
-      } else {
-        router.push(`/learners/enquiries/${result.id}`);
+        setPreviewMatch(match);
+        setPreviewItems(items);
+        setPendingFormValues(values);
+        setPreSubmitOpen(true);
+        return; // wait for user confirmation
       }
-    } catch (error) {
-      console.error('[enquiry-form] Error saving enquiry:', error);
-      toast.error('Failed to save enquiry');
-    } finally {
-      setIsSubmitting(false);
     }
+
+    // No dialog — proceed to save inline.
+    await commitSubmit(values);
   };
 
   // Calculate profile completion status
@@ -1288,6 +1623,16 @@ export function EnquiryForm({
   return (
     <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit, onInvalid)} className="space-y-6">
+        {/* Task 15 — QR button for student self-fill; only shown on edit (learner exists) and not student view */}
+        {!isStudentView && (savedEnquiryId ?? learner?.id) && (
+          <div className="flex items-center justify-end gap-2 pb-2">
+            <ShowStudentQRButton
+              learnerProfileId={(savedEnquiryId ?? learner?.id)!}
+              alreadySubmitted={(learner as { is_profile_complete?: boolean } | undefined)?.is_profile_complete === true}
+            />
+          </div>
+        )}
+
         {/* Profile Completion Indicator */}
         {canAutoActivate && (
           <Alert variant={isProfileComplete ? 'default' : 'default'} className={isProfileComplete ? 'border-green-500 bg-green-50' : 'border-blue-500 bg-blue-50'}>
@@ -1359,6 +1704,18 @@ export function EnquiryForm({
           </TabsList>
 
           <TabsContent value="basic-details" className="space-y-4 mt-4">
+            {!isStudentView && learner?.id && (
+              <div className="flex items-center justify-between mb-1">
+                <div />
+                <StudentSectionStatusChip
+                  filled={sectionStatus.basic.filled}
+                  filledAt={sectionStatus.basic.filledAt}
+                  filledBy={sectionStatus.basic.filledBy}
+                  canOverride={canOverrideStudentSection && !sectionStatus.basic.filled}
+                  onOverrideClick={() => setOverrideDialog('basic')}
+                />
+              </div>
+            )}
             <Card className="p-3 sm:p-4 md:p-6">
               <BasicDetailsSection
                 form={form}
@@ -1369,6 +1726,18 @@ export function EnquiryForm({
           </TabsContent>
 
           <TabsContent value="academic-information" className="space-y-4 mt-4">
+            {!isStudentView && learner?.id && (
+              <div className="flex items-center justify-between mb-1">
+                <div />
+                <StudentSectionStatusChip
+                  filled={sectionStatus.academic.filled}
+                  filledAt={sectionStatus.academic.filledAt}
+                  filledBy={sectionStatus.academic.filledBy}
+                  canOverride={canOverrideStudentSection && !sectionStatus.academic.filled}
+                  onOverrideClick={() => setOverrideDialog('academic')}
+                />
+              </div>
+            )}
             <Card className="p-3 sm:p-4 md:p-6">
               <AcademicInformationSection form={form} />
             </Card>
@@ -1381,6 +1750,18 @@ export function EnquiryForm({
           </TabsContent>
 
           <TabsContent value="contact-details" className="space-y-4 mt-4">
+            {!isStudentView && learner?.id && (
+              <div className="flex items-center justify-between mb-1">
+                <div />
+                <StudentSectionStatusChip
+                  filled={sectionStatus.contact.filled}
+                  filledAt={sectionStatus.contact.filledAt}
+                  filledBy={sectionStatus.contact.filledBy}
+                  canOverride={canOverrideStudentSection && !sectionStatus.contact.filled}
+                  onOverrideClick={() => setOverrideDialog('contact')}
+                />
+              </div>
+            )}
             <Card className="p-3 sm:p-4 md:p-6">
               <ContactDetailsSection form={form} />
             </Card>
@@ -1395,7 +1776,31 @@ export function EnquiryForm({
           {canViewFinance && (
             <TabsContent value="finance-details" className="space-y-4 mt-4">
               <Card className="p-3 sm:p-4 md:p-6">
-                <FinanceDetailsSection form={form} readOnly={!canEditFinance} />
+                <FinanceDetailsSection
+                  form={form}
+                  readOnly={!canEditFinance}
+                  // 2026-05-05 Plan 3 / Task 14: forward learnerId + matrix
+                  // dimensions that aren't on the form schema today, so the
+                  // matrix-driven Finance tab can resolve fees per learner.
+                  // legacy_fee_mode + (quota|community_category|accommodation_type)_id
+                  // live on learners_profiles but aren't in the form's zod schema;
+                  // we read them off the loaded `learner` prop directly.
+                  learnerId={savedEnquiryId ?? learner?.id}
+                  legacyFeeMode={
+                    (learner as { legacy_fee_mode?: boolean } | undefined)?.legacy_fee_mode ?? false
+                  }
+                  extraDims={
+                    learner
+                      ? {
+                          quota_id: (learner as { quota_id?: string }).quota_id,
+                          community_category_id: (learner as { community_category_id?: string })
+                            .community_category_id,
+                          accommodation_type_id: (learner as { accommodation_type_id?: string })
+                            .accommodation_type_id,
+                        }
+                      : undefined
+                  }
+                />
               </Card>
             </TabsContent>
           )}
@@ -1478,6 +1883,74 @@ export function EnquiryForm({
           </div>
         </div>
       </form>
+
+      {/* Plan 6 / Task 5 — pre-submit confirmation dialog. Read-only summary
+       *  shown when the institution's pre_submit_dialog_enabled flag is ON
+       *  and the lead is matrix-driven (not legacy_fee_mode). On confirm,
+       *  commitSubmit fires the existing save path. */}
+      <PreSubmitConfirmationDialog
+        open={preSubmitOpen}
+        onOpenChange={(open) => {
+          setPreSubmitOpen(open);
+          if (!open) {
+            // Closed without confirming — clear pending state.
+            setPendingFormValues(null);
+            setPreviewMatch(null);
+            setPreviewItems([]);
+          }
+        }}
+        leadName={
+          pendingFormValues
+            ? `${pendingFormValues.first_name ?? ''} ${pendingFormValues.last_name ?? ''}`.trim()
+            : ''
+        }
+        matchedStructureName={previewMatch?.name ?? null}
+        resolvedItems={previewItems}
+        total={previewItems.reduce((s, it) => s + Number(it.amount || 0), 0)}
+        submitting={isSubmitting}
+        onConfirm={async () => {
+          if (!pendingFormValues) {
+            setPreSubmitOpen(false);
+            return;
+          }
+          const values = pendingFormValues;
+          setPreSubmitOpen(false);
+          await commitSubmit(values);
+          // After commit, clear the pending state. (commitSubmit handles
+          // navigation/onSuccess so the component may unmount before this
+          // runs — guard for that case is implicit since setState on
+          // unmounted is a no-op warning, not an error.)
+          setPendingFormValues(null);
+          setPreviewMatch(null);
+          setPreviewItems([]);
+        }}
+      />
+
+      {/* Task 16: Override-edit confirm dialog */}
+      <AlertDialog open={!!overrideDialog} onOpenChange={(o) => !o && setOverrideDialog(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Override student-filled section?</AlertDialogTitle>
+            <AlertDialogDescription>
+              You&apos;re editing fields the student should fill themselves. This action
+              will be recorded in the audit log.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (overrideDialog) {
+                  setSectionOverrideMode((prev) => ({ ...prev, [overrideDialog]: true }));
+                }
+                setOverrideDialog(null);
+              }}
+            >
+              Yes, fill on behalf
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Cancel Confirmation Dialog */}
       <Dialog open={showCancelDialog} onOpenChange={setShowCancelDialog}>

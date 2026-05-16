@@ -196,9 +196,13 @@ const PAGE_ENRICHMENTS: Record<string, { keywords: string[]; description: string
     keywords: ['whatsapp', 'message', 'chat', 'whatsapp marketing'],
     description: 'WhatsApp marketing chat and messaging'
   },
-  '/admission/marketing/campaigns/monitoring': {
-    keywords: ['campaign', 'marketing campaign', 'sms campaign', 'email campaign'],
-    description: 'Monitor active marketing campaigns'
+  '/admission/marketing/campaigns': {
+    keywords: ['campaign', 'marketing campaign', 'acquisition', 'attribution', 'funnel'],
+    description: 'Acquisition campaigns with per-link attribution analytics'
+  },
+  '/admission/marketing/automations/monitoring': {
+    keywords: ['automation', 'drip campaign', 'sequence', 'sms campaign', 'email campaign'],
+    description: 'Monitor active marketing automations and drip sequences'
   },
   '/admission/marketing/expos': {
     keywords: ['expo', 'exhibition', 'education fair', 'campus visit'],
@@ -238,6 +242,14 @@ const PAGE_ENRICHMENTS: Record<string, { keywords: string[]; description: string
     keywords: ['my attendance', 'absence record', 'attendance percentage'],
     description: 'View your attendance records and percentage'
   },
+  '/learners/my-marks': {
+    keywords: ['my marks', 'internal marks', 'cia marks', 'assessment marks', 'semester results', 'student marks'],
+    description: 'View your internal assessment marks and semester results'
+  },
+  '/learners/my-marks/internal': {
+    keywords: ['internal marks', 'cia marks', 'assessment marks', 'continuous internal assessment'],
+    description: 'View your internal continuous assessment marks'
+  },
   '/learners/my-profile': {
     keywords: ['my profile', 'student profile', 'personal details'],
     description: 'View and update your profile'
@@ -268,17 +280,9 @@ const PAGE_ENRICHMENTS: Record<string, { keywords: string[]; description: string
     description: 'Review student profile change requests'
   },
   // Billing / Accounts
-  '/billing/categories/parent-categories': {
-    keywords: ['fee category', 'billing category', 'fee head'],
-    description: 'Manage parent fee categories'
-  },
-  '/billing/categories/sub-categories': {
-    keywords: ['sub category', 'fee sub-type', 'billing sub-category'],
-    description: 'Manage fee sub-categories'
-  },
-  '/billing/categories/item-categories': {
-    keywords: ['item category', 'fee item', 'line item'],
-    description: 'Manage fee item categories'
+  '/billing/categories': {
+    keywords: ['billing category', 'fee category', 'fee head', 'fee item', 'fee type'],
+    description: 'Manage billing categories (common across all institutions)'
   },
   '/billing/schedule': {
     keywords: ['fee structure', 'fee plan', 'billing plan', 'fee schedule', 'charges'],
