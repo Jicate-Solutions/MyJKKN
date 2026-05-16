@@ -16,8 +16,10 @@
 // Backed by:
 //   - useTeamActivityDay(institutionId, date)  — list of events
 //   - useTeamActivityTrend(institutionId, 7)   — 7-day stacked bar feed
-// Both call SECURITY DEFINER RPCs that re-gate on admission.view +
-// role_has_institution_access; see migration 20260514120000_team_activity_rpcs.
+// Both call SECURITY DEFINER RPCs that re-gate on
+// admission.counselors.team.view + role_has_institution_access; see
+// migrations 20260514120000_team_activity_rpcs and
+// 20260516120000_team_activity_rpcs_fix_permission_gate.
 
 import { useMemo, useState } from 'react';
 import { format, subDays, addDays, isToday, isFuture } from 'date-fns';

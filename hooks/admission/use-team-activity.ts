@@ -8,9 +8,9 @@
 //   - get_team_activity_trend(institution, days)
 //
 // The RPCs bypass admission_lead_activities' RLS (which is scoped to the
-// caller's own assigned leads) and re-gate explicitly on admission.view +
-// role_has_institution_access — required because this is a *team-wide*
-// view, not a per-counselor one.
+// caller's own assigned leads) and re-gate explicitly on
+// admission.counselors.team.view + role_has_institution_access — required
+// because this is a *team-wide* view, not a per-counselor one.
 
 import { useQuery } from '@tanstack/react-query';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
