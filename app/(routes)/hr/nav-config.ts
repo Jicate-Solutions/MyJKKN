@@ -128,6 +128,12 @@ const config: ModuleNavConfig = {
       matchPaths: ['/hr/onboarding'],
     },
     {
+      label: 'My Assets',
+      icon: 'Laptop',
+      href: '/hr/my-assets',
+      matchPaths: ['/hr/my-assets'],
+    },
+    {
       label: 'Offboarding',
       icon: 'LogOut',
       href: '/hr/offboarding',
@@ -202,6 +208,26 @@ const config: ModuleNavConfig = {
           icon: 'ShieldCheck',
           href: '/hr/documents/verify',
           matchPaths: ['/hr/documents/verify'],
+        },
+      ],
+    },
+    {
+      label: 'Performance Reviews',
+      icon: 'ClipboardCheck',
+      href: '/hr/performance-reviews',
+      matchPaths: ['/hr/performance-reviews'],
+      children: [
+        {
+          label: 'My Appraisal',
+          icon: 'ClipboardCheck',
+          href: '/hr/performance-reviews',
+          exact: true,
+        },
+        {
+          label: 'Team Reviews',
+          icon: 'UsersRound',
+          href: '/hr/performance-reviews/team',
+          matchPaths: ['/hr/performance-reviews/team'],
         },
       ],
     },

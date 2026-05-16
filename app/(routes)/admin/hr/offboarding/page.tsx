@@ -29,7 +29,8 @@
 // ============================================================================
 
 import { useEffect, useMemo, useState } from 'react';
-import { GripVertical, Plus, RotateCcw, Save, Trash2 } from 'lucide-react';
+import Link from 'next/link';
+import { GripVertical, Plus, RotateCcw, Save, Trash2, ArrowRight } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 
@@ -158,9 +159,255 @@ export default function HrOffboardingWorkflowPage() {
             { label: 'Offboarding Workflow' },
           ]}
         />
+        <OperationalCasesSummary />
         <OffboardingWorkflowContent />
       </ContentLayout>
     </PermissionGuard>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Operational Cases Summary — T6.4 extension.
+// Adds a director-facing snapshot above the workflow editor:
+//   - Counts by separation_type (resignation / retirement / termination / death)
+//   - Total F&F net_payable across cases that have a calculation
+//   - Filter dropdown narrows the case table by separation_type
+//   - Per-case row links to /admin/hr/offboarding/[id]/fnf for the calculator
+// ---------------------------------------------------------------------------
+
+type SeparationType = 'resignation' | 'retirement' | 'termination' | 'death';
+const SEPARATION_LABELS: Record<SeparationType, string> = {
+  resignation: 'Resignation',
+  retirement: 'Retirement',
+  termination: 'Termination',
+  death: 'Death',
+};
+
+interface CaseSummaryRow {
+  id: string;
+  staff_id: string;
+  separation_type: SeparationType;
+  status: 'open' | 'withdrawn' | 'completed';
+  initiated_at: string;
+  reason: string;
+  current_step_index: number;
+  fnf_calculation: { net_payable?: number; approved_at?: string | null } | null;
+  staff?: { first_name: string; last_name: string; designation: string } | null;
+}
+
+function OperationalCasesSummary() {
+  const [cases, setCases] = useState<CaseSummaryRow[] | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [filter, setFilter] = useState<SeparationType | 'all'>('all');
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const supabase = createClientSupabaseClient();
+        const { data, error: qErr } = await supabase
+          .from('hr_offboarding_cases')
+          .select(
+            `id, staff_id, separation_type, status, initiated_at, reason,
+             current_step_index, fnf_calculation,
+             staff:staff_id ( first_name, last_name, designation )`,
+          )
+          .order('initiated_at', { ascending: false })
+          .limit(50);
+        if (qErr) throw qErr;
+        if (cancelled) return;
+        setCases((data ?? []) as unknown as CaseSummaryRow[]);
+      } catch (e) {
+        if (!cancelled) setError(e instanceof Error ? e.message : String(e));
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const counts = useMemo(() => {
+    const c: Record<SeparationType, number> = {
+      resignation: 0,
+      retirement: 0,
+      termination: 0,
+      death: 0,
+    };
+    (cases ?? []).forEach((row) => {
+      if (row.separation_type in c) c[row.separation_type] += 1;
+    });
+    return c;
+  }, [cases]);
+
+  const fnfTotal = useMemo(() => {
+    return (cases ?? []).reduce(
+      (sum, row) => sum + (row.fnf_calculation?.net_payable ?? 0),
+      0,
+    );
+  }, [cases]);
+
+  const filtered = useMemo(() => {
+    if (filter === 'all') return cases ?? [];
+    return (cases ?? []).filter((row) => row.separation_type === filter);
+  }, [cases, filter]);
+
+  if (loading) {
+    return (
+      <Card className="mb-6">
+        <CardContent className="py-6">
+          <Skeleton className="h-24 w-full" />
+        </CardContent>
+      </Card>
+    );
+  }
+  if (error) {
+    return (
+      <Alert variant="destructive" className="mb-6">
+        <AlertTitle>Failed to load operational cases</AlertTitle>
+        <AlertDescription>{error}</AlertDescription>
+      </Alert>
+    );
+  }
+  if (!cases || cases.length === 0) {
+    return null; // Nothing operational yet — keep the page focused on the editor.
+  }
+
+  return (
+    <Card className="mb-6">
+      <CardHeader>
+        <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+          <div>
+            <CardTitle>Operational Cases (latest 50)</CardTitle>
+            <CardDescription>
+              Live snapshot of staff exits. F&amp;F totals are summed from each
+              case&apos;s latest calculation. Use the filter to narrow by
+              separation type, or open the F&amp;F calculator from any row.
+            </CardDescription>
+          </div>
+          <div className="flex items-center gap-2">
+            <Label htmlFor="sep-filter" className="text-xs">
+              Filter:
+            </Label>
+            <Select value={filter} onValueChange={(v) => setFilter(v as typeof filter)}>
+              <SelectTrigger id="sep-filter" className="w-44">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All types</SelectItem>
+                <SelectItem value="resignation">Resignation</SelectItem>
+                <SelectItem value="retirement">Retirement</SelectItem>
+                <SelectItem value="termination">Termination</SelectItem>
+                <SelectItem value="death">Death</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
+          {(Object.keys(counts) as SeparationType[]).map((k) => (
+            <div
+              key={k}
+              className="rounded-md border bg-muted/30 p-3 text-center"
+            >
+              <div className="text-2xl font-semibold">{counts[k]}</div>
+              <div className="mt-1 text-xs text-muted-foreground">
+                {SEPARATION_LABELS[k]}
+              </div>
+            </div>
+          ))}
+          <div className="rounded-md border bg-primary/10 p-3 text-center">
+            <div className="text-2xl font-semibold">
+              ₹{Math.round(fnfTotal).toLocaleString('en-IN')}
+            </div>
+            <div className="mt-1 text-xs text-muted-foreground">
+              F&amp;F net total
+            </div>
+          </div>
+        </div>
+
+        {filtered.length === 0 ? (
+          <p className="rounded-md border bg-muted/30 p-3 text-sm text-muted-foreground">
+            No cases match the current filter.
+          </p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="text-left text-xs uppercase text-muted-foreground">
+                <tr>
+                  <th className="py-2 pr-3">Staff</th>
+                  <th className="py-2 pr-3">Type</th>
+                  <th className="py-2 pr-3">Status</th>
+                  <th className="py-2 pr-3">F&amp;F net</th>
+                  <th className="py-2 pr-3">F&amp;F status</th>
+                  <th className="py-2 text-right">Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((row) => {
+                  const fnfNet = row.fnf_calculation?.net_payable ?? null;
+                  const fnfApproved = row.fnf_calculation?.approved_at ?? null;
+                  return (
+                    <tr key={row.id} className="border-t">
+                      <td className="py-2 pr-3">
+                        {row.staff
+                          ? `${row.staff.first_name} ${row.staff.last_name}`
+                          : 'Unknown staff'}
+                        <div className="text-xs text-muted-foreground">
+                          {row.staff?.designation ?? ''}
+                        </div>
+                      </td>
+                      <td className="py-2 pr-3">
+                        <Badge variant="outline" className="text-xs">
+                          {SEPARATION_LABELS[row.separation_type]}
+                        </Badge>
+                      </td>
+                      <td className="py-2 pr-3">
+                        {row.status === 'open' ? (
+                          <Badge>In progress · step {row.current_step_index}</Badge>
+                        ) : row.status === 'completed' ? (
+                          <Badge variant="secondary">Completed</Badge>
+                        ) : (
+                          <Badge variant="outline">Withdrawn</Badge>
+                        )}
+                      </td>
+                      <td className="py-2 pr-3">
+                        {fnfNet !== null
+                          ? `₹${Math.round(fnfNet).toLocaleString('en-IN')}`
+                          : '—'}
+                      </td>
+                      <td className="py-2 pr-3">
+                        {fnfNet === null ? (
+                          <span className="text-xs text-muted-foreground">
+                            Not calculated
+                          </span>
+                        ) : fnfApproved ? (
+                          <Badge variant="secondary">Approved</Badge>
+                        ) : (
+                          <Badge variant="outline">Draft</Badge>
+                        )}
+                      </td>
+                      <td className="py-2 text-right">
+                        <Button asChild size="sm" variant="outline">
+                          <Link href={`/admin/hr/offboarding/${row.id}/fnf`}>
+                            F&amp;F <ArrowRight className="ml-1 h-3 w-3" />
+                          </Link>
+                        </Button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 

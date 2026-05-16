@@ -1,5 +1,6 @@
 import { redirect } from 'next/navigation';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { POLICY_KEYS } from '@/lib/policies/keys';
 
 /**
  * Admin PDE landing — redirects to the default sub-page configured in
@@ -20,7 +21,7 @@ import { createServerSupabaseClient } from '@/lib/supabase/server';
 export default async function AdminPdeIndex() {
   const supabase = await createServerSupabaseClient();
   const { data } = await supabase.rpc('fn_get_policy_text', {
-    p_key: 'nav.admin.pde.default_landing',
+    p_key: POLICY_KEYS.NAV_ADMIN_PDE_DEFAULT_LANDING,
     p_default: '/admin/pde/assessments',
     p_scope_id: null,
   });

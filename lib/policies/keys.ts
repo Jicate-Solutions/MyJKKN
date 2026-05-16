@@ -8,21 +8,27 @@
  * Phase 1.5a (2026-04-29): canonical runtime-config substrate.
  */
 export const POLICY_KEYS = {
-  // HR Attendance (Sprint 5 — Section 17a Round 1-4 decisions)
-  HR_ATT_HOLIDAY_BACKFILL_LOOKBACK_DAYS: 'hr.attendance.holiday_backfill_lookback_days',
-  HR_ATT_AUDIT_RETENTION_YEARS: 'hr.attendance.audit_retention_years',
-  HR_ATT_GEOFENCE_MODE: 'hr.attendance.geofence_mode',
-  HR_ATT_GEOFENCE_RADIUS_M: 'hr.attendance.geofence_radius_m',
-  HR_ATT_AUTO_APPROVE_THRESHOLD_MINUTES: 'hr.attendance.auto_approve_threshold_minutes',
-  HR_ATT_SELF_HEAL_STEP2_CHANNELS: 'hr.attendance.self_heal_step2_channels',
-  HR_ATT_SELF_HEAL_WINDOW_HOURS: 'hr.attendance.self_heal_window_hours',
-  HR_ATT_CLASS_PROXY_DAY_CALC_DEFAULT: 'hr.attendance.class_proxy_day_calc_default',
-  HR_ATT_CROSS_COLLEGE_PROXY_ENABLED: 'hr.attendance.cross_college_proxy_enabled',
-  HR_ATT_TEAM_VIEW_PRIVACY_MODE: 'hr.attendance.team_view_privacy_mode',
-  HR_ATT_MONTHLY_LETTER_MODE: 'hr.attendance.monthly_letter_mode',
-  HR_ATT_LATE_ARRIVAL_ACTION: 'hr.attendance.late_arrival_action',
-  HR_ATT_BIOMETRIC_PRIORITY_OVER_SELF_MARK: 'hr.attendance.biometric_priority_over_self_mark',
-  HR_ATT_MULTI_DAY_PATTERN_DETECTION: 'hr.attendance.multi_day_pattern_detection',
+  // HR Attendance — Sprint 5 keys absorbed into hr.attendance.* nested namespace
+  // by Wave 3 M7 (2026-05-15). Old HR_ATT_* constant names kept as aliases;
+  // their values now point at the new namespaced keys. Sprint 5 service code
+  // that imports HR_ATT_* continues to work unchanged — fn_get_policy resolves
+  // the new key on the same renamed platform_policies row.
+  // Spec: specs/hr-policy-jsonb-structures-2026-05-15.md §"Sprint 5 HR_ATT_* absorption"
+  // Migration: supabase/migrations/20260611_hr_attendance_absorption.sql
+  HR_ATT_HOLIDAY_BACKFILL_LOOKBACK_DAYS: 'hr.attendance.holiday_handling.backfill_lookback_days',
+  HR_ATT_AUDIT_RETENTION_YEARS: 'hr.attendance.audit.retention_years',
+  HR_ATT_GEOFENCE_MODE: 'hr.attendance.geofence.mode',
+  HR_ATT_GEOFENCE_RADIUS_M: 'hr.attendance.geofence.radius_m',
+  HR_ATT_AUTO_APPROVE_THRESHOLD_MINUTES: 'hr.attendance.auto_approve.threshold_minutes',
+  HR_ATT_SELF_HEAL_STEP2_CHANNELS: 'hr.attendance.self_heal.step2_channels',
+  HR_ATT_SELF_HEAL_WINDOW_HOURS: 'hr.attendance.self_heal.window_hours',
+  HR_ATT_CLASS_PROXY_DAY_CALC_DEFAULT: 'hr.attendance.class_proxy.day_calc_default',
+  HR_ATT_CROSS_COLLEGE_PROXY_ENABLED: 'hr.attendance.class_proxy.cross_college_enabled',
+  HR_ATT_TEAM_VIEW_PRIVACY_MODE: 'hr.attendance.team_view.privacy_mode',
+  HR_ATT_MONTHLY_LETTER_MODE: 'hr.attendance.monthly_letter.mode',
+  HR_ATT_LATE_ARRIVAL_ACTION: 'hr.attendance.late_arrival.action',
+  HR_ATT_BIOMETRIC_PRIORITY_OVER_SELF_MARK: 'hr.attendance.biometric.priority_over_self_mark',
+  HR_ATT_MULTI_DAY_PATTERN_DETECTION: 'hr.attendance.pattern_detection.multi_day',
 
   // Cross-cutting
   SUPER_ADMIN_DIGEST_FANOUT_ROLE_KEYS: 'super_admin.digest.fanout_role_keys',
@@ -149,6 +155,22 @@ export const POLICY_KEYS = {
   // Boolean. true = post-run bank-debit reconciliation fires.
   HR_PAYROLL_RECONCILIATION_ENABLED: 'hr.payroll.reconciliation_enabled',
 
+  // T4.2 deduction-engine knobs (Director-locked spec 2026-05-15).
+  // Seeded as global rows by 20260626000000_hr_pay_components_and_payslip_line_items.sql.
+  // Editable via /admin/hr/policies/payroll-* UIs (ships in a later T-sprint).
+  // Consumer: lib/services/hr/payroll/deduction-engine.ts.
+  //
+  // tds_slabs: { regime, fiscal_year, slabs:[{upto_inr,rate_pct}], rebate_87a_*, surcharge_thresholds, cess_pct }
+  HR_PAYROLL_TDS_SLABS: 'hr.payroll.tds_slabs',
+  // pf_rate: { employee_pct, employer_pct, ceiling_inr, applies_above_ceiling }
+  HR_PAYROLL_PF_RATE: 'hr.payroll.pf_rate',
+  // esi_rate: { employee_pct, employer_pct, ceiling_inr, applies_above_ceiling }
+  HR_PAYROLL_ESI_RATE: 'hr.payroll.esi_rate',
+  // professional_tax: { state, slabs_monthly:[{upto_inr,amount_inr}], frequency }
+  HR_PAYROLL_PROFESSIONAL_TAX: 'hr.payroll.professional_tax',
+  // standard_deduction: { amount_inr, applies_to_regime, applies_to_old_regime_amount_inr, section }
+  HR_PAYROLL_STANDARD_DEDUCTION: 'hr.payroll.standard_deduction',
+
   // -- Compliance -------------------------------------------------------------
   // Object: { employee_contrib_pct, employer_contrib_pct, wage_ceiling_inr, lop_config }.
   HR_COMPLIANCE_EPF: 'hr.compliance.epf',
@@ -162,6 +184,38 @@ export const POLICY_KEYS = {
   // -- Dashboard --------------------------------------------------------------
   // Array of { label, role_keys: string[] } — how HR dashboard widgets cluster roles.
   HR_DASHBOARD_ROLE_GROUPS: 'hr.dashboard.role_groups',
+
+  // Nav landing pages (super-admin-tunable redirect targets for /admin module roots).
+  // Consumed by app/(routes)/admin/page.tsx, /admin/lti/page.tsx, /admin/pde/page.tsx.
+  // Editable via /admin/landing-pages — zero-deploy redirect retargeting.
+  NAV_ADMIN_DEFAULT_LANDING: 'nav.admin.default_landing',
+  NAV_ADMIN_LTI_DEFAULT_LANDING: 'nav.admin.lti.default_landing',
+  NAV_ADMIN_PDE_DEFAULT_LANDING: 'nav.admin.pde.default_landing',
+
+  // HR Recruitment approvals — viewer-scope enforcement.
+  // Consumed by lib/services/hr/recruitment-service.ts (resolveViewerScope).
+  // Master toggle (boolean) + per-role scope_rules (JSONB object).
+  // Editable via /admin/hr/recruitment-approvals-scope (super-admin UI).
+  HR_RECRUITMENT_APPROVALS_ENFORCE_SCOPING: 'hr.recruitment.approvals.enforce_scoping',
+  HR_RECRUITMENT_APPROVALS_SCOPE_RULES: 'hr.recruitment.approvals.scope_rules',
+
+  // -- Forms (W3-M9 follow-up — workflow engine + notifications) -------------
+  // Object: per-event notification templates rendered by the form-submission
+  // workflow engine. Keys = event name; values = { in_app_title, in_app_body,
+  // whatsapp_body } string templates. Supports placeholders:
+  //   {form_title}, {submitter_name}, {step_label}, {actor_name},
+  //   {reason}, {submission_url}
+  // Consumed by lib/services/hr/form-submission-notifications.ts.
+  // Director can edit copy live via /admin/policies/platform-policies UI.
+  HR_FORMS_NOTIFICATION_TEMPLATES: 'hr.forms.notification_templates',
+
+  // T8.6 Multi-role Dashboard Refinements (2026-05-15) ------------------------
+  // Maps role_key -> ordered array of widget IDs to render on /dashboard.
+  // The "_default" entry is the fallback used when a user's primary role has
+  // no explicit mapping (keeps surface non-empty for new/unknown roles).
+  // Consumed by lib/services/dashboard/widget-config-service.ts; edited via
+  // /admin/dashboard/widget-config (Director-only). No deploy needed.
+  DASHBOARD_ROLE_WIDGETS: 'dashboard.role_widgets',
 } as const;
 
 export type PolicyKey = typeof POLICY_KEYS[keyof typeof POLICY_KEYS];

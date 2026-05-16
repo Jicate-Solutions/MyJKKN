@@ -10,8 +10,9 @@
 //   3. Section 1: Learner record (read-only)
 //   4. Section 2: Hostel profile (read-only, from learner_hostel_profiles)
 //   5. Section 3: Allocation status (current active or "Allocate" CTA)
-//   6. Section 4: Recent activity — last 5 gate-passes + attendance + open vacate
-//      (Leaves dropped per /assumption-thrash Round 1 #2 — no UI route yet.)
+//   6. Section 4: Recent activity — last 5 gate-passes + leaves + attendance +
+//      open vacate. (Leaves added 2026-05-15 once /campus-living/leave UI route
+//      shipped; was deferred in PR #822 per /assumption-thrash Round 1 #2.)
 //
 // Mobile: Sheet renders full-screen via `w-full` (no sm: max-width). Desktop:
 // max-w-2xl. shadcn Sheet handles ESC + overlay close + back-gesture.
@@ -36,6 +37,7 @@ import {
   Pencil,
   ArrowRight,
   Calendar,
+  CalendarOff,
   ClipboardList,
   DoorOpen,
   AlertCircle,
@@ -44,6 +46,7 @@ import type {
   LearnerGatePassSummary,
   LearnerAttendanceSummary,
   LearnerVacateRequestSummary,
+  LearnerLeaveSummary,
 } from '@/types/campus-living';
 
 interface Props {
@@ -262,7 +265,7 @@ export function LearnerDetailDrawer({ learnerId, onClose, onEdit, canEdit }: Pro
 
             <Separator />
 
-            {/* Section 4: Recent activity (3-slice — leaves dropped) */}
+            {/* Section 4: Recent activity (4-slice — leaves added 2026-05-15) */}
             <Section title='Recent activity'>
               <div className='col-span-2 space-y-4'>
                 <ActivitySubsection
@@ -283,6 +286,31 @@ export function LearnerDetailDrawer({ learnerId, onClose, onEdit, canEdit }: Pro
                               {gp.status}
                             </Badge>
                             <span className='text-muted-foreground'>{formatDate(gp.created_at)}</span>
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </ActivitySubsection>
+
+                <ActivitySubsection
+                  icon={<CalendarOff className='h-4 w-4' />}
+                  title='Last 5 leave requests'
+                  empty='No leave activity'
+                  viewAllHref={`/campus-living/leave?learner=${data.learner.id}`}
+                >
+                  {data.recentLeaves.length > 0 && (
+                    <ul className='space-y-1.5 text-xs'>
+                      {data.recentLeaves.map((lv: LearnerLeaveSummary) => (
+                        <li key={lv.id} className='flex items-center justify-between gap-2'>
+                          <span className='truncate text-foreground'>
+                            {lv.reason ?? lv.leave_type ?? '(no reason)'}
+                          </span>
+                          <span className='flex items-center gap-2 shrink-0'>
+                            <Badge variant='outline' className='text-[10px] capitalize'>
+                              {lv.status.replace(/_/g, ' ')}
+                            </Badge>
+                            <span className='text-muted-foreground'>{formatDate(lv.from_date)}</span>
                           </span>
                         </li>
                       ))}

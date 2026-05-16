@@ -216,6 +216,20 @@ export interface LearnerVacateRequestSummary {
   created_at: string;
 }
 
+// Added 2026-05-15: 4th drawer slice. Originally deferred per
+// /assumption-thrash Round 1 #2 when no /campus-living/leave UI route existed.
+// Route landed (singular, confirmed by Agent C audit 2026-05-10) so the slice
+// ships now.
+export interface LearnerLeaveSummary {
+  id: string;
+  status: LeaveStatus;
+  leave_type: HostelLeaveType | null;
+  reason: string | null;
+  from_date: string;
+  to_date: string;
+  created_at: string;
+}
+
 export interface LearnerDetailBundle {
   learner: LearnerHostelite;
   hostelProfile: LearnerHostelProfile | null;
@@ -223,6 +237,7 @@ export interface LearnerDetailBundle {
   recentGatePasses: LearnerGatePassSummary[];
   recentAttendance: LearnerAttendanceSummary[];
   openVacateRequest: LearnerVacateRequestSummary | null;
+  recentLeaves: LearnerLeaveSummary[];
 }
 
 // ─── Hostel leave (mirrors migration 20260222000015 + 20260424 approval-chain rewire) ───
@@ -322,4 +337,1306 @@ export interface LeaveFilters {
   leave_type?: HostelLeaveType;
   learner_id?: string;
   search?: string;
+}
+
+// ─── Hostel Wardens ────────────────────────────────────────────────────
+// Mirrors `hostel_wardens` table (supabase/migrations) + supabase.ts enums.
+
+export type WardenDesignation =
+  | 'chief_warden'
+  | 'warden'
+  | 'deputy_warden'
+  | 'floor_supervisor'
+  | 'night_watcher';
+
+export type WardenShift = 'day' | 'night' | 'full_time';
+
+export const WARDEN_DESIGNATIONS: WardenDesignation[] = [
+  'chief_warden',
+  'warden',
+  'deputy_warden',
+  'floor_supervisor',
+  'night_watcher',
+];
+
+export const WARDEN_SHIFTS: WardenShift[] = ['day', 'night', 'full_time'];
+
+export interface HostelWarden {
+  id: string;
+  institution_id: string;
+  block_id: string | null;
+  staff_id: string;
+  user_id: string;
+  designation: WardenDesignation;
+  shift: WardenShift | null;
+  phone: string;
+  assigned_floors: number[] | null;
+  is_active: boolean | null;
+  is_residential: boolean | null;
+  assigned_at: string;
+  relieved_at: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface CreateHostelWardenDTO {
+  institution_id: string;
+  block_id?: string | null;
+  staff_id: string;
+  user_id: string;
+  designation: WardenDesignation;
+  shift?: WardenShift | null;
+  phone: string;
+  assigned_floors?: number[] | null;
+  is_active?: boolean | null;
+  is_residential?: boolean | null;
+  assigned_at: string;
+  relieved_at?: string | null;
+}
+
+export interface UpdateHostelWardenDTO {
+  block_id?: string | null;
+  designation?: WardenDesignation;
+  shift?: WardenShift | null;
+  phone?: string;
+  assigned_floors?: number[] | null;
+  is_active?: boolean | null;
+  is_residential?: boolean | null;
+  relieved_at?: string | null;
+}
+
+export interface WardenFilters {
+  block_id?: string;
+  designation?: WardenDesignation;
+  is_active?: boolean;
+  search?: string;
+}
+
+// ─── Hostel Blocks ─────────────────────────────────────────────────────
+// Mirrors `hostel_blocks` table + supabase.ts enums.
+// Imported by hostel-block-service.ts + use-hostel-blocks.ts.
+
+export type HostelType =
+  | 'boys'
+  | 'girls'
+  | 'mixed'
+  | 'staff'
+  | 'international'
+  | 'married'
+  | 'working_women'
+  | 'medical';
+
+export type BlockStatus = 'active' | 'under_maintenance' | 'closed';
+
+export interface HostelBlock {
+  id: string;
+  institution_id: string | null;
+  name: string;
+  code: string;
+  hostel_type: HostelType;
+  address: string | null;
+  amenities: Record<string, unknown> | null;
+  contact_phone: string | null;
+  curfew_time_weekday: string | null;
+  curfew_time_weekend: string | null;
+  current_occupancy: number | null;
+  deputy_warden_id: string | null;
+  metadata: Record<string, unknown> | null;
+  status: BlockStatus;
+  total_capacity: number | null;
+  total_floors: number;
+  total_rooms: number | null;
+  visiting_hours_start: string | null;
+  visiting_hours_end: string | null;
+  warden_id: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface CreateHostelBlockDTO {
+  institution_id: string;
+  name: string;
+  code: string;
+  hostel_type: HostelType;
+  total_floors: number;
+  address?: string | null;
+  amenities?: Record<string, unknown> | null;
+  contact_phone?: string | null;
+  curfew_time_weekday?: string | null;
+  curfew_time_weekend?: string | null;
+  deputy_warden_id?: string | null;
+  metadata?: Record<string, unknown> | null;
+  status?: BlockStatus;
+  total_capacity?: number | null;
+  total_rooms?: number | null;
+  visiting_hours_start?: string | null;
+  visiting_hours_end?: string | null;
+  warden_id?: string | null;
+}
+
+export type UpdateHostelBlockDTO = Partial<CreateHostelBlockDTO>;
+
+export interface BlockFilters {
+  institution_id?: string;
+  hostel_type?: HostelType;
+  status?: BlockStatus;
+  search?: string;
+}
+
+// ─── Hostel Rooms ──────────────────────────────────────────────────────
+// Mirrors `hostel_rooms` table + supabase.ts enums.
+
+export type AcStatus = 'ac' | 'non_ac' | 'cooler';
+
+export type RoomType = 'single' | 'double' | 'triple' | 'quad' | 'dormitory';
+
+export type RoomStatus =
+  | 'available'
+  | 'partially_occupied'
+  | 'full'
+  | 'maintenance'
+  | 'reserved'
+  | 'closed';
+
+export interface HostelRoom {
+  id: string;
+  institution_id: string;
+  block_id: string;
+  room_number: string;
+  floor: number;
+  room_type: RoomType;
+  ac_status: AcStatus;
+  capacity: number;
+  current_occupancy: number | null;
+  annual_fee: number | null;
+  furniture: Record<string, unknown> | null;
+  has_attached_bathroom: boolean | null;
+  is_accessible: boolean | null;
+  last_inspection_date: string | null;
+  maintenance_notes: string | null;
+  metadata: Record<string, unknown> | null;
+  status: RoomStatus;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface CreateHostelRoomDTO {
+  institution_id: string;
+  block_id: string;
+  room_number: string;
+  floor: number;
+  room_type: RoomType;
+  ac_status: AcStatus;
+  capacity: number;
+  annual_fee?: number | null;
+  furniture?: Record<string, unknown> | null;
+  has_attached_bathroom?: boolean | null;
+  is_accessible?: boolean | null;
+  maintenance_notes?: string | null;
+  metadata?: Record<string, unknown> | null;
+  status?: RoomStatus;
+}
+
+export type UpdateHostelRoomDTO = Partial<CreateHostelRoomDTO>;
+
+export interface RoomFilters {
+  institution_id?: string;
+  block_id?: string;
+  floor?: number;
+  room_type?: RoomType;
+  ac_status?: AcStatus;
+  status?: RoomStatus;
+  search?: string;
+}
+
+// ─── Hostel Beds ───────────────────────────────────────────────────────
+// Mirrors `hostel_beds` table + supabase.ts enums.
+
+export type BedType = 'single' | 'bunk_upper' | 'bunk_lower';
+
+export type BedStatus = 'available' | 'occupied' | 'reserved' | 'maintenance';
+
+export interface HostelBed {
+  id: string;
+  institution_id: string;
+  room_id: string;
+  bed_number: string;
+  bed_type: BedType;
+  current_occupant_id: string | null;
+  metadata: Record<string, unknown> | null;
+  status: BedStatus;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface CreateHostelBedDTO {
+  institution_id: string;
+  room_id: string;
+  bed_number: string;
+  bed_type: BedType;
+  current_occupant_id?: string | null;
+  metadata?: Record<string, unknown> | null;
+  status?: BedStatus;
+}
+
+export type UpdateHostelBedDTO = Partial<CreateHostelBedDTO>;
+
+// ─── Hostel Attendance ─────────────────────────────────────────────────
+// Mirrors `hostel_attendance` table + supabase.ts enums.
+
+export type HostelAttendanceStatus =
+  | 'present'
+  | 'absent'
+  | 'on_leave'
+  | 'late_entry'
+  | 'medical';
+
+export type AttendanceMarkingMethod = 'manual' | 'biometric' | 'qr_scan' | 'rfid';
+
+export interface HostelAttendance {
+  id: string;
+  institution_id: string;
+  block_id: string;
+  learner_id: string;
+  date: string;
+  evening_status: HostelAttendanceStatus;
+  morning_status: HostelAttendanceStatus | null;
+  check_in_time: string | null;
+  check_out_time: string | null;
+  is_curfew_violation: boolean | null;
+  late_minutes: number | null;
+  marked_by: string | null;
+  marking_method: AttendanceMarkingMethod | null;
+  remarks: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface CreateHostelAttendanceDTO {
+  institution_id: string;
+  block_id: string;
+  learner_id: string;
+  date: string;
+  evening_status: HostelAttendanceStatus;
+  morning_status?: HostelAttendanceStatus | null;
+  check_in_time?: string | null;
+  check_out_time?: string | null;
+  is_curfew_violation?: boolean | null;
+  late_minutes?: number | null;
+  marked_by?: string | null;
+  marking_method?: AttendanceMarkingMethod | null;
+  remarks?: string | null;
+}
+
+export interface AttendanceFilters {
+  block_id?: string;
+  learner_id?: string;
+  date?: string;
+  date_from?: string;
+  date_to?: string;
+  /** Filters on `evening_status` server-side (service layer convention). */
+  status?: HostelAttendanceStatus;
+  evening_status?: HostelAttendanceStatus;
+  morning_status?: HostelAttendanceStatus;
+  is_curfew_violation?: boolean;
+  search?: string;
+}
+
+// ─── Hostel Gate Passes ────────────────────────────────────────────────
+// Mirrors `hostel_gate_passes` table + supabase.ts enums.
+
+export type GatePassStatus =
+  | 'issued'
+  | 'active'
+  | 'returned'
+  | 'overdue'
+  | 'cancelled';
+
+export type GatePassType =
+  | 'regular_out'
+  | 'overnight'
+  | 'emergency'
+  | 'visitor_accompanied';
+
+export interface HostelGatePass {
+  id: string;
+  institution_id: string;
+  learner_id: string;
+  approved_by: string;
+  pass_number: string;
+  pass_type: GatePassType;
+  destination: string;
+  expected_return: string;
+  actual_return: string | null;
+  out_time: string | null;
+  gate_security_in: string | null;
+  gate_security_out: string | null;
+  leave_request_id: string | null;
+  parent_notified: boolean | null;
+  qr_code: string;
+  status: GatePassStatus;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface CreateHostelGatePassDTO {
+  institution_id: string;
+  learner_id: string;
+  approved_by: string;
+  pass_number: string;
+  pass_type: GatePassType;
+  destination: string;
+  expected_return: string;
+  leave_request_id?: string | null;
+  parent_notified?: boolean | null;
+  qr_code: string;
+  status?: GatePassStatus;
+}
+
+// ─── Hostel Visitors + Known Visitors ──────────────────────────────────
+// Mirrors `hostel_visitors` + `hostel_known_visitors` tables + supabase.ts enums.
+
+export type VisitorStatus = 'checked_in' | 'checked_out' | 'rejected' | 'cancelled';
+
+export type VisitorGender = 'male' | 'female' | 'other';
+
+export type VisitorRelationship =
+  | 'parent'
+  | 'guardian'
+  | 'sibling'
+  | 'relative'
+  | 'friend'
+  | 'other';
+
+export type IdProofType =
+  | 'aadhaar'
+  | 'driving_license'
+  | 'voter_id'
+  | 'passport'
+  | 'college_id';
+
+export type MeetingLocation = 'gate' | 'common_area' | 'room' | 'guest_room';
+
+export interface HostelVisitor {
+  id: string;
+  institution_id: string;
+  block_id: string;
+  learner_id: string;
+  approved_by: string | null;
+  check_in_time: string;
+  check_out_time: string | null;
+  guest_room_id: string | null;
+  id_proof_number: string | null;
+  id_proof_type: IdProofType | null;
+  is_overnight_stay: boolean | null;
+  items_brought: string | null;
+  meeting_location: MeetingLocation;
+  number_of_visitors: number | null;
+  purpose: string;
+  rejection_reason: string | null;
+  status: VisitorStatus;
+  vehicle_number: string | null;
+  visitor_gender: VisitorGender;
+  visitor_name: string;
+  visitor_phone: string;
+  visitor_photo_url: string | null;
+  visitor_relationship: VisitorRelationship;
+  created_at: string | null;
+}
+
+export interface CreateHostelVisitorDTO {
+  institution_id: string;
+  block_id: string;
+  learner_id: string;
+  check_in_time: string;
+  meeting_location: MeetingLocation;
+  purpose: string;
+  visitor_gender: VisitorGender;
+  visitor_name: string;
+  visitor_phone: string;
+  visitor_relationship: VisitorRelationship;
+  approved_by?: string | null;
+  guest_room_id?: string | null;
+  id_proof_number?: string | null;
+  id_proof_type?: IdProofType | null;
+  is_overnight_stay?: boolean | null;
+  items_brought?: string | null;
+  number_of_visitors?: number | null;
+  status?: VisitorStatus;
+  vehicle_number?: string | null;
+  visitor_photo_url?: string | null;
+}
+
+export interface HostelKnownVisitor {
+  id: string;
+  institution_id: string;
+  learner_id: string;
+  visitor_name: string;
+  visitor_phone: string;
+  visitor_gender: VisitorGender;
+  visitor_relationship: VisitorRelationship;
+  id_proof_type: IdProofType | null;
+  id_proof_number: string | null;
+  photo_url: string | null;
+  is_active: boolean | null;
+  last_visit_at: string | null;
+  visit_count: number | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface VisitorFilters {
+  block_id?: string;
+  learner_id?: string;
+  status?: VisitorStatus;
+  date?: string;
+  is_overnight_stay?: boolean;
+  date_from?: string;
+  date_to?: string;
+  search?: string;
+}
+
+// ─── Hostel Incidents ──────────────────────────────────────────────────
+// Mirrors `hostel_incidents` + `hostel_incident_parties` tables + supabase.ts enums.
+
+export type IncidentStatus =
+  | 'reported'
+  | 'under_investigation'
+  | 'action_taken'
+  | 'closed'
+  | 'reopened';
+
+export type IncidentType =
+  | 'ragging'
+  | 'theft'
+  | 'harassment'
+  | 'medical_emergency'
+  | 'fire'
+  | 'natural_disaster'
+  | 'substance_abuse'
+  | 'property_damage'
+  | 'unauthorized_entry'
+  | 'fight'
+  | 'other';
+
+export type IncidentSeverity = 'minor' | 'moderate' | 'major' | 'critical';
+
+export type DisciplinaryAction =
+  | 'warning'
+  | 'fine'
+  | 'suspension'
+  | 'rustication'
+  | 'fir_filed'
+  | 'counseling';
+
+export type IncidentPartyType =
+  | 'involved_student'
+  | 'involved_staff'
+  | 'witness'
+  | 'reporter';
+
+export interface HostelIncident {
+  id: string;
+  institution_id: string;
+  block_id: string;
+  incident_number: string;
+  incident_type: IncidentType;
+  incident_date: string;
+  reported_at: string;
+  reported_by: string;
+  title: string;
+  description: string;
+  location: string;
+  severity: IncidentSeverity;
+  status: IncidentStatus;
+  action_taken: string | null;
+  closed_at: string | null;
+  closed_by: string | null;
+  disciplinary_action: DisciplinaryAction | null;
+  evidence_urls: string[] | null;
+  immediate_action: string | null;
+  investigation_notes: string | null;
+  involved_staff: string[] | null;
+  involved_students: string[] | null;
+  parent_notified: boolean | null;
+  parent_notified_at: string | null;
+  police_complaint_filed: boolean | null;
+  police_complaint_number: string | null;
+  witness_ids: string[] | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface CreateHostelIncidentDTO {
+  institution_id: string;
+  block_id: string;
+  incident_number: string;
+  incident_type: IncidentType;
+  incident_date: string;
+  reported_at: string;
+  reported_by: string;
+  title: string;
+  description: string;
+  location: string;
+  severity: IncidentSeverity;
+  status?: IncidentStatus;
+  evidence_urls?: string[] | null;
+  immediate_action?: string | null;
+  involved_staff?: string[] | null;
+  involved_students?: string[] | null;
+  witness_ids?: string[] | null;
+}
+
+export interface HostelIncidentParty {
+  id: string;
+  institution_id: string;
+  incident_id: string;
+  person_id: string;
+  name: string | null;
+  party_type: IncidentPartyType;
+  statement: string | null;
+  created_at: string | null;
+}
+
+export interface IncidentFilters {
+  block_id?: string;
+  incident_type?: IncidentType;
+  status?: IncidentStatus;
+  severity?: IncidentSeverity;
+  date_from?: string;
+  date_to?: string;
+  search?: string;
+}
+
+// ─── Hostel Inspections ────────────────────────────────────────────────
+// Mirrors `hostel_inspections` table + supabase.ts enums.
+
+export type InspectionType =
+  | 'routine'
+  | 'surprise'
+  | 'fire_safety'
+  | 'hygiene'
+  | 'anti_ragging'
+  | 'cctv_check'
+  | 'health';
+
+export interface HostelInspection {
+  id: string;
+  institution_id: string;
+  block_id: string;
+  inspection_type: InspectionType;
+  inspection_date: string;
+  inspector_id: string;
+  findings: string;
+  follow_up_completed: boolean | null;
+  follow_up_deadline: string | null;
+  follow_up_required: boolean | null;
+  issues_found: Array<Record<string, unknown>> | null;
+  report_url: string | null;
+  rooms_inspected: string[] | null;
+  score: number | null;
+  created_at: string | null;
+}
+
+export interface CreateHostelInspectionDTO {
+  institution_id: string;
+  block_id: string;
+  inspection_type: InspectionType;
+  inspection_date: string;
+  inspector_id: string;
+  findings: string;
+  follow_up_deadline?: string | null;
+  follow_up_required?: boolean | null;
+  issues_found?: Array<Record<string, unknown>> | null;
+  report_url?: string | null;
+  rooms_inspected?: string[] | null;
+  score?: number | null;
+}
+
+// ─── Hostel Maintenance ────────────────────────────────────────────────
+// Mirrors `hostel_maintenance_requests` + `hostel_maintenance_sla_config` tables.
+
+export type MaintenanceCategory =
+  | 'electrical'
+  | 'plumbing'
+  | 'civil'
+  | 'pest_control'
+  | 'cleaning'
+  | 'internet'
+  | 'water_supply'
+  | 'furniture'
+  | 'safety'
+  | 'other';
+
+export type MaintenancePriority = 'critical' | 'high' | 'medium' | 'low';
+
+export type MaintenanceStatus =
+  | 'open'
+  | 'assigned'
+  | 'in_progress'
+  | 'pending_verification'
+  | 'resolved'
+  | 'closed'
+  | 'reopened';
+
+export type SlaStatus = 'on_track' | 'at_risk' | 'breached';
+
+export interface HostelMaintenanceRequest {
+  id: string;
+  institution_id: string;
+  block_id: string;
+  learner_id: string;
+  request_number: string;
+  title: string;
+  description: string;
+  category: MaintenanceCategory;
+  subcategory: string | null;
+  priority: MaintenancePriority;
+  status: MaintenanceStatus;
+  sla_status: SlaStatus | null;
+  sla_deadline: string;
+  sla_hours: number;
+  actual_cost: number | null;
+  assigned_at: string | null;
+  assigned_to_name: string | null;
+  assigned_to_phone: string | null;
+  cost_estimate: number | null;
+  escalation_level: number | null;
+  linked_grievance_id: string | null;
+  photo_urls_after: string[] | null;
+  photo_urls_before: string[] | null;
+  resolution_notes: string | null;
+  resolved_at: string | null;
+  room_id: string | null;
+  student_satisfaction: number | null;
+  vendor_name: string | null;
+  verified_at: string | null;
+  verified_by: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface CreateHostelMaintenanceRequestDTO {
+  institution_id: string;
+  block_id: string;
+  learner_id: string;
+  request_number: string;
+  title: string;
+  description: string;
+  category: MaintenanceCategory;
+  priority: MaintenancePriority;
+  sla_deadline: string;
+  sla_hours: number;
+  subcategory?: string | null;
+  status?: MaintenanceStatus;
+  cost_estimate?: number | null;
+  photo_urls_before?: string[] | null;
+  room_id?: string | null;
+}
+
+export interface HostelMaintenanceSlaConfig {
+  id: string;
+  institution_id: string;
+  category: MaintenanceCategory;
+  priority: MaintenancePriority;
+  sla_hours: number;
+  escalation_after_hours: number | null;
+  escalation_to_role: string | null;
+  is_active: boolean | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface MaintenanceFilters {
+  block_id?: string;
+  learner_id?: string;
+  category?: MaintenanceCategory;
+  priority?: MaintenancePriority;
+  status?: MaintenanceStatus;
+  sla_status?: SlaStatus;
+  search?: string;
+}
+
+// ─── Hostel Alerts ─────────────────────────────────────────────────────
+// Mirrors `hostel_alert_rules` + `hostel_risk_alerts` tables + supabase.ts enums.
+
+export type AlertType =
+  | 'dropout_risk'
+  | 'mental_health'
+  | 'fee_default'
+  | 'caterer_quality'
+  | 'attendance_drop'
+  | 'meal_skip';
+
+export type AlertSeverity = 'info' | 'warning' | 'critical';
+
+export type AlertStatus =
+  | 'active'
+  | 'acknowledged'
+  | 'resolved'
+  | 'dismissed'
+  | 'false_positive';
+
+export interface HostelAlertRule {
+  id: string;
+  institution_id: string;
+  created_by: string;
+  name: string;
+  description: string | null;
+  alert_type: AlertType;
+  severity: AlertSeverity;
+  conditions: Record<string, unknown>;
+  cooldown_hours: number | null;
+  notify_roles: string[];
+  is_active: boolean | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface HostelRiskAlert {
+  id: string;
+  institution_id: string;
+  alert_rule_id: string | null;
+  block_id: string | null;
+  learner_id: string | null;
+  alert_type: AlertType;
+  severity: AlertSeverity;
+  status: AlertStatus;
+  title: string;
+  description: string;
+  acknowledged_at: string | null;
+  acknowledged_by: string | null;
+  resolution_notes: string | null;
+  resolved_at: string | null;
+  resolved_by: string | null;
+  trigger_data: Record<string, unknown> | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+// ─── Hostel Access Log ─────────────────────────────────────────────────
+// Mirrors `hostel_access_log` table + supabase.ts enums.
+
+export type AccessLogDirection = 'entry' | 'exit';
+
+export type AccessLogMethod = 'qr_scan' | 'rfid' | 'biometric' | 'manual' | 'cctv';
+
+export type AccessLogPersonType =
+  | 'student'
+  | 'staff'
+  | 'visitor'
+  | 'delivery'
+  | 'unknown';
+
+export interface HostelAccessLog {
+  id: string;
+  institution_id: string;
+  block_id: string;
+  direction: AccessLogDirection;
+  method: AccessLogMethod;
+  person_type: AccessLogPersonType;
+  person_id: string | null;
+  person_name: string | null;
+  device_id: string | null;
+  flag_reason: string | null;
+  gate_id: string | null;
+  is_flagged: boolean | null;
+  metadata: Record<string, unknown> | null;
+  photo_url: string | null;
+  timestamp: string;
+  created_at: string | null;
+}
+
+// ─── Hostel Waitlist ───────────────────────────────────────────────────
+// Mirrors `hostel_waitlist` table + supabase.ts enums.
+
+export type WaitlistStatus =
+  | 'waiting'
+  | 'offered'
+  | 'accepted'
+  | 'declined'
+  | 'expired'
+  | 'allocated';
+
+export interface HostelWaitlist {
+  id: string;
+  institution_id: string;
+  academic_year_id: string;
+  learner_id: string;
+  status: WaitlistStatus;
+  allocated_allocation_id: string | null;
+  notes: string | null;
+  offer_expires_at: string | null;
+  offered_at: string | null;
+  preferred_ac_status: AcStatus | null;
+  preferred_block_id: string | null;
+  preferred_room_type: RoomType | null;
+  priority_score: number | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+// ─── Hostel Roommate Preferences ───────────────────────────────────────
+// Mirrors `hostel_roommate_preferences` table + supabase.ts enums.
+
+export type CleanlinessLevel = 'very_tidy' | 'moderate' | 'relaxed';
+export type NoiseTolerance = 'needs_silence' | 'moderate' | 'doesnt_mind';
+export type SleepSchedule = 'early_bird' | 'night_owl' | 'flexible';
+export type StudyHabits = 'quiet_studier' | 'group_studier' | 'library_goer';
+export type VisitorFrequency = 'rarely' | 'sometimes' | 'often';
+
+export interface HostelRoommatePreference {
+  id: string;
+  institution_id: string;
+  academic_year_id: string;
+  learner_id: string;
+  avoid_roommates: string[] | null;
+  preferred_roommates: string[] | null;
+  cleanliness_level: CleanlinessLevel | null;
+  is_smoker: boolean | null;
+  language_preference: string | null;
+  noise_tolerance: NoiseTolerance | null;
+  sleep_schedule: SleepSchedule | null;
+  special_requirements: string | null;
+  study_habits: StudyHabits | null;
+  visitor_frequency: VisitorFrequency | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface CreateHostelRoommatePreferenceDTO {
+  institution_id: string;
+  academic_year_id: string;
+  learner_id: string;
+  avoid_roommates?: string[] | null;
+  preferred_roommates?: string[] | null;
+  cleanliness_level?: CleanlinessLevel | null;
+  is_smoker?: boolean | null;
+  language_preference?: string | null;
+  noise_tolerance?: NoiseTolerance | null;
+  sleep_schedule?: SleepSchedule | null;
+  special_requirements?: string | null;
+  study_habits?: StudyHabits | null;
+  visitor_frequency?: VisitorFrequency | null;
+}
+
+// ─── Campus Living Settings ────────────────────────────────────────────
+// Configuration tables surfaced via campus-living-settings.ts.
+// Mirrors `hostel_leave_type_config`, `hostel_fee_config`, `hostel_curfew_exceptions`,
+// `hostel_deposits`.
+
+export type ElectricityCharges = 'included' | 'metered' | 'fixed_monthly';
+
+export interface HostelLeaveTypeConfig {
+  id: string;
+  institution_id: string;
+  leave_type: HostelLeaveType | null;
+  leave_type_id: string | null;
+  advance_notice_hours: number | null;
+  is_active: boolean | null;
+  max_duration_days: number | null;
+  metadata: Record<string, unknown> | null;
+  requires_attachment: boolean | null;
+  requires_chief_warden: boolean | null;
+  requires_parent_consent: boolean | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface HostelFeeConfig {
+  id: string;
+  institution_id: string;
+  academic_year_id: string;
+  ac_status: AcStatus;
+  room_type: RoomType;
+  annual_fee: number;
+  deposit_amount: number;
+  electricity_charges: ElectricityCharges | null;
+  electricity_fixed_amount: number | null;
+  is_active: boolean | null;
+  mess_fee_monthly: number | null;
+  mess_fee_semester: number | null;
+  monthly_fee: number | null;
+  semester_fee: number | null;
+  created_at: string | null;
+}
+
+export type CurfewExceptionType =
+  | 'exam_period'
+  | 'event'
+  | 'medical'
+  | 'permanent'
+  | 'one_time';
+
+export interface HostelCurfewException {
+  id: string;
+  institution_id: string;
+  approved_by: string;
+  block_id: string | null;
+  exception_type: CurfewExceptionType;
+  title: string;
+  description: string | null;
+  applies_to_learner_ids: string[] | null;
+  new_curfew_time: string;
+  start_date: string;
+  end_date: string | null;
+  is_active: boolean | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export type DepositType =
+  | 'hostel_caution'
+  | 'mess_caution'
+  | 'key_deposit'
+  | 'electricity_deposit';
+
+export type DepositStatus =
+  | 'pending'
+  | 'paid'
+  | 'refund_processing'
+  | 'refunded'
+  | 'forfeited';
+
+export interface HostelDeposit {
+  id: string;
+  institution_id: string;
+  allocation_id: string;
+  learner_id: string;
+  amount: number;
+  deposit_type: DepositType;
+  status: DepositStatus;
+  deductions: number | null;
+  deduction_notes: string | null;
+  paid_date: string | null;
+  payment_reference: string | null;
+  refund_amount: number | null;
+  refund_date: string | null;
+  refund_reference: string | null;
+  created_at: string | null;
+}
+
+// ─── Anti-Ragging Affidavits ───────────────────────────────────────────
+// Mirrors `anti_ragging_affidavits` table + supabase.ts enums.
+
+export type AffidavitStatus = 'pending' | 'partial' | 'complete' | 'verified';
+
+export interface AntiRaggingAffidavit {
+  id: string;
+  institution_id: string;
+  academic_year_id: string;
+  learner_id: string;
+  status: AffidavitStatus;
+  parent_affidavit_submitted: boolean | null;
+  parent_affidavit_url: string | null;
+  parent_affidavit_date: string | null;
+  student_affidavit_submitted: boolean | null;
+  student_affidavit_url: string | null;
+  student_affidavit_date: string | null;
+  verified_at: string | null;
+  verified_by: string | null;
+  created_at: string | null;
+}
+
+export interface CreateAntiRaggingAffidavitDTO {
+  institution_id: string;
+  academic_year_id: string;
+  learner_id: string;
+  status?: AffidavitStatus;
+  parent_affidavit_submitted?: boolean | null;
+  parent_affidavit_url?: string | null;
+  parent_affidavit_date?: string | null;
+  student_affidavit_submitted?: boolean | null;
+  student_affidavit_url?: string | null;
+  student_affidavit_date?: string | null;
+}
+
+// ─── Mess Caterers ─────────────────────────────────────────────────────
+// Mirrors `mess_caterers` + `mess_caterer_blocks` tables + supabase.ts enums.
+
+export type CatererStatus = 'active' | 'contract_ended' | 'suspended' | 'blacklisted';
+
+export type BillingModel =
+  | 'fixed_monthly'
+  | 'per_meal'
+  | 'bdmr'
+  | 'semester_advance';
+
+export interface MessCaterer {
+  id: string;
+  institution_id: string;
+  name: string;
+  owner_name: string;
+  phone: string;
+  email: string | null;
+  billing_model: BillingModel;
+  status: CatererStatus;
+  contract_start_date: string;
+  contract_end_date: string;
+  contract_amount_monthly: number | null;
+  bank_details: Record<string, unknown> | null;
+  fssai_expiry_date: string | null;
+  fssai_license_number: string | null;
+  gst_number: string | null;
+  metadata: Record<string, unknown> | null;
+  performance_score: number | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface CreateMessCatererDTO {
+  institution_id: string;
+  name: string;
+  owner_name: string;
+  phone: string;
+  billing_model: BillingModel;
+  contract_start_date: string;
+  contract_end_date: string;
+  email?: string | null;
+  status?: CatererStatus;
+  contract_amount_monthly?: number | null;
+  bank_details?: Record<string, unknown> | null;
+  fssai_expiry_date?: string | null;
+  fssai_license_number?: string | null;
+  gst_number?: string | null;
+  metadata?: Record<string, unknown> | null;
+  performance_score?: number | null;
+}
+
+export type UpdateMessCatererDTO = Partial<CreateMessCatererDTO>;
+
+export interface MessCatererBlock {
+  id: string;
+  institution_id: string;
+  caterer_id: string;
+  block_id: string;
+  start_date: string;
+  end_date: string | null;
+  is_active: boolean | null;
+  created_at: string | null;
+}
+
+// ─── Mess Menus ────────────────────────────────────────────────────────
+// Mirrors `mess_menus` table + supabase.ts enums.
+
+export type MealType = 'breakfast' | 'lunch' | 'snacks' | 'dinner';
+
+export type MenuStatus = 'planned' | 'confirmed' | 'served' | 'cancelled';
+
+export interface MessMenu {
+  id: string;
+  institution_id: string;
+  caterer_id: string;
+  block_id: string | null;
+  day_of_week: number;
+  meal_type: MealType;
+  items: string[];
+  week_start_date: string;
+  dietary_tags: string[] | null;
+  estimated_cost_per_plate: number | null;
+  is_special_day: boolean | null;
+  special_day_name: string | null;
+  special_items: string[] | null;
+  status: MenuStatus;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface CreateMessMenuDTO {
+  institution_id: string;
+  caterer_id: string;
+  day_of_week: number;
+  meal_type: MealType;
+  items: string[];
+  week_start_date: string;
+  block_id?: string | null;
+  dietary_tags?: string[] | null;
+  estimated_cost_per_plate?: number | null;
+  is_special_day?: boolean | null;
+  special_day_name?: string | null;
+  special_items?: string[] | null;
+  status?: MenuStatus;
+}
+
+// ─── Mess Meal Records + Bookings ──────────────────────────────────────
+// Mirrors `mess_meal_records` + `mess_meal_bookings` tables + supabase.ts enums.
+
+export type BookingStatus = 'booked' | 'cancelled' | 'consumed' | 'no_show';
+
+export type ScanMethod = 'qr_code' | 'manual' | 'rfid' | 'biometric';
+
+export interface MessMealRecord {
+  id: string;
+  institution_id: string;
+  learner_id: string;
+  date: string;
+  meal_type: MealType;
+  consumed: boolean | null;
+  feedback_comment: string | null;
+  feedback_rating: number | null;
+  guest_count: number | null;
+  guest_name: string | null;
+  is_guest_meal: boolean | null;
+  menu_id: string | null;
+  scan_method: ScanMethod | null;
+  scan_time: string | null;
+  created_at: string | null;
+}
+
+export interface CreateMessMealRecordDTO {
+  institution_id: string;
+  learner_id: string;
+  date: string;
+  meal_type: MealType;
+  consumed?: boolean | null;
+  feedback_comment?: string | null;
+  feedback_rating?: number | null;
+  guest_count?: number | null;
+  guest_name?: string | null;
+  is_guest_meal?: boolean | null;
+  menu_id?: string | null;
+  scan_method?: ScanMethod | null;
+  scan_time?: string | null;
+}
+
+export interface MessMealBooking {
+  id: string;
+  institution_id: string;
+  learner_id: string;
+  date: string;
+  meal_type: MealType;
+  booking_time: string;
+  status: BookingStatus;
+  cancellation_deadline: string | null;
+  cancellation_time: string | null;
+  is_opt_out: boolean | null;
+  created_at: string | null;
+}
+
+export interface MealRecordFilters {
+  learner_id?: string;
+  date?: string;
+  date_from?: string;
+  date_to?: string;
+  meal_type?: MealType;
+  consumed?: boolean;
+  is_guest_meal?: boolean;
+  search?: string;
+}
+
+// ─── Mess Feedback ─────────────────────────────────────────────────────
+// Mirrors `mess_feedback` table + supabase.ts enums.
+
+export interface MessFeedback {
+  id: string;
+  institution_id: string;
+  caterer_id: string;
+  learner_id: string;
+  date: string;
+  meal_type: MealType;
+  hygiene_rating: number;
+  overall_rating: number;
+  quantity_rating: number;
+  taste_rating: number;
+  variety_rating: number;
+  comments: string | null;
+  complaint_ticket_id: string | null;
+  is_complaint: boolean | null;
+  photo_urls: string[] | null;
+  created_at: string | null;
+}
+
+export interface CreateMessFeedbackDTO {
+  institution_id: string;
+  caterer_id: string;
+  learner_id: string;
+  date: string;
+  meal_type: MealType;
+  hygiene_rating: number;
+  overall_rating: number;
+  quantity_rating: number;
+  taste_rating: number;
+  variety_rating: number;
+  comments?: string | null;
+  is_complaint?: boolean | null;
+  photo_urls?: string[] | null;
+}
+
+// ─── Mess Billing ──────────────────────────────────────────────────────
+// Mirrors `mess_billing_periods` + `mess_student_billing` tables + supabase.ts enums.
+
+export type MessBillingStatus = 'open' | 'closed' | 'billed' | 'paid';
+
+export type PaymentStatus = 'pending' | 'paid' | 'partial' | 'overdue';
+
+export interface MessBillingPeriod {
+  id: string;
+  institution_id: string;
+  caterer_id: string;
+  period_name: string;
+  start_date: string;
+  end_date: string;
+  total_days: number;
+  base_rate_per_day: number | null;
+  status: MessBillingStatus;
+  created_at: string | null;
+}
+
+export interface MessStudentBilling {
+  id: string;
+  institution_id: string;
+  billing_period_id: string;
+  learner_id: string;
+  absent_days: number;
+  present_days: number;
+  total_days: number;
+  extra_meal_charges: number | null;
+  gross_amount: number;
+  net_amount: number;
+  rebate_amount: number | null;
+  rebate_eligible_days: number | null;
+  linked_bill_id: string | null;
+  payment_status: PaymentStatus | null;
+  created_at: string | null;
+}
+
+// ─── Mess Waste Log ────────────────────────────────────────────────────
+// Mirrors `mess_waste_log` table + supabase.ts enums.
+
+export type WasteCategory = 'overproduction' | 'plate_waste' | 'spoilage' | 'other';
+
+export interface MessWasteLog {
+  id: string;
+  institution_id: string;
+  caterer_id: string;
+  logged_by: string;
+  date: string;
+  meal_type: MealType;
+  consumed_quantity_kg: number;
+  prepared_quantity_kg: number;
+  waste_quantity_kg: number;
+  waste_percentage: number;
+  waste_category: WasteCategory | null;
+  actual_headcount: number | null;
+  expected_headcount: number | null;
+  cost_of_waste: number | null;
+  corrective_action: string | null;
+  created_at: string | null;
+}
+
+export interface CreateMessWasteLogDTO {
+  institution_id: string;
+  caterer_id: string;
+  logged_by: string;
+  date: string;
+  meal_type: MealType;
+  consumed_quantity_kg: number;
+  prepared_quantity_kg: number;
+  waste_quantity_kg: number;
+  waste_percentage: number;
+  waste_category?: WasteCategory | null;
+  actual_headcount?: number | null;
+  expected_headcount?: number | null;
+  cost_of_waste?: number | null;
+  corrective_action?: string | null;
 }

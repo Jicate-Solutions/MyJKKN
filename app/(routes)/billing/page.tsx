@@ -10,7 +10,7 @@ const BILLING_LANDING_ORDER: ReadonlyArray<{ perm: string; href: string }> = [
   { perm: 'billing.receipts.view', href: '/billing/receipts' },
   { perm: 'billing.discounts.view', href: '/billing/discounts' },
   { perm: 'billing.refunds.view', href: '/billing/refunds' },
-  { perm: 'billing.categories.view', href: '/billing/categories/parent-categories' },
+  { perm: 'billing.categories.view', href: '/billing/categories' },
   { perm: 'billing.onboarding.view', href: '/billing/onboarding' },
 ];
 

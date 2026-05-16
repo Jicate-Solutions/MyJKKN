@@ -351,6 +351,10 @@ function StuckLeadsTable({
 }: {
   stuckLeads: Array<{
     leadId: string;
+    // Resolved upstream from admission_leads.full_name (preferred), then
+    // first_name + last_name, then `Lead <id-prefix>` as last resort —
+    // see useFunnelAnalyticsDashboard's stuck-leads projection.
+    leadName: string;
     currentStage: string;
     counselorName: string | null;
     daysInStage: number;
@@ -389,9 +393,10 @@ function StuckLeadsTable({
               <Link
                 href={`/admission/leads/${lead.leadId}`}
                 className="flex items-center gap-2 font-medium hover:underline"
+                title={`Lead ID: ${lead.leadId}`}
               >
-                {lead.isHotLead && <Flame className="h-4 w-4 text-orange-500" />}
-                {lead.leadId.slice(0, 8)}...
+                {lead.isHotLead && <Flame className="h-4 w-4 text-orange-500 shrink-0" />}
+                <span className="truncate max-w-[200px]">{lead.leadName}</span>
               </Link>
             </TableCell>
             <TableCell>

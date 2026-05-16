@@ -582,15 +582,334 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
+            "path": "/admin/hr/forms",
+            "label": "Forms",
+            "iconName": "FileText",
+            "children": [
+              {
+                "path": "/admin/hr/forms/submissions",
+                "label": "Submissions",
+                "iconName": "FileText",
+                "children": []
+              }
+            ]
+          },
+          {
+            "path": "/admin/hr/memos",
+            "label": "HR Memos",
+            "iconName": "AlertTriangle",
+            "children": []
+          },
+          {
             "path": "/admin/hr/offboarding",
             "label": "Offboarding Workflow",
             "iconName": "LogOut",
-            "children": []
+            "children": [
+              {
+                "path": "/admin/hr/offboarding/retirements",
+                "label": "Retirements",
+                "iconName": "CalendarClock",
+                "children": []
+              }
+            ]
           },
           {
             "path": "/admin/hr/onboarding-checklists",
             "label": "Onboarding Checklists",
             "iconName": "UserPlus",
+            "children": []
+          },
+          {
+            "path": "/admin/hr/performance-reviews",
+            "label": "Performance Reviews",
+            "iconName": "ClipboardCheck",
+            "children": [
+              {
+                "path": "/admin/hr/performance-reviews/cycles",
+                "label": "Performance Review Cycles",
+                "iconName": "CalendarRange",
+                "children": []
+              }
+            ]
+          },
+          {
+            "path": "/admin/hr/policies",
+            "label": "Policies",
+            "iconName": "BookText",
+            "children": [
+              {
+                "path": "/admin/hr/policies/academic-scope",
+                "label": "Academic Scope",
+                "iconName": "FileText",
+                "children": []
+              },
+              {
+                "path": "/admin/hr/policies/allowances-and-increments",
+                "label": "Allowances & Increments",
+                "iconName": "TrendingUp",
+                "children": []
+              },
+              {
+                "path": "/admin/hr/policies/audit-log",
+                "label": "Audit Log",
+                "iconName": "ClipboardCheck",
+                "children": []
+              },
+              {
+                "path": "/admin/hr/policies/cadres",
+                "label": "Cadres",
+                "iconName": "FileText",
+                "children": []
+              },
+              {
+                "path": "/admin/hr/policies/code-of-conduct",
+                "label": "Code of Conduct",
+                "iconName": "BookOpen",
+                "children": []
+              },
+              {
+                "path": "/admin/hr/policies/disciplinary-action",
+                "label": "Disciplinary Action",
+                "iconName": "Gavel",
+                "children": []
+              },
+              {
+                "path": "/admin/hr/policies/excursion-general",
+                "label": "Excursion General",
+                "iconName": "FileText",
+                "children": []
+              },
+              {
+                "path": "/admin/hr/policies/facilities",
+                "label": "Facilities",
+                "iconName": "FileText",
+                "children": []
+              },
+              {
+                "path": "/admin/hr/policies/feedback-evaluation",
+                "label": "Feedback Evaluation",
+                "iconName": "MessageCircle",
+                "children": []
+              },
+              {
+                "path": "/admin/hr/policies/grievance-cell",
+                "label": "Grievance Cell",
+                "iconName": "ShieldAlert",
+                "children": []
+              },
+              {
+                "path": "/admin/hr/policies/institution-meta",
+                "label": "Institution Meta",
+                "iconName": "FileText",
+                "children": []
+              },
+              {
+                "path": "/admin/hr/policies/joining-and-appointment",
+                "label": "Joining And Appointment",
+                "iconName": "FileText",
+                "children": []
+              },
+              {
+                "path": "/admin/hr/policies/leave",
+                "label": "Leave",
+                "iconName": "CalendarOff",
+                "children": [
+                  {
+                    "path": "/admin/hr/policies/leave/casual",
+                    "label": "Casual",
+                    "iconName": "CalendarOff",
+                    "children": []
+                  },
+                  {
+                    "path": "/admin/hr/policies/leave/compensatory",
+                    "label": "Compensatory",
+                    "iconName": "CalendarOff",
+                    "children": []
+                  },
+                  {
+                    "path": "/admin/hr/policies/leave/half-pay",
+                    "label": "Half Pay",
+                    "iconName": "CalendarOff",
+                    "children": []
+                  },
+                  {
+                    "path": "/admin/hr/policies/leave/holidays-and-lop",
+                    "label": "Holidays And Lop",
+                    "iconName": "CalendarOff",
+                    "children": []
+                  },
+                  {
+                    "path": "/admin/hr/policies/leave/marriage",
+                    "label": "Marriage",
+                    "iconName": "CalendarOff",
+                    "children": []
+                  },
+                  {
+                    "path": "/admin/hr/policies/leave/on-duty",
+                    "label": "On Duty",
+                    "iconName": "CalendarOff",
+                    "children": []
+                  },
+                  {
+                    "path": "/admin/hr/policies/leave/vacation",
+                    "label": "Vacation",
+                    "iconName": "CalendarOff",
+                    "children": []
+                  }
+                ]
+              },
+              {
+                "path": "/admin/hr/policies/memo-termination",
+                "label": "Memo Termination",
+                "iconName": "FileText",
+                "children": []
+              },
+              {
+                "path": "/admin/hr/policies/motivation-fund",
+                "label": "Motivation Fund",
+                "iconName": "Trophy",
+                "children": []
+              },
+              {
+                "path": "/admin/hr/policies/new",
+                "label": "New",
+                "iconName": "Plus",
+                "children": [
+                  {
+                    "path": "/admin/hr/policies/new/data-privacy-it-acceptable-use",
+                    "label": "Data Privacy It Acceptable Use",
+                    "iconName": "FileText",
+                    "children": []
+                  },
+                  {
+                    "path": "/admin/hr/policies/new/genai-usage",
+                    "label": "Genai Usage",
+                    "iconName": "FileText",
+                    "children": []
+                  },
+                  {
+                    "path": "/admin/hr/policies/new/remote-hybrid-work",
+                    "label": "Remote Hybrid Work",
+                    "iconName": "FileText",
+                    "children": []
+                  },
+                  {
+                    "path": "/admin/hr/policies/new/social-media-conduct",
+                    "label": "Social Media Conduct",
+                    "iconName": "FileText",
+                    "children": []
+                  }
+                ]
+              },
+              {
+                "path": "/admin/hr/policies/pay-scales",
+                "label": "Pay Scales",
+                "iconName": "Banknote",
+                "children": []
+              },
+              {
+                "path": "/admin/hr/policies/performance-review",
+                "label": "Performance Review",
+                "iconName": "FileText",
+                "children": []
+              },
+              {
+                "path": "/admin/hr/policies/promotion-policy",
+                "label": "Promotion Policy",
+                "iconName": "TrendingUp",
+                "children": []
+              },
+              {
+                "path": "/admin/hr/policies/promotion-suggestions",
+                "label": "Promotion Suggestions",
+                "iconName": "FileText",
+                "children": []
+              },
+              {
+                "path": "/admin/hr/policies/rd",
+                "label": "Rd",
+                "iconName": "FileText",
+                "children": [
+                  {
+                    "path": "/admin/hr/policies/rd/excursion",
+                    "label": "Excursion",
+                    "iconName": "FileText",
+                    "children": []
+                  },
+                  {
+                    "path": "/admin/hr/policies/rd/incentive-authority",
+                    "label": "Incentive Authority",
+                    "iconName": "FileText",
+                    "children": []
+                  },
+                  {
+                    "path": "/admin/hr/policies/rd/publication-incentives",
+                    "label": "Publication Incentives",
+                    "iconName": "FileText",
+                    "children": []
+                  },
+                  {
+                    "path": "/admin/hr/policies/rd/research-leave",
+                    "label": "Research Leave",
+                    "iconName": "FileText",
+                    "children": []
+                  },
+                  {
+                    "path": "/admin/hr/policies/rd/wfh-rules",
+                    "label": "Wfh Rules",
+                    "iconName": "FileText",
+                    "children": []
+                  }
+                ]
+              },
+              {
+                "path": "/admin/hr/policies/reimbursement-workflow",
+                "label": "Reimbursement Workflow",
+                "iconName": "FileText",
+                "children": []
+              },
+              {
+                "path": "/admin/hr/policies/resignation-workflow",
+                "label": "Resignation Workflow",
+                "iconName": "FileText",
+                "children": []
+              },
+              {
+                "path": "/admin/hr/policies/roles-responsibilities",
+                "label": "Roles Responsibilities",
+                "iconName": "Shield",
+                "children": []
+              },
+              {
+                "path": "/admin/hr/policies/staff-development",
+                "label": "Staff Development",
+                "iconName": "Users",
+                "children": []
+              },
+              {
+                "path": "/admin/hr/policies/teaching-artifacts",
+                "label": "Teaching Artifacts",
+                "iconName": "FileText",
+                "children": []
+              },
+              {
+                "path": "/admin/hr/policies/welfare",
+                "label": "Welfare",
+                "iconName": "FileText",
+                "children": []
+              },
+              {
+                "path": "/admin/hr/policies/working-schedule",
+                "label": "Working Schedule",
+                "iconName": "FileText",
+                "children": []
+              }
+            ]
+          },
+          {
+            "path": "/admin/hr/promotions",
+            "label": "Promotions",
+            "iconName": "FileText",
             "children": []
           },
           {
@@ -610,6 +929,25 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "label": "Shift Templates",
             "iconName": "FileText",
             "children": []
+          },
+          {
+            "path": "/admin/hr/terminations",
+            "label": "Terminations",
+            "iconName": "Gavel",
+            "children": []
+          },
+          {
+            "path": "/admin/hr/training",
+            "label": "Training",
+            "iconName": "Dumbbell",
+            "children": [
+              {
+                "path": "/admin/hr/training/new",
+                "label": "New",
+                "iconName": "Plus",
+                "children": []
+              }
+            ]
           }
         ]
       },
@@ -2655,6 +2993,19 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         ]
       },
       {
+        "path": "/hr/forms",
+        "label": "Forms",
+        "iconName": "FileText",
+        "children": [
+          {
+            "path": "/hr/forms/inbox",
+            "label": "Inbox",
+            "iconName": "Inbox",
+            "children": []
+          }
+        ]
+      },
+      {
         "path": "/hr/leave",
         "label": "Leave",
         "iconName": "CalendarOff",
@@ -2698,6 +3049,25 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         ]
       },
       {
+        "path": "/hr/memos",
+        "label": "Memos",
+        "iconName": "FileText",
+        "children": [
+          {
+            "path": "/hr/memos/my",
+            "label": "My",
+            "iconName": "FileText",
+            "children": []
+          }
+        ]
+      },
+      {
+        "path": "/hr/my-assets",
+        "label": "My Assets",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
         "path": "/hr/offboarding",
         "label": "Offboarding",
         "iconName": "FileText",
@@ -2710,10 +3080,36 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "children": []
       },
       {
+        "path": "/hr/performance-reviews",
+        "label": "Performance Reviews",
+        "iconName": "FileText",
+        "children": [
+          {
+            "path": "/hr/performance-reviews/team",
+            "label": "Team",
+            "iconName": "Users",
+            "children": []
+          }
+        ]
+      },
+      {
         "path": "/hr/policies",
         "label": "Policies",
         "iconName": "BookText",
         "children": []
+      },
+      {
+        "path": "/hr/promotions",
+        "label": "Promotions",
+        "iconName": "FileText",
+        "children": [
+          {
+            "path": "/hr/promotions/apply",
+            "label": "Apply",
+            "iconName": "FileText",
+            "children": []
+          }
+        ]
       },
       {
         "path": "/hr/recruitment",
@@ -2764,6 +3160,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           }
         ]
+      },
+      {
+        "path": "/hr/training",
+        "label": "Training",
+        "iconName": "Dumbbell",
+        "children": []
       }
     ]
   },
@@ -3720,6 +4122,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           }
         ]
+      },
+      {
+        "path": "/resource-management/scan",
+        "label": "Scan",
+        "iconName": "FileText",
+        "children": []
       }
     ]
   },

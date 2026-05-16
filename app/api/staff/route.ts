@@ -7,6 +7,7 @@ import type { NextRequest } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import type { CookieOptions } from '@supabase/ssr';
 import { getStaffScope } from '@/lib/services/staff/staff-scope';
+import { generateSyntheticEmail } from '@/lib/services/staff/synthetic-email';
 
 
 // Create admin client for database operations
@@ -216,6 +217,8 @@ export async function GET(request: NextRequest) {
     const departmentId = searchParams.get('department_id');
     const roleKey = searchParams.get('role_key');
     const isActive = searchParams.get('isActive');
+    // 2026-05-15: 'true' / 'false' filter for view-only staff visibility.
+    const loginEnabledParam = searchParams.get('login_enabled');
     const limit = parseInt(searchParams.get('limit') || '100');
     const page = parseInt(searchParams.get('page') || '1');
 
@@ -293,6 +296,12 @@ export async function GET(request: NextRequest) {
 
     if (isActive !== null) {
       query = query.eq('is_active', isActive === 'true');
+    }
+
+    if (loginEnabledParam === 'true') {
+      query = query.eq('login_enabled', true);
+    } else if (loginEnabledParam === 'false') {
+      query = query.eq('login_enabled', false);
     }
 
     // Apply pagination
@@ -373,10 +382,32 @@ export async function POST(request: Request) {
 
     const json = await request.json();
 
-    // Validate required fields
-    if (!json.first_name || !json.last_name || !json.email) {
+    // 2026-05-15: view-only / labour staff support. When login_enabled=false
+    // and emails are missing/blank, generate deterministic synthetic emails
+    // server-side as defence-in-depth — direct API callers (curl, scripts,
+    // bulk uploads bypassing the client service) get the same auto-generation
+    // behaviour as the client-side StaffService.createStaff.
+    if (json.login_enabled === false) {
+      if (!json.email || String(json.email).trim() === '') {
+        json.email = generateSyntheticEmail('personal', json.staff_id, json.phone);
+      }
+      if (!json.institution_email || String(json.institution_email).trim() === '') {
+        json.institution_email = generateSyntheticEmail('institution', json.staff_id, json.phone);
+      }
+    }
+
+    // Validate required fields. Email is required ONLY for login-enabled
+    // staff (the synthetic-email block above already populated emails for
+    // view-only staff).
+    if (!json.first_name || !json.last_name) {
       return NextResponse.json(
-        { error: 'Missing required fields: first_name, last_name, email' },
+        { error: 'Missing required fields: first_name, last_name' },
+        { status: 400 }
+      );
+    }
+    if (json.login_enabled !== false && !json.email) {
+      return NextResponse.json(
+        { error: 'Email is required for login-enabled staff' },
         { status: 400 }
       );
     }

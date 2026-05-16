@@ -54,6 +54,7 @@ interface ValidationResult {
   valid_role_key: string;
   converted_date_of_birth?: string;
   converted_date_of_joining?: string;
+  login_enabled: boolean;
 }
 
 const validateEmail = (email: string) => {
@@ -298,6 +299,12 @@ const RESERVED_BULK_ROLE_KEYS = new Set([
   'guest'
 ]);
 
+// View-only / labour staff use synthetic emails at this domain. The bulk-upload
+// must reject any user-supplied @nolog.jkkn.local value — those are generated
+// server-side only and accepting them from a spreadsheet would let users forge
+// uniqueness collisions or bypass the OAuth gate.
+const NOLOG_DOMAIN = 'nolog.jkkn.local';
+
 const validateRow = async (
   row: any,
   categoryNames: string[],
@@ -313,7 +320,9 @@ const validateRow = async (
   // Added: 2026-04-14 - look up categories by id to check is_teaching
   categoryTeachingMap: Map<string, boolean>,
   // Added: 2026-04-14 - valid role_keys (from custom_roles)
-  validRoleKeys: Set<string>
+  validRoleKeys: Set<string>,
+  // Added: 2026-05-15 - per-category login default for view-only staff
+  categoryAllowsLoginMap: Map<string, boolean>
 ): Promise<ValidationResult> => {
   const errors: string[] = [];
 
@@ -338,15 +347,22 @@ const validateRow = async (
     }
   }
 
-  if (!row.email) {
-    errors.push('Email is required');
-  } else if (!validateEmail(row.email)) {
+  // Note: loginEnabled is resolved AFTER category resolution below, but the
+  // existing flow validates email BEFORE category. We defer the actual email
+  // required-check until after we know the category, then push errors. For
+  // format-only checks we can do them now since they apply to any non-empty value.
+  if (row.email && !validateEmail(row.email)) {
     errors.push('Invalid email format');
+  }
+  if (row.email && String(row.email).toLowerCase().trim().endsWith(`@${NOLOG_DOMAIN}`)) {
+    errors.push(`Cannot manually provide a @${NOLOG_DOMAIN} email — leave blank for view-only staff`);
   }
 
   if (row.institution_email) {
     row.institution_email = row.institution_email.toLowerCase().trim();
-    if (!validateEmail(row.institution_email)) {
+    if (row.institution_email.endsWith(`@${NOLOG_DOMAIN}`)) {
+      errors.push(`Cannot manually provide a @${NOLOG_DOMAIN} institution email — leave blank for view-only staff`);
+    } else if (!validateEmail(row.institution_email)) {
       errors.push('Invalid institution email format');
     } else if (!row.institution_email.endsWith('@jkkn.ac.in')) {
       errors.push('Institution email must use @jkkn.ac.in domain (e.g., staff@jkkn.ac.in)');
@@ -421,6 +437,29 @@ const validateRow = async (
   const isTeachingRow = valid_category_id
     ? categoryTeachingMap.get(valid_category_id) === true
     : false;
+
+  // Resolve login_enabled: explicit row override → category default → true.
+  // For view-only rows (login_enabled=false) the server generates synthetic
+  // @nolog.jkkn.local emails when the input emails are blank, so we don't
+  // require them here. For login-enabled rows, both emails must be present.
+  // Added: 2026-05-15
+  const categoryAllowsLogin = valid_category_id
+    ? categoryAllowsLoginMap.get(valid_category_id) ?? true
+    : true;
+  const loginEnabledRaw = String(row.login_enabled ?? '').toLowerCase().trim();
+  const loginEnabled =
+    loginEnabledRaw === ''
+      ? categoryAllowsLogin
+      : loginEnabledRaw === 'true' || loginEnabledRaw === '1' || loginEnabledRaw === 'yes';
+
+  if (loginEnabled) {
+    if (!row.email) {
+      errors.push('Email is required for login-enabled staff');
+    }
+    // institution_email stays optional even for login-enabled (existing behaviour):
+    // the service falls back to email when not provided.
+  }
+  // For !loginEnabled, no email is required — synthetic emails are generated server-side.
 
   // Get or validate department — REQUIRED only for teaching categories.
   let valid_department_id = '';
@@ -585,7 +624,8 @@ const validateRow = async (
     valid_category_id,
     valid_role_key,
     converted_date_of_birth,
-    converted_date_of_joining
+    converted_date_of_joining,
+    login_enabled: loginEnabled
   };
 };
 
@@ -656,6 +696,11 @@ export default function BulkUploadStaff() {
       // Added: 2026-04-14 - is_teaching lookup + role_key allow-list
       const categoryTeachingMap = new Map<string, boolean>(
         categoriesResult.data.map((cat) => [cat.id, (cat as any).is_teaching === true])
+      );
+      // Added: 2026-05-15 - per-category login default for view-only staff.
+      // Categories where allows_login=false make new staff default to login_enabled=false.
+      const categoryAllowsLoginMap = new Map<string, boolean>(
+        categoriesResult.data.map((cat) => [cat.id, (cat as any).allows_login !== false])
       );
       const validRoleKeys = new Set<string>(rolesData.map((r) => r.role_key));
 
@@ -739,7 +784,8 @@ export default function BulkUploadStaff() {
             institutionIdMap,
             departmentIdMap,
             categoryTeachingMap,
-            validRoleKeys
+            validRoleKeys,
+            categoryAllowsLoginMap
           );
 
           return {
@@ -764,7 +810,10 @@ export default function BulkUploadStaff() {
             category_name:
               row.category_name || categoryMap.get(row.category_id) || '',
             converted_date_of_birth: validation.converted_date_of_birth,
-            converted_date_of_joining: validation.converted_date_of_joining
+            converted_date_of_joining: validation.converted_date_of_joining,
+            // 2026-05-15: propagate login_enabled so handleUpload can forward
+            // it to the service layer (where synthetic emails are generated).
+            login_enabled: validation.login_enabled
           };
         })
       );
@@ -897,6 +946,12 @@ export default function BulkUploadStaff() {
             return Promise.resolve(); // Skip this row
           }
 
+          // 2026-05-15: for view-only rows, leave email + institution_email
+          // blank so the service generates synthetic @nolog.jkkn.local values
+          // deterministically (re-uploads stay idempotent). For login-enabled
+          // rows, keep the historical fallback (institution_email defaults to
+          // email when not provided).
+          const isViewOnly = row.login_enabled === false;
           const staffData = {
             first_name: row.first_name,
             last_name: row.last_name,
@@ -904,8 +959,10 @@ export default function BulkUploadStaff() {
             date_of_birth: row.converted_date_of_birth || row.date_of_birth,
             marital_status: row.marital_status?.toLowerCase(),
             blood_group: row.blood_group,
-            email: row.email,
-            institution_email: row.institution_email || row.email,
+            email: isViewOnly ? (row.email || undefined) : row.email,
+            institution_email: isViewOnly
+              ? (row.institution_email || undefined)
+              : (row.institution_email || row.email),
             phone: row.phone,
             staff_id: row.staff_id,
             profile_picture: row.profile_picture || '',
@@ -923,7 +980,9 @@ export default function BulkUploadStaff() {
             // StaffService.createStaff, causing every bulk-upload row to fail with
             // "role_key is required" even though the CSV column was valid.
             role_key: row.role_key,
-            is_active: row.is_active === 'false' ? false : true
+            is_active: row.is_active === 'false' ? false : true,
+            // 2026-05-15: per-row override for view-only labour staff
+            login_enabled: row.login_enabled
           };
 
           return StaffService.createStaff(staffData, true) // suppressToast = true for bulk upload

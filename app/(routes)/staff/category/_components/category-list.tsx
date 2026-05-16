@@ -125,6 +125,18 @@ export function CategoryList({
         }
       },
       {
+        accessorKey: 'allows_login',
+        header: 'Login Default',
+        cell: ({ row }) => {
+          const allowsLogin = row.original.allows_login !== false;
+          return allowsLogin ? (
+            <span className='text-xs text-muted-foreground'>—</span>
+          ) : (
+            <Badge variant='outline' className='text-xs'>OFF</Badge>
+          );
+        }
+      },
+      {
         accessorKey: 'created_at',
         header: 'Created',
         cell: ({ row }) => {

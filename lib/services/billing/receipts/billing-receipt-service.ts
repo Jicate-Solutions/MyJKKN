@@ -1196,4 +1196,110 @@ export class BillingReceiptService {
       };
     });
   }
+
+  /**
+   * Count outstanding bills matching the bulk-receipt template filters.
+   *
+   * Uses Supabase's `count: 'exact', head: true` mode so it returns the
+   * count without serializing any rows. Mirrors the filter logic in
+   * getOutstandingBillsForBulk exactly — kept in lock-step so the preview
+   * count in the dialog never drifts from what the actual download would
+   * produce.
+   *
+   * Note: this does NOT apply the 5000-row cap that the download method
+   * uses. The dialog uses the true count to decide whether to show a
+   * "first 5000 only" warning before the user hits Download.
+   */
+  static async countOutstandingBillsForBulk(
+    filters: {
+      institution_id?: string;
+      item_category_id?: string;
+      degree_id?: string;
+      department_id?: string;
+      program_id?: string;
+      semester_id?: string;
+      section_id?: string;
+      academic_year_id?: string;
+      due_date_from?: string;
+      due_date_to?: string;
+    },
+    supabaseClient?: SupabaseClient
+  ): Promise<number> {
+    const client = this.getClient(supabaseClient);
+
+    // Only join learners_profiles when a hierarchy filter ACTUALLY needs it.
+    // Without this conditional, the count query forces a full inner-join
+    // even for "give me the system-wide total" requests, which can blow
+    // past the 15s client deadline on a large bills table for no reason —
+    // every bill has a learner, so the join doesn't filter anything.
+    const needsLearnerJoin = !!(
+      filters.degree_id ||
+      filters.department_id ||
+      filters.program_id ||
+      filters.semester_id ||
+      filters.section_id ||
+      filters.academic_year_id
+    );
+
+    let query = needsLearnerJoin
+      ? client
+          .from('billing_student_bills')
+          .select(
+            `id, student:learners_profiles!inner (id)`,
+            { count: 'exact', head: true }
+          )
+      : client
+          .from('billing_student_bills')
+          .select('id', { count: 'exact', head: true });
+
+    query = query.in('status', ['unpaid', 'partially_paid']);
+
+    if (filters.institution_id) {
+      query = query.eq('institution_id', filters.institution_id);
+    }
+    if (filters.item_category_id) {
+      query = query.eq('item_category_id', filters.item_category_id);
+    }
+    if (filters.due_date_from) {
+      query = query.gte('due_date', filters.due_date_from);
+    }
+    if (filters.due_date_to) {
+      query = query.lte('due_date', filters.due_date_to);
+    }
+    // Hierarchy filters only apply when the join is part of the SELECT.
+    // The `needsLearnerJoin` flag above guarantees that branch.
+    if (needsLearnerJoin) {
+      if (filters.degree_id) {
+        query = query.eq('student.degree_id', filters.degree_id);
+      }
+      if (filters.department_id) {
+        query = query.eq('student.department_id', filters.department_id);
+      }
+      if (filters.program_id) {
+        query = query.eq('student.program_id', filters.program_id);
+      }
+      if (filters.semester_id) {
+        query = query.eq('student.semester_id', filters.semester_id);
+      }
+      if (filters.section_id) {
+        query = query.eq('student.section_id', filters.section_id);
+      }
+      if (filters.academic_year_id) {
+        query = query.eq('student.academic_year_id', filters.academic_year_id);
+      }
+    }
+
+    const { count, error } = await query;
+
+    if (error) {
+      logger.error(
+        'billing/receipts',
+        'countOutstandingBillsForBulk failed',
+        error
+      );
+      throw error;
+    }
+
+    return count ?? 0;
+  }
 }

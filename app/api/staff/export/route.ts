@@ -5,6 +5,7 @@ import { cookies } from 'next/headers';
 import { NextRequest, NextResponse , connection } from 'next/server';
 import ExcelJS from 'exceljs';
 import { parse } from 'json2csv';
+import { displayEmail } from '@/lib/services/staff/synthetic-email';
 
 
 export async function GET(request: NextRequest) {
@@ -164,6 +165,7 @@ export async function GET(request: NextRequest) {
           { header: 'Created By', key: 'created_by', width: 40 },
           { header: 'Updated By', key: 'updated_by', width: 40 },
           { header: 'Institution Email', key: 'institution_email', width: 30 },
+          { header: 'Login Type', key: 'login_type', width: 15 },
 
           // Reference columns (for human readability)
           { header: 'Category Name', key: 'category_name', width: 25 },
@@ -266,6 +268,7 @@ export async function GET(request: NextRequest) {
           'created_by',
           'updated_by',
           'institution_email',
+          'login_type',
           'category_name',
           'institution_name',
           'department_name'
