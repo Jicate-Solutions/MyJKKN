@@ -3,6 +3,7 @@
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
+import { useQueryClient } from '@tanstack/react-query';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
   Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator,
@@ -75,12 +76,13 @@ export default function CandidateDetailPage() {
   const withdraw = useWithdrawCandidate();
   const updateStatus = useUpdateCandidateStatus();
 
-  // ζ FINDING #5 — Onboarding read-side rendering.
+  // ζ FINDING #5 (PR #943) — Onboarding read-side rendering + (this PR, κ) toggle wiring.
   // role_specific_details.onboarding_steps is populated by
-  // /api/hr/recruitment/candidates/[id]/onboarding/start (POST) but had
-  // zero render surface until this PR. Toggle/complete-step API does NOT
-  // exist yet (see TODO inside the section); this PR is read-only.
+  // /api/hr/recruitment/candidates/[id]/onboarding/start (POST).
+  // Editors (super_admin / hr_officer / hr_head / director_jkkn) can now toggle
+  // individual steps via POST /onboarding/complete-step; others see read-only.
   const { profile } = useAuth();
+  const qc = useQueryClient();
   const canEditOnboarding = useMemo(() => {
     if (!profile) return false;
     if (profile.is_super_admin === true) return true;
@@ -92,6 +94,34 @@ export default function CandidateDetailPage() {
         r.role_key === 'director_jkkn'
     );
   }, [profile]);
+  // Index of the step currently being toggled (so we can disable that row only).
+  const [togglingStepIndex, setTogglingStepIndex] = useState<number | null>(null);
+
+  // POST the toggle, then invalidate the candidate cache so the section re-renders.
+  const toggleOnboardingStep = async (stepIndex: number, nextCompleted: boolean) => {
+    setTogglingStepIndex(stepIndex);
+    try {
+      const res = await fetch(
+        `/api/hr/recruitment/candidates/${id}/onboarding/complete-step`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ step_index: stepIndex, completed: nextCompleted }),
+        }
+      );
+      if (!res.ok) {
+        const errBody = await res.json().catch(() => ({}));
+        toast.error(errBody.error || `Failed to update step (HTTP ${res.status})`);
+        return;
+      }
+      toast.success(nextCompleted ? 'Step marked complete' : 'Step reopened');
+      await qc.invalidateQueries({ queryKey: ['hr-recruitment-candidate', id] });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Network error');
+    } finally {
+      setTogglingStepIndex(null);
+    }
+  };
 
   // Salary breakdown is captured as 5 typed number fields (Basic / HRA / DA /
   // Special / Other) instead of a raw JSON textarea. On submit we fold the
@@ -575,42 +605,54 @@ export default function CandidateDetailPage() {
                 </div>
 
                 <ol className="space-y-2">
-                  {steps.map((s) => (
-                    <li
-                      key={s.index}
-                      className={`flex items-start gap-2 text-sm border rounded px-2 py-1.5 ${s.completed ? 'bg-emerald-50/40 dark:bg-emerald-900/10 border-emerald-200 dark:border-emerald-900/40' : ''}`}
-                    >
-                      {s.completed ? (
-                        <CheckCircle2 className="h-4 w-4 mt-0.5 shrink-0 text-emerald-600" aria-label="Completed" />
-                      ) : (
-                        <Circle className="h-4 w-4 mt-0.5 shrink-0 text-muted-foreground" aria-label="Pending" />
-                      )}
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="text-xs text-muted-foreground font-mono">{s.index + 1}.</span>
-                          <span className={s.completed ? 'line-through text-muted-foreground' : ''}>{s.step}</span>
-                        </div>
-                        {s.completed && s.completed_at && (
-                          <p className="text-xs text-muted-foreground mt-0.5">
-                            Completed {new Date(s.completed_at).toLocaleString()}
-                            {s.completed_by && (
-                              <> &middot; <span className="font-mono">{s.completed_by.slice(0, 8)}…</span></>
-                            )}
-                          </p>
+                  {steps.map((s) => {
+                    const isToggling = togglingStepIndex === s.index;
+                    const IconEl = s.completed ? (
+                      <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" aria-label="Completed" />
+                    ) : (
+                      <Circle className="h-4 w-4 shrink-0 text-muted-foreground" aria-label="Pending" />
+                    );
+                    return (
+                      <li
+                        key={s.index}
+                        className={`flex items-start gap-2 text-sm border rounded px-2 py-1.5 ${s.completed ? 'bg-emerald-50/40 dark:bg-emerald-900/10 border-emerald-200 dark:border-emerald-900/40' : ''}`}
+                      >
+                        {canEditOnboarding ? (
+                          <button
+                            type="button"
+                            onClick={() => toggleOnboardingStep(s.index, !s.completed)}
+                            disabled={isToggling}
+                            aria-label={s.completed ? `Mark "${s.step}" pending` : `Mark "${s.step}" complete`}
+                            aria-pressed={s.completed}
+                            className="mt-0.5 shrink-0 rounded-sm hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-1 disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            {IconEl}
+                          </button>
+                        ) : (
+                          <span className="mt-0.5">{IconEl}</span>
                         )}
-                      </div>
-                    </li>
-                  ))}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-xs text-muted-foreground font-mono">{s.index + 1}.</span>
+                            <span className={s.completed ? 'line-through text-muted-foreground' : ''}>{s.step}</span>
+                          </div>
+                          {s.completed && s.completed_at && (
+                            <p className="text-xs text-muted-foreground mt-0.5">
+                              Completed {new Date(s.completed_at).toLocaleString()}
+                              {s.completed_by && (
+                                <> &middot; <span className="font-mono">{s.completed_by.slice(0, 8)}…</span></>
+                              )}
+                            </p>
+                          )}
+                        </div>
+                      </li>
+                    );
+                  })}
                 </ol>
 
-                {/* Scope note — toggle wiring deferred to a follow-up PR.
-                    Reason: a new API route (POST /candidates/[id]/onboarding/complete-step)
-                    is required to mutate role_specific_details.onboarding_steps[N].completed
-                    with audit trail. Multi-file scope; this PR is render-only per ζ FINDING #5. */}
-                {canEditOnboarding && completedCount < steps.length && (
+                {canEditOnboarding && (
                   <p className="text-xs text-muted-foreground mt-3 italic">
-                    Step-completion toggle is coming in a follow-up PR. For now, steps update
-                    only via the onboarding API (POST <code className="text-xs">/onboarding/complete-step</code> — not yet implemented).
+                    Click the circle on the left of any step to toggle its completion.
                   </p>
                 )}
               </CardContent>
