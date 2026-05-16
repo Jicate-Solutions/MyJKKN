@@ -95,6 +95,13 @@ export default function GatePassesPage() {
   const rejectGatePass = useRejectGatePass();
 
   const passes = ((passesRaw as any)?.data ?? []) as any[];
+
+  // First-row learner label powers the "Filtered to learner X" chip when the
+  // page is opened via the residents drawer deep-link (?learner=<id>).
+  const learnerLabel = learnerId
+    ? (passes[0] as any)?.learner?.full_name ?? (passes[0] as any)?.learner?.email ?? learnerId
+    : null;
+
   // When deep-linked from ?learner=<id>, the learner-filtered passes belong on the
   // "All" tab — the Pending tab pulls from a separate institution-wide request hook.
   const pending = learnerId
@@ -203,6 +210,20 @@ export default function GatePassesPage() {
             </Button>
           </div>
         </div>
+
+        {/* Deep-link chip when arrived via ?learner=… from residents drawer */}
+        {learnerId && (
+          <div className="flex items-center gap-2 rounded-md border border-dashed bg-muted/40 px-3 py-2 text-sm">
+            <span className="text-muted-foreground">Filtered to learner:</span>
+            <span className="font-medium">{learnerLabel}</span>
+            <Button variant="ghost" size="sm" className="h-7 px-2 ml-auto" asChild>
+              <Link href="/campus-living/gate-passes">
+                <X className="h-3.5 w-3.5 mr-1" />
+                Clear
+              </Link>
+            </Button>
+          </div>
+        )}
 
         {/* Overdue Alert */}
         {overdueCount > 0 && (
