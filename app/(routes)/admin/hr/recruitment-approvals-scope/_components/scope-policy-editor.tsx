@@ -1,11 +1,16 @@
 'use client';
 
 // Scope Policy Editor — Director's-view UI for HR recruitment-approvals scope.
-// Renders the two platform_policies rows as toggles + per-role selects with
-// English consequences. Never shows raw JSONB.
+// Renders the platform_policies rows as toggles + per-role selects with English
+// consequences. Never shows raw JSONB.
+//
+// Sections:
+//   1. Master toggle — enforce_scoping (visibility per viewer scope)
+//   2. Per-role scope rules
+//   3. Role Enforcement on Approve (2026-05-16) — enforce_role_match + override_roles
 
 import { useEffect, useMemo, useState } from 'react';
-import { ShieldAlert, Info, Save, RefreshCw } from 'lucide-react';
+import { ShieldAlert, Info, Save, RefreshCw, AlertTriangle, X } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Switch } from '@/components/ui/switch';
@@ -23,6 +28,12 @@ import {
   useScopeRulesPolicy,
   useUpdateEnforceScoping,
   useUpdateScopeRules,
+  useEnforceRoleMatchPolicy,
+  useOverrideRolesPolicy,
+  useUpdateEnforceRoleMatch,
+  useUpdateOverrideRoles,
+  useRolesCatalog,
+  useFlowStaffing,
   type ScopeOption,
   type ScopeRules,
 } from '@/hooks/admin/use-hr-approvals-scope-policy';
@@ -347,6 +358,307 @@ export function ScopePolicyEditor() {
           </p>
         )}
       </section>
+
+      {/* ============ ROLE ENFORCEMENT ON APPROVE (2026-05-16) ============ */}
+      <RoleEnforcementSection />
     </div>
+  );
+}
+
+// ===========================================================================
+// Role Enforcement on Approve — separate component to keep the parent compact.
+// ===========================================================================
+
+function RoleEnforcementSection() {
+  const enforceRoleMatchQ = useEnforceRoleMatchPolicy();
+  const overrideRolesQ = useOverrideRolesPolicy();
+  const rolesCatalogQ = useRolesCatalog();
+  const flowStaffingQ = useFlowStaffing();
+  const updateEnforceRoleMatch = useUpdateEnforceRoleMatch();
+  const updateOverrideRoles = useUpdateOverrideRoles();
+
+  // Local draft for override roles (multi-select). Hydrated from server.
+  const [draftOverride, setDraftOverride] = useState<string[]>([]);
+  const [overrideDirty, setOverrideDirty] = useState(false);
+
+  useEffect(() => {
+    if (!overrideRolesQ.data) return;
+    setDraftOverride(overrideRolesQ.data.roles);
+    setOverrideDirty(false);
+  }, [overrideRolesQ.data]);
+
+  const enabled = enforceRoleMatchQ.data?.enabled ?? false;
+  const isLoading =
+    enforceRoleMatchQ.isLoading ||
+    overrideRolesQ.isLoading ||
+    rolesCatalogQ.isLoading;
+
+  const catalog = rolesCatalogQ.data ?? [];
+  const catalogByKey = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const r of catalog) m.set(r.role_key, r.role_name ?? r.role_key);
+    return m;
+  }, [catalog]);
+  const availableRoles = useMemo(
+    () => catalog.filter((r) => !draftOverride.includes(r.role_key)),
+    [catalog, draftOverride]
+  );
+
+  const handleAddOverride = (roleKey: string) => {
+    if (!roleKey || draftOverride.includes(roleKey)) return;
+    setDraftOverride((prev) => [...prev, roleKey]);
+    setOverrideDirty(true);
+  };
+  const handleRemoveOverride = (roleKey: string) => {
+    setDraftOverride((prev) => prev.filter((r) => r !== roleKey));
+    setOverrideDirty(true);
+  };
+  const handleSaveOverride = () => {
+    updateOverrideRoles.mutate(draftOverride, {
+      onSuccess: () => setOverrideDirty(false),
+    });
+  };
+
+  if (isLoading) {
+    return <Skeleton className="h-96 w-full" />;
+  }
+
+  const staffing = flowStaffingQ.data ?? [];
+  const hasZeroStaffedRoles = staffing.some((r) => r.user_count === 0);
+
+  return (
+    <section className="rounded-lg border border-border bg-card p-6 space-y-6">
+      <div>
+        <h2 className="text-lg font-semibold">Role Enforcement on Approve</h2>
+        <p className="text-sm text-muted-foreground mt-1 max-w-3xl">
+          Controls whether the API endpoint{' '}
+          <code className="text-xs bg-muted px-1 py-0.5 rounded">
+            /api/hr/recruitment/candidates/[id]/approve
+          </code>{' '}
+          checks the caller&apos;s role against the approver_role for the current
+          chain step. Independent from the visibility scoping above.
+        </p>
+      </div>
+
+      {/* ---------- Master toggle: enforce_role_match ---------- */}
+      <div className="rounded-md border border-border bg-muted/20 p-5">
+        <div className="flex items-start justify-between gap-6">
+          <div className="flex-1">
+            <h3 className="text-base font-semibold">
+              Restrict the Approve button to the named approver role
+            </h3>
+            <p className="text-sm text-muted-foreground mt-1">
+              Master switch for role-match enforcement on the Approve endpoint.
+            </p>
+            <div className="mt-3 rounded-md bg-background p-3 text-sm border border-border">
+              <strong>Consequence:</strong>{' '}
+              {enabled ? (
+                <span>
+                  Only users whose role matches the current step&apos;s{' '}
+                  <code className="text-xs">approver_role</code> can approve a
+                  candidate. Users in the override list below (and super admins)
+                  can always approve regardless of role.
+                </span>
+              ) : (
+                <span>
+                  Anyone with the <code className="text-xs">hr.recruitment.approve</code>{' '}
+                  permission can approve any chain step regardless of their role.
+                  This is today&apos;s default behaviour.
+                </span>
+              )}
+            </div>
+          </div>
+          <div className="flex-shrink-0 flex flex-col items-end gap-2">
+            <Switch
+              checked={enabled}
+              disabled={updateEnforceRoleMatch.isPending}
+              onCheckedChange={(checked) => updateEnforceRoleMatch.mutate(checked)}
+              aria-label="Toggle enforce_role_match"
+            />
+            <Badge variant={enabled ? 'default' : 'secondary'}>
+              {enabled ? 'ON' : 'OFF'}
+            </Badge>
+          </div>
+        </div>
+        {enforceRoleMatchQ.data?.updatedAt && (
+          <p className="text-xs text-muted-foreground mt-3">
+            Last updated:{' '}
+            {new Date(enforceRoleMatchQ.data.updatedAt).toLocaleString()}
+          </p>
+        )}
+      </div>
+
+      {/* ---------- Override roles (always-allowed) ---------- */}
+      <div className="rounded-md border border-border bg-muted/20 p-5">
+        <div className="flex items-start justify-between gap-4 mb-3">
+          <div>
+            <h3 className="text-base font-semibold">Always-allowed approver roles</h3>
+            <p className="text-sm text-muted-foreground mt-1 max-w-2xl">
+              Members of these roles bypass the role-match check above — useful for
+              admins / break-glass roles. Super admins are always allowed
+              regardless of this list. Changes are staged until you click{' '}
+              <strong>Save override roles</strong>.
+            </p>
+          </div>
+          <Button
+            size="sm"
+            onClick={handleSaveOverride}
+            disabled={!overrideDirty || updateOverrideRoles.isPending}
+          >
+            <Save className="h-4 w-4 mr-2" />
+            {updateOverrideRoles.isPending ? 'Saving…' : 'Save override roles'}
+          </Button>
+        </div>
+
+        <div className="flex flex-wrap gap-2 mb-3 min-h-[2rem]">
+          {draftOverride.length === 0 ? (
+            <span className="text-sm text-muted-foreground italic">
+              No override roles — only super admins bypass the match check.
+            </span>
+          ) : (
+            draftOverride.map((rk) => (
+              <Badge
+                key={rk}
+                variant="secondary"
+                className="flex items-center gap-1 pl-2 pr-1 py-1"
+              >
+                <span>{catalogByKey.get(rk) ?? rk}</span>
+                <span className="text-xs text-muted-foreground">({rk})</span>
+                <button
+                  type="button"
+                  onClick={() => handleRemoveOverride(rk)}
+                  className="ml-1 rounded hover:bg-destructive/20 p-0.5"
+                  aria-label={`Remove ${rk}`}
+                  disabled={updateOverrideRoles.isPending}
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </Badge>
+            ))
+          )}
+        </div>
+
+        <div className="flex items-center gap-2">
+          <Select value="" onValueChange={(v) => handleAddOverride(v)}>
+            <SelectTrigger className="w-80">
+              <SelectValue placeholder="Add a role to the override list…" />
+            </SelectTrigger>
+            <SelectContent>
+              {availableRoles.length === 0 ? (
+                <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                  All catalog roles already in list.
+                </div>
+              ) : (
+                availableRoles.map((r) => (
+                  <SelectItem key={r.role_key} value={r.role_key}>
+                    {r.role_name ?? r.role_key}{' '}
+                    <span className="text-xs text-muted-foreground">
+                      ({r.role_key})
+                    </span>
+                  </SelectItem>
+                ))
+              )}
+            </SelectContent>
+          </Select>
+        </div>
+
+        {overrideRolesQ.data?.updatedAt && (
+          <p className="text-xs text-muted-foreground mt-3">
+            Last updated:{' '}
+            {new Date(overrideRolesQ.data.updatedAt).toLocaleString()}
+          </p>
+        )}
+      </div>
+
+      {/* ---------- Consequence preview: flow approver_roles × user counts ---------- */}
+      <div className="rounded-md border border-border bg-muted/20 p-5">
+        <div className="flex items-center justify-between gap-4 mb-3">
+          <div>
+            <h3 className="text-base font-semibold">
+              Live consequence preview — approver roles in active flows
+            </h3>
+            <p className="text-sm text-muted-foreground mt-1 max-w-2xl">
+              For each <code className="text-xs">approver_role</code> appearing
+              in active recruitment flows, the count of users currently assigned
+              to that role. With enforcement ON, rows with{' '}
+              <strong>0 users</strong> can <em>never</em> have an approver — you
+              must either staff the role, add it to the override list, or rely
+              on a super-admin override.
+            </p>
+          </div>
+        </div>
+
+        {enabled && hasZeroStaffedRoles && (
+          <Alert variant="destructive" className="mb-3">
+            <AlertTriangle className="h-4 w-4" />
+            <AlertTitle>Approver roles with zero users</AlertTitle>
+            <AlertDescription>
+              Enforcement is ON and one or more roles below have no staffed
+              users — candidates currently sitting on those steps cannot be
+              approved without an override or super-admin action.
+            </AlertDescription>
+          </Alert>
+        )}
+
+        <div className="overflow-x-auto rounded-md border border-border bg-card">
+          <table className="w-full text-sm">
+            <thead className="bg-muted/40 text-left text-xs uppercase tracking-wide text-muted-foreground">
+              <tr>
+                <th className="px-4 py-3 font-medium">Approver role</th>
+                <th className="px-4 py-3 font-medium text-right w-32">Flows using it</th>
+                <th className="px-4 py-3 font-medium text-right w-32">Users staffed</th>
+                <th className="px-4 py-3 font-medium w-48">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {staffing.length === 0 ? (
+                <tr>
+                  <td
+                    colSpan={4}
+                    className="px-4 py-6 text-center text-muted-foreground italic"
+                  >
+                    No active recruitment flows configured yet.
+                  </td>
+                </tr>
+              ) : (
+                staffing.map((row) => {
+                  const zero = row.user_count === 0;
+                  return (
+                    <tr
+                      key={row.approver_role}
+                      className={`border-t border-border ${
+                        zero ? 'bg-destructive/5' : ''
+                      }`}
+                    >
+                      <td className="px-4 py-3 font-medium">
+                        {catalogByKey.get(row.approver_role) ?? row.approver_role}
+                        <div className="text-xs text-muted-foreground mt-0.5">
+                          {row.approver_role}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-right">{row.flow_count}</td>
+                      <td
+                        className={`px-4 py-3 text-right font-medium ${
+                          zero ? 'text-destructive' : ''
+                        }`}
+                      >
+                        {row.user_count}
+                      </td>
+                      <td className="px-4 py-3">
+                        {zero ? (
+                          <Badge variant="destructive">No approvers staffed</Badge>
+                        ) : (
+                          <Badge variant="secondary">OK</Badge>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
   );
 }
