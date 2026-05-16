@@ -142,7 +142,21 @@ export default function SubmitCandidatePage() {
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!hrOrgId || !name || !email || !roleCategory || !roleTitle || !cvvizUrl) return;
+
+    // Surface missing required fields to the user instead of silently no-op'ing.
+    // Previous behaviour returned without feedback, leaving the form looking unresponsive
+    // when a controlled <select> value hadn't synced (e.g. CDP-driven flows, autofill races).
+    const missing: string[] = [];
+    if (!hrOrgId) missing.push('HR Organization ID');
+    if (!name) missing.push('Full Name');
+    if (!email) missing.push('Email');
+    if (!roleCategory) missing.push('Role Category');
+    if (!roleTitle) missing.push('Role Title');
+    if (!cvvizUrl) missing.push('CVViz Profile URL');
+    if (missing.length > 0) {
+      toast.error(`Please fill the required field${missing.length > 1 ? 's' : ''}: ${missing.join(', ')}`);
+      return;
+    }
 
     try {
       const result = await mutation.mutateAsync({
