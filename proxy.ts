@@ -151,11 +151,21 @@ export async function proxy(request: NextRequest) {
       }
     );
 
-    // Get and verify user - this sends a request to Supabase Auth server every time
+    // Get and verify user - this sends a request to Supabase Auth server every time.
+    // Mobile networks (LTE handoffs, cell switches, weak signal) routinely produce
+    // a single transient 5xx or network error here. Without a retry, that one
+    // failure logs the user out. Match the profile-fetch retry pattern below
+    // (single retry after 200 ms) — cheap, bounded, eliminates the largest class
+    // of "logged out for no reason" mobile failures.
+    let authResult = await supabase.auth.getUser();
+    if (authResult.error && !authResult.data.user) {
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      authResult = await supabase.auth.getUser();
+    }
     const {
       data: { user },
       error: userError
-    } = await supabase.auth.getUser();
+    } = authResult;
 
     if (userError) {
       // FIXED: Clear stale profile cache on auth error to prevent stuck loading states
