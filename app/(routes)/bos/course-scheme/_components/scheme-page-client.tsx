@@ -1,10 +1,11 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Eye, FileDown, Pencil } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useInstitutionContext } from '@/hooks/use-institution-context';
 import { useBosCourseScheme, useBosSemesters, type SchemeFilters } from '@/hooks/bos/use-bos-course-scheme';
 import { useBosProgramOptions, useBosRegulationOptions } from '@/hooks/bos/use-bos-scheme-options';
 import { InstitutionPicker, type InstitutionOption } from '../../_components/institution-picker';
@@ -16,7 +17,8 @@ import { generateCourseSchemeReportPDF } from '@/lib/utils/internal-marks/intern
 import { getInstitutionHeader } from '@/lib/utils/internal-marks/institution-header';
 
 export function SchemePageClient() {
-  const { canAccess, isSuperAdmin } = usePermissions();
+  const { canAccess, isSuperAdmin, userProfile } = usePermissions();
+  const { data: institutionCtx } = useInstitutionContext();
   const canEdit = isSuperAdmin || canAccess('academic.bos-scheme', 'edit');
 
   const [institutionId, setInstitutionId] = useState<string | undefined>(undefined);
@@ -27,6 +29,30 @@ export function SchemePageClient() {
   const [editMode, setEditMode] = useState(false);
   const [addDialogSemester, setAddDialogSemester] = useState('');
   const [addDialogOpen, setAddDialogOpen] = useState(false);
+
+  // Layer 2 (immediate): set institutionId from userProfile.institution_id so
+  // the page renders right away without waiting for /api/institutions/resolve.
+  // Matches /bos/syllabus → syllabus-data-table.tsx line 52.
+  useEffect(() => {
+    if (isSuperAdmin) return;
+    if (institutionId) return;
+    if (!userProfile?.institution_id) return;
+    setInstitutionId(userProfile.institution_id);
+    setMyjkknInstitutionIds([userProfile.institution_id]);
+  }, [isSuperAdmin, userProfile?.institution_id, institutionId]);
+
+  // Layer 1 (enrichment): once useInstitutionContext resolves, fill in code,
+  // display name, and CAS siblings. Replaces the placeholder values from
+  // Layer 2 when COE returns rich data; no-op otherwise.
+  useEffect(() => {
+    if (isSuperAdmin || !institutionCtx) return;
+    setInstitutionCode(institutionCtx.institution_code);
+    setInstitutionName(institutionCtx.display_name || institutionCtx.name);
+    setMyjkknInstitutionIds(institutionCtx.myjkkn_institution_ids);
+    if (institutionCtx.myjkkn_id && institutionCtx.myjkkn_id !== institutionId) {
+      setInstitutionId(institutionCtx.myjkkn_id);
+    }
+  }, [isSuperAdmin, institutionCtx, institutionId]);
 
   const { data, isLoading } = useBosCourseScheme(filters);
   const { data: semestersData } = useBosSemesters(filters, myjkknInstitutionIds);
@@ -55,6 +81,8 @@ export function SchemePageClient() {
   }, [semestersData]);
 
   // Map semester_code → mappings for quick lookup.
+  // Each semester's courses are sorted by course_mapping.course_order (asc),
+  // with null orders sent to the end so unsequenced rows don't push real ones down.
   const mappingsBySemester = useMemo(() => {
     const map = new Map<string, BosCourseMappingDetailed[]>();
     (data?.data ?? []).forEach((m) => {
@@ -62,6 +90,13 @@ export function SchemePageClient() {
       if (!map.has(key)) map.set(key, []);
       map.get(key)!.push(m);
     });
+    for (const list of map.values()) {
+      list.sort((a, b) => {
+        const ao = a.course_order ?? Number.MAX_SAFE_INTEGER;
+        const bo = b.course_order ?? Number.MAX_SAFE_INTEGER;
+        return ao - bo;
+      });
+    }
     return map;
   }, [data]);
 
@@ -140,7 +175,7 @@ export function SchemePageClient() {
     <div className='space-y-6'>
       <div className='flex items-end justify-between gap-3 flex-wrap'>
         <div className='flex gap-3 flex-wrap items-end'>
-          <div className={isSuperAdmin ? '' : 'hidden'}>
+          {isSuperAdmin && (
             <InstitutionPicker
               value={institutionId}
               showAllOption={isSuperAdmin}
@@ -151,7 +186,7 @@ export function SchemePageClient() {
               }}
               onSelect={handleInstitutionSelect}
             />
-          </div>
+          )}
           {institutionId && (
             <SchemeFiltersBar
               institutionId={institutionId}

@@ -1,9 +1,13 @@
 'use client';
 
-import { useEffect } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useEffect, useMemo } from 'react';
 import { Label } from '@/components/ui/label';
 import { SearchableSelect } from '@/components/ui/searchable-select';
+import {
+  useInstitutionContext,
+  useAllInstitutionContexts,
+  type InstitutionContext,
+} from '@/hooks/use-institution-context';
 
 export interface InstitutionOption {
   id: string;
@@ -15,17 +19,32 @@ export interface InstitutionOption {
 
 const ALL_SENTINEL = '__all__';
 
+function toOption(ctx: InstitutionContext): InstitutionOption {
+  return {
+    id: ctx.myjkkn_id,
+    name: ctx.display_name || ctx.name,
+    institution_code: ctx.institution_code,
+    myjkkn_institution_ids: ctx.myjkkn_institution_ids,
+  };
+}
+
 /**
- * Picks an institution for BoS tabs. Backed by /api/bos/institutions which
- * returns the caller's full list (super-admin) or just their own institution
- * (otherwise). Auto-selects the first option once it loads so non-admins
- * never see an unselected dropdown.
+ * Picks an institution for BoS tabs.
  *
- * showAllOption — when true (super-admin contexts only) prepends an
- * "All Institutions" entry that clears the selection (onChange receives undefined).
+ * Data source: /api/institutions/resolve (cached server-side for 10 min).
+ * Replaces the legacy /api/bos/institutions COE proxy that was prone to
+ * intermittent 404s when the upstream /api/v1/institutions response was
+ * unstable; the new path absorbs that flakiness via the resolver cache.
  *
- * onSelect fires with the full InstitutionOption (id + name + institution_code +
- * myjkkn_institution_ids) so callers can fan out to all related UUIDs (e.g. CAS).
+ * Non-admin (useInstitutionContext): resolves only the caller's own
+ * institution. Auto-selects on load so the dropdown is never empty.
+ *
+ * Super-admin (useAllInstitutionContexts): returns the full deduplicated
+ * list (CAS Aided + SF collapse to one row). When showAllOption=true the
+ * picker prepends an "All Institutions" entry that clears the selection.
+ *
+ * onSelect fires with the full InstitutionOption so callers can fan out
+ * to all related UUIDs (e.g. CAS pair filtering).
  */
 export function InstitutionPicker({
   value,
@@ -38,19 +57,21 @@ export function InstitutionPicker({
   onSelect?: (option: InstitutionOption) => void;
   showAllOption?: boolean;
 }) {
-  const { data: institutions = [], isLoading } = useQuery<InstitutionOption[]>({
-    queryKey: ['bos', 'institutions'],
-    queryFn: async () => {
-      const r = await fetch('/api/bos/institutions');
-      if (!r.ok) throw new Error('Failed to load institutions');
-      return r.json();
-    },
-    staleTime: 5 * 60 * 1000,
-  });
+  const ownCtx = useInstitutionContext();
+  const allCtx = useAllInstitutionContexts();
 
-  // Auto-select the first option for non-admins (single institution) and for
-  // super-admins when showAllOption is false. Skip when showAllOption is true
-  // so super-admins explicitly choose.
+  const institutions = useMemo<InstitutionOption[]>(() => {
+    if (allCtx.data && allCtx.data.length > 0) {
+      return allCtx.data.map(toOption);
+    }
+    if (ownCtx.data) {
+      return [toOption(ownCtx.data)];
+    }
+    return [];
+  }, [allCtx.data, ownCtx.data]);
+
+  const isLoading = ownCtx.isLoading || allCtx.isLoading;
+
   useEffect(() => {
     if (!value && institutions.length > 0 && !showAllOption) {
       onChange(institutions[0].id);

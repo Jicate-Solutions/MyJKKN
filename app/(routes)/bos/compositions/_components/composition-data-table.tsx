@@ -45,7 +45,11 @@ export function CompositionDataTable({ search }: CompositionDataTableProps) {
   // cache (create/update/delete mutations elsewhere in the app). Without this
   // bridge, mutations would only refresh React-Query observers, not this
   // table's internal fetchData state.
-  const refetchKey = useDataTableRefreshOnInvalidate(bosCompositionKeys.all);
+  //
+  // bosCompositionKeys.all takes the user id so the cache slot is scoped to
+  // this caller — see comment on the keys helper for why.
+  const userId = userProfile?.id ?? null;
+  const refetchKey = useDataTableRefreshOnInvalidate(bosCompositionKeys.all(userId));
 
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<{
@@ -146,7 +150,7 @@ export function CompositionDataTable({ search }: CompositionDataTableProps) {
       // Bulk delete bypasses useDeleteBosComposition's invalidation, so fire
       // it manually here. The refetchKey bridge above picks this up and the
       // table re-fetches without a manual page refresh.
-      queryClient.invalidateQueries({ queryKey: bosCompositionKeys.all });
+      queryClient.invalidateQueries({ queryKey: bosCompositionKeys.all(userId) });
     } catch (error) {
       logger.error('academic/bos', 'Error deleting compositions', error);
       toast.error('Failed to delete some compositions');

@@ -18,6 +18,7 @@ export type BosMemberType =
   | 'subject_expert'
   | 'industry_expert'
   | 'alumni'
+  | 'startup'
   | 'hod'
   | 'facilitator'
   | 'principal';
@@ -80,6 +81,7 @@ export const BOS_MEMBER_TYPE_LABELS: Record<BosMemberType, string> = {
   subject_expert: 'Subject Expert',
   industry_expert: 'Industry Expert',
   alumni: 'Alumni',
+  startup: 'Startup',
   hod: 'Head of Department',
   facilitator: 'Facilitator',
   principal: 'Principal',
@@ -247,10 +249,16 @@ export interface BosCourseLearnOutcomesContent {
 
 // ── Course Content: Units & Chapters ───────────────────────────────────
 
+export interface BosChapterSubtopic {
+  number: number;
+  title: string;
+}
+
 export interface BosChapter {
   chapter_number: number;
   title: string;
   sections: string; // "Chapter 1: Sections 13 and 14"
+  subtopics?: BosChapterSubtopic[];
 }
 
 export interface BosUnit {

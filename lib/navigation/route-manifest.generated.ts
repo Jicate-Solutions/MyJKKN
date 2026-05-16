@@ -576,6 +576,18 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "iconName": "FileText",
         "children": [
           {
+            "path": "/admin/hr/automation-rules",
+            "label": "Automation Rules",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/admin/hr/offboarding",
+            "label": "Offboarding Workflow",
+            "iconName": "LogOut",
+            "children": []
+          },
+          {
             "path": "/admin/hr/onboarding-checklists",
             "label": "Onboarding Checklists",
             "iconName": "UserPlus",
@@ -2611,6 +2623,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         ]
       },
       {
+        "path": "/hr/automation",
+        "label": "Automation",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
         "path": "/hr/documents",
         "label": "Documents",
         "iconName": "FileText",
@@ -2678,6 +2696,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           }
         ]
+      },
+      {
+        "path": "/hr/offboarding",
+        "label": "Offboarding",
+        "iconName": "FileText",
+        "children": []
       },
       {
         "path": "/hr/onboarding",

@@ -65,6 +65,35 @@ export function SyllabusPdfDownloadButton({
       const objectivesContent = syllabus.course_objectives as BosCourseObjectivesContent | undefined;
       const outcomesContent = syllabus.course_learning_outcomes as BosCourseLearnOutcomesContent | undefined;
 
+      // Look up course_type and course_level from the courses-master so the
+      // top-left cell can show "Core-I" / "Allied-II" instead of "Course".
+      let coursePartLabel: string | undefined;
+      try {
+        const params = new URLSearchParams({
+          institution_id: syllabus.institutions_id,
+          search: syllabus.course_code,
+          is_active: 'true',
+          limit: '50',
+        });
+        const cmRes = await fetch(`/api/bos/courses-master?${params}`);
+        if (cmRes.ok) {
+          const json = await cmRes.json();
+          const rows = Array.isArray(json) ? json : (json?.data ?? []);
+          const match = rows.find(
+            (c: { course_code?: string }) => c.course_code === syllabus.course_code,
+          );
+          if (match) {
+            const partOrType: string | null = match.course_type ?? match.course_part_master ?? null;
+            const level: string | null = match.course_level ?? null;
+            const composed = match.course_type_code
+              ?? (partOrType && level ? `${partOrType}-${level}` : (partOrType ?? null));
+            if (composed) coursePartLabel = composed;
+          }
+        }
+      } catch {
+        // courses-master lookup failure is non-fatal; cell falls back to "Course".
+      }
+
       generateCourseSyllabusPDF({
         institution_name: header.institution_name,
         institution_address: header.institution_address,
@@ -73,6 +102,7 @@ export function SyllabusPdfDownloadButton({
         rightLogoImage: header.rightLogoImage,
         course_code: syllabus.course_code,
         course_name: syllabus.course_name,
+        course_part: coursePartLabel,
         total_hours: syllabus.total_hours ?? undefined,
         contact_hours: syllabus.contact_hours ?? undefined,
         credits: syllabus.course_credits ?? undefined,

@@ -65,6 +65,7 @@ const EXTERNAL_EXPERT_TYPES: BosMemberType[] = [
   'subject_expert',
   'industry_expert',
   'alumni',
+  'startup',
 ];
 
 function isExternalExpertType(t: BosMemberType): boolean {

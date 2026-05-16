@@ -578,7 +578,9 @@ export function parseSyllabusSheets(sheets: Record<string, SheetRows>): ParsedSy
     const key = normaliseSheetName(sheetName);
     if (/objective/.test(key)) {
       result.course_objectives.objectives = parseObjectivesSheet(rows);
-    } else if (/reference/.test(key)) {
+    } else if (/^references?$/.test(key) || /^referencebooks?$/.test(key)) {
+      // Match only "References" / "Reference" / "Reference Books".
+      // Do NOT match "Reference Codes" (a glossary sheet — not bibliography data).
       result.textbooks.references = parseBooksSheet(rows);
     } else if (/(textbook|^book)/.test(key)) {
       result.textbooks.primary = parseBooksSheet(rows);

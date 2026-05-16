@@ -1,10 +1,11 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useInstitutionContext } from '@/hooks/use-institution-context';
 
 import { InstitutionPicker } from '../../_components/institution-picker';
 import { CoursesFilters, type CoursesFiltersState } from './courses-filters';
@@ -12,12 +13,11 @@ import { CoursesDataTable } from './courses-data-table';
 
 export function CoursesPageClient() {
   const router = useRouter();
-  const { canAccess, isSuperAdmin } = usePermissions();
+  const { canAccess, isSuperAdmin, userProfile } = usePermissions();
+  const { data: institutionCtx } = useInstitutionContext();
 
   const canCreate = isSuperAdmin || canAccess('academic.bos-courses', 'create');
 
-  // Start unset; hidden-but-mounted InstitutionPicker auto-selects the first
-  // institution for non-admins so onSelect always fires to populate institutionCode.
   const [institutionId, setInstitutionId] = useState<string | undefined>(undefined);
   const [institutionCode, setInstitutionCode] = useState('');
   const [institutionName, setInstitutionName] = useState('');
@@ -29,13 +29,36 @@ export function CoursesPageClient() {
     is_active: 'true',
   });
 
+  // Layer 2 (immediate): set institutionId from userProfile.institution_id so
+  // the page renders right away without waiting for /api/institutions/resolve.
+  // Matches /bos/syllabus → syllabus-data-table.tsx line 52.
+  useEffect(() => {
+    if (isSuperAdmin) return;
+    if (institutionId) return;
+    if (!userProfile?.institution_id) return;
+    setInstitutionId(userProfile.institution_id);
+    setMyjkknInstitutionIds([userProfile.institution_id]);
+  }, [isSuperAdmin, userProfile?.institution_id, institutionId]);
+
+  // Layer 1 (enrichment): once useInstitutionContext resolves, fill in code,
+  // display name, and CAS siblings. Replaces the placeholder values from
+  // Layer 2. No-op if COE is unreachable and the resolver fallback returns
+  // a context with only counselling_code = institution_code populated.
+  useEffect(() => {
+    if (isSuperAdmin || !institutionCtx) return;
+    setInstitutionCode(institutionCtx.institution_code);
+    setInstitutionName(institutionCtx.display_name || institutionCtx.name);
+    setMyjkknInstitutionIds(institutionCtx.myjkkn_institution_ids);
+    if (institutionCtx.myjkkn_id && institutionCtx.myjkkn_id !== institutionId) {
+      setInstitutionId(institutionCtx.myjkkn_id);
+    }
+  }, [isSuperAdmin, institutionCtx, institutionId]);
+
   return (
     <div className='space-y-6'>
       <div className='flex items-end justify-between gap-4 flex-wrap'>
         <div className='flex gap-3 flex-wrap items-end'>
-          {/* Super-admins: visible picker with "All Institutions" default.
-              Non-admins: hidden but mounted so onSelect fires for auto-selection. */}
-          <div className={isSuperAdmin ? '' : 'hidden'}>
+          {isSuperAdmin && (
             <InstitutionPicker
               value={institutionId}
               onChange={(id) => {
@@ -53,7 +76,7 @@ export function CoursesPageClient() {
               }}
               showAllOption={isSuperAdmin}
             />
-          </div>
+          )}
           <CoursesFilters
             value={filters}
             onChange={setFilters}

@@ -75,12 +75,52 @@ function span(content: string, colSpan: number, extra: AnyCell = {}): AnyCell {
 	return { content, colSpan, styles: extra }
 }
 
+// ── Mixed-style line wrap (bold prefix + regular rest) ─────────────────────────
+// Splits `rest` into lines that fit in `maxWidth`. The first line has its
+// available width reduced by the bold prefix's measured width; subsequent
+// lines use the full width. The returned array stores complete display lines
+// (line 0 already has the prefix prepended).
+function wrapBoldPrefixRest(
+	doc: jsPDF,
+	prefix: string,
+	rest: string,
+	maxWidth: number,
+): string[] {
+	doc.setFontSize(FONT_SIZE)
+	doc.setFont('times', 'bold')
+	const prefixW = doc.getTextWidth(prefix)
+	doc.setFont('times', 'normal')
+
+	const tokens = rest.split(/(\s+)/).filter(t => t.length > 0)
+	const lines: string[] = []
+	let cur = ''
+	let curMax = Math.max(0, maxWidth - prefixW)
+
+	for (const tok of tokens) {
+		const candidate = cur + tok
+		if (doc.getTextWidth(candidate) <= curMax || cur.trim().length === 0) {
+			cur = candidate
+		} else {
+			lines.push(cur.replace(/\s+$/, ''))
+			cur = /^\s+$/.test(tok) ? '' : tok
+			curMax = maxWidth
+		}
+	}
+	if (cur.trim()) lines.push(cur.replace(/\s+$/, ''))
+	if (lines.length === 0) lines.push('')
+
+	lines[0] = prefix + lines[0]
+	return lines
+}
+
 // ── Book formatter ────────────────────────────────────────────────────────────
+// Returns the book reference without any list marker; the caller is responsible
+// for prefixing "1.", "2.", … so numbering stays continuous across the list.
 function fmtBook(b: BosTextbook): string {
 	const parts = [b.author, b.title, b.publisher, b.publication_year ? String(b.publication_year) : '']
 		.filter(Boolean)
 		.map(sanitize)
-	return `• ${parts.join(', ')}.`
+	return `${parts.join(', ')}.`
 }
 
 // ── Unicode → WinAnsi sanitizer ───────────────────────────────────────────────
@@ -302,30 +342,155 @@ export function generateCourseSyllabusPDF(data: CourseSyllabusPDFData): string {
 	}
 
 	// ── SECTION 5: Course Content ─────────────────────────────────────────────
-	// Format: {unit_title}: {topic1} - {topic2} - {topic3} ...
-	//         {section reference(s)}
+	// Each chapter is rendered as a single inline paragraph cell:
+	//   **{Chapter Title}:** {sub1}, {sub2}, ….
+	// The bold title prefix and regular subtopic tail live in one cell — we
+	// pre-wrap lines accounting for the bold prefix width, then redraw the
+	// mixed-style text in `didDrawCell` since autoTable supports only one
+	// font style per cell. The `Unit-{id}` label rowSpans across all rows
+	// produced by the unit (chapters, optional unit_title, section refs).
 	if (data.units && data.units.length > 0) {
-		const rows: object[][] = [
+		const contentColW = TABLE_W - LABEL_W
+		const contentMaxTextW = contentColW - 4 // cellPadding (2) on each side
+
+		const rows: AnyCell[][] = [
 			[cell(''), bold('Course content', { halign: 'center' })],
 		]
+
 		for (const unit of data.units) {
-			const chapterTitles = unit.chapters.map(ch => ch.title).filter(Boolean)
-			const topicText = unit.unit_title && chapterTitles.length > 0
-				? `${sanitize(unit.unit_title)}: ${chapterTitles.map(sanitize).join(' - ')}`
-				: sanitize(unit.unit_title || chapterTitles.join(' - '))
+			const unitTitle = sanitize(unit.unit_title || '').trim()
 
-			const sectionRefs = [...new Set(unit.chapters.map(ch => ch.sections).filter(Boolean))].map(sanitize).join('\n')
-			const fullContent = sectionRefs ? `${topicText}\n${sectionRefs}` : topicText
+			const chapterEntries = unit.chapters
+				.map(ch => {
+					const title = sanitize(ch.title || '').trim()
+					const subs = (ch.subtopics ?? [])
+						.map(s => sanitize(s.title || '').trim().replace(/[,;]+$/, ''))
+						.filter(Boolean)
+					return { title, subs }
+				})
+				.filter(c => c.title || c.subs.length > 0)
 
-			rows.push([
-				bold(`Unit-${unit.unit_id}`),
-				cell(fullContent),
-			])
+			const sectionRefs = [...new Set(unit.chapters.map(ch => ch.sections).filter(Boolean))]
+				.map(sanitize)
+				.join('\n')
+
+			const contentCells: AnyCell[] = []
+			if (unitTitle) contentCells.push(bold(unitTitle))
+
+			for (const ch of chapterEntries) {
+				const subsText = ch.subs.length > 0 ? `${ch.subs.join(', ')}.` : ''
+				// Strip trailing colon/whitespace from the user-entered title — we
+				// always append our own ": " separator, so a stored "Database
+				// Concepts:" would otherwise render as "Database Concepts:: ".
+				const cleanTitle = ch.title.replace(/[:\s]+$/, '')
+				if (cleanTitle && subsText) {
+					const prefix = `${cleanTitle}: `
+					const lines = wrapBoldPrefixRest(doc, prefix, subsText, contentMaxTextW)
+					// autoTable measures cell height from `\n`-joined content; we
+					// hide its default text in willDrawCell and redraw in didDrawCell.
+					contentCells.push({
+						content: lines.join('\n'),
+						_bosMixed: { prefix, lines },
+					})
+				} else if (cleanTitle) {
+					contentCells.push(bold(cleanTitle))
+				} else if (subsText) {
+					contentCells.push(cell(subsText))
+				}
+			}
+
+			if (sectionRefs) contentCells.push(cell(sectionRefs))
+			if (contentCells.length === 0) contentCells.push(cell(''))
+
+			contentCells.forEach((contentCell, idx) => {
+				if (idx === 0) {
+					rows.push([
+						{ content: `Unit-${unit.unit_id}`, rowSpan: contentCells.length, styles: { fontStyle: 'bold' } },
+						contentCell,
+					])
+				} else {
+					rows.push([contentCell])
+				}
+			})
 		}
-		y = table(doc, y, rows, {
-			0: { cellWidth: LABEL_W },
-			1: { cellWidth: TABLE_W - LABEL_W },
+
+		autoTable(doc, {
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
+			body: rows as any,
+			startY: y,
+			margin: { left: MARGIN, right: MARGIN },
+			tableWidth: TABLE_W,
+			theme: 'grid',
+			// Move an entire row to the next page if it won't fit, instead of
+			// splitting a single row across pages. Our custom didDrawCell redraws
+			// all lines from cell.y, so a split row would render twice (once at
+			// the bottom of page N and again at the top of page N+1).
+			rowPageBreak: 'avoid',
+			styles: {
+				font: 'times',
+				fontSize: FONT_SIZE,
+				cellPadding: 2,
+				lineColor: [0, 0, 0] as [number, number, number],
+				lineWidth: 0.3,
+				textColor: [0, 0, 0] as [number, number, number],
+				valign: 'top',
+				overflow: 'linebreak',
+				halign: 'justify',
+			},
+			columnStyles: {
+				0: { cellWidth: LABEL_W },
+				1: { cellWidth: contentColW },
+			},
+			willDrawCell: data => {
+				// eslint-disable-next-line @typescript-eslint/no-explicit-any
+				const raw = data.cell.raw as any
+				if (raw && raw._bosMixed) {
+					// Suppress autoTable's regular-font text draw; we render it ourselves.
+					data.cell.text = []
+				}
+			},
+			didDrawCell: data => {
+				// eslint-disable-next-line @typescript-eslint/no-explicit-any
+				const raw = data.cell.raw as any
+				if (!raw || !raw._bosMixed) return
+
+				const { prefix, lines } = raw._bosMixed as { prefix: string; lines: string[] }
+				const padding = 2
+				const xText = data.cell.x + padding
+
+				doc.setFontSize(FONT_SIZE)
+				doc.setTextColor(0, 0, 0)
+
+				// Match autoTable's line metrics: jsPDF default lineHeightFactor = 1.15.
+				const fontSizeMM = (FONT_SIZE * 25.4) / 72
+				const lineHeight = fontSizeMM * 1.15
+				let yLine = data.cell.y + padding
+
+				for (let i = 0; i < lines.length; i++) {
+					const line = lines[i]
+					if (i === 0 && line.startsWith(prefix)) {
+						doc.setFont('times', 'bold')
+						doc.text(prefix, xText, yLine, { baseline: 'top' })
+						const w = doc.getTextWidth(prefix)
+						doc.setFont('times', 'normal')
+						doc.text(line.slice(prefix.length), xText + w, yLine, { baseline: 'top' })
+					} else {
+						doc.setFont('times', 'normal')
+						doc.text(line, xText, yLine, { baseline: 'top' })
+					}
+					yLine += lineHeight
+				}
+			},
+			didDrawPage: ({ pageNumber }) => {
+				doc.setFont('times', 'normal')
+				doc.setFontSize(7)
+				doc.setTextColor(128, 128, 128)
+				doc.text(new Date().toLocaleString('en-IN'), MARGIN, A4_H - 6)
+				doc.text(`Page ${pageNumber}`, A4_W - MARGIN, A4_H - 6, { align: 'right' })
+				doc.setTextColor(0, 0, 0)
+			},
 		})
+		y = lastY(doc)
 	}
 
 	// ── SECTION 6: Text Books / References / Web / Pedagogy ──────────────────
@@ -334,17 +499,25 @@ export function generateCourseSyllabusPDF(data: CourseSyllabusPDFData): string {
 	if (data.textbooks && data.textbooks.length > 0) {
 		metaRows.push([
 			bold('Text Books', { valign: 'top' }),
-			cell(data.textbooks.map(fmtBook).join('\n'), { halign: 'left' }),
+			cell(
+				data.textbooks.map((b, i) => `${i + 1}. ${fmtBook(b)}`).join('\n'),
+				{ halign: 'left' },
+			),
 		])
 	}
 	if (data.references && data.references.length > 0) {
 		metaRows.push([
 			bold('Reference\nBooks', { valign: 'top' }),
-			cell(data.references.map(fmtBook).join('\n'), { halign: 'left' }),
+			cell(
+				data.references.map((b, i) => `${i + 1}. ${fmtBook(b)}`).join('\n'),
+				{ halign: 'left' },
+			),
 		])
 	}
 	if (data.web_resources && data.web_resources.length > 0) {
-		const lines = data.web_resources.map(r => sanitize(r.url || r.title || '')).join('\n')
+		const lines = data.web_resources
+			.map((r, i) => `${i + 1}. ${sanitize(r.url || r.title || '')}`)
+			.join('\n')
 		metaRows.push([
 			bold('Web\nResources', { valign: 'top' }),
 			cell(lines, { halign: 'left' }),
@@ -365,8 +538,8 @@ export function generateCourseSyllabusPDF(data: CourseSyllabusPDFData): string {
 	// ── SECTION 7: Signature row (bottom of document) ────────────────────────
 	y = table(doc, y, [
 		[
-			bold('Course Designer\n(Name & Signature)', { halign: 'center', minCellHeight: 30, valign: 'bottom' }),
-			bold('Verified by BoS Chairman', { halign: 'center', minCellHeight: 30, valign: 'bottom' }),
+			bold('Course Designer\nName:\nDesignation:', { halign: 'left', minCellHeight: 30, valign: 'top' }),
+			bold('Verified by BoS Chairman', { halign: 'center', minCellHeight: 30, valign: 'top' }),
 		],
 	], {
 		0: { cellWidth: TABLE_W / 2 },

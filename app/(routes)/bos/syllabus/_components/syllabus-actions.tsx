@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Upload, FileSpreadsheet, Loader2, Plus } from 'lucide-react';
 import { toast } from 'sonner';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useBosBoardScope } from '@/hooks/bos/use-bos-board-scope';
 
 // Key used to hand off parsed XLSX data from the list page to the
 // new-syllabus form. The form checks sessionStorage on mount and prefills.
@@ -25,9 +26,18 @@ export function SyllabusActions() {
   const router = useRouter();
   const fileRef = useRef<HTMLInputElement>(null);
   const [isImporting, setIsImporting] = useState(false);
-  const { canAccess, isSuperAdmin } = usePermissions();
+  const { isSuperAdmin } = usePermissions();
+  const boardScope = useBosBoardScope();
 
-  const canCreate = isSuperAdmin || canAccess('academic.bos-syllabus', 'create');
+  // Board membership IS the authorization for BoS write actions — being added
+  // to a composition is precisely how a faculty member gets the right to create
+  // syllabi. We deliberately do NOT require canAccess('academic.bos-syllabus',
+  // 'create') here because the role-permission grants drift out of sync with
+  // board membership in this codebase (faculty members who clearly belong to a
+  // board sometimes lack the perm key in the DB). Mirrors `canWriteCompositionData`
+  // in hooks/bos/use-bos-board-scope.ts. Server still enforces via guardInstitutionWrite.
+  const isBoardMember = !boardScope.isLoading && boardScope.memberOf.size > 0;
+  const canCreate = isSuperAdmin || isBoardMember;
 
   const handleDownloadTemplate = async () => {
     const tid = toast.loading('Preparing template…');

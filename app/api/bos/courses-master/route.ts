@@ -174,6 +174,12 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(institutionFiltered);
   } catch (error) {
     if (error instanceof CoeApiError) {
+      console.error('[bos/courses-master] COE call failed', {
+        status: error.status,
+        message: error.message,
+        coeBaseUrl: process.env.COE_API_URL,
+        requestUrl: request.url,
+      });
       return NextResponse.json({ error: error.message }, { status: error.status });
     }
     console.error('[bos/courses-master] GET error:', error);

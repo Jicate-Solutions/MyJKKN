@@ -2,6 +2,7 @@
 
 import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { useAuth } from '@/hooks/use-auth';
 
 // Wire shape for the JSON returned by /api/bos/scope. Arrays at the boundary
 // are widened back to Sets in the hook return for O(1) `.has()` checks.
@@ -37,7 +38,16 @@ export interface BosBoardScopeClient {
   isLoading: boolean;
 }
 
-export const bosBoardScopeKey = ['bos-board-scope'] as const;
+/**
+ * Builds the React Query cache key. MUST include the authenticated user.id
+ * so a new session doesn't read the previous user's cached scope — without
+ * this, switching accounts (or login-out/login-in) briefly showed the prior
+ * user's compositions until staleTime expired or a full page refresh wiped
+ * the cache. Root cause: providers/query-client-provider.tsx exposes a
+ * module-level singleton QueryClient that survives session changes.
+ */
+export const bosBoardScopeKey = (userId: string | null | undefined) =>
+  ['bos-board-scope', userId ?? 'anonymous'] as const;
 
 async function fetchBosBoardScope(): Promise<BosBoardScopeWire> {
   const res = await fetch('/api/bos/scope', { cache: 'no-store' });
@@ -70,9 +80,13 @@ const EMPTY_SCOPE: BosBoardScopeClient = {
  * permission-gated UI defaults to hidden — fail-closed.
  */
 export function useBosBoardScope(): BosBoardScopeClient {
+  const { profile } = useAuth();
+  const userId = profile?.id ?? null;
+
   const { data, isLoading } = useQuery({
-    queryKey: bosBoardScopeKey,
+    queryKey: bosBoardScopeKey(userId),
     queryFn: fetchBosBoardScope,
+    enabled: !!userId,
     staleTime: 5 * 60 * 1000,
     refetchOnWindowFocus: false,
   });

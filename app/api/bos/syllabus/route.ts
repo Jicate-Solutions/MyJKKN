@@ -68,25 +68,28 @@ export async function GET(request: NextRequest) {
     const sortBy = searchParams.get('sortBy') || 'course_code';
     const sortOrder = (searchParams.get('sortOrder') || 'asc') as 'asc' | 'desc';
 
-    // Step 4: Apply institution scope
+    // Step 4: Apply institution scope.
+    // Super-admin with no institutionsId = "All institutions" cross-institution view — allowed.
+    // Non-admin without an institution association = still rejected (403).
     const scopedInstitutionsId = applyInstitutionScope(scope, institutionsId);
 
-    if (!scopedInstitutionsId) {
+    if (!scopedInstitutionsId && !scope.isSuperAdmin) {
       return NextResponse.json(
         {
-          error: scope.isSuperAdmin
-            ? 'No institution specified for access'
-            : 'Your account is not associated with an institution. Contact your administrator to assign an institution to your profile.'
+          error: 'Your account is not associated with an institution. Contact your administrator to assign an institution to your profile.'
         },
         { status: 403 }
       );
     }
 
     // Step 5: Build query — CAS-aware: use allInstitutionIds (Aided + Self) when available.
-    // Super-admin has allInstitutionIds=[] so falls back to single scopedInstitutionsId.
+    // Super-admin has allInstitutionIds=[] and may omit institutionsId → no institution filter
+    // (fan-out across every institution). Single scopedInstitutionsId is used otherwise.
     const filterIds: string[] = scope.allInstitutionIds.length > 0
       ? scope.allInstitutionIds
-      : [scopedInstitutionsId];
+      : scopedInstitutionsId
+        ? [scopedInstitutionsId]
+        : [];
 
     let query = supabase
       .from('bos_course_syllabi')
@@ -94,9 +97,10 @@ export async function GET(request: NextRequest) {
 
     if (filterIds.length > 1) {
       query = query.in('institutions_id', filterIds);
-    } else {
+    } else if (filterIds.length === 1) {
       query = query.eq('institutions_id', filterIds[0]);
     }
+    // filterIds.length === 0 → super-admin "All institutions" — no institution filter
 
     // Board-membership scope (after the institution filter).
     //  - 'all'           : super-admin — no extra filter

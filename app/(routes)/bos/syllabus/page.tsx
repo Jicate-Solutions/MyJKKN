@@ -1,5 +1,5 @@
 import { Card, CardContent } from '@/components/ui/card';
-import { PermissionGuard } from '@/components/auth/permission-guard';
+import { BosViewGuard } from '@/components/auth/bos-view-guard';
 import { SyllabusDataTable } from './_components/syllabus-data-table';
 import { SyllabusFiltersClient } from './_components/syllabus-filters-client';
 import { SyllabusActions } from './_components/syllabus-actions';
@@ -14,7 +14,7 @@ export default async function SyllabusPage({ searchParams }: SyllabusPageProps) 
   const search = syllabusSearchParamsSchema.parse(params);
 
   return (
-    <PermissionGuard module='academic.bos-syllabus' action='view'>
+    <BosViewGuard module='academic.bos-syllabus'>
       <Card>
         <CardContent className='p-6'>
           <div className='space-y-6'>
@@ -32,6 +32,6 @@ export default async function SyllabusPage({ searchParams }: SyllabusPageProps) 
           </div>
         </CardContent>
       </Card>
-    </PermissionGuard>
+    </BosViewGuard>
   );
 }

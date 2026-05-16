@@ -5,6 +5,7 @@ import {
   resolveBosBoardScope,
   guardInstitutionWrite,
   guardSyllabusEdit,
+  readableInstitutionIds,
 } from '@/lib/utils/bos/bos-access';
 import { BosCourseSyllabus, UpdateBosSyllabusDto } from '@/types/bos';
 

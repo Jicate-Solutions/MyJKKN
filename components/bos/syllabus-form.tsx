@@ -596,86 +596,88 @@ export function SyllabusForm({
 
         {/* Basic Information */}
         <TabsContent value="basic" className="space-y-4">
-          {/* ── Import from Document ───────────────────────────────────── */}
-          <Card className="border-dashed border-primary/30 bg-primary/5">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base flex items-center gap-2">
-                <Upload className="h-4 w-4" />
-                Import from Document
-              </CardTitle>
-              <CardDescription>
-                Upload a syllabus PDF, Word, or Excel file to auto-fill Objectives,
-                COs, Content, Resources, Pedagogy, and PO Mappings. Basic Info
-                fields stay manual. Existing entries are preserved (non-destructive).
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="flex items-center gap-3">
-                <input
-                  ref={importInputRef}
-                  type="file"
-                  accept=".pdf,.docx,.xlsx,.xls"
-                  onChange={handleImportFile}
-                  disabled={isImporting}
-                  className="hidden"
-                  id="syllabus-import-input"
-                />
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => importInputRef.current?.click()}
-                  disabled={isImporting}
-                  className="gap-2"
-                >
-                  {isImporting ? (
-                    <>
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      Extracting…
-                    </>
-                  ) : (
-                    <>
-                      <FileText className="h-4 w-4" />
-                      Choose file (.pdf / .docx / .xlsx)
-                    </>
-                  )}
-                </Button>
-                <span className="text-xs text-muted-foreground">Max 10 MB</span>
-              </div>
+          {/* ── Import from Document — create flow only; hidden on edit ── */}
+          {!isEditing && (
+            <Card className="border-dashed border-primary/30 bg-primary/5">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Upload className="h-4 w-4" />
+                  Import from Document
+                </CardTitle>
+                <CardDescription>
+                  Upload a syllabus PDF, Word, or Excel file to auto-fill Objectives,
+                  COs, Content, Resources, Pedagogy, and PO Mappings. Basic Info
+                  fields stay manual. Existing entries are preserved (non-destructive).
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="flex items-center gap-3">
+                  <input
+                    ref={importInputRef}
+                    type="file"
+                    accept=".pdf,.docx,.xlsx,.xls"
+                    onChange={handleImportFile}
+                    disabled={isImporting}
+                    className="hidden"
+                    id="syllabus-import-input"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => importInputRef.current?.click()}
+                    disabled={isImporting}
+                    className="gap-2"
+                  >
+                    {isImporting ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Extracting…
+                      </>
+                    ) : (
+                      <>
+                        <FileText className="h-4 w-4" />
+                        Choose file (.pdf / .docx / .xlsx)
+                      </>
+                    )}
+                  </Button>
+                  <span className="text-xs text-muted-foreground">Max 10 MB</span>
+                </div>
 
-              {importSummary && (
-                <Alert className="border-green-300 bg-green-50 dark:bg-green-950/30">
-                  <AlertDescription className="text-sm text-green-800 dark:text-green-200 flex items-start justify-between gap-2">
-                    <span>{importSummary}</span>
-                    <button
-                      type="button"
-                      onClick={() => setImportSummary(null)}
-                      className="text-green-700 hover:text-green-900 shrink-0"
-                      aria-label="Dismiss"
-                    >
-                      <X className="h-3.5 w-3.5" />
-                    </button>
-                  </AlertDescription>
-                </Alert>
-              )}
+                {importSummary && (
+                  <Alert className="border-green-300 bg-green-50 dark:bg-green-950/30">
+                    <AlertDescription className="text-sm text-green-800 dark:text-green-200 flex items-start justify-between gap-2">
+                      <span>{importSummary}</span>
+                      <button
+                        type="button"
+                        onClick={() => setImportSummary(null)}
+                        className="text-green-700 hover:text-green-900 shrink-0"
+                        aria-label="Dismiss"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </AlertDescription>
+                  </Alert>
+                )}
 
-              {importError && (
-                <Alert variant="destructive">
-                  <AlertDescription className="text-sm flex items-start justify-between gap-2">
-                    <span>{importError}</span>
-                    <button
-                      type="button"
-                      onClick={() => setImportError(null)}
-                      className="shrink-0 hover:opacity-80"
-                      aria-label="Dismiss"
-                    >
-                      <X className="h-3.5 w-3.5" />
-                    </button>
-                  </AlertDescription>
-                </Alert>
-              )}
-            </CardContent>
-          </Card>
+                {importError && (
+                  <Alert variant="destructive">
+                    <AlertDescription className="text-sm flex items-start justify-between gap-2">
+                      <span>{importError}</span>
+                      <button
+                        type="button"
+                        onClick={() => setImportError(null)}
+                        className="shrink-0 hover:opacity-80"
+                        aria-label="Dismiss"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </AlertDescription>
+                  </Alert>
+                )}
+              </CardContent>
+            </Card>
+          )}
 
           <Card>
             <CardHeader>
@@ -805,10 +807,26 @@ export function SyllabusForm({
                       updateField('contact_hours', Number(c.class_hours ?? (th + ph)));
                       validateCourseCode(course.course_code);
                     }}
-                    options={courseOptions.map((c) => ({
-                      value: c.course_code,
-                      label: `${c.course_code} — ${c.course_name || c.course_title || ''}`,
-                    }))}
+                    options={(() => {
+                      const opts = courseOptions.map((c) => ({
+                        value: c.course_code,
+                        label: `${c.course_code} — ${c.course_name || c.course_title || ''}`,
+                      }));
+                      // On edit, the courses list is filtered by institution + regulation
+                      // and may not include the saved row yet (or at all). Prepend a
+                      // synthetic option using the form's own course_code/name so the
+                      // disabled field still displays its saved value.
+                      if (
+                        formData.course_code &&
+                        !opts.some((o) => o.value === formData.course_code)
+                      ) {
+                        opts.unshift({
+                          value: formData.course_code,
+                          label: `${formData.course_code}${formData.course_name ? ` — ${formData.course_name}` : ''}`,
+                        });
+                      }
+                      return opts;
+                    })()}
                     placeholder={formData.institutions_id && regulation_code ? 'Select course' : 'Select institution & regulation first'}
                     searchPlaceholder='Search by code or name…'
                     loading={coursesLoading}
@@ -1351,17 +1369,18 @@ function ContentEditor({ content, onChange }: any) {
   const topics: { number: number; title: string }[] = content?.topics || [];
 
   // Migrate legacy single-letter unit IDs (A, B, C…) to Roman numerals (I, II, III…).
-  // Safe to re-run: Roman numerals don't match /^[A-Z]$/ so the effect is a no-op
-  // after the first conversion.
+  // The regex excludes I, V, X — those are valid Roman numerals already and must
+  // not be mistaken for legacy letters 9/22/24.
+  const LEGACY_LETTER = /^[A-HJ-UWY-Z]$/;
   useEffect(() => {
     if (!units.length) return;
-    const hasLegacyIds = units.some((u: any) => /^[A-Z]$/.test(u.unit_id));
+    const hasLegacyIds = units.some((u: any) => LEGACY_LETTER.test(u.unit_id));
     if (!hasLegacyIds) return;
     onChange({
       ...content,
       units: units.map((u: any) => ({
         ...u,
-        unit_id: /^[A-Z]$/.test(u.unit_id)
+        unit_id: LEGACY_LETTER.test(u.unit_id)
           ? (() => {
               const n = u.unit_id.charCodeAt(0) - 64; // A=1, B=2, …
               const vals = [10,9,5,4,1], syms = ['X','IX','V','IV','I'];
@@ -1393,7 +1412,7 @@ function ContentEditor({ content, onChange }: any) {
       }));
       onChange({
         is_practical: false,
-        units: [{ unit_id: 'A', unit_title: '', chapters }],
+        units: [{ unit_id: 'I', unit_title: '', chapters }],
       });
     }
   };
@@ -1556,16 +1575,16 @@ function ContentEditor({ content, onChange }: any) {
         <div className="space-y-3">
           {units.map((unit: any, unitIdx: number) => (
             <div key={unitIdx} className="rounded-xl border bg-card overflow-hidden shadow-sm">
-              {/* Unit header */}
+              {/* Unit header — unit_id is auto-generated (I, II, III …) and read-only. */}
               <div className="flex items-center gap-3 bg-primary/5 dark:bg-primary/10 border-b px-4 py-3">
                 <div className="flex items-center gap-2 shrink-0">
                   <span className="text-[10px] font-bold uppercase tracking-widest text-primary/70">Unit</span>
-                  <Input
-                    value={unit.unit_id}
-                    onChange={(e) => updateUnit(unitIdx, 'unit_id', e.target.value)}
-                    maxLength={6}
-                    className="h-7 w-14 border-0 bg-transparent p-0 text-center text-base font-bold text-primary focus-visible:ring-0 focus-visible:ring-offset-0"
-                  />
+                  <span
+                    className="inline-flex h-7 min-w-[2.5rem] items-center justify-center px-1 text-base font-bold text-primary tabular-nums"
+                    aria-label={`Unit ${unit.unit_id || toRoman(unitIdx + 1)}`}
+                  >
+                    {unit.unit_id || toRoman(unitIdx + 1)}
+                  </span>
                 </div>
                 <div className="h-5 w-px bg-primary/20" />
                 <Input

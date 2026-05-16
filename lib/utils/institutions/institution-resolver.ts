@@ -65,6 +65,22 @@ async function getCoeInstitutions(): Promise<CoeInstitutionRaw[]> {
   return institutions;
 }
 
+/**
+ * Safe variant: returns [] instead of throwing when COE is unreachable so
+ * callers can fall back to MyJKKN-only resolution via counselling_code.
+ * The invariant `counselling_code === institution_code` means MyJKKN alone
+ * has enough data to satisfy BoS read paths; only the COE UUID (`coe_id`) is
+ * missing in the fallback case.
+ */
+async function tryGetCoeInstitutions(): Promise<CoeInstitutionRaw[]> {
+  try {
+    return await getCoeInstitutions();
+  } catch (err) {
+    console.warn('[institution-resolver] COE unreachable, using MyJKKN-only fallback:', (err as Error).message);
+    return [];
+  }
+}
+
 // ── Resolvers ─────────────────────────────────────────────────────────────────
 
 /**
@@ -85,7 +101,7 @@ export async function resolveInstitutionContext(
       .select('id, name, display_name, counselling_code')
       .eq('id', myjkknInstitutionId)
       .single(),
-    getCoeInstitutions(),
+    tryGetCoeInstitutions(),
   ]);
 
   if (!inst) return null;
@@ -94,16 +110,40 @@ export async function resolveInstitutionContext(
     c.myjkkn_institution_ids?.includes(myjkknInstitutionId)
   );
 
-  if (!coeInst) return null;
+  if (coeInst) {
+    return {
+      myjkkn_id: inst.id,
+      name: inst.name ?? '',
+      display_name: inst.display_name ?? inst.name ?? '',
+      counselling_code: inst.counselling_code ?? coeInst.counselling_code ?? '',
+      coe_id: coeInst.id,
+      institution_code: coeInst.institution_code ?? '',
+      myjkkn_institution_ids: coeInst.myjkkn_institution_ids ?? [myjkknInstitutionId],
+    };
+  }
+
+  // MyJKKN-only fallback: COE unreachable or doesn't have this institution.
+  // Use counselling_code as the institution_code (invariant: they are equal)
+  // and expand CAS siblings via the same counselling_code join.
+  if (!inst.counselling_code) return null;
+
+  const { data: siblings } = await supabase
+    .from('institutions')
+    .select('id')
+    .eq('counselling_code', inst.counselling_code)
+    .eq('is_active', true);
 
   return {
     myjkkn_id: inst.id,
     name: inst.name ?? '',
     display_name: inst.display_name ?? inst.name ?? '',
-    counselling_code: inst.counselling_code ?? coeInst.counselling_code ?? '',
-    coe_id: coeInst.id,
-    institution_code: coeInst.institution_code ?? '',
-    myjkkn_institution_ids: coeInst.myjkkn_institution_ids ?? [myjkknInstitutionId],
+    counselling_code: inst.counselling_code,
+    coe_id: '',
+    institution_code: inst.counselling_code,
+    myjkkn_institution_ids:
+      siblings && siblings.length > 0
+        ? siblings.map((s: { id: string }) => s.id)
+        : [myjkknInstitutionId],
   };
 }
 
@@ -121,7 +161,7 @@ export async function resolveInstitutionContextByCode(
       .select('id, name, display_name, counselling_code')
       .eq('counselling_code', counsellingCode)
       .maybeSingle(),
-    getCoeInstitutions(),
+    tryGetCoeInstitutions(),
   ]);
 
   if (!inst) return null;
@@ -132,16 +172,36 @@ export async function resolveInstitutionContextByCode(
       c.counselling_code === counsellingCode
   );
 
-  if (!coeInst) return null;
+  if (coeInst) {
+    return {
+      myjkkn_id: inst.id,
+      name: inst.name ?? '',
+      display_name: inst.display_name ?? inst.name ?? '',
+      counselling_code: counsellingCode,
+      coe_id: coeInst.id,
+      institution_code: coeInst.institution_code ?? '',
+      myjkkn_institution_ids: coeInst.myjkkn_institution_ids ?? [inst.id],
+    };
+  }
+
+  // MyJKKN-only fallback: COE unreachable or missing this counselling_code.
+  const { data: siblings } = await supabase
+    .from('institutions')
+    .select('id')
+    .eq('counselling_code', counsellingCode)
+    .eq('is_active', true);
 
   return {
     myjkkn_id: inst.id,
     name: inst.name ?? '',
     display_name: inst.display_name ?? inst.name ?? '',
     counselling_code: counsellingCode,
-    coe_id: coeInst.id,
-    institution_code: coeInst.institution_code ?? '',
-    myjkkn_institution_ids: coeInst.myjkkn_institution_ids ?? [inst.id],
+    coe_id: '',
+    institution_code: counsellingCode,
+    myjkkn_institution_ids:
+      siblings && siblings.length > 0
+        ? siblings.map((s: { id: string }) => s.id)
+        : [inst.id],
   };
 }
 
@@ -158,7 +218,7 @@ export async function listAllInstitutionContexts(
       .select('id, name, display_name, counselling_code')
       .eq('entity_type', 'institution')
       .order('name'),
-    getCoeInstitutions(),
+    tryGetCoeInstitutions(),
   ]);
 
   if (!myjkknInsts) return [];
@@ -169,24 +229,44 @@ export async function listAllInstitutionContexts(
     const coeInst = coeInstitutions.find((c) =>
       c.myjkkn_institution_ids?.includes(inst.id)
     );
-    if (!coeInst) continue;
+
+    if (coeInst) {
+      results.push({
+        myjkkn_id: inst.id,
+        name: inst.name ?? '',
+        display_name: inst.display_name ?? inst.name ?? '',
+        counselling_code: inst.counselling_code ?? coeInst.counselling_code ?? '',
+        coe_id: coeInst.id,
+        institution_code: coeInst.institution_code ?? '',
+        myjkkn_institution_ids: coeInst.myjkkn_institution_ids ?? [inst.id],
+      });
+      continue;
+    }
+
+    // MyJKKN-only fallback for this row (COE missing or unreachable).
+    // Requires counselling_code; skip rows that have neither a COE entry nor
+    // a counselling_code (can't be addressed without an institution_code).
+    if (!inst.counselling_code) continue;
 
     results.push({
       myjkkn_id: inst.id,
       name: inst.name ?? '',
       display_name: inst.display_name ?? inst.name ?? '',
-      counselling_code: inst.counselling_code ?? coeInst.counselling_code ?? '',
-      coe_id: coeInst.id,
-      institution_code: coeInst.institution_code ?? '',
-      myjkkn_institution_ids: coeInst.myjkkn_institution_ids ?? [inst.id],
+      counselling_code: inst.counselling_code,
+      coe_id: '',
+      institution_code: inst.counselling_code,
+      myjkkn_institution_ids: [inst.id],
     });
   }
 
-  // Deduplicate by coe_id — CAS Aided+Self would otherwise produce two rows.
+  // Deduplicate. Rows resolved via COE share a real coe_id; MyJKKN-only
+  // fallback rows have coe_id='' so we group them by counselling_code instead
+  // (which collapses CAS Aided+Self siblings the same way coe_id would).
   const seen = new Set<string>();
   return results.filter((r) => {
-    if (seen.has(r.coe_id)) return false;
-    seen.add(r.coe_id);
+    const key = r.coe_id || `cc:${r.counselling_code}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
     return true;
   });
 }

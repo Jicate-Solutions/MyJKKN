@@ -1,5 +1,5 @@
 import { Card, CardContent } from '@/components/ui/card';
-import { PermissionGuard } from '@/components/auth/permission-guard';
+import { BosViewGuard } from '@/components/auth/bos-view-guard';
 import { CompositionDataTable } from './_components/composition-data-table';
 import { CompositionFiltersClient } from './_components/composition-filters-client';
 import { compositionSearchParamsSchema } from './_components/data-table-schema';
@@ -13,7 +13,7 @@ export default async function CompositionsPage({ searchParams }: CompositionsPag
   const search = compositionSearchParamsSchema.parse(params);
 
   return (
-    <PermissionGuard module='academic.bos-compositions' action='view'>
+    <BosViewGuard module='academic.bos-compositions'>
       <Card>
         <CardContent className='p-6'>
           <div className='space-y-6'>
@@ -22,6 +22,6 @@ export default async function CompositionsPage({ searchParams }: CompositionsPag
           </div>
         </CardContent>
       </Card>
-    </PermissionGuard>
+    </BosViewGuard>
   );
 }

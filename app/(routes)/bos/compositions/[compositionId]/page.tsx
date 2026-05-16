@@ -63,9 +63,11 @@ const MEMBER_GROUPS: { type: BosMemberType; label: string }[] = [
   { type: 'hod',                label: 'Head of Department' },
   { type: 'facilitator',        label: 'Facilitators' },
   { type: 'university_nominee', label: 'University Nominees' },
+  { type: 'subject_expert',     label: 'Subject Experts' },
   { type: 'internal_member',    label: 'Internal Members' },
   { type: 'industry_expert',    label: 'Industry Experts' },
   { type: 'alumni',             label: 'Alumni Members' },
+  { type: 'startup',            label: 'Startup Members' },
 ];
 
 // ── Member Card ───────────────────────────────────────────────────────────────

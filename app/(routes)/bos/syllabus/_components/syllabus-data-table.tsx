@@ -8,6 +8,7 @@ import { BosCourseSyllabus } from '@/types/bos';
 import { BosSyllabusService } from '@/lib/services/bos/bos-syllabus-service';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useDeleteBosSyllabus } from '@/hooks/bos/use-bos-syllabus';
+import { useBosBoardScope } from '@/hooks/bos/use-bos-board-scope';
 import { useDataTableRefreshOnInvalidate } from '@/hooks/use-data-table-refresh';
 import { Button } from '@/components/ui/button';
 import { Plus } from 'lucide-react';
@@ -24,6 +25,7 @@ interface SyllabusDataTableProps {
 export function SyllabusDataTable({ search }: SyllabusDataTableProps) {
   const router = useRouter();
   const { canAccess, isSuperAdmin, userProfile, isLoading: permissionsLoading } = usePermissions();
+  const boardScope = useBosBoardScope();
   const deleteBosSyllabus = useDeleteBosSyllabus();
   // The syllabus list query lives under ['bos', 'syllabi', ...] (see
   // hooks/bos/use-bos-syllabus.ts). The table fetches via fetchDataFn so it
@@ -55,9 +57,14 @@ export function SyllabusDataTable({ search }: SyllabusDataTableProps) {
     [institutions, scopedInstitutionsId]
   );
 
+  // Board membership IS the authorization here — see the same comment in
+  // syllabus-actions.tsx. We intentionally don't gate on canAccess('create')
+  // because role-permission grants drift out of sync with composition
+  // membership in this codebase. Server enforces via guardInstitutionWrite.
+  const isBoardMember = !boardScope.isLoading && boardScope.memberOf.size > 0;
   const canCreate = useMemo(
-    () => isSuperAdmin || canAccess('academic.bos-syllabus', 'create'),
-    [isSuperAdmin, canAccess]
+    () => isSuperAdmin || isBoardMember,
+    [isSuperAdmin, isBoardMember]
   );
   const canDelete = useMemo(
     () => isSuperAdmin || canAccess('academic.bos-syllabus', 'delete'),
@@ -75,11 +82,12 @@ export function SyllabusDataTable({ search }: SyllabusDataTableProps) {
       sort_order?: string;
     }) => {
       try {
-        // Determine institution scope
+        // Determine institution scope.
+        // Super-admin: undefined = "All institutions" — let the API fan-out across every institution.
+        // Non-admin: must always have an institutions_id; if the profile lacks one we have nothing to query.
         const scopedInstitutionsId = search.institutionsId || (!isSuperAdmin ? userProfile?.institution_id : undefined);
 
-        // Return empty state if no institution yet (permissions still loading)
-        if (!scopedInstitutionsId) {
+        if (!isSuperAdmin && !scopedInstitutionsId) {
           return {
             success: true,
             data: [],
