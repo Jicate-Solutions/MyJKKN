@@ -122,8 +122,8 @@ export default async function EnquiriesPage({ searchParams }: EnquiriesPageProps
         <Tabs defaultValue="enquiries" className="w-full">
           <TabsList>
             <TabsTrigger value="enquiries">Admitted</TabsTrigger>
-            <TabsTrigger value="pending">Pending Applications</TabsTrigger>
             <TabsTrigger value="fees_setup_pending">Fees Setup Pending</TabsTrigger>
+            <TabsTrigger value="pending">Pending Applications</TabsTrigger>
             <TabsTrigger value="account">Account</TabsTrigger>
             <TabsTrigger value="rejected">Rejected</TabsTrigger>
             <TabsTrigger value="waitlisted">Waitlisted</TabsTrigger>
