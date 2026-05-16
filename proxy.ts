@@ -133,10 +133,19 @@ export async function proxy(request: NextRequest) {
             return cookie?.value ?? '';
           },
           async set(name: string, value: string, options: CookieOptions) {
-            res.cookies.set({ name, value });
+            // CRITICAL: forward Supabase's cookie options (maxAge, path,
+            // sameSite, secure) verbatim. Dropping them downgrades the
+            // persistent auth cookie to a session cookie on every token
+            // refresh, which is why iOS PWA users were logged out on every
+            // app-close. Sister code in lib/supabase/server.ts already does
+            // this correctly — proxy.ts was the outlier.
+            res.cookies.set({ name, value, ...options });
           },
           async remove(name: string, options: CookieOptions) {
-            res.cookies.delete(name);
+            // Match Supabase's expected delete semantics: write an empty
+            // value with maxAge: 0 carrying the same path/domain so the
+            // browser actually evicts the cookie scope-correctly.
+            res.cookies.set({ name, value: '', ...options, maxAge: 0 });
           }
         }
       }
