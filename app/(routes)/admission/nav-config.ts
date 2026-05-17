@@ -416,6 +416,12 @@ const config: ModuleNavConfig = {
           matchPaths: ['/admission/settings/sources'],
         },
         {
+          label: 'Statuses',
+          icon: 'Workflow',
+          href: '/admission/settings/statuses',
+          matchPaths: ['/admission/settings/statuses'],
+        },
+        {
           label: 'Templates',
           icon: 'FileText',
           href: '/admission/settings/templates',
