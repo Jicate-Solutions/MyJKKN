@@ -962,6 +962,8 @@ export const PERMISSION_CATEGORIES = [
       { key: 'admission.settings.years.create', label: 'Create Admission Years' },
       { key: 'admission.settings.years.edit', label: 'Edit Admission Years' },
       { key: 'admission.settings.years.delete', label: 'Delete Admission Years' },
+      { key: 'admission.settings.statuses.view', label: 'View admission statuses' },
+      { key: 'admission.settings.statuses.manage', label: 'Manage admission statuses' },
 
       // Gate Entry (2026-05-07) — kiosk capture flow for gate security
       { key: 'admission.gate_entry.create', label: 'Log Gate Entry (kiosk)' },
