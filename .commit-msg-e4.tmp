@@ -1,0 +1,6 @@
+feat(dashboard): split 'Filled' into 'Enrolled Leads' + 'Seat Filled' cards
+
+The gap (enrolled but below threshold) is now visible directly on the
+dashboard with a click-through to the leads list.
+
+Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
