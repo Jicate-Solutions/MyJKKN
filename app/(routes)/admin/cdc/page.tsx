@@ -1,0 +1,184 @@
+'use client';
+
+// ============================================
+// /admin/cdc — CDC module admin landing
+// ============================================
+// Director-facing hub for all CDC configuration surfaces.
+// Cards link to: policies, master tables, cron status.
+// Pattern mirrors /admin/internship-policy (Sprint 7a).
+// ============================================
+
+import Link from 'next/link';
+import {
+  Settings,
+  ListChecks,
+  Factory,
+  Gift,
+  GraduationCap,
+  PresentationIcon,
+  Building2,
+  Users,
+  Clock,
+  ChevronRight,
+  ShieldAlert,
+} from 'lucide-react';
+import { ContentLayout } from '@/components/layout/content-layout';
+import { PageBreadcrumb } from '@/components/navigation';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { usePermissions } from '@/hooks/use-permissions';
+
+interface AdminCard {
+  href: string;
+  title: string;
+  description: string;
+  icon: React.ElementType;
+  badge?: string;
+  badgeVariant?: 'default' | 'secondary' | 'destructive' | 'outline';
+  color: string;
+}
+
+const ADMIN_CARDS: AdminCard[] = [
+  {
+    href: '/admin/cdc/policies',
+    title: 'CDC Policies',
+    description: 'Configure drive lifecycle rules, eligibility thresholds, NAAC/AICTE export mappings, and escalation timers. Changes take effect immediately — no deploy.',
+    icon: Settings,
+    badge: '13 keys',
+    badgeVariant: 'secondary',
+    color: 'text-blue-600 bg-blue-50',
+  },
+  {
+    href: '/admin/cdc/drive-types',
+    title: 'Drive Types',
+    description: 'Manage placement drive categories (On-Campus, Off-Campus, Pool, etc.). Controls which drive types coordinators can create.',
+    icon: ListChecks,
+    color: 'text-indigo-600 bg-indigo-50',
+  },
+  {
+    href: '/admin/cdc/offer-types',
+    title: 'Offer Types',
+    description: 'Configure placement offer categories (Full-time, Internship, PPO, Apprenticeship). The "counts_toward_placement" flag affects NAAC statistics.',
+    icon: Gift,
+    color: 'text-emerald-600 bg-emerald-50',
+  },
+  {
+    href: '/admin/cdc/training-types',
+    title: 'Training Types',
+    description: 'Manage training programme categories (Unnati, MRB, Springboard, etc.) used in the training module.',
+    icon: GraduationCap,
+    color: 'text-amber-600 bg-amber-50',
+  },
+  {
+    href: '/admin/cdc/workshop-types',
+    title: 'Workshop Types',
+    description: 'Configure workshop and seminar categories for career development activities.',
+    icon: PresentationIcon,
+    color: 'text-orange-600 bg-orange-50',
+  },
+  {
+    href: '/admin/cdc/industry-sectors',
+    title: 'Industry Sectors',
+    description: 'Manage industry sector classifications (IT, Manufacturing, Healthcare, etc.) used to categorise recruiters.',
+    icon: Factory,
+    color: 'text-cyan-600 bg-cyan-50',
+  },
+  {
+    href: '/admin/cdc/recruiters',
+    title: 'Recruiter Directory',
+    description: 'Full CRUD for the company/recruiter master. Manage contact details, package bands, and blacklist status.',
+    icon: Building2,
+    color: 'text-purple-600 bg-purple-50',
+  },
+  {
+    href: '/admin/cdc/cron-status',
+    title: 'Cron Status',
+    description: 'Read-only view of the coordinator-escalation and placement-snapshot cron jobs — last run, status, and schedule.',
+    icon: Clock,
+    badge: 'Read-only',
+    badgeVariant: 'outline',
+    color: 'text-slate-600 bg-slate-50',
+  },
+];
+
+export default function CdcAdminPage() {
+  const { isSuperAdmin, isLoading } = usePermissions();
+
+  if (isLoading) {
+    return (
+      <ContentLayout title="CDC Admin">
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} className="h-36 animate-pulse rounded-lg bg-muted" />
+          ))}
+        </div>
+      </ContentLayout>
+    );
+  }
+
+  if (!isSuperAdmin) {
+    return (
+      <ContentLayout title="CDC Admin">
+        <Alert variant="destructive">
+          <ShieldAlert className="h-4 w-4" />
+          <AlertTitle>Access restricted</AlertTitle>
+          <AlertDescription>
+            CDC admin configuration requires super-admin or CDC Head role.
+          </AlertDescription>
+        </Alert>
+      </ContentLayout>
+    );
+  }
+
+  return (
+    <ContentLayout title="CDC Admin">
+      <PageBreadcrumb
+        items={[
+          { label: 'Admin', href: '/admin' },
+          { label: 'CDC', href: '/admin/cdc' },
+        ]}
+      />
+
+      <div className="mb-6">
+        <h1 className="text-2xl font-bold tracking-tight">Career Development Centre</h1>
+        <p className="text-muted-foreground mt-1">
+          Configure placement drives, master tables, policies, and monitor cron jobs.
+        </p>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+        {ADMIN_CARDS.map((card) => {
+          const Icon = card.icon;
+          return (
+            <Link key={card.href} href={card.href} className="group">
+              <Card className="h-full transition-shadow group-hover:shadow-md">
+                <CardHeader className="pb-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className={`rounded-lg p-2 ${card.color}`}>
+                      <Icon className="h-5 w-5" />
+                    </div>
+                    {card.badge && (
+                      <Badge variant={card.badgeVariant ?? 'secondary'} className="text-xs">
+                        {card.badge}
+                      </Badge>
+                    )}
+                  </div>
+                  <CardTitle className="flex items-center gap-1 text-base mt-2">
+                    {card.title}
+                    <ChevronRight className="h-4 w-4 opacity-0 -ml-1 transition-opacity group-hover:opacity-60" />
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <CardDescription className="text-sm leading-relaxed">
+                    {card.description}
+                  </CardDescription>
+                </CardContent>
+              </Card>
+            </Link>
+          );
+        })}
+      </div>
+    </ContentLayout>
+  );
+}
