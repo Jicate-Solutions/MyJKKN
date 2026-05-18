@@ -96,7 +96,13 @@ INSERT INTO platform_policies (
     false,
     true
   )
-ON CONFLICT (policy_key, scope_type, COALESCE(scope_id, '00000000-0000-0000-0000-000000000000'::uuid)) DO NOTHING;
+ON CONFLICT (policy_key, scope_type, COALESCE(scope_id, '00000000-0000-0000-0000-000000000000'::uuid))
+DO UPDATE SET
+  value = EXCLUDED.value,
+  data_type = EXCLUDED.data_type,
+  description = EXCLUDED.description,
+  is_active = EXCLUDED.is_active,
+  updated_at = NOW();
 
 -- Verification (SELECT only — safe against NOT NULL columns):
 -- SELECT policy_key, value FROM platform_policies
