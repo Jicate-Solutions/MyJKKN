@@ -18,6 +18,7 @@ import { GeographyAnalyticsTab } from './_components/geography-analytics-tab';
 import { InstitutionComparisonAdvanced } from './_components/institution-comparison-advanced';
 import { NAACReportGenerator } from './_components/naac-report-generator';
 import { GroupAdmissionYearSelect } from './_components/group-admission-year-select';
+import { SeatFilledCard } from './_components/seat-filled-card';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
   Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList,
@@ -26,7 +27,7 @@ import {
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
 import { usePermissions } from '@/hooks/use-permissions';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { getDashboardDrilldownDestination } from '@/lib/policies/get-policy-client';
 import type { DrilldownMetric, DrilldownRole } from '@/lib/policies/dashboard-drilldown-keys';
 import { appendDashboardScope } from '@/lib/dashboard/drilldown-scope';
@@ -64,11 +65,17 @@ function resolveDrilldownRole(
 /**
  * Cards on the top stat row — paired in label-emit order with their
  * DrilldownMetric. Kept here so adding/reordering cards is one-touch.
+ *
+ * 2026-05-17 (E4): "Filled" was renamed "Enrolled Leads" (lead-space only).
+ * The learner-space companion lives in <SeatFilledCard /> rendered alongside
+ * this strip — it carries its own visual treatment (icon header + drop-off
+ * gap shortcut) so it stays a separate component rather than another entry
+ * here.
  */
 const TOP_CARDS: ReadonlyArray<{ label: string; metric: DrilldownMetric }> = [
   { label: 'Total Leads', metric: 'total_leads' },
   { label: 'Applied', metric: 'applied' },
-  { label: 'Filled', metric: 'filled' },
+  { label: 'Enrolled Leads', metric: 'filled' },
   { label: 'Rejected', metric: 'rejected' },
   { label: 'Total Seats', metric: 'total_seats' },
   { label: 'Fill Rate', metric: 'fill_rate' },
@@ -281,19 +288,25 @@ export default function GroupDashboardPage() {
             * Cards with value 0 or '—' remain clickable; the destination shows
             * an empty list with the metric-specific empty-state copy. */}
           {!isLoading && data?.totals && (
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3">
               {(() => {
                 // On the Seats tab, Filled and Fill Rate switch to seat-occupancy
                 // sourcing (same RPC the inner tab uses) so the strip can't
                 // disagree with the table beneath it. Other cards stay
                 // leads-sourced because they have no seat-side equivalent.
                 const useSeatSource = activeTab === 'seats' && seatTotals !== null;
+                // 2026-05-17 (E4): "Enrolled Leads" sources from the new
+                // total_enrolled_leads aggregate which equals total_filled in
+                // the rollout window — we read total_enrolled_leads so a future
+                // RPC tweak that diverges the two is automatically respected.
+                const enrolledLeadsValue =
+                  data.totals.total_enrolled_leads ?? data.totals.total_filled;
                 const valueByMetric: Record<DrilldownMetric, string | number> = {
                   total_leads: data.totals.total_leads,
                   applied: data.totals.total_applied,
                   filled: useSeatSource
                     ? seatTotals!.filledSeats
-                    : data.totals.total_filled,
+                    : enrolledLeadsValue,
                   rejected: data.totals.total_rejected,
                   total_seats: useSeatSource
                     ? seatTotals!.totalSeats || '—'
@@ -310,7 +323,12 @@ export default function GroupDashboardPage() {
                   chart_bar: '',
                   comparison_row: '',
                 };
-                return TOP_CARDS.map((card) => {
+                // Render the existing 6 cards, then splice the new
+                // <SeatFilledCard /> in directly after "Enrolled Leads"
+                // (metric='filled') so the lead-space and learner-space
+                // KPIs sit side-by-side and the drop-off gap is obvious.
+                const nodes: ReactNode[] = [];
+                TOP_CARDS.forEach((card) => {
                   const resolved = destinations[card.metric];
                   // Pre-resolution: render the card non-clickable (resolves in
                   // <100ms typically; cached on subsequent loads). Avoids
@@ -325,25 +343,37 @@ export default function GroupDashboardPage() {
                     </CardContent>
                   );
                   if (!href) {
-                    return (
+                    nodes.push(
                       <Card key={card.label} aria-busy="true">
                         {cardInner}
                       </Card>
                     );
+                  } else {
+                    nodes.push(
+                      <Link
+                        key={card.label}
+                        href={href}
+                        aria-label={`Drill down to ${card.label} (role: ${drilldownRole})`}
+                        className="rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                      >
+                        <Card className="cursor-pointer transition hover:ring-1 hover:ring-primary/20 hover:shadow-sm">
+                          {cardInner}
+                        </Card>
+                      </Link>
+                    );
                   }
-                  return (
-                    <Link
-                      key={card.label}
-                      href={href}
-                      aria-label={`Drill down to ${card.label} (role: ${drilldownRole})`}
-                      className="rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-                    >
-                      <Card className="cursor-pointer transition hover:ring-1 hover:ring-primary/20 hover:shadow-sm">
-                        {cardInner}
-                      </Card>
-                    </Link>
-                  );
+                  if (card.metric === 'filled') {
+                    nodes.push(
+                      <SeatFilledCard
+                        key="seat-filled"
+                        enrolledLeads={enrolledLeadsValue}
+                        seatFilled={data.totals.total_seat_filled_learners}
+                        isLoading={isLoading}
+                      />
+                    );
+                  }
                 });
+                return nodes;
               })()}
             </div>
           )}

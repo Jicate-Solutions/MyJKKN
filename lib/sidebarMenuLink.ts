@@ -459,6 +459,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/admission/settings/workflow-config': 'admission.settings.workflows.manage',
   '/admission/settings/assignment-rules': 'admission.settings.assignment.view',
   '/admission/settings/sources': 'admission.settings.sources.view',
+  '/admission/settings/statuses': 'admission.settings.statuses.view',
 
   // Startup Studio
   '/startup-studio/events': 'startup_studio.events.view',
@@ -1165,6 +1166,11 @@ export function GetPages(pathname: string): MenuGroup[] {
               href: '/admission/settings/sources',
               label: 'Lead Sources',
               active: pathname === '/admission/settings/sources'
+            },
+            {
+              href: '/admission/settings/statuses',
+              label: 'Statuses',
+              active: pathname === '/admission/settings/statuses'
             },
             {
               href: '/admission/settings/templates',
