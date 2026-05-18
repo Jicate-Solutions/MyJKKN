@@ -122,6 +122,7 @@ export default async function EnquiriesPage({ searchParams }: EnquiriesPageProps
         <Tabs defaultValue="enquiries" className="w-full">
           <TabsList>
             <TabsTrigger value="enquiries">Admitted</TabsTrigger>
+            <TabsTrigger value="fees_setup_pending">Fees Setup Pending</TabsTrigger>
             <TabsTrigger value="pending">Pending Applications</TabsTrigger>
             <TabsTrigger value="account">Account</TabsTrigger>
             <TabsTrigger value="rejected">Rejected</TabsTrigger>
@@ -134,6 +135,24 @@ export default async function EnquiriesPage({ searchParams }: EnquiriesPageProps
               fallback={<TableSkeleton rows={10} columns={8} />}
             >
               <EnquiriesContent searchParams={params} statusFilter="admitted" />
+            </Suspense>
+          </TabsContent>
+
+          <TabsContent value="fees_setup_pending" className="space-y-4">
+            <Suspense
+              key={`fees-setup-${JSON.stringify(params)}`}
+              fallback={<TableSkeleton rows={10} columns={10} />}
+            >
+              {/*
+                statusFilter is a virtual value handled specially by getEnquiries:
+                filter expands to lifecycle_status='admitted' AND legacy_fee_mode=true,
+                and rows are annotated with resolution_status + missing_fields from
+                vw_learners_profile_fee_backfill_status so the table can show badges.
+              */}
+              <EnquiriesContent
+                searchParams={params}
+                statusFilter={'fees_setup_pending' as any}
+              />
             </Suspense>
           </TabsContent>
 

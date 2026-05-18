@@ -938,7 +938,34 @@ export const PERMISSION_CATEGORIES = [
       { key: 'admission.settings.years.view', label: 'View Admission Years' },
       { key: 'admission.settings.years.create', label: 'Create Admission Years' },
       { key: 'admission.settings.years.edit', label: 'Edit Admission Years' },
-      { key: 'admission.settings.years.delete', label: 'Delete Admission Years' }
+      { key: 'admission.settings.years.delete', label: 'Delete Admission Years' },
+      { key: 'admission.settings.statuses.view', label: 'View admission statuses' },
+      { key: 'admission.settings.statuses.manage', label: 'Manage admission statuses' },
+
+      // Gate Entry (2026-05-07) — kiosk capture flow for gate security
+      { key: 'admission.gate_entry.create', label: 'Log Gate Entry (kiosk)' },
+      { key: 'admission.gate_entry.view',   label: "View Today's Gate Entries" },
+      { key: 'admission.gate_entry.manage', label: 'Manage Gate Entry Settings' },
+
+      // Voice Memo (2026-05-09) — counselor records 30s English memo on call log;
+      // Whisper cron analyzes for sentiment/summary/categories that flow into the
+      // Lead Mood Digest (PR #779).
+      { key: 'admission.voice_memo', label: 'Record Voice Memo on Call Log' }
+    ]
+  },
+  // Admission Fees (2026-05-07) — matrix-driven fee-structure module
+  // Keys are flat under `admission_fees.*` (not `admission.fees.*`) because
+  // RLS policies + service code reference them that way.
+  {
+    name: 'Admission Fees',
+    key: 'admission_fees',
+    permissions: [
+      { key: 'admission_fees.read', label: 'View Fee Structures' },
+      { key: 'admission_fees.manage', label: 'Create / Edit Fee Structures' },
+      { key: 'admission_fees.delete', label: 'Delete Fee Structures' },
+      { key: 'admission_fees.manage_adjustments', label: 'Manage Per-Learner Fee Adjustments' },
+      { key: 'admission_fees.approve_change_event', label: 'Approve Fee Change Events' },
+      { key: 'admission_fees.override', label: 'Override Resolved Fee Items' }
     ]
   },
   {
@@ -1417,7 +1444,14 @@ export const PERMISSION_CATEGORIES = [
       // Parent portal
       { key: 'campus_living.parent_portal.view_child', label: 'Parent Portal — View Child' },
       { key: 'campus_living.parent_portal.consent', label: 'Parent Portal — Provide Consent' },
-      { key: 'campus_living.parent_portal.pay_fee', label: 'Parent Portal — Pay Fee' }
+      { key: 'campus_living.parent_portal.pay_fee', label: 'Parent Portal — Pay Fee' },
+
+      // Premium Stay (paid SKU — added 2026-05-16 in Wave 1 spec)
+      { key: 'campus_living.premium.configure_tier', label: 'Premium Stay — Configure Tier Policy' },
+      { key: 'campus_living.premium.pick_room', label: 'Premium Stay — Self-Pick Room (Learner)' },
+      { key: 'campus_living.premium.invite_roommate', label: 'Premium Stay — Invite Roommate' },
+      { key: 'campus_living.premium.override_pick', label: 'Premium Stay — Override Pick (Chief Warden)' },
+      { key: 'campus_living.premium.view_dashboard', label: 'Premium Stay — View Dashboard' }
     ]
   },
   {
@@ -1536,12 +1570,78 @@ export const PERMISSION_CATEGORIES = [
       // route was hidden for non-super-admins because no MENU_PERMISSIONS
       // entry existed. Use bos.view as the parent gate; child routes keep
       // their specific tier-2 keys (bos.compositions.view, etc.).
-      { key: 'bos.view', label: 'View Board of Studies Landing' },
-      { key: 'bos.compositions.view', label: 'View BoS Compositions' },
-      { key: 'bos.experts.view', label: 'View BoS Experts' },
-      { key: 'bos.meetings.view', label: 'View BoS Meetings' },
-      { key: 'bos.reports.view', label: 'View BoS Reports' },
-      { key: 'bos.ta_da.view', label: 'View BoS TA/DA Claims' }
+      // 2026-05-16: Catalog rewritten to use canonical `academic.bos-<X>.<action>`
+      // keys — the same format the runtime gates read (user_has_permission RPC,
+      // usePermissions.canAccess, server-side guardian in lib/utils/bos/bos-access).
+      // The legacy `bos.<X>.<action>` keys this catalog used to emit never matched
+      // any read site, so the dialog's toggles authorised nothing. See migrations
+      // 20260511, 20260512, 20260516_normalize, and 20260516010000_validate
+      // for the history. Note: ta_da → ta-da (dash, matching BOS_MODULES.TA_DA).
+      //
+      // `bos.view` is kept (no `academic.` prefix) because it's the sidebar parent
+      // gate at sidebarMenuLink.ts:497 ('/bos': 'bos.view'). It's auto-derived
+      // by applyBOSFallback from any granular academic.bos-*.view, but exposing
+      // it lets admins explicitly disable the entire BoS sidebar section.
+      { key: 'bos.view', label: 'View Board of Studies Landing (sidebar gate)' },
+      { key: 'academic.bos-compositions.view', label: 'View BoS Compositions' },
+      { key: 'academic.bos-compositions.create', label: 'Create BoS Compositions' },
+      { key: 'academic.bos-compositions.edit', label: 'Edit BoS Compositions' },
+      { key: 'academic.bos-compositions.delete', label: 'Delete BoS Compositions' },
+      { key: 'academic.bos-experts.view', label: 'View BoS Experts' },
+      { key: 'academic.bos-experts.create', label: 'Create BoS Experts' },
+      { key: 'academic.bos-experts.edit', label: 'Edit BoS Experts' },
+      { key: 'academic.bos-experts.delete', label: 'Delete BoS Experts' },
+      { key: 'academic.bos-meetings.view', label: 'View BoS Meetings' },
+      { key: 'academic.bos-meetings.create', label: 'Create BoS Meetings' },
+      { key: 'academic.bos-meetings.edit', label: 'Edit BoS Meetings' },
+      { key: 'academic.bos-meetings.delete', label: 'Delete BoS Meetings' },
+      { key: 'academic.bos-meetings.approve', label: 'Approve BoS Meetings' },
+      { key: 'academic.bos-reports.view', label: 'View BoS Reports' },
+      { key: 'academic.bos-reports.create', label: 'Create BoS Reports' },
+      { key: 'academic.bos-reports.edit', label: 'Edit BoS Reports' },
+      { key: 'academic.bos-reports.delete', label: 'Delete BoS Reports' },
+      { key: 'academic.bos-reports.export', label: 'Export BoS Reports' },
+      { key: 'academic.bos-ta-da.view', label: 'View BoS TA/DA Claims' },
+      { key: 'academic.bos-ta-da.create', label: 'Create BoS TA/DA Claims' },
+      { key: 'academic.bos-ta-da.edit', label: 'Edit BoS TA/DA Claims' },
+      { key: 'academic.bos-ta-da.delete', label: 'Delete BoS TA/DA Claims' },
+      { key: 'academic.bos-ta-da.approve', label: 'Approve BoS TA/DA Claims' },
+      { key: 'academic.bos-members.view', label: 'View BoS Members' },
+      { key: 'academic.bos-members.create', label: 'Create BoS Members' },
+      { key: 'academic.bos-members.edit', label: 'Edit BoS Members' },
+      { key: 'academic.bos-members.delete', label: 'Delete BoS Members' },
+      // Added 2026-05-08 — BoS Courses & Course Scheme tabs
+      { key: 'academic.bos-courses.view', label: 'View BoS Courses' },
+      { key: 'academic.bos-courses.create', label: 'Create BoS Courses' },
+      { key: 'academic.bos-courses.edit', label: 'Edit BoS Courses' },
+      { key: 'academic.bos-courses.delete', label: 'Delete BoS Courses' },
+      { key: 'academic.bos-courses.import', label: 'Import BoS Courses (Excel)' },
+      { key: 'academic.bos-scheme.view', label: 'View BoS Course Scheme' },
+      { key: 'academic.bos-scheme.edit', label: 'Edit BoS Course Scheme' },
+      // Added 2026-05-11 — Taxonomy (regulation → category → sub-category tree).
+      { key: 'academic.bos-taxonomy.view', label: 'View BoS Taxonomy' },
+      { key: 'academic.bos-taxonomy.create', label: 'Create BoS Taxonomy Entries' },
+      { key: 'academic.bos-taxonomy.edit', label: 'Edit BoS Taxonomy Entries' },
+      { key: 'academic.bos-taxonomy.delete', label: 'Delete BoS Taxonomy Entries' },
+      // Added 2026-05-11 — Syllabus (course syllabus versioning, replaces /syllabi).
+      { key: 'academic.bos-syllabus.view', label: 'View BoS Syllabi' },
+      { key: 'academic.bos-syllabus.create', label: 'Create BoS Syllabi' },
+      { key: 'academic.bos-syllabus.edit', label: 'Edit BoS Syllabi' },
+      { key: 'academic.bos-syllabus.delete', label: 'Delete BoS Syllabi' },
+      { key: 'academic.bos-syllabus.approve', label: 'Approve BoS Syllabi' },
+      { key: 'academic.bos-syllabus.export', label: 'Export BoS Syllabi' },
+      // Added 2026-05-08 — SOP (Standard Operating Procedure) document editor.
+      // 'approve' is a separate gate so a chair/dean can approve without owning
+      // edit rights, matching the meetings module's split (view/edit/approve).
+      // 'export' is a separate gate so we can give read-only viewers PDF/DOCX
+      // exports without granting edit access.
+      { key: 'academic.bos-sop.view', label: 'View SOP Documents' },
+      { key: 'academic.bos-sop.create', label: 'Create SOP Documents' },
+      { key: 'academic.bos-sop.edit', label: 'Edit SOP Documents' },
+      { key: 'academic.bos-sop.delete', label: 'Delete SOP Documents' },
+      { key: 'academic.bos-sop.approve', label: 'Approve SOP Documents' },
+      { key: 'academic.bos-sop.export', label: 'Export SOP Documents' },
+      { key: 'academic.bos-sop.comment', label: 'Comment on SOP Documents' }
     ]
   },
   // Added 2026-04-27 — menu-coverage baseline cleanup (Failure 1 of #511/#515

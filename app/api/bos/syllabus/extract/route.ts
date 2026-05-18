@@ -38,15 +38,17 @@ export async function POST(request: NextRequest) {
     let text = '';
 
     if (lowerName.endsWith('.pdf')) {
-      // pdf-parse is CJS — `.default` is unreliable under Next bundler, so
-      // resolve the callable from either shape. /lib path skips the package
-      // index.js test harness that throws ENOENT in node_modules.
-      const mod: any = await import('pdf-parse/lib/pdf-parse.js').catch(
-        () => import('pdf-parse'),
-      );
-      const pdfParse = mod.default ?? mod;
-      const result = await pdfParse(buffer);
-      text = result.text;
+      // pdf-parse v2 is ESM-only with a class-based API. The v1 `/lib/pdf-parse.js`
+      // subpath no longer exists and the package's `exports` field would refuse
+      // to resolve it anyway, so we import the root and instantiate PDFParse.
+      const { PDFParse } = await import('pdf-parse');
+      const parser = new PDFParse({ data: buffer });
+      try {
+        const result = await parser.getText();
+        text = result.text;
+      } finally {
+        await parser.destroy();
+      }
     } else if (lowerName.endsWith('.docx')) {
       const mammoth = await import('mammoth');
       const result = await mammoth.extractRawText({ buffer });

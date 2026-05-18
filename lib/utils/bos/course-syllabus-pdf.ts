@@ -26,6 +26,75 @@ function lastY(doc: jsPDF): number {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyCell = Record<string, any>
 
+// Mixed-style line: one visual line in a cell where the bold prefix runs from
+// char 0 to `prefixEnd`, and the rest renders regular. `prefixEnd === text.length`
+// means the whole line is bold; `prefixEnd === 0` means the whole line is regular.
+// `halign` applies only when the line is fully bold or fully regular (mixed lines
+// are inherently left-anchored). `justify === true` spreads tokens to fill the
+// cell width — set on all wrapped lines of a paragraph except the last.
+interface BosMixedLine {
+	text: string
+	prefixEnd: number
+	halign?: 'left' | 'center' | 'right'
+	justify?: boolean
+}
+
+interface BosMixedMeta {
+	lines: BosMixedLine[]
+}
+
+// Draws one line with words distributed evenly across `maxWidth`. Tokens
+// before `prefixEnd` are measured/drawn in Times Bold; tokens after are
+// regular. If the leftover space per gap is unreasonably large (>3× a natural
+// space) we fall back to a normal space — keeps sparse 2-token lines from
+// stretching grotesquely.
+function drawJustifiedLine(
+	doc: jsPDF,
+	text: string,
+	prefixEnd: number,
+	x: number,
+	y: number,
+	maxWidth: number,
+): void {
+	const prefixPart = text.slice(0, prefixEnd)
+	const restPart = text.slice(prefixEnd)
+	const prefixWords = prefixPart.match(/\S+/g) ?? []
+	const restWords = restPart.match(/\S+/g) ?? []
+
+	const tokens: Array<{ text: string; bold: boolean; w: number }> = []
+	doc.setFont('times', 'bold')
+	for (const word of prefixWords) {
+		tokens.push({ text: word, bold: true, w: doc.getTextWidth(word) })
+	}
+	doc.setFont('times', 'normal')
+	for (const word of restWords) {
+		tokens.push({ text: word, bold: false, w: doc.getTextWidth(word) })
+	}
+
+	if (tokens.length === 0) return
+	if (tokens.length === 1) {
+		doc.setFont('times', tokens[0].bold ? 'bold' : 'normal')
+		doc.text(tokens[0].text, x, y, { baseline: 'top' })
+		return
+	}
+
+	const totalTokenW = tokens.reduce((s, t) => s + t.w, 0)
+	const gaps = tokens.length - 1
+	let gap = (maxWidth - totalTokenW) / gaps
+
+	doc.setFont('times', 'normal')
+	const naturalSpace = doc.getTextWidth(' ')
+	// Refuse to justify if the resulting gap would look comical, or be negative.
+	if (gap > naturalSpace * 3 || gap < 0) gap = naturalSpace
+
+	let cursorX = x
+	for (let i = 0; i < tokens.length; i++) {
+		doc.setFont('times', tokens[i].bold ? 'bold' : 'normal')
+		doc.text(tokens[i].text, cursorX, y, { baseline: 'top' })
+		cursorX += tokens[i].w + gap
+	}
+}
+
 function table(
 	doc: jsPDF,
 	startY: number,
@@ -39,6 +108,10 @@ function table(
 		margin: { left: MARGIN, right: MARGIN },
 		tableWidth: TABLE_W,
 		theme: 'grid',
+		// Keep rows intact across page breaks — our custom didDrawCell redraws
+		// from cell.y, so a split row would render twice (once at end of page N
+		// and again at start of page N+1).
+		rowPageBreak: 'avoid',
 		styles: {
 			font: 'times',
 			fontSize: FONT_SIZE,
@@ -51,6 +124,59 @@ function table(
 			halign: 'justify',
 		},
 		columnStyles,
+		willDrawCell: data => {
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
+			const raw = data.cell.raw as any
+			if (raw && raw._bosMixed) {
+				// Suppress autoTable's default text draw — we render it ourselves.
+				data.cell.text = []
+			}
+		},
+		didDrawCell: data => {
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
+			const raw = data.cell.raw as any
+			if (!raw || !raw._bosMixed) return
+
+			const meta = raw._bosMixed as BosMixedMeta
+			const padding = 2
+			const xLeft = data.cell.x + padding
+			const cellW = data.cell.width
+			const fontSizeMM = (FONT_SIZE * 25.4) / 72
+			const lineHeight = fontSizeMM * 1.15
+
+			doc.setFontSize(FONT_SIZE)
+			doc.setTextColor(0, 0, 0)
+			let yLine = data.cell.y + padding
+
+			for (const line of meta.lines) {
+				const t = line.text
+				if (line.justify && t.length > 0) {
+					// Justify mode: spread tokens evenly across the cell width.
+					// Works for both mixed-font and single-font lines.
+					drawJustifiedLine(doc, t, line.prefixEnd, xLeft, yLine, cellW - padding * 2)
+				} else if (line.prefixEnd > 0 && line.prefixEnd < t.length) {
+					// Mixed: bold prefix + regular rest (always left-aligned).
+					doc.setFont('times', 'bold')
+					doc.text(t.slice(0, line.prefixEnd), xLeft, yLine, { baseline: 'top' })
+					const w = doc.getTextWidth(t.slice(0, line.prefixEnd))
+					doc.setFont('times', 'normal')
+					doc.text(t.slice(line.prefixEnd), xLeft + w, yLine, { baseline: 'top' })
+				} else {
+					// Fully bold (prefixEnd >= length) or fully regular (prefixEnd === 0).
+					const fullyBold = line.prefixEnd >= t.length && t.length > 0
+					doc.setFont('times', fullyBold ? 'bold' : 'normal')
+					const halign = line.halign ?? 'left'
+					if (halign === 'center') {
+						doc.text(t, data.cell.x + cellW / 2, yLine, { baseline: 'top', align: 'center' })
+					} else if (halign === 'right') {
+						doc.text(t, data.cell.x + cellW - padding, yLine, { baseline: 'top', align: 'right' })
+					} else {
+						doc.text(t, xLeft, yLine, { baseline: 'top' })
+					}
+				}
+				yLine += lineHeight
+			}
+		},
 		didDrawPage: ({ pageNumber }) => {
 			doc.setFont('times', 'normal')
 			doc.setFontSize(7)
@@ -61,6 +187,20 @@ function table(
 		},
 	})
 	return lastY(doc)
+}
+
+// Auto-shrink font size until `text` fits within `maxWidth` in Times Bold.
+// Used for short identifier-style values (e.g. course code) that should
+// stay on a single line. Stops at a 6pt floor.
+function fitBoldFontSize(doc: jsPDF, text: string, maxWidth: number): number {
+	doc.setFont('times', 'bold')
+	let size = FONT_SIZE
+	doc.setFontSize(size)
+	while (doc.getTextWidth(text) > maxWidth && size > 6) {
+		size -= 0.5
+		doc.setFontSize(size)
+	}
+	return size
 }
 
 function bold(content: string, extra: AnyCell = {}): AnyCell {
@@ -271,6 +411,9 @@ export function generateCourseSyllabusPDF(data: CourseSyllabusPDFData): string {
 
 	// ── SECTION 2: Code / Hours / Credits ─────────────────────────────────────
 	const c0 = LABEL_W, c1 = 40, c2 = 50, c3 = TABLE_W - c0 - c1 - c2
+	// Auto-shrink the course code font so identifiers like "24UUCSDSE01" stay on
+	// a single line inside the LABEL_W column (cellPadding 2 on each side).
+	const codeFontSize = fitBoldFontSize(doc, data.course_code, c0 - 4)
 	y = table(doc, y, [
 		[
 			bold('Course\ncode', { halign: 'center' }),
@@ -279,7 +422,7 @@ export function generateCourseSyllabusPDF(data: CourseSyllabusPDFData): string {
 			bold('Credits', { halign: 'center' }),
 		],
 		[
-			bold(data.course_code, { halign: 'center' }),
+			bold(data.course_code, { halign: 'center', fontSize: codeFontSize }),
 			cell(data.total_hours != null ? String(data.total_hours) : '–', { halign: 'center' }),
 			cell(data.contact_hours != null ? String(data.contact_hours) : '–', { halign: 'center' }),
 			cell(data.credits != null ? String(data.credits) : '–', { halign: 'center' }),
@@ -342,19 +485,21 @@ export function generateCourseSyllabusPDF(data: CourseSyllabusPDFData): string {
 	}
 
 	// ── SECTION 5: Course Content ─────────────────────────────────────────────
-	// Each chapter is rendered as a single inline paragraph cell:
-	//   **{Chapter Title}:** {sub1}, {sub2}, ….
-	// The bold title prefix and regular subtopic tail live in one cell — we
-	// pre-wrap lines accounting for the bold prefix width, then redraw the
-	// mixed-style text in `didDrawCell` since autoTable supports only one
-	// font style per cell. The `Unit-{id}` label rowSpans across all rows
-	// produced by the unit (chapters, optional unit_title, section refs).
+	// One row per unit, two columns: the unit_id label (e.g. "I", "II") on the
+	// left, and all chapters merged into a single content cell on the right.
+	// Each chapter renders as one inline paragraph with a bold "Title:" prefix
+	// and regular subtopic tail; multiple chapters in the same unit are stacked
+	// on consecutive lines within the cell. Mixed bold/regular within one cell
+	// is achieved via the shared table() helper's `_bosMixed` hooks.
 	if (data.units && data.units.length > 0) {
 		const contentColW = TABLE_W - LABEL_W
 		const contentMaxTextW = contentColW - 4 // cellPadding (2) on each side
 
 		const rows: AnyCell[][] = [
-			[cell(''), bold('Course content', { halign: 'center' })],
+			[
+				bold('Unit', { halign: 'center' }),
+				bold('Course content', { halign: 'center' }),
+			],
 		]
 
 		for (const unit of data.units) {
@@ -374,123 +519,74 @@ export function generateCourseSyllabusPDF(data: CourseSyllabusPDFData): string {
 				.map(sanitize)
 				.join('\n')
 
-			const contentCells: AnyCell[] = []
-			if (unitTitle) contentCells.push(bold(unitTitle))
+			// Build the flat list of mixed-style lines for this unit's content cell.
+			const allLines: BosMixedLine[] = []
+
+			if (unitTitle) {
+				// Render unit_title as a fully-bold heading line at the top.
+				allLines.push({ text: unitTitle, prefixEnd: unitTitle.length })
+			}
 
 			for (const ch of chapterEntries) {
-				const subsText = ch.subs.length > 0 ? `${ch.subs.join(', ')}.` : ''
-				// Strip trailing colon/whitespace from the user-entered title — we
-				// always append our own ": " separator, so a stored "Database
-				// Concepts:" would otherwise render as "Database Concepts:: ".
+				// Strip trailing colon/whitespace from the title — we append our own
+				// ": " separator, so a stored "Database Concepts:" would otherwise
+				// render as "Database Concepts:: ".
 				const cleanTitle = ch.title.replace(/[:\s]+$/, '')
+				const subsText = ch.subs.length > 0 ? `${ch.subs.join(', ')}.` : ''
+
 				if (cleanTitle && subsText) {
 					const prefix = `${cleanTitle}: `
-					const lines = wrapBoldPrefixRest(doc, prefix, subsText, contentMaxTextW)
-					// autoTable measures cell height from `\n`-joined content; we
-					// hide its default text in willDrawCell and redraw in didDrawCell.
-					contentCells.push({
-						content: lines.join('\n'),
-						_bosMixed: { prefix, lines },
+					const wrapped = wrapBoldPrefixRest(doc, prefix, subsText, contentMaxTextW)
+					wrapped.forEach((line, idx) => {
+						allLines.push({
+							text: line,
+							prefixEnd: idx === 0 ? prefix.length : 0,
+							// Justify every wrapped line except the last — matches the
+							// halign:'justify' behaviour autoTable uses for regular cells.
+							justify: idx < wrapped.length - 1,
+						})
 					})
 				} else if (cleanTitle) {
-					contentCells.push(bold(cleanTitle))
+					allLines.push({ text: cleanTitle, prefixEnd: cleanTitle.length })
 				} else if (subsText) {
-					contentCells.push(cell(subsText))
+					doc.setFont('times', 'normal')
+					doc.setFontSize(FONT_SIZE)
+					const wrapped = doc.splitTextToSize(subsText, contentMaxTextW) as string[]
+					wrapped.forEach((l, idx) =>
+						allLines.push({
+							text: l,
+							prefixEnd: 0,
+							justify: idx < wrapped.length - 1,
+						}),
+					)
 				}
 			}
 
-			if (sectionRefs) contentCells.push(cell(sectionRefs))
-			if (contentCells.length === 0) contentCells.push(cell(''))
+			if (sectionRefs) {
+				doc.setFont('times', 'normal')
+				doc.setFontSize(FONT_SIZE)
+				const wrapped = doc.splitTextToSize(sectionRefs, contentMaxTextW) as string[]
+				wrapped.forEach(l => allLines.push({ text: l, prefixEnd: 0 }))
+			}
 
-			contentCells.forEach((contentCell, idx) => {
-				if (idx === 0) {
-					rows.push([
-						{ content: `Unit-${unit.unit_id}`, rowSpan: contentCells.length, styles: { fontStyle: 'bold' } },
-						contentCell,
-					])
-				} else {
-					rows.push([contentCell])
-				}
-			})
+			if (allLines.length === 0) allLines.push({ text: '', prefixEnd: 0 })
+
+			rows.push([
+				{
+					content: unit.unit_id,
+					styles: { fontStyle: 'bold', halign: 'center', valign: 'top' },
+				},
+				{
+					content: allLines.map(l => l.text).join('\n'),
+					_bosMixed: { lines: allLines },
+				},
+			])
 		}
 
-		autoTable(doc, {
-			// eslint-disable-next-line @typescript-eslint/no-explicit-any
-			body: rows as any,
-			startY: y,
-			margin: { left: MARGIN, right: MARGIN },
-			tableWidth: TABLE_W,
-			theme: 'grid',
-			// Move an entire row to the next page if it won't fit, instead of
-			// splitting a single row across pages. Our custom didDrawCell redraws
-			// all lines from cell.y, so a split row would render twice (once at
-			// the bottom of page N and again at the top of page N+1).
-			rowPageBreak: 'avoid',
-			styles: {
-				font: 'times',
-				fontSize: FONT_SIZE,
-				cellPadding: 2,
-				lineColor: [0, 0, 0] as [number, number, number],
-				lineWidth: 0.3,
-				textColor: [0, 0, 0] as [number, number, number],
-				valign: 'top',
-				overflow: 'linebreak',
-				halign: 'justify',
-			},
-			columnStyles: {
-				0: { cellWidth: LABEL_W },
-				1: { cellWidth: contentColW },
-			},
-			willDrawCell: data => {
-				// eslint-disable-next-line @typescript-eslint/no-explicit-any
-				const raw = data.cell.raw as any
-				if (raw && raw._bosMixed) {
-					// Suppress autoTable's regular-font text draw; we render it ourselves.
-					data.cell.text = []
-				}
-			},
-			didDrawCell: data => {
-				// eslint-disable-next-line @typescript-eslint/no-explicit-any
-				const raw = data.cell.raw as any
-				if (!raw || !raw._bosMixed) return
-
-				const { prefix, lines } = raw._bosMixed as { prefix: string; lines: string[] }
-				const padding = 2
-				const xText = data.cell.x + padding
-
-				doc.setFontSize(FONT_SIZE)
-				doc.setTextColor(0, 0, 0)
-
-				// Match autoTable's line metrics: jsPDF default lineHeightFactor = 1.15.
-				const fontSizeMM = (FONT_SIZE * 25.4) / 72
-				const lineHeight = fontSizeMM * 1.15
-				let yLine = data.cell.y + padding
-
-				for (let i = 0; i < lines.length; i++) {
-					const line = lines[i]
-					if (i === 0 && line.startsWith(prefix)) {
-						doc.setFont('times', 'bold')
-						doc.text(prefix, xText, yLine, { baseline: 'top' })
-						const w = doc.getTextWidth(prefix)
-						doc.setFont('times', 'normal')
-						doc.text(line.slice(prefix.length), xText + w, yLine, { baseline: 'top' })
-					} else {
-						doc.setFont('times', 'normal')
-						doc.text(line, xText, yLine, { baseline: 'top' })
-					}
-					yLine += lineHeight
-				}
-			},
-			didDrawPage: ({ pageNumber }) => {
-				doc.setFont('times', 'normal')
-				doc.setFontSize(7)
-				doc.setTextColor(128, 128, 128)
-				doc.text(new Date().toLocaleString('en-IN'), MARGIN, A4_H - 6)
-				doc.text(`Page ${pageNumber}`, A4_W - MARGIN, A4_H - 6, { align: 'right' })
-				doc.setTextColor(0, 0, 0)
-			},
+		y = table(doc, y, rows, {
+			0: { cellWidth: LABEL_W },
+			1: { cellWidth: contentColW },
 		})
-		y = lastY(doc)
 	}
 
 	// ── SECTION 6: Text Books / References / Web / Pedagogy ──────────────────
@@ -538,7 +634,17 @@ export function generateCourseSyllabusPDF(data: CourseSyllabusPDFData): string {
 	// ── SECTION 7: Signature row (bottom of document) ────────────────────────
 	y = table(doc, y, [
 		[
-			bold('Course Designer\nName:\nDesignation:', { halign: 'left', minCellHeight: 30, valign: 'top' }),
+			{
+				content: 'Course Designer\nName:\nDesignation:',
+				_bosMixed: {
+					lines: [
+						{ text: 'Course Designer', prefixEnd: 'Course Designer'.length, halign: 'center' },
+						{ text: 'Name:', prefixEnd: 'Name:'.length, halign: 'left' },
+						{ text: 'Designation:', prefixEnd: 'Designation:'.length, halign: 'left' },
+					],
+				},
+				styles: { minCellHeight: 30, valign: 'top' },
+			},
 			bold('Verified by BoS Chairman', { halign: 'center', minCellHeight: 30, valign: 'top' }),
 		],
 	], {

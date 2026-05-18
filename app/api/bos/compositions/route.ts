@@ -167,6 +167,22 @@ export async function GET(request: NextRequest) {
       board: boardMap[row.board_id] ?? null,
     }));
 
+    const matched = normalized.filter((r: any) => r.board).length;
+    if (matched < normalized.length) {
+      const sampleMisses = normalized
+        .filter((r: any) => !r.board)
+        .slice(0, 3)
+        .map((r: any) => ({ id: r.id, board_id: r.board_id, institutions_id: r.institutions_id }));
+      console.warn(
+        '[bos/compositions] board enrichment misses: %d/%d rows have null board. institutionIdsInPage=%j, coeBoardMap.size=%d, sample misses=%j',
+        normalized.length - matched,
+        normalized.length,
+        institutionIdsInPage,
+        coeBoardMap.size,
+        sampleMisses,
+      );
+    }
+
     return NextResponse.json({
       data: normalized,
       metadata: {

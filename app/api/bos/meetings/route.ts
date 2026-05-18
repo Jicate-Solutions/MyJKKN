@@ -101,10 +101,22 @@ export async function GET(request: NextRequest) {
     const { data, error, count } = await query;
     if (error) throw error;
 
+    // Board enrichment — mirrors /api/bos/compositions. bos_meetings only stores
+    // board_id (a COE UUID); the board name/code comes from the COE /api/public/boards
+    // endpoint, keyed by institution_code resolved from the meeting's institutions_id.
+    const institutionIdsInPage = [...new Set((data ?? []).map((r: any) => r.institutions_id).filter(Boolean))];
+    const { fetchCoeBoardMaps } = await import('@/lib/utils/bos/coe-boards');
+    const coeBoardMap = await fetchCoeBoardMaps(institutionIdsInPage);
+    const boardMap: Record<string, { board_code: string; board_name: string; board_type?: string | null }> = {};
+    for (const [id, b] of coeBoardMap) {
+      boardMap[id] = { board_code: b.board_code, board_name: b.board_name, board_type: b.board_type };
+    }
+
     const normalized = (data ?? []).map((row: any) => ({
       ...row,
       agenda_count: row.agenda_count?.[0]?.count ?? 0,
       attendee_count: row.attendee_count?.[0]?.count ?? 0,
+      board: boardMap[row.board_id] ?? null,
     }));
 
     return NextResponse.json({

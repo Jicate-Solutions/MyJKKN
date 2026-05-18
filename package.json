@@ -3,8 +3,10 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
-    "build": "npm run gen:routes && npm run check:sidebar && npm run check:reachability && npm run check:audit-coverage && node scripts/build.mjs",
+    "dev": "next dev --turbopack",
+    "dev:webpack": "next dev --webpack",
+    "dev:sentry": "cross-env LOCAL_SENTRY=1 next dev --turbopack",
+    "build": "npm run gen:routes && npm run check:sidebar && npm run check:reachability && npm run check:audit-coverage && cross-env NODE_OPTIONS=\"--max-old-space-size=12288 --max-semi-space-size=128\" next build --turbopack && serwist build serwist.config.mjs",
     "start": "next start",
     "lint": "next lint",
     "check:sidebar": "tsx scripts/check-sidebar-health.ts",

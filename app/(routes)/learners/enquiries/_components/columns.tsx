@@ -10,6 +10,9 @@ import type { LearnerProfile } from '@/types/learner-profile';
 import { LifecycleStatusBadge } from '@/components/learners/lifecycle-status-badge';
 import { DataTableRowActions } from './row-actions';
 import { formatAdmissionYear } from '@/lib/utils/admission-year-format';
+import type { FeeBackfillAnnotations } from '../_data/get-enquiries';
+
+export type EnquiryRow = LearnerProfile & FeeBackfillAnnotations;
 
 export const enquiryColumns: ColumnDef<LearnerProfile>[] = [
   {
@@ -186,3 +189,98 @@ export const enquiryColumns: ColumnDef<LearnerProfile>[] = [
     maxSize: 50,
   },
 ];
+
+// ============================================================================
+// Fee-backfill annotation columns (only shown on "Fees Setup Pending" tab)
+// ============================================================================
+
+const FEE_FIELD_LABELS: Record<string, string> = {
+  program_id: 'Program',
+  admission_year_id: 'Admission Year',
+  degree_id: 'Degree',
+  department_id: 'Department',
+  quota_id: 'Quota',
+  accommodation_type_id: 'Accommodation',
+  community_category_id: 'Community',
+  institution_id: 'Institution',
+};
+
+// Labels here must signal "needs user attention" — a green/solid "Ready"
+// badge would mislead finance staff into thinking the row needs no action.
+// Even tier2 (matches without quota) requires a manual decision because
+// adopting it overrides the learner's recorded quota.
+const RESOLUTION_STATUS_BADGES: Record<
+  NonNullable<FeeBackfillAnnotations['_resolution_status']>,
+  { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline'; className?: string }
+> = {
+  // tier1_ready shouldn't normally appear in this tab — the bulk-adopt
+  // migration drains it. If a row slips in (e.g. freshly created
+  // admitted+legacy since the migration), surface it as "Auto-applying" so
+  // it's obvious the user doesn't need to do anything — re-running the bulk
+  // job clears it.
+  tier1_ready: { label: 'Auto-applying', variant: 'outline', className: 'border-emerald-500 text-emerald-700' },
+  tier2_ready: { label: 'Quota Mismatch', variant: 'outline', className: 'border-amber-500 text-amber-700' },
+  missing_fields: { label: 'Missing Fields', variant: 'outline', className: 'border-amber-500 text-amber-700' },
+  no_structure: { label: 'No Fee Structure', variant: 'outline', className: 'border-rose-500 text-rose-700' },
+  ambiguous_strict: { label: 'Multiple Matches', variant: 'outline', className: 'border-orange-500 text-orange-700' },
+  ambiguous_relaxed: { label: 'Multiple Matches', variant: 'outline', className: 'border-orange-500 text-orange-700' },
+  unclassified: { label: 'Unclassified', variant: 'outline' },
+};
+
+const feeStatusColumn: ColumnDef<EnquiryRow> = {
+  id: '_fee_resolution_status',
+  header: ({ column }) => <DataTableColumnHeader column={column} title="Match Status" />,
+  cell: ({ row }) => {
+    const status = row.original._resolution_status;
+    if (!status) return <span className="text-muted-foreground text-xs">—</span>;
+    const badge = RESOLUTION_STATUS_BADGES[status];
+    return (
+      <Badge variant={badge.variant} className={badge.className}>
+        {badge.label}
+      </Badge>
+    );
+  },
+  size: 170,
+  minSize: 140,
+  maxSize: 200,
+};
+
+const missingFieldsColumn: ColumnDef<EnquiryRow> = {
+  id: '_fee_missing_fields',
+  header: ({ column }) => <DataTableColumnHeader column={column} title="Missing Fields" />,
+  cell: ({ row }) => {
+    const missing = row.original._missing_fields;
+    if (!missing || missing.length === 0) {
+      return <span className="text-muted-foreground text-xs">—</span>;
+    }
+    return (
+      <div className="flex flex-wrap gap-1">
+        {missing.map(f => (
+          <Badge key={f} variant="outline" className="border-amber-400 text-amber-700 text-xs">
+            {FEE_FIELD_LABELS[f] ?? f}
+          </Badge>
+        ))}
+      </div>
+    );
+  },
+  size: 260,
+  minSize: 200,
+  maxSize: 320,
+  enableSorting: false,
+};
+
+/**
+ * Returns the column set for the enquiries table, optionally prepended with
+ * the Match Status + Missing Fields columns (used on "Fees Setup Pending").
+ * The fee columns slot after the select-checkbox column so row-selection
+ * stays on the far left.
+ */
+export function buildEnquiryColumns(
+  options: { showFeeStatus?: boolean } = {}
+): ColumnDef<EnquiryRow>[] {
+  if (!options.showFeeStatus) {
+    return enquiryColumns as ColumnDef<EnquiryRow>[];
+  }
+  const [selectCol, ...rest] = enquiryColumns as ColumnDef<EnquiryRow>[];
+  return [selectCol, feeStatusColumn, missingFieldsColumn, ...rest];
+}

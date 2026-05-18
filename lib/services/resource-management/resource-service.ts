@@ -279,6 +279,22 @@ export class ResourceService {
 
       console.log('Filtered validCaretakerIds:', validCaretakerIds);
 
+      // Defense-in-depth: any nullable FK column that arrives as '' from the
+      // form (or bulk-upload, or API caller) would otherwise reach Postgres as
+      // an empty UUID and trigger 22P02. Normalize to null here so callers
+      // can't bypass the form's own cleaning step.
+      const NULLABLE_UUID_KEYS = [
+        'subcategory_id',
+        'department_id',
+        'caretaker_user_id'
+      ] as const;
+      for (const key of NULLABLE_UUID_KEYS) {
+        const v = (otherData as any)[key];
+        if (typeof v === 'string' && v.trim() === '') {
+          (otherData as any)[key] = null;
+        }
+      }
+
       // Use initial_stock_quantity or default to 1
       const initialStock = resourceData.initial_stock_quantity ?? 1;
 
@@ -375,7 +391,22 @@ export class ResourceService {
           );
         }
 
-        throw error;
+        if (error.code === '22P02') {
+          // Invalid input syntax (most often empty string in a UUID column)
+          throw new Error(
+            `Database rejected a value: ${error.message}. Please re-check the form fields and try again.`
+          );
+        }
+
+        // Preserve the actual Postgres message instead of leaking the raw
+        // plain object up to a catch that does `instanceof Error`. Without
+        // this wrap, every uncategorized error becomes the generic
+        // "Failed to create resource" toast (PostgrestBuilder returns a
+        // plain object, not an Error — see lib/utils.ts getErrorMessage).
+        const dbMessage = [error.message, error.details, error.hint]
+          .filter(Boolean)
+          .join(' — ');
+        throw new Error(dbMessage || 'Database error while creating resource');
       }
 
       const tpl = ResourceManagementActivityTemplates.resourceCreated(resource.name);
@@ -396,6 +427,18 @@ export class ResourceService {
       // If it's already a formatted error message, throw it as is
       if (error instanceof Error) {
         throw error;
+      }
+
+      // Supabase errors are plain {code, details, hint, message} objects —
+      // not Error instances. Preserve their message so the toast shows the
+      // real reason instead of "Failed to create resource".
+      if (
+        error !== null &&
+        typeof error === 'object' &&
+        'message' in error &&
+        typeof (error as { message: unknown }).message === 'string'
+      ) {
+        throw new Error((error as { message: string }).message);
       }
 
       throw new Error('Failed to create resource');
@@ -449,6 +492,21 @@ export class ResourceService {
         (id) => id && id.trim() !== ''
       ) || [];
 
+      // Defense-in-depth: same '' → null normalization as createResource so
+      // edits can't reintroduce the 22P02 UUID error when a user clears an
+      // optional FK dropdown (mirrors createResource above).
+      const NULLABLE_UUID_KEYS = [
+        'subcategory_id',
+        'department_id',
+        'caretaker_user_id'
+      ] as const;
+      for (const key of NULLABLE_UUID_KEYS) {
+        const v = (otherData as any)[key];
+        if (typeof v === 'string' && v.trim() === '') {
+          (otherData as any)[key] = null;
+        }
+      }
+
       const updateData = {
         ...otherData,
         ...(resourceData.name && { name: resourceData.name.trim() }),
@@ -493,9 +551,21 @@ export class ResourceService {
       return resource;
     } catch (error) {
       console.error('Error updating resource:', error);
-      throw new Error(
-        error instanceof Error ? error.message : 'Failed to update resource'
-      );
+      // Same plain-object handling as createResource — preserve PostgREST
+      // {code, details, hint, message} instead of falling back to a generic
+      // string that hides the real reason in the toast.
+      if (error instanceof Error) {
+        throw error;
+      }
+      if (
+        error !== null &&
+        typeof error === 'object' &&
+        'message' in error &&
+        typeof (error as { message: unknown }).message === 'string'
+      ) {
+        throw new Error((error as { message: string }).message);
+      }
+      throw new Error('Failed to update resource');
     }
   }
 

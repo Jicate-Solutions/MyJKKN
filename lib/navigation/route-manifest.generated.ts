@@ -478,6 +478,32 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "children": []
       },
       {
+        "path": "/admin/campus-living",
+        "label": "Campus Living",
+        "iconName": "FileText",
+        "children": [
+          {
+            "path": "/admin/campus-living/premium",
+            "label": "Premium",
+            "iconName": "FileText",
+            "children": [
+              {
+                "path": "/admin/campus-living/premium/dashboard",
+                "label": "Premium Stay Dashboard",
+                "iconName": "LayoutGrid",
+                "children": []
+              }
+            ]
+          },
+          {
+            "path": "/admin/campus-living/tier-policy",
+            "label": "Campus Living — Tier Policy",
+            "iconName": "BedDouble",
+            "children": []
+          }
+        ]
+      },
+      {
         "path": "/admin/config",
         "label": "Config",
         "iconName": "FileText",
@@ -553,6 +579,19 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         ]
       },
       {
+        "path": "/admin/dashboard",
+        "label": "Dashboard",
+        "iconName": "LayoutGrid",
+        "children": [
+          {
+            "path": "/admin/dashboard/widget-config",
+            "label": "Dashboard Widgets",
+            "iconName": "LayoutDashboard",
+            "children": []
+          }
+        ]
+      },
+      {
         "path": "/admin/dashboard-drilldowns",
         "label": "Dashboard Drilldowns",
         "iconName": "FileText",
@@ -578,6 +617,25 @@ export const ROUTE_MANIFEST: RouteNode[] = [
           {
             "path": "/admin/hr/automation-rules",
             "label": "Automation Rules",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/admin/hr/disciplinary",
+            "label": "Disciplinary Cases",
+            "iconName": "Gavel",
+            "children": [
+              {
+                "path": "/admin/hr/disciplinary/new",
+                "label": "New",
+                "iconName": "Plus",
+                "children": []
+              }
+            ]
+          },
+          {
+            "path": "/admin/hr/fdp",
+            "label": "Fdp",
             "iconName": "FileText",
             "children": []
           },
@@ -618,6 +676,19 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "label": "Onboarding Checklists",
             "iconName": "UserPlus",
             "children": []
+          },
+          {
+            "path": "/admin/hr/payroll",
+            "label": "Payroll",
+            "iconName": "FileText",
+            "children": [
+              {
+                "path": "/admin/hr/payroll/preview",
+                "label": "Payroll Preview (read-only)",
+                "iconName": "Receipt",
+                "children": []
+              }
+            ]
           },
           {
             "path": "/admin/hr/performance-reviews",
@@ -916,6 +987,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "path": "/admin/hr/recruitment-approvals-scope",
             "label": "Recruitment Approvals Scope",
             "iconName": "ShieldCheck",
+            "children": []
+          },
+          {
+            "path": "/admin/hr/recruitment-maintenance",
+            "label": "Recruitment Maintenance",
+            "iconName": "Wrench",
             "children": []
           },
           {
@@ -2708,6 +2785,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         ]
       },
       {
+        "path": "/campus-living/wardens",
+        "label": "Wardens",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
         "path": "/campus-living/wellness",
         "label": "Wellness",
         "iconName": "HeartPulse",
@@ -2991,6 +3074,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           }
         ]
+      },
+      {
+        "path": "/hr/fdp",
+        "label": "Fdp",
+        "iconName": "FileText",
+        "children": []
       },
       {
         "path": "/hr/forms",

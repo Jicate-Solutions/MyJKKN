@@ -19,7 +19,10 @@ export async function fetchCoeBoardMap(
 ): Promise<Map<string, CoeBoard>> {
   try {
     const institutionCode = await resolveCoeInstitutionCode(myJkknInstitutionId);
-    if (!institutionCode) return new Map();
+    if (!institutionCode) {
+      console.warn('[fetchCoeBoardMap] no COE institution_code resolved for myJkknId=%s', myJkknInstitutionId);
+      return new Map();
+    }
     const coe = CoeRestClient.create();
     const raw = await coe.get<unknown>('/api/public/boards', {
       institution_code: institutionCode,
@@ -27,8 +30,13 @@ export async function fetchCoeBoardMap(
     const boards: CoeBoard[] = Array.isArray(raw)
       ? (raw as CoeBoard[])
       : (((raw as { data?: CoeBoard[] })?.data) ?? []);
+    if (boards.length === 0) {
+      console.warn('[fetchCoeBoardMap] COE returned 0 boards for institution_code=%s (myJkknId=%s, raw shape: %s)',
+        institutionCode, myJkknInstitutionId, Array.isArray(raw) ? 'array' : typeof raw);
+    }
     return new Map(boards.map((b) => [b.id, b]));
-  } catch {
+  } catch (err) {
+    console.error('[fetchCoeBoardMap] failed for myJkknId=%s:', myJkknInstitutionId, err);
     return new Map();
   }
 }

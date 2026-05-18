@@ -115,21 +115,35 @@ export function useBosPermissions(): BosPermissions {
     };
   }
 
-  // Check merged permissions (set via custom roles)
+  // Check merged permissions (set via custom roles). Keys are stored in the
+  // canonical "academic.bos-syllabus.<action>" dot format — matching what
+  // applyBOSFallback() writes and what the rest of the codebase reads (see
+  // scripts/fix-bos-permission-format-drift.sql and hooks/use-permissions.ts).
+  // The old "bos.syllabus.*" prefix used here previously did not exist in any
+  // user's merged_permissions, so this branch always returned all-false and
+  // the role-default fallback below was unreachable — causing blank pages for
+  // any faculty/HOD/principal user with merged_permissions populated.
   if (profile.merged_permissions) {
-    const perms: BosPermissions = {
-      canView: profile.merged_permissions['bos.syllabus.view'] ?? false,
-      canCreate: profile.merged_permissions['bos.syllabus.create'] ?? false,
-      canEdit: profile.merged_permissions['bos.syllabus.edit'] ?? false,
-      canDelete: profile.merged_permissions['bos.syllabus.delete'] ?? false,
-      canRevise: profile.merged_permissions['bos.syllabus.revise'] ?? false,
-      canDuplicate: profile.merged_permissions['bos.syllabus.duplicate'] ?? false,
-      canExport: profile.merged_permissions['bos.syllabus.export'] ?? false,
-      canManageTaxonomy: profile.merged_permissions['bos.syllabus.manage_taxonomy'] ?? false,
-      hasAnyPermission: false,
-    };
-    perms.hasAnyPermission = Object.values(perms).some(v => v === true);
-    return perms;
+    const hasAnyBosKey = Object.keys(profile.merged_permissions).some((k) =>
+      k.startsWith('academic.bos-syllabus.')
+    );
+    if (hasAnyBosKey) {
+      const perms: BosPermissions = {
+        canView: profile.merged_permissions['academic.bos-syllabus.view'] ?? false,
+        canCreate: profile.merged_permissions['academic.bos-syllabus.create'] ?? false,
+        canEdit: profile.merged_permissions['academic.bos-syllabus.edit'] ?? false,
+        canDelete: profile.merged_permissions['academic.bos-syllabus.delete'] ?? false,
+        canRevise: profile.merged_permissions['academic.bos-syllabus.revise'] ?? false,
+        canDuplicate: profile.merged_permissions['academic.bos-syllabus.duplicate'] ?? false,
+        canExport: profile.merged_permissions['academic.bos-syllabus.export'] ?? false,
+        canManageTaxonomy: profile.merged_permissions['academic.bos-syllabus.manage_taxonomy'] ?? false,
+        hasAnyPermission: false,
+      };
+      perms.hasAnyPermission = Object.values(perms).some((v) => v === true);
+      return perms;
+    }
+    // No academic.bos-syllabus.* keys in merged_permissions — fall through to
+    // the role-default seed below (mirrors applyBOSFallback's behaviour).
   }
 
   // Fall back to default role-based permissions

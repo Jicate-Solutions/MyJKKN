@@ -46,7 +46,7 @@ import {
   CommandList
 } from '@/components/ui/command';
 import { Input } from '@/components/ui/input';
-import { cn } from '@/lib/utils';
+import { cn, getErrorMessage } from '@/lib/utils';
 import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
@@ -423,7 +423,10 @@ export function ResourceForm({ resource, mode }: ResourceFormProps) {
         warranty_expiry_date: data.warranty_expiry_date || undefined,
         disposal_date: (data as any).disposal_date || undefined,
         // Clean UUID fields - convert empty strings to undefined
+        // Postgres UUID columns reject '' with 22P02. The form defaults these
+        // optional FKs to '' so users can keep them blank — strip before send.
         department_id: data.department_id || undefined,
+        subcategory_id: data.subcategory_id || undefined,
         caretaker_user_id: (data as any).caretaker_user_id || undefined,
         // Clean numeric fields
         depreciation_rate: data.depreciation_rate || undefined,
@@ -484,8 +487,13 @@ export function ResourceForm({ resource, mode }: ResourceFormProps) {
         router.refresh();
       }
     } catch (error) {
+      // Surface the real error so users can self-diagnose. The hook already
+      // toasts DB errors (and returns null without rethrowing), so anything
+      // reaching this catch is from image upload, resource-code generation,
+      // or another non-mutation step — getErrorMessage preserves the message
+      // whether it's an Error instance or a Supabase plain object.
       console.error('Error submitting resource:', error);
-      toast.error('Failed to save resource');
+      toast.error(getErrorMessage(error));
     } finally {
       setIsSubmitting(false);
     }
