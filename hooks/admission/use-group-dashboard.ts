@@ -54,6 +54,9 @@ export const groupDashboardKeys = {
 };
 
 // Invalidates all seat-analytics queries when learners_profiles changes (near-realtime).
+// Also listens for billing_student_bills + billing_receipt_items because the
+// seat-filled KPI now depends on lifecycle_status='active' which is set by a
+// trigger on billing_receipt_items inserts.
 // A single channel is shared at the hook level via a module-scope ref.
 let realtimeChannel: ReturnType<ReturnType<typeof createClientSupabaseClient>['channel']> | null = null;
 
@@ -67,6 +70,20 @@ function useSeatsRealtimeInvalidation() {
       .on(
         'postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'learners_profiles' },
+        () => {
+          queryClient.invalidateQueries({ queryKey: groupDashboardKeys.all });
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'billing_student_bills' },
+        () => {
+          queryClient.invalidateQueries({ queryKey: groupDashboardKeys.all });
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'billing_receipt_items' },
         () => {
           queryClient.invalidateQueries({ queryKey: groupDashboardKeys.all });
         }
