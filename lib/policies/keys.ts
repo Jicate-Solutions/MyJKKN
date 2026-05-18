@@ -241,6 +241,21 @@ export const POLICY_KEYS = {
   PDE_RUBRICS_SOCIAL_LEADERSHIP_TEAM_PROJECT_LEAD: 'pde.rubrics.social_leadership.team_project_lead',
   PDE_RUBRICS_SOCIAL_LEADERSHIP_COMMITTEE_ROLE: 'pde.rubrics.social_leadership.committee_role',
   PDE_RUBRICS_SOCIAL_LEADERSHIP_COMMUNITY_ORGANIZER: 'pde.rubrics.social_leadership.community_organizer',
+  // PDE Rubrics — Cultural & Civic Literacy (Phase 9, NEP 2020-aligned)
+  // 4 rubric rows that define how JKKN students earn the cultural & civic
+  // literacy slice of their PDE score. Seeded by
+  // supabase/migrations/20260518_pde_cultural_civic_rubrics.sql.
+  // Edited via /admin/pde/rubrics/cultural-civic (Director-only).
+  // Reflects NEP 2020 §4.6-4.7 (IKS + mother-tongue), §4.23 (fundamental
+  // duties / constitutional values), §11.8 (community-service credit).
+  // JKKN-Tamil-Nadu rooted: Tamil is the primary approved language; local-
+  // community contexts include panchayat collaboration + self-help-group
+  // engagement; tradition domains include classical (Bharatanatyam /
+  // Carnatic / Tamil literature) and folk forms.
+  PDE_RUBRICS_CULTURAL_CIVIC_INDIAN_LANGUAGE_PROFICIENCY: 'pde.rubrics.cultural_civic.indian_language_proficiency',
+  PDE_RUBRICS_CULTURAL_CIVIC_LOCAL_COMMUNITY_PROJECT: 'pde.rubrics.cultural_civic.local_community_project',
+  PDE_RUBRICS_CULTURAL_CIVIC_TRADITION_ATTUNEMENT: 'pde.rubrics.cultural_civic.tradition_attunement',
+  PDE_RUBRICS_CULTURAL_CIVIC_CIVIC_ENGAGEMENT: 'pde.rubrics.cultural_civic.civic_engagement',
 } as const;
 
 export type PolicyKey = typeof POLICY_KEYS[keyof typeof POLICY_KEYS];
