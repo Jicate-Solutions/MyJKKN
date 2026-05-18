@@ -134,8 +134,7 @@ SET search_path = public
 AS $$
   WITH policy_flag AS (
     SELECT COALESCE(
-      (SELECT value::boolean
-       FROM public.fn_get_policy_value('cdc.aicte_include_internal_placements', 'global', NULL)),
+      (public.fn_get_policy_json('cdc.aicte_include_internal_placements', to_jsonb(false)))::boolean,
       false
     ) AS include_internal
   ),
