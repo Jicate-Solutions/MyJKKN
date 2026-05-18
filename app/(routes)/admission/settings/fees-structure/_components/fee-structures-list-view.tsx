@@ -7,12 +7,19 @@
 // Supports URL state, server-side pagination, sortable columns, search,
 // row selection, column visibility/resizing. Filters (institution, status)
 // rendered via renderToolbarContent.
+//
+// 2026-05-18: Advanced filters expanded to match the 7-dimensional matrix
+// key of fee structures (institution × degree × department × programme ×
+// admission year × quota × accommodation, plus community via junction).
+// Primary row keeps Institution + Status + Search; the rest live in an
+// "More" panel that cascades the same way as fees-structure-dimension-selector.
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 import { DataTable } from '@/components/data-table/data-table';
 import { Button } from '@/components/ui/button';
+import { Label } from '@/components/ui/label';
 import {
   Select,
   SelectContent,
@@ -30,11 +37,23 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { Plus, RotateCcw, Trash2 } from 'lucide-react';
+import { Filter, Plus, RotateCcw, Trash2 } from 'lucide-react';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import { usePermissions } from '@/hooks/use-permissions';
 import { FeeStructureService } from '@/lib/services/admission/fee-structure-service';
+import { DegreeService } from '@/lib/services/organization/degree-service';
+import { DepartmentService } from '@/lib/services/organization/department-service';
+import { ProgramService } from '@/lib/services/organization/program-service';
+import { AdmissionYearService } from '@/lib/services/admission/admission-year-service';
+import { LookupService } from '@/lib/services/admission/lookup-service';
 import { columns, type FeeStructureRow } from './columns';
+
+interface Option {
+  id: string;
+  name: string;
+}
+
+const ALL = 'all';
 
 // Tiny helper that lives inside `renderCustomToolbar` and pushes the
 // DataTable's selection state up to the parent. Without this we'd be stuck
@@ -69,9 +88,96 @@ export function FeeStructuresListView() {
   const { isSuperAdmin, canPerformAll } = usePermissions();
   const canBulkDelete = isSuperAdmin || canPerformAll('admission_fees', ['delete']);
 
-  const [institutionFilter, setInstitutionFilter] = useState<string>('all');
-  const [statusFilter, setStatusFilter] = useState<string>('all');
+  // Primary filters (always visible)
+  const [institutionFilter, setInstitutionFilter] = useState<string>(ALL);
+  const [statusFilter, setStatusFilter] = useState<string>(ALL);
+
+  // Advanced hierarchy filters (mirrors the 7-dim matrix used in the create form)
+  const [degreeFilter, setDegreeFilter] = useState<string>(ALL);
+  const [departmentFilter, setDepartmentFilter] = useState<string>(ALL);
+  const [programmeFilter, setProgrammeFilter] = useState<string>(ALL);
+  const [admissionYearFilter, setAdmissionYearFilter] = useState<string>(ALL);
+  const [quotaFilter, setQuotaFilter] = useState<string>(ALL);
+  const [communityFilter, setCommunityFilter] = useState<string>(ALL);
+  const [accommodationFilter, setAccommodationFilter] = useState<string>(ALL);
+
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const [refetchKey, setRefetchKey] = useState(0);
+
+  // Cascading option lists. Same pattern as fees-structure-dimension-selector.
+  const [degrees, setDegrees] = useState<Option[]>([]);
+  const [departments, setDepartments] = useState<Option[]>([]);
+  const [programmes, setProgrammes] = useState<Option[]>([]);
+  const [admissionYears, setAdmissionYears] = useState<Option[]>([]);
+  const [accommodations, setAccommodations] = useState<Option[]>([]);
+  const [quotas, setQuotas] = useState<Option[]>([]);
+  const [communities, setCommunities] = useState<Option[]>([]);
+
+  // Global lookups — quotas + communities — load once.
+  useEffect(() => {
+    LookupService.listQuotas(true)
+      .then((rows) => setQuotas(rows.map((r) => ({ id: r.id, name: r.name }))))
+      .catch(() => setQuotas([]));
+    LookupService.listCommunityCategories(true)
+      .then((rows) => setCommunities(rows.map((r) => ({ id: r.id, name: r.name }))))
+      .catch(() => setCommunities([]));
+  }, []);
+
+  // Institution change → load degrees + accommodations; reset descendants.
+  useEffect(() => {
+    if (institutionFilter === ALL) {
+      setDegrees([]);
+      setAccommodations([]);
+      return;
+    }
+    DegreeService.getDegreesByInstitution(institutionFilter)
+      .then((rows: { id: string; degree_name: string }[]) =>
+        setDegrees(rows.map((d) => ({ id: d.id, name: d.degree_name }))),
+      )
+      .catch(() => setDegrees([]));
+    LookupService.listAccommodationTypes(institutionFilter, true)
+      .then((rows) => setAccommodations(rows.map((r) => ({ id: r.id, name: r.name }))))
+      .catch(() => setAccommodations([]));
+  }, [institutionFilter]);
+
+  // Degree change → load departments.
+  useEffect(() => {
+    if (institutionFilter === ALL || degreeFilter === ALL) {
+      setDepartments([]);
+      return;
+    }
+    DepartmentService.getDepartmentsByInstitutionAndDegree(institutionFilter, degreeFilter)
+      .then((rows: { id: string; department_name: string }[]) =>
+        setDepartments(rows.map((d) => ({ id: d.id, name: d.department_name }))),
+      )
+      .catch(() => setDepartments([]));
+  }, [institutionFilter, degreeFilter]);
+
+  // Department change → load programmes.
+  useEffect(() => {
+    if (departmentFilter === ALL) {
+      setProgrammes([]);
+      return;
+    }
+    ProgramService.getProgramsByDepartment(departmentFilter)
+      .then((rows: { id: string; program_name: string }[]) =>
+        setProgrammes(rows.map((p) => ({ id: p.id, name: p.program_name }))),
+      )
+      .catch(() => setProgrammes([]));
+  }, [departmentFilter]);
+
+  // Programme change → load admission years (scoped to that programme).
+  useEffect(() => {
+    if (programmeFilter === ALL) {
+      setAdmissionYears([]);
+      return;
+    }
+    AdmissionYearService.getAdmissionYearsByProgram(programmeFilter)
+      .then((rows) =>
+        setAdmissionYears(rows.map((y) => ({ id: y.id, name: y.admission_year_name }))),
+      )
+      .catch(() => setAdmissionYears([]));
+  }, [programmeFilter]);
 
   // Bulk-selection state, lifted out of the toolbar so the bulk-action bar
   // can render as a FULL-WIDTH banner above the DataTable instead of
@@ -101,6 +207,86 @@ export function FeeStructuresListView() {
   const [bulkSubmitting, setBulkSubmitting] = useState(false);
 
   const bumpRefetch = useCallback(() => setRefetchKey((k) => k + 1), []);
+
+  // Cascading setters — picking a parent collapses every descendant back to
+  // ALL. Matches the cascade in fees-structure-dimension-selector so users
+  // get the same mental model when filtering as when authoring.
+  const handleInstitutionChange = (v: string) => {
+    setInstitutionFilter(v);
+    setDegreeFilter(ALL);
+    setDepartmentFilter(ALL);
+    setProgrammeFilter(ALL);
+    setAdmissionYearFilter(ALL);
+    setAccommodationFilter(ALL);
+    bumpRefetch();
+  };
+
+  const handleDegreeChange = (v: string) => {
+    setDegreeFilter(v);
+    setDepartmentFilter(ALL);
+    setProgrammeFilter(ALL);
+    setAdmissionYearFilter(ALL);
+    bumpRefetch();
+  };
+
+  const handleDepartmentChange = (v: string) => {
+    setDepartmentFilter(v);
+    setProgrammeFilter(ALL);
+    setAdmissionYearFilter(ALL);
+    bumpRefetch();
+  };
+
+  const handleProgrammeChange = (v: string) => {
+    setProgrammeFilter(v);
+    setAdmissionYearFilter(ALL);
+    bumpRefetch();
+  };
+
+  const handleSimpleChange = (setter: (v: string) => void) => (v: string) => {
+    setter(v);
+    bumpRefetch();
+  };
+
+  const resetAllFilters = () => {
+    setInstitutionFilter(ALL);
+    setStatusFilter(ALL);
+    setDegreeFilter(ALL);
+    setDepartmentFilter(ALL);
+    setProgrammeFilter(ALL);
+    setAdmissionYearFilter(ALL);
+    setQuotaFilter(ALL);
+    setCommunityFilter(ALL);
+    setAccommodationFilter(ALL);
+    bumpRefetch();
+  };
+
+  // Count of advanced filters currently active — drives the badge on the
+  // More button so users can see at a glance how many filters are "hidden"
+  // inside the panel. Institution + Status are primary, so they don't count.
+  const activeAdvancedCount = useMemo(() => {
+    return [
+      degreeFilter,
+      departmentFilter,
+      programmeFilter,
+      admissionYearFilter,
+      quotaFilter,
+      communityFilter,
+      accommodationFilter,
+    ].filter((v) => v !== ALL).length;
+  }, [
+    degreeFilter,
+    departmentFilter,
+    programmeFilter,
+    admissionYearFilter,
+    quotaFilter,
+    communityFilter,
+    accommodationFilter,
+  ]);
+
+  const hasAnyFilter =
+    institutionFilter !== ALL ||
+    statusFilter !== ALL ||
+    activeAdvancedCount > 0;
 
   const handleBulkDelete = async () => {
     if (pendingRows.length === 0) return;
@@ -151,9 +337,19 @@ export function FeeStructuresListView() {
         search: params.search || undefined,
         sortBy: params.sort_by || undefined,
         sortOrder: (params.sort_order as 'asc' | 'desc') || undefined,
-        institution_id: institutionFilter === 'all' ? undefined : institutionFilter,
+        institution_id: institutionFilter === ALL ? undefined : institutionFilter,
+        degree_id: degreeFilter === ALL ? undefined : degreeFilter,
+        department_id: departmentFilter === ALL ? undefined : departmentFilter,
+        programme_id: programmeFilter === ALL ? undefined : programmeFilter,
+        admission_year_id:
+          admissionYearFilter === ALL ? undefined : admissionYearFilter,
+        quota_id: quotaFilter === ALL ? undefined : quotaFilter,
+        community_category_id:
+          communityFilter === ALL ? undefined : communityFilter,
+        accommodation_type_id:
+          accommodationFilter === ALL ? undefined : accommodationFilter,
         status:
-          statusFilter === 'all'
+          statusFilter === ALL
             ? undefined
             : (statusFilter as 'draft' | 'active' | 'archived'),
       });
@@ -174,93 +370,330 @@ export function FeeStructuresListView() {
     }
   };
 
+  // Toolbar slot is intentionally minimal — the DataTable's `customToolbar`
+  // sits in a narrow horizontal cluster next to Export/View/Settings
+  // (components/data-table/toolbar.tsx:423). Putting filters there caused
+  // the cramping bug in screenshot 561 because the panel competed for
+  // horizontal space with the export controls. Following the counselor-list
+  // pattern, all filters live in a dedicated card ABOVE the DataTable
+  // (rendered in the parent JSX below) — this surface owns its own width,
+  // wraps cleanly on mobile, and lets the advanced panel expand into a
+  // full-width grid. We only keep BulkSelectionSync here because it has to
+  // observe the DataTable's internal selection state.
   const renderCustomToolbar = (props: {
     selectedRows: FeeStructureRow[];
     allSelectedIds: (string | number)[];
     totalSelectedCount: number;
     resetSelection: () => void;
   }) => (
-    <>
-      {/* Sync selection up to parent so the bulk-action bar can render as a
-          full-width banner ABOVE the DataTable instead of cramming inside
-          the toolbar's right cluster. */}
-      <BulkSelectionSync
-        rows={props.selectedRows}
-        reset={props.resetSelection}
-        rowsRef={selectedRowsRef}
-        onChange={handleSelectionChange}
-      />
-
-      <div className="flex items-center gap-2 flex-wrap">
-        {/* Institution filter */}
-        <Select
-          value={institutionFilter}
-          onValueChange={(v) => {
-            setInstitutionFilter(v);
-            bumpRefetch();
-          }}
-        >
-          <SelectTrigger className="w-44 h-8">
-            <SelectValue placeholder="All institutions" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All institutions</SelectItem>
-            {institutions.map((i) => (
-              <SelectItem key={i.id} value={i.id}>
-                {i.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
-        {/* Status filter */}
-        <Select
-          value={statusFilter}
-          onValueChange={(v) => {
-            setStatusFilter(v);
-            bumpRefetch();
-          }}
-        >
-          <SelectTrigger className="w-32 h-8">
-            <SelectValue placeholder="All statuses" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All statuses</SelectItem>
-            <SelectItem value="draft">Draft</SelectItem>
-            <SelectItem value="active">Active</SelectItem>
-            <SelectItem value="archived">Archived</SelectItem>
-          </SelectContent>
-        </Select>
-
-        {(institutionFilter !== 'all' || statusFilter !== 'all') && (
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-8"
-            onClick={() => {
-              setInstitutionFilter('all');
-              setStatusFilter('all');
-              bumpRefetch();
-            }}
-          >
-            <RotateCcw className="h-3.5 w-3.5 mr-1" /> Reset
-          </Button>
-        )}
-
-        <Button
-          size="sm"
-          className="h-8 ml-auto"
-          onClick={() => router.push('/admission/settings/fees-structure/new')}
-        >
-          <Plus className="h-4 w-4 mr-1" />
-          New Fee Structure
-        </Button>
-      </div>
-    </>
+    <BulkSelectionSync
+      rows={props.selectedRows}
+      reset={props.resetSelection}
+      rowsRef={selectedRowsRef}
+      onChange={handleSelectionChange}
+    />
   );
 
   return (
     <>
+      {/* Dedicated filter surface — sits ABOVE the DataTable so each surface
+          owns its own width and responsive behavior, the way counselor-list.tsx
+          does it. Primary chips live in the header row alongside the More
+          toggle, Reset, and New Fee Structure action. The advanced grid only
+          renders when `showAdvanced` is true and gets the full card width — on
+          mobile it collapses to 1 column, scaling up to 4 columns on xl. */}
+      <div className="mb-3 rounded-lg border bg-card p-3 space-y-3">
+        {/* Primary filter row — Filter icon + chips on the left, action
+            cluster (Reset, New) on the right via `ml-auto`. flex-wrap lets
+            the row break onto multiple lines on narrow viewports without
+            the chips overflowing. */}
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground pr-1 shrink-0">
+            <Filter className="h-3.5 w-3.5" />
+            <span>Filters</span>
+          </div>
+
+          <Select
+            value={institutionFilter}
+            onValueChange={handleInstitutionChange}
+          >
+            <SelectTrigger className="w-full sm:w-44 h-8 text-xs">
+              <SelectValue placeholder="All institutions" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL}>All institutions</SelectItem>
+              {institutions.map((i) => (
+                <SelectItem key={i.id} value={i.id}>
+                  {i.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <Select
+            value={statusFilter}
+            onValueChange={handleSimpleChange(setStatusFilter)}
+          >
+            <SelectTrigger className="w-full sm:w-32 h-8 text-xs">
+              <SelectValue placeholder="All statuses" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL}>All statuses</SelectItem>
+              <SelectItem value="draft">Draft</SelectItem>
+              <SelectItem value="active">Active</SelectItem>
+              <SelectItem value="archived">Archived</SelectItem>
+            </SelectContent>
+          </Select>
+
+          {/* More / Advanced filters toggle. Badge shows count of currently-
+              active advanced filters so users know how many extra
+              constraints are hidden inside the panel below. */}
+          <Button
+            variant={showAdvanced ? 'secondary' : 'outline'}
+            size="sm"
+            className="h-8 gap-1 px-2.5 shrink-0"
+            onClick={() => setShowAdvanced((p) => !p)}
+            aria-expanded={showAdvanced}
+            aria-controls="fee-structures-advanced-filters"
+          >
+            <Filter className="h-3.5 w-3.5" />
+            <span className="text-xs">More</span>
+            {activeAdvancedCount > 0 && (
+              <span className="ml-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-[10px] text-primary-foreground">
+                {activeAdvancedCount}
+              </span>
+            )}
+          </Button>
+
+          {hasAnyFilter && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-8 shrink-0"
+              onClick={resetAllFilters}
+            >
+              <RotateCcw className="h-3.5 w-3.5 mr-1" /> Reset
+            </Button>
+          )}
+
+          {/* New Fee Structure — full-width on mobile (drops to its own row
+              via flex-wrap), right-aligned on sm+ via ml-auto. */}
+          <Button
+            size="sm"
+            className="h-8 w-full sm:w-auto sm:ml-auto shrink-0"
+            onClick={() => router.push('/admission/settings/fees-structure/new')}
+          >
+            <Plus className="h-4 w-4 mr-1" />
+            New Fee Structure
+          </Button>
+        </div>
+
+        {/* Advanced filters grid — full card width, responsive columns.
+            Cascade order mirrors fees-structure-dimension-selector:
+            institution → degree → department → programme → admission_year.
+            Quota + Community are global lookups; Accommodation is
+            institution-scoped. Disabled until their parent is set. */}
+        {showAdvanced && (
+          <div
+            id="fee-structures-advanced-filters"
+            className="border-t pt-3 space-y-2"
+          >
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1">
+              <span className="text-xs text-muted-foreground font-medium">
+                Advanced filters
+              </span>
+              <span className="text-[11px] text-muted-foreground">
+                Pick parents first — descendants enable as you go.
+              </span>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+              {/* Degree (needs institution) */}
+              <div className="space-y-1">
+                <Label className="text-xs">Degree</Label>
+                <Select
+                  value={degreeFilter}
+                  onValueChange={handleDegreeChange}
+                  disabled={institutionFilter === ALL}
+                >
+                  <SelectTrigger className="w-full h-8 text-xs">
+                    <SelectValue
+                      placeholder={
+                        institutionFilter === ALL
+                          ? 'Pick institution first'
+                          : 'All degrees'
+                      }
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={ALL}>All degrees</SelectItem>
+                    {degrees.map((d) => (
+                      <SelectItem key={d.id} value={d.id}>
+                        {d.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Department (needs degree) */}
+              <div className="space-y-1">
+                <Label className="text-xs">Department</Label>
+                <Select
+                  value={departmentFilter}
+                  onValueChange={handleDepartmentChange}
+                  disabled={degreeFilter === ALL}
+                >
+                  <SelectTrigger className="w-full h-8 text-xs">
+                    <SelectValue
+                      placeholder={
+                        degreeFilter === ALL
+                          ? 'Pick degree first'
+                          : 'All departments'
+                      }
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={ALL}>All departments</SelectItem>
+                    {departments.map((d) => (
+                      <SelectItem key={d.id} value={d.id}>
+                        {d.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Programme (needs department) */}
+              <div className="space-y-1">
+                <Label className="text-xs">Programme</Label>
+                <Select
+                  value={programmeFilter}
+                  onValueChange={handleProgrammeChange}
+                  disabled={departmentFilter === ALL}
+                >
+                  <SelectTrigger className="w-full h-8 text-xs">
+                    <SelectValue
+                      placeholder={
+                        departmentFilter === ALL
+                          ? 'Pick department first'
+                          : 'All programmes'
+                      }
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={ALL}>All programmes</SelectItem>
+                    {programmes.map((p) => (
+                      <SelectItem key={p.id} value={p.id}>
+                        {p.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Admission Year (needs programme) */}
+              <div className="space-y-1">
+                <Label className="text-xs">Admission Year</Label>
+                <Select
+                  value={admissionYearFilter}
+                  onValueChange={handleSimpleChange(setAdmissionYearFilter)}
+                  disabled={programmeFilter === ALL}
+                >
+                  <SelectTrigger className="w-full h-8 text-xs">
+                    <SelectValue
+                      placeholder={
+                        programmeFilter === ALL
+                          ? 'Pick programme first'
+                          : 'All admission years'
+                      }
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={ALL}>All admission years</SelectItem>
+                    {admissionYears.map((y) => (
+                      <SelectItem key={y.id} value={y.id}>
+                        {y.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Quota (global lookup) */}
+              <div className="space-y-1">
+                <Label className="text-xs">Quota</Label>
+                <Select
+                  value={quotaFilter}
+                  onValueChange={handleSimpleChange(setQuotaFilter)}
+                >
+                  <SelectTrigger className="w-full h-8 text-xs">
+                    <SelectValue placeholder="All quotas" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={ALL}>All quotas</SelectItem>
+                    {quotas.map((q) => (
+                      <SelectItem key={q.id} value={q.id}>
+                        {q.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Community (global lookup; M2M filter handled server-side
+                  via junction pre-fetch in fee-structure-service.ts) */}
+              <div className="space-y-1">
+                <Label className="text-xs">Community</Label>
+                <Select
+                  value={communityFilter}
+                  onValueChange={handleSimpleChange(setCommunityFilter)}
+                >
+                  <SelectTrigger className="w-full h-8 text-xs">
+                    <SelectValue placeholder="All communities" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={ALL}>All communities</SelectItem>
+                    {communities.map((c) => (
+                      <SelectItem key={c.id} value={c.id}>
+                        {c.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Accommodation (institution-scoped) */}
+              <div className="space-y-1">
+                <Label className="text-xs">Accommodation</Label>
+                <Select
+                  value={accommodationFilter}
+                  onValueChange={handleSimpleChange(setAccommodationFilter)}
+                  disabled={institutionFilter === ALL}
+                >
+                  <SelectTrigger className="w-full h-8 text-xs">
+                    <SelectValue
+                      placeholder={
+                        institutionFilter === ALL
+                          ? 'Pick institution first'
+                          : 'All accommodations'
+                      }
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={ALL}>All accommodations</SelectItem>
+                    {accommodations.map((a) => (
+                      <SelectItem key={a.id} value={a.id}>
+                        {a.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
       {/* Full-width bulk-action banner — only renders once at least one row
           is selected and the caller holds admission_fees.delete. Sits ABOVE
           the DataTable so it never has to fight Export / View / Settings for

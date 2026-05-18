@@ -51,7 +51,13 @@ export class FeeStructureService {
     sortBy?: string;
     sortOrder?: 'asc' | 'desc';
     institution_id?: string;
+    degree_id?: string;
+    department_id?: string;
+    programme_id?: string;
     admission_year_id?: string;
+    quota_id?: string;
+    community_category_id?: string;
+    accommodation_type_id?: string;
     status?: 'draft' | 'active' | 'archived';
   }): Promise<{
     data: Array<
@@ -81,6 +87,31 @@ export class FeeStructureService {
     const sortColumn = params.sortBy && params.sortBy.length > 0 ? params.sortBy : 'updated_at';
     const ascending = params.sortOrder === 'asc';
 
+    // Community filter is many-to-many via admission_fee_structure_communities.
+    // Resolve matching parent IDs first, then constrain the main query with
+    // `.in('id', ids)`. Cheap because the junction is narrow (2 UUIDs/row) and
+    // it sidesteps the !inner-vs-left-join branching that would otherwise be
+    // needed inside the embedded select.
+    let communityScopedIds: string[] | null = null;
+    if (params.community_category_id) {
+      const { data: junctionRows, error: jErr } = await supabase
+        .from('admission_fee_structure_communities')
+        .select('fee_structure_id')
+        .eq('community_category_id', params.community_category_id);
+      if (jErr) throw jErr;
+      communityScopedIds = (junctionRows ?? []).map(
+        (r: { fee_structure_id: string }) => r.fee_structure_id,
+      );
+      // No matches → short-circuit with an empty page; otherwise PostgREST
+      // would receive `.in('id', [])` which it rejects as an empty list.
+      if (communityScopedIds.length === 0) {
+        return {
+          data: [],
+          metadata: { total: 0, totalPages: 1, page, limit },
+        };
+      }
+    }
+
     let query = supabase
       .from('admission_fee_structures')
       .select(
@@ -102,7 +133,13 @@ export class FeeStructureService {
       .range(from, to);
 
     if (params.institution_id) query = query.eq('institution_id', params.institution_id);
+    if (params.degree_id) query = query.eq('degree_id', params.degree_id);
+    if (params.department_id) query = query.eq('department_id', params.department_id);
+    if (params.programme_id) query = query.eq('programme_id', params.programme_id);
     if (params.admission_year_id) query = query.eq('admission_year_id', params.admission_year_id);
+    if (params.quota_id) query = query.eq('quota_id', params.quota_id);
+    if (params.accommodation_type_id) query = query.eq('accommodation_type_id', params.accommodation_type_id);
+    if (communityScopedIds) query = query.in('id', communityScopedIds);
     if (params.status) query = query.eq('status', params.status);
     if (params.search && params.search.trim()) query = query.ilike('name', `%${params.search.trim()}%`);
 
