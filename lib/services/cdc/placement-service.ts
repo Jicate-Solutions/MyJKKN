@@ -35,14 +35,14 @@ export class CdcPlacementService {
   ): Promise<CdcPlacementListResponse> {
     const page = filters.page ?? 1;
     const pageSize = filters.pageSize ?? 50;
-    const from = (page - 1) * pageSize;
-    const to = from + pageSize - 1;
+    const rangeFrom = (page - 1) * pageSize;
+    const rangeTo = rangeFrom + pageSize - 1;
 
     let q = supabase
       .from('cdc_placements')
       .select('*', { count: 'exact' })
       .order('offered_at', { ascending: false })
-      .range(from, to);
+      .range(rangeFrom, rangeTo);
 
     if (filters.drive_id) q = q.eq('drive_id', filters.drive_id);
     if (filters.learner_id) q = q.eq('learner_id', filters.learner_id);
