@@ -26,7 +26,10 @@ import type { AttributionMode } from '@/types/admission/campaign';
 
 export default function CompareCampaignsPage() {
   const [selected, setSelected] = useState<string[]>([]);
-  const [mode, setMode] = useState<AttributionMode>('first');
+  // 'any' default keeps this view consistent with the campaign detail page
+  // and the per-link capture_count — every lead a campaign has touched
+  // counts (including re-captures merged into existing leads).
+  const [mode, setMode] = useState<AttributionMode>('any');
   const { data: campaigns } = useCampaigns();
   const { data: compare } = useCampaignsCompare(selected, mode);
 
