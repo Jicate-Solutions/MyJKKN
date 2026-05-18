@@ -77,22 +77,11 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, RolePermissions> = {
     [BOS_MODULES.SCHEME]: ['view'],
   },
 
-  // Faculty: Limited access to syllabi and TA/DA
+  // Faculty (display name "Facilitator", role_key='faculty')
+  // Can create/edit/revise/duplicate syllabi, compositions, and taxonomy.
+  // NOTE: role_key is always 'faculty' — there is no 'facilitator' key in use.
   faculty: {
-    [BOS_MODULES.SYLLABI]: ['view', 'export'],
-    [BOS_MODULES.TAXONOMY]: ['view'],
-    [BOS_MODULES.EXPERTS]: ['view'],
-    [BOS_MODULES.COMPOSITIONS]: ['view'],
-    [BOS_MODULES.MEETINGS]: ['view'],
-    [BOS_MODULES.TA_DA]: ['view', 'submit'],
-    [BOS_MODULES.REPORTS]: ['view'],
-    [BOS_MODULES.COURSES]: ['view'],
-    [BOS_MODULES.SCHEME]: ['view'],
-  },
-
-  // Facilitator: Can create/edit syllabi, compositions, and taxonomy outcomes
-  facilitator: {
-    [BOS_MODULES.SYLLABI]: ['view', 'create', 'edit', 'export'],
+    [BOS_MODULES.SYLLABI]: ['view', 'create', 'edit', 'revise', 'duplicate', 'export'],
     [BOS_MODULES.TAXONOMY]: ['view', 'edit'],
     [BOS_MODULES.EXPERTS]: ['view'],
     [BOS_MODULES.COMPOSITIONS]: ['view', 'edit'],

@@ -6,6 +6,7 @@ import { Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useInstitutionContext } from '@/hooks/use-institution-context';
+import { useBosBoardScope } from '@/hooks/bos/use-bos-board-scope';
 
 import { InstitutionPicker } from '../../_components/institution-picker';
 import { CoursesFilters, type CoursesFiltersState } from './courses-filters';
@@ -13,10 +14,17 @@ import { CoursesDataTable } from './courses-data-table';
 
 export function CoursesPageClient() {
   const router = useRouter();
-  const { canAccess, isSuperAdmin, userProfile } = usePermissions();
+  const { isSuperAdmin, userProfile } = usePermissions();
   const { data: institutionCtx } = useInstitutionContext();
+  const boardScope = useBosBoardScope();
 
-  const canCreate = isSuperAdmin || canAccess('academic.bos-courses', 'create');
+  // Board membership IS the authorization for BoS write actions — mirrors
+  // syllabus-actions.tsx. Role-permission grants drift out of sync with
+  // composition membership (faculty members on a UPH board lacked
+  // academic.bos-courses.create in custom_roles.permissions), so we gate
+  // on memberOf instead. Server still enforces via guardInstitutionWrite.
+  const isBoardMember = !boardScope.isLoading && boardScope.memberOf.size > 0;
+  const canCreate = isSuperAdmin || isBoardMember;
 
   const [institutionId, setInstitutionId] = useState<string | undefined>(undefined);
   const [institutionCode, setInstitutionCode] = useState('');
@@ -56,50 +64,58 @@ export function CoursesPageClient() {
 
   return (
     <div className='space-y-6'>
-      <div className='flex items-end justify-between gap-4 flex-wrap'>
-        <div className='flex gap-3 flex-wrap items-end'>
-          {isSuperAdmin && (
-            <InstitutionPicker
-              value={institutionId}
-              onChange={(id) => {
-                setInstitutionId(id);
-                if (!id) {
-                  setInstitutionCode('');
-                  setInstitutionName('');
-                  setMyjkknInstitutionIds([]);
-                }
-              }}
-              onSelect={(opt) => {
-                setInstitutionCode(opt.institution_code);
-                setInstitutionName(opt.name);
-                setMyjkknInstitutionIds(opt.myjkkn_institution_ids);
-              }}
-              showAllOption={isSuperAdmin}
-            />
-          )}
-          <CoursesFilters
-            value={filters}
-            onChange={setFilters}
-            institutionId={institutionId}
-            myjkknInstitutionIds={myjkknInstitutionIds}
+      {/* Action bar — kept on its own row so the filter grid below stays a
+          rigid 4-column matrix at every zoom level (grid columns share the
+          row width as 1fr, so they never overflow into wraps). */}
+      <div className='flex justify-end'>
+        {/* Disable New Course when "All Institutions" is active — no institution context to create into. */}
+        {canCreate && institutionId && (
+          <Button
+            size='sm'
+            onClick={() => {
+              const params = new URLSearchParams();
+              if (institutionCode) params.set('institution_code', institutionCode);
+              if (filters.regulation_code) params.set('regulation_code', filters.regulation_code);
+              router.push(`/bos/courses/new?${params}`);
+            }}
+          >
+            <Plus className='mr-2 h-4 w-4' /> New Course
+          </Button>
+        )}
+      </div>
+
+      {/* Fixed-column filter grid: 1 col mobile → 2 cols tablet → 4 cols desktop.
+          Each cell sizes equally via grid 1fr, so zoom in/out preserves the
+          row-level column count (no flex-wrap surprises). Mirrors the
+          /learners/profiles advanced-filters grid. */}
+      <div className='grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3'>
+        {isSuperAdmin && (
+          <InstitutionPicker
+            value={institutionId}
+            onChange={(id) => {
+              setInstitutionId(id);
+              if (!id) {
+                setInstitutionCode('');
+                setInstitutionName('');
+                setMyjkknInstitutionIds([]);
+              }
+            }}
+            onSelect={(opt) => {
+              setInstitutionCode(opt.institution_code);
+              setInstitutionName(opt.name);
+              setMyjkknInstitutionIds(opt.myjkkn_institution_ids);
+            }}
+            showAllOption={isSuperAdmin}
+            hideLabel
+            className='w-full'
           />
-        </div>
-        <div className='flex gap-2'>
-          {/* Disable New Course when "All Institutions" is active — no institution context to create into. */}
-          {canCreate && institutionId && (
-            <Button
-              size='sm'
-              onClick={() => {
-                const params = new URLSearchParams();
-                if (institutionCode) params.set('institution_code', institutionCode);
-                if (filters.regulation_code) params.set('regulation_code', filters.regulation_code);
-                router.push(`/bos/courses/new?${params}`);
-              }}
-            >
-              <Plus className='mr-2 h-4 w-4' /> New Course
-            </Button>
-          )}
-        </div>
+        )}
+        <CoursesFilters
+          value={filters}
+          onChange={setFilters}
+          institutionId={institutionId}
+          myjkknInstitutionIds={myjkknInstitutionIds}
+        />
       </div>
 
       {/* Super-admin: show table even with no specific institution (all-institutions mode).
