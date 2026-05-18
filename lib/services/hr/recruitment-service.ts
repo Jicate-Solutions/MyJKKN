@@ -188,6 +188,42 @@ export class RecruitmentService {
     const from = (page - 1) * pageSize;
     const to = from + pageSize - 1;
 
+    // pending_for_me: short-circuit to SECURITY DEFINER RPC.
+    //
+    // The old PostgREST `.contains('approval_chain', [{approver_user_id}])` filter
+    // returned 0 rows for everyone (chain entries are seeded with approver_user_id=null
+    // at submit-time) AND threw HTTP 500 for super-admin auth context. The correct
+    // matching is approval_chain[current_step].approver_role vs the caller's role_key,
+    // which PostgREST cannot express. See migration
+    // 20260516170000_fn_list_my_pending_recruitment.sql for the function definition.
+    //
+    // We bypass the regular query builder entirely on this path — viewer-scope and
+    // other filters are not applied here. Approver-inbox semantics already encode
+    // the only scope that matters: "rows where I am the named approver at the
+    // current step", which is a stricter filter than any viewer-scope rule.
+    if (filters.pending_for_me) {
+      if (!filters.approver_id) {
+        throw new Error('approver_id is required when pending_for_me=true');
+      }
+      const { data: rpcData, error: rpcError } = await supabase.rpc(
+        'fn_list_my_pending_recruitment',
+        { p_user_id: filters.approver_id }
+      );
+      if (rpcError) throw rpcError;
+      const all = (rpcData ?? []) as HRRecruitmentCandidate[];
+      const total = all.length;
+      const sliced = all.slice(from, to + 1);
+      return {
+        data: sliced,
+        metadata: {
+          total,
+          page,
+          pageSize,
+          totalPages: Math.max(1, Math.ceil(total / pageSize)),
+        },
+      };
+    }
+
     let q = supabase
       .from('hr_recruitment_candidates')
       .select('*', { count: 'exact' })
@@ -243,28 +279,8 @@ export class RecruitmentService {
       q = q.eq('submitted_by', filters.submitted_by);
     }
 
-    // pending_for_me: approver inbox view.
-    // Must be combined with `approver_id` — the service enforces this contract
-    // so the route layer can return a clean 400 on missing approver_id.
-    if (filters.pending_for_me) {
-      if (!filters.approver_id) {
-        throw new Error('approver_id is required when pending_for_me=true');
-      }
-      // When pending_for_me is set, status defaults to the open-approval statuses.
-      // An explicit `status` filter passed alongside is ignored in favour of this one
-      // to preserve the inbox semantics.
-      q = q.in('status', ['submitted', 'pending_approval']);
-      // jsonb path: approval_chain is an array; current_step is the index of the
-      // row's own current step (server-side). We cannot dereference array[current_step]
-      // in PostgREST without a SQL function, so we compare the `approver_user_id`
-      // of the "first pending step" using jsonb_path_query / filter — PostgREST
-      // supports this via the `cs` (contains) operator on the array shape.
-      // The approval_chain entries that are still pending + match the approver:
-      //   approval_chain @> '[{"status":"pending","approver_user_id":"<id>"}]'
-      q = q.contains('approval_chain', [
-        { status: 'pending', approver_user_id: filters.approver_id },
-      ]);
-    } else if (filters.status) {
+    // pending_for_me was handled above via SECURITY DEFINER RPC short-circuit.
+    if (filters.status) {
       const statuses = Array.isArray(filters.status) ? filters.status : [filters.status];
       q = q.in('status', statuses);
     }
@@ -454,6 +470,57 @@ export class RecruitmentService {
   ): Promise<HRRecruitmentCandidate> {
     const candidate = await this.getCandidate(supabase, id);
     if (!candidate) throw new Error('Candidate not found');
+
+    // ---------------------------------------------------------------------
+    // Role-match enforcement (config-driven via platform_policies, 2026-05-16).
+    // Master toggle: hr.recruitment.approvals.enforce_role_match (bool, default FALSE).
+    // Override list: hr.recruitment.approvals.override_roles    (array).
+    // When master toggle is OFF, behavior is unchanged from pre-2026-05-16.
+    // ---------------------------------------------------------------------
+    const { data: enforceData } = await supabase.rpc('fn_get_policy_bool', {
+      p_key: POLICY_KEYS.HR_RECRUITMENT_APPROVALS_ENFORCE_ROLE_MATCH,
+      p_default: false,
+      p_scope_id: null,
+    });
+    if (enforceData === true) {
+      const chainForCheck = candidate.approval_chain ?? [];
+      const stepForCheck = chainForCheck[candidate.current_step];
+      const expectedRole = (stepForCheck?.approver_role ?? '').toLowerCase();
+
+      // Caller's role_keys (may be multiple).
+      const { data: roleRows } = await supabase
+        .from('user_roles')
+        .select('custom_roles!inner(role_key)')
+        .eq('user_id', approverId);
+      const userRoles = (
+        (roleRows ?? []) as unknown as Array<{ custom_roles?: { role_key?: string } }>
+      )
+        .map((r) => r.custom_roles?.role_key?.toLowerCase())
+        .filter((k): k is string => !!k);
+
+      // Override roles (always-allowed admins / break-glass).
+      const { data: overrideData } = await supabase.rpc('fn_get_policy', {
+        p_key: POLICY_KEYS.HR_RECRUITMENT_APPROVALS_OVERRIDE_ROLES,
+        p_scope_id: null,
+      });
+      const overrideRoles = (Array.isArray(overrideData) ? overrideData : [])
+        .filter((v): v is string => typeof v === 'string')
+        .map((v) => v.toLowerCase());
+
+      // is_super_admin RPC bypass (always allowed).
+      const { data: isSuperAdmin } = await supabase.rpc('is_super_admin');
+
+      const roleMatches = expectedRole && userRoles.includes(expectedRole);
+      const isOverride = userRoles.some((r) => overrideRoles.includes(r));
+      if (!isSuperAdmin && !roleMatches && !isOverride) {
+        throw new Error(
+          `Only users with role '${expectedRole}' can approve this step. ` +
+            `You have roles: [${userRoles.join(', ') || 'none'}]. ` +
+            `Director can change this policy at /admin/hr/recruitment-approvals-scope.`
+        );
+      }
+    }
+
     if (!['pending_approval', 'submitted'].includes(candidate.status)) {
       throw new Error(`Cannot approve candidate in status '${candidate.status}'`);
     }

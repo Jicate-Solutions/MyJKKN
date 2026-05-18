@@ -8,7 +8,7 @@
 
 import { useState, useCallback, useEffect } from 'react';
 import { DataTable } from '@/components/data-table/data-table';
-import { enquiryColumns } from './columns';
+import { buildEnquiryColumns } from './columns';
 import type { LearnerProfile } from '@/types/learner-profile';
 import { Button } from '@/components/ui/button';
 import { TrashIcon } from 'lucide-react';
@@ -35,7 +35,7 @@ interface EnquiriesTableServerProps {
     limit: number;
     total_pages: number;
   };
-  statusFilter?: 'admitted' | 'pending' | 'rejected' | 'waitlisted';
+  statusFilter?: 'admitted' | 'pending' | 'rejected' | 'waitlisted' | 'fees_setup_pending';
 }
 
 /**
@@ -201,7 +201,11 @@ export function EnquiriesTableServer({
     <>
       <DataTable
         fetchDataFn={fetchData}
-        getColumns={() => enquiryColumns as any}
+        getColumns={() =>
+          buildEnquiryColumns({
+            showFeeStatus: statusFilter === 'fees_setup_pending',
+          }) as any
+        }
         exportConfig={{
           entityName: `${statusFilter || 'all'}-enquiries`,
           columnMapping: {},

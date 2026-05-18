@@ -1,6 +1,6 @@
 {
   "project": "MyJKKN - HR Module + Exotel",
-  "lastUpdated": "2026-05-02",
+  "lastUpdated": "2026-05-16",
   "_schema": {
     "version": "2.0",
     "updated": "2026-05-02",
@@ -195,6 +195,20 @@
         "verdict_date": "2026-08-01",
         "verdict_status": "PENDING"
       }
+    },
+    {
+      "id": "wave-5-recruitment-workflow-repair",
+      "name": "Wave 5 \u2014 Recruitment Workflow Substrate Repair (5 fixes; verdict 2026-08-14)",
+      "status": "shipped",
+      "outcome_metric": {
+        "metric_name": "Recruitment workflow stage coverage \u2014 count of distinct successful state transitions (submitted \u2192 scheduled \u2192 scored \u2192 approved \u2192 offered \u2192 joined \u2192 onboarded) executable end-to-end via authenticated UI without 500s",
+        "baseline_value": "1 of 7 stages working (only submit\u2192pending_approval pre-Wave-5; interview-scheduling 500'd because table didn't exist, scoring 500'd, jobs 500'd, onboarding-start 400'd, submit UI silently failed)",
+        "threshold_90d": "All 7 stages executable end-to-end by 2026-08-14 (90-day verdict). Measured by: a fresh test candidate walked through every stage without intervention.",
+        "kill_criterion": "If <4 stages working by 2026-08-14, recruitment module is fundamentally broken \u2014 re-audit with a fresh /assumption-thrash before scoping additional recruitment work",
+        "verdict_date": "2026-08-14",
+        "verdict_status": "PENDING (Wave 5 just shipped 2026-05-16; T4.3 period orchestration depends on this substrate being stable)"
+      },
+      "notes": "Shipped 2026-05-16 via 1 inline action + 4 parallel fullstack-developer Agent spawns + 1 \u03b2-prime re-spawn (\u03b2 stalled at 600s no-progress mid-investigation). The 5 fixes (PR numbers may shift; check Jicate-Solutions/MyJKKN PR list for the actual numbers landed today after 03:00 UTC):\n- Inline: applied dormant migration 20260509100200_create_hr_recruitment_jobs.sql to prod via Management API (table+7 indexes+4 RLS policies live)\n- Agent \u03b1 (PR #937): hr_recruitment_interviews substrate \u2014 16 cols + GIN index on panel_member_ids + 4 RLS policies. Override of spec: pulled mode/status enum values from types/hr-recruitment.ts (caught spec being stale \u2014 service writes `status='rescheduled'` which spec didn't include)\n- Agent \u03b2-prime (PR TBD): hr_recruitment_scorecards substrate \u2014 UNIQUE(interview_id, interviewer_id) + 4 RLS policies. \u03b2 stalled, \u03b2-prime shipped with pre-baked schema + RLS helpers.\n- Agent \u03b3 (PR #939): /hr/recruitment/submit form fix. Override of spec: form is plain useState (not RHF as my prompt claimed); transform is correct; real bug was silent `return` guard. Fix replaces with collect-and-toast pattern (15+/-1).\n- Agent \u03b4 (PR #938): onboarding_checklists seed migration \u2014 4 rows (Administrative Leadership / Non-Technical Admin / Supporting Technical / Teaching Faculty). Override of spec: 4 rows not 5 because cadreMap collapses 5 role_categories to 3 unique names. End-to-end verified candidate 6a53fd18 onboarding now starts.\n\nThree distinct agent overrides of my prompts all proved correct. Meta-learning: when spec disagrees with reality, agent should call it out, not silently fall in either direction (Rule 21 protected).\n\nTest artifact in prod: candidate 6a53fd18-544b-48f1-b6ce-16248ef187db ('WorkflowTest 20260516 Sample Candidate'), status=joined, with 9-step onboarding populated. Director may delete via Management API when ready; useful as audit trail until then.\n\nAlso fixed: CLAUDE.md port-drift documented (3104 design vs 3000 reality), memory feedback_dev_server_port_drift_3104_vs_3000.md saved. Wave 5 outcome metric set conservatively \u2014 7-stage coverage by 90 days is realistic given T4.3 dependency."
     }
   ]
 }

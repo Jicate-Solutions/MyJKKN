@@ -5,6 +5,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import { toast } from 'react-hot-toast';
 import { ResourceService } from '@/lib/services/resource-management/resource-service';
+import { getErrorMessage } from '@/lib/utils';
 import type {
   Resource,
   CreateResourceDto,
@@ -52,8 +53,7 @@ export function useResources(initialFilters: ResourceFilters = {}) {
       setResources(response.data);
       setMetadata(response.metadata);
     } catch (err) {
-      const errorMessage =
-        err instanceof Error ? err.message : 'Failed to fetch resources';
+      const errorMessage = getErrorMessage(err);
       setError(errorMessage);
       toast.error(errorMessage);
     } finally {
@@ -100,8 +100,7 @@ export function useResource(id?: string) {
       const resourceData = await ResourceService.getResource(id);
       setResource(resourceData);
     } catch (err) {
-      const errorMessage =
-        err instanceof Error ? err.message : 'Failed to fetch resource';
+      const errorMessage = getErrorMessage(err);
       setError(errorMessage);
       toast.error(errorMessage);
     } finally {
@@ -149,9 +148,9 @@ export function useResourceOperations() {
         toast.success('Resource created successfully');
         return newResource;
       } catch (err) {
-        const errorMessage =
-          err instanceof Error ? err.message : 'Failed to create resource';
-        toast.error(errorMessage);
+        // getErrorMessage handles Supabase plain-object errors that
+        // `instanceof Error` would silently drop into the fallback string.
+        toast.error(getErrorMessage(err));
         return null;
       } finally {
         setLoading(false);
@@ -182,9 +181,7 @@ export function useResourceOperations() {
         toast.success('Resource updated successfully');
         return updatedResource;
       } catch (err) {
-        const errorMessage =
-          err instanceof Error ? err.message : 'Failed to update resource';
-        toast.error(errorMessage);
+        toast.error(getErrorMessage(err));
         return null;
       } finally {
         setLoading(false);
@@ -204,9 +201,7 @@ export function useResourceOperations() {
       }
       return success;
     } catch (err) {
-      const errorMessage =
-        err instanceof Error ? err.message : 'Failed to delete resource';
-      toast.error(errorMessage);
+      toast.error(getErrorMessage(err));
       return false;
     } finally {
       setLoading(false);
@@ -231,9 +226,7 @@ export function useResourceOperations() {
 
         return result;
       } catch (err) {
-        const errorMessage =
-          err instanceof Error ? err.message : 'Failed to delete resources';
-        toast.error(errorMessage);
+        toast.error(getErrorMessage(err));
         return {
           success: false,
           processedCount: 0,
@@ -310,9 +303,7 @@ export function useResourceAvailability(resourceId?: string) {
         );
         return result;
       } catch (err) {
-        const errorMessage =
-          err instanceof Error ? err.message : 'Failed to check availability';
-        toast.error(errorMessage);
+        toast.error(getErrorMessage(err));
         return null;
       } finally {
         setChecking(false);
@@ -348,9 +339,7 @@ export function useResourcesSelect(
       );
       setResources(resourcesData);
     } catch (err) {
-      const errorMessage =
-        err instanceof Error ? err.message : 'Failed to fetch resources';
-      setError(errorMessage);
+      setError(getErrorMessage(err));
     } finally {
       setLoading(false);
     }
@@ -390,9 +379,7 @@ export function useResourceUsageStats(resourceId?: string) {
       const statsData = await ResourceService.getResourceUsageStats(resourceId);
       setStats(statsData);
     } catch (err) {
-      const errorMessage =
-        err instanceof Error ? err.message : 'Failed to fetch usage statistics';
-      setError(errorMessage);
+      setError(getErrorMessage(err));
     } finally {
       setLoading(false);
     }
@@ -430,9 +417,7 @@ export function useResourceSearch() {
       const results = await ResourceService.searchResources(query);
       setSearchResults(results);
     } catch (err) {
-      const errorMessage =
-        err instanceof Error ? err.message : 'Failed to search resources';
-      setError(errorMessage);
+      setError(getErrorMessage(err));
       setSearchResults([]);
     } finally {
       setLoading(false);

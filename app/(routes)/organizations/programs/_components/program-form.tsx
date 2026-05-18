@@ -77,8 +77,24 @@ export function ProgramForm({ program, isEditing }: ProgramFormProps) {
   const queryClient = useQueryClient();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [institutions, setInstitutions] = useState<Institution[]>([]);
-  const [degrees, setDegrees] = useState<Degree[]>([]);
-  const [departments, setDepartments] = useState<Department[]>([]);
+  // Seed dropdowns with the program's own degree/department so saved
+  // values render immediately, even before the async loaders return AND
+  // even if the saved FK is out-of-scope for the loaded list.
+  const [degrees, setDegrees] = useState<Degree[]>(
+    program?.degree
+      ? [{ id: program.degree.id, degree_name: program.degree.degree_name }]
+      : []
+  );
+  const [departments, setDepartments] = useState<Department[]>(
+    program?.department
+      ? [
+          {
+            id: program.department.id,
+            department_name: program.department.department_name
+          }
+        ]
+      : []
+  );
 
   const form = useForm<FormValues>({
     resolver: zodResolver(programSchema),
@@ -115,7 +131,20 @@ export function ProgramForm({ program, isEditing }: ProgramFormProps) {
           const data = await DegreeService.getDegreesByInstitution(
             institutionId as string
           );
-          setDegrees(data);
+          // Defense: if the program's saved degree isn't in the loaded
+          // list (orphan FK, inactive degree, stale data), append it so
+          // the Select can still render the saved value.
+          const merged =
+            program?.degree && !data.some((d) => d.id === program.degree!.id)
+              ? [
+                  ...(data as Degree[]),
+                  {
+                    id: program.degree.id,
+                    degree_name: program.degree.degree_name
+                  }
+                ]
+              : (data as Degree[]);
+          setDegrees(merged);
         } catch (error) {
           console.error('Error loading degrees:', error);
           toast.error('Failed to load degrees');
@@ -136,11 +165,24 @@ export function ProgramForm({ program, isEditing }: ProgramFormProps) {
     if (degreeId) {
       async function loadDepartments() {
         try {
-          // Implement this method in your department service
           const data = await DepartmentService.getDepartmentsByDegree(
             degreeId as string
           );
-          setDepartments(data);
+          // Defense: if the program's saved department isn't under the
+          // loaded degree (mismatched FKs, inactive department, stale
+          // data), append it so the Select can still render the value.
+          const merged =
+            program?.department &&
+            !data.some((d: Department) => d.id === program.department!.id)
+              ? [
+                  ...(data as Department[]),
+                  {
+                    id: program.department.id,
+                    department_name: program.department.department_name
+                  }
+                ]
+              : (data as Department[]);
+          setDepartments(merged);
         } catch (error) {
           console.error('Error loading departments:', error);
           toast.error('Failed to load departments');

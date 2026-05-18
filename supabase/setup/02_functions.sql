@@ -9723,11 +9723,20 @@ GRANT EXECUTE ON FUNCTION public.assign_counselor_role(uuid, boolean, text) TO a
 
 -- =====================================================
 -- validate_learner_admission_year_scope() — Added 2026-04-23
+--   Patched 2026-05-16: tolerate cascade-deleted parent rows.
 -- Trigger function for learners_profiles.admission_year_id (shadow FK).
 -- Rejects an FK that references an admission_years row whose
 -- institution_id or program_id does not match the learner.
 -- Closes the cross-institution attach vector that PG FK alone cannot enforce.
 -- Wired by trg_validate_learner_admission_year_scope in 04_triggers.sql.
+--
+-- Cascade tolerance: deleting a `programs` row causes
+-- admission_years_program_id_fkey (CASCADE) to remove the parent
+-- admission_year BEFORE fk_learners_profiles_program (SET NULL)
+-- updates the dependent learner row. Without the NOT FOUND short-circuit
+-- below, the EXISTS check fails and blocks the entire program delete.
+-- The SET NULL FK on learners_profiles.admission_year_id will clear
+-- the column next in the same statement, so the trigger must not raise.
 -- =====================================================
 CREATE OR REPLACE FUNCTION public.validate_learner_admission_year_scope()
 RETURNS TRIGGER
@@ -9735,18 +9744,26 @@ LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public
 AS $$
+DECLARE
+  v_ay_institution_id uuid;
+  v_ay_program_id     uuid;
 BEGIN
   IF NEW.admission_year_id IS NULL THEN
     RETURN NEW;
   END IF;
 
-  IF NOT EXISTS (
-    SELECT 1
-    FROM public.admission_years ay
-    WHERE ay.id = NEW.admission_year_id
-      AND ay.institution_id = NEW.institution_id
-      AND (NEW.program_id IS NULL OR ay.program_id = NEW.program_id)
-  ) THEN
+  SELECT ay.institution_id, ay.program_id
+    INTO v_ay_institution_id, v_ay_program_id
+  FROM public.admission_years ay
+  WHERE ay.id = NEW.admission_year_id;
+
+  IF NOT FOUND THEN
+    RETURN NEW;
+  END IF;
+
+  IF v_ay_institution_id IS DISTINCT FROM NEW.institution_id
+     OR (NEW.program_id IS NOT NULL
+         AND v_ay_program_id IS DISTINCT FROM NEW.program_id) THEN
     RAISE EXCEPTION
       'admission_year_id % does not match learner institution_id % / program_id %',
       NEW.admission_year_id, NEW.institution_id, NEW.program_id

@@ -1,8 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
   Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator,
@@ -16,11 +17,12 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from '@/components/ui/dialog';
-import { AlertCircle, AlertTriangle } from 'lucide-react';
+import {
+  AlertCircle, AlertTriangle, Clock, FileText, CheckCircle2, Loader2, Settings,
+} from 'lucide-react';
 import { useCandidates, useApproveCandidate, useRejectCandidate } from '@/hooks/hr/use-recruitment';
 import { useAlumniSignalBulk } from '@/hooks/hr/use-alumni-signal-bulk';
 import { AlumniSignalLine } from '../_components/alumni-signal-line';
-import { usePermissions } from '@/hooks/use-permissions';
 import {
   CANDIDATE_STATUS_LABELS,
   ROLE_CATEGORY_LABELS,
@@ -46,36 +48,66 @@ const STATUS_COLORS: Record<CandidateStatus, string> = {
 type ViewMode = 'mine' | 'all';
 
 export default function RecruitmentApprovalsPage() {
-  const { isSuperAdmin, canAccess } = usePermissions();
-
   const [viewMode, setViewMode] = useState<ViewMode>('mine');
+  const [userId, setUserId] = useState<string | null>(null);
 
-  // Fetch pending candidates
-  const { data, isLoading, error: fetchError } = useCandidates({
-    status: ['submitted', 'pending_approval'],
-  });
+  useEffect(() => {
+    const supabase = createClientSupabaseClient();
+    supabase.auth.getUser().then(({ data }) => {
+      setUserId(data.user?.id ?? null);
+    });
+  }, []);
 
-  const allPending = data?.data ?? [];
+  // "Awaiting my action" — server-side filter via pending_for_me + approver_id.
+  // The service matches approval_chain[current_step].approver_user_id against
+  // the caller's id, so this returns only candidates actually routed to me.
+  const mineFilters = userId
+    ? { status: ['submitted', 'pending_approval'] as CandidateStatus[], pending_for_me: true, approver_id: userId }
+    : null;
+  const allFilters = { status: ['submitted', 'pending_approval'] as CandidateStatus[] };
 
-  // "Awaiting my action" — filter to candidates where current_step approver_role
-  // matches a permission the user has. Uses canAccess('hr.recruitment', 'approve')
-  // as a proxy — full role matching would require a DB join we don't have client-side.
-  // TODO: Phase 1A follow-up — add `pending_for_me=true` filter to the list API.
-  const canApprove = isSuperAdmin || canAccess('hr.recruitment', 'approve');
+  const { data, isLoading, error: fetchError } = useCandidates(
+    viewMode === 'mine' ? (mineFilters ?? allFilters) : allFilters,
+  );
 
-  const myPending = canApprove ? allPending : allPending.filter((c) => {
-    const step = (c.approval_chain ?? [])[c.current_step];
-    if (!step) return false;
-    // Best-effort: surface all pending if user has any recruitment approve perm
-    return true;
-  });
-
-  const displayCandidates = viewMode === 'mine' ? myPending : allPending;
+  // While the auth lookup is in flight, hold the "mine" view as loading so we
+  // never render the unfiltered list under the "Awaiting my action" tab.
+  const awaitingAuth = viewMode === 'mine' && userId === null;
+  const displayCandidates = awaitingAuth ? [] : (data?.data ?? []);
 
   // T8.5 — bulk-fetch alumni signals for all displayed candidates so each
   // row can show JKKN history inline without N detail fetches.
   const candidateEmails = displayCandidates.map((c) => c.email);
   const { data: alumniMap } = useAlumniSignalBulk(candidateEmails);
+
+  // Decision-grade row — bulk-resolve submitter names so each row shows
+  // "Submitted by X" inline (no per-row fetch). Stable key on the sorted ids
+  // so identical sets reuse the cache regardless of display order.
+  const submitterIds = Array.from(
+    new Set(displayCandidates.map((c) => c.submitted_by).filter(Boolean) as string[]),
+  ).sort();
+  const { data: submitterNames } = useQuery<Record<string, string>>({
+    queryKey: ['hr-recruitment-approvals-submitters', submitterIds],
+    queryFn: async () => {
+      if (submitterIds.length === 0) return {};
+      const supabase = createClientSupabaseClient();
+      const { data: rows, error } = await (supabase as any)
+        .from('profiles')
+        .select('id, full_name')
+        .in('id', submitterIds);
+      if (error) {
+        console.error('[approvals] submitter name lookup failed:', error.message);
+        return {};
+      }
+      const map: Record<string, string> = {};
+      for (const r of (rows ?? []) as Array<{ id: string; full_name: string | null }>) {
+        if (r.id) map[r.id] = r.full_name ?? 'Unknown';
+      }
+      return map;
+    },
+    enabled: submitterIds.length > 0,
+    staleTime: 5 * 60 * 1000,
+  });
 
   // Approve flow
   const queryClient = useQueryClient();
@@ -174,7 +206,7 @@ export default function RecruitmentApprovalsPage() {
           </CardHeader>
           <CardContent className="space-y-3">
             {/* Skeleton loading */}
-            {isLoading && (
+            {(isLoading || awaitingAuth) && (
               <div className="space-y-3">
                 {[1, 2, 3].map((i) => (
                   <div key={i} className="border rounded-md p-3">
@@ -203,21 +235,56 @@ export default function RecruitmentApprovalsPage() {
             )}
 
             {/* Empty states */}
-            {!isLoading && !fetchError && displayCandidates.length === 0 && (
+            {!isLoading && !awaitingAuth && !fetchError && displayCandidates.length === 0 && (
               <p className="text-sm text-muted-foreground py-4 text-center">
                 {viewMode === 'mine'
-                  ? 'Nothing pending your approval right now.'
-                  : 'No candidates in the pipeline.'}
+                  ? 'You have no candidates awaiting your action.'
+                  : 'There are no pending candidates.'}
               </p>
             )}
 
-            {/* Candidate rows */}
+            {/* Candidate rows — decision-grade: every field Director needs to
+                Approve/Reject without leaving this page is inline. */}
             {!isLoading && !fetchError && displayCandidates.map((c: HRRecruitmentCandidate) => {
-              const currentStep = (c.approval_chain ?? [])[c.current_step];
+              const chain = c.approval_chain ?? [];
+              const currentStep = chain[c.current_step];
+              const chainConfigured = chain.length > 0;
+
+              // Waiting days — drives urgency color
+              const submittedMs = new Date(c.submitted_at).getTime();
+              const waitDays = Number.isFinite(submittedMs)
+                ? Math.floor((Date.now() - submittedMs) / 86400000)
+                : 0;
+              const waitClass =
+                waitDays > 14
+                  ? 'text-red-700 dark:text-red-300 border-red-500/50 bg-red-50 dark:bg-red-900/20'
+                  : waitDays >= 7
+                  ? 'text-amber-700 dark:text-amber-300 border-amber-500/50 bg-amber-50 dark:bg-amber-900/20'
+                  : 'text-muted-foreground border-muted bg-muted/40';
+
+              // Submitter line — prefer resolved name, else relative date only
+              const submitterName = c.submitted_by ? submitterNames?.[c.submitted_by] : undefined;
+              const submittedLabel = (() => {
+                if (waitDays === 0) return 'today';
+                if (waitDays === 1) return 'yesterday';
+                return `${waitDays} days ago`;
+              })();
+
+              // Latest decided step that left a comment — the most recent voice
+              // in the chain the next approver should see before deciding.
+              const latestCommented = [...chain]
+                .filter((s) => s.decided_by && s.comment && s.comment.trim().length > 0)
+                .sort((a, b) => {
+                  const at = a.decided_at ? new Date(a.decided_at).getTime() : 0;
+                  const bt = b.decided_at ? new Date(b.decided_at).getTime() : 0;
+                  return bt - at;
+                })[0];
+
               return (
                 <div key={c.id} className="border rounded-md p-3 space-y-2">
                   <div className="flex items-start justify-between gap-2">
-                    <div className="flex-1 min-w-0">
+                    <div className="flex-1 min-w-0 space-y-1.5">
+                      {/* Row 1 — name + emergency + status + waiting-days badge */}
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="font-medium text-sm">{c.name}</span>
                         {c.is_emergency && (
@@ -229,30 +296,124 @@ export default function RecruitmentApprovalsPage() {
                         <span className={`px-2 py-0.5 rounded text-xs font-medium ${STATUS_COLORS[c.status]}`}>
                           {CANDIDATE_STATUS_LABELS[c.status]}
                         </span>
+                        <span
+                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded border text-xs font-medium ${waitClass}`}
+                          title={`Submitted ${new Date(c.submitted_at).toLocaleString()}`}
+                        >
+                          <Clock className="h-3 w-3" />
+                          {waitDays} {waitDays === 1 ? 'day' : 'days'} waiting
+                        </span>
                       </div>
 
-                      <p className="text-xs text-muted-foreground mt-0.5">
+                      {/* Row 2 — role line, with explicit salary-band fallback so an
+                          unset band is visible to the approver, not silently hidden. */}
+                      <p className="text-xs text-muted-foreground">
                         {ROLE_CATEGORY_LABELS[c.role_category]}
-                        {c.proposed_monthly_salary_band && (
-                          <> &middot; {MONTHLY_SALARY_BAND_LABELS[c.proposed_monthly_salary_band]}</>
+                        <> &middot; </>
+                        {c.proposed_monthly_salary_band ? (
+                          <span className="font-medium text-foreground">
+                            {MONTHLY_SALARY_BAND_LABELS[c.proposed_monthly_salary_band]}
+                          </span>
+                        ) : (
+                          <span className="italic">Salary band not specified</span>
                         )}
                         {c.institution_id && (
                           <> &middot; {c.institution_id}</>
                         )}
                       </p>
 
-                      <p className="text-xs text-muted-foreground mt-0.5">
+                      <p className="text-xs text-muted-foreground">
                         {c.role_title}
                       </p>
+
+                      {/* Row 3 — Submitter line */}
+                      <p className="text-xs text-muted-foreground">
+                        {submitterName
+                          ? <>Submitted by <span className="font-medium text-foreground">{submitterName}</span> &middot; {submittedLabel}</>
+                          : <>Submitted {submittedLabel}</>}
+                      </p>
+
+                      {/* Row 4 — Inline CV link (BUG-003300, surfaced on the row) */}
+                      {c.cvviz_url && (
+                        <a
+                          href={c.cvviz_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+                        >
+                          <FileText className="h-3 w-3" />
+                          CV
+                        </a>
+                      )}
 
                       {/* T8.5 — JKKN history badge (renders nothing when no match) */}
                       <AlumniSignalLine
                         signal={alumniMap ? alumniMap[c.email.toLowerCase().trim()] : null}
                       />
 
-                      {currentStep && (
-                        <p className="text-xs text-muted-foreground mt-0.5">
-                          Step {c.current_step + 1}/{(c.approval_chain ?? []).length} &middot; Current approver: <span className="font-medium text-foreground">{currentStep.approver_role}</span>
+                      {/* Row 5 — Chain progress cascade.
+                          Empty chain = legacy/orphan submission. Surface loudly so
+                          Director sees it on the row, not after clicking through. */}
+                      {!chainConfigured ? (
+                        <div className="flex flex-wrap items-center gap-2 mt-1">
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full border border-amber-500/50 bg-amber-50 dark:bg-amber-900/20 text-amber-800 dark:text-amber-200 text-xs font-medium">
+                            <AlertTriangle className="h-3 w-3" />
+                            Approval chain not configured — director must backfill
+                          </span>
+                          <Link
+                            href="/admin/hr/recruitment-maintenance"
+                            className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+                          >
+                            <Settings className="h-3 w-3" />
+                            Open maintenance
+                          </Link>
+                        </div>
+                      ) : (
+                        <div className="space-y-1 mt-1">
+                          <p className="text-xs text-muted-foreground">
+                            Step {c.current_step + 1} of {chain.length} &middot; waiting on{' '}
+                            <span className="font-medium text-foreground">
+                              {currentStep?.approver_role ?? '—'}
+                            </span>
+                          </p>
+                          <div className="flex flex-wrap items-center gap-1">
+                            {chain.map((step, idx) => {
+                              const isApproved = step.status === 'approved';
+                              const isRejected = step.status === 'rejected';
+                              const isCurrent = idx === c.current_step && !isApproved && !isRejected;
+                              const Icon = isApproved
+                                ? CheckCircle2
+                                : isCurrent
+                                ? Loader2
+                                : isRejected
+                                ? AlertCircle
+                                : Clock;
+                              const cls = isApproved
+                                ? 'text-green-700 dark:text-green-300 border-green-500/40 bg-green-50 dark:bg-green-900/20'
+                                : isRejected
+                                ? 'text-red-700 dark:text-red-300 border-red-500/40 bg-red-50 dark:bg-red-900/20'
+                                : isCurrent
+                                ? 'text-blue-700 dark:text-blue-300 border-blue-500/40 bg-blue-50 dark:bg-blue-900/20'
+                                : 'text-muted-foreground border-muted bg-muted/30';
+                              return (
+                                <span
+                                  key={`${c.id}-step-${idx}`}
+                                  className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded border text-[10px] ${cls}`}
+                                  title={`Step ${idx + 1}: ${step.approver_role} — ${step.status}`}
+                                >
+                                  <Icon className={`h-3 w-3 ${isCurrent ? 'animate-spin' : ''}`} />
+                                  {step.approver_role}
+                                </span>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Row 6 — Latest comment from the chain (skip if none) */}
+                      {latestCommented && (
+                        <p className="text-xs text-muted-foreground italic mt-1">
+                          Latest &middot; {latestCommented.approver_role}: &ldquo;{latestCommented.comment}&rdquo;
                         </p>
                       )}
                     </div>
@@ -262,6 +423,8 @@ export default function RecruitmentApprovalsPage() {
                         size="sm"
                         onClick={() => { setApproveId(c.id); setApproveComment(''); }}
                         className="w-full"
+                        disabled={!chainConfigured}
+                        title={chainConfigured ? undefined : 'Approval chain not configured — backfill first'}
                       >
                         Approve
                       </Button>
@@ -277,20 +440,8 @@ export default function RecruitmentApprovalsPage() {
                         href={`/hr/recruitment/candidates/${c.id}`}
                         className="text-xs text-primary hover:underline text-center"
                       >
-                        View
+                        View detail
                       </Link>
-                      {/* BUG-003300 — Surface CVViz / candidate profile link inline so
-                          the approver can review the JD/CV before clicking Approve. */}
-                      {c.cvviz_url && (
-                        <a
-                          href={c.cvviz_url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-xs text-primary hover:underline text-center"
-                        >
-                          View Profile
-                        </a>
-                      )}
                     </div>
                   </div>
                 </div>

@@ -10,6 +10,12 @@
 !.yarn/releases
 !.yarn/versions
 
+# This project uses npm exclusively (matches CI / Vercel). Block other PMs' lockfiles.
+bun.lock
+bun.lockb
+pnpm-lock.yaml
+yarn.lock
+
 # testing
 /coverage
 
