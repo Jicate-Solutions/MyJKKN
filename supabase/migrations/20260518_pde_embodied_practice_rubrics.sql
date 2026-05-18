@@ -21,8 +21,13 @@
 -- institution_id). Scope: global (institution overrides will come later
 -- via the same UI).
 --
--- Idempotent: ON CONFLICT DO NOTHING against the existing unique index
+-- Idempotent: ON CONFLICT DO UPDATE against the existing unique index
 -- uq_platform_policies_key_scope (policy_key, scope_type, scope_id).
+-- UPDATE (not DO NOTHING) is used because a prior session seeded these
+-- keys with a divergent schema (older `skills` array shape); this
+-- migration is the canonical schema (`discipline` + `rubric` + min
+-- demonstrations + validity period) consumed by the
+-- /admin/pde/rubrics/embodied editor and the runtime gate logic.
 -- =====================================================================
 
 INSERT INTO platform_policies (
