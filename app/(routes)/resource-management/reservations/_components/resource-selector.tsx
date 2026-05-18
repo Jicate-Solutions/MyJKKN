@@ -39,13 +39,19 @@ export function ResourceSelector({
     useInstitutionsWithAccess();
   const { categories, loading: loadingCategories } = useParentCategories();
 
+  // ResourceService.getResources defaults `limit` to 10 when omitted, which
+  // silently truncates this picker (e.g. 17 "Spaces & Venues" resources → 10
+  // visible cards). This is a picker, not a paginated list — request a high
+  // upper bound so every available resource shows up. List pages keep their
+  // own real pagination via `resources/page.tsx`.
   const { resources, loading: loadingResources } = useResources({
     status: (selectedStatus === 'all' ? undefined : selectedStatus) as any,
     parent_category_id:
       selectedCategory === 'all' ? undefined : selectedCategory,
     institution_id:
       selectedInstitution === 'all' ? undefined : selectedInstitution,
-    search: searchQuery || undefined
+    search: searchQuery || undefined,
+    limit: 1000
   });
 
   // Filter resources
