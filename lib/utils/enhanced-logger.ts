@@ -156,7 +156,10 @@ export class LogManager {
       const stackTrace = this.getTruncatedStack();
       const component = stackTrace ? this.extractComponentName(stackTrace) : undefined;
 
-      const hash = this.generateHash(type, message, moduleName, component);
+      // Hash on location (type + module + component), not message content.
+      // This ensures the same error source is always ONE entry that updates,
+      // rather than creating a new entry each time the message text changes.
+      const hash = this.generateHash(type, '', moduleName, component);
 
       const now = new Date().toISOString();
 
@@ -165,7 +168,8 @@ export class LogManager {
         const existing = this.logs.get(hash)!;
         existing.count++;
         existing.lastSeen = now;
-        existing.args = args; // Update with latest args
+        existing.args = args;
+        existing.message = message; // Refresh: always show latest serialized text
       } else {
         // Add new log entry
         if (this.logs.size >= this.maxLogs) {

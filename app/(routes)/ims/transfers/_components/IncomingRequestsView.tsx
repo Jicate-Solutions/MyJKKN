@@ -10,32 +10,33 @@ import { useImsTransfers, useImsShipments } from '@/hooks/ims/use-ims-transfers'
 import { INDENT_STATUS_CONFIG } from '@/types/ims';
 import type { ImsIndentRequest, ImsIndentStatus } from '@/types/ims';
 
-interface CentralDispatchViewProps {
+interface IncomingRequestsViewProps {
   storeId: string;
-  institutionId: string;
 }
 
-export function CentralDispatchView({ storeId, institutionId: _institutionId }: CentralDispatchViewProps) {
+export function IncomingRequestsView({ storeId }: IncomingRequestsViewProps) {
   const [statusFilter, setStatusFilter] = useState<ImsIndentStatus | undefined>('pending_approval');
   const [reviewing, setReviewing] = useState<ImsIndentRequest | null>(null);
 
+  // Requests directed at this store from any other institution
   const { data: incomingData, isLoading: loadingIncoming } = useImsTransfers({
     destination_store_id: storeId,
     status: statusFilter,
   });
 
+  // Shipments being prepared for dispatch from this store
   const { data: dispatchData } = useImsShipments({
     source_store_id: storeId,
     status: 'preparing',
   });
 
-  const incoming = incomingData?.data ?? [];
+  const incoming       = incomingData?.data ?? [];
   const readyToDispatch = dispatchData?.data ?? [];
 
   const needsReview = incoming.filter(t => t.status === 'pending_approval').length;
-  const packing = readyToDispatch.filter(s => s.status === 'preparing').length;
-  const inTransit = incoming.filter(t => t.status === 'shipped').length;
-  const fulfilled = incoming.filter(t => t.status === 'received').length;
+  const packing     = readyToDispatch.filter(s => s.status === 'preparing').length;
+  const inTransit   = incoming.filter(t => t.status === 'shipped').length;
+  const fulfilled   = incoming.filter(t => t.status === 'received' || t.status === 'received_with_variance').length;
 
   const kpiCards = [
     {
@@ -69,9 +70,9 @@ export function CentralDispatchView({ storeId, institutionId: _institutionId }: 
       <TransferKpiCards cards={kpiCards} />
 
       <div className="grid lg:grid-cols-2 gap-6">
-        {/* Incoming requests */}
+        {/* Requests from other institutions */}
         <div>
-          <h3 className="font-semibold mb-3 text-sm">Incoming Requests</h3>
+          <h3 className="font-semibold mb-3 text-sm">Requests from Other Institutions</h3>
           {loadingIncoming ? (
             <div className="space-y-2">
               {[1, 2, 3].map(i => <div key={i} className="h-16 bg-muted rounded animate-pulse" />)}
@@ -89,14 +90,21 @@ export function CentralDispatchView({ storeId, institutionId: _institutionId }: 
                     <div className="min-w-0">
                       <div className="font-medium text-sm">{t.indent_number}</div>
                       <div className="text-xs text-muted-foreground">
-                        {t.source_store?.name ?? '—'} · {t.purpose}
+                        From: {t.source_store?.name ?? '—'} · {t.purpose}
                       </div>
                     </div>
                     <div className="flex items-center gap-2 shrink-0 ml-2">
                       <Badge variant={cfg.variant}>{cfg.label}</Badge>
-                      <Button size="sm" variant="outline" onClick={() => setReviewing(t)}>
-                        Review →
-                      </Button>
+                      {t.status === 'pending_approval' && (
+                        <Button size="sm" variant="outline" onClick={() => setReviewing(t)}>
+                          Review
+                        </Button>
+                      )}
+                      {(t.status === 'approved' || t.status === 'shipped') && (
+                        <Link href={`/ims/transfers/${t.id}`}>
+                          <Button size="sm" variant="outline">View</Button>
+                        </Link>
+                      )}
                     </div>
                   </div>
                 );
@@ -105,7 +113,7 @@ export function CentralDispatchView({ storeId, institutionId: _institutionId }: 
           )}
         </div>
 
-        {/* Dispatch queue */}
+        {/* Shipments queued for dispatch */}
         <div>
           <h3 className="font-semibold mb-3 text-sm">Dispatch Queue</h3>
           {readyToDispatch.length === 0 ? (
@@ -119,11 +127,11 @@ export function CentralDispatchView({ storeId, institutionId: _institutionId }: 
                   <div className="min-w-0">
                     <div className="font-medium text-sm">{s.shipment_no}</div>
                     <div className="text-xs text-muted-foreground">
-                      {s.destination_institution?.institution_name ?? '—'}
+                      To: {s.destination_store?.name ?? s.destination_institution?.institution_name ?? '—'}
                     </div>
                   </div>
                   <Link href={`/ims/transfers/${s.request_id}`}>
-                    <Button size="sm">Mark Dispatched</Button>
+                    <Button size="sm">Dispatch</Button>
                   </Link>
                 </div>
               ))}

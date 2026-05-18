@@ -48,7 +48,7 @@ const imsItemRowSchema = z.object({
   purchase_unit_raw: z.string().nullable(),
   sale_unit_raw: z.string().nullable(),
   indent_unit_raw: z.string().nullable(),
-  hsn_code: z.string().max(8).nullable(),
+  hsn_code: z.string().max(20).nullable(),
   gst_rate: z.number().min(0).default(0),
   cost_price: z.number().min(0).default(0),
   mrp: z.number().min(0).default(0),

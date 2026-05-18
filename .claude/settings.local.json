@@ -254,7 +254,10 @@
       "Bash(\"/c/Program Files/Git/cmd/git\" status)",
       "Bash(\"/c/Program Files/Git/cmd/git\" log --oneline -3)",
       "mcp__plugin_claude-mem_mcp-search__smart_unfold",
-      "mcp__plugin_claude-mem_mcp-search__get_observations"
+      "mcp__plugin_claude-mem_mcp-search__get_observations",
+      "mcp__claude_ai_Supabase__list_tables",
+      "mcp__claude_ai_Supabase__list_migrations",
+      "mcp__claude_ai_Supabase__execute_sql"
     ],
     "deny": [],
     "ask": []

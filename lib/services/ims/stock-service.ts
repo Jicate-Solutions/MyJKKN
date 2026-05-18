@@ -257,7 +257,7 @@ export class ImsStockService {
   /**
    * Get items where current_quantity <= reorder_level.
    */
-  static async getLowStockItems(institution_id: string, storeId?: string): Promise<ImsLowStockItem[]> {
+  static async getLowStockItems(storeId: string, institution_id?: string): Promise<ImsLowStockItem[]> {
     try {
       let query = this.supabase
         .from('ims_stock_summary')
@@ -265,7 +265,7 @@ export class ImsStockService {
           `item_id, current_quantity,
            item:ims_items(
              id, name, code, reorder_level,
-             base_unit:ims_units!ims_items_base_unit_id_fkey(abbreviation)
+             base_unit:ims_units!base_unit_id(abbreviation)
            )`
         );
 
@@ -297,7 +297,10 @@ export class ImsStockService {
 
       return lowStock as ImsLowStockItem[];
     } catch (error) {
-      console.error('[ImsStockService] Error in getLowStockItems:', error);
+      const pgErr = error as any;
+      const errMsg = pgErr?.message ?? String(error);
+      const errCode = pgErr?.code ? ` [${pgErr.code}]` : '';
+      console.error(`[ImsStockService] Error in getLowStockItems:${errCode}`, errMsg);
       throw error;
     }
   }
