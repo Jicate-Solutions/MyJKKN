@@ -497,7 +497,17 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/ai-pulse': 'ai_pulse.view',
   '/bos': 'bos.view',
   '/ims': 'ims.view',
-  '/meetings': 'meetings.view'
+  '/meetings': 'meetings.view',
+
+  // CDC — Training Programmes
+  '/cdc/training': 'cdc.training.view',
+  '/cdc/training/new': 'cdc.training.create',
+  '/cdc/training/[id]': 'cdc.training.view',
+
+  // CDC — Opportunities Bulletin
+  '/cdc/bulletin': 'cdc.bulletin.view',
+  '/cdc/bulletin/new': 'cdc.bulletin.create',
+  '/cdc/bulletin/[id]': 'cdc.bulletin.view'
 };
 
 export function GetPages(pathname: string): MenuGroup[] {
@@ -1734,12 +1744,6 @@ export function GetPages(pathname: string): MenuGroup[] {
     },
     // ── Modules added so the smart accordion in components/Navbar/menu.tsx
     //    can surface every depth-2 page under each module's anchor row.
-    //    Each section here contributes ONE anchor row at /<slug>; the
-    //    accordion auto-discovers /<slug>/X children from the route
-    //    manifest. Section order is governed by lib/navigation/modules.ts
-    //    (MODULES) — sections with a matching `section` name appear in
-    //    that order; sections not in MODULES trail at the end as
-    //    forward-compat (see menu.tsx pages useMemo).
     {
       groupLabel: 'Campus Living',
       menus: [
@@ -1926,6 +1930,25 @@ export function GetPages(pathname: string): MenuGroup[] {
           icon: CalendarDays,
           submenus: []
         }
+      ]
+    },
+    {
+      groupLabel: 'CDC',
+      menus: [
+        {
+          href: '/cdc/training',
+          label: 'Training Programmes',
+          active: pathname.startsWith('/cdc/training'),
+          icon: BookOpen,
+          submenus: []
+        },
+        {
+          href: '/cdc/bulletin',
+          label: 'Opportunities Bulletin',
+          active: pathname.startsWith('/cdc/bulletin'),
+          icon: Megaphone,
+          submenus: []
+        },
       ]
     },
     {
