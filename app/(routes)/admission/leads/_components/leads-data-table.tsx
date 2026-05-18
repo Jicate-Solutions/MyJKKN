@@ -1,7 +1,7 @@
 'use client';
 
 import { DataTable } from '@/components/data-table/data-table';
-import { getLeadColumns, FUNNEL_STAGES } from './columns';
+import { getLeadColumns, useLeadStageOptions } from './columns';
 import { ConsultantService } from '@/lib/services/admission/consultant-service';
 import { Button } from '@/components/ui/button';
 import { Plus, TrashIcon, Flame, Star, Loader2, Filter, X, RefreshCw } from 'lucide-react';
@@ -51,6 +51,9 @@ export function LeadsDataTable() {
   const { options: leadSources } = useActiveLeadSources({
     institutionId: profile?.institution_id ?? null,
   });
+  // Reads stage options from admission_statuses (scope='lead'); falls back to
+  // hardcoded FUNNEL_STAGES while loading so the dropdown is never empty.
+  const stageOptions = useLeadStageOptions();
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [selectedForDelete, setSelectedForDelete] = useState<AdmissionLead[]>(
     []
@@ -501,7 +504,7 @@ export function LeadsDataTable() {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="_all">All Stages</SelectItem>
-              {FUNNEL_STAGES.map((stage) => (
+              {stageOptions.map((stage) => (
                 <SelectItem key={stage.value} value={stage.value}>
                   {stage.label}
                 </SelectItem>
