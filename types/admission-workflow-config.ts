@@ -101,6 +101,19 @@ export interface InstitutionAdmissionSummary {
   rejected: number;
   total_seats: number;
   filled_seats: number;
+  /**
+   * Lead-space "filled" — admission_leads.funnel_stage = 'enrolled'.
+   * Added 2026-05-17 (E4 of dynamic-admission-statuses). Equal to filled_seats
+   * during the rollout window; kept as a distinct field so consumers can
+   * migrate off the legacy name.
+   */
+  enrolled_leads: number;
+  /**
+   * Learner-space "filled" — learners_profiles.lifecycle_status matches an
+   * admission_statuses row with scope='learner' AND is_seat_filled=true.
+   * Added 2026-05-17 (E4). Gap vs enrolled_leads = drop-off pursuit list.
+   */
+  seat_filled_learners: number;
   fill_percentage: number;
 }
 
@@ -118,6 +131,10 @@ export interface GroupDashboardData {
      * Use this for Fill Rate, not total_enrolled (which is just 'active').
      */
     total_filled: number;
+    /** Sum of enrolled_leads across institutions (lead-space). */
+    total_enrolled_leads: number;
+    /** Sum of seat_filled_learners across institutions (learner-space). */
+    total_seat_filled_learners: number;
     overall_fill_percentage: number;
   };
 }

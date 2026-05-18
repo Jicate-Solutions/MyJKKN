@@ -20,6 +20,9 @@ const EMPTY_GROUP_DASHBOARD: GroupDashboardData = {
     total_enrolled: 0,
     total_rejected: 0,
     total_seats: 0,
+    total_filled: 0,
+    total_enrolled_leads: 0,
+    total_seat_filled_learners: 0,
     overall_fill_percentage: 0,
   },
 };
@@ -84,6 +87,12 @@ export class GroupDashboardService {
       rejected_learners: number;
       total_seats: number;
       filled_seats: number;
+      // 2026-05-17 (E4): RPC now returns lead-space + learner-space "filled"
+      // side-by-side. enrolled_leads === filled_seats during the rollout window;
+      // seat_filled_learners is the new learner-space count from the dynamic
+      // admission_statuses catalog.
+      enrolled_leads: number;
+      seat_filled_learners: number;
       fill_percentage: number;
     };
 
@@ -98,6 +107,8 @@ export class GroupDashboardService {
       rejected: Number(r.rejected_learners),
       total_seats: Number(r.total_seats),
       filled_seats: Number(r.filled_seats),
+      enrolled_leads: Number(r.enrolled_leads ?? r.filled_seats ?? 0),
+      seat_filled_learners: Number(r.seat_filled_learners ?? 0),
       fill_percentage: Number(r.fill_percentage),
     }));
 
@@ -106,6 +117,9 @@ export class GroupDashboardService {
     // 2026-05-02: Fill Rate uses total_filled (admitted+active+graduated+account)
     // not total_enrolled (active only) — otherwise top card disagrees with the
     // Seat Analytics > Summary tab which shares the same definition.
+    // 2026-05-17 (E4): also aggregate enrolled_leads (lead-space) and
+    // seat_filled_learners (learner-space) so the dashboard can render the
+    // dual-KPI split for the "Filled" card.
     const totals = rows.reduce(
       (acc, s) => ({
         total_leads: acc.total_leads + s.total_leads,
@@ -114,11 +128,15 @@ export class GroupDashboardService {
         total_rejected: acc.total_rejected + s.rejected,
         total_seats: acc.total_seats + s.total_seats,
         total_filled: acc.total_filled + s.filled_seats,
+        total_enrolled_leads: acc.total_enrolled_leads + s.enrolled_leads,
+        total_seat_filled_learners:
+          acc.total_seat_filled_learners + s.seat_filled_learners,
         overall_fill_percentage: 0,
       }),
       {
         total_leads: 0, total_applied: 0, total_enrolled: 0,
         total_rejected: 0, total_seats: 0, total_filled: 0,
+        total_enrolled_leads: 0, total_seat_filled_learners: 0,
         overall_fill_percentage: 0,
       }
     );
