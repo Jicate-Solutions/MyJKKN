@@ -1,8 +1,0 @@
-refactor(admission/leads): columns read stage options from admission_statuses
-
-Adds useLeadStageOptions() hook reading from admission_statuses, used
-by the status filter dropdown. Stage colors in the cell renderer still
-use hardcoded getStageColor (cell callback can't use hooks) — that
-migration happens when the renderer is converted to a component.
-
-Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>

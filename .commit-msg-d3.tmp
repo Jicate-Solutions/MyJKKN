@@ -1,7 +1,0 @@
-fix(learners): close updateLifecycleStatus threshold bypass
-
-When the target status has a fee_paid_threshold_percent set, delegate
-to the RPC instead of doing a raw UPDATE. Prevents the existing
-bypass path (called from bulk update dialog) from skipping the gate.
-
-Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>

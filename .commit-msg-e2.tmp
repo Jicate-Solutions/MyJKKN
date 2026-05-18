@@ -1,8 +1,0 @@
-refactor(dashboard): align 4 sibling RPCs to admission_statuses
-
-fn_seat_analytics_daily_pivot, fn_institution_comparison,
-fn_geography_analytics, fn_source_analytics now all read the seat-filled
-status set from admission_statuses. Same precedent as the 2026-05-02
-alignment work.
-
-Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>

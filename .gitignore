@@ -33,6 +33,12 @@ yarn.lock
 # Claude Code
 CLAUDE.md
 
+# Claude Code subagent scratch files (commit message drafts, tsc output captures)
+.commit-msg*.tmp
+.git-commit-msg*.tmp
+.tsc-out*.txt
+tsc-output*.log
+
 # SAML certificates (private keys must never be committed)
 certs/saml/*.pem
 
