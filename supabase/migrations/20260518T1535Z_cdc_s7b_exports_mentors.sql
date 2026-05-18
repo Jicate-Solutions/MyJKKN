@@ -178,7 +178,7 @@ COMMENT ON FUNCTION public.fn_aicte_annual_export(int) IS
 --    create only if missing so this migration is idempotent)
 -- ------------------------------------------------------------------
 
--- We depend on fn_get_policy_value which was created in 20260515000001.
--- No need to re-create it. The GRANT above is sufficient.
+-- We depend on fn_get_policy_json which was created in 20260515000001.
+-- No need to re-create it. The GRANTs above are sufficient.
 
 COMMIT;
