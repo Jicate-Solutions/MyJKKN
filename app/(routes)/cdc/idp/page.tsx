@@ -1,0 +1,197 @@
+'use client';
+
+import { useState } from 'react';
+import Link from 'next/link';
+import { ContentLayout } from '@/components/layout/content-layout';
+import {
+  Breadcrumb, BreadcrumbItem, BreadcrumbLink,
+  BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator
+} from '@/components/ui/breadcrumb';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Badge } from '@/components/ui/badge';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue
+} from '@/components/ui/select';
+import { useIdpList } from '@/hooks/cdc/use-cdc-idp';
+import type { IdpFilters } from '@/types/cdc/idp';
+import { Plus, Search, ClipboardList } from 'lucide-react';
+import { BeatLoader } from 'react-spinners';
+
+export default function IdpListPage() {
+  const [filters, setFilters] = useState<IdpFilters>({ page: 1, limit: 20 });
+  const [search, setSearch] = useState('');
+
+  const { data, isLoading, error } = useIdpList(filters);
+
+  const handleAcademicYearChange = (val: string) => {
+    setFilters(f => ({ ...f, academic_year_label: val === 'all' ? undefined : val, page: 1 }));
+  };
+
+  const handleSourceChange = (val: string) => {
+    setFilters(f => ({ ...f, source: val === 'all' ? undefined : val, page: 1 }));
+  };
+
+  const filtered = (data?.data ?? []).filter(r => {
+    if (!search) return true;
+    const name = (r.learner as { name?: string } | null)?.name?.toLowerCase() ?? '';
+    const roll = (r.learner as { roll_number?: string } | null)?.roll_number?.toLowerCase() ?? '';
+    const q = search.toLowerCase();
+    return name.includes(q) || roll.includes(q);
+  });
+
+  return (
+    <ContentLayout title="IDP Responses">
+      <Breadcrumb>
+        <BreadcrumbList>
+          <BreadcrumbItem><BreadcrumbLink href="/dashboard">Dashboard</BreadcrumbLink></BreadcrumbItem>
+          <BreadcrumbSeparator />
+          <BreadcrumbItem><BreadcrumbLink href="/cdc">CDC</BreadcrumbLink></BreadcrumbItem>
+          <BreadcrumbSeparator />
+          <BreadcrumbItem><BreadcrumbPage>IDP Responses</BreadcrumbPage></BreadcrumbItem>
+        </BreadcrumbList>
+      </Breadcrumb>
+
+      <div className="mt-6 space-y-4">
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <h1 className="text-2xl font-semibold flex items-center gap-2">
+            <ClipboardList className="w-6 h-6 text-blue-600" />
+            Individual Development Plans
+          </h1>
+          <Button asChild>
+            <Link href="/cdc/idp/new">
+              <Plus className="w-4 h-4 mr-1" />
+              New IDP Response
+            </Link>
+          </Button>
+        </div>
+
+        {/* Filters */}
+        <div className="flex gap-3 flex-wrap">
+          <div className="relative flex-1 min-w-[200px]">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+            <Input
+              placeholder="Search by learner name or roll number..."
+              className="pl-9"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+            />
+          </div>
+          <Select onValueChange={handleAcademicYearChange} defaultValue="all">
+            <SelectTrigger className="w-44">
+              <SelectValue placeholder="Academic year" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All years</SelectItem>
+              <SelectItem value="2024-25">2024-25</SelectItem>
+              <SelectItem value="2025-26">2025-26</SelectItem>
+              <SelectItem value="2026-27">2026-27</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select onValueChange={handleSourceChange} defaultValue="all">
+            <SelectTrigger className="w-44">
+              <SelectValue placeholder="Source" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All sources</SelectItem>
+              <SelectItem value="native_form">Native form</SelectItem>
+              <SelectItem value="google_form_import">Google Form import</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        {/* Content */}
+        {isLoading && (
+          <div className="flex justify-center py-12">
+            <BeatLoader color="#3b82f6" />
+          </div>
+        )}
+
+        {error && (
+          <Card className="border-red-200 bg-red-50">
+            <CardContent className="py-4 text-red-700">
+              Failed to load IDP responses: {error.message}
+            </CardContent>
+          </Card>
+        )}
+
+        {!isLoading && !error && (
+          <>
+            <p className="text-sm text-gray-500">{data?.total ?? 0} total responses</p>
+            <div className="grid gap-3">
+              {filtered.length === 0 ? (
+                <Card>
+                  <CardContent className="py-12 text-center text-gray-500">
+                    No IDP responses found. Use the button above to create the first one.
+                  </CardContent>
+                </Card>
+              ) : (
+                filtered.map(r => (
+                  <Link key={r.id} href={`/cdc/idp/${r.id}`}>
+                    <Card className="hover:border-blue-300 transition-colors cursor-pointer">
+                      <CardHeader className="pb-2">
+                        <div className="flex items-center justify-between">
+                          <CardTitle className="text-base font-medium">
+                            {(r.learner as { name?: string } | null)?.name ?? 'Unknown learner'}
+                          </CardTitle>
+                          <Badge variant="outline" className="text-xs">
+                            {r.source === 'google_form_import' ? 'Imported' : 'Native'}
+                          </Badge>
+                        </div>
+                      </CardHeader>
+                      <CardContent className="text-sm text-gray-600 space-y-1">
+                        <div className="flex gap-4">
+                          <span>Roll: {(r.learner as { roll_number?: string } | null)?.roll_number ?? '—'}</span>
+                          {r.academic_year_label && <span>Year: {r.academic_year_label}</span>}
+                        </div>
+                        <div className="flex gap-2 flex-wrap">
+                          {(r.interests as string[]).slice(0, 3).map((i, idx) => (
+                            <Badge key={idx} variant="secondary" className="text-xs">{i}</Badge>
+                          ))}
+                          {(r.interests as string[]).length > 3 && (
+                            <Badge variant="secondary" className="text-xs">
+                              +{(r.interests as string[]).length - 3} more
+                            </Badge>
+                          )}
+                        </div>
+                        <p className="text-xs text-gray-400">
+                          Submitted {new Date(r.submitted_at).toLocaleDateString()}
+                        </p>
+                      </CardContent>
+                    </Card>
+                  </Link>
+                ))
+              )}
+            </div>
+
+            {/* Pagination */}
+            {(data?.total ?? 0) > (filters.limit ?? 20) && (
+              <div className="flex justify-center gap-2 pt-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={(filters.page ?? 1) <= 1}
+                  onClick={() => setFilters(f => ({ ...f, page: (f.page ?? 1) - 1 }))}
+                >
+                  Previous
+                </Button>
+                <span className="text-sm text-gray-500 self-center">
+                  Page {filters.page ?? 1}
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={((filters.page ?? 1) * (filters.limit ?? 20)) >= (data?.total ?? 0)}
+                  onClick={() => setFilters(f => ({ ...f, page: (f.page ?? 1) + 1 }))}
+                >
+                  Next
+                </Button>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </ContentLayout>
+  );
+}
