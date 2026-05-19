@@ -406,6 +406,7 @@ export class ImsInventoryServiceServer {
       try {
         const summaries = stockItems.map((item) => ({
           item_id: insertedCodeMap.get(item.code.toUpperCase()),
+          opening_quantity: item.opening_stock,
           current_quantity: item.opening_stock,
           reserved_quantity: 0,
           available_quantity: item.opening_stock,

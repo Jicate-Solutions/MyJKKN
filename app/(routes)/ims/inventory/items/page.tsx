@@ -140,6 +140,10 @@ interface ItemFormData {
   opening_stock: number; // only used on create
   opening_batch_number: string; // optional override; auto-generates BTH-YYMMDD-XXXXX if blank
   opening_expiry_date: string; // only relevant if track_expiry is true
+  // Edit-mode only: when editing, these mirror ims_stock_summary so the user can
+  // adjust the recorded opening_quantity and current stock balance from the dialog.
+  edit_opening_quantity: number;
+  edit_current_quantity: number;
 }
 
 const emptyFormData: ItemFormData = {
@@ -166,6 +170,8 @@ const emptyFormData: ItemFormData = {
   opening_stock: 0,
   opening_batch_number: '',
   opening_expiry_date: '',
+  edit_opening_quantity: 0,
+  edit_current_quantity: 0,
 };
 
 export default function InventoryItemsPage() {
@@ -253,7 +259,9 @@ function InventoryItemsPageInner() {
     queryClient.invalidateQueries({ queryKey: ['ims-items-select'] });
   };
 
-  // Open dialog for editing
+  // Open dialog for editing.
+  // Postgres NUMERIC columns come back from PostgREST as strings to preserve precision —
+  // <Input type="number"> won't render strings like "0.00" reliably, so coerce with Number().
   const handleEdit = (item: ImsItemWithRelations) => {
     setEditingItem(item);
     setFormData({
@@ -261,25 +269,27 @@ function InventoryItemsPageInner() {
       name: item.name,
       description: item.description || '',
       company_name: item.company_name ?? '',
-      category_id: item.category_id,
+      category_id: item.category_id ?? '',
       item_type: item.item_type,
-      base_unit_id: item.base_unit_id,
+      base_unit_id: item.base_unit_id ?? '',
       purchase_unit_id: item.purchase_unit_id || '',
       sale_unit_id: item.sale_unit_id || '',
       indent_unit_id: item.indent_unit_id || '',
-      cost_price: item.cost_price,
-      mrp: item.mrp,
-      selling_price: item.selling_price,
+      cost_price: Number(item.cost_price) || 0,
+      mrp: Number(item.mrp) || 0,
+      selling_price: Number(item.selling_price) || 0,
       hsn_code: item.hsn_code ?? '',
-      gst_rate: item.gst_rate ?? 0,
-      reorder_level: item.reorder_level,
-      max_stock_level: item.max_stock_level,
+      gst_rate: Number(item.gst_rate) || 0,
+      reorder_level: Number(item.reorder_level) || 0,
+      max_stock_level: Number(item.max_stock_level) || 0,
       track_batch: item.track_batch,
       track_expiry: item.track_expiry,
       is_sellable_to_students: item.is_sellable_to_students,
       opening_stock: 0,
       opening_batch_number: '',
       opening_expiry_date: '',
+      edit_opening_quantity: Number(item.stock?.opening_quantity) || 0,
+      edit_current_quantity: Number(item.stock?.current_quantity) || 0,
     });
     setDialogOpen(true);
   };
@@ -316,6 +326,48 @@ function InventoryItemsPageInner() {
           is_sellable_to_students: formData.is_sellable_to_students,
         };
         await updateItem.mutateAsync({ id: editingItem.id, data: updateData });
+
+        // Stock-side updates: opening_quantity and current_quantity live on
+        // ims_stock_summary, not ims_items, so they take different service calls.
+        // Diff against the original values and only fire if changed — avoids creating
+        // phantom audit-trail rows on no-op saves.
+        const originalOpening = Number(editingItem.stock?.opening_quantity) || 0;
+        const originalCurrent = Number(editingItem.stock?.current_quantity) || 0;
+        const stockOps: Promise<unknown>[] = [];
+
+        if (formData.edit_opening_quantity !== originalOpening) {
+          stockOps.push(
+            ImsStockService.updateOpeningQuantity(
+              editingItem.id,
+              formData.edit_opening_quantity,
+              storeId ?? '',
+              institutionId ?? ''
+            )
+          );
+        }
+
+        const currentDiff = formData.edit_current_quantity - originalCurrent;
+        if (currentDiff !== 0) {
+          stockOps.push(
+            ImsStockAdjustmentService.createAdjustment(
+              {
+                item_id: editingItem.id,
+                adjustment_type: currentDiff > 0 ? 'correction' : 'damage',
+                quantity: Math.abs(currentDiff),
+                reason: 'Manual edit via item dialog',
+                institution_id: institutionId || '',
+                store_id: storeId || undefined,
+              },
+              profile?.id || ''
+            )
+          );
+        }
+
+        if (stockOps.length > 0) {
+          await Promise.all(stockOps);
+          queryClient.invalidateQueries({ queryKey: ['ims-items'] });
+        }
+
         toast.success('Item updated successfully');
       } else {
         const createData: CreateImsItemDto = {
@@ -874,6 +926,63 @@ function InventoryItemsPageInner() {
                   </div>
                 </div>
 
+                {/* Stock section — edit mode: lets admin adjust opening_quantity
+                    (direct write to ims_stock_summary) and current stock balance
+                    (creates a correction/damage adjustment for the delta) */}
+                {editingItem && (
+                  <div className="space-y-4 border-t pt-4">
+                    <Label className="text-sm font-medium text-muted-foreground">
+                      Stock
+                    </Label>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="edit_opening_quantity">Opening Stock</Label>
+                        <Input
+                          id="edit_opening_quantity"
+                          type="number"
+                          min={0}
+                          value={formData.edit_opening_quantity}
+                          onChange={(e) =>
+                            setFormData((prev) => ({
+                              ...prev,
+                              edit_opening_quantity: parseFloat(e.target.value) || 0,
+                            }))
+                          }
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          Recorded opening quantity. Direct override — no adjustment row created.
+                        </p>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="edit_current_quantity">Stock Balance</Label>
+                        <Input
+                          id="edit_current_quantity"
+                          type="number"
+                          min={0}
+                          value={formData.edit_current_quantity}
+                          onChange={(e) =>
+                            setFormData((prev) => ({
+                              ...prev,
+                              edit_current_quantity: parseFloat(e.target.value) || 0,
+                            }))
+                          }
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          Current available quantity. Saving creates a{' '}
+                          {formData.edit_current_quantity >
+                          (Number(editingItem.stock?.current_quantity) || 0)
+                            ? "'correction'"
+                            : formData.edit_current_quantity <
+                              (Number(editingItem.stock?.current_quantity) || 0)
+                            ? "'damage'"
+                            : 'no'}{' '}
+                          stock-adjustment row for the delta.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 {/* Opening Stock — only shown on create */}
                 {!editingItem && (
                   <div className="space-y-4 border-t pt-4">
@@ -1159,11 +1268,13 @@ function InventoryItemsPageInner() {
                   <TableHeader>
                     <TableRow>
                       <TableHead>Code</TableHead>
-                      <TableHead>Name / Category</TableHead>
+                      <TableHead>Name</TableHead>
+                      <TableHead>Category</TableHead>
                       <TableHead>Company</TableHead>
                       <TableHead>Type</TableHead>
                       <TableHead>Base Unit</TableHead>
-                      <TableHead className="text-right">Stock</TableHead>
+                      <TableHead className="text-right">Opening Stock</TableHead>
+                      <TableHead className="text-right">Stock Balance</TableHead>
                       <TableHead className="text-right">Cost Price</TableHead>
                       <TableHead className="text-right">MRP</TableHead>
                       <TableHead className="text-center">GST %</TableHead>
@@ -1172,131 +1283,125 @@ function InventoryItemsPageInner() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {(items?.data ?? []).map(
-                      (item: ImsItemWithRelations) => (
-                        <TableRow key={item.id}>
-                          <TableCell className="font-mono text-sm">
-                            {item.code}
-                          </TableCell>
-                          <TableCell>
-                            <div>
-                              <p className="font-medium">{item.name}</p>
-                              <p className="text-xs text-muted-foreground">
-                                {item.category?.name || '-'}
-                              </p>
-                            </div>
-                          </TableCell>
-                          <TableCell className="text-sm text-muted-foreground">
-                            {item.company_name ?? '—'}
-                          </TableCell>
-                          <TableCell>
-                            <Badge
-                              variant="outline"
-                              className={itemTypeBadgeVariant(item.item_type)}
-                            >
-                              {item.item_type}
+                    {(items?.data ?? []).map((item: ImsItemWithRelations) => (
+                      <TableRow key={item.id}>
+                        <TableCell className="font-mono text-sm">{item.code}</TableCell>
+                        <TableCell>
+                          <p className="font-medium">{item.name}</p>
+                        </TableCell>
+                        <TableCell className="text-sm text-muted-foreground">
+                          {item.category?.name || '—'}
+                        </TableCell>
+                        <TableCell className="text-sm text-muted-foreground">
+                          {item.company_name ?? '—'}
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="outline" className={itemTypeBadgeVariant(item.item_type)}>
+                            {item.item_type}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          {item.base_unit?.abbreviation || item.base_unit?.name || '-'}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <span className="text-muted-foreground font-medium tabular-nums">
+                            {item.stock?.opening_quantity ?? '—'}
+                          </span>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {item.stock != null ? (
+                            <span className={
+                              item.stock.current_quantity === 0
+                                ? 'text-red-500 font-medium tabular-nums'
+                                : item.stock.current_quantity <= (item.reorder_level || 0)
+                                ? 'text-yellow-600 font-medium tabular-nums'
+                                : 'text-green-600 font-medium tabular-nums'
+                            }>
+                              {item.stock.current_quantity}
+                            </span>
+                          ) : (
+                            <span className="text-muted-foreground text-xs">—</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {formatPrice(Number(item.cost_price) || 0)}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {formatPrice(Number(item.mrp) || 0)}
+                        </TableCell>
+                        <TableCell className="text-center">
+                          {Number(item.gst_rate) > 0 ? (
+                            <Badge variant="outline" className="font-mono text-xs">
+                              {item.gst_rate}%
                             </Badge>
-                          </TableCell>
-                          <TableCell>
-                            {item.base_unit?.abbreviation || item.base_unit?.name || '-'}
-                          </TableCell>
-                          <TableCell className="text-right">
-                            {item.stock != null ? (
-                              <span className={
-                                item.stock.current_quantity === 0
-                                  ? 'text-red-500 font-medium'
-                                  : item.stock.current_quantity <= (item.reorder_level || 0)
-                                  ? 'text-yellow-600 font-medium'
-                                  : 'text-green-600 font-medium'
-                              }>
-                                {item.stock.current_quantity}
-                              </span>
-                            ) : (
-                              <span className="text-muted-foreground text-xs">—</span>
-                            )}
-                          </TableCell>
-                          <TableCell className="text-right">
-                            {formatPrice(item.cost_price)}
-                          </TableCell>
-                          <TableCell className="text-right">
-                            {formatPrice(item.mrp)}
-                          </TableCell>
-                          <TableCell className="text-center">
-                            {item.gst_rate > 0 ? (
-                              <Badge variant="outline" className="font-mono text-xs">
-                                {item.gst_rate}%
-                              </Badge>
-                            ) : (
-                              <span className="text-muted-foreground text-xs">—</span>
-                            )}
-                          </TableCell>
-                          <TableCell>
-                            {item.is_active ? (
-                              <Badge variant="success">Active</Badge>
-                            ) : (
-                              <Badge variant="secondary">Inactive</Badge>
-                            )}
-                          </TableCell>
-                          <TableCell className="text-right">
-                            <DropdownMenu>
-                              <DropdownMenuTrigger asChild>
-                                <Button variant="ghost" size="sm">
-                                  <MoreHorizontal className="h-4 w-4" />
-                                </Button>
-                              </DropdownMenuTrigger>
-                              <DropdownMenuContent align="end">
-                                {canEdit && (
-                                  <DropdownMenuItem onClick={() => handleEdit(item)}>
-                                    <Pencil className="h-4 w-4 mr-2" />
-                                    Edit
-                                  </DropdownMenuItem>
-                                )}
-                                {canAdjust && (
-                                  <DropdownMenuItem onClick={() => {
-                                    setAdjustingItem(item);
-                                    setAdjustForm({ adjustment_type: 'correction', quantity: 0, reason: '', batch_number: '', expiry_date: '' });
-                                    setAdjustDialogOpen(true);
-                                  }}>
-                                    <Layers className="h-4 w-4 mr-2" />
-                                    Adjust Stock
-                                  </DropdownMenuItem>
-                                )}
-                                {canEdit && (
-                                  <DropdownMenuItem onClick={() => setBatchItem(item)}>
-                                    <Package className="h-4 w-4 mr-2" />
-                                    Add Batch Stock
-                                  </DropdownMenuItem>
-                                )}
-                                <DropdownMenuItem onClick={() => setViewBatchItem(item)}>
-                                  <Layers className="h-4 w-4 mr-2" />
-                                  View Batches
+                          ) : (
+                            <span className="text-muted-foreground text-xs">—</span>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          {item.is_active ? (
+                            <Badge variant="success">Active</Badge>
+                          ) : (
+                            <Badge variant="secondary">Inactive</Badge>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="ghost" size="sm">
+                                <MoreHorizontal className="h-4 w-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              {canEdit && (
+                                <DropdownMenuItem onClick={() => handleEdit(item)}>
+                                  <Pencil className="h-4 w-4 mr-2" />
+                                  Edit
                                 </DropdownMenuItem>
-                                {canEdit && (
+                              )}
+                              {canAdjust && (
+                                <DropdownMenuItem onClick={() => {
+                                  setAdjustingItem(item);
+                                  setAdjustForm({ adjustment_type: 'correction', quantity: 0, reason: '', batch_number: '', expiry_date: '' });
+                                  setAdjustDialogOpen(true);
+                                }}>
+                                  <Layers className="h-4 w-4 mr-2" />
+                                  Adjust Stock
+                                </DropdownMenuItem>
+                              )}
+                              {canEdit && (
+                                <DropdownMenuItem onClick={() => setBatchItem(item)}>
+                                  <Package className="h-4 w-4 mr-2" />
+                                  Add Batch Stock
+                                </DropdownMenuItem>
+                              )}
+                              <DropdownMenuItem onClick={() => setViewBatchItem(item)}>
+                                <Layers className="h-4 w-4 mr-2" />
+                                View Batches
+                              </DropdownMenuItem>
+                              {canEdit && (
+                                <DropdownMenuItem onClick={() => handleToggleActive(item)}>
+                                  <ToggleLeft className="h-4 w-4 mr-2" />
+                                  {item.is_active ? 'Deactivate' : 'Activate'}
+                                </DropdownMenuItem>
+                              )}
+                              {canDelete && (
+                                <>
+                                  <DropdownMenuSeparator />
                                   <DropdownMenuItem
-                                    onClick={() => handleToggleActive(item)}
+                                    className="text-red-600 focus:text-red-600"
+                                    onClick={() => handleDelete(item)}
                                   >
-                                    <ToggleLeft className="h-4 w-4 mr-2" />
-                                    {item.is_active ? 'Deactivate' : 'Activate'}
+                                    <Trash2 className="h-4 w-4 mr-2" />
+                                    Delete
                                   </DropdownMenuItem>
-                                )}
-                                {canDelete && (
-                                  <>
-                                    <DropdownMenuSeparator />
-                                    <DropdownMenuItem
-                                      className="text-red-600 focus:text-red-600"
-                                      onClick={() => handleDelete(item)}
-                                    >
-                                      <Trash2 className="h-4 w-4 mr-2" />
-                                      Delete
-                                    </DropdownMenuItem>
-                                  </>
-                                )}
-                              </DropdownMenuContent>
-                            </DropdownMenu>
-                          </TableCell>
-                        </TableRow>
-                      )
-                    )}
+                                </>
+                              )}
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </TableCell>
+                      </TableRow>
+                    ))}
                   </TableBody>
                 </Table>
               </div>
