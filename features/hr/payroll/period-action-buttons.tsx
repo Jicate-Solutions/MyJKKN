@@ -31,7 +31,10 @@ import {
   DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu';
 import { useAuth } from '@/hooks/use-auth';
-import { usePayrollPeriods } from '@/hooks/hr/payroll/use-payroll-periods';
+import {
+  useAdvancePayrollPeriod,
+  usePreparePayrollPeriod,
+} from '@/hooks/hr/payroll/use-payroll-periods';
 import type { HRPayrollPeriod, PayrollPeriodStatus } from '@/types/hr-payroll';
 
 import { PeriodRejectModal } from './period-reject-modal';
