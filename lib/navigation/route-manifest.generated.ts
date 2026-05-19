@@ -488,9 +488,21 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "iconName": "FileText",
             "children": [
               {
+                "path": "/admin/campus-living/premium/audit-log",
+                "label": "Premium Stay — Audit Log",
+                "iconName": "History",
+                "children": []
+              },
+              {
                 "path": "/admin/campus-living/premium/dashboard",
                 "label": "Premium Stay Dashboard",
                 "iconName": "LayoutGrid",
+                "children": []
+              },
+              {
+                "path": "/admin/campus-living/premium/override",
+                "label": "Premium Stay — Chief Warden Override",
+                "iconName": "ShieldCheck",
                 "children": []
               }
             ]
