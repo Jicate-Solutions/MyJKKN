@@ -9,7 +9,7 @@
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Activity, Phone, Mail, Calendar, MessageSquare, TrendingUp, Target } from 'lucide-react';
+import { Activity, Phone, Mail, Calendar, MessageSquare, TrendingUp, Target, User } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import type { TimelineEntry } from '@/lib/services/admission/activity-service';
 import { formatDateTimeDMY } from '@/lib/utils/date-format';
@@ -40,6 +40,14 @@ function TimelineItem({ entry }: { entry: TimelineEntry }) {
   const IconComponent = timelineIcons[entry.icon || 'activity'] || Activity;
   const colorClass = timelineColors[entry.color || 'gray'] || timelineColors.gray;
 
+  // Author label: prefer full_name, then email, then a fallback. The
+  // 'Unknown user' case happens when created_by/changed_by points at a
+  // profile row that's been deleted (audit-table soft FK pattern).
+  // 'System' covers null author (e.g., trigger-written rows).
+  const authorLabel = entry.author
+    ? entry.author.full_name || entry.author.email || 'Unknown user'
+    : 'System';
+
   return (
     <div className="flex gap-3 pb-4 border-b last:border-0 last:pb-0">
       <div className="flex-shrink-0">
@@ -57,8 +65,11 @@ function TimelineItem({ entry }: { entry: TimelineEntry }) {
         {entry.description && (
           <p className="text-sm text-muted-foreground mt-1">{entry.description}</p>
         )}
-        <p className="text-xs text-muted-foreground mt-1">
-          {formatDateTimeDMY(entry.timestamp)}
+        <p className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
+          <User className="h-3 w-3" aria-hidden />
+          <span className="font-medium text-foreground/80">{authorLabel}</span>
+          <span aria-hidden>·</span>
+          <span>{formatDateTimeDMY(entry.timestamp)}</span>
         </p>
       </div>
     </div>
