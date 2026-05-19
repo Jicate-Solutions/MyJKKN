@@ -227,6 +227,20 @@ export const POLICY_KEYS = {
   // Consumed by lib/services/dashboard/widget-config-service.ts; edited via
   // /admin/dashboard/widget-config (Director-only). No deploy needed.
   DASHBOARD_ROLE_WIDGETS: 'dashboard.role_widgets',
+
+  // PDE Rubrics — Social & Leadership Trust (Phase 8) -------------------------
+  // 4 rubrics defining the durable-value category AI cannot replicate: working
+  // with humans, leading peers, holding committee positions, organizing
+  // communities. Each row is a JSONB object with evidence_required, min_*
+  // thresholds, validator_role, deliverables, and scoring_band.
+  // Seeded by 20260518_pde_social_leadership_rubrics.sql (scope=global).
+  // Editable via /admin/pde/rubrics/social-leadership (Director-only).
+  // Consumer (future): demonstration-evaluator services will read these via
+  // fn_get_policy to validate Phase-8 submissions. No deploy needed to retune.
+  PDE_RUBRICS_SOCIAL_LEADERSHIP_PEER_MENTOR: 'pde.rubrics.social_leadership.peer_mentor',
+  PDE_RUBRICS_SOCIAL_LEADERSHIP_TEAM_PROJECT_LEAD: 'pde.rubrics.social_leadership.team_project_lead',
+  PDE_RUBRICS_SOCIAL_LEADERSHIP_COMMITTEE_ROLE: 'pde.rubrics.social_leadership.committee_role',
+  PDE_RUBRICS_SOCIAL_LEADERSHIP_COMMUNITY_ORGANIZER: 'pde.rubrics.social_leadership.community_organizer',
 } as const;
 
 export type PolicyKey = typeof POLICY_KEYS[keyof typeof POLICY_KEYS];
