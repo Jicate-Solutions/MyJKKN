@@ -17,6 +17,20 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
+  // ── 1b. Permission gate ────────────────────────────────────────────────────
+  // Defense-in-depth: this route uses createServiceRoleClient() below (bypasses
+  // RLS) so the UI PermissionGuard alone is not a security boundary — every
+  // authenticated user could otherwise POST here directly. user_has_permission
+  // honors super_admin bypass internally; we just call it with the catalog key.
+  const { data: canConvert } = await (supabase as any)
+    .rpc('user_has_permission', {
+      user_id: user.id,
+      permission_key: 'admission.leads.convert_to_admitted',
+    });
+  if (!canConvert) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  }
+
   // ── 2. Parse body ────────────────────────────────────────────────────────────
   let leadId: string;
   let institutionId: string;

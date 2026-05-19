@@ -81,6 +81,12 @@ export function PermissionGuard({
     'admission.consultants',
     'admission.counselors',
     'admission.gd_pi',
+    // Convert-to-Admitted creates a learner_profiles row and is a privileged
+    // operation reserved for admission officers/registrar/exec — counselors
+    // (admission_counselor, expo_counselor, health_counselor, learner_counselor,
+    // staff_counselor) must NOT bypass this key via the broad admission-module
+    // carve-out below.
+    'admission.leads.convert_to_admitted',
   ];
   const isRestrictedSubModule = COUNSELOR_RESTRICTED_PREFIXES.some((p) =>
     permKey.startsWith(p),
