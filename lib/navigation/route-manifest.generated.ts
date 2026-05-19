@@ -2764,6 +2764,25 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "iconName": "FileText",
         "children": [
           {
+            "path": "/campus-living/my-hostel/premium",
+            "label": "Premium Stay — Opt-in",
+            "iconName": "Sparkles",
+            "children": [
+              {
+                "path": "/campus-living/my-hostel/premium/invite-roommate",
+                "label": "Premium Stay — Invite Roommate",
+                "iconName": "Users",
+                "children": []
+              },
+              {
+                "path": "/campus-living/my-hostel/premium/pick-room",
+                "label": "Premium Stay — Pick Room",
+                "iconName": "BedDouble",
+                "children": []
+              }
+            ]
+          },
+          {
             "path": "/campus-living/my-hostel/vacate-request",
             "label": "Vacate Request",
             "iconName": "LogOut",
