@@ -21,6 +21,8 @@ import {
   reserveBed,
   inviteRoommate,
   confirmRoommate,
+  declineRoommate,
+  listInvitesForLearner,
   countAllocationsByTier,
   type ReserveBedInput,
   type ReserveBedResult,
@@ -45,6 +47,8 @@ export const premiumAllocationKeys = {
     ['premium-allocation', 'available-rooms', institutionId ?? 'all'] as const,
   counts: (institutionId: string | null | undefined) =>
     ['premium-allocation', 'counts', institutionId ?? 'all'] as const,
+  invitesForLearner: (learnerId: string | null | undefined) =>
+    ['premium-allocation', 'invites', 'learner', learnerId ?? 'none'] as const,
 };
 
 // ---------------------------------------------------------------------------
@@ -124,11 +128,12 @@ export function useReservePremiumBed() {
 }
 
 export function useInviteRoommate() {
+  const qc = useQueryClient();
   return useMutation<RoommateInviteState | null, Error, InviteRoommateInput>({
     mutationFn: (input) => inviteRoommate(input),
     onSuccess: (state) => {
+      qc.invalidateQueries({ queryKey: premiumAllocationKeys.all });
       if (state) toast.success('Roommate invite sent');
-      else toast.error('Roommate invite is a Phase 2 feature');
     },
     onError: (err) => {
       toast.error(err.message || 'Could not send roommate invite');
@@ -136,15 +141,53 @@ export function useInviteRoommate() {
   });
 }
 
+export interface ConfirmRoommateInput {
+  inviteToken: string;
+  actingLearnerId: string;
+}
+
 export function useConfirmRoommate() {
-  return useMutation<RoommateInviteState | null, Error, string>({
-    mutationFn: (token) => confirmRoommate(token),
+  const qc = useQueryClient();
+  return useMutation<RoommateInviteState | null, Error, ConfirmRoommateInput>({
+    mutationFn: ({ inviteToken, actingLearnerId }) =>
+      confirmRoommate(inviteToken, actingLearnerId),
     onSuccess: (state) => {
+      qc.invalidateQueries({ queryKey: premiumAllocationKeys.all });
       if (state) toast.success('Roommate confirmed');
-      else toast.error('Roommate confirmation is a Phase 2 feature');
     },
     onError: (err) => {
       toast.error(err.message || 'Could not confirm roommate');
     },
+  });
+}
+
+export interface DeclineRoommateInput {
+  inviteToken: string;
+  actingLearnerId: string;
+}
+
+export function useDeclineRoommate() {
+  const qc = useQueryClient();
+  return useMutation<RoommateInviteState | null, Error, DeclineRoommateInput>({
+    mutationFn: ({ inviteToken, actingLearnerId }) =>
+      declineRoommate(inviteToken, actingLearnerId),
+    onSuccess: (state) => {
+      qc.invalidateQueries({ queryKey: premiumAllocationKeys.all });
+      if (state) toast.success('Invite declined');
+    },
+    onError: (err) => {
+      toast.error(err.message || 'Could not decline invite');
+    },
+  });
+}
+
+export function useLearnerPremiumInvites(learnerId: string | null | undefined) {
+  return useQuery<RoommateInviteState[], Error>({
+    queryKey: premiumAllocationKeys.invitesForLearner(learnerId),
+    queryFn: () => {
+      if (!learnerId) return Promise.resolve<RoommateInviteState[]>([]);
+      return listInvitesForLearner(learnerId);
+    },
+    enabled: Boolean(learnerId),
   });
 }
