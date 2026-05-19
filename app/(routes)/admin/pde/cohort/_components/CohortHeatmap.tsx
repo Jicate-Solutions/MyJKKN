@@ -29,8 +29,8 @@ import {
   type CohortHeatmapData,
   type PDECategoryKey,
   type CohortRow,
-} from '@/lib/services/pde-cohort-service';
-import type { PerCollegeComplianceTargets } from '@/lib/services/pde-policy-reader';
+} from '@/lib/services/pde-cohort-types';
+import type { PerCollegeComplianceTargets } from '@/lib/services/pde-policy-reader-types';
 
 interface CohortHeatmapProps {
   data: CohortHeatmapData;

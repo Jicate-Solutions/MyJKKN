@@ -504,6 +504,61 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         ]
       },
       {
+        "path": "/admin/cdc",
+        "label": "Cdc",
+        "iconName": "FileText",
+        "children": [
+          {
+            "path": "/admin/cdc/cron-status",
+            "label": "Cron Status",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/admin/cdc/drive-types",
+            "label": "Drive Types",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/admin/cdc/industry-sectors",
+            "label": "Industry Sectors",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/admin/cdc/offer-types",
+            "label": "Offer Types",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/admin/cdc/policies",
+            "label": "Policies",
+            "iconName": "BookText",
+            "children": []
+          },
+          {
+            "path": "/admin/cdc/recruiters",
+            "label": "Recruiters",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/admin/cdc/training-types",
+            "label": "Training Types",
+            "iconName": "Dumbbell",
+            "children": []
+          },
+          {
+            "path": "/admin/cdc/workshop-types",
+            "label": "Workshop Types",
+            "iconName": "FileText",
+            "children": []
+          }
+        ]
+      },
+      {
         "path": "/admin/config",
         "label": "Config",
         "iconName": "FileText",
@@ -682,6 +737,19 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "label": "Payroll",
             "iconName": "FileText",
             "children": [
+              {
+                "path": "/admin/hr/payroll/periods",
+                "label": "Periods",
+                "iconName": "Clock",
+                "children": [
+                  {
+                    "path": "/admin/hr/payroll/periods/new",
+                    "label": "New",
+                    "iconName": "Plus",
+                    "children": []
+                  }
+                ]
+              },
               {
                 "path": "/admin/hr/payroll/preview",
                 "label": "Payroll Preview (read-only)",
@@ -1195,6 +1263,18 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
+            "path": "/admin/pde/cohort",
+            "label": "PDE Cohort Comparison",
+            "iconName": "BarChart3",
+            "children": []
+          },
+          {
+            "path": "/admin/pde/demonstrations",
+            "label": "PDE Demonstrations",
+            "iconName": "Inbox",
+            "children": []
+          },
+          {
             "path": "/admin/pde/engagement",
             "label": "Engagement",
             "iconName": "FileText",
@@ -1207,6 +1287,43 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
+            "path": "/admin/pde/policies",
+            "label": "Policies",
+            "iconName": "BookText",
+            "children": [
+              {
+                "path": "/admin/pde/policies/governance",
+                "label": "PDE Gamification & Defense",
+                "iconName": "ShieldCheck",
+                "children": []
+              },
+              {
+                "path": "/admin/pde/policies/quests",
+                "label": "PDE Quests & Supply",
+                "iconName": "Boxes",
+                "children": []
+              },
+              {
+                "path": "/admin/pde/policies/rollout",
+                "label": "PDE Rollout & Compliance",
+                "iconName": "Map",
+                "children": []
+              },
+              {
+                "path": "/admin/pde/policies/scoring",
+                "label": "PDE Scoring & Integrity",
+                "iconName": "Sliders",
+                "children": []
+              },
+              {
+                "path": "/admin/pde/policies/visibility",
+                "label": "PDE Visibility & Transparency",
+                "iconName": "Eye",
+                "children": []
+              }
+            ]
+          },
+          {
             "path": "/admin/pde/quests",
             "label": "Quests",
             "iconName": "Trophy",
@@ -1215,6 +1332,31 @@ export const ROUTE_MANIFEST: RouteNode[] = [
                 "path": "/admin/pde/quests/create",
                 "label": "Create",
                 "iconName": "Plus",
+                "children": []
+              }
+            ]
+          },
+          {
+            "path": "/admin/pde/rubrics",
+            "label": "Rubrics",
+            "iconName": "FileText",
+            "children": [
+              {
+                "path": "/admin/pde/rubrics/cultural-civic",
+                "label": "PDE Rubrics — Cultural & Civic",
+                "iconName": "BookHeart",
+                "children": []
+              },
+              {
+                "path": "/admin/pde/rubrics/embodied",
+                "label": "PDE Embodied Practice Rubrics",
+                "iconName": "Activity",
+                "children": []
+              },
+              {
+                "path": "/admin/pde/rubrics/social-leadership",
+                "label": "PDE Rubrics — Social & Leadership",
+                "iconName": "Users",
                 "children": []
               }
             ]
@@ -1761,6 +1903,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
+            "path": "/admission/settings/statuses",
+            "label": "Statuses",
+            "iconName": "GraduationCap",
+            "children": []
+          },
+          {
             "path": "/admission/settings/templates",
             "label": "Templates",
             "iconName": "GraduationCap",
@@ -1815,6 +1963,19 @@ export const ROUTE_MANIFEST: RouteNode[] = [
                 "children": []
               }
             ]
+          }
+        ]
+      },
+      {
+        "path": "/admission/tools",
+        "label": "Tools",
+        "iconName": "GraduationCap",
+        "children": [
+          {
+            "path": "/admission/tools/re-evaluate-learner",
+            "label": "Re Evaluate Learner",
+            "iconName": "GraduationCap",
+            "children": []
           }
         ]
       }
@@ -2806,6 +2967,136 @@ export const ROUTE_MANIFEST: RouteNode[] = [
     ]
   },
   {
+    "path": "/cdc",
+    "label": "Cdc",
+    "iconName": "FileText",
+    "children": [
+      {
+        "path": "/cdc/bulletin",
+        "label": "Bulletin",
+        "iconName": "FileText",
+        "children": [
+          {
+            "path": "/cdc/bulletin/new",
+            "label": "New",
+            "iconName": "Plus",
+            "children": []
+          }
+        ]
+      },
+      {
+        "path": "/cdc/clubs",
+        "label": "Clubs",
+        "iconName": "FileText",
+        "children": [
+          {
+            "path": "/cdc/clubs/new",
+            "label": "New",
+            "iconName": "Plus",
+            "children": []
+          }
+        ]
+      },
+      {
+        "path": "/cdc/drives",
+        "label": "Drives",
+        "iconName": "FileText",
+        "children": [
+          {
+            "path": "/cdc/drives/new",
+            "label": "New",
+            "iconName": "Plus",
+            "children": []
+          }
+        ]
+      },
+      {
+        "path": "/cdc/exports",
+        "label": "Exports",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
+        "path": "/cdc/idp",
+        "label": "Idp",
+        "iconName": "FileText",
+        "children": [
+          {
+            "path": "/cdc/idp/new",
+            "label": "New",
+            "iconName": "Plus",
+            "children": []
+          }
+        ]
+      },
+      {
+        "path": "/cdc/industry-mentors",
+        "label": "Industry Mentors",
+        "iconName": "FileText",
+        "children": [
+          {
+            "path": "/cdc/industry-mentors/new",
+            "label": "New",
+            "iconName": "Plus",
+            "children": []
+          }
+        ]
+      },
+      {
+        "path": "/cdc/internships",
+        "label": "Internships",
+        "iconName": "FileText",
+        "children": [
+          {
+            "path": "/cdc/internships/new",
+            "label": "New",
+            "iconName": "Plus",
+            "children": []
+          }
+        ]
+      },
+      {
+        "path": "/cdc/mentors",
+        "label": "Mentors",
+        "iconName": "UserCheck",
+        "children": [
+          {
+            "path": "/cdc/mentors/new",
+            "label": "New",
+            "iconName": "Plus",
+            "children": []
+          }
+        ]
+      },
+      {
+        "path": "/cdc/placements",
+        "label": "Placements",
+        "iconName": "FileText",
+        "children": [
+          {
+            "path": "/cdc/placements/new",
+            "label": "New",
+            "iconName": "Plus",
+            "children": []
+          }
+        ]
+      },
+      {
+        "path": "/cdc/training",
+        "label": "Training",
+        "iconName": "Dumbbell",
+        "children": [
+          {
+            "path": "/cdc/training/new",
+            "label": "New",
+            "iconName": "Plus",
+            "children": []
+          }
+        ]
+      }
+    ]
+  },
+  {
     "path": "/consultant-portal",
     "label": "Consultant Portal",
     "iconName": "FileText",
@@ -3527,6 +3818,32 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "label": "Leaderboard",
         "iconName": "Trophy",
         "children": []
+      },
+      {
+        "path": "/learn/pde",
+        "label": "Pde",
+        "iconName": "FileText",
+        "children": [
+          {
+            "path": "/learn/pde/cohort",
+            "label": "PDE Cohort Comparison",
+            "iconName": "Users",
+            "children": []
+          },
+          {
+            "path": "/learn/pde/demonstrations",
+            "label": "Demonstrations",
+            "iconName": "FileText",
+            "children": [
+              {
+                "path": "/learn/pde/demonstrations/new",
+                "label": "New",
+                "iconName": "Plus",
+                "children": []
+              }
+            ]
+          }
+        ]
       },
       {
         "path": "/learn/profile",

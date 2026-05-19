@@ -43,70 +43,36 @@ import { createServerSupabaseClient } from '@/lib/supabase/server';
 import {
   getCohortComparisonScope,
   getIndividualMetricDisplay,
-  type IndividualMetricDisplay,
-  type CohortComparisonScope,
 } from '@/lib/services/pde-policy-reader';
+import type {
+  IndividualMetricDisplay,
+  CohortComparisonScope,
+} from '@/lib/services/pde-policy-reader-types';
+import {
+  PDE_CATEGORY_KEYS,
+  PDE_CATEGORY_LABELS,
+  type PDECategoryKey,
+  type CategoryAggregate,
+  type CohortRow,
+  type CohortHeatmapData,
+  type LearnerCategorySummary,
+  type LearnerPeerData,
+} from './pde-cohort-types';
 
-// ---------------------------------------------------------------------------
-// Public type surface
-// ---------------------------------------------------------------------------
-
-export const PDE_CATEGORY_KEYS = [
-  'judgment',
-  'embodied',
-  'problem_finding',
-  'accountability',
-  'social_leadership',
-  'cultural_civic',
-  'credential',
-] as const;
-
-export type PDECategoryKey = (typeof PDE_CATEGORY_KEYS)[number];
-
-/** Human-readable labels for each of the 7 categories. */
-export const PDE_CATEGORY_LABELS: Record<PDECategoryKey, string> = {
-  judgment: 'Judgment',
-  embodied: 'Embodied Practice',
-  problem_finding: 'Problem Finding',
-  accountability: 'Accountability',
-  social_leadership: 'Social Leadership',
-  cultural_civic: 'Cultural & Civic',
-  credential: 'Credentials',
-};
-
-export interface CategoryAggregate {
-  submitted: number;
-  validated: number;
-  scored: number;
-  passed: number;
-  avg_weighted_score: number | null;
-}
-
-export interface CohortRow {
-  institution_id: string;
-  institution_name: string;
-  cohort_size: number;
-  by_category: Record<PDECategoryKey, CategoryAggregate>;
-}
-
-export interface CohortHeatmapData {
-  cohorts: CohortRow[];
-  timeframe: { from: string; to: string };
-  scope: CohortComparisonScope;
-}
-
-export interface LearnerCategorySummary {
-  own_score: number | null;
-  cohort_avg: number | null;
-  percentile: number | null;
-  total_demonstrations: number;
-}
-
-export interface LearnerPeerData {
-  learner_id: string;
-  by_category: Record<PDECategoryKey, LearnerCategorySummary>;
-  display: IndividualMetricDisplay;
-}
+// Re-export pure types/constants for backward compatibility with existing
+// server-side callers (page.tsx Server Components). Client components must
+// import from './pde-cohort-types' directly to avoid pulling in the server
+// Supabase client (next/headers).
+export {
+  PDE_CATEGORY_KEYS,
+  PDE_CATEGORY_LABELS,
+  type PDECategoryKey,
+  type CategoryAggregate,
+  type CohortRow,
+  type CohortHeatmapData,
+  type LearnerCategorySummary,
+  type LearnerPeerData,
+} from './pde-cohort-types';
 
 // ---------------------------------------------------------------------------
 // Minimal shape of a `pde_demonstrations` row we actually read.

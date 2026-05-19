@@ -28,7 +28,7 @@ import {
   type LearnerPeerData,
   type PDECategoryKey,
   type LearnerCategorySummary,
-} from '@/lib/services/pde-cohort-service';
+} from '@/lib/services/pde-cohort-types';
 
 interface PeerRelativeCardProps {
   data: LearnerPeerData;
