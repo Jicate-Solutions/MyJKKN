@@ -432,7 +432,42 @@ export function CourseSelectionSection({ form, showLearnerType = false }: Course
           render={({ field }) => (
             <FormItem>
               <FormLabel>Entry Type <span className="text-red-500">*</span></FormLabel>
-              <Select onValueChange={field.onChange} value={field.value || ''}>
+              <Select
+                onValueChange={(value) => {
+                  field.onChange(value);
+                  // Auto-pick semester based on entry type. Fires only on
+                  // user-initiated change (not on initial form load), so a
+                  // manually-picked semester from an existing lead is not
+                  // overwritten when the form first hydrates.
+                  //
+                  //   FIRST YEAR     → semester with initial_semester=true,
+                  //                    else lowest semester_order.
+                  //   LATERAL ENTRY  → For year-based programs (PharmD, BDS,
+                  //                    BSc-NS, etc.) pick Year 2 (semester_order=2).
+                  //                    For semester-based programs (CSE, MBA, BPharm)
+                  //                    pick Semester III (semester_order=3). Detect
+                  //                    program type by checking whether the first
+                  //                    semester's name contains "Year".
+                  if (semesters.length === 0) return;
+                  const sorted = [...semesters].sort(
+                    (a: any, b: any) => (a.semester_order ?? 0) - (b.semester_order ?? 0)
+                  );
+                  if (value === 'FIRST YEAR') {
+                    const target = sorted.find((s: any) => s.initial_semester === true) ?? sorted[0];
+                    if (target?.id) form.setValue('semester_id', target.id);
+                  } else if (value === 'LATERAL ENTRY') {
+                    const isYearBased = /year/i.test((sorted[0] as any)?.semester_name ?? '');
+                    const targetOrder = isYearBased ? 2 : 3;
+                    const target =
+                      sorted.find((s: any) => s.semester_order === targetOrder) ??
+                      sorted[isYearBased ? 1 : 2];
+                    if (target?.id) form.setValue('semester_id', target.id);
+                  }
+                  // For RE-ADMISSION / COLLEGE TRANSFER we deliberately don't
+                  // auto-pick — those students choose their semester manually.
+                }}
+                value={field.value || ''}
+              >
                 <FormControl>
                   <SelectTrigger>
                     <SelectValue placeholder="Select entry type" />
@@ -446,7 +481,10 @@ export function CourseSelectionSection({ form, showLearnerType = false }: Course
                   ))}
                 </SelectContent>
               </Select>
-              <FormDescription>Type of entry into the course</FormDescription>
+              <FormDescription>
+                Type of entry into the course. First Year and Lateral Entry will
+                auto-pick the appropriate semester.
+              </FormDescription>
               <FormMessage />
             </FormItem>
           )}
@@ -494,6 +532,19 @@ export function CourseSelectionSection({ form, showLearnerType = false }: Course
                 onValueChange={(value) => {
                   const oldValue = field.value;
                   field.onChange(value);
+                  // Auto-fill department_id from the picked program. Each program
+                  // is FK'd to exactly one department, so the department is
+                  // unambiguously determined by the program. This is mainly a
+                  // self-healing safeguard: if a saved lead has program_id but
+                  // a missing/wrong department_id, picking (or re-picking) the
+                  // program rebinds the department correctly. The current UI
+                  // still gates Programs behind Department selection, so this
+                  // is usually a no-op — but it makes the data shape consistent.
+                  const picked = programs.find((p: Program) => p.id === value);
+                  const pickedDeptId = (picked as any)?.department_id;
+                  if (pickedDeptId && pickedDeptId !== watchedDepartmentId) {
+                    form.setValue('department_id', pickedDeptId);
+                  }
                   // Only reset dependent fields if program is actually changing (not initial load)
                   if (oldValue && oldValue !== value) {
                     form.setValue('semester_id', '');

@@ -2,10 +2,16 @@
 //
 // The single security boundary for the student-form write path. The PATCH
 // handler iterates only these column names; any field name in the request
-// body that is NOT in this list is silently ignored. Columns explicitly
-// excluded: lifecycle_status, institution_id, is_profile_complete,
-// created_by, created_at, application_id — even a valid token cannot
-// flip these via the student form.
+// body that is NOT in this list is silently ignored.
+//
+// Columns explicitly excluded (see FORBIDDEN_COLUMNS): lifecycle_status,
+// is_profile_complete, created_by, created_at, application_id, id —
+// even a valid token cannot flip these via the student form.
+//
+// 2026-05-19: institution_id removed from FORBIDDEN and added to the new
+// `course` section. The student now picks their institution as part of
+// the Course Selection step, with the value pre-filled from the lead
+// that the admin-side conversion created. See feedback for context.
 
 export const STUDENT_WRITABLE_COLUMNS = {
   basic: [
@@ -20,7 +26,28 @@ export const STUDENT_WRITABLE_COLUMNS = {
     'last_school', 'board_of_study',
     'neet_roll_number', 'neet_score',
     'counseling_applied', 'counseling_number',
-    'scholarship_type', 'quota', 'entry_type',
+    'scholarship_type',
+    // Cutoff scores are derived from twelfth_marks.subjects.{physics,
+    // chemistry, mathematics, biology, botany, zoology} on the client.
+    // Storing them lets the enquiry form / B2A consumers read the same
+    // value without recomputing. Students can't fudge these because the
+    // formula is fixed and the inputs (subject marks) are visible.
+    'engineering_cutoff_marks', 'medical_cutoff_marks',
+  ],
+  course: [
+    // Course Selection step — added 2026-05-19. Cascade is Institution ->
+    // Degree -> Program (Department auto-fills from Program). Semester is
+    // auto-picked when Entry Type changes (FIRST YEAR / LATERAL ENTRY).
+    'institution_id', 'degree_id', 'department_id', 'program_id', 'semester_id',
+    'quota', 'entry_type',
+  ],
+  accommodation: [
+    // Accommodation step — added 2026-05-19. The "How did you hear about us?"
+    // reference fields (reference_type, reference_name, reference_contact) are
+    // DELIBERATELY excluded per product spec: students fill the practical
+    // accommodation choice; the reference channel is admin-tracked metadata
+    // captured during lead intake, not by the student.
+    'accommodation_type', 'hostel_type', 'food_type',
   ],
   contact: [
     'student_mobile', 'student_email',
@@ -54,7 +81,7 @@ export function filterToWhitelist(
  * and a forbidden key slipping through. Never callable with the response.
  */
 export const FORBIDDEN_COLUMNS = [
-  'lifecycle_status', 'institution_id', 'is_profile_complete',
+  'lifecycle_status', 'is_profile_complete',
   'created_by', 'created_at', 'application_id', 'id',
 ] as const;
 

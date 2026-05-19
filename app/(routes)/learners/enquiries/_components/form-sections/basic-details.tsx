@@ -22,6 +22,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { ProfileImageUpload } from '../profile-image-upload';
+import { OccupationField } from '@/components/admission/occupation-field';
 
 interface BasicDetailsProps {
   form: UseFormReturn<any>;
@@ -350,10 +351,11 @@ export function BasicDetailsSection({ form, onImageFileChange, isStudentView = f
             name="father_occupation"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Father&apos;s Occupation</FormLabel>
-                <FormControl>
-                  <Input placeholder="Enter occupation" {...field} />
-                </FormControl>
+                <OccupationField
+                  label="Father's Occupation"
+                  value={field.value ?? ''}
+                  onChange={field.onChange}
+                />
                 <FormMessage />
               </FormItem>
             )}
@@ -398,10 +400,11 @@ export function BasicDetailsSection({ form, onImageFileChange, isStudentView = f
             name="mother_occupation"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Mother&apos;s Occupation</FormLabel>
-                <FormControl>
-                  <Input placeholder="Enter occupation" {...field} />
-                </FormControl>
+                <OccupationField
+                  label="Mother's Occupation"
+                  value={field.value ?? ''}
+                  onChange={field.onChange}
+                />
                 <FormMessage />
               </FormItem>
             )}
