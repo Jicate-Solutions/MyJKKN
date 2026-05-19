@@ -2,25 +2,46 @@ import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { logger } from '@/lib/utils/enhanced-logger';
 
 // ── Local types (table: hostel_laundry_orders) ─────────────────────────
+// Schema-of-truth (prod, verified 2026-05-19 via information_schema):
+//   hostel_laundry_orders columns: id, institution_id, learner_id, block_id,
+//     config_id, order_number, items (jsonb), total_items, total_returned,
+//     total_damaged, total_missing, status (enum laundry_order_status_enum),
+//     collected_at, ready_at, delivered_at, student_confirmed, dispute_reason,
+//     notes, created_at, updated_at
+// Type drift fixed: enum was ['pending','received','washing','drying','ready',
+//   'delivered','cancelled'] — actual prod enum is laundry_order_status_enum
+//   ['submitted','collected','washing','ready','delivered','disputed'].
+//   Renamed `garment_count` -> `total_items` (real column). Renamed
+//   `received_at` -> `collected_at`. Added missing real columns. Removed
+//   `service_type` (lives on hostel_laundry_config row referenced by config_id,
+//   not on the order). LaundryFilters.service_type kept for ergonomic filter
+//   API even though it doesn't map to a column on this table.
 export type LaundryStatus =
-  | 'pending'
-  | 'received'
+  | 'submitted'
+  | 'collected'
   | 'washing'
-  | 'drying'
   | 'ready'
   | 'delivered'
-  | 'cancelled';
+  | 'disputed';
 
 export interface HostelLaundryOrder {
   id: string;
   institution_id: string;
-  block_id?: string | null;
-  learner_id?: string | null;
-  status: LaundryStatus;
-  service_type?: string | null;
-  garment_count?: number | null;
-  received_at?: string | null;
+  learner_id: string;
+  block_id: string;
+  config_id?: string | null;
+  order_number: string;
+  items: unknown;
+  total_items: number;
+  total_returned?: number | null;
+  total_damaged?: number | null;
+  total_missing?: number | null;
+  status: LaundryStatus | string;
+  collected_at?: string | null;
+  ready_at?: string | null;
   delivered_at?: string | null;
+  student_confirmed?: boolean | null;
+  dispute_reason?: string | null;
   notes?: string | null;
   created_at: string;
   updated_at?: string;
@@ -31,6 +52,12 @@ export interface LaundryFilters {
   status?: LaundryStatus | string;
   block_id?: string;
   learner_id?: string;
+  /**
+   * service_type filter is preserved for legacy callers — it does NOT map to
+   * a column on hostel_laundry_orders (lives on hostel_laundry_config, joined
+   * via config_id). Callers filtering by service_type must use a join in
+   * future migrations of this method.
+   */
   service_type?: string;
   date_from?: string;
   date_to?: string;
