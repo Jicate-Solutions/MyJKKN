@@ -13,6 +13,7 @@ import { SourceBadge, OverdueBadge } from './source-badge';
 // because bare toLocaleDateString() inherits the runtime locale (en-US on Vercel).
 // Route through the canonical DD/MM/YYYY helper.
 import { formatDateDMY } from '@/lib/utils/date-format';
+import { useAdmissionStatuses } from '@/hooks/admission/use-admission-statuses';
 
 export const FUNNEL_STAGES = [
   { value: 'new', label: 'New' },
@@ -71,6 +72,22 @@ export function getStageColor(stage: string | null): string {
     dormant: 'bg-stone-100 text-stone-800'
   };
   return colors[stage || 'new'] || 'bg-gray-100 text-gray-800';
+}
+
+/**
+ * Dynamic version of FUNNEL_STAGES: reads from admission_statuses (scope='lead',
+ * active only). Falls back to the hardcoded FUNNEL_STAGES array while the query
+ * is loading or if it returns no rows, so callers never see an empty dropdown.
+ *
+ * Note: this is a hook — only callable from React components / other hooks
+ * (rules of hooks). Cell-level `cell:` callbacks in column defs cannot use
+ * hooks; those should keep using getStageColor + FUNNEL_STAGES directly until
+ * the renderer is migrated to a component.
+ */
+export function useLeadStageOptions(): typeof FUNNEL_STAGES {
+  const { data } = useAdmissionStatuses('lead', { activeOnly: true });
+  if (!data || data.length === 0) return FUNNEL_STAGES;
+  return data.map((s) => ({ value: s.code, label: s.label })) as typeof FUNNEL_STAGES;
 }
 
 function getStageLabel(stage: string | null): string {

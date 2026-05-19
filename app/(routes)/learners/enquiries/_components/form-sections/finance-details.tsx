@@ -29,6 +29,7 @@ import { UseFormReturn, useWatch } from 'react-hook-form';
 import { useEffect, useMemo, useState } from 'react';
 import { Trash2 } from 'lucide-react';
 import { LookupService } from '@/lib/services/admission/lookup-service';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import {
@@ -180,6 +181,124 @@ export function FinanceDetailsSection({
     admission_year_id: admissionYearIdValue,
   };
 
+  // ----- Org-side label resolution for NoMatchEmptyState -----
+  // The empty-state component shows the failed dim combination back to the
+  // user; without labels it falls back to raw UUIDs (e.g. "5de4fba1-... /
+  // b50b42af-..."). The 3 demographic dims already have lookup arrays loaded
+  // above (quotaLookup/communityLookup/accommodationLookup); resolve the
+  // remaining 5 org-side dims here from their source tables so the empty
+  // state reads as "JKKN College of Engineering and Technology / Undergraduate
+  // / Science and Humanities / B.E. CSE / ...".
+  const [orgLabels, setOrgLabels] = useState<{
+    institution_id?: string;
+    degree_id?: string;
+    department_id?: string;
+    programme_id?: string;
+    admission_year_id?: string;
+  }>({});
+
+  useEffect(() => {
+    let cancelled = false;
+    const supabase = createClientSupabaseClient();
+    (async () => {
+      const next: typeof orgLabels = {};
+      const tasks: Array<Promise<void>> = [];
+
+      if (institutionId) {
+        tasks.push(
+          (supabase as any)
+            .from('institutions')
+            .select('name')
+            .eq('id', institutionId)
+            .maybeSingle()
+            .then(({ data }: { data: { name?: string } | null }) => {
+              if (data?.name) next.institution_id = data.name;
+            }),
+        );
+      }
+      if (degreeId) {
+        tasks.push(
+          (supabase as any)
+            .from('degrees')
+            .select('degree_name')
+            .eq('id', degreeId)
+            .maybeSingle()
+            .then(({ data }: { data: { degree_name?: string } | null }) => {
+              if (data?.degree_name) next.degree_id = data.degree_name;
+            }),
+        );
+      }
+      if (departmentId) {
+        tasks.push(
+          (supabase as any)
+            .from('departments')
+            .select('department_name')
+            .eq('id', departmentId)
+            .maybeSingle()
+            .then(({ data }: { data: { department_name?: string } | null }) => {
+              if (data?.department_name) next.department_id = data.department_name;
+            }),
+        );
+      }
+      if (programIdValue) {
+        tasks.push(
+          (supabase as any)
+            .from('programs')
+            .select('program_name')
+            .eq('id', programIdValue)
+            .maybeSingle()
+            .then(({ data }: { data: { program_name?: string } | null }) => {
+              if (data?.program_name) next.programme_id = data.program_name;
+            }),
+        );
+      }
+      if (admissionYearIdValue) {
+        tasks.push(
+          (supabase as any)
+            .from('admission_years')
+            .select('admission_year_name')
+            .eq('id', admissionYearIdValue)
+            .maybeSingle()
+            .then(({ data }: { data: { admission_year_name?: string } | null }) => {
+              if (data?.admission_year_name) next.admission_year_id = data.admission_year_name;
+            }),
+        );
+      }
+
+      await Promise.all(tasks);
+      if (!cancelled) setOrgLabels(next);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [institutionId, degreeId, departmentId, programIdValue, admissionYearIdValue]);
+
+  // Combine org-side labels with the 3 demographic-dim lookup arrays we
+  // already loaded above. Any unresolved label stays undefined; the empty
+  // state falls back to the raw UUID for that dim — which is also a useful
+  // diagnostic (a UUID in the message means that specific dim references a
+  // row that no longer exists or was never created, e.g. an orphan quota_id).
+  const dimLabels = useMemo(() => {
+    return {
+      institution_id: orgLabels.institution_id,
+      degree_id: orgLabels.degree_id,
+      department_id: orgLabels.department_id,
+      programme_id: orgLabels.programme_id,
+      quota_id: quotaLookup.find((q) => q.id === resolvedQuotaId)?.name,
+      community_category_id: communityLookup.find((c) => c.id === resolvedCommunityId)?.name,
+      accommodation_type_id: accommodationLookup.find((a) => a.id === resolvedAccommodationId)?.name,
+      admission_year_id: orgLabels.admission_year_id,
+    };
+  }, [
+    orgLabels,
+    quotaLookup,
+    communityLookup,
+    accommodationLookup,
+    resolvedQuotaId,
+    resolvedCommunityId,
+    resolvedAccommodationId,
+  ]);
+
   // ----- Component state -----
   const [matchedStructure, setMatchedStructure] =
     useState<AdmissionFeeStructureWithItems | null>(null);
@@ -241,7 +360,7 @@ export function FinanceDetailsSection({
           onMatchChange={(m) => setMatchedStructure(m)}
         />
         {!matchedStructure && isFullDims(dims) && !legacyFeeMode && (
-          <NoMatchEmptyState dims={dims} />
+          <NoMatchEmptyState dims={dims} dimLabels={dimLabels} />
         )}
       </section>
 

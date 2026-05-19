@@ -1,4 +1,5 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { getErrorMessage } from '@/lib/utils';
 import { trackUsage } from '@/lib/utils/track-usage';
 import { logActivityClient, LearnerActivityTemplates } from '@/lib/utils/activity-logger-client';
 import type {
@@ -976,6 +977,41 @@ export class LearnerProfileService {
       throw new Error(
         `Cannot transition to ${transition.new_status}. Missing required fields: ${missingFields.join(', ')}`
       );
+    }
+
+    // NEW (Task D3): if target is a threshold-gated status (e.g. 'active' with a
+    // fee_paid_threshold_percent), delegate to the SECURITY DEFINER RPC instead
+    // of doing a direct UPDATE. This prevents the bulk-status-update dialog and
+    // any other call site from bypassing the payment threshold gate.
+    // Cast to `any` — generated Supabase types lag the new RPC
+    // `evaluate_learner_status_after_payment` (Task D1, 2026-05-17).
+    const supabase = createClientSupabaseClient() as any;
+    const { data: target, error: targetErr } = await supabase
+      .from('admission_statuses')
+      .select('fee_paid_threshold_percent')
+      .eq('scope', 'learner')
+      .eq('code', transition.new_status)
+      .eq('is_active', true)
+      .maybeSingle();
+    if (targetErr) throw new Error(getErrorMessage(targetErr));
+
+    if (target?.fee_paid_threshold_percent != null) {
+      const { data: rpcResult, error: rpcErr } = await supabase
+        .rpc('evaluate_learner_status_after_payment', { p_learner_id: id });
+      if (rpcErr) throw new Error(getErrorMessage(rpcErr));
+      const r = rpcResult as { updated: boolean; reason?: string; paid_pct?: number };
+      if (!r.updated) {
+        throw new Error(
+          `Cannot move to ${transition.new_status}: paid ${r.paid_pct ?? 0}% does not meet threshold (${target.fee_paid_threshold_percent}%).`
+        );
+      }
+      // RPC performed the UPDATE + audit row; fetch the fresh profile to match the
+      // (non-void) return contract of this method.
+      const updated = await this.getLearnerProfile(id);
+      if (!updated) {
+        throw new Error(`Learner profile ${id} not found after status update`);
+      }
+      return updated;
     }
 
     // Update status

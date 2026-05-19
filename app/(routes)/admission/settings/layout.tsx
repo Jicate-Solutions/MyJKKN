@@ -26,6 +26,7 @@ const settingsTabs: SectionTab[] = [
     label: 'Assignment Rules',
   },
   { href: '/admission/settings/sources', icon: Radio, label: 'Lead Sources' },
+  { href: '/admission/settings/statuses', icon: Workflow, label: 'Statuses' },
   { href: '/admission/settings/seat-config', icon: Armchair, label: 'Seat Config' },
   { href: '/admission/settings/templates', icon: FileText, label: 'Templates' },
   {

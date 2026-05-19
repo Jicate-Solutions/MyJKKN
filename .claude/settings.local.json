@@ -254,7 +254,12 @@
       "Bash(\"/c/Program Files/Git/cmd/git\" status)",
       "Bash(\"/c/Program Files/Git/cmd/git\" log --oneline -3)",
       "mcp__plugin_claude-mem_mcp-search__smart_unfold",
-      "mcp__plugin_claude-mem_mcp-search__get_observations"
+      "mcp__plugin_claude-mem_mcp-search__get_observations",
+      "Bash('/c/Program Files/Git/bin/git.exe' -C D:/Projects/MyJKKN rev-parse HEAD)",
+      "Bash(rm \"D:/Projects/MyJKKN/.git/COMMIT_MSG_D1.txt\")",
+      "Bash(rm .git/COMMIT_EDITMSG_TMP.txt)",
+      "Bash(\"/c/Program Files/Git/bin/git.exe\" log -1 --format=\"%H %s\")",
+      "Read(//tmp/**)"
     ],
     "deny": [],
     "ask": []
