@@ -115,10 +115,10 @@ export function PeriodActionButtons({
       return;
     }
     if (status === 'draft') {
-      onPrepare();
+      preparePeriod.mutate({ periodId: period.id });
       return;
     }
-    onAdvance();
+    advancePeriod.mutate({ periodId: period.id });
   };
 
   // Hide whole component when user has nothing actionable
