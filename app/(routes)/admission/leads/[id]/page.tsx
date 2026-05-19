@@ -1266,16 +1266,18 @@ function LeadDetailPageContent() {
                   />
                 </>
               ) : (
-                <Button
-                  variant="default"
-                  size="sm"
-                  onClick={handleConvertToLearner}
-                  disabled={isConverting}
-                  className="bg-purple-600 hover:bg-purple-700"
-                >
-                  <UserPlus className={`h-4 w-4 mr-2 ${isConverting ? 'animate-pulse' : ''}`} />
-                  {isConverting ? 'Converting...' : 'Convert to Admitted'}
-                </Button>
+                <PermissionGuard module="admission" action="leads.convert_to_admitted">
+                  <Button
+                    variant="default"
+                    size="sm"
+                    onClick={handleConvertToLearner}
+                    disabled={isConverting}
+                    className="bg-purple-600 hover:bg-purple-700"
+                  >
+                    <UserPlus className={`h-4 w-4 mr-2 ${isConverting ? 'animate-pulse' : ''}`} />
+                    {isConverting ? 'Converting...' : 'Convert to Admitted'}
+                  </Button>
+                </PermissionGuard>
               )}
 
               <DropdownMenu>

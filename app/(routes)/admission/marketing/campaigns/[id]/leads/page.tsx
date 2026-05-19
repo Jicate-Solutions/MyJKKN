@@ -78,7 +78,10 @@ function useAttributedLeads(campaignId: string, mode: AttributionMode) {
 
 export default function CampaignLeadsPage() {
   const { id } = useParams<{ id: string }>();
-  const [mode, setMode] = useState<AttributionMode>('first');
+  // 'any' default keeps this view consistent with the campaign detail page
+  // and the per-link capture_count — every lead a campaign has touched
+  // counts (including re-captures merged into existing leads).
+  const [mode, setMode] = useState<AttributionMode>('any');
   const { data: campaign } = useCampaign(id);
   const { data: leads, isLoading } = useAttributedLeads(id, mode);
 

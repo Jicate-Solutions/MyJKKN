@@ -26,9 +26,33 @@ import { cn } from '@/lib/utils';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 
 const MAX_DURATION_SEC = 30;
-const MIME_TYPE = 'audio/webm;codecs=opus';
 const STORAGE_BUCKET = 'call-memos';
 const AMPLITUDE_BARS = 24;
+
+// MediaRecorder MIME candidates, prioritized. Chrome / Firefox / Edge / Android
+// support WebM/Opus; iOS Safari only supports MP4/AAC. Whisper handles both
+// containers downstream, so we just pick the first the browser actually supports.
+const MIME_CANDIDATES: ReadonlyArray<{ mime: string; ext: string }> = [
+  { mime: 'audio/webm;codecs=opus', ext: 'webm' },
+  { mime: 'audio/webm', ext: 'webm' },
+  { mime: 'audio/mp4;codecs=mp4a.40.2', ext: 'mp4' }, // iOS Safari (AAC-LC)
+  { mime: 'audio/mp4', ext: 'mp4' },
+  { mime: 'audio/aac', ext: 'aac' },
+];
+
+function pickSupportedMime(): { mime: string; ext: string } | null {
+  if (typeof window === 'undefined' || !('MediaRecorder' in window)) return null;
+  for (const candidate of MIME_CANDIDATES) {
+    try {
+      if (MediaRecorder.isTypeSupported(candidate.mime)) return candidate;
+    } catch {
+      // some older browsers throw on isTypeSupported — skip
+    }
+  }
+  // Last resort: let the browser pick its default mime by passing no options.
+  // We still need a sensible extension for the upload path; default to webm.
+  return { mime: '', ext: 'webm' };
+}
 
 type RecorderState = 'idle' | 'recording' | 'recorded' | 'uploading' | 'uploaded' | 'error';
 
@@ -78,6 +102,9 @@ export const VoiceMemoRecorder = forwardRef<VoiceMemoRecorderHandle, VoiceMemoRe
     const audioUrlRef = useRef<string | null>(null);
     const startTimeRef = useRef<number>(0);
     const tickIntervalRef = useRef<NodeJS.Timeout | null>(null);
+    // The mime + extension chosen at start time (varies per browser — see pickSupportedMime).
+    const chosenMimeRef = useRef<string>('audio/webm');
+    const chosenExtRef = useRef<string>('webm');
 
     // ────────────────────────────────────────────────────────────────────
     // Cleanup helpers
@@ -194,13 +221,16 @@ export const VoiceMemoRecorder = forwardRef<VoiceMemoRecorderHandle, VoiceMemoRe
         onError?.(msg);
         return;
       }
-      if (!MediaRecorder.isTypeSupported(MIME_TYPE)) {
-        const msg = 'This browser does not support the required audio format (Opus). Try a recent Chrome or Edge.';
+      const picked = pickSupportedMime();
+      if (!picked) {
+        const msg = 'This browser does not support audio recording. Try a recent Chrome, Edge, or Safari.';
         setErrorMsg(msg);
         setState('error');
         onError?.(msg);
         return;
       }
+      chosenMimeRef.current = picked.mime || 'audio/webm';
+      chosenExtRef.current = picked.ext;
 
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -216,8 +246,10 @@ export const VoiceMemoRecorder = forwardRef<VoiceMemoRecorderHandle, VoiceMemoRe
         source.connect(analyser);
         analyserRef.current = analyser;
 
-        // MediaRecorder
-        const recorder = new MediaRecorder(stream, { mimeType: MIME_TYPE });
+        // MediaRecorder — empty mime means "browser default" (no options object)
+        const recorder = picked.mime
+          ? new MediaRecorder(stream, { mimeType: picked.mime })
+          : new MediaRecorder(stream);
         mediaRecorderRef.current = recorder;
 
         recorder.ondataavailable = (ev) => {
@@ -226,7 +258,10 @@ export const VoiceMemoRecorder = forwardRef<VoiceMemoRecorderHandle, VoiceMemoRe
         recorder.onstop = () => {
           stopAmplitudeLoop();
           stopTickLoop();
-          const blob = new Blob(chunksRef.current, { type: MIME_TYPE });
+          // Prefer the actual mime the recorder produced (rare cases where the
+          // browser silently substituted), then fall back to what we asked for.
+          const blobType = recorder.mimeType || chosenMimeRef.current;
+          const blob = new Blob(chunksRef.current, { type: blobType });
           blobRef.current = blob;
           const elapsed = Math.min(MAX_DURATION_SEC, Math.round((Date.now() - startTimeRef.current) / 1000));
           durationRef.current = elapsed;
@@ -345,11 +380,15 @@ export const VoiceMemoRecorder = forwardRef<VoiceMemoRecorderHandle, VoiceMemoRe
           setState('uploading');
           try {
             const supabase = createClientSupabaseClient();
-            const path = `${institutionId}/${callLogId}.webm`;
+            // Use the extension that matches the format the recorder actually
+            // produced — webm on Chrome/Firefox/Android, mp4 on iOS Safari.
+            const ext = chosenExtRef.current || 'webm';
+            const contentType = blob.type || chosenMimeRef.current || 'audio/webm';
+            const path = `${institutionId}/${callLogId}.${ext}`;
             const { error: uploadErr } = await supabase.storage
               .from(STORAGE_BUCKET)
               .upload(path, blob, {
-                contentType: MIME_TYPE,
+                contentType,
                 upsert: true,
               });
             if (uploadErr) throw uploadErr;

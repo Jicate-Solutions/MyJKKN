@@ -113,9 +113,13 @@ export class TimeSlotGeneratorService {
       });
 
       if (!isBreakTime) {
+        // Naive `${date}T${time}` is parsed as local; round-trip through
+        // toISOString so the slot is a true UTC instant. Without this,
+        // PostgREST stores the literal as UTC and re-reads come back 5:30h
+        // off in IST, breaking the overlap check in getAvailableSlots.
         slots.push({
-          start_time: `${date}T${slotStartTime}:00`,
-          end_time: `${date}T${slotEndTime}:00`,
+          start_time: new Date(`${date}T${slotStartTime}:00`).toISOString(),
+          end_time: new Date(`${date}T${slotEndTime}:00`).toISOString(),
           is_available: true,
           resource_id: resourceId
         });
@@ -137,8 +141,8 @@ export class TimeSlotGeneratorService {
     resourceId: string
   ): GeneratedTimeSlot[] {
     return customSlots.map((slot) => ({
-      start_time: `${date}T${slot.start_time}:00`,
-      end_time: `${date}T${slot.end_time}:00`,
+      start_time: new Date(`${date}T${slot.start_time}:00`).toISOString(),
+      end_time: new Date(`${date}T${slot.end_time}:00`).toISOString(),
       is_available: true,
       resource_id: resourceId,
       slot_name: slot.name,
@@ -156,9 +160,11 @@ export class TimeSlotGeneratorService {
     const slots: GeneratedTimeSlot[] = [];
 
     for (let hour = 9; hour < 17; hour++) {
+      const startLocal = `${date}T${hour.toString().padStart(2, '0')}:00:00`;
+      const endLocal = `${date}T${(hour + 1).toString().padStart(2, '0')}:00:00`;
       slots.push({
-        start_time: `${date}T${hour.toString().padStart(2, '0')}:00:00`,
-        end_time: `${date}T${(hour + 1).toString().padStart(2, '0')}:00:00`,
+        start_time: new Date(startLocal).toISOString(),
+        end_time: new Date(endLocal).toISOString(),
         is_available: true,
         resource_id: resourceId
       });

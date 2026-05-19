@@ -51,13 +51,18 @@ export function useMyReservations(userId: string | undefined) {
 }
 
 /**
- * Hook to fetch pending approvals (reservations pending approval)
+ * Hook to fetch pending approvals (reservations pending approval).
+ * Optional filters narrow the queue (e.g. institution_id for admins
+ * with multi-institution access).
  */
-export function usePendingApprovals() {
+export function usePendingApprovals(filters?: ReservationFilters) {
   return useQuery({
-    queryKey: ['pending-approvals'],
+    queryKey: ['pending-approvals', filters],
     queryFn: () =>
-      ReservationService.getReservations({ status: ReservationStatus.PENDING }),
+      ReservationService.getReservations({
+        ...filters,
+        status: ReservationStatus.PENDING
+      }),
     staleTime: 15 * 1000, // 15 seconds for approvals
     refetchInterval: 30 * 1000, // Refetch every 30s
     retry: 3

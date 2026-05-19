@@ -1,0 +1,35 @@
+/**
+ * New PDE Demonstration — server component shell.
+ *
+ * Renders the client-side <DemonstrationForm /> with no server-prefetched
+ * rubric data; the form fetches rubrics on category change via the same
+ * /api/pde/demonstrations/rubrics-for-category endpoint (T1.2). For Tier 1.1
+ * the form ships with the rubric dropdown hidden when the category has no
+ * seeded rubrics — a graceful degradation matching what's actually live.
+ *
+ * Route: /learn/pde/demonstrations/new
+ */
+
+import { ContentLayout } from '@/components/layout/content-layout';
+import { PageBreadcrumb } from '@/components/navigation/Breadcrumbs';
+import { DemonstrationForm } from './_components/DemonstrationForm';
+
+export const dynamic = 'force-dynamic';
+
+export default function NewDemonstrationPage() {
+  return (
+    <ContentLayout title="New Demonstration">
+      <PageBreadcrumb
+        items={[
+          { label: 'Home', href: '/' },
+          { label: 'Learn', href: '/learn/quests' },
+          { label: 'My Demonstrations', href: '/learn/pde/demonstrations' },
+          { label: 'New' },
+        ]}
+      />
+      <div className="mt-6 max-w-3xl">
+        <DemonstrationForm />
+      </div>
+    </ContentLayout>
+  );
+}

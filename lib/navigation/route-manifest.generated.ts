@@ -738,6 +738,19 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "iconName": "FileText",
             "children": [
               {
+                "path": "/admin/hr/payroll/periods",
+                "label": "Periods",
+                "iconName": "Clock",
+                "children": [
+                  {
+                    "path": "/admin/hr/payroll/periods/new",
+                    "label": "New",
+                    "iconName": "Plus",
+                    "children": []
+                  }
+                ]
+              },
+              {
                 "path": "/admin/hr/payroll/preview",
                 "label": "Payroll Preview (read-only)",
                 "iconName": "Receipt",
@@ -1250,6 +1263,18 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
+            "path": "/admin/pde/cohort",
+            "label": "PDE Cohort Comparison",
+            "iconName": "BarChart3",
+            "children": []
+          },
+          {
+            "path": "/admin/pde/demonstrations",
+            "label": "PDE Demonstrations",
+            "iconName": "Inbox",
+            "children": []
+          },
+          {
             "path": "/admin/pde/engagement",
             "label": "Engagement",
             "iconName": "FileText",
@@ -1320,6 +1345,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
                 "path": "/admin/pde/rubrics/cultural-civic",
                 "label": "PDE Rubrics — Cultural & Civic",
                 "iconName": "BookHeart",
+                "children": []
+              },
+              {
+                "path": "/admin/pde/rubrics/embodied",
+                "label": "PDE Embodied Practice Rubrics",
+                "iconName": "Activity",
                 "children": []
               },
               {
@@ -3787,6 +3818,32 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "label": "Leaderboard",
         "iconName": "Trophy",
         "children": []
+      },
+      {
+        "path": "/learn/pde",
+        "label": "Pde",
+        "iconName": "FileText",
+        "children": [
+          {
+            "path": "/learn/pde/cohort",
+            "label": "PDE Cohort Comparison",
+            "iconName": "Users",
+            "children": []
+          },
+          {
+            "path": "/learn/pde/demonstrations",
+            "label": "Demonstrations",
+            "iconName": "FileText",
+            "children": [
+              {
+                "path": "/learn/pde/demonstrations/new",
+                "label": "New",
+                "iconName": "Plus",
+                "children": []
+              }
+            ]
+          }
+        ]
       },
       {
         "path": "/learn/profile",

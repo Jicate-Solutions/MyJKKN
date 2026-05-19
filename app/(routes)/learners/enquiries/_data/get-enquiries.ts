@@ -101,8 +101,8 @@ async function getEnquiriesInner(
     degree_id,
     department_id,
     lifecycle_status,
-    sortBy = 'first_name',
-    sortOrder = 'asc'
+    sortBy = 'created_at',
+    sortOrder = 'desc'
   } = params;
 
   // Build query - filter for enquiry and pending statuses

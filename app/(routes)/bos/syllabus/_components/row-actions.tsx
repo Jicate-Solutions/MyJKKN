@@ -397,7 +397,6 @@ export function DataTableRowActions<TData extends BosCourseSyllabus>({
         syllabus={syllabus}
         institutionsId={syllabus.institutions_id || ''}
         sourceRegulationId={syllabus.regulation_id || ''}
-        regulations={[]}
         onOpenChange={setDuplicateDialogOpen}
         onSuccess={() => {
           setDuplicateDialogOpen(false);

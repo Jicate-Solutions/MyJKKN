@@ -1,7 +1,7 @@
 'use client';
 // app/(routes)/resource-management/reservations/approvals/page.tsx
 
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
@@ -19,6 +19,7 @@ import {
 import { DataTable } from '@/components/ui/data-table';
 import { ApprovalStatsCards } from './_components/approval-stats-cards';
 import { ApprovalActionsDialog } from './_components/approval-actions-dialog';
+import { ApprovalFilters } from './_components/approval-filters';
 import {
   usePendingApprovals,
   useApprovalStats
@@ -49,8 +50,21 @@ export default function ApprovalsPage() {
     useState<Reservation | null>(null);
   const [action, setAction] = useState<'approve' | 'reject' | null>(null);
 
-  // Fetch pending approvals and statistics
-  const { data: reservations = [], isLoading, refetch } = usePendingApprovals();
+  // Advanced filter state
+  const [searchQuery, setSearchQuery] = useState('');
+  const [priorityFilter, setPriorityFilter] = useState('all');
+  const [sortBy, setSortBy] = useState('created_at');
+  const [institutionFilter, setInstitutionFilter] = useState('all');
+
+  // Institution narrows the server-side fetch; the rest are client-side.
+  // RLS still scopes by institution for users without multi-institution
+  // access, so a same-institution approver gets only their queue
+  // regardless of what they pick here.
+  const { data: reservations = [], isLoading, refetch } = usePendingApprovals(
+    institutionFilter !== 'all'
+      ? { institution_id: institutionFilter }
+      : undefined
+  );
   const { data: stats, isLoading: loadingStats } = useApprovalStats();
 
   const approveReservation = useApproveReservation();
@@ -64,14 +78,65 @@ export default function ApprovalsPage() {
     overdue_approvals: stats?.overdue_approvals || 0
   };
 
+  const handleClearFilters = useCallback(() => {
+    setSearchQuery('');
+    setPriorityFilter('all');
+    setSortBy('created_at');
+    setInstitutionFilter('all');
+    setCurrentPage(1);
+  }, []);
+
+  // Apply search + priority filter + sort (client-side over the
+  // server-narrowed institution dataset).
+  const filteredData = useMemo(() => {
+    let rows = reservations;
+
+    if (priorityFilter !== 'all') {
+      const p = Number(priorityFilter);
+      rows = rows.filter((r) => Number(r.priority) === p);
+    }
+
+    if (searchQuery.trim()) {
+      const q = searchQuery.trim().toLowerCase();
+      rows = rows.filter((r) => {
+        return (
+          r.resource?.name?.toLowerCase().includes(q) ||
+          r.user?.full_name?.toLowerCase().includes(q) ||
+          r.user?.email?.toLowerCase().includes(q) ||
+          r.purpose?.toLowerCase().includes(q)
+        );
+      });
+    }
+
+    const sorted = [...rows].sort((a, b) => {
+      switch (sortBy) {
+        case 'start_time':
+          return new Date(a.start_time).getTime() - new Date(b.start_time).getTime();
+        case 'priority':
+          return Number(b.priority || 0) - Number(a.priority || 0);
+        case 'created_at':
+        default:
+          return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+      }
+    });
+
+    return sorted;
+  }, [reservations, priorityFilter, searchQuery, sortBy]);
+
   // Client-side pagination
   const paginatedData = useMemo(() => {
     const startIndex = (currentPage - 1) * pageSize;
     const endIndex = startIndex + pageSize;
-    return reservations.slice(startIndex, endIndex);
-  }, [reservations, currentPage, pageSize]);
+    return filteredData.slice(startIndex, endIndex);
+  }, [filteredData, currentPage, pageSize]);
 
-  const totalPages = Math.ceil(reservations.length / pageSize);
+  const totalPages = Math.ceil(filteredData.length / pageSize);
+
+  // Reset to page 1 whenever filters change so the user never lands
+  // on an empty page after narrowing the result set.
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, priorityFilter, sortBy, institutionFilter]);
 
   const handleApprove = (reservation: Reservation) => {
     setSelectedReservation(reservation);
@@ -276,7 +341,7 @@ export default function ApprovalsPage() {
     currentPage,
     totalPages,
     pageSize,
-    totalItems: reservations.length,
+    totalItems: filteredData.length,
     hasNextPage: currentPage < totalPages,
     hasPreviousPage: currentPage > 1,
     onPageChange: setCurrentPage,
@@ -323,16 +388,29 @@ export default function ApprovalsPage() {
         />
       </div>
 
+      {/* Advanced Filters */}
+      <Card className='mb-6'>
+        <CardContent className='p-6'>
+          <ApprovalFilters
+            searchQuery={searchQuery}
+            onSearchChange={setSearchQuery}
+            priorityFilter={priorityFilter}
+            onPriorityChange={setPriorityFilter}
+            sortBy={sortBy}
+            onSortChange={setSortBy}
+            institutionFilter={institutionFilter}
+            onInstitutionChange={setInstitutionFilter}
+            onClearFilters={handleClearFilters}
+          />
+        </CardContent>
+      </Card>
+
       {/* Approvals Table */}
       <Card>
         <CardContent className='p-6'>
           <DataTable
             columns={columns}
             data={paginatedData}
-            searchPlaceholder='Search by resource, user, or purpose...'
-            onSearch={(query) => {
-              // Client-side search handled by DataTable
-            }}
             getRowId={(row) => row.id}
             onRefresh={refetch}
             showRefresh={true}
