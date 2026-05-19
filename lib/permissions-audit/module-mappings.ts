@@ -155,6 +155,7 @@ export const ROUTE_PREFIX_TO_MODULE: ReadonlyArray<readonly [string, string]> = 
   ['/okr', 'Work Pulse'],
   ['/vac', 'VAC'],
   ['/bos', 'System'],
+  ['/cdc', 'System'],
   ['/hr', 'Staff'],
 
   // Single-segment dashboards — keep last to avoid swallowing nested paths.
