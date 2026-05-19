@@ -1125,6 +1125,27 @@ export interface HostelRiskAlert {
   updated_at: string | null;
 }
 
+// ─── Hostel Emergency Contacts ─────────────────────────────────────────
+// Mirrors `hostel_emergency_contacts` table.
+
+export interface HostelEmergencyContact {
+  id: string;
+  institution_id: string;
+  block_id: string | null;
+  learner_id: string | null;
+  contact_name: string;
+  relationship: string | null;
+  phone: string;
+  alt_phone: string | null;
+  email: string | null;
+  address: string | null;
+  is_primary: boolean | null;
+  // Free-form taxonomy: 'medical' | 'fire' | 'police' | 'warden' | 'anti_ragging' | 'family' | 'other'
+  contact_type: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 // ─── Hostel Access Log ─────────────────────────────────────────────────
 // Mirrors `hostel_access_log` table + supabase.ts enums.
 
