@@ -155,9 +155,8 @@ export const ROUTE_PREFIX_TO_MODULE: ReadonlyArray<readonly [string, string]> = 
   ['/okr', 'Work Pulse'],
   ['/vac', 'VAC'],
   ['/bos', 'System'],
-  ['/cdc', 'System'],
-  ['/hr', 'Staff'],
   ['/cdc', 'CDC'], // Career Development Centre — drives, placements, internships, idp, clubs, mentors, training, bulletin, exports, industry-mentors
+  ['/hr', 'Staff'],
 
   // Single-segment dashboards — keep last to avoid swallowing nested paths.
   ['/ai-query', 'System'],

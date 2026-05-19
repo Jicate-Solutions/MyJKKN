@@ -6,6 +6,16 @@
   "git": {
     "deploymentEnabled": false
   },
+  "functions": {
+    "app/api/bos/meetings/[id]/preview-pdf/route.ts": {
+      "memory": 1769,
+      "maxDuration": 60
+    },
+    "app/api/bos/meetings/[id]/notify-members/route.ts": {
+      "memory": 3008,
+      "maxDuration": 60
+    }
+  },
   "crons": [
     {
       "path": "/api/cron/notification-processor?secret=${CRON_SECRET}",

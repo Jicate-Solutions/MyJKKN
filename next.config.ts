@@ -45,6 +45,27 @@ const nextConfig: NextConfig = {
     'puppeteer-core',
   ],
 
+  // Force Vercel's file tracer to copy the Chromium binary into each PDF
+  // route's function output. `serverExternalPackages` above keeps the
+  // package OUT of webpack/turbopack bundling (good — avoids the 50 MB
+  // function-size cap), but tracing then has no static require() to follow
+  // because chromium.executablePath() resolves the binary at runtime via a
+  // computed path. Without this directive the .br/.tar.br files get dropped
+  // from the deployed function, chromium.executablePath() throws ENOENT,
+  // notify-members/route.ts's try/catch swallows the error, and emails ship
+  // with no PDF attachment (symptom seen on jkkn.ai 2026-05-19).
+  //
+  // Pattern verified against COE app's vercel-chromium-fix.md. The `*`
+  // matches the [id] dynamic segment in the App Router file paths.
+  outputFileTracingIncludes: {
+    '/api/bos/meetings/*/notify-members': [
+      './node_modules/@sparticuz/chromium/**/*',
+    ],
+    '/api/bos/meetings/*/preview-pdf': [
+      './node_modules/@sparticuz/chromium/**/*',
+    ],
+  },
+
   // TEMPORARY: Skip type checking during build (pre-existing type errors from
   // Next.js 16 migration — searchParams must be Promise<> in App Router).
   // Matches the relaxed strict:false in tsconfig.json.
