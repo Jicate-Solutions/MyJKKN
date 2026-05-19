@@ -156,6 +156,7 @@ export const ROUTE_PREFIX_TO_MODULE: ReadonlyArray<readonly [string, string]> = 
   ['/vac', 'VAC'],
   ['/bos', 'System'],
   ['/hr', 'Staff'],
+  ['/cdc', 'CDC'], // Career Development Centre — drives, placements, internships, idp, clubs, mentors, training, bulletin, exports, industry-mentors
 
   // Single-segment dashboards — keep last to avoid swallowing nested paths.
   ['/ai-query', 'System'],
@@ -192,6 +193,7 @@ export const MODULE_WITHOUT_CATEGORY = new Set<string>([
   'Chatbot', // chatbot tables exist; no permission catalog yet
   'Expo', // expo tables exist; no permission catalog yet
   'Marathon', // marathon tables exist; no permission catalog yet
+  'CDC', // CDC tables exist (cdc_*); no permission catalog yet — added 2026-05-19 unblocking deploy after Sprints 1-7 landed
 ]);
 
 // ── 4. Permission-key module display helpers ─────────────────────────────
