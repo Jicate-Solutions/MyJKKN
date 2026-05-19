@@ -38,7 +38,7 @@
 **Files:**
 - Create: `supabase/migrations/<YYYYMMDDHHMMSS>_fn_admission_source_coverage_daily.sql`
 
-**Context:** This RPC reads `admission_leads` and joins `admission_source_master` + `programs`. "Assigned" semantics match `get_lead_counts_by_source` (introduced 2026-05-10): `counselor_id IS NOT NULL`. IST date bucketing mirrors `fn_seat_analytics_daily_pivot`. SECURITY DEFINER with the permission gate inside, scoped via `role_has_institution_access`. Per memory `feedback_placeholder_migrations_hide_typos`, both apply via MCP and commit the real body to `supabase/migrations/`.
+**Context:** This RPC reads `admission_leads` and joins `admission_lead_sources_master` + `programs`. "Assigned" semantics match `get_lead_counts_by_source` (introduced 2026-05-10): `counselor_id IS NOT NULL`. IST date bucketing mirrors `fn_seat_analytics_daily_pivot`. SECURITY DEFINER with the permission gate inside, scoped via `role_has_institution_access`. Per memory `feedback_placeholder_migrations_hide_typos`, both apply via MCP and commit the real body to `supabase/migrations/`.
 
 - [ ] **Step 1: Generate the migration timestamp**
 
@@ -171,7 +171,7 @@ BEGIN
         initcap(replace(lw.source::text, '_', ' '))
       )                                  AS source_label
     FROM lead_window lw
-    LEFT JOIN admission_source_master sm
+    LEFT JOIN admission_lead_sources_master sm
       ON sm.enum_value = lw.source::text
   ),
   filtered AS (
