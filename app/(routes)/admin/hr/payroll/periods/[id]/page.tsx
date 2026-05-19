@@ -79,7 +79,7 @@ export default function PayrollPeriodDetailPage({
 function PayrollPeriodDetailContent({ id }: { id: string }) {
   const { data: period, isLoading, error } = usePayrollPeriod(id);
   const { data: approvals = [], isLoading: approvalsLoading } = usePayrollApprovals(id);
-  const { data: institutionsData } = useJkknInstitutions({ pageSize: 50 });
+  const { data: institutionsData } = useJkknInstitutions({ limit: 50 });
 
   // Realtime subscription — caches invalidate when other actors transition
   usePayrollPeriodRealtime(id);
