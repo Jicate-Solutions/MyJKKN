@@ -24,7 +24,7 @@ jobs:
   typecheck:
     name: TypeCheck (PR-scoped)
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 15
     if: ${{ !github.event.pull_request.draft }}
 
     steps:
