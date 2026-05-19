@@ -527,6 +527,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
+            "path": "/admin/cdc/dashboard",
+            "label": "Dashboard",
+            "iconName": "LayoutGrid",
+            "children": []
+          },
+          {
             "path": "/admin/cdc/drive-types",
             "label": "Drive Types",
             "iconName": "FileText",
@@ -1279,6 +1285,19 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "label": "PDE Cohort Comparison",
             "iconName": "BarChart3",
             "children": []
+          },
+          {
+            "path": "/admin/pde/compliance",
+            "label": "PDE Compliance",
+            "iconName": "ShieldCheck",
+            "children": [
+              {
+                "path": "/admin/pde/compliance/per-college",
+                "label": "PDE Per-College Compliance",
+                "iconName": "ShieldCheck",
+                "children": []
+              }
+            ]
           },
           {
             "path": "/admin/pde/demonstrations",
