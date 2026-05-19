@@ -85,7 +85,8 @@ export function PeriodActionButtons({
   period: HRPayrollPeriod;
 }) {
   const { profile } = useAuth();
-  const { preparePeriod, advancePeriod } = usePayrollPeriods();
+  const preparePeriod = usePreparePayrollPeriod();
+  const advancePeriod = useAdvancePayrollPeriod();
   const [rejectOpen, setRejectOpen] = useState(false);
   const [backdateOpen, setBackdateOpen] = useState(false);
   const [lockOpen, setLockOpen] = useState(false);
