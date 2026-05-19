@@ -104,3 +104,6 @@ public/swe-worker-*.js.map
 .claude/scheduled_tasks.lock
 
 .screenshots/
+
+# MSYS/Cygwin bash crash dumps on Windows
+*.stackdump

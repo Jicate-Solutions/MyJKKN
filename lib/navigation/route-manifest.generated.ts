@@ -1761,6 +1761,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
+            "path": "/admission/settings/statuses",
+            "label": "Statuses",
+            "iconName": "GraduationCap",
+            "children": []
+          },
+          {
             "path": "/admission/settings/templates",
             "label": "Templates",
             "iconName": "GraduationCap",
@@ -1815,6 +1821,19 @@ export const ROUTE_MANIFEST: RouteNode[] = [
                 "children": []
               }
             ]
+          }
+        ]
+      },
+      {
+        "path": "/admission/tools",
+        "label": "Tools",
+        "iconName": "GraduationCap",
+        "children": [
+          {
+            "path": "/admission/tools/re-evaluate-learner",
+            "label": "Re Evaluate Learner",
+            "iconName": "GraduationCap",
+            "children": []
           }
         ]
       }
