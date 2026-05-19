@@ -88,7 +88,7 @@ function PayrollPeriodsListContent() {
   }, [institutionFilter, statusFilter]);
 
   const { data, isLoading, error } = usePayrollPeriods(filters);
-  const { data: institutionsData } = useJkknInstitutions({ pageSize: 50 });
+  const { data: institutionsData } = useJkknInstitutions({ limit: 50 });
 
   const institutionLookup: Record<string, string> = useMemo(() => {
     const acc: Record<string, string> = {};
