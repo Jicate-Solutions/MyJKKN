@@ -2,9 +2,16 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse, connection } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
+import { PDEAgencyLiveService } from '@/lib/services/pde-agency-live-service';
+import { getAgencyIndexMode } from '@/lib/services/pde-policy-reader';
 
 // GET /api/pde/agency?learnerId=xxx&courseId=xxx
 // Also supports mode=trends for historical data
+// Honours `pde.visibility.agency_index_mode` policy (Tier-2 T2.8):
+//   - 'semester_end' (or 'trends') -> existing snapshot path (unchanged)
+//   - 'live' / 'live_coarse'       -> override `overall` with live recompute
+//                                      from pde_demonstrations + tag mode/source
+//                                      so the client knows to poll.
 export async function GET(request: NextRequest) {
   await connection();
   try {
@@ -57,13 +64,36 @@ export async function GET(request: NextRequest) {
 
     const latest = data?.[0] || null;
 
+    // T2.8 — honour pde.visibility.agency_index_mode. In live / live_coarse
+    // we recompute `overall` from pde_demonstrations and tag the payload so
+    // the client knows to poll. semester_end (and any unknown mode) keeps
+    // the snapshot path untouched.
+    const mode = await getAgencyIndexMode();
+
     // If no existing index, compute a basic one from engagement data
     if (!latest) {
       const agencyIndex = await computeBasicAgencyIndex(supabase, learnerId, courseId);
-      return NextResponse.json({ data: agencyIndex });
+      if (mode !== 'semester_end') {
+        const live = await PDEAgencyLiveService.recomputeForLearner(learnerId);
+        return NextResponse.json({
+          data: { ...agencyIndex, overall: live.agency_score },
+          mode,
+          source: live.source,
+        });
+      }
+      return NextResponse.json({ data: agencyIndex, mode, source: 'snapshot' });
     }
 
-    return NextResponse.json({ data: latest });
+    if (mode !== 'semester_end') {
+      const live = await PDEAgencyLiveService.recomputeForLearner(learnerId);
+      return NextResponse.json({
+        data: { ...latest, overall: live.agency_score },
+        mode,
+        source: live.source,
+      });
+    }
+
+    return NextResponse.json({ data: latest, mode, source: 'snapshot' });
   } catch (error: any) {
     console.error('Error fetching agency index:', error);
     return NextResponse.json(
