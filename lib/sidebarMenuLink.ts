@@ -91,6 +91,10 @@ import {
   Stethoscope,
   LayoutDashboard,
   UsersRound,
+  UserPlus,
+  HeadphonesIcon,
+  UserCog,
+  SearchCheck,
 } from 'lucide-react';
 import { CustomRole } from '@/types/auth';
 // FEATURE_FLAGS import removed - not used in sidebar filtering

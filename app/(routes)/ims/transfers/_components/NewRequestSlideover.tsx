@@ -1,15 +1,17 @@
 'use client';
 
 import { useState, useMemo } from 'react';
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
+import { useQuery } from '@tanstack/react-query';
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useCreateImsTransfer } from '@/hooks/ims/use-ims-transfers';
 import { useImsItems } from '@/hooks/ims/use-ims-inventory';
-import { useImsStores, useImsStoresByInstitution } from '@/hooks/ims/use-ims-stores';
+import { useImsStoresByInstitution } from '@/hooks/ims/use-ims-stores';
 import { usePermissions } from '@/hooks/use-permissions';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { toast } from 'sonner';
 import type { ImsIndentUrgency } from '@/types/ims';
 
@@ -43,23 +45,40 @@ export function NewRequestSlideover({
   const [lines, setLines] = useState<LineItem[]>([]);
   const [search, setSearch] = useState('');
 
-  // ── Step 1: Load all active stores → extract unique institutions ────────────
-  // Limit 200 to cover large deployments; institution_name is a snapshot column
-  // on ims_stores so no extra join is needed.
-  const { data: allStoresData } = useImsStores({ is_active: true, limit: 200 });
+  // ── Step 1: All institutions except the current one ─────────────────────────
+  // Queries the `institutions` table directly — RLS SELECT policy is now
+  // USING (true) so any authenticated user sees all institutions. Session guard
+  // prevents anon calls on cold mount (session race at page load).
+  const {
+    data: institutionsData,
+    isLoading: isLoadingInstitutions,
+    isError: isInstitutionsError,
+    refetch: refetchInstitutions,
+  } = useQuery({
+    queryKey: ['institutions-list', 'v2'],
+    queryFn: async () => {
+      const supabase = createClientSupabaseClient() as any;
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error('[NewRequestSlideover] Session not ready — will retry');
+      const { data, error } = await supabase
+        .from('institutions')
+        .select('id, name')
+        .eq('is_active', true)
+        .order('name', { ascending: true });
+      if (error) throw error;
+      return (data ?? []) as { id: string; name: string }[];
+    },
+    staleTime: 10 * 60 * 1000,
+    gcTime: 15 * 60 * 1000,
+    enabled: open,
+    retry: 3,
+    retryDelay: (attempt) => Math.min(500 * 2 ** attempt, 8000),
+  });
 
-  const otherInstitutions = useMemo(() => {
-    const stores = allStoresData?.data ?? [];
-    const seen = new Map<string, string>(); // institution_id → institution_name
-    for (const s of stores) {
-      if (s.institution_id && s.institution_id !== institutionId && s.institution_name) {
-        if (!seen.has(s.institution_id)) {
-          seen.set(s.institution_id, s.institution_name);
-        }
-      }
-    }
-    return Array.from(seen.entries()).map(([id, name]) => ({ id, name }));
-  }, [allStoresData, institutionId]);
+  const otherInstitutions = useMemo(
+    () => (institutionsData ?? []).filter((i) => i.id !== institutionId),
+    [institutionsData, institutionId]
+  );
 
   // ── Step 2: Stores at the chosen institution ─────────────────────────────────
   const { data: destStoresData } = useImsStoresByInstitution(destinationInstitutionId || null);
@@ -94,11 +113,13 @@ export function NewRequestSlideover({
     setSearch('');
   };
 
-  const addLine = (item: { id: string; name: string; indent_unit_id: string | null }) => {
+  const addLine = (item: { id: string; name: string; indent_unit_id: string | null; base_unit_id?: string | null }) => {
     if (lines.find((l) => l.item_id === item.id)) return;
+    // indent_unit_id is preferred; fall back to base_unit_id if not set
+    const unitId = item.indent_unit_id ?? item.base_unit_id ?? '';
     setLines((prev) => [
       ...prev,
-      { item_id: item.id, item_name: item.name, quantity: 1, unit_id: item.indent_unit_id ?? '' },
+      { item_id: item.id, item_name: item.name, quantity: 1, unit_id: unitId },
     ]);
   };
 
@@ -181,11 +202,11 @@ export function NewRequestSlideover({
       <SheetContent className="w-full sm:max-w-lg overflow-y-auto">
         <SheetHeader>
           <SheetTitle>New Transfer Request</SheetTitle>
-          <p className="text-sm text-muted-foreground">
+          <SheetDescription>
             {selectedStoreName
               ? `Requesting from: ${selectedStoreName} · ${selectedInstitutionName}`
               : 'Select a destination institution to get started.'}
-          </p>
+          </SheetDescription>
         </SheetHeader>
 
         <div className="mt-6 space-y-5">
@@ -201,7 +222,21 @@ export function NewRequestSlideover({
                 <SelectValue placeholder="Select institution..." />
               </SelectTrigger>
               <SelectContent>
-                {otherInstitutions.length === 0 ? (
+                {isLoadingInstitutions ? (
+                  <div className="px-3 py-2 text-sm text-muted-foreground">
+                    Loading institutions...
+                  </div>
+                ) : isInstitutionsError ? (
+                  <div className="px-3 py-2 text-sm text-destructive">
+                    Failed to load.{' '}
+                    <button
+                      className="underline"
+                      onClick={(e) => { e.preventDefault(); void refetchInstitutions(); }}
+                    >
+                      Retry
+                    </button>
+                  </div>
+                ) : otherInstitutions.length === 0 ? (
                   <div className="px-3 py-2 text-sm text-muted-foreground">
                     No other institutions found
                   </div>
@@ -282,16 +317,22 @@ export function NewRequestSlideover({
 
               {search && items.length > 0 && (
                 <div className="border rounded-lg max-h-40 overflow-y-auto divide-y">
-                  {items.map((item) => (
-                    <button
-                      key={item.id}
-                      onClick={() => addLine(item)}
-                      className="w-full text-left px-3 py-2 text-sm hover:bg-muted/50 flex justify-between"
-                    >
-                      <span>{item.name}</span>
-                      <span className="text-xs text-primary">+ Add</span>
-                    </button>
-                  ))}
+                  {items.map((item) => {
+                    const hasUnit = !!(item.indent_unit_id ?? item.base_unit_id);
+                    return (
+                      <button
+                        key={item.id}
+                        onClick={() => hasUnit && addLine(item)}
+                        disabled={!hasUnit}
+                        className="w-full text-left px-3 py-2 text-sm flex justify-between disabled:opacity-40 disabled:cursor-not-allowed hover:enabled:bg-muted/50"
+                      >
+                        <span>{item.name}</span>
+                        <span className={`text-xs ${hasUnit ? 'text-primary' : 'text-muted-foreground'}`}>
+                          {hasUnit ? '+ Add' : 'No unit'}
+                        </span>
+                      </button>
+                    );
+                  })}
                 </div>
               )}
 

@@ -8,7 +8,6 @@ import { ThemeProvider } from '@/providers/theme-provider';
 import { AuthProvider } from '@/hooks/use-auth-provider';
 import { ReactQueryProvider } from '@/providers/query-client-provider';
 import { SpeedInsights } from '@vercel/speed-insights/next';
-import Script from 'next/script';
 import { PreviewBanner } from '@/components/layout/preview-banner';
 
 const poppins = Poppins({
@@ -215,10 +214,6 @@ export default function RootLayout({
             </AuthProvider>
           </ThemeProvider>
         </ReactQueryProvider>
-        <Script
-          src='https://accounts.google.com/gsi/client'
-          strategy='lazyOnload'
-        />
       </body>
     </html>
   );
