@@ -217,6 +217,20 @@ function CapabilityTreeNode({
               L{node.capability.level}
             </Badge>
 
+            {/* Tier 2 Item 5: version tag when capability has been re-versioned.
+                Rendered for any version > 1; visibility policy.show_version_tag
+                gates whether legacy badges appear in detail views (see
+                PDECapabilityVersioningService.resolveDisplayFor). */}
+            {node.capability.version && node.capability.version > 1 && (
+              <Badge
+                variant="outline"
+                className="text-[10px] h-5 px-1.5 shrink-0 border-blue-300 text-blue-700 dark:text-blue-300 dark:border-blue-800"
+                title={`Version ${node.capability.version}`}
+              >
+                v{node.capability.version}
+              </Badge>
+            )}
+
             {/* Fink's dimension */}
             {node.capability.finks_dimension && (
               <Badge
