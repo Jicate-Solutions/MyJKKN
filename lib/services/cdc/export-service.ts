@@ -70,6 +70,19 @@ async function storeAuditCopy(
 // ------------------------------------------------------------------
 // NAAC 5.2.1 export
 // ------------------------------------------------------------------
+// The full NAAC 5.2.1 placement template (21 columns) is declared in the
+// platform_policies row `cdc.naac_export_column_mapping`. The RPC below
+// currently returns the subset of columns that are derivable from
+// cdc_placements + learners_profiles (~12 columns). Columns flagged
+// `source: 'manual'` in the policy (district, state, year_of_admission,
+// year_of_passing, cgpa, sector, package_currency, is_higher_studies,
+// higher_studies_institute, higher_studies_program) are not yet populated
+// by the RPC — the Director adds them manually before submission, or a
+// later sprint extends `fn_naac_5_2_1_export` + `cdc_naac_5_2_1_row` to
+// derive them. The policy is the source of intent; the RPC is the source
+// of output. If NAAC publishes a new template, update the JSONB at
+// /admin/cdc/policies — zero deploys.
+// ------------------------------------------------------------------
 export async function generateNaacExport(
   cycle: string,
   format: ExportFormat
@@ -104,6 +117,14 @@ export async function generateNaacExport(
 
 // ------------------------------------------------------------------
 // AICTE Annual export
+// ------------------------------------------------------------------
+// The full AICTE Annual Return 2025-26 placement template (15 columns)
+// is declared in the platform_policies row `cdc.aicte_export_column_mapping`.
+// The RPC below currently returns ~9 columns. Columns flagged
+// `source: 'manual'` in the policy (branch, year_of_admission,
+// year_of_passing, sector) are not yet populated by the RPC — Director
+// fills them before AICTE submission. If AICTE publishes a new template,
+// update the JSONB at /admin/cdc/policies — zero deploys.
 // ------------------------------------------------------------------
 export async function generateAicteExport(
   year: number,
