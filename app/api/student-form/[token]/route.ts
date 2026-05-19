@@ -62,7 +62,7 @@ export async function PATCH(
   } catch {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
   }
-  if (!['basic', 'academic', 'course', 'contact'].includes(body.section)) {
+  if (!['basic', 'academic', 'course', 'accommodation', 'contact'].includes(body.section)) {
     return NextResponse.json({ error: 'Invalid section' }, { status: 400 });
   }
 

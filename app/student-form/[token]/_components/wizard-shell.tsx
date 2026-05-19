@@ -7,11 +7,12 @@ import { LanguageToggle, type Language } from './language-toggle';
 import { StepBasicDetails } from './step-basic-details';
 import { StepAcademicInformation } from './step-academic-information';
 import { StepCourseSelection } from './step-course-selection';
+import { StepAccommodation } from './step-accommodation';
 import { StepContactDetails } from './step-contact-details';
 import { StepPreviewConfirm } from './step-preview-confirm';
 
-type Step = 1 | 2 | 3 | 4 | 5;
-type Section = 'basic' | 'academic' | 'course' | 'contact';
+type Step = 1 | 2 | 3 | 4 | 5 | 6;
+type Section = 'basic' | 'academic' | 'course' | 'accommodation' | 'contact';
 
 interface Props {
   token: string;
@@ -20,6 +21,7 @@ interface Props {
     basic_done?: boolean;
     academic_done?: boolean;
     course_done?: boolean;
+    accommodation_done?: boolean;
     contact_done?: boolean;
   };
   expiresAt: string;
@@ -28,11 +30,12 @@ interface Props {
 // Canonical step descriptors. Source of truth for stepper labels and the
 // section→step mapping used by the final-submit auto-jump.
 const STEPS: Array<{ id: Step; section: Section | null; name: string; tamil: string }> = [
-  { id: 1, section: 'basic',    name: 'Basic',    tamil: 'அடிப்படை' },
-  { id: 2, section: 'academic', name: 'Academic', tamil: 'கல்வி' },
-  { id: 3, section: 'course',   name: 'Course',   tamil: 'பாடம்' },
-  { id: 4, section: 'contact',  name: 'Contact',  tamil: 'தொடர்பு' },
-  { id: 5, section: null,       name: 'Review',   tamil: 'சரிபார்' },
+  { id: 1, section: 'basic',         name: 'Basic',     tamil: 'அடிப்படை' },
+  { id: 2, section: 'academic',      name: 'Academic',  tamil: 'கல்வி' },
+  { id: 3, section: 'course',        name: 'Course',    tamil: 'பாடம்' },
+  { id: 4, section: 'accommodation', name: 'Stay',      tamil: 'தங்குமிடம்' },
+  { id: 5, section: 'contact',       name: 'Contact',   tamil: 'தொடர்பு' },
+  { id: 6, section: null,            name: 'Review',    tamil: 'சரிபார்' },
 ];
 
 const looksFilled = (v: unknown) =>
@@ -54,6 +57,9 @@ const REQUIRED_BY_SECTION: Record<Section, Array<{ key: string; label: string }>
     { key: 'program_id',     label: 'Program' },
     { key: 'entry_type',     label: 'Entry Type' },
     { key: 'semester_id',    label: 'Semester' },
+  ],
+  accommodation: [
+    { key: 'accommodation_type', label: 'Accommodation Type' },
   ],
   contact: [
     { key: 'student_mobile', label: 'Mobile' },
@@ -83,8 +89,9 @@ export function WizardShell({ token, learner, sectionProgress, expiresAt }: Prop
     !sectionProgress.basic_done ? 1
     : !sectionProgress.academic_done ? 2
     : !sectionProgress.course_done ? 3
-    : !sectionProgress.contact_done ? 4
-    : 5
+    : !sectionProgress.accommodation_done ? 4
+    : !sectionProgress.contact_done ? 5
+    : 6
   );
   const [submitting, setSubmitting] = useState(false);
   const [secondsLeft, setSecondsLeft] = useState(0);
@@ -94,7 +101,8 @@ export function WizardShell({ token, learner, sectionProgress, expiresAt }: Prop
     if (sectionProgress.basic_done) done.add(1);
     if (sectionProgress.academic_done) done.add(2);
     if (sectionProgress.course_done) done.add(3);
-    if (sectionProgress.contact_done) done.add(4);
+    if (sectionProgress.accommodation_done) done.add(4);
+    if (sectionProgress.contact_done) done.add(5);
     return done;
   });
 
@@ -111,6 +119,19 @@ export function WizardShell({ token, learner, sectionProgress, expiresAt }: Prop
     }, 1000);
     return () => clearInterval(tick);
   }, [expiresAt, token]);
+
+  // Scroll to top whenever the active step changes. Covers Continue, Back,
+  // stepper-circle clicks, and Edit-from-preview navigation uniformly.
+  // Save Draft deliberately doesn't trigger this — step doesn't change on
+  // save, so the user stays in place.
+  //
+  // `behavior: 'smooth'` is auto-disabled by modern browsers when the user
+  // has prefers-reduced-motion set, so this is accessibility-safe.
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  }, [step]);
 
   async function saveSection(
     section: Section,
@@ -237,7 +258,7 @@ export function WizardShell({ token, learner, sectionProgress, expiresAt }: Prop
                   {idx < STEPS.length - 1 && (
                     <div
                       className={[
-                        'flex-1 h-0.5 min-w-[8px]',
+                        'flex-1 h-0.5 min-w-[6px]',
                         s.id < step ? 'bg-primary/40' : 'bg-border',
                       ].join(' ')}
                     />
@@ -251,7 +272,7 @@ export function WizardShell({ token, learner, sectionProgress, expiresAt }: Prop
         {/* Current step name + countdown row */}
         <div className="px-4 pb-2 max-w-3xl mx-auto flex items-center justify-between gap-3">
           <div className="text-sm">
-            <span className="font-semibold">Step {step} of 5</span>
+            <span className="font-semibold">Step {step} of 6</span>
             <span className="text-muted-foreground"> — {currentStepMeta.name} / {currentStepMeta.tamil}</span>
           </div>
           <div className="flex items-center gap-3 shrink-0">
@@ -301,16 +322,26 @@ export function WizardShell({ token, learner, sectionProgress, expiresAt }: Prop
           />
         )}
         {step === 4 && (
-          <StepContactDetails
+          <StepAccommodation
             lang={lang}
             data={data}
-            onContinue={(fields) => handleStepContinue('contact', fields)}
-            onSaveDraft={(fields) => handleStepSaveDraft('contact', fields)}
+            onContinue={(fields) => handleStepContinue('accommodation', fields)}
+            onSaveDraft={(fields) => handleStepSaveDraft('accommodation', fields)}
             onBack={() => setStep(3)}
             submitting={submitting}
           />
         )}
         {step === 5 && (
+          <StepContactDetails
+            lang={lang}
+            data={data}
+            onContinue={(fields) => handleStepContinue('contact', fields)}
+            onSaveDraft={(fields) => handleStepSaveDraft('contact', fields)}
+            onBack={() => setStep(4)}
+            submitting={submitting}
+          />
+        )}
+        {step === 6 && (
           <StepPreviewConfirm
             lang={lang}
             data={data}
@@ -319,7 +350,8 @@ export function WizardShell({ token, learner, sectionProgress, expiresAt }: Prop
             onEditBasic={() => setStep(1)}
             onEditAcademic={() => setStep(2)}
             onEditCourse={() => setStep(3)}
-            onEditContact={() => setStep(4)}
+            onEditAccommodation={() => setStep(4)}
+            onEditContact={() => setStep(5)}
             submitting={submitting}
           />
         )}

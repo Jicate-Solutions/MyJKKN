@@ -155,6 +155,49 @@ export class StudentFormService {
     const svc = createServiceRoleClient();
 
     const allowedFields = filterToWhitelist(section, fields);
+
+    // When the student writes the Course Selection step, picking a different
+    // institution/program may invalidate the existing admission_year_id.
+    // The DB trigger `validate_learner_admission_year_scope` will reject the
+    // UPDATE with `check_violation` if it detects a mismatch. Detect that
+    // case here and add `admission_year_id = null` to the payload so the
+    // trigger short-circuits at `IF NEW.admission_year_id IS NULL RETURN NEW`.
+    //
+    // Admin staff re-attach the correct admission_year via the enquiry form
+    // later — same recovery flow the convert route uses on initial conversion.
+    if (section === 'course') {
+      const newInst = (allowedFields.institution_id ?? null) as string | null;
+      const newProg = (allowedFields.program_id ?? null) as string | null;
+
+      const { data: current } = await (svc as any)
+        .from('learners_profiles')
+        .select('admission_year_id, institution_id, program_id')
+        .eq('id', ctx.learner_profile_id)
+        .maybeSingle();
+
+      if (current?.admission_year_id) {
+        // Compare against the CURRENT admission_year's scope, not the row's
+        // institution/program columns — those might already be stale.
+        const { data: ay } = await (svc as any)
+          .from('admission_years')
+          .select('institution_id, program_id')
+          .eq('id', current.admission_year_id)
+          .maybeSingle();
+
+        // Effective values after this UPDATE: incoming fields override
+        // existing row values.
+        const effInst = newInst ?? current.institution_id;
+        const effProg = newProg ?? current.program_id;
+
+        const instMismatch = ay && ay.institution_id !== effInst;
+        const progMismatch = ay && effProg && ay.program_id && ay.program_id !== effProg;
+
+        if (instMismatch || progMismatch) {
+          (allowedFields as Record<string, unknown>).admission_year_id = null;
+        }
+      }
+    }
+
     if (Object.keys(allowedFields).length > 0) {
       const { error } = await (svc as any)
         .from('learners_profiles')

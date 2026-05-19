@@ -41,6 +41,14 @@ export const STUDENT_WRITABLE_COLUMNS = {
     'institution_id', 'degree_id', 'department_id', 'program_id', 'semester_id',
     'quota', 'entry_type',
   ],
+  accommodation: [
+    // Accommodation step — added 2026-05-19. The "How did you hear about us?"
+    // reference fields (reference_type, reference_name, reference_contact) are
+    // DELIBERATELY excluded per product spec: students fill the practical
+    // accommodation choice; the reference channel is admin-tracked metadata
+    // captured during lead intake, not by the student.
+    'accommodation_type', 'hostel_type', 'food_type',
+  ],
   contact: [
     'student_mobile', 'student_email',
     'permanent_address_street', 'permanent_address_state',

@@ -471,44 +471,56 @@ export function StepCourseSelection({
           label="Semester / பருவம்"
           required
           helper={
-            lateralLocksSemester
-              ? programType === 'year'
-                ? 'Auto-set based on entry type. You can change it manually if needed.'
-                : 'Auto-set based on entry type. You can change it manually if needed.'
-              : programType
-                ? 'Pick the semester you are joining.'
-                : ''
+            !v.entry_type
+              ? 'Select Entry Type first.'
+              : lateralLocksSemester
+                ? v.entry_type === 'FIRST YEAR'
+                  ? 'Locked — First Year always starts at the initial semester. To change, switch Entry Type.'
+                  : 'Locked — Lateral Entry auto-picks the appropriate semester. To change, switch Entry Type.'
+                : programType
+                  ? 'Pick the semester you are joining.'
+                  : ''
           }
         >
-          <Select
-            value={v.semester_id}
-            onValueChange={(s) => set('semester_id', s)}
-            disabled={!v.program_id || loadingS}
-          >
-            <SelectTrigger className="h-12">
-              <SelectValue
-                placeholder={
-                  !v.program_id
-                    ? 'Pick program first / முதலில் பாடம் தேர்வு செய்க'
-                    : loadingS
-                      ? 'Loading…'
-                      : 'Select semester / பருவம் தேர்வு செய்க'
-                }
+          <div className="relative">
+            <Select
+              value={v.semester_id}
+              onValueChange={(s) => set('semester_id', s)}
+              disabled={!v.program_id || loadingS || lateralLocksSemester}
+            >
+              <SelectTrigger
+                className={`h-12 ${lateralLocksSemester ? 'pr-10 bg-muted/40' : ''}`}
+              >
+                <SelectValue
+                  placeholder={
+                    !v.program_id
+                      ? 'Pick program first / முதலில் பாடம் தேர்வு செய்க'
+                      : loadingS
+                        ? 'Loading…'
+                        : 'Select semester / பருவம் தேர்வு செய்க'
+                  }
+                />
+              </SelectTrigger>
+              <SelectContent>
+                {[...semesters]
+                  .sort(
+                    (a, b) =>
+                      (a.semester_order ?? 0) - (b.semester_order ?? 0),
+                  )
+                  .map((s) => (
+                    <SelectItem key={s.id} value={s.id}>
+                      {s.semester_name}
+                    </SelectItem>
+                  ))}
+              </SelectContent>
+            </Select>
+            {lateralLocksSemester && (
+              <Lock
+                className="absolute right-9 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none"
+                aria-hidden
               />
-            </SelectTrigger>
-            <SelectContent>
-              {[...semesters]
-                .sort(
-                  (a, b) =>
-                    (a.semester_order ?? 0) - (b.semester_order ?? 0),
-                )
-                .map((s) => (
-                  <SelectItem key={s.id} value={s.id}>
-                    {s.semester_name}
-                  </SelectItem>
-                ))}
-            </SelectContent>
-          </Select>
+            )}
+          </div>
         </Field>
       </Section>
 

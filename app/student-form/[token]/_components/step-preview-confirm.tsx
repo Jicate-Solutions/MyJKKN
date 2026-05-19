@@ -13,6 +13,7 @@ interface Props {
   onEditBasic: () => void;
   onEditAcademic: () => void;
   onEditCourse: () => void;
+  onEditAccommodation: () => void;
   onEditContact: () => void;
   submitting: boolean;
 }
@@ -70,6 +71,23 @@ const RELIGION_LABELS: Record<string, string> = {
   OTHERS: 'Others',
 };
 
+const ACCOMMODATION_LABELS: Record<string, string> = {
+  HOSTEL: 'Hostel',
+  'DAY SCHOLAR': 'Day Scholar',
+  HOME: 'Home',
+};
+
+const HOSTEL_TYPE_LABELS: Record<string, string> = {
+  'AC HOSTEL': 'AC Hostel',
+  'NON-AC HOSTEL': 'Non-AC Hostel',
+};
+
+const FOOD_TYPE_LABELS: Record<string, string> = {
+  VEG: 'Vegetarian',
+  'NON-VEG': 'Non-Vegetarian',
+  VEGAN: 'Vegan',
+};
+
 const looksFilled = (v: unknown) => v !== undefined && v !== null && String(v).trim().length > 0;
 
 export function StepPreviewConfirm({
@@ -79,6 +97,7 @@ export function StepPreviewConfirm({
   onEditBasic,
   onEditAcademic,
   onEditCourse,
+  onEditAccommodation,
   onEditContact,
   submitting,
 }: Props) {
@@ -315,6 +334,32 @@ export function StepPreviewConfirm({
             label="Semester / பருவம்"
             value={courseNames.semester ?? (coursesLoading && data.semester_id ? 'Loading…' : undefined)}
           />
+        </SubGroup>
+      </Section>
+
+      {/* Accommodation Preferences */}
+      <Section
+        title="Accommodation"
+        titleTamil="தங்குமிட விருப்பம்"
+        onEdit={onEditAccommodation}
+      >
+        <SubGroup title="Where the Student Will Stay">
+          <Row
+            label="Accommodation Type / தங்குமிட வகை"
+            value={ACCOMMODATION_LABELS[data.accommodation_type] ?? data.accommodation_type}
+          />
+          {data.accommodation_type === 'HOSTEL' && (
+            <>
+              <Row
+                label="Hostel Type / விடுதி வகை"
+                value={HOSTEL_TYPE_LABELS[data.hostel_type] ?? data.hostel_type}
+              />
+              <Row
+                label="Food Type / உணவு வகை"
+                value={FOOD_TYPE_LABELS[data.food_type] ?? data.food_type}
+              />
+            </>
+          )}
         </SubGroup>
       </Section>
 
