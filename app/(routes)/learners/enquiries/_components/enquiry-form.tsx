@@ -1414,6 +1414,31 @@ export function EnquiryForm({
         setSectionOverrideMode({ basic: false, academic: false, contact: false });
       }
 
+      // Auto-log this admission-officer save as a 'manual_edit' activity so
+      // the Activities tab timeline has a complete audit trail. Routes through
+      // the same /activities API endpoint that the notes-and-memo capture
+      // panel uses — server-side permission gating + service-role write.
+      // Best-effort: a 403 from a role without the .create permission, or a
+      // network error, never blocks the save.
+      if (result?.id) {
+        try {
+          await fetch(
+            `/api/admission/enquiries/${encodeURIComponent(result.id)}/activities`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                activity_type: 'manual_edit',
+                subject: 'Profile updated by admission officer',
+                note: 'Enquiry details were edited via the admission form.',
+              }),
+            },
+          );
+        } catch (err) {
+          console.error('[enquiry-form] manual_edit activity log failed:', err);
+        }
+      }
+
       if (onSuccess) {
         onSuccess(result);
       } else {

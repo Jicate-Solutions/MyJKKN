@@ -887,6 +887,8 @@ export const PERMISSION_CATEGORIES = [
       { key: 'admission.leads.bulk_status_update', label: 'Bulk Update Lead Status' },
       { key: 'admission.leads.export', label: 'Export Leads' },
       { key: 'admission.leads.convert_to_admitted', label: 'Convert Lead to Admitted (creates learner profile)' },
+      { key: 'admission.enquiries.activities.view', label: 'View Activities tab on Enquiry page' },
+      { key: 'admission.enquiries.activities.create', label: 'Add notes / voice memos to Enquiry activities' },
 
       // Application Management
       { key: 'admission.applications.view', label: 'View Applications' },

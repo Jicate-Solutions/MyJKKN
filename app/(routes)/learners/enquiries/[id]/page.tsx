@@ -14,8 +14,8 @@ import { PageBreadcrumb } from '@/components/navigation';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft } from 'lucide-react';
 import { getEnquiry } from '../_data/get-enquiry';
-import { EnquiryDetail } from '../_components/enquiry-detail';
 import { EnquiryDetailActions } from '../_components/enquiry-detail-actions';
+import { EnquiryDetailTabs } from './_components/enquiry-detail-tabs';
 
 interface EnquiryDetailPageProps {
   params: Promise<{ id: string }>;
@@ -127,9 +127,7 @@ export default async function EnquiryDetailPage({ params }: EnquiryDetailPagePro
           </div>
         </div>
 
-        <div className="flex flex-col lg:flex-row gap-8">
-          <EnquiryDetail enquiry={enquiry} />
-        </div>
+        <EnquiryDetailTabs enquiry={enquiry} />
       </div>
     </ContentLayout>
   );
