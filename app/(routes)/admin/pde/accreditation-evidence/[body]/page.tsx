@@ -5,10 +5,11 @@
 // Old URL 308-redirects to /admin/pde/accreditation-evidence/naac via
 // next.config.ts redirects().
 //
-// Currently only body=naac renders the full PDE evidence report — other
-// bodies (NIRF, NBA, QS, DCI, PCI, INC, AICTE, NCTE, UGC) show a
-// "not yet implemented" placeholder pointing at the per-body dashboard PRs
-// (A9-A15) where PDE-body mappings land.
+// PDE Tier 4 T4.5 (2026-05-19): wired to `pde_demonstrations` via
+// `PDEAccreditationEvidenceService`. ALL supported bodies now render the
+// 7-category PDE evidence packet (validated/scored demonstrations grouped
+// by category). NAAC additionally renders the legacy engagement / OBE /
+// Fink's / agency / innovation metrics it had pre-T4.5.
 // ============================================================================
 
 'use client';
@@ -27,14 +28,18 @@ import {
 } from '@/components/ui/table';
 import { useQuery } from '@tanstack/react-query';
 import {
-  Download, BarChart3, GraduationCap, Target, Activity, Lightbulb, TrendingUp, AlertCircle,
+  Download, BarChart3, GraduationCap, Activity, Lightbulb, TrendingUp, AlertCircle, FileCheck2,
 } from 'lucide-react';
 import type { AccreditationBodyCode } from '@/lib/services/solutions/types';
+import type { AccreditationEvidencePacket } from '@/lib/services/pde-accreditation-evidence-service';
 
 const SUPPORTED_BODIES: AccreditationBodyCode[] = [
   'NAAC','NIRF','NBA','QS','DCI','PCI','INC','AICTE','NCTE','UGC',
 ];
-const IMPLEMENTED_BODIES: AccreditationBodyCode[] = ['NAAC'];
+// T4.5 (2026-05-19): every supported body now renders the PDE demonstrations
+// evidence packet via `/api/pde/accreditation-evidence/[body]`. NAAC ALSO
+// renders the legacy engagement / OBE / Fink's / agency / innovation cards.
+const NAAC_RICH_LEGACY_BODIES: AccreditationBodyCode[] = ['NAAC'];
 
 // CSV Export
 function downloadCSV(data: Record<string, unknown>[], filename: string) {
@@ -166,6 +171,25 @@ function useNAACInnovation() {
   });
 }
 
+// T4.5 — PDE demonstrations packet (per-body aggregator over pde_demonstrations).
+function usePDEDemonstrationsEvidence(body: AccreditationBodyCode) {
+  return useQuery<AccreditationEvidencePacket>({
+    queryKey: ['pde', 'accreditation-evidence', body],
+    queryFn: async () => {
+      const res = await fetch(
+        `/api/pde/accreditation-evidence/${body.toLowerCase()}`,
+        { cache: 'no-store' }
+      );
+      if (!res.ok) {
+        const txt = await res.text().catch(() => '');
+        throw new Error(`evidence fetch failed: ${res.status} ${txt}`);
+      }
+      const json = await res.json();
+      return json.data as AccreditationEvidencePacket;
+    },
+  });
+}
+
 const FINKS_LABELS: Record<string, string> = {
   foundational_knowledge: 'Foundational Knowledge', application: 'Application', integration: 'Integration',
   human_dimension: 'Human Dimension', caring: 'Caring', learning_how_to_learn: 'Learning How to Learn',
@@ -183,6 +207,185 @@ function MetricCard({ label, value }: { label: string; value: string | number })
   );
 }
 
+// T4.5 — evidence section that surfaces pde_demonstrations grouped by the
+// 7 PDE categories. Renders for every supported body.
+function PDEDemonstrationsEvidenceSection({
+  body,
+}: {
+  body: AccreditationBodyCode;
+}) {
+  const evidence = usePDEDemonstrationsEvidence(body);
+
+  const downloadAllAsCSV = useCallback(() => {
+    if (!evidence.data) return;
+    const rows = evidence.data.by_category.map((b) => ({
+      category: b.category_label,
+      submitted: b.counts.submitted,
+      validated: b.counts.validated,
+      scored: b.counts.scored,
+      passed: b.counts.passed,
+      pass_rate_pct:
+        b.counts.scored > 0
+          ? Math.round((b.counts.passed / b.counts.scored) * 100)
+          : 0,
+    }));
+    downloadCSV(rows as any, `${body.toLowerCase()}-pde-evidence.csv`);
+  }, [evidence.data, body]);
+
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between pb-2">
+        <CardTitle className="flex items-center gap-2 text-base">
+          <FileCheck2 className="w-5 h-5 text-indigo-600" />
+          PDE Demonstrations Evidence
+        </CardTitle>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={downloadAllAsCSV}
+          disabled={!evidence.data}
+        >
+          <Download className="w-4 h-4 mr-1" /> CSV
+        </Button>
+      </CardHeader>
+      <CardContent>
+        {evidence.isLoading ? (
+          <Skeleton className="h-48 w-full" />
+        ) : evidence.isError ? (
+          <p className="text-sm text-red-600">
+            Failed to load PDE evidence: {String((evidence.error as any)?.message ?? 'unknown error')}
+          </p>
+        ) : evidence.data ? (
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              {evidence.data.total_demonstrations} demonstrations aggregated from{' '}
+              <code className="text-xs">pde_demonstrations</code>. Generated{' '}
+              {new Date(evidence.data.generated_at).toLocaleString()}.
+            </p>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Category</TableHead>
+                  <TableHead className="text-right">Submitted</TableHead>
+                  <TableHead className="text-right">Validated</TableHead>
+                  <TableHead className="text-right">Scored</TableHead>
+                  <TableHead className="text-right">Passed</TableHead>
+                  <TableHead className="text-right">Pass Rate</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {evidence.data.by_category.map((bucket) => {
+                  const passRate =
+                    bucket.counts.scored > 0
+                      ? Math.round(
+                          (bucket.counts.passed / bucket.counts.scored) * 100
+                        )
+                      : 0;
+                  return (
+                    <TableRow key={bucket.category_key}>
+                      <TableCell className="font-medium capitalize">
+                        {bucket.category_label}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {bucket.counts.submitted}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {bucket.counts.validated}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {bucket.counts.scored}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {bucket.counts.passed}
+                      </TableCell>
+                      <TableCell className="text-right font-semibold">
+                        <span
+                          className={
+                            passRate >= 60
+                              ? 'text-emerald-600'
+                              : passRate >= 30
+                              ? 'text-amber-600'
+                              : bucket.counts.scored > 0
+                              ? 'text-red-600'
+                              : 'text-muted-foreground'
+                          }
+                        >
+                          {bucket.counts.scored > 0 ? `${passRate}%` : '—'}
+                        </span>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+
+            {/* Sample evidence per category (only categories with rows) */}
+            {evidence.data.by_category.some((b) => b.sample_evidence.length > 0) && (
+              <div className="space-y-3 pt-2">
+                <h3 className="text-sm font-semibold">Sample Evidence (most recent)</h3>
+                {evidence.data.by_category
+                  .filter((b) => b.sample_evidence.length > 0)
+                  .map((bucket) => (
+                    <div key={bucket.category_key} className="border rounded-md p-3">
+                      <div className="flex items-center justify-between mb-2">
+                        <Badge variant="outline" className="capitalize text-xs">
+                          {bucket.category_label}
+                        </Badge>
+                        <span className="text-xs text-muted-foreground">
+                          {bucket.sample_evidence.length} of {bucket.counts.scored} scored
+                        </span>
+                      </div>
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Skill</TableHead>
+                            <TableHead>Type</TableHead>
+                            <TableHead className="text-right">Score</TableHead>
+                            <TableHead className="text-right">Passed</TableHead>
+                            <TableHead className="text-right">Scored At</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {bucket.sample_evidence.map((s) => (
+                            <TableRow key={s.id}>
+                              <TableCell className="font-medium">
+                                {s.skill_name ?? '—'}
+                              </TableCell>
+                              <TableCell className="text-xs text-muted-foreground">
+                                {s.evidence_type ?? '—'}
+                              </TableCell>
+                              <TableCell className="text-right">
+                                {s.weighted_score ?? '—'}
+                              </TableCell>
+                              <TableCell className="text-right">
+                                {s.passed === true
+                                  ? '✓'
+                                  : s.passed === false
+                                  ? '✗'
+                                  : '—'}
+                              </TableCell>
+                              <TableCell className="text-right text-xs text-muted-foreground">
+                                {s.scored_at
+                                  ? new Date(s.scored_at).toLocaleDateString()
+                                  : '—'}
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  ))}
+              </div>
+            )}
+          </div>
+        ) : (
+          <p className="text-sm text-gray-500 italic">No evidence yet.</p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function AccreditationEvidencePage({
   params,
 }: {
@@ -196,53 +399,67 @@ export default function AccreditationEvidencePage({
     notFound();
   }
 
-  // Known body but not yet implemented — render placeholder with a pointer
-  // to the relevant per-body dashboard PR.
-  if (!IMPLEMENTED_BODIES.includes(body)) {
-    return (
-      <ContentLayout title={`${body} Evidence Report (Placeholder)`}>
-        <PageBreadcrumb items={[
-          { label: 'Admin', href: '/admin' },
-          { label: 'PDE', href: '/admin/pde/assessments' },
-          { label: `${body} Evidence` },
-        ]} />
-        <div className="p-4 max-w-3xl">
+  // T4.5 (2026-05-19): every supported body renders the PDE demonstrations
+  // evidence section. NAAC additionally renders the legacy engagement / OBE /
+  // Fink's / agency / innovation cards that the page already had.
+  const renderLegacyNAAC = NAAC_RICH_LEGACY_BODIES.includes(body);
+
+  return (
+    <ContentLayout title={`${body} Evidence Report`}>
+      <PageBreadcrumb items={[
+        { label: 'Admin', href: '/admin' },
+        { label: 'PDE', href: '/admin/pde/assessments' },
+        { label: `${body} Evidence` },
+      ]} />
+      <div className="space-y-6 p-4">
+        <div>
+          <h1 className="text-2xl font-bold">{body} Evidence Report</h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            Auto-generated evidence from the Principal Development Engine.
+            {!renderLegacyNAAC && (
+              <>
+                {' '}
+                Body-specific criterion mapping lands in the{' '}
+                <Link
+                  className="underline"
+                  href={`/accreditation/${body.toLowerCase()}`}
+                >
+                  {body} dashboard
+                </Link>
+                .
+              </>
+            )}
+          </p>
+        </div>
+
+        {/* T4.5 — PDE demonstrations evidence (every body). */}
+        <PDEDemonstrationsEvidenceSection body={body} />
+
+        {/* Legacy NAAC-only content: engagement / OBE / Fink's / agency / innovation. */}
+        {renderLegacyNAAC && <NAACEvidenceContent />}
+
+        {!renderLegacyNAAC && (
           <Card className="border-dashed">
             <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-lg">
-                <AlertCircle className="w-5 h-5 text-amber-500" />
-                {body} PDE evidence — not yet implemented
+              <CardTitle className="flex items-center gap-2 text-sm">
+                <AlertCircle className="w-4 h-4 text-amber-500" />
+                Body-specific criterion mapping not yet wired
               </CardTitle>
             </CardHeader>
-            <CardContent className="space-y-3 text-sm text-muted-foreground">
+            <CardContent className="text-sm text-muted-foreground">
               <p>
-                The Principal Development Engine (PDE) data mapping to{' '}
-                <strong>{body}</strong> metrics lands with that body&apos;s
-                dashboard PR as part of the{' '}
-                <Link className="underline" href="/accreditation">
-                  Compliance Unification Program
-                </Link>
-                . Only NAAC evidence is currently rendered here.
+                The 7-category PDE evidence above is shared across every
+                accreditation body. The {body}-specific criterion grouping
+                (e.g. NBA criteria, NIRF parameters) lands in the per-body
+                dashboard PR. For now, use the evidence card above as the raw
+                attestation feed.
               </p>
-              <div className="flex flex-wrap gap-2 pt-2">
-                <Link href="/admin/pde/accreditation-evidence/naac">
-                  <Button size="sm" variant="outline">View NAAC evidence</Button>
-                </Link>
-                <Link href={`/accreditation/${body.toLowerCase()}`}>
-                  <Button size="sm" variant="outline">
-                    Open {body} dashboard
-                  </Button>
-                </Link>
-              </div>
             </CardContent>
           </Card>
-        </div>
-      </ContentLayout>
-    );
-  }
-
-  // body === 'NAAC' — render original content (below)
-  return <NAACEvidenceContent />;
+        )}
+      </div>
+    </ContentLayout>
+  );
 }
 
 function NAACEvidenceContent() {
@@ -252,16 +469,13 @@ function NAACEvidenceContent() {
   const agency = useNAACAgency();
   const innovation = useNAACInnovation();
 
+  // T4.5: this block is now rendered INSIDE the outer ContentLayout above
+  // (only when body === 'NAAC'). We no longer wrap with our own
+  // ContentLayout / breadcrumb / hero — those live in the routing component.
   return (
-    <ContentLayout title="NAAC Evidence Report">
-      <PageBreadcrumb items={[{ label: 'Admin', href: '/admin' }, { label: 'PDE', href: '/admin/pde/assessments' }, { label: 'NAAC Evidence' }]} />
+    <>
       {/* Original body — untouched from pre-PR-A4 */}
-      <div className="space-y-6 p-4">
-        <div>
-          <h1 className="text-2xl font-bold">NAAC Evidence Report</h1>
-          <p className="text-sm text-muted-foreground mt-1">Auto-generated evidence data from the Principal Development Engine</p>
-        </div>
-
+      <div className="space-y-6">
         {/* OBE */}
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
@@ -363,6 +577,6 @@ function NAACEvidenceContent() {
           </CardContent>
         </Card>
       </div>
-    </ContentLayout>
+    </>
   );
 }
