@@ -12,7 +12,9 @@ import {
   SelectItem,
 } from '@/components/ui/select';
 import { Loader2, Save } from 'lucide-react';
+import toast from 'react-hot-toast';
 import type { Language } from './language-toggle';
+import { OccupationField } from '@/components/admission/occupation-field';
 import {
   GENDER_OPTIONS,
   RELIGION_OPTIONS,
@@ -81,10 +83,12 @@ function Section({
 function Field({
   label,
   required,
+  helper,
   children,
 }: {
   label: string;
   required?: boolean;
+  helper?: string;
   children: React.ReactNode;
 }) {
   return (
@@ -94,8 +98,37 @@ function Field({
         {required && <Req />}
       </Label>
       {children}
+      {helper && <p className="text-xs text-muted-foreground">{helper}</p>}
     </div>
   );
+}
+
+// Minimum age (in years) required to fill out the student form. Anyone whose
+// birth date implies an age below this cutoff is blocked at the Date-of-Birth
+// step with a toast. Two layers enforce this: the <input type="date" max=...>
+// attribute caps the native mobile picker, and the explicit calcAge() check
+// catches typed-input bypass on desktop.
+const MIN_AGE_YEARS = 15;
+
+function getMaxBirthDate(minAge: number): string {
+  const today = new Date();
+  const cutoff = new Date(
+    today.getFullYear() - minAge,
+    today.getMonth(),
+    today.getDate(),
+  );
+  // YYYY-MM-DD for the <input type="date"> attribute
+  return cutoff.toISOString().split('T')[0];
+}
+
+function calcAge(dobStr: string): number {
+  const dob = new Date(dobStr);
+  if (isNaN(dob.getTime())) return -1;
+  const today = new Date();
+  let age = today.getFullYear() - dob.getFullYear();
+  const m = today.getMonth() - dob.getMonth();
+  if (m < 0 || (m === 0 && today.getDate() < dob.getDate())) age -= 1;
+  return age;
 }
 
 export function StepBasicDetails({
@@ -125,12 +158,36 @@ export function StepBasicDetails({
   const set = <K extends keyof typeof v>(k: K, val: typeof v[K]) =>
     setV((p) => ({ ...p, [k]: val }));
 
+  // Computed at render so the cutoff stays fresh across midnight if the
+  // tab is left open overnight. Cost is microseconds; correctness gain is real.
+  const maxBirthDate = getMaxBirthDate(MIN_AGE_YEARS);
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    // Age gate. If date_of_birth is filled, enforce the minimum age. Empty
+    // is permitted here — the wizard-shell's required-field validator owns
+    // the "must be filled" check; this step only enforces "if filled, must
+    // be valid". Keeps the responsibilities cleanly separated.
+    if (v.date_of_birth) {
+      const age = calcAge(v.date_of_birth);
+      if (age < 0) {
+        toast.error('Please enter a valid date of birth.');
+        return;
+      }
+      if (age < MIN_AGE_YEARS) {
+        toast.error(
+          `Student must be at least ${MIN_AGE_YEARS} years old. / குறைந்தபட்சம் ${MIN_AGE_YEARS} வயது இருக்க வேண்டும்.`,
+          { duration: 4500 },
+        );
+        return;
+      }
+    }
+    onContinue(v);
+  }
+
   return (
     <form
-      onSubmit={(e) => {
-        e.preventDefault();
-        onContinue(v);
-      }}
+      onSubmit={handleSubmit}
       className="space-y-6"
     >
       <header className="space-y-1">
@@ -162,11 +219,15 @@ export function StepBasicDetails({
           />
         </Field>
 
-        <Field label={lbl('dob')}>
+        <Field
+          label={lbl('dob')}
+          helper={`Must be at least ${MIN_AGE_YEARS} years old / குறைந்தபட்சம் ${MIN_AGE_YEARS} வயது`}
+        >
           <Input
             type="date"
             value={v.date_of_birth}
             onChange={(e) => set('date_of_birth', e.target.value)}
+            max={maxBirthDate}
             className="h-12"
           />
         </Field>
@@ -237,14 +298,11 @@ export function StepBasicDetails({
           />
         </Field>
 
-        <Field label={lbl('father_occupation')}>
-          <Input
-            value={v.father_occupation}
-            onChange={(e) => set('father_occupation', e.target.value)}
-            placeholder="e.g. Farmer, Teacher"
-            className="h-12"
-          />
-        </Field>
+        <OccupationField
+          label={lbl('father_occupation')}
+          value={v.father_occupation}
+          onChange={(val) => set('father_occupation', val)}
+        />
 
         <Field label={lbl('father_phone')}>
           <Input
@@ -265,14 +323,11 @@ export function StepBasicDetails({
           />
         </Field>
 
-        <Field label={lbl('mother_occupation')}>
-          <Input
-            value={v.mother_occupation}
-            onChange={(e) => set('mother_occupation', e.target.value)}
-            placeholder="e.g. Homemaker, Nurse"
-            className="h-12"
-          />
-        </Field>
+        <OccupationField
+          label={lbl('mother_occupation')}
+          value={v.mother_occupation}
+          onChange={(val) => set('mother_occupation', val)}
+        />
 
         <Field label={lbl('mother_phone')}>
           <Input

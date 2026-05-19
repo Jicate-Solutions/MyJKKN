@@ -289,3 +289,36 @@ export const SCHOLARSHIP_TYPE_OPTIONS = [
   { value: '7.5% SCHOLARSHIP', label: '7.5% Scholarship' },
   { value: 'NOT APPLICABLE', label: 'Not Applicable' }
 ] as const;
+
+// Parent occupation categories. Derived from analysis of 4,445 father + 4,325
+// mother values in learners_profiles (2026-05-19). Covers ~95-98% of existing
+// distinct values when fuzzy-matched via the migration. The OTHER option
+// triggers a conditional free-text input in the form so unique occupations are
+// still captureable. Used for BOTH father_occupation and mother_occupation —
+// homemaker fits both even though it's mostly mothers in practice.
+export const OCCUPATION_OPTIONS = [
+  { value: 'HOMEMAKER',           label: 'Homemaker',                                       tamil: 'இல்லத்தரசி' },
+  { value: 'DAILY_WAGE_WORKER',   label: 'Daily Wage Worker (Coolie / Labour)',             tamil: 'கூலி வேலை' },
+  { value: 'FARMER',              label: 'Farmer / Agriculture',                            tamil: 'விவசாயி' },
+  { value: 'DRIVER',              label: 'Driver / Conductor',                              tamil: 'ஓட்டுநர்' },
+  { value: 'BUSINESS',            label: 'Business / Self-Employed',                        tamil: 'சொந்த தொழில்' },
+  { value: 'WEAVER',              label: 'Weaver / Textile Worker',                         tamil: 'நெசவாளர்' },
+  { value: 'TAILOR',              label: 'Tailor',                                          tamil: 'தையற்காரர்' },
+  { value: 'SKILLED_TRADE',       label: 'Skilled Trade (Mason / Electrician / Carpenter)', tamil: 'கைவினைஞர்' },
+  { value: 'TEACHER',             label: 'Teacher / Professor',                             tamil: 'ஆசிரியர்' },
+  { value: 'HEALTHCARE',          label: 'Healthcare (Nurse / Pharmacist)',                 tamil: 'சுகாதார பணி' },
+  { value: 'GOVERNMENT_EMPLOYEE', label: 'Government Employee',                             tamil: 'அரசு பணியாளர்' },
+  { value: 'PRIVATE_EMPLOYEE',    label: 'Private Employee',                                tamil: 'தனியார் பணியாளர்' },
+  { value: 'ENGINEER',            label: 'Engineer / Professional',                         tamil: 'பொறியாளர்' },
+  { value: 'DECEASED',            label: 'Deceased / Late',                                 tamil: 'காலமானார்' },
+  { value: 'OTHER',               label: 'Other (specify)',                                 tamil: 'பிற' },
+] as const;
+
+export type OccupationCode = (typeof OCCUPATION_OPTIONS)[number]['value'];
+
+// Helper: given a saved value, return the option that matches by VALUE.
+// Returns undefined if no match — caller treats this as "needs OTHER + text".
+export function findOccupationOption(saved: string | null | undefined) {
+  if (!saved) return undefined;
+  return OCCUPATION_OPTIONS.find((o) => o.value === saved.trim());
+}
