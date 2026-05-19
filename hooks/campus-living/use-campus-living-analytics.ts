@@ -13,6 +13,7 @@ export const campusLivingAnalyticsKeys = {
   mess: (filters: Record<string, unknown>) => ['campus-living-analytics', 'mess', filters] as const,
   incidents: (filters: Record<string, unknown>) => ['campus-living-analytics', 'incidents', filters] as const,
   trends: (filters: Record<string, unknown>) => ['campus-living-analytics', 'trends', filters] as const,
+  crossDomain: (filters: Record<string, unknown>) => ['campus-living-analytics', 'cross-domain', filters] as const,
 };
 
 // --- Query hooks ---
@@ -67,6 +68,15 @@ export function useRiskAlerts(institutionId: string | undefined) {
   return useQuery({
     queryKey: campusLivingAnalyticsKeys.trends({ institutionId }),
     queryFn: () => CampusLivingAnalytics.generateRiskAlerts(isSuperAdmin ? undefined : institutionId),
+    enabled: isSuperAdmin || !!institutionId,
+  });
+}
+
+export function useCrossDomainAnalytics(institutionId: string | undefined) {
+  const { isSuperAdmin } = usePermissions();
+  return useQuery({
+    queryKey: campusLivingAnalyticsKeys.crossDomain({ institutionId }),
+    queryFn: () => CampusLivingAnalytics.getCrossDomainCorrelations(isSuperAdmin ? undefined : institutionId),
     enabled: isSuperAdmin || !!institutionId,
   });
 }
