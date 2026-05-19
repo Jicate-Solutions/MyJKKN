@@ -17,6 +17,18 @@ export interface InstitutionPdfHeader {
 	rightLogoImage: string
 	/** Officials block rendered below the institutional banner on BoS PDFs. */
 	officials?: InstitutionPdfOfficials
+	/**
+	 * Bottom-left round seal stamp on BoS call-letter PDFs. PNG path relative
+	 * to /public. Omit when the institution has no official seal asset.
+	 */
+	sealImage?: string
+	/**
+	 * Bottom-right principal signature block on BoS call-letter PDFs. PNG
+	 * should already contain the squiggle + "PRINCIPAL" + institution +
+	 * address lines so the renderer can place it as-is. Omit when not
+	 * available — the PDF falls back to "With Warm Regards," alone.
+	 */
+	signImage?: string
 }
 
 const DEFAULT_ADDRESS = 'Komarapalayam - 638 183, Namakkal District, Tamil Nadu'
@@ -41,12 +53,14 @@ const HEADERS: Array<{ match: RegExp; header: InstitutionPdfHeader }> = [
 				'(Accredited by NAAC, Approved by AICTE, Recognized by UGC Under Section 2(f) & 12(B), Affiliated to Periyar University)',
 			rightLogoImage: '/jkkncas_logo.png',
 			officials: {
-				secretary_name: 'Mrs.N.SENDAMARAAI',
+				secretary_name: 'SMT.N.SENDAMARAAI',
 				principal_name: 'Capt.Dr.M.NALINI, M.Sc.,M.Phil.,Ph.D., Principal',
 				contact_cell: '94878 33330, 99653 63999',
 				contact_web: 'www.jkkn.ac.in',
 				contact_email: 'arts@jkkn.org',
 			},
+			sealImage: '/logo/arts/jkkn_arts_round_seal.png',
+			signImage: '/logo/arts/jkkn_arts_principal_sign.png',
 		},
 	},
 ]

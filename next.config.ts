@@ -35,6 +35,14 @@ const nextConfig: NextConfig = {
     'samlify',
     'web-push',
     '@react-pdf/renderer',
+    // Chromium binary + puppeteer-core MUST be external on Vercel. Bundling
+    // them into the function trace breaks @sparticuz/chromium's runtime
+    // path resolution and inflates the function past the 50 MB limit. The
+    // result on production: chromium.executablePath() throws, the catch in
+    // notify-members/route.ts swallows it, and the email goes out without
+    // the PDF call letter. Keep externalised — never remove.
+    '@sparticuz/chromium',
+    'puppeteer-core',
   ],
 
   // TEMPORARY: Skip type checking during build (pre-existing type errors from

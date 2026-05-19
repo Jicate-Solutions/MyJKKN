@@ -137,6 +137,8 @@ function escapeHtml(s: string | null | undefined): string {
 export interface BosCallLetterRecipient {
   display_name: string;
   display_designation?: string | null;
+  /** Rendered as "Department of <value>" in the addressee block when present. */
+  display_department?: string | null;
   display_institution?: string | null;
   /** Optional postal address. Currently unused in render but kept for future. */
   address?: string | null;
@@ -155,6 +157,10 @@ export interface BosCallLetterData {
 interface LogoBundle {
   leftLogo: string | null;
   rightLogo: string | null;
+  /** Bottom-left circular seal — usually only set for Arts & Science. */
+  sealImage: string | null;
+  /** Bottom-right principal signature block (PNG with squiggle + title). */
+  signImage: string | null;
 }
 
 // =============================================================================
@@ -177,6 +183,14 @@ export function buildCallLetterHtml(
     : '';
   const rightLogoHtml = logos.rightLogo
     ? `<img src="${logos.rightLogo}" alt="" />`
+    : '';
+  // Bottom-of-letter assets — only render when the institution provided
+  // them. Engineering doesn't have a seal/sign yet, so its PDF stays clean.
+  const sealHtml = logos.sealImage
+    ? `<img src="${logos.sealImage}" alt="" />`
+    : '';
+  const signHtml = logos.signImage
+    ? `<img src="${logos.signImage}" alt="" />`
     : '';
 
   // ── Subject line ─────────────────────────────────────────────────────────
@@ -235,6 +249,12 @@ export function buildCallLetterHtml(
   if (recipient.display_designation) {
     addressLines.push(`${escapeHtml(recipient.display_designation)},`);
   }
+  if (recipient.display_department) {
+    // Render with the literal "Department of " prefix so the DB only needs
+    // to store the bare department name (e.g. "English"). Mirrors the COE
+    // appointment-letter format the user referenced.
+    addressLines.push(`Department of ${escapeHtml(recipient.display_department)},`);
+  }
   if (recipient.display_institution) {
     addressLines.push(`${escapeHtml(recipient.display_institution)},`);
   }
@@ -261,21 +281,26 @@ export function buildCallLetterHtml(
   .page { width: 210mm; padding: 8mm 12mm; }
 
   /* ── Header ─────────────────────────────────────────────── */
+  /* Logo + gap + title widths are tuned so the institution name wraps
+     after "ARTS & SCIENCE" rather than after the ampersand. See
+     calculation in the PR description: at 16pt bold Times Roman the
+     41-char first line needs ≈ 360pt of center-column width, which we
+     achieve by shrinking logos to 56pt and the gap to 8pt. */
   .header-row {
     display: flex;
     align-items: center;
-    gap: 14pt;
+    gap: 8pt;
     margin-bottom: 4pt;
   }
-  .header-logo { width: 72pt; height: 72pt; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
+  .header-logo { width: 56pt; height: 56pt; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
   .header-logo img { max-width: 100%; max-height: 100%; object-fit: contain; }
   .header-center { flex: 1; text-align: center; }
   .institution-name {
-    font-size: 18pt;
+    font-size: 16pt;
     font-weight: bold;
     color: #000;
-    line-height: 1.15;
-    letter-spacing: 0.2pt;
+    line-height: 1.2;
+    letter-spacing: 0;
   }
   .institution-suffix { font-size: 11pt; font-style: italic; }
   .accreditation { font-size: 9pt; margin-top: 2pt; line-height: 1.3; }
@@ -366,21 +391,57 @@ export function buildCallLetterHtml(
   /* ── Closing lines ──────────────────────────────────────── */
   .closing-line { margin-top: 8pt; text-align: justify; }
 
-  /* ── Signature ──────────────────────────────────────────── */
-  .signature {
-    margin-top: 28pt;
+  /* ── Utility: center-align text on any line ─────────────── */
+  /* Composed with .closing-line on "Thanking you." so it inherits
+     the same vertical rhythm as the other closing paragraphs but
+     overrides text-align: justify → center. */
+  .center { text-align: center; }
+
+  /* ── Signature row: seal (left) + signature image (right) ─
+     The seal is the round green stamp; the signature PNG carries the
+     squiggle + PRINCIPAL + college + address text baked-in, so we
+     don't repeat those as separate text lines. align-items:flex-end
+     keeps both elements baselined at the bottom regardless of their
+     individual heights. */
+  .signature-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    margin-top: 22pt;
+    gap: 16pt;
+  }
+  .signature-seal {
+    flex: 0 0 auto;
+    width: 110pt;
+  }
+  .signature-seal img {
+    max-width: 100%;
+    max-height: 110pt;
+    object-fit: contain;
+  }
+  .signature-sign {
+    flex: 0 0 auto;
     text-align: right;
-    padding-right: 18pt;
+    padding-right: 0;
     line-height: 1.4;
   }
-  .signature .regards { font-style: italic; }
-  .signature .principal-label {
-    margin-top: 36pt;
-    font-weight: bold;
-    letter-spacing: 0.5pt;
+  .signature-sign .regards {
+    font-style: italic;
+    margin-bottom: 2pt;
+    /* Override the parent's text-align: right so the salutation sits above
+       the signature PNG's visually-centered content (squiggle + PRINCIPAL +
+       college + address). Without this, the salutation parks at the column's
+       far-right edge while the signature content is centered — making the
+       two read as detached. */
+    text-align: center;
   }
-  .signature .college-line { font-size: 10pt; }
-  .signature .address-line-sig { font-size: 10pt; font-weight: bold; }
+  .signature-sign img {
+    display: block;
+    margin-left: auto;
+    max-width: 220pt;
+    max-height: 90pt;
+    object-fit: contain;
+  }
 </style>
 </head>
 <body>
@@ -461,10 +522,15 @@ export function buildCallLetterHtml(
   <!-- ── Closing ───────────────────────────────────────────── -->
   <p class="closing-line">Kindly accept our invitation and offer your valuable suggestions.</p>
   <p class="closing-line">TA &amp; DA will be paid as per norms.</p>
+  <p class="closing-line center">Thanking you.</p>
 
-  <!-- ── Signature ─────────────────────────────────────────── -->
-  <div class="signature">
-    <div class="regards">With Warm Regards,</div>
+  <!-- ── Signature row (seal left, signature right) ────────── -->
+  <div class="signature-row">
+    <div class="signature-seal">${sealHtml}</div>
+    <div class="signature-sign">
+      <div class="regards">With Regards,                </div>
+      ${signHtml}
+    </div>
   </div>
 
 </div>
@@ -542,7 +608,12 @@ async function renderCallLetterInBrowser(
 ): Promise<Buffer> {
   const leftLogo = urlToBase64('/logo.png');
   const rightLogo = urlToBase64(data.header.rightLogoImage ?? null);
-  const html = buildCallLetterHtml(data, { leftLogo, rightLogo });
+  // Seal + sign are institution-scoped (Arts/Science populates them; engineering
+  // doesn't). urlToBase64 returns null for missing/unreadable paths so the
+  // HTML builder can conditionally skip the elements.
+  const sealImage = urlToBase64(data.header.sealImage ?? null);
+  const signImage = urlToBase64(data.header.signImage ?? null);
+  const html = buildCallLetterHtml(data, { leftLogo, rightLogo, sealImage, signImage });
 
   const page = await browser.newPage();
   try {

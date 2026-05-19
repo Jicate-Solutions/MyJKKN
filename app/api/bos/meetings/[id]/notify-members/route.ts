@@ -19,6 +19,14 @@ import { openBosCallLetterRenderer } from '@/lib/pdf/bos-meeting-notice';
 import { getInstitutionHeader } from '@/lib/utils/internal-marks/institution-header';
 import { BOS_MEMBER_TYPE_LABELS } from '@/types/bos';
 
+// Vercel runtime config. Puppeteer + @sparticuz/chromium needs the Node
+// runtime (Edge can't launch a subprocess) and well over the default 10s
+// per-function budget — cold-start + N renders + N SMTP sends. 60s covers
+// realistic BoS member counts (≤ 20). Pro plan honours up to 300s.
+export const runtime = 'nodejs';
+export const maxDuration = 60;
+export const dynamic = 'force-dynamic';
+
 // ── Validation ────────────────────────────────────────────────────────────────
 // Mirrors the Zod-first pattern from SPEC-PE-EMAIL-CONFIG-001.
 
@@ -93,7 +101,7 @@ export async function POST(
     // different composition.
     const { data: members, error: membersErr } = await supabase
       .from('bos_members')
-      .select('id, display_name, email, member_type, display_designation, display_institution, address, contact_no')
+      .select('id, display_name, email, member_type, display_designation, display_department, display_institution, address, contact_no')
       .eq('composition_id', meeting.composition_id)
       .in('id', parsed.data.memberIds)
       .eq('is_active', true);
@@ -235,6 +243,19 @@ export async function POST(
     };
     const logRows: SendLogRow[] = [];
 
+    // Signoff block — resolved once from instHeader.officials and reused
+    // for every recipient (same signing identity per institution). Empty
+    // strings rather than nulls so the template renderer's "leave intact
+    // when missing" behaviour doesn't surface raw {{tokens}} in the email.
+    const officials = instHeader.officials;
+    const signoff = {
+      signoff_name: officials?.principal_name ?? '',
+      signoff_institution: instHeader.institution_name ?? '',
+      signoff_address: instHeader.institution_address ?? '',
+      signoff_email: officials?.contact_email ?? '',
+      signoff_contact: officials?.contact_cell ?? '',
+    };
+
     for (const m of withEmail) {
       const values: Record<string, string> = {
         member_name: m.display_name,
@@ -249,6 +270,7 @@ export async function POST(
         chairman_name: chairmanRow?.display_name ?? '',
         institution_name: instRow?.name ?? '',
         agenda_summary: meeting.agenda_text ?? '',
+        ...signoff,
       };
 
       let subject: string;
@@ -284,6 +306,7 @@ export async function POST(
             recipient: {
               display_name: m.display_name,
               display_designation: m.display_designation ?? null,
+              display_department: m.display_department ?? null,
               display_institution: m.display_institution ?? null,
               address: m.address ?? null,
               contact_no: m.contact_no ?? null,

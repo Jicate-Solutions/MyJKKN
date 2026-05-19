@@ -19,10 +19,11 @@ import {
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
-import { MoreHorizontal, Edit2, Copy, History, Trash2, FileDown, Loader2, FileSpreadsheet } from 'lucide-react';
+import { MoreHorizontal, Edit2, Copy, History, Trash2, FileDown, Loader2, FileSpreadsheet, FileText } from 'lucide-react';
 import { toast } from 'sonner';
 import { getInstitutionHeader } from '@/lib/utils/internal-marks/institution-header';
 import { generateCourseSyllabusPDF, extractPOKeys } from '@/lib/utils/bos/course-syllabus-pdf';
+import { generateCourseSyllabusDOCX } from '@/lib/utils/bos/course-syllabus-docx';
 import { exportSyllabusToXlsx } from './syllabus-actions';
 
 // ── PDF Download Button ───────────────────────────────────────────────────────
@@ -94,6 +95,12 @@ export function SyllabusPdfDownloadButton({
         // courses-master lookup failure is non-fatal; cell falls back to "Course".
       }
 
+      // Prefix course_name with course_type_code so the PDF reads as
+      // "Major-I-Programming in Python" (matches the course_mapping format).
+      const displayCourseName = coursePartLabel
+        ? `${coursePartLabel}-${syllabus.course_name}`
+        : syllabus.course_name;
+
       generateCourseSyllabusPDF({
         institution_name: header.institution_name,
         institution_address: header.institution_address,
@@ -101,7 +108,7 @@ export function SyllabusPdfDownloadButton({
         logoImage: '/logo.png',
         rightLogoImage: header.rightLogoImage,
         course_code: syllabus.course_code,
-        course_name: syllabus.course_name,
+        course_name: displayCourseName,
         course_part: coursePartLabel,
         total_hours: syllabus.total_hours ?? undefined,
         contact_hours: syllabus.contact_hours ?? undefined,
@@ -145,6 +152,134 @@ export function SyllabusPdfDownloadButton({
           </Button>
         </TooltipTrigger>
         <TooltipContent side='top'>Download Syllabus PDF</TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+}
+
+// ── Word (.docx) Download Button ──────────────────────────────────────────────
+
+export function SyllabusDocxDownloadButton({
+  syllabus,
+  institutionName,
+}: {
+  syllabus: BosCourseSyllabus;
+  institutionName?: string;
+}) {
+  const { canAccess, isSuperAdmin } = usePermissions();
+  const [loading, setLoading] = useState(false);
+
+  if (!isSuperAdmin && !canAccess('academic.bos-syllabus', 'view')) return null;
+
+  const handleClick = async () => {
+    setLoading(true);
+    const tid = toast.loading(`Generating Word file for ${syllabus.course_code}…`);
+    try {
+      let kValues: Record<string, string> | undefined;
+      let poKeys: string[] | undefined;
+      let psoKeys: string[] | undefined;
+
+      if (syllabus.regulation_id) {
+        try {
+          const taxRes = await fetch(`/api/bos/taxonomy/${syllabus.regulation_id}`);
+          if (taxRes.ok) {
+            const taxonomy = await taxRes.json();
+            kValues = taxonomy.k_values;
+            poKeys = extractPOKeys(taxonomy.pos);
+            psoKeys = taxonomy.psos ? extractPOKeys(taxonomy.psos) : [];
+          }
+        } catch {
+          // taxonomy fetch failure is non-fatal
+        }
+      }
+
+      const header = getInstitutionHeader(institutionName ?? null);
+      const objectivesContent = syllabus.course_objectives as BosCourseObjectivesContent | undefined;
+      const outcomesContent = syllabus.course_learning_outcomes as BosCourseLearnOutcomesContent | undefined;
+
+      let coursePartLabel: string | undefined;
+      try {
+        const params = new URLSearchParams({
+          institution_id: syllabus.institutions_id,
+          search: syllabus.course_code,
+          is_active: 'true',
+          limit: '50',
+        });
+        const cmRes = await fetch(`/api/bos/courses-master?${params}`);
+        if (cmRes.ok) {
+          const json = await cmRes.json();
+          const rows = Array.isArray(json) ? json : (json?.data ?? []);
+          const match = rows.find(
+            (c: { course_code?: string }) => c.course_code === syllabus.course_code,
+          );
+          if (match) {
+            const partOrType: string | null = match.course_type ?? match.course_part_master ?? null;
+            const level: string | null = match.course_level ?? null;
+            const composed = match.course_type_code
+              ?? (partOrType && level ? `${partOrType}-${level}` : (partOrType ?? null));
+            if (composed) coursePartLabel = composed;
+          }
+        }
+      } catch {
+        // courses-master lookup failure is non-fatal
+      }
+
+      // Mirror the PDF: prefix course_name with course_type_code.
+      const displayCourseName = coursePartLabel
+        ? `${coursePartLabel}-${syllabus.course_name}`
+        : syllabus.course_name;
+
+      await generateCourseSyllabusDOCX({
+        institution_name: header.institution_name,
+        institution_address: header.institution_address,
+        institution_accreditation: header.institution_accreditation,
+        logoImage: '/logo.png',
+        rightLogoImage: header.rightLogoImage,
+        course_code: syllabus.course_code,
+        course_name: displayCourseName,
+        course_part: coursePartLabel,
+        total_hours: syllabus.total_hours ?? undefined,
+        contact_hours: syllabus.contact_hours ?? undefined,
+        credits: syllabus.course_credits ?? undefined,
+        objectives: objectivesContent?.objectives ?? [],
+        clos: outcomesContent?.clos ?? [],
+        k_values: kValues,
+        units: syllabus.course_content?.units ?? [],
+        textbooks: syllabus.textbooks?.primary ?? [],
+        references: syllabus.textbooks?.references ?? [],
+        web_resources: syllabus.web_resources?.resources ?? [],
+        pedagogy_methods: syllabus.pedagogy?.methods ?? [],
+        po_mappings: syllabus.po_mappings?.mappings ?? [],
+        po_keys: poKeys,
+        pso_keys: psoKeys,
+      });
+
+      toast.success('Word file downloaded', { id: tid });
+    } catch (e) {
+      toast.error((e as Error).message, { id: tid });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant='ghost'
+            size='icon'
+            className='h-8 w-8 text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50'
+            onClick={handleClick}
+            disabled={loading}
+            aria-label={`Download syllabus Word file for ${syllabus.course_code}`}
+          >
+            {loading
+              ? <Loader2 className='h-4 w-4 animate-spin' />
+              : <FileText className='h-4 w-4' />}
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent side='top'>Download Syllabus Word</TooltipContent>
       </Tooltip>
     </TooltipProvider>
   );

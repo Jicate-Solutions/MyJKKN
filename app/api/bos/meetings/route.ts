@@ -161,14 +161,56 @@ export async function POST(request: NextRequest) {
     const denyComp = guardCompositionChairman(scope, body.composition_id);
     if (denyComp) return NextResponse.json({ error: denyComp }, { status: 403 });
 
-    // Auto-assign meeting_number: count existing meetings for this board + academic_year + 1
-    const { count: existingCount } = await supabase
-      .from('bos_meetings')
-      .select('id', { count: 'exact', head: true })
-      .eq('board_id', body.board_id)
-      .eq('academic_year', body.academic_year);
+    // Resolve meeting_number — per-composition sequence.
+    //
+    // 1. If the client supplied a number (chairman manually entered it because
+    //    earlier meetings were conducted outside the system), validate it's a
+    //    positive integer and ensure it's not already used in this composition.
+    // 2. Otherwise auto-assign as max(meeting_number)+1 for the composition.
+    //
+    // The DB also has UNIQUE(board_id, academic_year, meeting_number) as a
+    // safety net, but we surface a friendly 409 here before the insert fires.
+    const clientNumberRaw = (body as any).meeting_number;
+    let meetingNumber: number;
 
-    const meetingNumber = (existingCount ?? 0) + 1;
+    if (clientNumberRaw !== undefined && clientNumberRaw !== null && clientNumberRaw !== '') {
+      const parsed = Number(clientNumberRaw);
+      if (!Number.isInteger(parsed) || parsed < 1) {
+        return NextResponse.json(
+          { error: 'meeting_number must be a positive integer', field: 'meeting_number' },
+          { status: 400 }
+        );
+      }
+      meetingNumber = parsed;
+    } else {
+      const { data: existingRows, error: countErr } = await supabase
+        .from('bos_meetings')
+        .select('meeting_number')
+        .eq('composition_id', body.composition_id);
+      if (countErr) throw countErr;
+      const highest = (existingRows ?? [])
+        .map((r: any) => Number(r.meeting_number))
+        .filter((n) => Number.isFinite(n))
+        .reduce((max, n) => (n > max ? n : max), 0);
+      meetingNumber = highest + 1;
+    }
+
+    // Duplicate guard — composition + meeting_number must be unique.
+    const { data: dupRow } = await supabase
+      .from('bos_meetings')
+      .select('id')
+      .eq('composition_id', body.composition_id)
+      .eq('meeting_number', meetingNumber)
+      .maybeSingle();
+    if (dupRow) {
+      return NextResponse.json(
+        {
+          error: `Meeting ${meetingNumber} already exists for this composition.`,
+          field: 'meeting_number',
+        },
+        { status: 409 }
+      );
+    }
 
     // Normalize empty strings → null for optional date/time fields
     const insertData = {
@@ -194,7 +236,20 @@ export async function POST(request: NextRequest) {
       .select(`*, bos_compositions ( composition_title )`)
       .single();
 
-    if (error) throw error;
+    if (error) {
+      // Race-condition fallback: someone else booked the same number between
+      // our pre-check and the insert. The DB's UNIQUE constraint catches it.
+      if ((error as any).code === '23505') {
+        return NextResponse.json(
+          {
+            error: `Meeting ${meetingNumber} already exists for this composition.`,
+            field: 'meeting_number',
+          },
+          { status: 409 }
+        );
+      }
+      throw error;
+    }
 
     return NextResponse.json(data, { status: 201 });
   } catch (error) {

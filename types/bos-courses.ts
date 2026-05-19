@@ -133,6 +133,7 @@ export interface BosCourseMappingDetailed extends BosCourseMapping {
   course: Pick<
     BosCourseMaster,
     | 'course_code' | 'course_name' | 'course_category' | 'course_type'
+    | 'course_type_code'
     | 'course_part_master' | 'credit' | 'exam_duration'
     | 'theory_hours' | 'practical_hours'
     | 'internal_max_mark' | 'external_max_mark' | 'total_max_mark'

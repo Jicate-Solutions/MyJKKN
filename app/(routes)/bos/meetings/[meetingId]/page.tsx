@@ -41,6 +41,7 @@ import { MembersTab } from './_components/members-tab';
 
 import { useBosMeeting, useTransitionBosMeetingStatus } from '@/hooks/bos/use-bos-meetings';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useAuth } from '@/hooks/use-auth';
 import { MeetingStatusStepper } from '../_components/meeting-status-stepper';
 import {
   BosMeetingStatus,
@@ -71,7 +72,13 @@ const METADATA_TRANSITIONS = new Set<BosMeetingStatus>([
 ]);
 
 interface TransitionMetadata {
-  approver?: string;        // for principal_approved, minutes_approved
+  // staff.id of the selected principal/approver. Stored on bos_meetings as
+  // principal_approved_by (UUID FK to staff) for principal_approved and as
+  // minutes_approved_by for minutes_approved. The DB column is what later
+  // gates the "Mark Notice Sent" button: only the user whose auth profile
+  // matches staff.profile_id can advance the workflow further.
+  principal_approved_by?: string;
+  minutes_approved_by?: string;
   ratified_date?: string;   // for ratified
   minutes_summary?: string; // for minutes_drafted
 }
@@ -125,21 +132,19 @@ function TransitionDialog({
   // never silently miss data for CAS colleges.
   const instScope = useBosInstitutionScope(institutionsId);
 
-  // Fetch staff with employment_categories.category_name = 'Principal'.
-  // Per project memory, this is the canonical way to look up principals —
-  // do NOT use role_key=principal (different table, drifts out of sync).
-  // Filter by the CAS-expanded institution_ids list (not the single id)
-  // so a principal living on the SF sibling is still visible to Aided users.
+  // Fetch principals via the dedicated BoS lookup endpoint, NOT /api/staff.
+  // /api/staff applies the staff-module scope, which collapses to 'own_records'
+  // for faculty BoS members — they can only see their own staff row and would
+  // never find a principal. /api/bos/lookup/principals is the designated
+  // exception: BoS-auth gated, service-role staff read, matches on
+  //   role_key = 'principal' OR employment_categories.category_name ILIKE 'Principal%'
+  // and CAS-expands the meeting's institutions_id server-side.
   const { data: principalsData, isLoading: loadingPrincipals } = useQuery({
-    queryKey: ['staff', 'principals', instScope.csv],
+    queryKey: ['bos', 'principals', instScope.csv],
     queryFn: async () => {
-      const params = new URLSearchParams({
-        category_name: 'Principal',
-        isActive: 'true',
-        limit: '50',
-      });
-      if (instScope.csv) params.set('institution_ids', instScope.csv);
-      const res = await fetch(`/api/staff?${params}`);
+      const params = new URLSearchParams({ limit: '50' });
+      if (instScope.csv) params.set('institutionsIds', instScope.csv);
+      const res = await fetch(`/api/bos/lookup/principals?${params}`);
       if (!res.ok) throw new Error('Failed to load principals');
       return res.json() as Promise<{ data: PrincipalStaff[] }>;
     },
@@ -159,18 +164,19 @@ function TransitionDialog({
   }, [principalsData]);
 
   const handleConfirm = () => {
-    // Resolve the selected staff id back to the human-readable display
-    // string that gets stored in principal_approved_by / minutes_approved_by.
-    let approverDisplay = approver.trim();
-    if (approverDisplay && principalsData?.data) {
-      const staff = principalsData.data.find((s) => s.id === approverDisplay);
-      if (staff) {
-        const name = buildStaffDisplayName(staff);
-        approverDisplay = staff.designation ? `${name}, ${staff.designation}` : name;
-      }
-    }
+    // Send the raw staff.id (UUID) — the DB columns principal_approved_by /
+    // minutes_approved_by are typed UUID REFERENCES staff(id). The display
+    // name is derivable from the embedded staff join on the next read; we no
+    // longer denormalize it into the column. Earlier code was sending a
+    // formatted display string under the wrong metadata key (`approver`),
+    // which the API ignored — so principal_approved_by was silently NULL for
+    // every meeting up to this fix.
+    const staffId = approver.trim() || undefined;
     onConfirm({
-      approver: approverDisplay || undefined,
+      principal_approved_by:
+        nextStatus === 'principal_approved' ? staffId : undefined,
+      minutes_approved_by:
+        nextStatus === 'minutes_approved' ? staffId : undefined,
       ratified_date: ratifiedDate || undefined,
       minutes_summary: minutesSummary.trim() || undefined,
     });
@@ -186,7 +192,9 @@ function TransitionDialog({
         <div className='space-y-4 py-2'>
           {isApproval && (
             <div className='space-y-2'>
-              <Label>Approved by</Label>
+              <Label>
+                Approved by <span className='text-destructive'>*</span>
+              </Label>
               <SearchableSelect
                 value={approver}
                 onValueChange={setApprover}
@@ -245,7 +253,10 @@ function TransitionDialog({
 
         <DialogFooter>
           <Button variant='outline' onClick={onCancel} disabled={isPending}>Cancel</Button>
-          <Button onClick={handleConfirm} disabled={isPending}>
+          <Button
+            onClick={handleConfirm}
+            disabled={isPending || (isApproval && !approver.trim())}
+          >
             {isPending ? 'Updating...' : 'Confirm'}
           </Button>
         </DialogFooter>
@@ -279,6 +290,7 @@ export default function MeetingDetailPage({ params }: MeetingDetailPageProps) {
   const { meetingId } = use(params);
   const router = useRouter();
   const { canAccess, isSuperAdmin } = usePermissions();
+  const { profile } = useAuth();
   const { data: meeting, isLoading } = useBosMeeting(meetingId);
   const transitionStatus = useTransitionBosMeetingStatus();
   const [isTransitioning, setIsTransitioning] = useState(false);
@@ -342,6 +354,22 @@ export default function MeetingDetailPage({ params }: MeetingDetailPageProps) {
   const board = meeting.board as any;
   const composition = (meeting as any).bos_compositions as any;
 
+  // Gate the next-status button. For every transition except the
+  // post-principal-approval step the regular canEdit gate applies. The
+  // principal_approved → noticed step is special: only the staff member who
+  // was recorded as the approver during draft submission may advance it. If
+  // the column is NULL (legacy meeting from before the dialog-bug fix on
+  // 2026-05-19), the button is restricted to super admins so those records
+  // don't get permanently stuck.
+  const approverProfileId = meeting.principal_approved_by_staff?.profile_id ?? null;
+  const canAdvanceFromPrincipalApproved =
+    approverProfileId !== null
+      ? !!profile?.id && profile.id === approverProfileId
+      : isSuperAdmin;
+  const canTransitionNext = meeting.status === 'principal_approved'
+    ? canAdvanceFromPrincipalApproved
+    : canEdit;
+
   return (
     <div className='max-w-4xl space-y-6'>
       {/* ── Header ─────────────────────────────────────────────────────── */}
@@ -363,7 +391,7 @@ export default function MeetingDetailPage({ params }: MeetingDetailPageProps) {
               Edit
             </Button>
           )}
-          {canEdit && nextStatus && !isRatified && (
+          {canTransitionNext && nextStatus && !isRatified && (
             <Button
               size='sm'
               onClick={handleTransition}

@@ -6,8 +6,25 @@ import {
   compositionScopeFilter,
   applyInstitutionScope,
   guardInstitutionWrite,
+  resolveCoeInstitutionId,
 } from '@/lib/utils/bos/bos-access';
+import { CoeRestClient } from '@/lib/services/coe/coe-rest-client';
 import { BosCourseSyllabus, BosSyllabusListResponse, CreateBosSyllabusDto } from '@/types/bos';
+
+// Sort syllabi by course_mapping.course_order (asc, nulls last) with course_code
+// tiebreak. Mirrors the rule in app/(routes)/bos/course-scheme/_components/
+// scheme-page-client.tsx so the syllabus list matches the scheme PDF order.
+function sortByCourseOrder(
+  rows: BosCourseSyllabus[],
+  courseOrderByCode: Map<string, number>,
+): BosCourseSyllabus[] {
+  return [...rows].sort((a, b) => {
+    const ao = courseOrderByCode.get(a.course_code) ?? Number.MAX_SAFE_INTEGER;
+    const bo = courseOrderByCode.get(b.course_code) ?? Number.MAX_SAFE_INTEGER;
+    if (ao !== bo) return ao - bo;
+    return (a.course_code ?? '').localeCompare(b.course_code ?? '');
+  });
+}
 
 /**
  * GET /api/bos/syllabus
@@ -134,34 +151,118 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Sorting
-    query = query.order(sortBy, { ascending: sortOrder === 'asc' });
+    // Step 6: Sort + paginate.
+    //
+    // When regulationId is set, sort by course_mapping.course_order (asc, nulls
+    // last, course_code tiebreak) to match the scheme PDF order. course_order
+    // lives in COE's course_mapping table — a different database — so we fetch
+    // all matching rows (bounded by `limit`), enrich client-side, sort, then
+    // slice for pagination. If the COE enrichment fails (network, missing
+    // mapping, etc.), we fall back silently to the DB-side course_code sort
+    // and DB-side pagination so the page still renders.
+    let response: BosSyllabusListResponse;
 
-    // Pagination
-    const offset = (page - 1) * limit;
-    query = query.range(offset, offset + limit - 1);
+    if (regulationId) {
+      // Enrichment cap matches DB row cap on the path below — bounded fan-out.
+      const enrichmentCap = Math.max(limit, 500);
+      const { data: allData, count, error } = await query
+        .order('course_code', { ascending: true })
+        .range(0, enrichmentCap - 1);
 
-    // Step 6: Execute query
-    const { data, count, error } = await query;
+      if (error) {
+        console.error('[GET /api/bos/syllabus] Query error:', error);
+        return NextResponse.json({ error: 'Failed to fetch syllabi' }, { status: 500 });
+      }
 
-    if (error) {
-      console.error('[GET /api/bos/syllabus] Query error:', error);
-      return NextResponse.json(
-        { error: 'Failed to fetch syllabi' },
-        { status: 500 }
-      );
+      const allRows = (allData as BosCourseSyllabus[]) || [];
+
+      // Look up regulation_code (string) from regulation_id (uuid). Needed for
+      // the COE course-mapping API which keys by code, not id.
+      const { data: regRow } = await supabase
+        .from('regulations')
+        .select('regulation_code')
+        .eq('id', regulationId)
+        .maybeSingle();
+      const regulationCode = regRow?.regulation_code as string | undefined;
+
+      // Pick a COE institution id. Prefer the scoped one (single-institution
+      // request); otherwise fall back to the first row's institutions_id so
+      // super-admin "All institutions" still gets a usable mapping.
+      const sourceInstId = scopedInstitutionsId ?? allRows[0]?.institutions_id;
+
+      const courseOrderByCode = new Map<string, number>();
+      if (regulationCode && sourceInstId) {
+        try {
+          const coeInstId = await resolveCoeInstitutionId(sourceInstId);
+          if (coeInstId) {
+            const client = CoeRestClient.create();
+            const mappingRes = await client.get<{ data?: Array<{ course_code?: string; course_order?: number | null }> }>(
+              '/api/v1/course-mapping',
+              {
+                institutions_id: coeInstId,
+                regulation_code: regulationCode,
+                is_active: 'true',
+                details: 'false',
+                limit: '500',
+              },
+            );
+            const mappings = mappingRes?.data ?? [];
+            // Same course can be mapped under multiple programs with different
+            // course_orders — keep the min so the syllabus row settles at the
+            // earliest reasonable position.
+            for (const m of mappings) {
+              if (!m.course_code || m.course_order == null) continue;
+              const prev = courseOrderByCode.get(m.course_code);
+              if (prev === undefined || m.course_order < prev) {
+                courseOrderByCode.set(m.course_code, m.course_order);
+              }
+            }
+          }
+        } catch (e) {
+          // Enrichment is best-effort — log and fall through to course_code sort.
+          console.warn('[GET /api/bos/syllabus] course_order enrichment failed:', e);
+        }
+      }
+
+      const sorted = courseOrderByCode.size > 0
+        ? sortByCourseOrder(allRows, courseOrderByCode)
+        : allRows;
+
+      const total = count ?? sorted.length;
+      const offset = (page - 1) * limit;
+      const pageRows = sorted.slice(offset, offset + limit);
+
+      response = {
+        data: pageRows,
+        metadata: {
+          total,
+          page,
+          limit,
+          totalPages: Math.ceil(total / limit),
+        },
+      };
+    } else {
+      // No regulation filter — fall back to DB-side sort + range pagination.
+      query = query.order(sortBy, { ascending: sortOrder === 'asc' });
+      const offset = (page - 1) * limit;
+      query = query.range(offset, offset + limit - 1);
+
+      const { data, count, error } = await query;
+      if (error) {
+        console.error('[GET /api/bos/syllabus] Query error:', error);
+        return NextResponse.json({ error: 'Failed to fetch syllabi' }, { status: 500 });
+      }
+
+      response = {
+        data: (data as BosCourseSyllabus[]) || [],
+        metadata: {
+          total: count || 0,
+          page,
+          limit,
+          totalPages: Math.ceil((count || 0) / limit),
+        },
+      };
     }
-
-    // Step 7: Format response
-    const response: BosSyllabusListResponse = {
-      data: (data as BosCourseSyllabus[]) || [],
-      metadata: {
-        total: count || 0,
-        page,
-        limit,
-        totalPages: Math.ceil((count || 0) / limit),
-      },
-    };
 
     return NextResponse.json(response);
   } catch (error) {

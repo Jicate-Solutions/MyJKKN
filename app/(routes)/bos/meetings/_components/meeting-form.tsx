@@ -28,7 +28,6 @@ import {
 import { SearchableSelect } from '@/components/ui/searchable-select';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Badge } from '@/components/ui/badge';
 
 import { BosMeeting, BOS_MEETING_TYPE_LABELS, BosMember } from '@/types/bos';
 import { usePermissions } from '@/hooks/use-permissions';
@@ -59,6 +58,10 @@ const meetingFormSchema = z.object({
   institutions_id: z.string().min(1),
   board_id: z.string().min(1, 'Board is required'),
   composition_id: z.string().min(1, 'Composition is required'),
+  meeting_number: z
+    .number({ invalid_type_error: 'Meeting number is required' })
+    .int('Must be a whole number')
+    .positive('Must be greater than 0'),
   meeting_type: z.enum(['regular', 'special', 'emergency', 'online', 'hybrid']),
   academic_year: z.string().min(1, 'Academic year is required'),
   scheduled_date: z.string().min(1, 'Scheduled date is required'),
@@ -96,7 +99,11 @@ export function MeetingForm({ meeting, isSubmitting, onSubmit, onCancel }: Meeti
   const [loadingCompositions, setLoadingCompositions] = useState(false);
   const [compositionDetail, setCompositionDetail] = useState<CompositionDetail | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
-  const [nextMeetingNumber, setNextMeetingNumber] = useState<number | null>(null);
+  // `takenNumbers` carries every meeting_number already used in the selected
+  // composition. The form validates the chairman's input against this list
+  // (server enforces the same rule + a DB unique constraint as a race-safety net).
+  const [takenNumbers, setTakenNumbers] = useState<number[]>([]);
+  const [meetingNumberTouched, setMeetingNumberTouched] = useState(false);
 
   const form = useForm<MeetingFormValues>({
     resolver: zodResolver(meetingFormSchema),
@@ -105,6 +112,7 @@ export function MeetingForm({ meeting, isSubmitting, onSubmit, onCancel }: Meeti
           institutions_id: meeting.institutions_id,
           board_id: meeting.board_id,
           composition_id: meeting.composition_id,
+          meeting_number: meeting.meeting_number,
           meeting_type: meeting.meeting_type,
           academic_year: meeting.academic_year,
           scheduled_date: meeting.scheduled_date ?? '',
@@ -116,6 +124,7 @@ export function MeetingForm({ meeting, isSubmitting, onSubmit, onCancel }: Meeti
           institutions_id: '',
           board_id: '',
           composition_id: '',
+          meeting_number: undefined as unknown as number, // populated once composition is chosen
           meeting_type: 'regular',
           academic_year: '',
           scheduled_date: '',
@@ -127,8 +136,6 @@ export function MeetingForm({ meeting, isSubmitting, onSubmit, onCancel }: Meeti
 
   const compositionId = form.watch('composition_id');
   const institutionsId = form.watch('institutions_id');
-  const boardId = form.watch('board_id');
-  const academicYear = form.watch('academic_year');
 
   const { data: academicYearsData } = useAcademicYears(institutionsId || undefined);
   const academicYears = academicYearsData?.data ?? [];
@@ -220,13 +227,27 @@ export function MeetingForm({ meeting, isSubmitting, onSubmit, onCancel }: Meeti
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [compositionId]);
 
-  // Fetch next meeting number once board + academic_year are derived.
+  // Fetch the suggested next meeting number (and the list of taken numbers
+  // used for client-side duplicate validation) for the selected composition.
+  // - On create: prefill the field with the suggestion unless the chairman
+  //   has already typed an override.
+  // - On edit: never overwrite the persisted value, but still load taken
+  //   numbers so we can flag conflicts if they retype the field.
   useEffect(() => {
-    if (!boardId || !academicYear || meeting) return;
-    BosMeetingService.getNextMeetingNumber(boardId, academicYear)
-      .then(setNextMeetingNumber)
-      .catch(() => setNextMeetingNumber(null));
-  }, [boardId, academicYear, meeting]);
+    if (!compositionId) {
+      setTakenNumbers([]);
+      return;
+    }
+    BosMeetingService.getNextMeetingNumber(compositionId)
+      .then(({ nextNumber, takenNumbers: taken }) => {
+        setTakenNumbers(taken);
+        if (!meeting && !meetingNumberTouched) {
+          form.setValue('meeting_number', nextNumber, { shouldValidate: false });
+        }
+      })
+      .catch(() => setTakenNumbers([]));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [compositionId]);
 
   // Pull the chairman row from the members list.
   const chairman = useMemo<BosMember | null>(() => {
@@ -241,6 +262,27 @@ export function MeetingForm({ meeting, isSubmitting, onSubmit, onCancel }: Meeti
       const match = academicYearOptions.find((opt) => opt.value === derived);
       if (match) form.setValue('academic_year', match.value);
     }
+  };
+
+  // A number is a duplicate when it already exists for this composition AND
+  // it isn't the meeting's own current number (edit-mode self-match is fine).
+  const isDuplicateMeetingNumber = (n: number) =>
+    Number.isFinite(n) &&
+    takenNumbers.includes(n) &&
+    !(meeting && n === meeting.meeting_number);
+
+  // Intercept submit so the inline error appears on the meeting_number field
+  // before we round-trip to the server. The server still enforces the same
+  // rule (DB UNIQUE + explicit 409) — this is just for snappier UX.
+  const handleFormSubmit = (values: MeetingFormValues) => {
+    if (isDuplicateMeetingNumber(values.meeting_number)) {
+      form.setError('meeting_number', {
+        type: 'manual',
+        message: `Meeting ${values.meeting_number} already exists for this composition.`,
+      });
+      return;
+    }
+    onSubmit(values);
   };
 
   if (permissionsLoading || scope.isLoading) {
@@ -262,7 +304,7 @@ export function MeetingForm({ meeting, isSubmitting, onSubmit, onCancel }: Meeti
 
   return (
     <Form {...form}>
-      <form onSubmit={form.handleSubmit(onSubmit)} className='space-y-6'>
+      <form onSubmit={form.handleSubmit(handleFormSubmit)} className='space-y-6'>
 
         {/* Two-column layout on xl+: main form (2/3) | sticky chairman side panel (1/3). */}
         <div className='grid grid-cols-1 gap-6 xl:grid-cols-3'>
@@ -337,7 +379,63 @@ export function MeetingForm({ meeting, isSubmitting, onSubmit, onCancel }: Meeti
                 <CardTitle className='text-base'>Meeting Details</CardTitle>
               </CardHeader>
               <CardContent className='space-y-4'>
-                <div className='grid gap-4 md:grid-cols-2'>
+                <div className='grid gap-4 md:grid-cols-3'>
+                  <FormField
+                    control={form.control}
+                    name='meeting_number'
+                    render={({ field }) => {
+                      const fieldValue =
+                        typeof field.value === 'number' && Number.isFinite(field.value)
+                          ? String(field.value)
+                          : '';
+                      return (
+                        <FormItem>
+                          <FormLabel>
+                            Meeting Number <span className='text-destructive'>*</span>
+                          </FormLabel>
+                          <FormControl>
+                            <Input
+                              type='number'
+                              min={1}
+                              step={1}
+                              inputMode='numeric'
+                              placeholder={compositionId ? 'e.g. 3' : 'Select composition first'}
+                              disabled={!compositionId || loadingDetail}
+                              value={fieldValue}
+                              onChange={(e) => {
+                                setMeetingNumberTouched(true);
+                                const raw = e.target.value;
+                                if (raw === '') {
+                                  field.onChange(undefined);
+                                  return;
+                                }
+                                const parsed = Number(raw);
+                                field.onChange(Number.isFinite(parsed) ? parsed : undefined);
+                              }}
+                              onBlur={(e) => {
+                                field.onBlur();
+                                const parsed = Number(e.target.value);
+                                if (Number.isFinite(parsed) && isDuplicateMeetingNumber(parsed)) {
+                                  form.setError('meeting_number', {
+                                    type: 'manual',
+                                    message: `Meeting ${parsed} already exists for this composition.`,
+                                  });
+                                } else {
+                                  form.clearErrors('meeting_number');
+                                }
+                              }}
+                            />
+                          </FormControl>
+                          <FormDescription>
+                            Auto-suggested from the composition. Edit if earlier meetings were
+                            conducted outside the system.
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      );
+                    }}
+                  />
+
                   <FormField
                     control={form.control}
                     name='meeting_type'
@@ -527,20 +625,6 @@ export function MeetingForm({ meeting, isSubmitting, onSubmit, onCancel }: Meeti
                 </CardContent>
               </Card>
 
-              {/* Meeting number preview — visible only on create when derivable. */}
-              {nextMeetingNumber && !meeting && (
-                <Card>
-                  <CardContent className='space-y-2 p-4'>
-                    <div className='text-xs uppercase tracking-wide text-muted-foreground'>
-                      Meeting number
-                    </div>
-                    <Badge variant='secondary' className='text-sm'>
-                      Meeting {nextMeetingNumber} of {academicYear || '–'}
-                    </Badge>
-                    <p className='text-xs text-muted-foreground'>Auto-assigned on save.</p>
-                  </CardContent>
-                </Card>
-              )}
             </div>
           </aside>
         </div>

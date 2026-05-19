@@ -29,6 +29,7 @@ export async function GET() {
       isChairmanIn: Array.from(scope.isChairmanIn),
       boardsOf: Array.from(scope.boardsOf),
       chairmanForBoards: Array.from(scope.chairmanForBoards),
+      institutionsOf: Array.from(scope.institutionsOf),
     },
     {
       headers: { 'Cache-Control': 'no-store' },

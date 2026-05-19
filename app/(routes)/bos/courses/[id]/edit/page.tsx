@@ -67,8 +67,12 @@ export default function EditCoursePage({ params }: { params: Promise<{ id: strin
                 course_name: course.course_name ?? course.course_title ?? '',
                 board_id: course.board_id ?? undefined,
                 course_category: course.course_category,
-                course_part_master: course.course_part_master ?? 'Part III',
-                course_type: (course.course_type as never) ?? 'Core',
+                // PG / non-tiered courses store no Part — keep the field blank
+                // on load rather than substituting "Part III" on save.
+                course_part_master: (course.course_part_master as never) ?? undefined,
+                // Leave Type blank for courses with no Type — don't silently
+                // substitute 'Core' on save.
+                course_type: (course.course_type as never) ?? undefined,
                 // Leave Level blank for legacy / non-tiered courses (e.g.,
                 // Internship) â€” don't silently substitute 'I' on save.
                 course_level: (course.course_level as never) ?? undefined,

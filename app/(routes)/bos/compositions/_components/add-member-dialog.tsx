@@ -150,6 +150,7 @@ export function AddMemberDialog({
   // Display fields. Locked once a person is selected.
   const [displayName, setDisplayName] = useState('');
   const [displayDesignation, setDisplayDesignation] = useState('');
+  const [displayDepartment, setDisplayDepartment] = useState('');
   const [displayInstitution, setDisplayInstitution] = useState('');
   const [email, setEmail] = useState('');
   const [contactNo, setContactNo] = useState('');
@@ -164,6 +165,7 @@ export function AddMemberDialog({
     setSelectedExpert(null);
     setDisplayName('');
     setDisplayDesignation('');
+    setDisplayDepartment('');
     setDisplayInstitution('');
     setEmail('');
     setContactNo('');
@@ -177,6 +179,7 @@ export function AddMemberDialog({
       setSelectedFacilitator(null);
       setDisplayName('');
       setDisplayDesignation('');
+      setDisplayDepartment('');
       setDisplayInstitution('');
       setEmail('');
       setContactNo('');
@@ -185,6 +188,7 @@ export function AddMemberDialog({
       setSelectedExpert(null);
       setDisplayName('');
       setDisplayDesignation('');
+      setDisplayDepartment('');
       setDisplayInstitution('');
       setEmail('');
       setContactNo('');
@@ -197,6 +201,10 @@ export function AddMemberDialog({
     const fullName = `${row.first_name} ${row.last_name}`.trim();
     setDisplayName(fullName);
     setDisplayDesignation(row.designation ?? '');
+    // department.department_name on the staff row → denormalised onto
+    // bos_members.display_department for the call-letter PDF. Falls back
+    // to empty string if the staff record has no department assigned.
+    setDisplayDepartment(row.department?.department_name ?? '');
     setDisplayInstitution(row.institution?.name ?? '');
     setEmail(row.institution_email ?? row.email ?? '');
     setContactNo(row.phone ?? '');
@@ -207,6 +215,8 @@ export function AddMemberDialog({
     setSelectedFacilitator(null);
     setDisplayName(row.name);
     setDisplayDesignation(row.designation ?? '');
+    // External experts store department directly on the expert row.
+    setDisplayDepartment(row.department_name ?? '');
     setDisplayInstitution(row.institution_name ?? '');
     setEmail(row.email ?? '');
     setContactNo(row.contact_no ?? '');
@@ -217,12 +227,13 @@ export function AddMemberDialog({
     setSelectedExpert(null);
     setDisplayName('');
     setDisplayDesignation('');
+    setDisplayDepartment('');
     setDisplayInstitution('');
     setEmail('');
     setContactNo('');
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!hasSelection) {
@@ -234,8 +245,13 @@ export function AddMemberDialog({
       return;
     }
 
-    try {
-      await addMember.mutateAsync({
+    // Fire-and-forget: `useAddBosMember`'s onMutate has already pushed a
+    // placeholder row into the cache by the time `.mutate()` returns, so we
+    // can close the dialog immediately. The user then sees the new member
+    // appear in the list this tick instead of waiting for the network
+    // round-trip. Toast / error rollback are wired via per-call callbacks.
+    addMember.mutate(
+      {
         institutions_id: institutionsId,
         composition_id: compositionId,
         member_type: memberType,
@@ -244,19 +260,24 @@ export function AddMemberDialog({
         expert_id: selectedExpert?.id,
         display_name: displayName.trim(),
         display_designation: displayDesignation.trim() || undefined,
+        display_department: displayDepartment.trim() || undefined,
         display_institution: displayInstitution.trim() || undefined,
         email: email.trim() || undefined,
         contact_no: contactNo.trim() || undefined,
         is_active: true,
         sort_order: 0,
-      });
-      toast.success('Member added');
-      resetAll();
-      onClose();
-    } catch (err) {
-      logger.error('academic/bos', 'Failed to add member', err);
-      toast.error((err as Error).message || 'Failed to add member');
-    }
+      },
+      {
+        onSuccess: () => toast.success('Member added'),
+        onError: (err) => {
+          logger.error('academic/bos', 'Failed to add member', err);
+          toast.error((err as Error).message || 'Failed to add member');
+        },
+      },
+    );
+
+    resetAll();
+    onClose();
   };
 
   return (

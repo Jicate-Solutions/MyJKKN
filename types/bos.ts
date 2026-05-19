@@ -606,6 +606,7 @@ export interface BosMember {
   expert_id?: string;
   display_name: string;
   display_designation?: string;
+  display_department?: string;
   display_institution?: string;
   address?: string;
   contact_no?: string;
@@ -662,6 +663,17 @@ export interface BosMeeting {
   composition?: { composition_title: string };
   attendee_count?: number;
   agenda_item_count?: number;
+  // Embedded via the FK constraint bos_meetings_principal_approved_by_fkey;
+  // populated by GET /api/bos/meetings/[id] when the column is non-null. Used
+  // to gate the post-approval transition button to the specific staff member
+  // who was recorded as the approver during draft submission.
+  principal_approved_by_staff?: {
+    id: string;
+    profile_id: string | null;
+    first_name: string | null;
+    last_name: string | null;
+    designation: string | null;
+  } | null;
 }
 
 export type CreateBosMeetingDto = Omit<
@@ -674,7 +686,12 @@ export type CreateBosMeetingDto = Omit<
   | 'composition'
   | 'attendee_count'
   | 'agenda_item_count'
->;
+> & {
+  // Optional: chairman may override the auto-suggested next number (e.g. when
+  // earlier meetings were conducted outside the system). Uniqueness per
+  // composition is enforced by the API.
+  meeting_number?: number;
+};
 export type UpdateBosMeetingDto = Partial<CreateBosMeetingDto>;
 
 export interface BosMeetingFilters {

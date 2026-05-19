@@ -34,6 +34,14 @@ export const BOS_TEMPLATE_PLACEHOLDERS: BosTemplatePlaceholder[] = [
   { key: 'chairman_name',      label: 'Chairman Name',     description: 'Name of the board chairman.' },
   { key: 'institution_name',   label: 'Institution Name',  description: 'Full college/institution name.' },
   { key: 'agenda_summary',     label: 'Agenda Summary',    description: 'Plain-text agenda overview from the meeting.' },
+  // ── Sign-off block ─────────────────────────────────────────────────────────
+  // Resolved from getInstitutionHeader().officials at send time so the email
+  // signature matches the Principal block already used in the PDF call letter.
+  { key: 'signoff_name',        label: 'Signoff Name',        description: 'Principal name + qualifications + designation (single line). E.g. "Capt.Dr.M.NALINI, M.Sc.,M.Phil.,Ph.D., Principal".' },
+  { key: 'signoff_institution', label: 'Signoff Institution', description: 'Full institution name shown in the signature (typically bold).' },
+  { key: 'signoff_address',     label: 'Signoff Address',     description: 'Postal address line for the signing institution.' },
+  { key: 'signoff_email',       label: 'Signoff Email',       description: 'Reply-to email address for the signing institution.' },
+  { key: 'signoff_contact',     label: 'Signoff Contact',     description: 'Phone/cell number(s) for the signing institution.' },
 ];
 
 // Mock values used by the live-preview pane and the test-send endpoint so
@@ -51,6 +59,11 @@ export const BOS_TEMPLATE_PREVIEW_VALUES: Record<string, string> = {
   chairman_name: 'Capt.Dr.M.NALINI, Principal',
   institution_name: 'J.K.K.NATARAJA COLLEGE OF ARTS & SCIENCE',
   agenda_summary: 'Approval of revised syllabi for CS301 and CS402; review of programme outcomes.',
+  signoff_name: 'Capt.Dr.M.NALINI, M.Sc.,M.Phil.,Ph.D., Principal',
+  signoff_institution: 'J.K.K.NATARAJA COLLEGE OF ARTS & SCIENCE (AUTONOMOUS)',
+  signoff_address: 'Komarapalayam - 638 183, Namakkal District, Tamil Nadu',
+  signoff_email: 'arts@jkkn.org',
+  signoff_contact: '94878 33330, 99653 63999',
 };
 
 // ── Rendering ─────────────────────────────────────────────────────────────────

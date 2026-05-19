@@ -3,7 +3,8 @@
 // Resolves the logged-in user's MyJKKN institution to its full InstitutionContext
 // (which includes the COE institution_code / counselling_code needed for proxy calls).
 
-import { useQuery, UseQueryResult } from '@tanstack/react-query';
+import { useMemo } from 'react';
+import { useQueries, useQuery, UseQueryResult } from '@tanstack/react-query';
 import { useAuth } from './use-auth';
 import { QUERY_CONFIG } from '@/lib/config/query-config';
 import type { InstitutionContext } from '@/lib/utils/institutions/institution-resolver';
@@ -82,6 +83,46 @@ export function useInstitutionContextById(
     enabled: !!institutionId,
     ...QUERY_CONFIG.USER_SESSION_DATA,
   });
+}
+
+// ── useInstitutionContextsByIds ──────────────────────────────────────────────
+// Fans out useInstitutionContextById across a list of MyJKKN ids. Used by
+// flows where the user has board membership in multiple institutions and we
+// need to render *all* of them as picker options (e.g. /bos/courses/new for
+// a faculty serving on boards across institutions). Each id gets its own
+// react-query entry so the regular per-id cache still applies.
+
+export function useInstitutionContextsByIds(
+  institutionIds: readonly string[] | undefined,
+): { data: InstitutionContext[]; isLoading: boolean } {
+  const ids = institutionIds ?? [];
+  const results = useQueries({
+    queries: ids.map((id) => ({
+      queryKey: institutionContextKeys.byId(id),
+      queryFn: async () => {
+        const res = await fetch(`/api/institutions/resolve?institutionId=${id}`);
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          throw new Error(body.error ?? 'Failed to resolve institution context');
+        }
+        const json = await res.json();
+        return json.data as InstitutionContext;
+      },
+      enabled: !!id,
+      ...QUERY_CONFIG.USER_SESSION_DATA,
+    })),
+  });
+
+  // Memoise so callers can safely use `data` as a useEffect dependency without
+  // each render producing a new array reference (useQueries returns a new
+  // array every render). The dependency is the per-query data signature.
+  const dataKey = results.map((r) => r.data?.myjkkn_id ?? '').join(',');
+  const isLoading = results.some((r) => r.isLoading);
+  const data = useMemo(() => {
+    return results.map((r) => r.data).filter((d): d is InstitutionContext => !!d);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dataKey]);
+  return { data, isLoading };
 }
 
 // ── useInstitutionContextByCode ───────────────────────────────────────────────

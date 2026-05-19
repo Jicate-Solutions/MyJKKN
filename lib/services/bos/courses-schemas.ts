@@ -48,8 +48,13 @@ export const courseFormSchema = z.object({
   course_name:       z.string().min(3).max(255),
   board_id:          z.string().uuid('Select a board'),
   course_category:   z.enum(COURSE_CATEGORY_VALUES),
-  course_part_master: z.enum(COURSE_PART_VALUES),
-  course_type:       z.enum(COURSE_TYPE_VALUES),
+  // Optional: PG (and some non-tiered) courses don't carry a Part designation.
+  // Allow blank so the form doesn't force "Part III" onto a PG row.
+  course_part_master: z.enum(COURSE_PART_VALUES).optional(),
+  // Optional: same rationale as course_part_master — some courses (PG, audit,
+  // bridge, etc.) genuinely have no Type at the time of creation. Blank is
+  // valid; don't force "Core" on save.
+  course_type:       z.enum(COURSE_TYPE_VALUES).optional(),
   // Optional: some legacy / non-tiered courses (e.g., Internship, Project) have
   // no Roman-numeral level. Allow blank rather than forcing a default that
   // could silently corrupt those rows on save.

@@ -83,6 +83,8 @@ export function SchemePageClient() {
   // Map semester_code → mappings for quick lookup.
   // Each semester's courses are sorted by course_mapping.course_order (asc),
   // with null orders sent to the end so unsequenced rows don't push real ones down.
+  // Ties (equal course_order, or both null) fall back to course_code asc so the
+  // order is deterministic across renders and matches the PDF.
   const mappingsBySemester = useMemo(() => {
     const map = new Map<string, BosCourseMappingDetailed[]>();
     (data?.data ?? []).forEach((m) => {
@@ -94,7 +96,8 @@ export function SchemePageClient() {
       list.sort((a, b) => {
         const ao = a.course_order ?? Number.MAX_SAFE_INTEGER;
         const bo = b.course_order ?? Number.MAX_SAFE_INTEGER;
-        return ao - bo;
+        if (ao !== bo) return ao - bo;
+        return (a.course.course_code ?? '').localeCompare(b.course.course_code ?? '');
       });
     }
     return map;
@@ -155,18 +158,26 @@ export function SchemePageClient() {
       semesters: allSemesters.map((semCode) => ({
         semester_code: semCode,
         semester_label: semesterNameMap.get(semCode)?.toUpperCase() ?? `SEMESTER ${semCode}`,
-        courses: (mappingsBySemester.get(semCode) ?? []).map((m) => ({
-          course_part_master: m.course.course_part_master,
-          course_code: m.course.course_code,
-          course_name: m.course.course_name,
-          exam_duration: m.course.exam_duration,
-          credit: m.course.credit ?? 0,
-          theory_hours: m.course.theory_hours ?? 0,
-          practical_hours: m.course.practical_hours ?? 0,
-          internal_max_mark: m.course.internal_max_mark ?? 0,
-          external_max_mark: m.course.external_max_mark ?? 0,
-          total_max_mark: m.course.total_max_mark ?? 0,
-        })),
+        courses: (mappingsBySemester.get(semCode) ?? []).map((m) => {
+          // Match the on-screen semester table: 'COURSE_TYPE_CODE-COURSE_NAME'
+          // (uppercase), with a graceful fallback to just the course_name when
+          // course_type_code is missing from the joined COE row.
+          const displayName = m.course.course_type_code
+            ? `${m.course.course_type_code}-${m.course.course_name}`.toUpperCase()
+            : (m.course.course_name ?? '').toUpperCase();
+          return {
+            course_part_master: m.course.course_part_master,
+            course_code: m.course.course_code,
+            course_name: displayName,
+            exam_duration: m.course.exam_duration,
+            credit: m.course.credit ?? 0,
+            theory_hours: m.course.theory_hours ?? 0,
+            practical_hours: m.course.practical_hours ?? 0,
+            internal_max_mark: m.course.internal_max_mark ?? 0,
+            external_max_mark: m.course.external_max_mark ?? 0,
+            total_max_mark: m.course.total_max_mark ?? 0,
+          };
+        }),
       })),
     });
   };

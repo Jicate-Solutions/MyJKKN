@@ -224,6 +224,17 @@ export interface BosBoardScope extends BosAccessScope {
    * board-chairman edit rights on syllabi (which only carry board_id).
    */
   chairmanForBoards: Set<string>;
+  /**
+   * MyJKKN institution_ids derived from the user's active compositions
+   * (bos_compositions.institution_id for every composition in memberOf).
+   *
+   * Use this instead of `institutionsId` (single) when a query needs to span
+   * every institution the user has board membership in — e.g. a faculty
+   * member who serves on Board A under Institution X and Board B under
+   * Institution Y must see courses from both. See
+   * /api/bos/courses-master GET for the fan-out pattern.
+   */
+  institutionsOf: Set<string>;
 }
 
 /**
@@ -264,6 +275,7 @@ export async function resolveBosBoardScope(userId: string): Promise<BosBoardScop
     isChairmanIn: new Set<string>(),
     boardsOf: new Set<string>(),
     chairmanForBoards: new Set<string>(),
+    institutionsOf: new Set<string>(),
   };
 
   // Super-admin: short-circuit. No need to resolve staff_id or memberships
@@ -297,9 +309,15 @@ export async function resolveBosBoardScope(userId: string): Promise<BosBoardScop
   // Embedded inner-join filter: only active members of active compositions.
   // PostgREST recognises bos_members.composition_id → bos_compositions(id) FK
   // and lets us filter the parent by an embedded column with !inner + .eq.
+  // Also select institutions_id (plural — renamed by migration 20260424 from
+  // the original singular `institution_id`) from the embedded composition so
+  // we can build institutionsOf. Needed for cross-institution membership (a
+  // faculty on boards under multiple institutions). Without it, downstream
+  // API routes collapse the user to a single institution and silently drop
+  // the rest.
   const { data: memberRows } = await supabase
     .from('bos_members')
-    .select('composition_id, member_type, bos_compositions!inner(id, board_id, is_active)')
+    .select('composition_id, member_type, bos_compositions!inner(id, board_id, institutions_id, is_active)')
     .eq('staff_id', staffId)
     .eq('is_active', true)
     .eq('bos_compositions.is_active', true);
@@ -308,17 +326,20 @@ export async function resolveBosBoardScope(userId: string): Promise<BosBoardScop
   const isChairmanIn = new Set<string>();
   const boardsOf = new Set<string>();
   const chairmanForBoards = new Set<string>();
+  const institutionsOf = new Set<string>();
   type EmbeddedRow = {
     composition_id: string;
     member_type: string | null;
     // Supabase returns the embed as a single object for many-to-one FKs.
-    bos_compositions: { id: string; board_id: string | null; is_active: boolean } | null;
+    bos_compositions: { id: string; board_id: string | null; institutions_id: string | null; is_active: boolean } | null;
   };
   for (const row of (memberRows ?? []) as EmbeddedRow[]) {
     if (!row.composition_id) continue;
     memberOf.add(row.composition_id);
     const boardId = row.bos_compositions?.board_id ?? null;
+    const compInstitutionId = row.bos_compositions?.institutions_id ?? null;
     if (boardId) boardsOf.add(boardId);
+    if (compInstitutionId) institutionsOf.add(compInstitutionId);
     if (row.member_type === 'chairman') {
       isChairmanIn.add(row.composition_id);
       if (boardId) chairmanForBoards.add(boardId);
@@ -333,6 +354,7 @@ export async function resolveBosBoardScope(userId: string): Promise<BosBoardScop
     isChairmanIn,
     boardsOf,
     chairmanForBoards,
+    institutionsOf,
   };
 }
 
@@ -379,6 +401,39 @@ export function guardCompositionWrite(
   }
   if (!scope.memberOf.has(compositionId)) {
     return 'Forbidden: you can only modify data for compositions you belong to';
+  }
+  return null;
+}
+
+/**
+ * Course-write authorization for /api/bos/courses-master {POST, PUT, DELETE}.
+ *
+ * Allow when:
+ *   - super-admin, OR
+ *   - target institution is the user's own primary (allInstitutionIds — CAS-aware), OR
+ *   - target institution is in scope.institutionsOf (user has an active
+ *     composition under that institution — multi-institution membership).
+ *
+ * The third clause is the only difference from guardInstitutionWrite: course
+ * writes are gated by board membership, so any institution where the user
+ * serves on a board is fair game. Used in lieu of guardInstitutionWrite for
+ * the courses routes; leave the legacy helper alone for routes that still
+ * mean "must be your own institution" (members, meetings, ta-da).
+ */
+export function guardCourseInstitutionWrite(
+  scope: BosBoardScope,
+  targetInstitutionId: string | undefined | null,
+): string | null {
+  if (scope.isSuperAdmin) return null;
+  if (!targetInstitutionId) return null;
+  const allowed = new Set<string>([
+    ...(scope.institutionsId ? [scope.institutionsId] : []),
+    ...scope.allInstitutionIds,
+    ...scope.institutionsOf,
+  ]);
+  if (allowed.size === 0) return null;
+  if (!allowed.has(targetInstitutionId)) {
+    return 'Forbidden: you can only manage courses for institutions where you serve on a board';
   }
   return null;
 }

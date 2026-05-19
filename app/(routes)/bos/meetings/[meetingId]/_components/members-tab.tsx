@@ -11,6 +11,7 @@ import {
   CheckCircle2,
   XCircle,
   Clock,
+  FileText,
 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 
@@ -257,6 +258,7 @@ export function MembersTab({ meetingId, compositionId, meetingStatus }: MembersT
               <TableHead>Designation</TableHead>
               <TableHead>Email</TableHead>
               <TableHead className='w-32'>Contact</TableHead>
+              <TableHead className='w-28 text-center'>Preview</TableHead>
               <TableHead className='w-36'>Email Status</TableHead>
             </TableRow>
           </TableHeader>
@@ -314,6 +316,23 @@ export function MembersTab({ meetingId, compositionId, meetingStatus }: MembersT
                   </TableCell>
                   <TableCell className='text-sm text-muted-foreground'>
                     {m.contact_no ?? '—'}
+                  </TableCell>
+                  <TableCell className='text-center' onClick={(e) => e.stopPropagation()}>
+                    {/* asChild lets the Button render its styles directly on the
+                        anchor so the native `download` attribute triggers a
+                        same-origin file save without a JS blob handler. */}
+                    <Button variant='outline' size='sm' className='h-8 gap-1.5' asChild>
+                      <a
+                        href={`/api/bos/meetings/${meetingId}/preview-pdf?memberId=${m.id}`}
+                        download={`bos-call-letter-${m.display_name.replace(/\s+/g, '-')}.pdf`}
+                        target='_blank'
+                        rel='noopener noreferrer'
+                        aria-label={`Download call letter PDF for ${m.display_name}`}
+                      >
+                        <FileText className='h-3.5 w-3.5' />
+                        Preview
+                      </a>
+                    </Button>
                   </TableCell>
                   <TableCell>
                     {(() => {

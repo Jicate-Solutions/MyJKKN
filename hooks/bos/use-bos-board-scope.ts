@@ -18,6 +18,10 @@ interface BosBoardScopeWire {
   isChairmanIn: string[];
   boardsOf: string[];
   chairmanForBoards: string[];
+  // Institutions where the user has at least one active composition. May
+  // contain institutions other than their profile.institution_id when a
+  // faculty serves on boards across institutions.
+  institutionsOf: string[];
 }
 
 export interface BosBoardScopeClient {
@@ -34,6 +38,7 @@ export interface BosBoardScopeClient {
   isChairmanIn: Set<string>;
   boardsOf: Set<string>;
   chairmanForBoards: Set<string>;
+  institutionsOf: Set<string>;
   /** True until the request resolves — UI should treat this as "no access yet". */
   isLoading: boolean;
 }
@@ -68,6 +73,7 @@ const EMPTY_SCOPE: BosBoardScopeClient = {
   isChairmanIn: new Set(),
   boardsOf: new Set(),
   chairmanForBoards: new Set(),
+  institutionsOf: new Set(),
   isLoading: true,
 };
 
@@ -106,6 +112,7 @@ export function useBosBoardScope(): BosBoardScopeClient {
       isChairmanIn: new Set(data.isChairmanIn),
       boardsOf: new Set(data.boardsOf),
       chairmanForBoards: new Set(data.chairmanForBoards),
+      institutionsOf: new Set(data.institutionsOf ?? []),
       isLoading: false,
     };
   }, [data, isLoading]);

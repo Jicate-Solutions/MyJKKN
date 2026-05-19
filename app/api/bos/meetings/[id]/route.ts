@@ -36,6 +36,13 @@ export async function GET(
             sort_order,
             expert_id
           )
+        ),
+        principal_approved_by_staff:staff!bos_meetings_principal_approved_by_fkey (
+          id,
+          profile_id,
+          first_name,
+          last_name,
+          designation
         )
       `)
       .eq('id', id)
