@@ -863,6 +863,15 @@ export interface HostelIncident {
   police_complaint_filed: boolean | null;
   police_complaint_number: string | null;
   witness_ids: string[] | null;
+  /**
+   * Optional FK to `resources(id)`. Set when this incident is in fact an
+   * RM work order (e.g. AC compressor failed → AC resource row). When
+   * non-null, the warden can call `IncidentService.confirmAndCreateMaintenanceLog`
+   * to promote the incident into a `resource_maintenance_logs` row.
+   * Incidents without a resource_id stay Campus-Living-only.
+   * See specs/campus-living-rm-integration.md PR-2.
+   */
+  resource_id: string | null;
   created_at: string | null;
   updated_at: string | null;
 }
@@ -885,6 +894,8 @@ export interface CreateHostelIncidentDTO {
   involved_staff?: string[] | null;
   involved_students?: string[] | null;
   witness_ids?: string[] | null;
+  /** Optional resource link — see HostelIncident.resource_id. */
+  resource_id?: string | null;
 }
 
 export interface HostelIncidentParty {
