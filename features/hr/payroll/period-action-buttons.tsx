@@ -78,19 +78,16 @@ const PRIMARY_BUTTON_LABEL: Record<PayrollPeriodStatus, string | null> = {
 
 export function PeriodActionButtons({
   period,
-  onPrepare,
-  onAdvance,
-  isPending,
 }: {
   period: HRPayrollPeriod;
-  onPrepare: () => void;
-  onAdvance: () => void;
-  isPending: boolean;
 }) {
   const { profile } = useAuth();
+  const { preparePeriod, advancePeriod } = usePayrollPeriods();
   const [rejectOpen, setRejectOpen] = useState(false);
   const [backdateOpen, setBackdateOpen] = useState(false);
   const [lockOpen, setLockOpen] = useState(false);
+
+  const isPending = preparePeriod.isPending || advancePeriod.isPending;
 
   const roleKey =
     profile?.primary_role?.role_key ??
