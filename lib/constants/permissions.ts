@@ -889,6 +889,8 @@ export const PERMISSION_CATEGORIES = [
       { key: 'admission.leads.convert_to_admitted', label: 'Convert Lead to Admitted (creates learner profile)' },
       { key: 'admission.enquiries.activities.view', label: 'View Activities tab on Enquiry page' },
       { key: 'admission.enquiries.activities.create', label: 'Add notes / voice memos to Enquiry activities' },
+      { key: 'admission.enquiries.checklist.view', label: 'View Checklist tab on Enquiry page' },
+      { key: 'admission.enquiries.checklist.mark', label: 'Mark / unmark items on Enquiry checklist' },
 
       // Application Management
       { key: 'admission.applications.view', label: 'View Applications' },
@@ -967,6 +969,8 @@ export const PERMISSION_CATEGORIES = [
       { key: 'admission.settings.years.delete', label: 'Delete Admission Years' },
       { key: 'admission.settings.statuses.view', label: 'View admission statuses' },
       { key: 'admission.settings.statuses.manage', label: 'Manage admission statuses' },
+      { key: 'admission.settings.checklists.view', label: 'View Programme Checklists module' },
+      { key: 'admission.settings.checklists.manage', label: 'Create / Edit / Delete Programme Checklists' },
 
       // Gate Entry (2026-05-07) — kiosk capture flow for gate security
       { key: 'admission.gate_entry.create', label: 'Log Gate Entry (kiosk)' },

@@ -11,7 +11,18 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { LearnerAdvancedSearchShared, type LearnerSearchFilters } from '@/components/learners/learner-advanced-search-shared';
 
 interface EnquiriesSearchWrapperProps {
-  statusFilter?: 'admitted' | 'pending' | 'rejected' | 'waitlisted' | 'approved' | 'account';
+  // 2026-05-20: Extended status union covers the full workflow tabs.
+  statusFilter?:
+    | 'enquiry'
+    | 'enquiry_submitted'
+    | 'admitted'
+    | 'pending'
+    | 'approved'
+    | 'account'
+    | 'reserved'
+    | 'rejected'
+    | 'waitlisted'
+    | 'fees_setup_pending';
 }
 
 export function EnquiriesSearchWrapper({ statusFilter }: EnquiriesSearchWrapperProps) {

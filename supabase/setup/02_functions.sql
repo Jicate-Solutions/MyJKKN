@@ -14626,3 +14626,156 @@ END;
 $$;
 
 GRANT EXECUTE ON FUNCTION public.reconcile_campaign_link_counters() TO authenticated;
+
+-- ================================================================================
+-- SECTION: PROGRAMME CHECKLISTS
+-- ================================================================================
+-- get_learner_checklist: resolves 4-level hierarchy (institution → degree →
+-- department → program) for a learner, returns aggregated items + per-learner
+-- completion status. SECURITY DEFINER; gated on admission.enquiries.checklist.view.
+
+CREATE OR REPLACE FUNCTION public.get_learner_checklist(p_learner_id uuid)
+RETURNS TABLE (
+  checklist_id      uuid,
+  checklist_name    text,
+  checklist_desc    text,
+  scope_type        text,
+  scope_label       text,
+  item_id           uuid,
+  item_title        text,
+  item_description  text,
+  is_required       boolean,
+  order_index       int,
+  is_done           boolean,
+  marked_by         uuid,
+  marked_by_name    text,
+  marked_at         timestamptz
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_lifecycle    text;
+  v_institution  uuid;
+  v_degree       uuid;
+  v_department   uuid;
+  v_program      uuid;
+BEGIN
+  IF NOT public.user_has_permission('admission.enquiries.checklist.view') THEN
+    RAISE EXCEPTION 'permission denied: admission.enquiries.checklist.view';
+  END IF;
+
+  SELECT
+    lp.lifecycle_status::text,
+    lp.institution_id,
+    lp.degree_id,
+    lp.department_id,
+    lp.program_id
+  INTO v_lifecycle, v_institution, v_degree, v_department, v_program
+  FROM public.learners_profiles lp
+  WHERE lp.id = p_learner_id;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'learner not found: %', p_learner_id;
+  END IF;
+
+  RETURN QUERY
+  SELECT
+    cl.id, cl.name, cl.description, cl.scope_type,
+    CASE cl.scope_type
+      WHEN 'institution' THEN (SELECT i.name FROM public.institutions i WHERE i.id = cl.scope_id)
+      WHEN 'degree'      THEN (SELECT COALESCE(d.display_name, d.degree_name) FROM public.degrees d WHERE d.id = cl.scope_id)
+      WHEN 'department'  THEN (SELECT COALESCE(dp.display_name, dp.department_name) FROM public.departments dp WHERE dp.id = cl.scope_id)
+      WHEN 'program'     THEN (SELECT p.program_name FROM public.programs p WHERE p.id = cl.scope_id)
+    END,
+    it.id, it.title, it.description, it.is_required, it.order_index,
+    COALESCE(c.is_done, false), c.marked_by, pr.full_name, c.marked_at
+  FROM public.admission_checklists cl
+  JOIN public.admission_checklist_items it
+    ON it.checklist_id = cl.id AND it.is_active = true
+  LEFT JOIN public.admission_checklist_completions c
+    ON c.checklist_item_id = it.id AND c.learner_profile_id = p_learner_id
+  LEFT JOIN public.profiles pr ON pr.id = c.marked_by
+  WHERE cl.is_active = true
+    AND (v_lifecycle IS NULL OR v_lifecycle = ANY(cl.applies_to_lifecycle))
+    AND (
+      (cl.scope_type = 'institution' AND cl.scope_id = v_institution)
+      OR (cl.scope_type = 'degree'    AND cl.scope_id = v_degree)
+      OR (cl.scope_type = 'department' AND cl.scope_id = v_department)
+      OR (cl.scope_type = 'program'   AND cl.scope_id = v_program)
+    )
+  ORDER BY
+    CASE cl.scope_type
+      WHEN 'institution' THEN 1
+      WHEN 'degree'      THEN 2
+      WHEN 'department'  THEN 3
+      WHEN 'program'     THEN 4
+    END, cl.created_at, it.order_index, it.created_at;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.get_learner_checklist(uuid) FROM public;
+GRANT EXECUTE ON FUNCTION public.get_learner_checklist(uuid) TO authenticated;
+
+-- mark_checklist_item: toggle a single item's completion + audit-log it onto
+-- the admission_lead_activities timeline. SECURITY DEFINER; gated on
+-- admission.enquiries.checklist.mark.
+
+CREATE OR REPLACE FUNCTION public.mark_checklist_item(
+  p_learner_id uuid,
+  p_item_id    uuid,
+  p_is_done    boolean
+)
+RETURNS public.admission_checklist_completions
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_row     public.admission_checklist_completions;
+  v_uid     uuid := auth.uid();
+  v_lead_id uuid;
+  v_title   text;
+BEGIN
+  IF NOT public.user_has_permission('admission.enquiries.checklist.mark') THEN
+    RAISE EXCEPTION 'permission denied: admission.enquiries.checklist.mark';
+  END IF;
+
+  IF p_is_done THEN
+    INSERT INTO public.admission_checklist_completions
+      (learner_profile_id, checklist_item_id, is_done, marked_by, marked_at)
+    VALUES
+      (p_learner_id, p_item_id, true, v_uid, now())
+    ON CONFLICT (learner_profile_id, checklist_item_id)
+    DO UPDATE SET is_done = true, marked_by = v_uid, marked_at = now()
+    RETURNING * INTO v_row;
+  ELSE
+    DELETE FROM public.admission_checklist_completions
+    WHERE learner_profile_id = p_learner_id AND checklist_item_id = p_item_id
+    RETURNING * INTO v_row;
+  END IF;
+
+  SELECT al.id, ci.title INTO v_lead_id, v_title
+  FROM public.admission_checklist_items ci
+  LEFT JOIN public.admission_leads al ON al.learner_profile_id = p_learner_id
+  WHERE ci.id = p_item_id;
+
+  IF v_lead_id IS NOT NULL THEN
+    INSERT INTO public.admission_lead_activities (
+      lead_id, activity_type, subject, description, created_by, created_at
+    ) VALUES (
+      v_lead_id,
+      'checklist_marked',
+      CASE WHEN p_is_done THEN 'Checklist item marked done' ELSE 'Checklist item un-marked' END,
+      COALESCE(v_title, 'Checklist item'),
+      v_uid, now()
+    );
+  END IF;
+
+  RETURN v_row;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.mark_checklist_item(uuid, uuid, boolean) FROM public;
+GRANT EXECUTE ON FUNCTION public.mark_checklist_item(uuid, uuid, boolean) TO authenticated;

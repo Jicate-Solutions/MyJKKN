@@ -19,7 +19,8 @@ import { Card } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { EnquiryForm } from '../../_components/enquiry-form';
 import { ActivitiesTab } from '../_components/activities-tab';
-import { Loader2, FileText, Activity as ActivityIcon } from 'lucide-react';
+import { ChecklistTab } from '../_components/checklist-tab';
+import { Loader2, FileText, Activity as ActivityIcon, ClipboardCheck } from 'lucide-react';
 import { usePermissions } from '@/hooks/use-permissions';
 
 /**
@@ -49,6 +50,9 @@ export default function EditEnquiryPage() {
   const { canAccess, isSuperAdmin } = usePermissions();
   const canSeeActivities =
     isSuperAdmin || canAccess('admission.enquiries.activities', 'view');
+  const canSeeChecklist =
+    isSuperAdmin || canAccess('admission.enquiries.checklist', 'view');
+  const showTabs = canSeeActivities || canSeeChecklist;
 
   // Loading state — isPending covers both active fetching AND disabled query
   // (e.g., when id is a DRP placeholder like %%drp:id:xxx%%)
@@ -105,17 +109,25 @@ export default function EditEnquiryPage() {
         {/* Tabs — admission officers (+ super_admin + granted custom roles)
             see both Details and Activities. Counselors / read-only viewers
             see only Details (no tab UI rendered). */}
-        {canSeeActivities ? (
+        {showTabs ? (
           <Tabs defaultValue="details" className="w-full">
             <TabsList>
               <TabsTrigger value="details" className="gap-2">
                 <FileText className="h-4 w-4" />
                 Details
               </TabsTrigger>
-              <TabsTrigger value="activities" className="gap-2">
-                <ActivityIcon className="h-4 w-4" />
-                Activities
-              </TabsTrigger>
+              {canSeeActivities && (
+                <TabsTrigger value="activities" className="gap-2">
+                  <ActivityIcon className="h-4 w-4" />
+                  Activities
+                </TabsTrigger>
+              )}
+              {canSeeChecklist && (
+                <TabsTrigger value="checklist" className="gap-2">
+                  <ClipboardCheck className="h-4 w-4" />
+                  Checklist
+                </TabsTrigger>
+              )}
             </TabsList>
 
             <TabsContent value="details" className="mt-4">
@@ -129,12 +141,20 @@ export default function EditEnquiryPage() {
               </Card>
             </TabsContent>
 
-            <TabsContent value="activities" className="mt-4">
-              <ActivitiesTab
-                learnerProfileId={id}
-                institutionId={learner.institution_id ?? ''}
-              />
-            </TabsContent>
+            {canSeeActivities && (
+              <TabsContent value="activities" className="mt-4">
+                <ActivitiesTab
+                  learnerProfileId={id}
+                  institutionId={learner.institution_id ?? ''}
+                />
+              </TabsContent>
+            )}
+
+            {canSeeChecklist && (
+              <TabsContent value="checklist" className="mt-4">
+                <ChecklistTab learnerProfileId={id} />
+              </TabsContent>
+            )}
           </Tabs>
         ) : (
           <Card className="p-6">

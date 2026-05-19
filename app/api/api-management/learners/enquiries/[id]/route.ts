@@ -97,11 +97,14 @@ export async function GET(
       admission_year_obj:admission_years!admission_year_id(program_start_year)
     `.trim();
 
+    // 2026-05-20: Status taxonomy renamed admitted → enquiry; also accept
+    // enquiry_submitted (post form-fill) so B2A consumers can fetch the same
+    // pre-account cohort the list endpoint exposes.
     const { data: enquiryRaw, error } = await supabase
       .from('learners_profiles')
       .select(selectFields)
       .eq('id', id)
-      .eq('lifecycle_status', 'admitted')
+      .in('lifecycle_status', ['enquiry', 'enquiry_submitted'])
       .single();
 
     if (error || !enquiryRaw) {

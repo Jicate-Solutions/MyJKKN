@@ -422,6 +422,12 @@ const config: ModuleNavConfig = {
           matchPaths: ['/admission/settings/statuses'],
         },
         {
+          label: 'Checklists',
+          icon: 'ClipboardCheck',
+          href: '/admission/settings/checklists',
+          matchPaths: ['/admission/settings/checklists'],
+        },
+        {
           label: 'Templates',
           icon: 'FileText',
           href: '/admission/settings/templates',

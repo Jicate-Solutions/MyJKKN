@@ -238,8 +238,8 @@ export function DataTableRowActions<TData>({
                 </DropdownMenuSubTrigger>
                 <DropdownMenuSubContent>
                   <DropdownMenuItem
-                    onClick={() => handleStatusUpdate('admitted')}
-                    disabled={learner.lifecycle_status === 'admitted' || updateMutation.isPending}
+                    onClick={() => handleStatusUpdate('enquiry')}
+                    disabled={learner.lifecycle_status === 'enquiry' || updateMutation.isPending}
                   >
                     <HelpCircle className="mr-2 h-4 w-4 text-gray-500" />
                     Mark as Enquiry

@@ -51,6 +51,9 @@ const TYPE_VISUAL: Record<string, { Icon: typeof Activity; tint: string }> = {
   voice_memo: { Icon: Mic, tint: 'bg-purple-100 text-purple-700' },
   manual_edit: { Icon: Pencil, tint: 'bg-amber-100 text-amber-700' },
   student_section_filled: { Icon: FileText, tint: 'bg-emerald-100 text-emerald-700' },
+  // 2026-05-20: Summary activity emitted by StudentFormService on final submit.
+  // Strong visual so officers can spot completed enquiries on scrolling timelines.
+  enquiry_submitted: { Icon: FileText, tint: 'bg-purple-100 text-purple-700' },
   lead_stage_change: { Icon: TrendingUp, tint: 'bg-indigo-100 text-indigo-700' },
   lead_converted: { Icon: UserPlus, tint: 'bg-green-100 text-green-700' },
 };

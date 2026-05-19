@@ -96,7 +96,8 @@ async function EnquiriesContent({
  * - Streaming with Suspense (progressive loading)
  *
  * Features:
- * - Four tabs for different lifecycle statuses (enquiry, pending, rejected, waitlisted)
+ * - Tabs mirroring the lifecycle stages (enquiry → enquiry_submitted → account →
+ *   reserved → admitted → active), plus exception tabs for legacy / waitlisted / rejected
  * - Advanced filtering and sorting
  * - Bulk operations
  * - URL state management
@@ -120,23 +121,35 @@ export default async function EnquiriesPage({ searchParams }: EnquiriesPageProps
         {/* Header with Import/Export functionality */}
         <EnquiriesHeader />
 
-        {/* Tabs with DataTables */}
-        <Tabs defaultValue="enquiries" className="w-full">
-          <TabsList>
-            <TabsTrigger value="enquiries">Admitted</TabsTrigger>
+        {/* Tabs ordered to match the workflow stages (left-to-right). */}
+        <Tabs defaultValue="enquiry" className="w-full">
+          <TabsList className="flex-wrap h-auto">
+            <TabsTrigger value="enquiry">Enquiry</TabsTrigger>
+            <TabsTrigger value="enquiry_submitted">Enquiry Submitted</TabsTrigger>
             <TabsTrigger value="fees_setup_pending">Fees Setup Pending</TabsTrigger>
             <TabsTrigger value="pending">Pending Applications</TabsTrigger>
             <TabsTrigger value="account">Account</TabsTrigger>
+            <TabsTrigger value="reserved">Reserved</TabsTrigger>
+            <TabsTrigger value="admitted">Admitted</TabsTrigger>
             <TabsTrigger value="rejected">Rejected</TabsTrigger>
             <TabsTrigger value="waitlisted">Waitlisted</TabsTrigger>
           </TabsList>
 
-          <TabsContent value="enquiries" className="space-y-4">
+          <TabsContent value="enquiry" className="space-y-4">
             <Suspense
               key={`enquiry-${JSON.stringify(params)}`}
               fallback={<TableSkeleton rows={10} columns={8} />}
             >
-              <EnquiriesContent searchParams={params} statusFilter="admitted" />
+              <EnquiriesContent searchParams={params} statusFilter="enquiry" />
+            </Suspense>
+          </TabsContent>
+
+          <TabsContent value="enquiry_submitted" className="space-y-4">
+            <Suspense
+              key={`enquiry_submitted-${JSON.stringify(params)}`}
+              fallback={<TableSkeleton rows={10} columns={8} />}
+            >
+              <EnquiriesContent searchParams={params} statusFilter="enquiry_submitted" />
             </Suspense>
           </TabsContent>
 
@@ -147,7 +160,7 @@ export default async function EnquiriesPage({ searchParams }: EnquiriesPageProps
             >
               {/*
                 statusFilter is a virtual value handled specially by getEnquiries:
-                filter expands to lifecycle_status='admitted' AND legacy_fee_mode=true,
+                filter expands to lifecycle_status='enquiry' AND legacy_fee_mode=true,
                 and rows are annotated with resolution_status + missing_fields from
                 vw_learners_profile_fee_backfill_status so the table can show badges.
               */}
@@ -173,6 +186,24 @@ export default async function EnquiriesPage({ searchParams }: EnquiriesPageProps
               fallback={<TableSkeleton rows={10} columns={8} />}
             >
               <EnquiriesContent searchParams={params} statusFilter="account" />
+            </Suspense>
+          </TabsContent>
+
+          <TabsContent value="reserved" className="space-y-4">
+            <Suspense
+              key={`reserved-${JSON.stringify(params)}`}
+              fallback={<TableSkeleton rows={10} columns={8} />}
+            >
+              <EnquiriesContent searchParams={params} statusFilter="reserved" />
+            </Suspense>
+          </TabsContent>
+
+          <TabsContent value="admitted" className="space-y-4">
+            <Suspense
+              key={`admitted-${JSON.stringify(params)}`}
+              fallback={<TableSkeleton rows={10} columns={8} />}
+            >
+              <EnquiriesContent searchParams={params} statusFilter="admitted" />
             </Suspense>
           </TabsContent>
 

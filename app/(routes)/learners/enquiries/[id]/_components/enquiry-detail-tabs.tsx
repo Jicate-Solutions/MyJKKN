@@ -14,9 +14,10 @@
 // content through the existing <EnquiryDetail/> renderer.
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { FileText, Activity as ActivityIcon } from 'lucide-react';
+import { FileText, Activity as ActivityIcon, ClipboardCheck } from 'lucide-react';
 import { EnquiryDetail } from '../../_components/enquiry-detail';
 import { ActivitiesTab } from './activities-tab';
+import { ChecklistTab } from './checklist-tab';
 import { usePermissions } from '@/hooks/use-permissions';
 import type { LearnerProfile } from '@/types/learner-profile';
 
@@ -31,8 +32,10 @@ export function EnquiryDetailTabs({ enquiry }: EnquiryDetailTabsProps) {
   const { canAccess, isSuperAdmin } = usePermissions();
   const canSeeActivities =
     isSuperAdmin || canAccess('admission.enquiries.activities', 'view');
+  const canSeeChecklist =
+    isSuperAdmin || canAccess('admission.enquiries.checklist', 'view');
 
-  if (!canSeeActivities) {
+  if (!canSeeActivities && !canSeeChecklist) {
     return (
       <div className="flex flex-col lg:flex-row gap-8">
         <EnquiryDetail enquiry={enquiry} />
@@ -47,10 +50,18 @@ export function EnquiryDetailTabs({ enquiry }: EnquiryDetailTabsProps) {
           <FileText className="h-4 w-4" />
           Details
         </TabsTrigger>
-        <TabsTrigger value="activities" className="gap-2">
-          <ActivityIcon className="h-4 w-4" />
-          Activities
-        </TabsTrigger>
+        {canSeeActivities && (
+          <TabsTrigger value="activities" className="gap-2">
+            <ActivityIcon className="h-4 w-4" />
+            Activities
+          </TabsTrigger>
+        )}
+        {canSeeChecklist && (
+          <TabsTrigger value="checklist" className="gap-2">
+            <ClipboardCheck className="h-4 w-4" />
+            Checklist
+          </TabsTrigger>
+        )}
       </TabsList>
 
       <TabsContent value="details" className="mt-4">
@@ -59,12 +70,20 @@ export function EnquiryDetailTabs({ enquiry }: EnquiryDetailTabsProps) {
         </div>
       </TabsContent>
 
-      <TabsContent value="activities" className="mt-4">
-        <ActivitiesTab
-          learnerProfileId={enquiry.id}
-          institutionId={enquiry.institution_id ?? ''}
-        />
-      </TabsContent>
+      {canSeeActivities && (
+        <TabsContent value="activities" className="mt-4">
+          <ActivitiesTab
+            learnerProfileId={enquiry.id}
+            institutionId={enquiry.institution_id ?? ''}
+          />
+        </TabsContent>
+      )}
+
+      {canSeeChecklist && (
+        <TabsContent value="checklist" className="mt-4">
+          <ChecklistTab learnerProfileId={enquiry.id} />
+        </TabsContent>
+      )}
     </Tabs>
   );
 }

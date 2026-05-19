@@ -34,11 +34,31 @@ const statusConfig: Record<
     icon?: string;
   }
 > = {
+  // 2026-05-20: New workflow entries. Colors mirror the admission_statuses seed.
+  enquiry: {
+    label: 'Enquiry',
+    variant: 'outline',
+    className: 'bg-blue-100 text-blue-800 border-blue-300',
+    icon: '📨',
+  },
+  enquiry_submitted: {
+    label: 'Enquiry Submitted',
+    variant: 'secondary',
+    className: 'bg-purple-100 text-purple-800 border-purple-300',
+    icon: '✉️',
+  },
+  reserved: {
+    label: 'Reserved',
+    variant: 'secondary',
+    className: 'bg-sky-100 text-sky-800 border-sky-300',
+    icon: '🎫',
+  },
+  // 'admitted' now means post-threshold (50% paid). Updated colour + label intent.
   admitted: {
     label: 'Admitted',
-    variant: 'outline',
-    className: 'bg-gray-100 text-gray-700 border-gray-300',
-    icon: '📋',
+    variant: 'success',
+    className: 'bg-emerald-100 text-emerald-800 border-emerald-300',
+    icon: '🎯',
   },
   pending: {
     label: 'Pending Review',

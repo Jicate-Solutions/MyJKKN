@@ -15,7 +15,7 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 
 // Types
-export type ActivityType = 'call' | 'email' | 'meeting' | 'note' | 'sms' | 'whatsapp' | 'stage_change' | 'task';
+export type ActivityType = 'call' | 'email' | 'meeting' | 'note' | 'sms' | 'whatsapp' | 'stage_change' | 'task' | 'checklist_marked';
 
 export interface LeadActivity {
   id: string;
@@ -379,6 +379,7 @@ export class ActivityService {
       whatsapp: 'WhatsApp Message',
       stage_change: 'Stage Changed',
       task: 'Task',
+      checklist_marked: 'Checklist Updated',
     };
     return titles[type] || type.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
   }
@@ -393,6 +394,7 @@ export class ActivityService {
       whatsapp: 'message-circle',
       stage_change: 'git-branch',
       task: 'check-circle',
+      checklist_marked: 'check-circle',
     };
     return icons[type] || 'activity';
   }
@@ -407,6 +409,7 @@ export class ActivityService {
       whatsapp: 'green',
       stage_change: 'indigo',
       task: 'emerald',
+      checklist_marked: 'emerald',
     };
     return colors[type] || 'gray';
   }

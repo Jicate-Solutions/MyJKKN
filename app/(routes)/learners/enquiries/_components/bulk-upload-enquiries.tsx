@@ -827,8 +827,10 @@ export default function BulkUploadEnquiries({ onSuccess }: { onSuccess?: () => v
             reference_contact: data.reference_contact,
 
             // Enquiry specific
+            // 2026-05-20: Bulk-uploaded enquiries enter at lifecycle_status='enquiry'
+            // (was 'admitted'). 'admitted' is now reserved for post-threshold learners.
             enquiry_date: data.enquiry_date || new Date().toISOString().split('T')[0],
-            lifecycle_status: 'admitted' as const,
+            lifecycle_status: 'enquiry' as const,
             is_profile_complete: false,
           };
 
