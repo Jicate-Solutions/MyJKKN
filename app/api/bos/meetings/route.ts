@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
+import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 import { BosMeetingStatus, BosMeetingType, CreateBosMeetingDto } from '@/types/bos';
 import {
   resolveBosBoardScope,
@@ -58,7 +58,17 @@ export async function GET(request: NextRequest) {
       // If ids.length === 0, fall through and show all meetings for the institution.
     }
 
-    let query = supabase
+    // Service-role client for the meetings SELECT only. The bos_meetings RLS
+    // policy gates rows on role_has_institution_access(institutions_id), which
+    // does NOT understand the CAS Aided+SF sibling pairing — a SF principal
+    // is denied rows whose institutions_id is the Aided UUID even though BoS
+    // spec treats the pair as one logical institution. Route-level authz is
+    // already enforced via resolveBosBoardScope + the explicit .in() filter
+    // built below, so it's the source of truth for what this caller may see.
+    // Same precedent as /api/bos/lookup/principals.
+    const db = createServiceRoleClient();
+
+    let query = db
       .from('bos_meetings')
       .select(
         `*,
@@ -69,13 +79,55 @@ export async function GET(request: NextRequest) {
       );
 
     // Institution scope — CAS-aware: include both Aided + Self-Financing UUIDs.
+    // Super-admin filters by institution_code (= counselling_code); the
+    // resolver returns the full myjkkn_institution_ids set so CAS pairs are
+    // queried as one logical unit.
     if (scope.isSuperAdmin) {
-      const institutionsId = searchParams.get('institutionsId') ?? undefined;
-      if (institutionsId) query = query.eq('institutions_id', institutionsId);
-    } else if (scope.allInstitutionIds.length > 1) {
-      query = query.in('institutions_id', scope.allInstitutionIds);
+      const institutionCode = searchParams.get('institutionCode') ?? undefined;
+      if (institutionCode) {
+        const { resolveInstitutionContextByCode } = await import(
+          '@/lib/utils/institutions/institution-resolver'
+        );
+        const ctx = await resolveInstitutionContextByCode(institutionCode, supabase);
+        const ids = ctx?.myjkkn_institution_ids ?? [];
+        if (ids.length === 0) {
+          // Unknown code → no matches, short-circuit.
+          return NextResponse.json({
+            data: [],
+            metadata: { total: 0, page, limit, totalPages: 0 },
+          });
+        }
+        query = query.in('institutions_id', ids);
+      }
     } else if (scope.institutionsId) {
-      query = query.eq('institutions_id', scope.institutionsId);
+      // CAS sibling fan-out — principals (and any non-admin) of a CAS college
+      // must see meetings created under EITHER sibling UUID (Aided + SF). The
+      // COE-driven scope.allInstitutionIds is the authoritative path, but if
+      // the COE mapping is fragmented (one entry per sibling rather than a
+      // single merged entry) it returns only the caller's own UUID. So we
+      // belt-and-suspender by also unioning Supabase counselling_code
+      // siblings via the service-role client (the `institutions` table is
+      // also RLS-gated by role_has_institution_access, so a user-context
+      // query for siblings would return empty).
+      const ids = new Set<string>(scope.allInstitutionIds);
+      ids.add(scope.institutionsId);
+
+      const { data: inst } = await db
+        .from('institutions')
+        .select('counselling_code')
+        .eq('id', scope.institutionsId)
+        .maybeSingle();
+
+      if (inst?.counselling_code) {
+        const { data: siblings } = await db
+          .from('institutions')
+          .select('id')
+          .eq('counselling_code', inst.counselling_code)
+          .eq('is_active', true);
+        for (const s of siblings ?? []) ids.add((s as { id: string }).id);
+      }
+
+      query = query.in('institutions_id', Array.from(ids));
     }
 
     // Board-membership scope (layered on the institution scope above).

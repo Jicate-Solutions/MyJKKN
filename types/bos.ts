@@ -696,6 +696,7 @@ export type UpdateBosMeetingDto = Partial<CreateBosMeetingDto>;
 
 export interface BosMeetingFilters {
   institutionsId?: string;
+  institutionCode?: string;
   boardId?: string;
   compositionId?: string;
   academicYear?: string;
