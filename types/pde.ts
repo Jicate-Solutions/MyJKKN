@@ -366,6 +366,10 @@ export interface PDECapability {
   estimated_hours: number | null;
   is_core: boolean;
   created_at: string;
+  // Tier 2 Item 5 — capability versioning (added 2026-05-19)
+  version?: number;
+  valid_until?: string | null;
+  superseded_by?: string | null;
 }
 
 export interface PDELearnerCapability {
