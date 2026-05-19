@@ -152,44 +152,57 @@ export interface ReserveBedResult {
 }
 
 /**
- * Reserve a specific bed for a learner under a given tier. Uses
- * pg_try_advisory_xact_lock(hashtext(bed_id)) for concurrency safety —
- * first writer wins atomically; loser gets a bed_locked_by_other result
- * with the service caller deciding whether to offer alternatives.
+ * Reserve a specific bed for a learner under a given tier. Wraps the
+ * fn_premium_reserve_bed RPC (Phase 2 migration
+ * 20260519140000_hostel_premium_invites_and_reserve_rpcs.sql) which:
+ *   1. Acquires pg_try_advisory_xact_lock(hashtext(bed_id::text))
+ *   2. Re-evaluates eligibility via fn_hostel_premium_evaluate
+ *   3. Inserts hostel_allocations row with tier_id
+ *   4. Marks the bed as occupied + bumps room.current_occupancy
  *
- * Phase 1: stub returning unknown. Phase 2 (learner-facing UI) wires up the
- * advisory-lock + transactional insert. The signature is locked so the
- * Phase 2 PR is a pure body fill-in, not an API change.
- *
- * Recipe (for Phase 2 implementer):
- *
- *   await supabase.rpc('fn_premium_reserve_bed', {
- *     p_learner_id, p_bed_id, p_tier_id, p_room_id, p_block_id,
- *     p_institution_id, p_academic_year_id, ...
- *   })
- *
- *   The RPC will:
- *   1. PERFORM pg_try_advisory_xact_lock(hashtext(p_bed_id::text))
- *      → if false, RETURN bed_locked_by_other
- *   2. SELECT fn_hostel_premium_evaluate(p_learner_id, p_tier_id)
- *      → if eligible=false, RETURN eligibility_failed
- *   3. INSERT INTO hostel_allocations (..., tier_id) VALUES (..., p_tier_id)
- *      RETURNING id
- *   4. UPDATE hostel_rooms SET current_occupancy = current_occupancy + 1
- *      WHERE id = p_room_id (existing trigger handles this; verify)
+ * Concurrency: first writer wins; second concurrent caller for the same bed
+ * receives reason='bed_locked_by_other' and the UI should re-fetch
+ * availability + prompt for a different bed.
  */
 export async function reserveBed(
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  _input: ReserveBedInput,
+  input: ReserveBedInput,
 ): Promise<ReserveBedResult> {
-  // Phase 1: stub. See JSDoc above for the Phase 2 wiring recipe.
-  console.warn(
-    '[premium-allocation] reserveBed is a Phase 1 stub. The learner-facing UI in Phase 2 will wire this to the fn_premium_reserve_bed RPC.',
-  );
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const supabase = createClientSupabaseClient() as any;
+  const { data, error } = await supabase.rpc('fn_premium_reserve_bed', {
+    p_learner_id: input.learnerId,
+    p_bed_id: input.bedId,
+    p_tier_id: input.tierId,
+    p_room_id: input.roomId,
+    p_block_id: input.blockId,
+    p_institution_id: input.institutionId,
+    p_academic_year_id: input.academicYearId,
+    p_emergency_contact_name: input.emergencyContactName,
+    p_emergency_contact_phone: input.emergencyContactPhone,
+    p_emergency_contact_relation: input.emergencyContactRelation,
+  });
+
+  if (error) {
+    console.error('[premium-allocation] reserveBed RPC error:', error);
+    return {
+      success: false,
+      reason: 'unknown',
+      detail: error.message || 'Failed to reserve bed',
+    };
+  }
+
+  const verdict = (data ?? {}) as {
+    success?: boolean;
+    allocation_id?: string;
+    reason?: ReserveBedResult['reason'];
+    detail?: string;
+  };
+
   return {
-    success: false,
-    reason: 'unknown',
-    detail: 'reserveBed is a Phase 1 stub. Learner-facing premium flow ships in Phase 2.',
+    success: Boolean(verdict.success),
+    allocationId: verdict.allocation_id,
+    reason: verdict.reason,
+    detail: verdict.detail,
   };
 }
 
@@ -204,37 +217,189 @@ export interface InviteRoommateInput {
 }
 
 /**
- * Create a pending roommate invite. Spec decisions #6a/#6b:
- *   - eligibility: same tier + same institution + same gender
- *   - 48h window (hostel.premium.invite_window_hours platform_policy)
- *   - 2 retries max (hostel.premium.invite_max_retries platform_policy)
- *   - minor invitee triggers parent SMS branch (Phase 2)
- *
- * Phase 1: stub returning placeholder state with the correct shape so the
- * dashboard tab #3 (activity log) and admin UI can render the column
- * headers and "0 active invites" empty state.
+ * Create a pending roommate invite via the fn_premium_create_invite RPC.
+ * Eligibility gates enforced in the RPC:
+ *   - inviter has an active premium allocation
+ *   - invited learner is in same institution
+ *   - invited learner has same gender as inviter
+ *   - invited learner is not already in an active premium allocation
+ *   - retry_count for this pair is below hostel.premium.invite_max_retries
+ * Window: hostel.premium.invite_window_hours (default 48h).
  */
 export async function inviteRoommate(
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  _input: InviteRoommateInput,
+  input: InviteRoommateInput,
 ): Promise<RoommateInviteState | null> {
-  console.warn(
-    '[premium-allocation] inviteRoommate is a Phase 1 stub. Wire to fn_premium_create_invite + SMS dispatch in Phase 2.',
-  );
-  return null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const supabase = createClientSupabaseClient() as any;
+  const { data, error } = await supabase.rpc('fn_premium_create_invite', {
+    p_allocation_id: input.allocationId,
+    p_inviter_learner_id: input.inviterLearnerId,
+    p_invited_learner_id: input.invitedLearnerId,
+  });
+
+  if (error) {
+    console.error('[premium-allocation] inviteRoommate RPC error:', error);
+    throw new Error(error.message || 'Failed to create roommate invite');
+  }
+
+  const verdict = (data ?? {}) as {
+    success?: boolean;
+    invite_id?: string;
+    invite_token?: string;
+    reason?: string;
+    detail?: string;
+  };
+
+  if (!verdict.success || !verdict.invite_id) {
+    throw new Error(verdict.detail || verdict.reason || 'Roommate invite failed');
+  }
+
+  // Re-read the invite row for full state (RPC returns id + token only).
+  const { data: row, error: readError } = await supabase
+    .from('hostel_premium_invites')
+    .select('*')
+    .eq('id', verdict.invite_id)
+    .maybeSingle();
+
+  if (readError) {
+    console.error('[premium-allocation] inviteRoommate post-read error:', readError);
+    throw new Error(readError.message || 'Failed to read created invite');
+  }
+
+  return row ? mapInviteRow(row) : null;
 }
 
 /**
- * Confirm a roommate invite via its single-use token. Phase 1: stub.
+ * Confirm a roommate invite via its single-use token. Wraps
+ * fn_premium_confirm_invite. Caller passes acting learner id (typically
+ * profile.id) so the RPC can validate that the invited party is the actor.
  */
 export async function confirmRoommate(
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  _inviteToken: string,
+  inviteToken: string,
+  actingLearnerId: string,
 ): Promise<RoommateInviteState | null> {
-  console.warn(
-    '[premium-allocation] confirmRoommate is a Phase 1 stub. Wire to fn_premium_confirm_invite in Phase 2.',
-  );
-  return null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const supabase = createClientSupabaseClient() as any;
+  const { data, error } = await supabase.rpc('fn_premium_confirm_invite', {
+    p_invite_token: inviteToken,
+    p_acting_learner_id: actingLearnerId,
+  });
+
+  if (error) {
+    console.error('[premium-allocation] confirmRoommate RPC error:', error);
+    throw new Error(error.message || 'Failed to confirm roommate invite');
+  }
+
+  const verdict = (data ?? {}) as {
+    success?: boolean;
+    invite_id?: string;
+    reason?: string;
+    detail?: string;
+  };
+
+  if (!verdict.success || !verdict.invite_id) {
+    throw new Error(verdict.detail || verdict.reason || 'Roommate confirmation failed');
+  }
+
+  const { data: row, error: readError } = await supabase
+    .from('hostel_premium_invites')
+    .select('*')
+    .eq('id', verdict.invite_id)
+    .maybeSingle();
+
+  if (readError) {
+    console.error('[premium-allocation] confirmRoommate post-read error:', readError);
+    throw new Error(readError.message || 'Failed to read confirmed invite');
+  }
+
+  return row ? mapInviteRow(row) : null;
+}
+
+/**
+ * Decline a roommate invite via its single-use token.
+ */
+export async function declineRoommate(
+  inviteToken: string,
+  actingLearnerId: string,
+): Promise<RoommateInviteState | null> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const supabase = createClientSupabaseClient() as any;
+  const { data, error } = await supabase.rpc('fn_premium_decline_invite', {
+    p_invite_token: inviteToken,
+    p_acting_learner_id: actingLearnerId,
+  });
+
+  if (error) {
+    console.error('[premium-allocation] declineRoommate RPC error:', error);
+    throw new Error(error.message || 'Failed to decline roommate invite');
+  }
+
+  const verdict = (data ?? {}) as {
+    success?: boolean;
+    invite_id?: string;
+    reason?: string;
+    detail?: string;
+  };
+
+  if (!verdict.success || !verdict.invite_id) {
+    throw new Error(verdict.detail || verdict.reason || 'Decline failed');
+  }
+
+  const { data: row, error: readError } = await supabase
+    .from('hostel_premium_invites')
+    .select('*')
+    .eq('id', verdict.invite_id)
+    .maybeSingle();
+
+  if (readError) {
+    console.error('[premium-allocation] declineRoommate post-read error:', readError);
+    throw new Error(readError.message || 'Failed to read declined invite');
+  }
+
+  return row ? mapInviteRow(row) : null;
+}
+
+/**
+ * List invites where the given learner is either inviter or invited.
+ * Used by the invite-roommate UI to show pending + history.
+ */
+export async function listInvitesForLearner(
+  learnerId: string,
+): Promise<RoommateInviteState[]> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const supabase = createClientSupabaseClient() as any;
+  const { data, error } = await supabase
+    .from('hostel_premium_invites')
+    .select('*')
+    .or(`inviter_learner_id.eq.${learnerId},invited_learner_id.eq.${learnerId}`)
+    .order('created_at', { ascending: false })
+    .limit(50);
+
+  if (error) {
+    console.error('[premium-allocation] listInvitesForLearner error:', error);
+    throw new Error(error.message || 'Failed to list invites');
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return ((data ?? []) as any[]).map(mapInviteRow);
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function mapInviteRow(row: any): RoommateInviteState {
+  return {
+    id: row.id,
+    allocation_id: row.allocation_id,
+    inviter_learner_id: row.inviter_learner_id,
+    invited_learner_id: row.invited_learner_id,
+    status: row.status,
+    invite_token: row.invite_token,
+    expires_at: row.expires_at,
+    retry_count: row.retry_count ?? 0,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+    accepted_at: row.accepted_at,
+    declined_at: row.declined_at,
+  };
 }
 
 // ---------------------------------------------------------------------------
