@@ -215,12 +215,6 @@ export const STATIC_DEFAULTS: readonly StaticDefault[] = Object.freeze([
     tone: 'amber', cta: 'Open', icon: 'FileCheck2',
     href: '/billing/invoices?filter=approvals',
   }),
-  entry('/billing/invoices', 'admin', {
-    label: 'Generate invoices',
-    context: 'Run scheduled billing for the next cycle',
-    tone: 'neutral', cta: 'Generate', icon: 'FilePlus2',
-    href: '/billing/invoices/new',
-  }),
   entry('/billing/invoices', 'counselor', {
     label: 'My referred candidates\' invoices',
     context: 'Track financial close for your conversions',
