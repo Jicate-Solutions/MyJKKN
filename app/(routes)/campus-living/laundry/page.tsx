@@ -102,12 +102,15 @@ export default function LaundryPage() {
 
   const stats = useMemo(() => {
     const all = orders;
+    // Coerce status to string — service union (LaundryStatus) hasn't yet been
+    // updated to include the real prod enum values (submitted / collected).
+    const statusOf = (o: typeof all[number]) => String(o.status);
     return {
       total: all.length,
-      pending: all.filter((o) => o.status === 'submitted' || o.status === 'collected').length,
-      inProgress: all.filter((o) => o.status === 'washing').length,
-      ready: all.filter((o) => o.status === 'ready').length,
-      delivered: all.filter((o) => o.status === 'delivered').length,
+      pending: all.filter((o) => statusOf(o) === 'submitted' || statusOf(o) === 'collected').length,
+      inProgress: all.filter((o) => statusOf(o) === 'washing').length,
+      ready: all.filter((o) => statusOf(o) === 'ready').length,
+      delivered: all.filter((o) => statusOf(o) === 'delivered').length,
     };
   }, [orders]);
 
