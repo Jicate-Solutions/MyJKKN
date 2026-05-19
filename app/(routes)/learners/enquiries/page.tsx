@@ -49,8 +49,10 @@ async function EnquiriesContent({
   const institution_id = parsedParams.institution_id;
   const degree_id = parsedParams.degree_id;
   const department_id = parsedParams.department_id;
-  const sortBy = parsedParams.sort_by || 'first_name';
-  const sortOrder = parsedParams.sort_order || 'asc';
+  // Default to newest-first by created_at so freshly added enquiries surface
+  // at the top of the list. Users can still click any column header to override.
+  const sortBy = parsedParams.sort_by || 'created_at';
+  const sortOrder = parsedParams.sort_order || 'desc';
 
   // getEnquiries is guaranteed not to throw — returns empty result on failure.
   const { data: enquiries, metadata } = await getEnquiries({
