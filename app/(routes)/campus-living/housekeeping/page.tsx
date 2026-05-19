@@ -1,12 +1,20 @@
 'use client';
 
-import { toast } from 'sonner';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import {
   Select,
   SelectContent,
@@ -33,7 +41,10 @@ import {
 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
-import { useCleaningSchedules } from '@/hooks/campus-living/use-hostel-housekeeping';
+import {
+  useCleaningSchedules,
+  useCreateCleaningSchedule,
+} from '@/hooks/campus-living/use-hostel-housekeeping';
 import { BlockSelector } from '@/components/campus-living/block-selector';
 
 
@@ -47,12 +58,38 @@ export const navMeta = {
   invokedFrom: '/campus-living',
 } as const;
 
+// Real prod schema enum values (verified via Supabase Management API):
+// hostel_cleaning_schedules.cleaning_type → cleaning_type_enum
+const CLEANING_TYPES = [
+  { value: 'daily_sweep', label: 'Daily Sweep' },
+  { value: 'daily_mop', label: 'Daily Mop' },
+  { value: 'toilet_cleaning', label: 'Toilet Cleaning' },
+  { value: 'common_area', label: 'Common Area' },
+  { value: 'deep_cleaning', label: 'Deep Cleaning' },
+  { value: 'window_cleaning', label: 'Window Cleaning' },
+  { value: 'water_tank', label: 'Water Tank' },
+  { value: 'disinfection', label: 'Disinfection' },
+  { value: 'other', label: 'Other' },
+];
+
+// hostel_cleaning_schedules.frequency → pm_frequency_enum
+const FREQUENCIES = [
+  { value: 'daily', label: 'Daily' },
+  { value: 'weekly', label: 'Weekly' },
+  { value: 'biweekly', label: 'Bi-weekly' },
+  { value: 'monthly', label: 'Monthly' },
+  { value: 'quarterly', label: 'Quarterly' },
+  { value: 'half_yearly', label: 'Half-yearly' },
+  { value: 'yearly', label: 'Yearly' },
+];
+
 export default function HousekeepingPage() {
   const { profile } = useAuth();
   const institutionId = profile?.institution_id || '';
   const [searchQuery, setSearchQuery] = useState('');
   const [blockFilter, setBlockFilter] = useState<string>('all');
   const [activeFilter, setActiveFilter] = useState<string>('all');
+  const [createOpen, setCreateOpen] = useState(false);
 
   const filters = useMemo(() => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -69,10 +106,13 @@ export default function HousekeepingPage() {
   const filteredSchedules = schedules.filter((s) => {
     if (!searchQuery) return true;
     const q = searchQuery.toLowerCase();
+    // Match against real prod columns (cleaning_type / frequency / assigned_staff)
+    // plus legacy aliases (area / cadence / assigned_to) so the search still works
+    // in either schema state.
     return (
-      (s.area ?? '').toLowerCase().includes(q) ||
-      (s.cadence ?? '').toLowerCase().includes(q) ||
-      (s.assigned_to ?? '').toLowerCase().includes(q)
+      String(s.cleaning_type ?? s.area ?? '').toLowerCase().includes(q) ||
+      String(s.frequency ?? s.cadence ?? '').toLowerCase().includes(q) ||
+      String(s.assigned_staff ?? s.assigned_to ?? '').toLowerCase().includes(q)
     );
   });
 
@@ -106,13 +146,7 @@ export default function HousekeepingPage() {
               Recurring cleaning plans across blocks and common areas.
             </p>
           </div>
-          <Button
-            onClick={() =>
-              toast.info('New-schedule dialog ships next.', {
-                description: 'Use the schedules sub-page to create one until the inline form is wired.',
-              })
-            }
-          >
+          <Button onClick={() => setCreateOpen(true)} disabled={!institutionId}>
             <Plus className="mr-2 h-4 w-4" />
             New Schedule
           </Button>
@@ -191,29 +225,35 @@ export default function HousekeepingPage() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Area</TableHead>
-                    <TableHead>Cadence</TableHead>
+                    <TableHead>Type</TableHead>
+                    <TableHead>Frequency</TableHead>
                     <TableHead>Next Due</TableHead>
-                    <TableHead>Assigned To</TableHead>
+                    <TableHead>Assigned Staff</TableHead>
                     <TableHead>Status</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {filteredSchedules.map((s) => (
                     <TableRow key={s.id}>
-                      <TableCell className="font-medium">{s.area ?? '—'}</TableCell>
-                      <TableCell className="capitalize">{s.cadence ?? '—'}</TableCell>
+                      <TableCell className="font-medium capitalize">
+                        {String(s.cleaning_type ?? s.area ?? '—').replace(/_/g, ' ')}
+                      </TableCell>
+                      <TableCell className="capitalize">
+                        {String(s.frequency ?? s.cadence ?? '—').replace(/_/g, ' ')}
+                      </TableCell>
                       <TableCell>
                         {s.next_due_at ? (
                           <span className="flex items-center gap-1 text-sm">
                             <CalendarDays className="h-3 w-3 text-muted-foreground" />
-                            {new Date(s.next_due_at).toLocaleDateString()}
+                            {new Date(s.next_due_at as string).toLocaleDateString()}
                           </span>
                         ) : (
                           '—'
                         )}
                       </TableCell>
-                      <TableCell>{s.assigned_to ?? '—'}</TableCell>
+                      <TableCell>
+                        {String(s.assigned_staff ?? s.assigned_to ?? '—')}
+                      </TableCell>
                       <TableCell>
                         {s.is_active ? (
                           <Badge className="bg-green-100 text-green-800 hover:bg-green-100">
@@ -235,6 +275,121 @@ export default function HousekeepingPage() {
           </CardContent>
         </Card>
       </div>
+
+      <CreateScheduleDialog
+        open={createOpen}
+        onOpenChange={setCreateOpen}
+        institutionId={institutionId}
+      />
     </ContentLayout>
+  );
+}
+
+interface CreateScheduleDialogProps {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  institutionId: string;
+}
+
+function CreateScheduleDialog({ open, onOpenChange, institutionId }: CreateScheduleDialogProps) {
+  const createMut = useCreateCleaningSchedule();
+  const [blockId, setBlockId] = useState<string>('all');
+  const [cleaningType, setCleaningType] = useState<string>('daily_sweep');
+  const [frequency, setFrequency] = useState<string>('daily');
+  const [assignedStaff, setAssignedStaff] = useState<string>('');
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!institutionId) return;
+    // Payload uses real prod column names. Service DTO has index signature so
+    // extra/unknown keys flow through to the insert untouched.
+    const payload = {
+      institution_id: institutionId,
+      block_id: blockId !== 'all' ? blockId : null,
+      cleaning_type: cleaningType,
+      frequency,
+      assigned_staff: assignedStaff || null,
+      is_active: true,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any;
+    createMut.mutate(payload, {
+      onSuccess: () => {
+        onOpenChange(false);
+        setBlockId('all');
+        setCleaningType('daily_sweep');
+        setFrequency('daily');
+        setAssignedStaff('');
+      },
+    });
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <form onSubmit={handleSubmit}>
+          <DialogHeader>
+            <DialogTitle>New Cleaning Schedule</DialogTitle>
+            <DialogDescription>
+              Set up a recurring cleaning plan for a block or common area.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="block">Block (optional)</Label>
+              <BlockSelector
+                institutionId={institutionId}
+                value={blockId}
+                onValueChange={setBlockId}
+                className="w-full"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="cleaning-type">Cleaning type</Label>
+              <Select value={cleaningType} onValueChange={setCleaningType}>
+                <SelectTrigger id="cleaning-type">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {CLEANING_TYPES.map((t) => (
+                    <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="frequency">Frequency</Label>
+              <Select value={frequency} onValueChange={setFrequency}>
+                <SelectTrigger id="frequency">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {FREQUENCIES.map((f) => (
+                    <SelectItem key={f.value} value={f.value}>{f.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="assigned-staff">Assigned staff (optional)</Label>
+              <Input
+                id="assigned-staff"
+                placeholder="e.g. Rajesh K."
+                value={assignedStaff}
+                onChange={(e) => setAssignedStaff(e.target.value)}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={createMut.isPending || !institutionId}>
+              {createMut.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Create schedule
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
