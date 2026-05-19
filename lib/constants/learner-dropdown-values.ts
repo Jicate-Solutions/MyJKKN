@@ -274,6 +274,15 @@ export const QUOTA_OPTIONS = [
   { value: 'MANAGEMENT', label: 'Management Quota' }
 ] as const;
 
+export const BOARD_OF_STUDY_OPTIONS = [
+  { value: 'state_board', label: 'State Board' },
+  { value: 'cbse', label: 'CBSE' },
+  { value: 'icse', label: 'ICSE' },
+  { value: 'matriculation', label: 'Matriculation' },
+  { value: 'anglo_indian', label: 'Anglo Indian' },
+  { value: 'others', label: 'Others' }
+] as const;
+
 export const SCHOLARSHIP_TYPE_OPTIONS = [
   { value: 'FIRST GRADUATE', label: 'First Graduate' },
   { value: 'PMS SCHOLARSHIP', label: 'PMS Scholarship' },
