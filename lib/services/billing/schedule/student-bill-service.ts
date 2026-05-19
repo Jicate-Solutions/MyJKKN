@@ -355,21 +355,40 @@ export class StudentBillService {
         );
       }
 
-      // Apply search filter with correct syntax
+      // Apply search filter. PostgREST .or() cannot reference embedded-resource
+      // columns (e.g. `student.first_name.ilike.X`) — the parser only allows
+      // <column>.<operator>.<value> on the parent table. To search both the
+      // bill description AND the joined student fields, pre-resolve the
+      // matching student IDs and OR them in as `student_id.in.(...)`.
       if (filters.search) {
-        const searchTerm = `*${filters.search}*`;
+        const term = filters.search.replace(/[,()]/g, ' ').trim();
+        const like = `%${term}%`;
 
-        if (hasAcademicFilters) {
-          // When using joins, student fields are nested
-          query = query.or(
-            `bill_description.ilike.${searchTerm},student.first_name.ilike.${searchTerm},student.last_name.ilike.${searchTerm},student.roll_number.ilike.${searchTerm}`
-          );
-        } else {
-          // When using the view, fields are flattened
-          query = query.or(
-            `bill_description.ilike.${searchTerm},student_name.ilike.${searchTerm},roll_number.ilike.${searchTerm}`
-          );
+        const orParts: string[] = [`bill_description.ilike.${like}`];
+
+        if (term.length > 0) {
+          const { data: matchedStudents, error: studentLookupErr } = await (
+            this.supabase as any
+          )
+            .from('learners_profiles')
+            .select('id')
+            .or(
+              `first_name.ilike.${like},last_name.ilike.${like},roll_number.ilike.${like}`
+            )
+            .limit(1000);
+
+          if (studentLookupErr) throw studentLookupErr;
+
+          const studentIds = (matchedStudents ?? [])
+            .map((s: { id: string }) => s.id)
+            .filter(Boolean);
+
+          if (studentIds.length > 0) {
+            orParts.push(`student_id.in.(${studentIds.join(',')})`);
+          }
         }
+
+        query = query.or(orParts.join(','));
       }
 
       if (filters.student_id) {

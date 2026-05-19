@@ -63,10 +63,14 @@ import { DepartmentService } from '@/lib/services/organization/department-servic
 import { ProgramService } from '@/lib/services/organization/program-service';
 import { SemesterService } from '@/lib/services/organization/semester-service';
 import { SectionService } from '@/lib/services/organization/section-service';
+import { BillingCategoryService } from '@/lib/services/billing/categories/billing-category-service';
+import type { BillingCategory } from '@/types/billing';
 
-// Hierarchical filter keys understood by /api/billing/receipts/bulk-template.
-// Kept narrow on purpose: non-hierarchy filters (date range, status, category,
-// academic_year_id) still flow through from `scheduleFilters` untouched.
+// Filter keys owned by the dialog (override scheduleFilters passthrough).
+// The six hierarchy levels cascade (Institution → Section); item_category_id
+// sits alongside them as an independent scope filter. Anything not listed
+// here (date range, status, academic_year_id) still flows from
+// scheduleFilters untouched.
 interface HierarchyFilters {
   institution_id?: string;
   degree_id?: string;
@@ -74,6 +78,7 @@ interface HierarchyFilters {
   program_id?: string;
   semester_id?: string;
   section_id?: string;
+  item_category_id?: string;
 }
 
 interface HierarchyOption {
@@ -121,7 +126,8 @@ export function BulkReceiptDialog({
     department_id: scheduleFilters.department_id,
     program_id: scheduleFilters.program_id,
     semester_id: scheduleFilters.semester_id,
-    section_id: scheduleFilters.section_id
+    section_id: scheduleFilters.section_id,
+    item_category_id: scheduleFilters.item_category_id
   });
   const [hierarchy, setHierarchy] = useState<HierarchyFilters>(initialHierarchy);
 
@@ -167,7 +173,8 @@ export function BulkReceiptDialog({
       'department_id',
       'program_id',
       'semester_id',
-      'section_id'
+      'section_id',
+      'item_category_id'
     ]);
     Object.entries(scheduleFilters).forEach(([k, v]) => {
       if (v && !HIERARCHY_KEYS.has(k as keyof HierarchyFilters)) {
@@ -264,7 +271,8 @@ export function BulkReceiptDialog({
     hierarchy.department_id,
     hierarchy.program_id,
     hierarchy.semester_id,
-    hierarchy.section_id
+    hierarchy.section_id,
+    hierarchy.item_category_id
   ]);
 
   const handleOpenChange = (next: boolean) => {
@@ -636,7 +644,8 @@ export function BulkReceiptDialog({
                     'department_id',
                     'program_id',
                     'semester_id',
-                    'section_id'
+                    'section_id',
+                    'item_category_id'
                   ].includes(k)
               )}
               onResetToSchedule={() => setHierarchy(initialHierarchy())}
@@ -857,6 +866,10 @@ function HierarchyFilterPanel({
     semesters: false,
     sections: false
   });
+  // Billing categories are independent of the cascade — fetched once and
+  // never invalidated by hierarchy changes, so keep them in their own slot.
+  const [categories, setCategories] = useState<BillingCategory[]>([]);
+  const [loadingCategories, setLoadingCategories] = useState(false);
 
   // Normalize service responses (which use *_name fields) into {id, name}.
   const normalize = (rows: any[]): HierarchyOption[] =>
@@ -885,6 +898,24 @@ function HierarchyFilterPanel({
       .catch(() => {})
       .finally(() => {
         if (!cancelled) setLoading((l) => ({ ...l, institutions: false }));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Load active billing categories once on mount. RLS-filtered via the
+  // service; no cascade dependency so this never re-runs.
+  useEffect(() => {
+    let cancelled = false;
+    setLoadingCategories(true);
+    BillingCategoryService.getActiveBillingCategories()
+      .then((rows) => {
+        if (!cancelled) setCategories(rows);
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setLoadingCategories(false);
       });
     return () => {
       cancelled = true;
@@ -1012,7 +1043,10 @@ function HierarchyFilterPanel({
       department_id: ['program_id', 'semester_id', 'section_id'],
       program_id: ['semester_id', 'section_id'],
       semester_id: ['section_id'],
-      section_id: []
+      section_id: [],
+      // Category is orthogonal to the hierarchy: changing it clears nothing,
+      // and changing any hierarchy level shouldn't clear the category either.
+      item_category_id: []
     };
 
   const handleChange = (
@@ -1078,6 +1112,17 @@ function HierarchyFilterPanel({
         </CardDescription>
       </CardHeader>
       <CardContent className='space-y-3'>
+        {/* Billing category sits above the cascade — it's an orthogonal
+            scope filter (any hierarchy slice ✕ any category), not a parent
+            of the cascade levels. Full-width row visually separates it. */}
+        <HierarchySelect
+          label='Billing category'
+          value={value.item_category_id}
+          options={categories.map((c) => ({ id: c.id, name: c.category_name }))}
+          loading={loadingCategories}
+          onChange={(v) => handleChange('item_category_id', v)}
+          placeholder='All categories'
+        />
         <div className='grid grid-cols-1 sm:grid-cols-2 gap-3'>
           <HierarchySelect
             label='Institution'
