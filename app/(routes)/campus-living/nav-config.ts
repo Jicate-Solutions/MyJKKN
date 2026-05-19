@@ -30,6 +30,7 @@ const config: ModuleNavConfig = {
         '/campus-living/wardens',
         '/campus-living/allocations',
         '/campus-living/my-hostel',
+        '/campus-living/my-hostel/premium',
         '/campus-living/vacate-requests',
       ],
       children: [
@@ -91,6 +92,28 @@ const config: ModuleNavConfig = {
           icon: 'Home',
           href: '/campus-living/my-hostel',
           matchPaths: ['/campus-living/my-hostel'],
+        },
+        // ── Premium Stay (learner-facing, PR #1001) ──────────────────
+        // Previously reachable only via "Upgrade to Premium" button on
+        // /my-hostel. Surfacing as chips so eligible learners can
+        // navigate without a forced detour through the hub page.
+        {
+          label: 'Premium Stay',
+          icon: 'Sparkles',
+          href: '/campus-living/my-hostel/premium',
+          matchPaths: ['/campus-living/my-hostel/premium'],
+        },
+        {
+          label: 'Pick Room',
+          icon: 'BedDouble',
+          href: '/campus-living/my-hostel/premium/pick-room',
+          matchPaths: ['/campus-living/my-hostel/premium/pick-room'],
+        },
+        {
+          label: 'Invite Roommate',
+          icon: 'UserPlus',
+          href: '/campus-living/my-hostel/premium/invite-roommate',
+          matchPaths: ['/campus-living/my-hostel/premium/invite-roommate'],
         },
       ],
     },
@@ -538,6 +561,26 @@ const config: ModuleNavConfig = {
           icon: 'BellRing',
           href: '/campus-living/settings/notification-rules',
           matchPaths: ['/campus-living/settings/notification-rules'],
+        },
+        // ── Premium Stay admin shortcuts ─────────────────────────────
+        // These point to /admin/campus-living/premium/* pages, surfaced
+        // here so wardens / chief wardens don't have to context-switch
+        // out of the Campus Living module. The pages are also reachable
+        // from the admin sidebar (auto-flat from route-manifest), this
+        // is a quality-of-life cross-link. Permission gating happens at
+        // the page level via campus_living.premium.override_pick /
+        // .view_dashboard (seeded in 20260519172800 migration).
+        {
+          label: 'Premium Override (Admin)',
+          icon: 'ShieldCheck',
+          href: '/admin/campus-living/premium/override',
+          matchPaths: ['/admin/campus-living/premium/override'],
+        },
+        {
+          label: 'Premium Audit Log (Admin)',
+          icon: 'History',
+          href: '/admin/campus-living/premium/audit-log',
+          matchPaths: ['/admin/campus-living/premium/audit-log'],
         },
       ],
     },
