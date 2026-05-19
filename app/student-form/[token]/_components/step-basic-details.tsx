@@ -15,6 +15,7 @@ import { Loader2, Save } from 'lucide-react';
 import toast from 'react-hot-toast';
 import type { Language } from './language-toggle';
 import { OccupationField } from '@/components/admission/occupation-field';
+import { CommunityCasteSelector } from '@/components/admission/community-caste-selector';
 import {
   GENDER_OPTIONS,
   RELIGION_OPTIONS,
@@ -262,29 +263,13 @@ export function StepBasicDetails({
           </Select>
         </Field>
 
-        <Field label={lbl('community')}>
-          <Select value={v.community} onValueChange={(s) => set('community', s)}>
-            <SelectTrigger className="h-12">
-              <SelectValue placeholder={T.select_community.en + ' / ' + T.select_community.ta} />
-            </SelectTrigger>
-            <SelectContent>
-              {COMMUNITY_OPTIONS.map((o) => (
-                <SelectItem key={o.value} value={o.value}>
-                  {o.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </Field>
-
-        <Field label={lbl('caste')}>
-          <Input
-            value={v.caste}
-            onChange={(e) => set('caste', e.target.value)}
-            placeholder={ph('caste')}
-            className="h-12"
-          />
-        </Field>
+        <CommunityCasteSelector
+          community={v.community}
+          caste={v.caste}
+          onCommunityChange={(val) => set('community', val)}
+          onCasteChange={(val) => set('caste', val)}
+          bilingual
+        />
       </Section>
 
       {/* Parents' Information */}
@@ -302,6 +287,7 @@ export function StepBasicDetails({
           label={lbl('father_occupation')}
           value={v.father_occupation}
           onChange={(val) => set('father_occupation', val)}
+          bilingual
         />
 
         <Field label={lbl('father_phone')}>
@@ -327,6 +313,7 @@ export function StepBasicDetails({
           label={lbl('mother_occupation')}
           value={v.mother_occupation}
           onChange={(val) => set('mother_occupation', val)}
+          bilingual
         />
 
         <Field label={lbl('mother_phone')}>

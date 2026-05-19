@@ -41,6 +41,13 @@ interface OccupationFieldProps {
   required?: boolean;
   /** Optional helper text rendered below the input(s). */
   helper?: string;
+  /**
+   * Render option labels and placeholders with Tamil + English. When false
+   * (default), shows English-only — matches the enquiry/learner-profile forms.
+   * The student form passes `bilingual` to match its bilingual UX everywhere
+   * else.
+   */
+  bilingual?: boolean;
 }
 
 export function OccupationField({
@@ -50,6 +57,7 @@ export function OccupationField({
   placeholder,
   required,
   helper,
+  bilingual = false,
 }: OccupationFieldProps) {
   // Lazy initializer — runs once on mount. Computes whether to start in
   // "option mode" (value matches a code) or "other mode" (value is custom).
@@ -87,13 +95,25 @@ export function OccupationField({
       </Label>
       <Select value={selectValue} onValueChange={handleSelectChange}>
         <SelectTrigger className="h-12">
-          <SelectValue placeholder={placeholder ?? 'Select occupation / தொழில் தேர்வு செய்க'} />
+          <SelectValue
+            placeholder={
+              placeholder ??
+              (bilingual
+                ? 'Select occupation / தொழில் தேர்வு செய்க'
+                : 'Select occupation')
+            }
+          />
         </SelectTrigger>
         <SelectContent>
           {OCCUPATION_OPTIONS.map((o) => (
             <SelectItem key={o.value} value={o.value}>
-              {o.label}{' '}
-              <span className="text-muted-foreground">/ {o.tamil}</span>
+              {o.label}
+              {bilingual && (
+                <>
+                  {' '}
+                  <span className="text-muted-foreground">/ {o.tamil}</span>
+                </>
+              )}
             </SelectItem>
           ))}
         </SelectContent>
@@ -103,7 +123,11 @@ export function OccupationField({
         <Input
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          placeholder="Specify occupation / தொழிலைக் குறிப்பிடவும்"
+          placeholder={
+            bilingual
+              ? 'Specify occupation / தொழிலைக் குறிப்பிடவும்'
+              : 'Specify occupation'
+          }
           className="h-12"
           aria-label="Specify other occupation"
         />
