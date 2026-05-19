@@ -256,6 +256,19 @@ export const POLICY_KEYS = {
   PDE_RUBRICS_CULTURAL_CIVIC_LOCAL_COMMUNITY_PROJECT: 'pde.rubrics.cultural_civic.local_community_project',
   PDE_RUBRICS_CULTURAL_CIVIC_TRADITION_ATTUNEMENT: 'pde.rubrics.cultural_civic.tradition_attunement',
   PDE_RUBRICS_CULTURAL_CIVIC_CIVIC_ENGAGEMENT: 'pde.rubrics.cultural_civic.civic_engagement',
+  // PDE Rubrics — Embodied Practice (Phase 7) -------------------------------
+  // Per-discipline rubric for hands-on skill demonstrations across JKKN
+  // colleges. Each value is an object with shape:
+  //   { discipline, rubric: [{skill, evidence_required, validator_role,
+  //     scoring_band:[min,max], passing_threshold}],
+  //     min_demonstrations_per_year, validity_period_months }
+  // Edited via /admin/pde/rubrics/embodied (super-admin). Consumed by PDE
+  // demonstration gate logic at runtime — no deploy required to retune.
+  PDE_RUBRICS_EMBODIED_MEDICAL: 'pde.rubrics.embodied.medical',
+  PDE_RUBRICS_EMBODIED_PHARMACY: 'pde.rubrics.embodied.pharmacy',
+  PDE_RUBRICS_EMBODIED_NURSING: 'pde.rubrics.embodied.nursing',
+  PDE_RUBRICS_EMBODIED_DENTAL: 'pde.rubrics.embodied.dental',
+  PDE_RUBRICS_EMBODIED_ENGINEERING: 'pde.rubrics.embodied.engineering',
 } as const;
 
 export type PolicyKey = typeof POLICY_KEYS[keyof typeof POLICY_KEYS];

@@ -62,6 +62,7 @@ export const MODULE_PREFIXES: [string, string][] = [
   ['hostel_', 'Campus Living'],
   ['mess_', 'Campus Living'],
   ['pde_', 'PDE Learning'],
+  ['cdc_', 'CDC'],
   ['chatbot_', 'Chatbot'],
   ['chat_', 'Chatbot'],
   ['expo_', 'Expo'],

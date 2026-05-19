@@ -35,17 +35,23 @@ import type {
  * Paginated list of payroll periods. Pass `filters` to constrain by
  * institution / engine_type / period / status / backdated flag.
  *
- * Returns `undefined` if no `enabled` filter is supplied (e.g. on a screen
- * that hasn't picked an org yet). React Query's `enabled` gate is checked on
- * `filters.hr_organization_id` because every screen so far scopes by org.
+ * PR 3 amendment (2026-05-19): removed `enabled: !!hr_organization_id` gate
+ * so super-admin / Director list pages can render "all institutions" scope
+ * (per spec specs/t4-3-pr3-payroll-ui-design-lock-2026-05-19.md Q7). RLS
+ * still scopes server-side — Director sees all 11 orgs they have access to,
+ * HR Officer sees only their own org. Caller can pass `enabled: false` via
+ * the React Query layer if they need to defer a fetch.
  */
-export function usePayrollPeriods(filters: PayrollPeriodFilters = {}) {
+export function usePayrollPeriods(
+  filters: PayrollPeriodFilters = {},
+  options: { enabled?: boolean } = {},
+) {
   const supabase = useMemo(() => createClientSupabaseClient(), []);
 
   return useQuery<PayrollPeriodListResponse>({
     queryKey: ['hr-payroll-periods', filters],
     queryFn: () => PayrollPeriodsService.listPeriods(supabase, filters),
-    enabled: !!filters.hr_organization_id,
+    enabled: options.enabled ?? true,
     staleTime: 30 * 1000, // 30s — period rows change on every stage transition
   });
 }
