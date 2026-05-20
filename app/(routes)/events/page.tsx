@@ -11,7 +11,7 @@ import {
   CardContent,
 } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Timer, Music, Mic2, Dumbbell, BookOpen, Users } from 'lucide-react';
+import { Timer, Music, Mic2, Dumbbell, BookOpen, Users, FileText } from 'lucide-react';
 
 interface EventTypeCard {
   title: string;
@@ -22,6 +22,14 @@ interface EventTypeCard {
 }
 
 const EVENT_TYPES: EventTypeCard[] = [
+  {
+    title: 'Event Proposals',
+    description:
+      'Submit a new event idea and track approval status. Directors approve proposals here.',
+    href: '/events/proposals',
+    icon: FileText,
+    available: true,
+  },
   {
     title: 'Marathon',
     description:

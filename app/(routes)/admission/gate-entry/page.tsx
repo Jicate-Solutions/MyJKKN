@@ -161,7 +161,16 @@ function GateEntryForm() {
     }
     let cancelled = false;
     setProgramsLoading(true);
-    ProgramService.getPrograms({ institution_id: institutionId, isActive: true })
+    // limit: 1000 — ProgramService.getPrograms() applies pagination with a
+    // default page size of 10 (see lib/services/organization/program-service.ts).
+    // Multiple JKKN institutions have >10 active programmes (Arts & Science Self
+    // has 20), so omitting the limit silently truncates the dropdown. Mirrors
+    // the pattern used by add-counselor-dialog.tsx and marketing/campaigns.
+    ProgramService.getPrograms({
+      institution_id: institutionId,
+      isActive: true,
+      limit: 1000,
+    })
       .then(({ data }) => { if (!cancelled) setPrograms(data ?? []); })
       .catch(() => { if (!cancelled) setPrograms([]); })
       .finally(() => { if (!cancelled) setProgramsLoading(false); });

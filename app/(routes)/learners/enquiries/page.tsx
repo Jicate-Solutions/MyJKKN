@@ -3,13 +3,18 @@
 // ============================================
 // Created: 2025-01-18
 // Updated: 2025-12-25 - Converted to server component with Cache Components
+// Updated: 2026-05-20 - Tabs are now URL-driven (?tab=…) and only the active
+//   tab's data is fetched server-side. Previously all 9 tabs rendered
+//   eagerly, causing ~18 PostgREST round-trips per page load (9 tabs × main
+//   + count query). Now: 1 tab × 1 query (count merged into main query in
+//   get-enquiries.ts).
 // Purpose: List and manage learner enquiries and pending applications
 // ============================================
 
 import { Suspense } from 'react';
+import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { EnquiriesTableServer } from './_components/enquiries-table-server';
 import { EnquiriesFilters } from './_components/enquiries-filters';
 import { EnquiriesSearchWrapper } from './_components/enquiries-search-wrapper';
@@ -17,12 +22,51 @@ import { enquiriesSearchParamsSchema } from './_components/data-table-schema';
 import { EnquiriesHeader } from './_components/enquiries-header';
 import { getEnquiries } from './_data/get-enquiries';
 import { TableSkeleton } from '@/components/Loading';
+import { cn } from '@/lib/utils';
 import type { LifecycleStatus } from '@/types/learner-profile';
 
 interface EnquiriesPageProps {
   searchParams: Promise<{
     [key: string]: string | string[] | undefined;
   }>;
+}
+
+// Tabs displayed in left-to-right workflow order. The `value` is the
+// canonical lifecycle_status (or the FEES_SETUP_PENDING sentinel) used as
+// both the URL ?tab= parameter and the filter passed to getEnquiries.
+const TABS = [
+  { value: 'enquiry', label: 'Enquiry' },
+  { value: 'enquiry_submitted', label: 'Enquiry Submitted' },
+  { value: 'fees_setup_pending', label: 'Fees Setup Pending' },
+  { value: 'pending', label: 'Pending Applications' },
+  { value: 'account', label: 'Account' },
+  { value: 'reserved', label: 'Reserved' },
+  { value: 'admitted', label: 'Admitted' },
+  { value: 'rejected', label: 'Rejected' },
+  { value: 'waitlisted', label: 'Waitlisted' },
+] as const;
+
+type TabValue = (typeof TABS)[number]['value'];
+const TAB_VALUES = new Set(TABS.map((t) => t.value));
+
+/**
+ * Build a tab-switch URL that preserves other search params but resets
+ * pagination — switching to a different status while on page 5 of the
+ * previous status would otherwise show empty results and confuse the user.
+ */
+function buildTabHref(
+  currentParams: { [key: string]: string | string[] | undefined },
+  tab: TabValue,
+): string {
+  const search = new URLSearchParams();
+  for (const [k, v] of Object.entries(currentParams)) {
+    if (k === 'tab' || k === 'page') continue;
+    if (typeof v === 'string') search.set(k, v);
+    else if (Array.isArray(v)) v.forEach((x) => search.append(k, x));
+  }
+  search.set('tab', tab);
+  const qs = search.toString();
+  return qs ? `?${qs}` : '?tab=' + tab;
 }
 
 /**
@@ -107,6 +151,13 @@ export default async function EnquiriesPage({ searchParams }: EnquiriesPageProps
   // Await searchParams as per Next.js 16 async API
   const params = await searchParams;
 
+  // Resolve the active tab from ?tab=… and validate against the allow-list.
+  // Falls back to 'enquiry' for an unknown / missing value so a hand-typed URL
+  // never breaks the page. The fees_setup_pending sentinel is included.
+  const rawTab = typeof params.tab === 'string' ? params.tab : undefined;
+  const activeTab: TabValue =
+    rawTab && TAB_VALUES.has(rawTab as TabValue) ? (rawTab as TabValue) : 'enquiry';
+
   return (
     <ContentLayout title="Admission Management">
       <PageBreadcrumb
@@ -121,110 +172,56 @@ export default async function EnquiriesPage({ searchParams }: EnquiriesPageProps
         {/* Header with Import/Export functionality */}
         <EnquiriesHeader />
 
-        {/* Tabs ordered to match the workflow stages (left-to-right). */}
-        <Tabs defaultValue="enquiry" className="w-full">
-          <TabsList className="flex-wrap h-auto">
-            <TabsTrigger value="enquiry">Enquiry</TabsTrigger>
-            <TabsTrigger value="enquiry_submitted">Enquiry Submitted</TabsTrigger>
-            <TabsTrigger value="fees_setup_pending">Fees Setup Pending</TabsTrigger>
-            <TabsTrigger value="pending">Pending Applications</TabsTrigger>
-            <TabsTrigger value="account">Account</TabsTrigger>
-            <TabsTrigger value="reserved">Reserved</TabsTrigger>
-            <TabsTrigger value="admitted">Admitted</TabsTrigger>
-            <TabsTrigger value="rejected">Rejected</TabsTrigger>
-            <TabsTrigger value="waitlisted">Waitlisted</TabsTrigger>
-          </TabsList>
+        {/* URL-driven tab strip — only the active tab's data is fetched on
+            the server. Switching tabs is a normal Next.js navigation that
+            updates ?tab=…; other filters / search are preserved, page is
+            reset to 1. */}
+        <div className="w-full">
+          <nav
+            role="tablist"
+            aria-label="Enquiry lifecycle stage"
+            className="inline-flex flex-wrap h-auto items-center justify-start rounded-md bg-muted p-1 text-muted-foreground gap-0.5"
+          >
+            {TABS.map((t) => {
+              const isActive = t.value === activeTab;
+              return (
+                <Link
+                  key={t.value}
+                  href={buildTabHref(params, t.value)}
+                  role="tab"
+                  aria-selected={isActive}
+                  prefetch={false}
+                  className={cn(
+                    'inline-flex items-center justify-center whitespace-nowrap rounded-sm px-3 py-1.5 text-sm font-medium ring-offset-background transition-all',
+                    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
+                    isActive
+                      ? 'bg-background text-foreground shadow-sm'
+                      : 'hover:bg-background/60 hover:text-foreground',
+                  )}
+                >
+                  {t.label}
+                </Link>
+              );
+            })}
+          </nav>
 
-          <TabsContent value="enquiry" className="space-y-4">
+          <div className="mt-4 space-y-4">
             <Suspense
-              key={`enquiry-${JSON.stringify(params)}`}
-              fallback={<TableSkeleton rows={10} columns={8} />}
+              key={`${activeTab}-${JSON.stringify(params)}`}
+              fallback={<TableSkeleton rows={10} columns={activeTab === 'fees_setup_pending' ? 10 : 8} />}
             >
-              <EnquiriesContent searchParams={params} statusFilter="enquiry" />
-            </Suspense>
-          </TabsContent>
-
-          <TabsContent value="enquiry_submitted" className="space-y-4">
-            <Suspense
-              key={`enquiry_submitted-${JSON.stringify(params)}`}
-              fallback={<TableSkeleton rows={10} columns={8} />}
-            >
-              <EnquiriesContent searchParams={params} statusFilter="enquiry_submitted" />
-            </Suspense>
-          </TabsContent>
-
-          <TabsContent value="fees_setup_pending" className="space-y-4">
-            <Suspense
-              key={`fees-setup-${JSON.stringify(params)}`}
-              fallback={<TableSkeleton rows={10} columns={10} />}
-            >
-              {/*
-                statusFilter is a virtual value handled specially by getEnquiries:
-                filter expands to lifecycle_status='enquiry' AND legacy_fee_mode=true,
-                and rows are annotated with resolution_status + missing_fields from
-                vw_learners_profile_fee_backfill_status so the table can show badges.
-              */}
+              {/* activeTab includes the virtual 'fees_setup_pending' sentinel
+                  that is not part of LifecycleStatus — getEnquiries handles
+                  it specially, so we cast to satisfy the prop type. Mirrors
+                  the same pattern used at the EnquiriesSearchWrapper /
+                  EnquiriesFilters / EnquiriesTableServer call sites above. */}
               <EnquiriesContent
                 searchParams={params}
-                statusFilter={'fees_setup_pending' as any}
+                statusFilter={activeTab as any}
               />
             </Suspense>
-          </TabsContent>
-
-          <TabsContent value="pending" className="space-y-4">
-            <Suspense
-              key={`pending-${JSON.stringify(params)}`}
-              fallback={<TableSkeleton rows={10} columns={8} />}
-            >
-              <EnquiriesContent searchParams={params} statusFilter="pending" />
-            </Suspense>
-          </TabsContent>
-
-          <TabsContent value="account" className="space-y-4">
-            <Suspense
-              key={`account-${JSON.stringify(params)}`}
-              fallback={<TableSkeleton rows={10} columns={8} />}
-            >
-              <EnquiriesContent searchParams={params} statusFilter="account" />
-            </Suspense>
-          </TabsContent>
-
-          <TabsContent value="reserved" className="space-y-4">
-            <Suspense
-              key={`reserved-${JSON.stringify(params)}`}
-              fallback={<TableSkeleton rows={10} columns={8} />}
-            >
-              <EnquiriesContent searchParams={params} statusFilter="reserved" />
-            </Suspense>
-          </TabsContent>
-
-          <TabsContent value="admitted" className="space-y-4">
-            <Suspense
-              key={`admitted-${JSON.stringify(params)}`}
-              fallback={<TableSkeleton rows={10} columns={8} />}
-            >
-              <EnquiriesContent searchParams={params} statusFilter="admitted" />
-            </Suspense>
-          </TabsContent>
-
-          <TabsContent value="rejected" className="space-y-4">
-            <Suspense
-              key={`rejected-${JSON.stringify(params)}`}
-              fallback={<TableSkeleton rows={10} columns={8} />}
-            >
-              <EnquiriesContent searchParams={params} statusFilter="rejected" />
-            </Suspense>
-          </TabsContent>
-
-          <TabsContent value="waitlisted" className="space-y-4">
-            <Suspense
-              key={`waitlisted-${JSON.stringify(params)}`}
-              fallback={<TableSkeleton rows={10} columns={8} />}
-            >
-              <EnquiriesContent searchParams={params} statusFilter="waitlisted" />
-            </Suspense>
-          </TabsContent>
-        </Tabs>
+          </div>
+        </div>
       </div>
     </ContentLayout>
   );

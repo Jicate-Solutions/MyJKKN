@@ -198,8 +198,11 @@ async function getEnquiriesInner(
   const from = (page - 1) * limit;
   const to = from + limit - 1;
 
-  // Execute the main query
-  const { data, error } = await query.range(from, to);
+  // Execute the main query. PostgREST returns the exact filtered total in
+  // `count` because we passed `{ count: 'exact' }` on the .select() above —
+  // there is no need for a second `countQuery` here. Dropping the redundant
+  // round-trip cuts per-tab database calls in half. (2026-05-20)
+  const { data, error, count } = await query.range(from, to);
 
   // Never throw from a Server Component data fetcher — the error bubbles up
   // to the root error boundary and crashes the entire page (all tabs).
@@ -222,82 +225,6 @@ async function getEnquiriesInner(
       data: [],
       metadata: { total_items: 0, page, limit, total_pages: 0 }
     };
-  }
-
-  // Get accurate count with a separate simplified query
-  let countQuery = supabase
-    .from('learners_profiles')
-    .select('*', { count: 'exact', head: true });
-
-  // Apply the same filters as the main query
-  if (isFeesSetupPending) {
-    countQuery = countQuery.eq('lifecycle_status', 'enquiry').eq('legacy_fee_mode', true);
-  } else if (lifecycle_status) {
-    countQuery = countQuery.eq('lifecycle_status', lifecycle_status);
-  } else {
-    countQuery = countQuery.in('lifecycle_status', ['enquiry', 'enquiry_submitted', 'pending']);
-  }
-
-  if (search) {
-    // Check if this is the new advanced search format
-    if (search.includes('|') || search.includes(':')) {
-      // Parse the search format
-      const searchParts = search.split('|');
-      const searchConditions: string[] = [];
-
-      searchParts.forEach(part => {
-        const [field, value] = part.split(':');
-        if (!field || !value) return;
-
-        const trimmedValue = value.trim();
-        if (!trimmedValue) return;
-
-        // Map field names to database columns
-        if (field === 'name') {
-          searchConditions.push(`first_name.ilike.%${trimmedValue}%`);
-          searchConditions.push(`last_name.ilike.%${trimmedValue}%`);
-        } else if (field === 'roll') {
-          searchConditions.push(`roll_number.ilike.%${trimmedValue}%`);
-        } else if (field === 'email') {
-          searchConditions.push(`student_email.ilike.%${trimmedValue}%`);
-          searchConditions.push(`college_email.ilike.%${trimmedValue}%`);
-        }
-      });
-
-      // Apply the OR conditions if we have any
-      if (searchConditions.length > 0) {
-        countQuery = countQuery.or(searchConditions.join(','));
-      }
-    } else {
-      // Fallback to old search format
-      countQuery = countQuery.or(
-        `first_name.ilike.%${search}%,last_name.ilike.%${search}%,application_id.ilike.%${search}%,student_email.ilike.%${search}%,student_mobile.ilike.%${search}%`
-      );
-    }
-  }
-
-  if (institution_id) {
-    countQuery = countQuery.eq('institution_id', institution_id);
-  }
-
-  if (degree_id) {
-    countQuery = countQuery.eq('degree_id', degree_id);
-  }
-
-  if (department_id) {
-    countQuery = countQuery.eq('department_id', department_id);
-  }
-
-  const { count, error: countError } = await countQuery;
-
-  if (countError) {
-    console.error('[getEnquiries] Error fetching count:', {
-      code: countError.code,
-      message: countError.message,
-      details: countError.details,
-      hint: countError.hint,
-      statusFilter: lifecycle_status,
-    });
   }
 
   const totalPages = count ? Math.ceil(count / limit) : 0;

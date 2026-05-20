@@ -1281,6 +1281,19 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
+            "path": "/admin/pde/compliance",
+            "label": "PDE Compliance",
+            "iconName": "ShieldCheck",
+            "children": [
+              {
+                "path": "/admin/pde/compliance/per-college",
+                "label": "PDE Per-College Compliance",
+                "iconName": "ShieldCheck",
+                "children": []
+              }
+            ]
+          },
+          {
             "path": "/admin/pde/demonstrations",
             "label": "PDE Demonstrations",
             "iconName": "Inbox",
@@ -1843,6 +1856,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
           {
             "path": "/admission/settings/assignment-rules",
             "label": "Assignment Rules",
+            "iconName": "GraduationCap",
+            "children": []
+          },
+          {
+            "path": "/admission/settings/checklists",
+            "label": "Checklists",
             "iconName": "GraduationCap",
             "children": []
           },
