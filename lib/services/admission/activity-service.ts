@@ -15,7 +15,7 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 
 // Types
-export type ActivityType = 'call' | 'email' | 'meeting' | 'note' | 'sms' | 'whatsapp' | 'stage_change' | 'task';
+export type ActivityType = 'call' | 'email' | 'meeting' | 'note' | 'sms' | 'whatsapp' | 'stage_change' | 'task' | 'checklist_marked';
 
 export interface LeadActivity {
   id: string;
@@ -52,6 +52,17 @@ export interface TimelineEntry {
   metadata: Record<string, unknown>;
   icon?: string;
   color?: string;
+  /**
+   * Author of the activity / stage change. Resolved via a single batched
+   * profile lookup inside getEnhancedTimeline — undefined when the row's
+   * created_by/changed_by is null (system actions) or when the user has
+   * been deleted (orphan UUID). Display order: full_name → email → 'System'.
+   */
+  author?: {
+    id: string;
+    full_name?: string | null;
+    email?: string | null;
+  } | null;
 }
 
 export interface CreateActivityInput {
@@ -257,6 +268,35 @@ export class ActivityService {
     const activities = activitiesResult.status === 'fulfilled' ? activitiesResult.value : [];
     const stageHistory = stageHistoryResult.status === 'fulfilled' ? stageHistoryResult.value : [];
 
+    // Batched author lookup. Collect every unique user UUID across both
+    // streams (activities.created_by + stage_history.changed_by), fetch their
+    // profiles in ONE query, then attach `author` to each entry below. Avoids
+    // PostgREST embed (which would require an FK constraint on created_by
+    // that doesn't exist — see route.ts comment for the audit-table soft-FK
+    // rationale).
+    const userIds = Array.from(
+      new Set([
+        ...activities.map((a) => a.created_by).filter((id): id is string => !!id),
+        ...stageHistory.map((s) => s.changed_by).filter((id): id is string => !!id),
+      ]),
+    );
+
+    let profileById: Record<string, { id: string; full_name: string | null; email: string | null }> = {};
+    if (userIds.length > 0) {
+      const { data: profiles } = await this.supabase
+        .from('profiles')
+        .select('id, full_name, email')
+        .in('id', userIds);
+      profileById = Object.fromEntries(
+        ((profiles ?? []) as Array<{ id: string; full_name: string | null; email: string | null }>).map(
+          (p) => [p.id, p],
+        ),
+      );
+    }
+
+    const authorFor = (uid: string | null) =>
+      uid ? profileById[uid] ?? { id: uid, full_name: null, email: null } : null;
+
     // Transform activities to timeline entries.
     // Use stored title first (e.g. 'Follow-up Scheduled'), fall back to computed type label.
     const activityEntries: TimelineEntry[] = activities.map((activity) => ({
@@ -272,6 +312,7 @@ export class ActivityService {
       },
       icon: this.getActivityIcon(activity.activity_type),
       color: this.getActivityColor(activity.activity_type),
+      author: authorFor(activity.created_by),
     }));
 
     // Transform stage changes to timeline entries
@@ -290,6 +331,7 @@ export class ActivityService {
       },
       icon: 'git-branch',
       color: 'indigo',
+      author: authorFor(entry.changed_by),
     }));
 
     // Combine and sort by timestamp (newest first)
@@ -337,6 +379,7 @@ export class ActivityService {
       whatsapp: 'WhatsApp Message',
       stage_change: 'Stage Changed',
       task: 'Task',
+      checklist_marked: 'Checklist Updated',
     };
     return titles[type] || type.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
   }
@@ -351,6 +394,7 @@ export class ActivityService {
       whatsapp: 'message-circle',
       stage_change: 'git-branch',
       task: 'check-circle',
+      checklist_marked: 'check-circle',
     };
     return icons[type] || 'activity';
   }
@@ -365,6 +409,7 @@ export class ActivityService {
       whatsapp: 'green',
       stage_change: 'indigo',
       task: 'emerald',
+      checklist_marked: 'emerald',
     };
     return colors[type] || 'gray';
   }

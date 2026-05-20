@@ -74,9 +74,9 @@ export default async function LearnerOnboardingPage({ searchParams }: Onboarding
         <div className="space-y-2">
           <h1 className="text-2xl font-bold py-1">Learner Onboarding</h1>
           <p className="text-sm sm:text-base text-muted-foreground">
-            Identify learners with incomplete profiles and close the gaps. Profiles need
-            College Email, Academic Year, Semester, and Section filled to be considered
-            complete.
+            Learners with status <span className="font-semibold">Admitted</span> (fees
+            threshold cleared) need College Email, Academic Year, Semester, and Section
+            filled. Once complete, they auto-promote to <span className="font-semibold">Active</span>.
           </p>
         </div>
 

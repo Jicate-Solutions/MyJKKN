@@ -96,7 +96,12 @@ jobs:
           # Deliberately NOT added: `lib/hooks/` (React hooks tie to UI),
           # `lib/components/` (obviously UI), and the rest of `app/` outside
           # `app/api/` (page.tsx, layout.tsx, components — all rendering).
-          NON_UI_REGEX='^(supabase/|scripts/|docs/|specs/|\.claude/|\.github/|lib/services/|lib/utils/|lib/db/|lib/auth/|lib/api/|lib/types/|types/|app/api/|next\.config\.ts|serwist\.config\.mjs|package\.json|README\.md|CHANGELOG\.md|LICENSE|\.gitignore|package-lock\.json|pnpm-lock\.yaml|yarn\.lock|tsconfig\.json|tsconfig\..*\.json)'
+          # `__tests__/` added 2026-05-19 (PR #993 — PDE Tier-2 consumer
+          # wiring): vitest/jest test files under `__tests__/**` are pure
+          # verification code with zero rendering surface. They imported
+          # `lib/services/*` files that are already non-UI, but the test
+          # file path itself fell outside the regex and forced manual skip.
+          NON_UI_REGEX='^(supabase/|scripts/|docs/|specs/|\.claude/|\.github/|lib/services/|lib/utils/|lib/db/|lib/auth/|lib/api/|lib/types/|types/|app/api/|__tests__/|next\.config\.ts|serwist\.config\.mjs|package\.json|README\.md|CHANGELOG\.md|LICENSE|\.gitignore|package-lock\.json|pnpm-lock\.yaml|yarn\.lock|tsconfig\.json|tsconfig\..*\.json)'
 
           # Anything outside the non-UI set means the gate applies.
           UI_TOUCHING=$(echo "$CHANGED" | grep -vE "$NON_UI_REGEX" || true)

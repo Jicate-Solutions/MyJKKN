@@ -9,7 +9,10 @@ export function registerLearnersTool(server: McpServer): void {
     'myjkkn_query_learners',
     'Query learner (student) profiles. Returns student details including enrollment status, department, program, semester, section, roll number, and contact information. Filter by lifecycle status, department, or semester. Students see only their own profile. Faculty see their department students. Admins see all.',
     {
-      lifecycle_status: z.enum(['admitted', 'pending', 'approved', 'rejected', 'waitlisted', 'active', 'inactive', 'exited', 'graduated', 'alumni']).optional()
+      // 2026-05-20: Added 'enquiry', 'enquiry_submitted', 'reserved', 'account'
+      // to align with the workflow realignment. MCP clients can now filter the
+      // full pre-active funnel.
+      lifecycle_status: z.enum(['enquiry', 'enquiry_submitted', 'admitted', 'pending', 'approved', 'account', 'reserved', 'rejected', 'waitlisted', 'active', 'inactive', 'exited', 'graduated', 'alumni']).optional()
         .describe('Filter by student lifecycle status'),
       department_id: z.string().uuid().optional()
         .describe('Filter by department UUID'),

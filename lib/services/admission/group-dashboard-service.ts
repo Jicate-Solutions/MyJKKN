@@ -24,6 +24,12 @@ const EMPTY_GROUP_DASHBOARD: GroupDashboardData = {
     total_enrolled_leads: 0,
     total_seat_filled_learners: 0,
     overall_fill_percentage: 0,
+    total_enquiry: 0,
+    total_enquiry_submitted: 0,
+    total_account: 0,
+    total_reserved: 0,
+    total_admitted: 0,
+    total_rejected_lifecycle: 0,
   },
 };
 
@@ -94,6 +100,13 @@ export class GroupDashboardService {
       enrolled_leads: number;
       seat_filled_learners: number;
       fill_percentage: number;
+      // 2026-05-20: lifecycle-status counts from the workflow realignment.
+      enquiry_count: number;
+      enquiry_submitted_count: number;
+      account_count: number;
+      reserved_count: number;
+      admitted_count: number;            // = 'admitted' + 'active' per spec
+      rejected_lifecycle_count: number;
     };
 
     const rows = ((data ?? []) as Row[]).map((r): InstitutionAdmissionSummary => ({
@@ -110,9 +123,18 @@ export class GroupDashboardService {
       enrolled_leads: Number(r.enrolled_leads ?? r.filled_seats ?? 0),
       seat_filled_learners: Number(r.seat_filled_learners ?? 0),
       fill_percentage: Number(r.fill_percentage),
+      enquiry_count: Number(r.enquiry_count ?? 0),
+      enquiry_submitted_count: Number(r.enquiry_submitted_count ?? 0),
+      account_count: Number(r.account_count ?? 0),
+      reserved_count: Number(r.reserved_count ?? 0),
+      admitted_count: Number(r.admitted_count ?? 0),
+      rejected_lifecycle_count: Number(r.rejected_lifecycle_count ?? 0),
     }));
 
-    rows.sort((a, b) => b.enrolled - a.enrolled);
+    // 2026-05-20: Sort by admitted (lifecycle) rather than legacy funnel-stage
+    // 'enrolled' so the comparison table ranks institutions by the new
+    // workflow's success metric.
+    rows.sort((a, b) => b.admitted_count - a.admitted_count);
 
     // 2026-05-02: Fill Rate uses total_filled (admitted+active+graduated+account)
     // not total_enrolled (active only) — otherwise top card disagrees with the
@@ -132,12 +154,24 @@ export class GroupDashboardService {
         total_seat_filled_learners:
           acc.total_seat_filled_learners + s.seat_filled_learners,
         overall_fill_percentage: 0,
+        // 2026-05-20: lifecycle-status totals — the primary source for
+        // the dashboard's top KPI strip and all-tab analytics.
+        total_enquiry: acc.total_enquiry + s.enquiry_count,
+        total_enquiry_submitted:
+          acc.total_enquiry_submitted + s.enquiry_submitted_count,
+        total_account: acc.total_account + s.account_count,
+        total_reserved: acc.total_reserved + s.reserved_count,
+        total_admitted: acc.total_admitted + s.admitted_count,
+        total_rejected_lifecycle:
+          acc.total_rejected_lifecycle + s.rejected_lifecycle_count,
       }),
       {
         total_leads: 0, total_applied: 0, total_enrolled: 0,
         total_rejected: 0, total_seats: 0, total_filled: 0,
         total_enrolled_leads: 0, total_seat_filled_learners: 0,
         overall_fill_percentage: 0,
+        total_enquiry: 0, total_enquiry_submitted: 0, total_account: 0,
+        total_reserved: 0, total_admitted: 0, total_rejected_lifecycle: 0,
       }
     );
     totals.overall_fill_percentage =

@@ -26,7 +26,7 @@ import { cn } from '@/lib/utils';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 
 const MAX_DURATION_SEC = 30;
-const STORAGE_BUCKET = 'call-memos';
+const DEFAULT_STORAGE_BUCKET = 'call-memos';
 const AMPLITUDE_BARS = 24;
 
 // MediaRecorder MIME candidates, prioritized. Chrome / Firefox / Edge / Android
@@ -65,6 +65,12 @@ export interface VoiceMemoRecorderHandle {
 
 export interface VoiceMemoRecorderProps {
   institutionId: string;
+  /**
+   * Supabase storage bucket to upload into. Defaults to 'call-memos' for
+   * back-compat with the call-log flow. The Activities tab on the enquiry
+   * page passes 'activity-memos' to keep general activity memos separate.
+   */
+  bucket?: string;
   /** Called after successful upload — gives parent the storage URL + duration */
   onMemoUploaded?: (url: string, durationSec: number) => void;
   /** Called on capture/upload errors — parent can surface in form-wide toast */
@@ -82,7 +88,7 @@ export interface VoiceMemoRecorderProps {
 import { forwardRef, useImperativeHandle } from 'react';
 
 export const VoiceMemoRecorder = forwardRef<VoiceMemoRecorderHandle, VoiceMemoRecorderProps>(
-  function VoiceMemoRecorder({ institutionId, onMemoUploaded, onError, disabled, onMemoStateChange }, ref) {
+  function VoiceMemoRecorder({ institutionId, bucket = DEFAULT_STORAGE_BUCKET, onMemoUploaded, onError, disabled, onMemoStateChange }, ref) {
     const [state, setState] = useState<RecorderState>('idle');
     const [errorMsg, setErrorMsg] = useState<string | null>(null);
     const [elapsedSec, setElapsedSec] = useState(0);
@@ -386,17 +392,17 @@ export const VoiceMemoRecorder = forwardRef<VoiceMemoRecorderHandle, VoiceMemoRe
             const contentType = blob.type || chosenMimeRef.current || 'audio/webm';
             const path = `${institutionId}/${callLogId}.${ext}`;
             const { error: uploadErr } = await supabase.storage
-              .from(STORAGE_BUCKET)
+              .from(bucket)
               .upload(path, blob, {
                 contentType,
                 upsert: true,
               });
             if (uploadErr) throw uploadErr;
-            const { data: pub } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(path);
+            const { data: pub } = supabase.storage.from(bucket).getPublicUrl(path);
             // Note: bucket may be private — getPublicUrl still returns a URL string that
             // signed-URL flow downstream can re-sign. Storing the canonical path-based URL
             // is fine; cron resolves via service role.
-            const url = pub?.publicUrl ?? `${STORAGE_BUCKET}/${path}`;
+            const url = pub?.publicUrl ?? `${bucket}/${path}`;
             const durationSec = durationRef.current;
             setState('uploaded');
             onMemoUploaded?.(url, durationSec);
@@ -410,7 +416,7 @@ export const VoiceMemoRecorder = forwardRef<VoiceMemoRecorderHandle, VoiceMemoRe
           }
         },
       }),
-      [institutionId, onError, onMemoUploaded],
+      [institutionId, bucket, onError, onMemoUploaded],
     );
 
     // ────────────────────────────────────────────────────────────────────

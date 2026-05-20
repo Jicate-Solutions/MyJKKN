@@ -2,14 +2,58 @@ import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { logger } from '@/lib/utils/enhanced-logger';
 
 // ── Local types (tables: hostel_cleaning_schedules, hostel_cleaning_tasks) ─
+// Schema-of-truth (prod, verified 2026-05-19 via information_schema):
+//   hostel_cleaning_schedules columns: id, institution_id, block_id, floor_number,
+//     cleaning_type (enum cleaning_type_enum), frequency (enum), scheduled_time,
+//     assigned_staff, assigned_staff_phone, checklist (jsonb), is_active,
+//     created_at, updated_at
+//   hostel_cleaning_tasks columns: id, institution_id, schedule_id, block_id,
+//     floor_number, date, cleaning_type (enum), assigned_staff,
+//     status (enum cleaning_task_status_enum), started_at, completed_at,
+//     completed_by, quality_rating, inspector_notes, photo_urls[], created_at,
+//     updated_at
+// Type drift fixed: removed `area`/`cadence`/`next_due_at`/`assigned_to` (never
+// existed in prod); added `cleaning_type`/`frequency` and the rest of the real
+// columns; tightened enum unions.
+
+export type CleaningType =
+  | 'daily_sweep'
+  | 'daily_mop'
+  | 'toilet_cleaning'
+  | 'common_area'
+  | 'deep_cleaning'
+  | 'window_cleaning'
+  | 'water_tank'
+  | 'disinfection'
+  | 'other';
+
+export type CleaningFrequency =
+  | 'daily'
+  | 'twice_daily'
+  | 'weekly'
+  | 'biweekly'
+  | 'monthly'
+  | 'quarterly'
+  | 'on_demand';
+
+export type CleaningTaskStatus =
+  | 'scheduled'
+  | 'in_progress'
+  | 'completed'
+  | 'missed'
+  | 'rescheduled';
+
 export interface HostelCleaningSchedule {
   id: string;
   institution_id: string;
   block_id?: string | null;
-  area?: string | null;
-  cadence?: string | null;
-  next_due_at?: string | null;
-  assigned_to?: string | null;
+  floor_number?: number | null;
+  cleaning_type: CleaningType | string;
+  frequency: CleaningFrequency | string;
+  scheduled_time?: string | null;
+  assigned_staff?: string | null;
+  assigned_staff_phone?: string | null;
+  checklist?: unknown | null;
   is_active?: boolean | null;
   created_at: string;
   updated_at?: string;
@@ -18,15 +62,20 @@ export interface HostelCleaningSchedule {
 
 export interface HostelCleaningTask {
   id: string;
-  institution_id?: string | null;
-  schedule_id?: string | null;
+  institution_id: string;
+  schedule_id: string;
   block_id?: string | null;
-  status: string;
-  cleaning_type?: string | null;
-  date?: string | null;
-  due_date?: string | null;
+  floor_number?: number | null;
+  date: string;
+  cleaning_type: CleaningType | string;
+  assigned_staff?: string | null;
+  status: CleaningTaskStatus | string;
+  started_at?: string | null;
   completed_at?: string | null;
-  assigned_to?: string | null;
+  completed_by?: string | null;
+  quality_rating?: number | null;
+  inspector_notes?: string | null;
+  photo_urls?: string[] | null;
   created_at: string;
   updated_at?: string;
   [k: string]: unknown;
@@ -35,6 +84,11 @@ export interface HostelCleaningTask {
 export interface ScheduleFilters {
   block_id?: string;
   is_active?: boolean;
+  // Date range filter applied on the `next_due_at` column. Additive — older
+  // callers pass only block/is_active and continue to work unchanged.
+  // Format: ISO timestamp string (e.g. `2026-05-19T00:00:00Z`).
+  date_from?: string;
+  date_to?: string;
 }
 
 export interface TaskFilters {
@@ -73,6 +127,8 @@ export class HousekeepingService {
       if (institutionId) query = query.eq('institution_id', institutionId);
       if (filters?.block_id) query = query.eq('block_id', filters.block_id);
       if (filters?.is_active !== undefined) query = query.eq('is_active', filters.is_active);
+      if (filters?.date_from) query = query.gte('next_due_at', filters.date_from);
+      if (filters?.date_to) query = query.lte('next_due_at', filters.date_to);
 
       const from = (page - 1) * pageSize;
       query = query.order('created_at', { ascending: false }).range(from, from + pageSize - 1);

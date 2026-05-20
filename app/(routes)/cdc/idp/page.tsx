@@ -96,7 +96,7 @@ export default function IdpListPage() {
             <SelectContent>
               <SelectItem value="all">All sources</SelectItem>
               <SelectItem value="native_form">Native form</SelectItem>
-              <SelectItem value="google_form_import">Google Form import</SelectItem>
+              <SelectItem value="google_form_migration">Google Form import</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -136,7 +136,7 @@ export default function IdpListPage() {
                             {(r.learner as { name?: string } | null)?.name ?? 'Unknown learner'}
                           </CardTitle>
                           <Badge variant="outline" className="text-xs">
-                            {r.source === 'google_form_import' ? 'Imported' : 'Native'}
+                            {r.source === 'google_form_migration' ? 'Imported' : 'Native'}
                           </Badge>
                         </div>
                       </CardHeader>

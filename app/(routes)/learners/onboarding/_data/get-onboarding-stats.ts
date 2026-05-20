@@ -63,9 +63,13 @@ export async function getOnboardingStats(
     // fetcher; trades 1 round trip for accurate tier math without a generated
     // column or SQL function.
 
+    // 2026-05-20: Stats scoped to lifecycle_status='admitted' so the KPI cards
+    // and tier counts reflect the onboarding queue (post-threshold learners),
+    // not every legacy incomplete profile across the system.
     let dataQuery = supabase
       .from('learners_profiles')
       .select('college_email, academic_year_id, semester_id, section_id')
+      .eq('lifecycle_status', 'admitted')
       .or('is_profile_complete.eq.false,is_profile_complete.is.null')
       .limit(10000); // safety cap — institutions should rarely exceed this
 
@@ -73,12 +77,14 @@ export async function getOnboardingStats(
 
     let totalQuery = supabase
       .from('learners_profiles')
-      .select('*', { count: 'exact', head: true });
+      .select('*', { count: 'exact', head: true })
+      .eq('lifecycle_status', 'admitted');
     totalQuery = applyFilters(totalQuery, params);
 
     let completeQuery = supabase
       .from('learners_profiles')
       .select('*', { count: 'exact', head: true })
+      .eq('lifecycle_status', 'admitted')
       .eq('is_profile_complete', true);
     completeQuery = applyFilters(completeQuery, params);
 

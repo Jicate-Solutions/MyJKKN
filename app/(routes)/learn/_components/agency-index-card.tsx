@@ -1,9 +1,12 @@
 'use client';
 
+import { useEffect, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Loader2, TrendingUp, ShieldCheck } from 'lucide-react';
+import { Loader2, TrendingUp, ShieldCheck, RefreshCw } from 'lucide-react';
 import { useAgencyIndex, useAgencyTrends } from '@/hooks/pde/use-pde';
+import { pdeQueryKeys } from '@/hooks/pde/use-pde';
 import type { AgencyLevel, PDEAgencyIndex } from '@/types/pde';
 import { cn } from '@/lib/utils';
 import {
@@ -51,6 +54,47 @@ function getScoreTextColor(score: number): string {
 export function AgencyIndexCard({ learnerId, courseId, className, showTrend = true }: AgencyIndexCardProps) {
   const { data: agencyIndex, isLoading } = useAgencyIndex(learnerId, courseId);
   const { data: trends } = useAgencyTrends(learnerId);
+
+  // T2.8 — poll-driven refresh when pde.visibility.agency_index_mode is
+  // 'live' or 'live_coarse'. We hit /api/pde/agency once to read the active
+  // mode (the API tags every response with `mode`), then re-invalidate the
+  // React-Query cache every 30s so the existing hook re-fetches.
+  // semester_end stays fully static (no polling, no extra network).
+  const queryClient = useQueryClient();
+  const [liveMode, setLiveMode] = useState<'live' | 'live_coarse' | null>(null);
+
+  useEffect(() => {
+    if (!learnerId) return;
+    let cancelled = false;
+    const params = new URLSearchParams({ learnerId });
+    if (courseId) params.set('courseId', courseId);
+    fetch(`/api/pde/agency?${params.toString()}`, { cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((payload) => {
+        if (cancelled || !payload) return;
+        if (payload.mode === 'live' || payload.mode === 'live_coarse') {
+          setLiveMode(payload.mode);
+        } else {
+          setLiveMode(null);
+        }
+      })
+      .catch(() => {
+        /* fail-soft: if the API is unreachable, keep static behaviour. */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [learnerId, courseId]);
+
+  useEffect(() => {
+    if (!liveMode || !learnerId) return;
+    const intervalId = window.setInterval(() => {
+      queryClient.invalidateQueries({
+        queryKey: pdeQueryKeys.agencyIndex(learnerId, courseId),
+      });
+    }, 30_000);
+    return () => window.clearInterval(intervalId);
+  }, [liveMode, learnerId, courseId, queryClient]);
 
   if (isLoading) {
     return (
@@ -105,9 +149,20 @@ export function AgencyIndexCard({ learnerId, courseId, className, showTrend = tr
             <ShieldCheck className="h-5 w-5" />
             Agency Index
           </CardTitle>
-          <Badge variant="outline" className={cn('text-xs font-medium', levelConfig.bgColor, levelConfig.color)}>
-            {levelConfig.label}
-          </Badge>
+          <div className="flex items-center gap-1.5">
+            {liveMode && (
+              <span
+                className="inline-flex items-center gap-1 text-[10px] font-medium text-muted-foreground"
+                title={`Live mode (${liveMode}) — auto-refreshing every 30s`}
+              >
+                <RefreshCw className="h-3 w-3 animate-pulse" />
+                {liveMode === 'live_coarse' ? 'Live~' : 'Live'}
+              </span>
+            )}
+            <Badge variant="outline" className={cn('text-xs font-medium', levelConfig.bgColor, levelConfig.color)}>
+              {levelConfig.label}
+            </Badge>
+          </div>
         </div>
       </CardHeader>
 

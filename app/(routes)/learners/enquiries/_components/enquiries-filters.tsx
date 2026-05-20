@@ -29,7 +29,18 @@ import {
 
 interface EnquiriesFiltersProps {
   searchParams: EnquiriesSearchParams;
-  statusFilter?: 'admitted' | 'pending' | 'rejected' | 'waitlisted';
+  // 2026-05-20: Extended status union to cover the new workflow tabs.
+  statusFilter?:
+    | 'enquiry'
+    | 'enquiry_submitted'
+    | 'admitted'
+    | 'pending'
+    | 'approved'
+    | 'account'
+    | 'reserved'
+    | 'rejected'
+    | 'waitlisted'
+    | 'fees_setup_pending';
 }
 
 export function EnquiriesFilters({

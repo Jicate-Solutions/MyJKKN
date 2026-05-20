@@ -127,7 +127,7 @@ export default function IdpDetailPage({ params }: PageProps) {
         <div className="flex gap-3 text-sm text-gray-500">
           <span>Submitted: {new Date(idp.submitted_at).toLocaleDateString()}</span>
           {idp.academic_year_label && <span>Year: {idp.academic_year_label}</span>}
-          <Badge variant="outline">{idp.source === 'google_form_import' ? 'Imported' : 'Native'}</Badge>
+          <Badge variant="outline">{idp.source === 'google_form_migration' ? 'Imported' : 'Native'}</Badge>
         </div>
 
         {/* View mode */}

@@ -946,8 +946,10 @@ export async function POST(request: NextRequest): Promise<NextResponse<ImportRes
       reference_name: data.reference_name,
       reference_contact: data.reference_contact,
 
-      // IMPORTANT: Enquiries start with lifecycle_status='admitted'
-      lifecycle_status: 'admitted',
+      // 2026-05-20: Enquiries start with lifecycle_status='enquiry' (was 'admitted'
+      // pre-realignment). 'admitted' is now the post-threshold status applied by
+      // evaluate_learner_status_after_payment.
+      lifecycle_status: 'enquiry',
       is_profile_complete: false,
       created_by: user.id,
       updated_by: user.id

@@ -46,17 +46,22 @@ export const learnerFeeItemSchema = z.object({
  * Replaces separate admission.status and student.status
  */
 export type LifecycleStatus =
-  | 'admitted'      // Initial contact/enquiry stage
-  | 'pending'      // Application submitted, pending review
-  | 'approved'     // Application approved, ready for enrollment
-  | 'account'      // Sent to accounts for billing
-  | 'rejected'     // Application rejected
-  | 'waitlisted'   // Application waitlisted
-  | 'active'       // Currently enrolled and active student
-  | 'inactive'     // Temporarily inactive (leave, suspension, etc.)
-  | 'exited'       // Left institution (dropout, transfer)
-  | 'graduated'    // Successfully completed program
-  | 'alumni';      // Post-graduation status
+  // 2026-05-20 workflow realignment — see migrations 20260520120000–20260520120200.
+  // Entry → form-submit → officer-verify → account → universal-fees-paid → balance-threshold → onboarding → active
+  | 'enquiry'           // Lead just moved to counselor (entry point of learner module)
+  | 'enquiry_submitted' // Learner completed the QR self-fill form; awaiting officer verification
+  | 'pending'           // Application submitted, pending review (legacy)
+  | 'approved'          // Application approved, ready for enrollment (legacy)
+  | 'account'           // Sent to accounts for billing; bills auto-generated
+  | 'reserved'          // Universal categories (application_fee + tuition) fully paid
+  | 'admitted'          // Balance fees threshold cleared (default 50%) — ready for onboarding
+  | 'rejected'          // Application rejected
+  | 'waitlisted'        // Application waitlisted
+  | 'active'            // Currently enrolled and active student (profile-complete + 60% paid)
+  | 'inactive'          // Temporarily inactive (leave, suspension, etc.)
+  | 'exited'            // Left institution (dropout, transfer)
+  | 'graduated'         // Successfully completed program
+  | 'alumni';           // Post-graduation status
 
 /**
  * Migration Source - Tracks origin of record
@@ -686,7 +691,7 @@ export interface LearnerDashboardStats {
  * Status groups for filtering
  */
 export const STATUS_GROUPS = {
-  ADMISSION_PIPELINE: ['admitted', 'pending', 'approved', 'account', 'rejected', 'waitlisted'] as LifecycleStatus[],
+  ADMISSION_PIPELINE: ['enquiry', 'enquiry_submitted', 'pending', 'approved', 'account', 'reserved', 'admitted', 'rejected', 'waitlisted'] as LifecycleStatus[],
   ENROLLED: ['active', 'inactive'] as LifecycleStatus[],
   COMPLETED: ['graduated', 'alumni'] as LifecycleStatus[],
   EXITED: ['exited'] as LifecycleStatus[],
@@ -696,17 +701,22 @@ export const STATUS_GROUPS = {
  * Status transitions map (allowed transitions)
  */
 export const STATUS_TRANSITIONS: Record<LifecycleStatus, LifecycleStatus[]> = {
-  admitted: ['pending', 'account', 'rejected'],
+  // New workflow (2026-05-20 realignment)
+  enquiry: ['enquiry_submitted', 'account', 'rejected'],          // Skip form allowed for paper-walk-in
+  enquiry_submitted: ['account', 'rejected'],                     // Officer verifies and moves to account
+  account: ['reserved', 'admitted', 'approved', 'rejected'],      // Auto-promoted by payment trigger
+  reserved: ['admitted', 'rejected'],                             // Auto-promoted by threshold trigger
+  admitted: ['active', 'rejected'],                               // Onboarding fills constraints → auto-active
+  // Legacy paths preserved for back-compat / waitlist handling
   pending: ['account', 'approved', 'rejected', 'waitlisted'],
   approved: ['account', 'active', 'rejected'],
-  account: ['active', 'approved'],
-  rejected: ['pending'], // Allow reapplication
+  rejected: ['enquiry', 'pending'],                               // Allow reapplication
   waitlisted: ['approved', 'pending', 'rejected'],
   active: ['inactive', 'exited', 'graduated'],
   inactive: ['active', 'exited'],
-  exited: [], // Terminal state (manual intervention required)
+  exited: [],                                                     // Terminal state
   graduated: ['alumni'],
-  alumni: [], // Terminal state
+  alumni: [],                                                     // Terminal state
 };
 
 /**
@@ -714,10 +724,16 @@ export const STATUS_TRANSITIONS: Record<LifecycleStatus, LifecycleStatus[]> = {
  * Updated: 2025-01-19 - Removed roll_number from active, added college_email as required
  */
 export const REQUIRED_FIELDS_BY_STATUS: Record<LifecycleStatus, string[]> = {
-  admitted: ['first_name', 'student_mobile', 'student_email'],
+  // 2026-05-20: Entry-point requirements minimal (same fields the bridge-convert API already populates).
+  enquiry: ['first_name', 'student_mobile'],
+  // Learner-completed self-fill form provides personal + academic + contact sections.
+  enquiry_submitted: ['first_name', 'date_of_birth', 'gender', 'religion', 'community', 'student_mobile', 'student_email'],
   pending: ['first_name', 'father_name', 'mother_name', 'date_of_birth', 'tenth_marks', 'twelfth_marks'],
   approved: ['institution_id', 'degree_id', 'department_id', 'program_id'],
-  account: ['institution_id', 'degree_id', 'department_id', 'program_id', 'fee_structure_type', 'tuition_fee'],
+  account: ['institution_id', 'degree_id', 'department_id', 'program_id'],
+  // 'reserved' and 'admitted' are gated by payment state (validated by RPC, not field-check).
+  reserved: [],
+  admitted: [],
   rejected: [],
   waitlisted: [],
   active: ['semester_id', 'section_id', 'academic_year_id', 'college_email'],

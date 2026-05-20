@@ -697,7 +697,7 @@ function LeadDetailPageContent() {
         }
         throw new Error(json.error || 'Conversion failed');
       }
-      toast.success('Admitted created — redirecting...');
+      toast.success('Moved to counselor — redirecting…');
       router.push(`/learners/enquiries/${json.profileId}/edit`);
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : 'Conversion failed');
@@ -1242,15 +1242,19 @@ function LeadDetailPageContent() {
           {/* Phase 6: Handover history banner (spec #13, #14) — renders only when history exists */}
           <HandoverBanner leadId={leadId} />
 
-          {/* Header — secondary action row (Convert to Admitted, More dropdown).
-              PR-B owns the action-hierarchy redesign of this region. */}
+          {/* Header — secondary action row (Move to Counselor, More dropdown).
+              PR-B owns the action-hierarchy redesign of this region.
+              Button label changed 2026-05-19 from 'Convert to Admitted' →
+              'Move to Counselor' per product call. Underlying handler still
+              creates the learner_profiles row (handleConvertToLearner) — only
+              the user-facing copy changed. */}
           <div className="flex items-start justify-between">
             <div />
             {/* Phase 6 spec #14: disable all write-actions for the cascaded-away FROM-counselor.
                 pointer-events-none + opacity-50 communicate read-only visually.
                 No data-level enforcement here — that lives in RLS. */}
             <div className={`flex items-center gap-2 ${isReadonlyCascadedView ? 'pointer-events-none opacity-50' : ''}`}>
-              {/* Convert to Admitted — shows "View Learner Profile" once converted */}
+              {/* Move to Counselor — shows "View Learner Profile" once moved */}
               {lead.learner_profile_id ? (
                 <>
                   <Button variant="outline" size="sm" asChild>
@@ -1275,7 +1279,7 @@ function LeadDetailPageContent() {
                     className="bg-purple-600 hover:bg-purple-700"
                   >
                     <UserPlus className={`h-4 w-4 mr-2 ${isConverting ? 'animate-pulse' : ''}`} />
-                    {isConverting ? 'Converting...' : 'Convert to Admitted'}
+                    {isConverting ? 'Moving...' : 'Move to Counselor'}
                   </Button>
                 </PermissionGuard>
               )}

@@ -81,7 +81,10 @@ export async function GET(request: NextRequest) {
     const expand = url.searchParams.get('expand');
 
     // Build query - select all fields except migration fields
-    // Default filter: only enquiries (lifecycle_status = 'admitted')
+    // 2026-05-20: Default filter targets the full pre-account funnel
+    // (enquiry, enquiry_submitted) so B2A external consumers see the same
+    // cohort as before the taxonomy rename. The 554 rows previously at
+    // 'admitted' were migrated to 'enquiry' in the same rollout.
     const selectFields = `
       id, application_id, lifecycle_status, first_name, last_name, date_of_birth,
       gender, religion, community, caste, father_name, father_occupation, father_mobile,
@@ -103,7 +106,7 @@ export async function GET(request: NextRequest) {
     let query = (supabase as any)
       .from('learners_profiles')
       .select(selectFields, { count: 'exact' })
-      .eq('lifecycle_status', 'admitted');
+      .in('lifecycle_status', ['enquiry', 'enquiry_submitted']);
 
     // Apply filters
     if (programId) {

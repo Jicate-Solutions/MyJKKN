@@ -1226,6 +1226,15 @@ export class LeadService {
     const terminalCount = TERMINAL_STAGES.reduce((sum, s) => sum + (byStage[s] || 0), 0);
     const activeTotal = totalLeads - terminalCount;
 
+    // 2026-05-20: lifecycle-status distribution from the same RPC.
+    // 'admitted' here counts both lifecycle_status='admitted' and ='active'
+    // (the RPC collapses them per the workflow spec).
+    const lifecycleByStageRaw: Record<string, number | string> = data?.lifecycleByStage ?? {};
+    const lifecycleByStage: Record<string, number> = {};
+    for (const [k, v] of Object.entries(lifecycleByStageRaw)) {
+      lifecycleByStage[k] = Number(v) || 0;
+    }
+
     return {
       total: totalLeads,
       activeTotal,
@@ -1233,6 +1242,8 @@ export class LeadService {
       hotLeads,
       priorityLeads,
       stages,
+      // 2026-05-20: surfaced for the new lifecycle funnel viz on /admission/dashboard.
+      lifecycleByStage,
     };
   }
 
@@ -1259,6 +1270,8 @@ export class LeadService {
 
     // The RPC already returns the canonical shape (camelCase keys, rounded
     // rates) — no client-side reshaping needed.
+    // 2026-05-20: extended with lifecycle-status counts. Empty-state fallback
+    // keeps the new fields present so consumers don't NPE on first load.
     return data ?? {
       totalLeads: 0,
       newLeads: 0,
@@ -1268,6 +1281,12 @@ export class LeadService {
       todayFollowups: 0,
       conversionRate: 0,
       applicationStartRate: 0,
+      enquiryCount: 0,
+      enquirySubmittedCount: 0,
+      accountCount: 0,
+      reservedCount: 0,
+      admittedCount: 0,
+      rejectedLifecycleCount: 0,
     };
   }
 }

@@ -18,7 +18,8 @@ import { GeographyAnalyticsTab } from './_components/geography-analytics-tab';
 import { InstitutionComparisonAdvanced } from './_components/institution-comparison-advanced';
 import { NAACReportGenerator } from './_components/naac-report-generator';
 import { GroupAdmissionYearSelect } from './_components/group-admission-year-select';
-import { SeatFilledCard } from './_components/seat-filled-card';
+// 2026-05-20: SeatFilledCard removed from the top strip. The new "Admitted"
+// KPI (lifecycle_status IN admitted+active) now covers the seat-filled signal.
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
   Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList,
@@ -66,19 +67,31 @@ function resolveDrilldownRole(
  * Cards on the top stat row — paired in label-emit order with their
  * DrilldownMetric. Kept here so adding/reordering cards is one-touch.
  *
- * 2026-05-17 (E4): "Filled" was renamed "Enrolled Leads" (lead-space only).
- * The learner-space companion lives in <SeatFilledCard /> rendered alongside
- * this strip — it carries its own visual treatment (icon header + drop-off
- * gap shortcut) so it stays a separate component rather than another entry
- * here.
+ * 2026-05-20: Reworked to follow the new lifecycle workflow (enquiry →
+ * enquiry_submitted → account → reserved → admitted → active). The legacy
+ * 'applied' + 'filled' (Enrolled Leads) cards came from
+ * admission_leads.funnel_stage; the new lifecycle cards come from
+ * learners_profiles.lifecycle_status — the post-workflow source of truth.
+ *
+ * 'admitted_active' is special: it counts learners_profiles where
+ * lifecycle_status IN ('admitted', 'active'). Per spec, anyone currently
+ * 'active' previously passed through 'admitted' (sequential gates in the
+ * payment-driven RPC), so we sum both for the headline KPI.
  */
-const TOP_CARDS: ReadonlyArray<{ label: string; metric: DrilldownMetric }> = [
-  { label: 'Total Leads', metric: 'total_leads' },
-  { label: 'Applied', metric: 'applied' },
-  { label: 'Enrolled Leads', metric: 'filled' },
-  { label: 'Rejected', metric: 'rejected' },
-  { label: 'Total Seats', metric: 'total_seats' },
-  { label: 'Fill Rate', metric: 'fill_rate' },
+const TOP_CARDS: ReadonlyArray<{
+  label: string;
+  metric: DrilldownMetric;
+  tooltip?: string;
+}> = [
+  { label: 'Total Leads',       metric: 'total_leads' },
+  { label: 'Enquiry',           metric: 'enquiry' },
+  { label: 'Enquiry Submitted', metric: 'enquiry_submitted' },
+  { label: 'Account',           metric: 'account' },
+  { label: 'Reserved',          metric: 'reserved' },
+  { label: 'Admitted', metric: 'admitted_active', tooltip: 'Includes Active learners (admitted → active is sequential)' },
+  { label: 'Rejected',          metric: 'rejected_lifecycle' },
+  { label: 'Total Seats',       metric: 'total_seats' },
+  { label: 'Fill Rate',         metric: 'fill_rate' },
 ];
 
 export default function GroupDashboardPage() {
@@ -201,6 +214,13 @@ export default function GroupDashboardPage() {
     seat_balance: null,
     chart_bar: null,
     comparison_row: null,
+    // 2026-05-20 lifecycle workflow KPIs
+    enquiry: null,
+    enquiry_submitted: null,
+    account: null,
+    reserved: null,
+    admitted_active: null,
+    rejected_lifecycle: null,
   });
 
   useEffect(() => {
@@ -288,25 +308,20 @@ export default function GroupDashboardPage() {
             * Cards with value 0 or '—' remain clickable; the destination shows
             * an empty list with the metric-specific empty-state copy. */}
           {!isLoading && data?.totals && (
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-9 gap-3">
               {(() => {
-                // On the Seats tab, Filled and Fill Rate switch to seat-occupancy
-                // sourcing (same RPC the inner tab uses) so the strip can't
-                // disagree with the table beneath it. Other cards stay
-                // leads-sourced because they have no seat-side equivalent.
+                // On the Seats tab, Total Seats and Fill Rate switch to
+                // seat-occupancy sourcing (same RPC the inner tab uses) so the
+                // strip can't disagree with the table beneath it. Lifecycle
+                // counts stay sourced from learners_profiles because they
+                // describe the cohort regardless of which tab is active.
                 const useSeatSource = activeTab === 'seats' && seatTotals !== null;
-                // 2026-05-17 (E4): "Enrolled Leads" sources from the new
-                // total_enrolled_leads aggregate which equals total_filled in
-                // the rollout window — we read total_enrolled_leads so a future
-                // RPC tweak that diverges the two is automatically respected.
-                const enrolledLeadsValue =
-                  data.totals.total_enrolled_leads ?? data.totals.total_filled;
                 const valueByMetric: Record<DrilldownMetric, string | number> = {
+                  // Legacy funnel_stage KPIs kept in the type for back-compat
+                  // but no longer rendered. The new TOP_CARDS uses lifecycle.
                   total_leads: data.totals.total_leads,
                   applied: data.totals.total_applied,
-                  filled: useSeatSource
-                    ? seatTotals!.filledSeats
-                    : enrolledLeadsValue,
+                  filled: data.totals.total_enrolled_leads ?? data.totals.total_filled,
                   rejected: data.totals.total_rejected,
                   total_seats: useSeatSource
                     ? seatTotals!.totalSeats || '—'
@@ -318,15 +333,18 @@ export default function GroupDashboardPage() {
                     : data.totals.total_seats > 0
                       ? `${data.totals.overall_fill_percentage}%`
                       : '—',
+                  // 2026-05-20 lifecycle-status workflow KPIs — primary headline metrics.
+                  enquiry: data.totals.total_enquiry,
+                  enquiry_submitted: data.totals.total_enquiry_submitted,
+                  account: data.totals.total_account,
+                  reserved: data.totals.total_reserved,
+                  admitted_active: data.totals.total_admitted,
+                  rejected_lifecycle: data.totals.total_rejected_lifecycle,
                   // unused on top row but typed-record needs values
                   seat_balance: '',
                   chart_bar: '',
                   comparison_row: '',
                 };
-                // Render the existing 6 cards, then splice the new
-                // <SeatFilledCard /> in directly after "Enrolled Leads"
-                // (metric='filled') so the lead-space and learner-space
-                // KPIs sit side-by-side and the drop-off gap is obvious.
                 const nodes: ReactNode[] = [];
                 TOP_CARDS.forEach((card) => {
                   const resolved = destinations[card.metric];
@@ -337,9 +355,14 @@ export default function GroupDashboardPage() {
                     ? appendDashboardScope(resolved, selectedYear, scopedInstitutionIds)
                     : null;
                   const cardInner = (
-                    <CardContent className="p-3 text-center">
+                    <CardContent className="p-3 text-center" title={card.tooltip}>
                       <p className="text-xs text-muted-foreground">{card.label}</p>
                       <p className="text-lg font-bold">{valueByMetric[card.metric]}</p>
+                      {card.tooltip && (
+                        <p className="text-[10px] text-muted-foreground/70 mt-0.5">
+                          {card.tooltip}
+                        </p>
+                      )}
                     </CardContent>
                   );
                   if (!href) {
@@ -360,16 +383,6 @@ export default function GroupDashboardPage() {
                           {cardInner}
                         </Card>
                       </Link>
-                    );
-                  }
-                  if (card.metric === 'filled') {
-                    nodes.push(
-                      <SeatFilledCard
-                        key="seat-filled"
-                        enrolledLeads={enrolledLeadsValue}
-                        seatFilled={data.totals.total_seat_filled_learners}
-                        isLoading={isLoading}
-                      />
                     );
                   }
                 });

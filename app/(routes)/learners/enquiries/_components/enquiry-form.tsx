@@ -1096,8 +1096,9 @@ export function EnquiryForm({
             }))
         : [],
 
-      // System fields - Preserve existing values when editing, default to 'admitted' when creating
-      lifecycle_status: learner?.lifecycle_status || ('admitted' as const),
+      // System fields - Preserve existing values when editing, default to 'enquiry' when creating
+      // 2026-05-20: Updated default from 'admitted' (old entry-point) to 'enquiry'.
+      lifecycle_status: learner?.lifecycle_status || ('enquiry' as const),
       is_profile_complete: learner?.is_profile_complete ?? false,
     };
   };
@@ -1291,12 +1292,15 @@ export function EnquiryForm({
       // Both wrapped so failures don't block submit (best-effort).
       const isLegacy =
         (result as { legacy_fee_mode?: boolean } | undefined)?.legacy_fee_mode ?? false;
-      const isAdmitted = (result as { lifecycle_status?: string } | undefined)?.lifecycle_status === 'admitted';
+      // 2026-05-20: Entry-point status renamed admitted → enquiry. Backfill flow
+      // also catches enquiry_submitted (learner self-filled the form).
+      const entryStatus = (result as { lifecycle_status?: string } | undefined)?.lifecycle_status;
+      const isAtEntry = entryStatus === 'enquiry' || entryStatus === 'enquiry_submitted';
       const missingFeeDims = getMissingFeeDimensions(result as any);
       const hasAllFeeDims = missingFeeDims.length === 0;
 
       if (result?.id && canViewFinance) {
-        if (isLegacy && isAdmitted && hasAllFeeDims) {
+        if (isLegacy && isAtEntry && hasAllFeeDims) {
           // Path (a): adopt structure flow
           try {
             const adoption = await FeeResolutionService.adoptStructureForLead(result.id);
@@ -1412,6 +1416,31 @@ export function EnquiryForm({
           // best-effort — never block save on this
         }
         setSectionOverrideMode({ basic: false, academic: false, contact: false });
+      }
+
+      // Auto-log this admission-officer save as a 'manual_edit' activity so
+      // the Activities tab timeline has a complete audit trail. Routes through
+      // the same /activities API endpoint that the notes-and-memo capture
+      // panel uses — server-side permission gating + service-role write.
+      // Best-effort: a 403 from a role without the .create permission, or a
+      // network error, never blocks the save.
+      if (result?.id) {
+        try {
+          await fetch(
+            `/api/admission/enquiries/${encodeURIComponent(result.id)}/activities`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                activity_type: 'manual_edit',
+                subject: 'Profile updated by admission officer',
+                note: 'Enquiry details were edited via the admission form.',
+              }),
+            },
+          );
+        } catch (err) {
+          console.error('[enquiry-form] manual_edit activity log failed:', err);
+        }
       }
 
       if (onSuccess) {
@@ -1684,7 +1713,9 @@ export function EnquiryForm({
   const filledFieldsCount = requiredForActivation.filter(f => f.valid).length;
   const isProfileComplete = filledFieldsCount === 4;
   const currentStatus = learner?.lifecycle_status;
-  const canAutoActivate = currentStatus && ['admitted', 'pending', 'approved'].includes(currentStatus);
+  // 2026-05-20: Updated to match new workflow — auto-activation can happen
+  // from any pre-account stage (entry, post-form, post-threshold).
+  const canAutoActivate = currentStatus && ['enquiry', 'enquiry_submitted', 'pending', 'approved', 'admitted'].includes(currentStatus);
 
   return (
     <Form {...form}>

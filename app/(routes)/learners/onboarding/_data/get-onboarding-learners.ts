@@ -111,6 +111,12 @@ export async function getOnboardingLearners(
 
     const sortBy = VALID_SORT_COLUMNS.has(rawSortBy) ? rawSortBy : 'first_name';
 
+    // 2026-05-20: Scope the onboarding workspace to learners who have crossed
+    // the fees threshold (lifecycle_status='admitted'). They're the cohort that
+    // needs academic-assignment fields filled before LearnerProfileService
+    // auto-activates them to 'active'. Other statuses with stale completion
+    // flags (legacy 'active' rows) are handled by the auto-correction at the
+    // bottom of this function rather than surfacing in the triage workspace.
     let query = supabase
       .from('learners_profiles')
       .select(
@@ -128,6 +134,7 @@ export async function getOnboardingLearners(
         admission_year_obj:admission_years!admission_year_id(id, admission_year_name, program_start_year, program_end_year)
       `
       )
+      .eq('lifecycle_status', 'admitted')
       .or('is_profile_complete.eq.false,is_profile_complete.is.null');
 
     if (search) {

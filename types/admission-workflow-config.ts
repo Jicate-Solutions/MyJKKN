@@ -96,8 +96,11 @@ export interface InstitutionAdmissionSummary {
   total_leads: number;
   active_crm_leads: number;
   lost_leads: number;
+  /** @deprecated 2026-05-20 — funnel_stage-based; use admitted_count below. */
   applied: number;
+  /** @deprecated 2026-05-20 — funnel_stage-based; use admitted_count below. */
   enrolled: number;
+  /** @deprecated 2026-05-20 — funnel_stage-based; use rejected_lifecycle_count below. */
   rejected: number;
   total_seats: number;
   filled_seats: number;
@@ -115,14 +118,29 @@ export interface InstitutionAdmissionSummary {
    */
   seat_filled_learners: number;
   fill_percentage: number;
+  // ─────────────────────────────────────────────────────────────────────────
+  // Lifecycle-status-based counts (added 2026-05-20 with workflow realignment).
+  // Sourced from learners_profiles.lifecycle_status, scoped by the same
+  // admission_year / program_start_year filter the leads side uses.
+  // ─────────────────────────────────────────────────────────────────────────
+  enquiry_count: number;
+  enquiry_submitted_count: number;
+  account_count: number;
+  reserved_count: number;
+  /** Admitted KPI = lifecycle_status IN ('admitted', 'active') per workflow spec. */
+  admitted_count: number;
+  rejected_lifecycle_count: number;
 }
 
 export interface GroupDashboardData {
   institutions: InstitutionAdmissionSummary[];
   totals: {
     total_leads: number;
+    /** @deprecated 2026-05-20 — funnel_stage-based; use total_admitted below. */
     total_applied: number;
+    /** @deprecated 2026-05-20 — funnel_stage-based; use total_admitted below. */
     total_enrolled: number;
+    /** @deprecated 2026-05-20 — funnel_stage-based; use total_rejected_lifecycle below. */
     total_rejected: number;
     total_seats: number;
     /**
@@ -136,6 +154,17 @@ export interface GroupDashboardData {
     /** Sum of seat_filled_learners across institutions (learner-space). */
     total_seat_filled_learners: number;
     overall_fill_percentage: number;
+    // ───────────────────────────────────────────────────────────────────────
+    // Lifecycle-status-based totals (added 2026-05-20). PRIMARY source for
+    // the dashboard's top KPI strip going forward.
+    // ───────────────────────────────────────────────────────────────────────
+    total_enquiry: number;
+    total_enquiry_submitted: number;
+    total_account: number;
+    total_reserved: number;
+    /** Admitted KPI = sum of lifecycle_status IN ('admitted', 'active'). */
+    total_admitted: number;
+    total_rejected_lifecycle: number;
   };
 }
 

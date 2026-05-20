@@ -35,7 +35,18 @@ interface EnquiriesTableServerProps {
     limit: number;
     total_pages: number;
   };
-  statusFilter?: 'admitted' | 'pending' | 'rejected' | 'waitlisted' | 'fees_setup_pending';
+  // 2026-05-20: Extended for the new workflow tabs.
+  statusFilter?:
+    | 'enquiry'
+    | 'enquiry_submitted'
+    | 'admitted'
+    | 'pending'
+    | 'approved'
+    | 'account'
+    | 'reserved'
+    | 'rejected'
+    | 'waitlisted'
+    | 'fees_setup_pending';
 }
 
 /**

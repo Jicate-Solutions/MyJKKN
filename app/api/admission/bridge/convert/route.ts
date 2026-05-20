@@ -158,12 +158,16 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // a plain text shadow with no triggers attached, so it stays here.
     referred_by_name: lead.referred_by_name || null,
     // Required fields with safe defaults
-    // 2026-05-09: reverted from 'enquiry' back to 'admitted'. The 'enquiry'
-    // value was added by the 2026-05-08 student-self-fill plan and dropped
-    // again in the same week — it produced rows invisible to every tab on
-    // /learners/enquiries (which filters by admitted/pending/account/rejected/
-    // waitlisted). The enum value has been removed from the DB.
-    lifecycle_status: 'admitted',
+    // 2026-05-20: re-introduced 'enquiry' as the entry-point status for the
+    // counselor workflow. Previous attempt (2026-05-08 → 2026-05-09 revert)
+    // failed because the /learners/enquiries tabs didn't include 'enquiry'.
+    // That gap was closed in this rollout: migration
+    // 20260520120100_realign_lifecycle_statuses_data_and_seed re-added the
+    // enum value, and the enquiries list filter now includes 'enquiry' and
+    // 'enquiry_submitted'. Old 'admitted' rows were migrated to 'enquiry' in
+    // the same migration. The new meaning of 'admitted' is post-threshold
+    // (auto-set by evaluate_learner_status_after_payment when fees clear 50%).
+    lifecycle_status: 'enquiry',
     accommodation_type: 'DAY SCHOLAR',
     entry_type: 'FIRST YEAR',
     last_school: '',

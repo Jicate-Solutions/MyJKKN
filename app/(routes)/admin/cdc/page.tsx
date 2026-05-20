@@ -21,6 +21,7 @@ import {
   Clock,
   ChevronRight,
   ShieldAlert,
+  Activity,
 } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
@@ -146,6 +147,33 @@ export default function CdcAdminPage() {
           Configure placement drives, master tables, policies, and monitor cron jobs.
         </p>
       </div>
+
+      {/* Operational dashboard — featured link, separate from configuration cards (T1.3) */}
+      <Link href="/admin/cdc/dashboard" className="group mb-6 block">
+        <Card className="border-blue-200 bg-blue-50/40 transition-shadow group-hover:shadow-md dark:border-blue-900 dark:bg-blue-950/20">
+          <CardHeader className="pb-3">
+            <div className="flex items-start justify-between gap-2">
+              <div className="rounded-lg bg-blue-100 p-2 text-blue-700 dark:bg-blue-900 dark:text-blue-200">
+                <Activity className="h-5 w-5" />
+              </div>
+              <Badge variant="default" className="text-xs">
+                Live
+              </Badge>
+            </div>
+            <CardTitle className="mt-2 flex items-center gap-1 text-base">
+              Operational Dashboard
+              <ChevronRight className="-ml-1 h-4 w-4 opacity-0 transition-opacity group-hover:opacity-60" />
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <CardDescription className="text-sm leading-relaxed">
+              Live metrics across all 8 institutions — drives in flight, pending willingness,
+              placements YTD, overdue coordinator items, top recruiters, and IDP submission rates.
+              Auto-refreshes every 60 seconds.
+            </CardDescription>
+          </CardContent>
+        </Card>
+      </Link>
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
         {ADMIN_CARDS.map((card) => {

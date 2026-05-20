@@ -14,10 +14,14 @@ import type { LearnerProfile } from '@/types/learner-profile';
 
 /**
  * Virtual lifecycle_status sentinel handled by getEnquiries: expands to
- * lifecycle_status='admitted' AND legacy_fee_mode=true and annotates each row
+ * lifecycle_status='enquiry' AND legacy_fee_mode=true and annotates each row
  * with resolution_status / missing_fields from
  * vw_learners_profile_fee_backfill_status so the "Fees Setup Pending" tab can
  * render badges.
+ *
+ * 2026-05-20: Updated from 'admitted' to 'enquiry' as part of the workflow
+ * realignment. The 554 legacy_fee_mode rows that used to sit at 'admitted' were
+ * migrated to 'enquiry' in 20260520120100_realign_lifecycle_statuses_data_and_seed.
  */
 export const FEES_SETUP_PENDING = 'fees_setup_pending';
 
@@ -123,14 +127,16 @@ async function getEnquiriesInner(
     );
 
   // Filter for enquiry statuses.
-  // The 'fees_setup_pending' sentinel is a virtual tab: expand to admitted+legacy.
+  // The 'fees_setup_pending' sentinel is a virtual tab: expand to enquiry+legacy.
+  // 2026-05-20: Default lifecycle list now includes 'enquiry', 'enquiry_submitted'.
+  // Avoids the May 2026 regression where the default filter dropped 'enquiry'.
   const isFeesSetupPending = lifecycle_status === FEES_SETUP_PENDING;
   if (isFeesSetupPending) {
-    query = query.eq('lifecycle_status', 'admitted').eq('legacy_fee_mode', true);
+    query = query.eq('lifecycle_status', 'enquiry').eq('legacy_fee_mode', true);
   } else if (lifecycle_status) {
     query = query.eq('lifecycle_status', lifecycle_status);
   } else {
-    query = query.in('lifecycle_status', ['admitted', 'pending']);
+    query = query.in('lifecycle_status', ['enquiry', 'enquiry_submitted', 'pending']);
   }
 
   // Apply filters - Parse advanced search format
@@ -225,11 +231,11 @@ async function getEnquiriesInner(
 
   // Apply the same filters as the main query
   if (isFeesSetupPending) {
-    countQuery = countQuery.eq('lifecycle_status', 'admitted').eq('legacy_fee_mode', true);
+    countQuery = countQuery.eq('lifecycle_status', 'enquiry').eq('legacy_fee_mode', true);
   } else if (lifecycle_status) {
     countQuery = countQuery.eq('lifecycle_status', lifecycle_status);
   } else {
-    countQuery = countQuery.in('lifecycle_status', ['admitted', 'pending']);
+    countQuery = countQuery.in('lifecycle_status', ['enquiry', 'enquiry_submitted', 'pending']);
   }
 
   if (search) {

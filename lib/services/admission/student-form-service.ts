@@ -241,15 +241,24 @@ export class StudentFormService {
     }
 
     if (leadId) {
-      const activityRows = (['basic', 'academic', 'contact'] as const).map((s) => ({
+      const sectionActivities = (['basic', 'academic', 'contact'] as const).map((s) => ({
         lead_id: leadId,
         activity_type: 'student_section_filled',
         subject: `Student filled ${s} section via QR`,
         description: `Section: ${s}. Filled via QR self-fill at counter.`,
       }));
+      // 2026-05-20: also log a summary row to make the workflow transition
+      // visible on the activities timeline without scanning for the 3 section
+      // rows individually. Admission officers filter their queue on this.
+      const submitActivity = {
+        lead_id: leadId,
+        activity_type: 'enquiry_submitted',
+        subject: 'Enquiry form submitted via QR',
+        description: 'Learner completed all required sections of the QR self-fill form. Awaiting admission officer verification.',
+      };
       const { error: actErr } = await (svc as any)
         .from('admission_lead_activities')
-        .insert(activityRows);
+        .insert([...sectionActivities, submitActivity]);
       if (actErr) {
         // Audit failure is non-fatal — log loudly but continue with submit
         // rather than block the student at the counter.
@@ -275,12 +284,35 @@ export class StudentFormService {
       .eq('status', 'active');
     if (tokenErr) throw new Error('token_consume_failed: ' + tokenErr.message);
 
-    // Flip the learner's completion flag
+    // Flip the learner's completion flag AND promote to 'enquiry_submitted'.
+    // The lifecycle_status update is guarded with `.eq('lifecycle_status', 'enquiry')`
+    // so we never downgrade a learner who has already moved further along the
+    // workflow (e.g. account, reserved, admitted) — useful if an officer
+    // accidentally re-issues a token for a learner who has already progressed.
     const { error: completeErr } = await (svc as any)
       .from('learners_profiles')
-      .update({ is_profile_complete: true, updated_at: new Date().toISOString() })
-      .eq('id', ctx.learner_profile_id);
-    if (completeErr) throw new Error('complete_flag_failed: ' + completeErr.message);
+      .update({
+        is_profile_complete: true,
+        lifecycle_status: 'enquiry_submitted',
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', ctx.learner_profile_id)
+      .eq('lifecycle_status', 'enquiry');
+    if (completeErr) {
+      // If the row was skipped because status had moved past 'enquiry', fall
+      // back to flipping just the completion flag so the existing UX remains.
+      const isLifecycleSkip =
+        /lifecycle_status/i.test(completeErr.message || '') ||
+        /no rows/i.test(completeErr.message || '');
+      if (!isLifecycleSkip) {
+        throw new Error('complete_flag_failed: ' + completeErr.message);
+      }
+      const { error: fallbackErr } = await (svc as any)
+        .from('learners_profiles')
+        .update({ is_profile_complete: true, updated_at: new Date().toISOString() })
+        .eq('id', ctx.learner_profile_id);
+      if (fallbackErr) throw new Error('complete_flag_failed: ' + fallbackErr.message);
+    }
   }
 
   /**

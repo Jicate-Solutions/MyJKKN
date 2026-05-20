@@ -23,6 +23,7 @@ import {
 } from '@/components/ui/select';
 import { ProfileImageUpload } from '../profile-image-upload';
 import { OccupationField } from '@/components/admission/occupation-field';
+import { CommunityField, CasteField } from '@/components/admission/community-caste-selector';
 
 interface BasicDetailsProps {
   form: UseFormReturn<any>;
@@ -240,43 +241,25 @@ export function BasicDetailsSection({ form, onImageFileChange, isStudentView = f
             )}
           />
 
-          <FormField
-            control={form.control}
-            name="community"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Community <span className="text-red-500">*</span></FormLabel>
-                <Select onValueChange={field.onChange} value={field.value || ''}>
-                  <FormControl>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select community" />
-                    </SelectTrigger>
-                  </FormControl>
-                  <SelectContent>
-                    {communityOptions.map((option) => (
-                      <SelectItem key={option.value} value={option.value}>
-                        {option.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <FormMessage />
-              </FormItem>
-            )}
+          {/* Community and Caste — separate cells in the 3-col grid so
+              Religion | Community | Caste sit on one row at md:+ widths. */}
+          <CommunityField
+            value={form.watch('community') ?? ''}
+            onChange={(val) =>
+              form.setValue('community', val, { shouldDirty: true, shouldValidate: true })
+            }
+            onCascadeReset={() =>
+              form.setValue('caste', '', { shouldDirty: true, shouldValidate: true })
+            }
+            required
           />
-
-          <FormField
-            control={form.control}
-            name="caste"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Caste <span className="text-red-500">*</span></FormLabel>
-                <FormControl>
-                  <Input placeholder="Enter caste" {...field} />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
+          <CasteField
+            community={form.watch('community') ?? ''}
+            value={form.watch('caste') ?? ''}
+            onChange={(val) =>
+              form.setValue('caste', val, { shouldDirty: true, shouldValidate: true })
+            }
+            required
           />
         </div>
 

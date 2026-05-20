@@ -72,7 +72,10 @@ export class LearnerProfileService {
    * Called after every update
    * Updated: 2025-01-21 - Added user creation status return
    *
-   * Auto-activation: Only from 'approved' → 'active'
+   * Auto-activation: From 'approved' or 'admitted' (post-threshold) → 'active'
+   *                   (2026-05-20: 'admitted' added as part of the workflow
+   *                   realignment — onboarding fills the remaining academic
+   *                   fields, this method then auto-flips the row to active)
    * User creation: Any 'active' status with complete profile
    */
   private static async checkAndAutoActivate(
@@ -83,22 +86,35 @@ export class LearnerProfileService {
     const hasValidEmail = this.isValidCollegeEmail(updatedProfile.college_email);
 
     // ============================================
-    // PART 1: Auto-activation (ONLY from 'approved' status)
+    // PART 1: Auto-activation (from 'approved' or 'admitted' → 'active')
     // ============================================
+    //
+    // 'account' and 'reserved' learners are gated on payment progress —
+    // evaluate_learner_status_after_payment promotes them to 'admitted' once
+    // the configured threshold clears. This method then takes over once an
+    // onboarding officer fills the remaining academic fields (academic_year_id,
+    // semester_id, section_id, college_email).
 
-    // Skip auto-activation for 'account' status - accounts team must explicitly approve after payment
-    if (updatedProfile.lifecycle_status === 'account') {
+    // Skip: payment-gated stages (account team controls these transitions).
+    if (
+      updatedProfile.lifecycle_status === 'account' ||
+      updatedProfile.lifecycle_status === 'reserved'
+    ) {
       return { profile: updatedProfile };
     }
 
-    if (updatedProfile.lifecycle_status === 'approved') {
+    if (
+      updatedProfile.lifecycle_status === 'approved' ||
+      updatedProfile.lifecycle_status === 'admitted'
+    ) {
       // Check if profile is ready for auto-activation
       if (!isComplete || !hasValidEmail) {
         console.log(`[learner-profile-service] Profile not ready for auto-activation: ${id}`);
         return { profile: updatedProfile };
       }
 
-      console.log(`[learner-profile-service] Auto-activating learner from approved: ${id}`);
+      const sourceStatus = updatedProfile.lifecycle_status;
+      console.log(`[learner-profile-service] Auto-activating learner from ${sourceStatus}: ${id}`);
 
       // Auto-transition to 'active'
       const supabase = createClientSupabaseClient();
@@ -554,7 +570,9 @@ export class LearnerProfileService {
     const { data, error } = await insertQuery
       .insert({
         ...dto,
-        lifecycle_status: (dto.lifecycle_status || 'admitted') as LifecycleStatus,
+        // 2026-05-20: Default entry-point status is now 'enquiry' (was 'admitted').
+        // 'admitted' now means post-fees-threshold; never assign it on initial INSERT.
+        lifecycle_status: (dto.lifecycle_status || 'enquiry') as LifecycleStatus,
         is_profile_complete: isComplete,
         migration_source: 'direct' as const, // Mark as directly created (not migrated)
         created_by: currentUserId,
@@ -2302,8 +2320,9 @@ export class LearnerProfileService {
 
   private static async getEnquiriesTrend(filters: import('@/types/learner-dashboard').LearnerDashboardFilters, supabaseClient?: any): Promise<import('@/types/learner-dashboard').TimeSeriesDataPoint[]> {
     // Fetch ALL records with chunked pagination (fixes 1000-row limit)
-    // Note: Apply lifecycle_status='admitted' as an additional filter
-    const enquiryFilters = { ...filters, lifecycleStatuses: ['admitted'] } as import('@/types/learner-dashboard').LearnerDashboardFilters;
+    // 2026-05-20: Filter realigned admitted -> enquiry (+ enquiry_submitted)
+    // so the enquiries-trend chart still tracks the entry funnel.
+    const enquiryFilters = { ...filters, lifecycleStatuses: ['enquiry', 'enquiry_submitted'] } as import('@/types/learner-dashboard').LearnerDashboardFilters;
     const profiles = await this.fetchAllRecordsChunked('learners_profiles', 'created_at', enquiryFilters, supabaseClient);
 
     // Group by date

@@ -488,9 +488,21 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "iconName": "FileText",
             "children": [
               {
+                "path": "/admin/campus-living/premium/audit-log",
+                "label": "Premium Stay — Audit Log",
+                "iconName": "History",
+                "children": []
+              },
+              {
                 "path": "/admin/campus-living/premium/dashboard",
                 "label": "Premium Stay Dashboard",
                 "iconName": "LayoutGrid",
+                "children": []
+              },
+              {
+                "path": "/admin/campus-living/premium/override",
+                "label": "Premium Stay — Chief Warden Override",
+                "iconName": "ShieldCheck",
                 "children": []
               }
             ]
@@ -512,6 +524,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "path": "/admin/cdc/cron-status",
             "label": "Cron Status",
             "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/admin/cdc/dashboard",
+            "label": "Dashboard",
+            "iconName": "LayoutGrid",
             "children": []
           },
           {
@@ -1267,6 +1285,19 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "label": "PDE Cohort Comparison",
             "iconName": "BarChart3",
             "children": []
+          },
+          {
+            "path": "/admin/pde/compliance",
+            "label": "PDE Compliance",
+            "iconName": "ShieldCheck",
+            "children": [
+              {
+                "path": "/admin/pde/compliance/per-college",
+                "label": "PDE Per-College Compliance",
+                "iconName": "ShieldCheck",
+                "children": []
+              }
+            ]
           },
           {
             "path": "/admin/pde/demonstrations",
@@ -2763,6 +2794,25 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "label": "My Hostel",
         "iconName": "FileText",
         "children": [
+          {
+            "path": "/campus-living/my-hostel/premium",
+            "label": "Premium Stay — Opt-in",
+            "iconName": "Sparkles",
+            "children": [
+              {
+                "path": "/campus-living/my-hostel/premium/invite-roommate",
+                "label": "Premium Stay — Invite Roommate",
+                "iconName": "Users",
+                "children": []
+              },
+              {
+                "path": "/campus-living/my-hostel/premium/pick-room",
+                "label": "Premium Stay — Pick Room",
+                "iconName": "BedDouble",
+                "children": []
+              }
+            ]
+          },
           {
             "path": "/campus-living/my-hostel/vacate-request",
             "label": "Vacate Request",
