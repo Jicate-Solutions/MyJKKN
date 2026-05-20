@@ -527,6 +527,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
+            "path": "/admin/cdc/dashboard",
+            "label": "Dashboard",
+            "iconName": "LayoutGrid",
+            "children": []
+          },
+          {
             "path": "/admin/cdc/drive-types",
             "label": "Drive Types",
             "iconName": "FileText",

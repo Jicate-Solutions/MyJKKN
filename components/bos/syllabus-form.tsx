@@ -24,7 +24,8 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { SearchableSelect } from '@/components/ui/searchable-select';
 import { useBosCourses } from '@/hooks/bos/use-bos-courses';
 import { useInstitutionContext } from '@/hooks/use-institution-context';
-import { X, Trash2, BookOpen, Plus, FlaskConical, BookText, Check, Upload, Loader2, FileText } from 'lucide-react';
+import { X, Trash2, BookOpen, Plus, FlaskConical, BookText, Check, Upload, Loader2, FileText, AlertTriangle } from 'lucide-react';
+import { toast } from 'react-hot-toast';
 import {
   SyllabusImportIssuesDialog,
   type ImportWarning,
@@ -59,6 +60,18 @@ export function SyllabusForm({
   // If the caller already loaded the syllabus (edit page), skip the fetch.
   const { data: fetchedSyllabus } = useBosSyllabus(syllabusProp ? undefined : syllabusId);
   const existingSyllabus = syllabusProp ?? fetchedSyllabus;
+
+  // Superseded-version detection: a syllabus that's been overtaken by a later
+  // version has is_latest=false and isn't archived. Per the 2026-05-20 auto-fork
+  // workflow (forkSyllabiOnMinutesApproval), once a meeting's minutes are
+  // approved the referenced V1 rows flip to is_latest=false and a fresh V2 is
+  // created. Opening V1 after that should be a read-only experience so users
+  // can browse / download the historical snapshot but can't accidentally
+  // modify it. Archived rows fall through to the existing soft-delete logic.
+  const isSupersededVersion =
+    !!existingSyllabus &&
+    existingSyllabus.is_latest === false &&
+    !existingSyllabus.is_archived;
   const createMutation = useCreateBosSyllabus();
   const { userProfile, isSuperAdmin } = usePermissions();
   const { data: institutionCtx } = useInstitutionContext();
@@ -303,6 +316,7 @@ export function SyllabusForm({
       setActiveTab(nextTab);
     } catch (error) {
       console.error('Failed to save:', error);
+      toast.error((error as Error).message || 'Failed to save syllabus');
     }
   };
 
@@ -538,6 +552,7 @@ export function SyllabusForm({
       }
     } catch (error) {
       console.error('Failed to save syllabus:', error);
+      toast.error((error as Error).message || 'Failed to save syllabus');
     }
   };
 
@@ -583,6 +598,32 @@ export function SyllabusForm({
 
   return (
     <form onSubmit={handleSubmit}>
+      {/* Superseded-version banner.
+          Shown when the loaded syllabus is no longer the latest version (a
+          newer V2+ exists). The form below is wrapped in <fieldset disabled>
+          which cascades to all native inputs/buttons — so users can browse
+          every tab and field but can't submit. Download/PDF/DOCX from the
+          parent list page still work for archival reference. */}
+      {isSupersededVersion && existingSyllabus && (
+        <Alert className='mb-4 border-amber-300 bg-amber-50 text-amber-900 [&>svg]:text-amber-600'>
+          <AlertTriangle className='h-4 w-4' />
+          <AlertDescription>
+            <span className='font-semibold'>
+              Superseded by Version {(existingSyllabus.version_number ?? 1) + 1}
+              {' '}— this syllabus is read-only.
+            </span>
+            <br />
+            <span className='text-xs'>
+              This is Version {existingSyllabus.version_number ?? 1} of{' '}
+              <span className='font-mono'>{existingSyllabus.course_code}</span>.
+              The current active version was created when meeting minutes were
+              approved. Use Syllabus History (from the syllabus list) to open
+              the latest version for editing.
+            </span>
+          </AlertDescription>
+        </Alert>
+      )}
+      <fieldset disabled={isSupersededVersion} className='contents'>
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="grid w-full grid-cols-7">
           <TabsTrigger value="basic">Basic Info</TabsTrigger>
@@ -1111,6 +1152,7 @@ export function SyllabusForm({
           </Card>
         </TabsContent>
       </Tabs>
+      </fieldset>
 
       {(createMutation.error || updateMutation.error) && (
         <Alert variant="destructive" className="mt-4">

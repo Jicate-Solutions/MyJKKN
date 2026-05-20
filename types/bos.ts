@@ -89,7 +89,7 @@ export const BOS_MEMBER_TYPE_LABELS: Record<BosMemberType, string> = {
 
 export const BOS_MEETING_STATUS_LABELS: Record<BosMeetingStatus, string> = {
   draft: 'Draft',
-  principal_approved: 'Principal Approved',
+  principal_approved: 'Principal Approval',
   noticed: 'Notice Sent',
   expert_invited: 'Experts Invited',
   completed: 'Meeting Completed',
@@ -127,12 +127,17 @@ export const BOS_DOCUMENT_TYPE_LABELS: Record<BosDocumentType, string> = {
 // ── Meeting State Machine ────────────────────────────────────────────────────
 // Ordered list of states for progress stepper component
 
+// 'completed' is intentionally omitted: per the 2026-05-20 UX simplification,
+// the "Meeting Finalized" action chains expert_invited → completed → minutes_drafted
+// in a single click (see handleTransitionConfirm in the meeting detail page),
+// so the intermediate Completed state isn't shown as a stepper step. The
+// enum value still exists for legacy meetings and the state machine still
+// permits the transition — only the visible workflow collapsed it.
 export const BOS_MEETING_STATUS_ORDER: BosMeetingStatus[] = [
   'draft',
   'principal_approved',
   'noticed',
   'expert_invited',
-  'completed',
   'minutes_drafted',
   'minutes_approved',
   'ratified',
@@ -269,6 +274,13 @@ export interface BosUnit {
 
 export interface BosCourseContentData {
   units: BosUnit[];
+  // Practical-paper mode (e.g. lab courses): when true, `topics` is the
+  // authoritative content — a flat numbered list of experiments rendered as
+  // "S.No | List of Experiments" in the PDF. `units` is ignored in this mode.
+  // The form toggle in components/bos/syllabus-form.tsx (toggleMode) maintains
+  // the invariant that exactly one of units/topics is populated.
+  is_practical?: boolean;
+  topics?: BosChapterSubtopic[];
 }
 
 // ── Textbooks & References ────────────────────────────────────────────
@@ -624,6 +636,62 @@ export interface BosMember {
 export type CreateBosMemberDto = Omit<BosMember, 'id' | 'created_at' | 'updated_at' | 'expert'>;
 export type UpdateBosMemberDto = Partial<CreateBosMemberDto>;
 
+// ── Meeting Minutes (rich content) ────────────────────────────────────────────
+
+/**
+ * One row in the "changes log" table of a meeting's minutes. Each entry records
+ * a specific change discussed for a specific syllabus during the meeting, with
+ * optional attribution to the member who suggested it.
+ *
+ * Fields like syllabus_code and suggested_by_name are denormalized snapshots —
+ * they're populated at save time so PDF/DOCX exports don't need to re-resolve
+ * UUIDs after archiving. The *_id fields remain for navigation/audit.
+ */
+export interface BosMinutesChangeLogEntry {
+  id: string; // client-generated UUID for stable React keys
+  syllabus_id?: string | null;
+  syllabus_code?: string | null;
+  unit?: string | null;
+  /**
+   * Multi-select: a single change row can cover several related topics within
+   * the picked unit. May also be a single string in legacy data (rows saved
+   * with the first iteration of the editor before multi-select shipped) —
+   * normalize via asTopicArray() in the UI.
+   */
+  topic?: string | string[] | null;
+  /**
+   * Multi-select: sub-topics from any of the picked topics. Same legacy-string
+   * fallback applies — see topic field.
+   */
+  sub_topic?: string | string[] | null;
+  /**
+   * Multi-select: one change may be co-suggested by several members
+   * (committee proposal style). Single-string form is accepted for
+   * backward-compat with rows saved before multi-select shipped on
+   * 2026-05-20 — normalize via the asArray helper in minutes-tab.tsx /
+   * bos-pdf-generator.ts / meeting-minutes-docx.ts.
+   */
+  suggested_by_member_id?: string | string[] | null;
+  /**
+   * Denormalized member name(s) — array order matches suggested_by_member_id.
+   * Snapshot at save time so PDF/DOCX exports stay readable if a member is
+   * later renamed or removed from the composition.
+   */
+  suggested_by_name?: string | string[] | null;
+  suggestion_text: string; // required — every row must describe a change
+  created_at?: string;
+}
+
+/**
+ * Structured rich-minutes payload stored in bos_meetings.minutes_content (JSONB).
+ * - narrative_html: TipTap-rendered HTML of the free-form minutes body
+ * - changes_log: list of structured per-syllabus change entries
+ */
+export interface BosMeetingMinutesContent {
+  narrative_html?: string;
+  changes_log?: BosMinutesChangeLogEntry[];
+}
+
 // ── Meeting ───────────────────────────────────────────────────────────────────
 
 export interface BosMeeting {
@@ -650,6 +718,12 @@ export interface BosMeeting {
   ratified_date?: string;
   agenda_text?: string;
   minutes_summary?: string;
+  /**
+   * Structured rich-text minutes. Optional because legacy meetings (created
+   * before the 2026-05-20 minutes-editor migration) won't have it populated.
+   * Migration: supabase/migrations/20260520000000_bos_meetings_minutes_content.sql
+   */
+  minutes_content?: BosMeetingMinutesContent;
   minutes_drafted_at?: string;
   minutes_approved_at?: string;
   minutes_approved_by?: string;

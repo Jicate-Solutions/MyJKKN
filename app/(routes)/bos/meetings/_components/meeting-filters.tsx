@@ -175,6 +175,7 @@ export function MeetingFilters({
             </SelectContent>
           </Select>
         </div>
+
       </div>
 
       {hasActiveFilters && (

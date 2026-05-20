@@ -14,7 +14,16 @@ interface MeetingStatusStepperProps {
 }
 
 export function MeetingStatusStepper({ currentStatus, className }: MeetingStatusStepperProps) {
-  const currentIndex = BOS_MEETING_STATUS_ORDER.indexOf(currentStatus);
+  // 'completed' was removed from BOS_MEETING_STATUS_ORDER on 2026-05-20 so the
+  // visible workflow skips that step. But legacy meetings (created before the
+  // skip-chain shipped) may still be recorded with status='completed' in the
+  // DB. Without this mapping, indexOf returns -1 and NO step renders as
+  // completed — the user sees an all-grey stepper that looks broken. Map
+  // 'completed' to the next visible step ('minutes_drafted') so all prior
+  // steps green-tick correctly and the next-visible step is highlighted.
+  const displayStatus =
+    currentStatus === 'completed' ? 'minutes_drafted' : currentStatus;
+  const currentIndex = BOS_MEETING_STATUS_ORDER.indexOf(displayStatus);
 
   return (
     <div className={cn('w-full overflow-x-auto', className)}>

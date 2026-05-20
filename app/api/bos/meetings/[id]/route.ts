@@ -1,8 +1,50 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
+import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 import { UpdateBosMeetingDto } from '@/types/bos';
+import {
+  resolveBosBoardScope,
+  guardCompositionWrite,
+} from '@/lib/utils/bos/bos-access';
+
+// Service-role helper: expand the caller's primary institution to the full CAS
+// sibling set via Supabase counselling_code self-join. Mirrors the pattern in
+// /api/bos/meetings list route — the BoS spec treats CAS Aided+SF as one
+// logical institution, but `role_has_institution_access()` (used by RLS and
+// some guards) doesn't know that. We materialise the sibling closure here
+// so route-level authz can do the right thing.
+async function casExpandedIds(
+  db: ReturnType<typeof createServiceRoleClient>,
+  primaryInstitutionId: string | null | undefined,
+  seedIds: readonly string[]
+): Promise<string[]> {
+  const out = new Set<string>(seedIds);
+  if (primaryInstitutionId) out.add(primaryInstitutionId);
+  if (!primaryInstitutionId) return Array.from(out);
+
+  const { data: inst } = await db
+    .from('institutions')
+    .select('counselling_code')
+    .eq('id', primaryInstitutionId)
+    .maybeSingle();
+
+  if (inst?.counselling_code) {
+    const { data: siblings } = await db
+      .from('institutions')
+      .select('id')
+      .eq('counselling_code', inst.counselling_code)
+      .eq('is_active', true);
+    for (const s of siblings ?? []) out.add((s as { id: string }).id);
+  }
+  return Array.from(out);
+}
 
 // ── GET /api/bos/meetings/[id] ────────────────────────────────────────────────
+// Today's GET relies on RLS for authorization. Once we use service-role to
+// bypass the non-CAS-aware RLS, we MUST add explicit route-level authz:
+//   - super-admin → allow
+//   - principal of (CAS-expanded) institution → allow
+//   - board member of the composition → allow
+//   - else → 404 (same shape RLS returned, don't leak existence)
 export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -15,8 +57,9 @@ export async function GET(
     }
 
     const { id } = await params;
+    const db = createServiceRoleClient();
 
-    const { data, error } = await supabase
+    const { data, error } = await db
       .from('bos_meetings')
       .select(`
         *,
@@ -43,7 +86,9 @@ export async function GET(
           first_name,
           last_name,
           designation
-        )
+        ),
+        agenda_items_agg:bos_agenda_items(count),
+        attendees_agg:bos_meeting_attendees(count)
       `)
       .eq('id', id)
       .single();
@@ -55,7 +100,48 @@ export async function GET(
       throw error;
     }
 
-    return NextResponse.json(data);
+    // PostgREST returns embedded counts as `[{ count: N }]`. Flatten into the
+    // `agenda_item_count` / `attendee_count` scalar fields that the UI and
+    // workflow gates read. Without this the detail page's agenda tab badge AND
+    // the "≥1 agenda item before Principal Approval" client guard both see
+    // undefined and silently miscount.
+    type CountRow = { count: number };
+    const meetingWithAgg = data as typeof data & {
+      agenda_items_agg?: CountRow[] | null;
+      attendees_agg?: CountRow[] | null;
+    };
+    const flattened = {
+      ...data,
+      agenda_item_count: meetingWithAgg.agenda_items_agg?.[0]?.count ?? 0,
+      attendee_count: meetingWithAgg.attendees_agg?.[0]?.count ?? 0,
+    };
+    delete (flattened as Record<string, unknown>).agenda_items_agg;
+    delete (flattened as Record<string, unknown>).attendees_agg;
+
+    // Authz — replicates what RLS would have done, but with CAS sibling
+    // awareness so a SF principal can view Aided meetings (and vice versa).
+    const scope = await resolveBosBoardScope(user.id);
+    if (!scope.isSuperAdmin) {
+      const meetingRow = data as { institutions_id: string | null; composition_id: string | null };
+      const allowedInstitutions = await casExpandedIds(
+        db,
+        scope.institutionsId,
+        scope.allInstitutionIds
+      );
+
+      const institutionOk =
+        !meetingRow.institutions_id ||
+        allowedInstitutions.includes(meetingRow.institutions_id);
+      const compositionOk =
+        scope.isPrincipal ||
+        (meetingRow.composition_id ? scope.memberOf.has(meetingRow.composition_id) : false);
+
+      if (!institutionOk || !compositionOk) {
+        return NextResponse.json({ error: 'Meeting not found' }, { status: 404 });
+      }
+    }
+
+    return NextResponse.json(flattened);
   } catch (error) {
     console.error('[bos/meetings/:id] GET error:', error);
     return NextResponse.json({ error: 'Failed to fetch meeting' }, { status: 500 });
@@ -63,6 +149,11 @@ export async function GET(
 }
 
 // ── PUT /api/bos/meetings/[id] ────────────────────────────────────────────────
+// Field-edit on a meeting. Principals remain read-only on board data
+// (guardCompositionWrite denies them). The CAS issue here is that RLS UPDATE
+// was the only authz path, and it's not CAS-aware — so a CAS-sibling board
+// member couldn't edit their own meeting. We move authz into the route and
+// use service-role for the update itself.
 export async function PUT(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -76,6 +167,45 @@ export async function PUT(
 
     const { id } = await params;
     const body: UpdateBosMeetingDto = await request.json();
+    const db = createServiceRoleClient();
+
+    // Look up the meeting (service-role) so RLS doesn't 404 a legit CAS row.
+    const { data: meeting, error: fetchError } = await db
+      .from('bos_meetings')
+      .select('institutions_id, composition_id')
+      .eq('id', id)
+      .single();
+
+    if (fetchError || !meeting) {
+      return NextResponse.json({ error: 'Meeting not found' }, { status: 404 });
+    }
+    const meetingRow = meeting as { institutions_id: string | null; composition_id: string | null };
+
+    const scope = await resolveBosBoardScope(user.id);
+
+    // Authz — must be board member of this composition (guardCompositionWrite
+    // already denies principals/non-members). composition_id is the unit of
+    // authz; CAS-sibling institution membership is captured implicitly via
+    // memberOf, so no extra expansion is needed for the composition check.
+    const denyComp = guardCompositionWrite(scope, meetingRow.composition_id);
+    if (denyComp) return NextResponse.json({ error: denyComp }, { status: 403 });
+
+    // Institution sanity check — defence-in-depth; should always pass for a
+    // legitimate member (composition.institutions_id is in their CAS-expanded
+    // scope), but reject anything that smells off.
+    if (!scope.isSuperAdmin && meetingRow.institutions_id) {
+      const allowedInstitutions = await casExpandedIds(
+        db,
+        scope.institutionsId,
+        scope.allInstitutionIds
+      );
+      if (!allowedInstitutions.includes(meetingRow.institutions_id)) {
+        return NextResponse.json(
+          { error: 'Forbidden: meeting institution is outside your scope' },
+          { status: 403 }
+        );
+      }
+    }
 
     const payload = {
       ...body,
@@ -90,7 +220,7 @@ export async function PUT(
       updated_at: new Date().toISOString(),
     };
 
-    const { data, error } = await supabase
+    const { data, error } = await db
       .from('bos_meetings')
       .update(payload)
       .eq('id', id)
@@ -102,11 +232,25 @@ export async function PUT(
     return NextResponse.json(data);
   } catch (error) {
     console.error('[bos/meetings/:id] PUT error:', error);
-    return NextResponse.json({ error: 'Failed to update meeting' }, { status: 500 });
+    // Surface the real Postgres/Supabase error message to the client. The old
+    // opaque "Failed to update meeting" string hid problems like missing
+    // columns, schema drift, RLS denies, etc. — turning every backend failure
+    // into a generic 500 that the UI couldn't help the user act on. Now the
+    // client sees the actual cause (e.g. "column minutes_content does not
+    // exist" → run the migration). Stack traces and structured details stay
+    // server-side; only the human-readable message is forwarded.
+    const message =
+      error instanceof Error
+        ? error.message
+        : typeof (error as { message?: string })?.message === 'string'
+          ? (error as { message: string }).message
+          : 'Failed to update meeting';
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
 
 // ── DELETE /api/bos/meetings/[id] ─────────────────────────────────────────────
+// Only the chairman can delete, and only draft meetings. Same CAS treatment.
 export async function DELETE(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -119,21 +263,49 @@ export async function DELETE(
     }
 
     const { id } = await params;
-    // Only allow deletion of draft meetings
-    const { data: meeting } = await supabase
+    const db = createServiceRoleClient();
+
+    const { data: meeting } = await db
       .from('bos_meetings')
-      .select('status')
+      .select('status, institutions_id, composition_id')
       .eq('id', id)
       .single();
 
-    if (meeting && meeting.status !== 'draft') {
+    if (!meeting) {
+      return NextResponse.json({ error: 'Meeting not found' }, { status: 404 });
+    }
+
+    if (meeting.status !== 'draft') {
       return NextResponse.json(
         { error: 'Only draft meetings can be deleted.' },
         { status: 409 }
       );
     }
 
-    const { error } = await supabase.from('bos_meetings').delete().eq('id', id);
+    const scope = await resolveBosBoardScope(user.id);
+    if (!scope.isSuperAdmin) {
+      const meetingRow = meeting as { institutions_id: string | null; composition_id: string | null };
+      const allowedInstitutions = await casExpandedIds(
+        db,
+        scope.institutionsId,
+        scope.allInstitutionIds
+      );
+      const institutionOk =
+        !meetingRow.institutions_id ||
+        allowedInstitutions.includes(meetingRow.institutions_id);
+      const isChairman =
+        meetingRow.composition_id != null &&
+        scope.isChairmanIn.has(meetingRow.composition_id);
+
+      if (!institutionOk || !isChairman) {
+        return NextResponse.json(
+          { error: 'Forbidden: only the board chairman can delete a meeting' },
+          { status: 403 }
+        );
+      }
+    }
+
+    const { error } = await db.from('bos_meetings').delete().eq('id', id);
     if (error) throw error;
 
     return new NextResponse(null, { status: 204 });

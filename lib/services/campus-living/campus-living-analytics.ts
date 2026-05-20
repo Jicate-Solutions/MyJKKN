@@ -309,6 +309,183 @@ export class CampusLivingAnalytics {
     }
   }
 
+  // ── Cross-domain correlation summary ──────────────────────────────
+  // Derives a small set of cross-domain signals (attendance × maintenance
+  // × incidents × fees) using the same source tables as the other
+  // analytics methods. Heuristic — not a statistical model.
+  static async getCrossDomainCorrelations(institutionId: string | undefined) {
+    try {
+      const supabase = createClientSupabaseClient();
+      // Reuse last-30-days window for all signals
+      const to = new Date();
+      const from = new Date();
+      from.setDate(to.getDate() - 30);
+      const fromIso = from.toISOString();
+      const fromDate = from.toISOString().slice(0, 10);
+
+      // Attendance — daily presence ratio
+      let attQ = supabase
+        .from('hostel_attendance')
+        .select('evening_status, is_curfew_violation, block_id')
+        .gte('date', fromDate);
+      if (institutionId) attQ = attQ.eq('institution_id', institutionId);
+      const { data: attendance } = await attQ;
+
+      const attRows = attendance ?? [];
+      const totalAtt = attRows.length;
+      const present = attRows.filter((r) => r.evening_status === 'present').length;
+      const attendancePct = totalAtt > 0 ? Math.round((present / totalAtt) * 100) : 0;
+      const curfewViolations = attRows.filter((r) => r.is_curfew_violation).length;
+
+      // Maintenance — SLA + open count
+      let mQ = supabase
+        .from('hostel_maintenance_requests')
+        .select('status, sla_status, priority')
+        .gte('created_at', fromIso);
+      if (institutionId) mQ = mQ.eq('institution_id', institutionId);
+      const { data: maintenance } = await mQ;
+
+      const mRows = maintenance ?? [];
+      const slaBreached = mRows.filter((r) => r.sla_status === 'breached').length;
+      const openHighPri = mRows.filter(
+        (r) => r.status !== 'resolved' && r.status !== 'closed' && (r.priority === 'critical' || r.priority === 'high'),
+      ).length;
+
+      // Incidents — open + severity
+      let iQ = supabase
+        .from('hostel_incidents')
+        .select('status, severity')
+        .gte('incident_date', fromDate);
+      if (institutionId) iQ = iQ.eq('institution_id', institutionId);
+      const { data: incidents } = await iQ;
+
+      const iRows = incidents ?? [];
+      const openIncidents = iRows.filter((r) => r.status !== 'closed').length;
+      const seriousIncidents = iRows.filter((r) => r.severity === 'critical' || r.severity === 'major').length;
+
+      // Fees — defaulters via allocations
+      let aQ = supabase
+        .from('hostel_allocations')
+        .select('fee_status')
+        .eq('status', 'active');
+      if (institutionId) aQ = aQ.eq('institution_id', institutionId);
+      const { data: allocations } = await aQ;
+      const aRows = allocations ?? [];
+      const totalAlloc = aRows.length;
+      const defaulters = aRows.filter((a) => a.fee_status === 'pending' || a.fee_status === 'partial').length;
+      const defaulterPct = totalAlloc > 0 ? Math.round((defaulters / totalAlloc) * 100) : 0;
+
+      // Mess feedback complaints
+      let fbQ = supabase
+        .from('mess_feedback')
+        .select('overall_rating, is_complaint')
+        .gte('date', fromDate);
+      if (institutionId) fbQ = fbQ.eq('institution_id', institutionId);
+      const { data: feedback } = await fbQ;
+      const fbRows = feedback ?? [];
+      const complaints = fbRows.filter((f) => f.is_complaint).length;
+      const avgRating =
+        fbRows.length > 0
+          ? Math.round((fbRows.reduce((s, f) => s + f.overall_rating, 0) / fbRows.length) * 10) / 10
+          : 0;
+
+      // Build correlation signals — heuristic-only
+      const correlations: {
+        title: string;
+        risk: 'low' | 'medium' | 'high';
+        description: string;
+        action: string;
+      }[] = [];
+
+      if (attendancePct < 80 && curfewViolations > 0) {
+        correlations.push({
+          title: 'Low attendance + curfew violations',
+          risk: curfewViolations > 5 ? 'high' : 'medium',
+          description: `Attendance is at ${attendancePct}% with ${curfewViolations} curfew violation(s) in the last 30 days. May indicate after-hours absenteeism.`,
+          action: 'Review block-level evening rounds and curfew enforcement',
+        });
+      }
+
+      if (slaBreached > 0 && complaints > 0) {
+        correlations.push({
+          title: 'Maintenance SLA breaches × mess complaints',
+          risk: slaBreached + complaints > 10 ? 'high' : 'medium',
+          description: `${slaBreached} SLA-breached maintenance request(s) and ${complaints} mess complaint(s) in the last 30 days. Service-quality pressure on multiple fronts.`,
+          action: 'Daily check-in with maintenance + mess supervisors',
+        });
+      }
+
+      if (openHighPri > 0 && seriousIncidents > 0) {
+        correlations.push({
+          title: 'Open high-priority maintenance × serious incidents',
+          risk: 'high',
+          description: `${openHighPri} high-priority maintenance request(s) open while ${seriousIncidents} major/critical incident(s) recorded. Safety risk elevated.`,
+          action: 'Escalate high-priority requests to chief warden today',
+        });
+      }
+
+      if (defaulterPct > 20) {
+        correlations.push({
+          title: 'High defaulter share',
+          risk: defaulterPct > 40 ? 'high' : 'medium',
+          description: `${defaulterPct}% of active allocations have unpaid or partial fees (${defaulters} / ${totalAlloc}).`,
+          action: 'Run defaulter reminder cycle + finance review',
+        });
+      }
+
+      if (avgRating > 0 && avgRating < 3) {
+        correlations.push({
+          title: 'Low mess satisfaction',
+          risk: avgRating < 2.5 ? 'high' : 'medium',
+          description: `Average mess rating is ${avgRating} / 5 over the last 30 days.`,
+          action: 'Menu review with mess committee + sample tasting',
+        });
+      }
+
+      if (correlations.length === 0) {
+        correlations.push({
+          title: 'No elevated cross-domain signals',
+          risk: 'low',
+          description: 'Attendance, maintenance, incidents, mess feedback, and fee status all within normal thresholds for the last 30 days.',
+          action: 'No action needed — continue routine reviews',
+        });
+      }
+
+      return {
+        period: { from: fromDate, to: to.toISOString().slice(0, 10) },
+        signals: {
+          attendance_pct: attendancePct,
+          curfew_violations: curfewViolations,
+          maintenance_total: mRows.length,
+          maintenance_sla_breached: slaBreached,
+          maintenance_open_high_priority: openHighPri,
+          incidents_total: iRows.length,
+          incidents_open: openIncidents,
+          incidents_serious: seriousIncidents,
+          allocations_total: totalAlloc,
+          fee_defaulters: defaulters,
+          fee_defaulter_pct: defaulterPct,
+          mess_complaints: complaints,
+          mess_avg_rating: avgRating,
+        },
+        domain_scores: {
+          attendance: attendancePct,
+          maintenance:
+            mRows.length === 0
+              ? 100
+              : Math.max(0, Math.round(((mRows.length - slaBreached) / mRows.length) * 100)),
+          safety: Math.max(0, 100 - seriousIncidents * 10 - openIncidents * 2),
+          fees: Math.max(0, 100 - defaulterPct),
+          mess: avgRating > 0 ? Math.round(avgRating * 20) : 0,
+        },
+        correlations,
+      };
+    } catch (error) {
+      logger.error('campus-living/analytics', 'Unexpected error in getCrossDomainCorrelations', error);
+      throw error;
+    }
+  }
+
   // ── Risk alert generation ─────────────────────────────────────────
   static async generateRiskAlerts(institutionId: string | undefined) {
     try {

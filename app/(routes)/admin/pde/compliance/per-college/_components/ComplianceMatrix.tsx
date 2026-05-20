@@ -39,7 +39,7 @@ import {
   PDE_CATEGORY_KEYS,
   PDE_CATEGORY_LABELS,
   type PDECategoryKey,
-} from '@/lib/services/pde-cohort-service';
+} from '@/lib/services/pde-cohort-types';
 import {
   type PerCollegeComplianceData,
   type CollegeComplianceRow,
