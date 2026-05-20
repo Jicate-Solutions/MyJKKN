@@ -586,3 +586,86 @@
       </div>
     </section>
 
+    <!-- ==================== SECTION 7 ==================== -->
+    <section id="section-7">
+      <h2>7. Common scenarios</h2>
+
+      <p>The questions below come from the kind of edge cases that surface in the first weeks of any rollout. Read them now so you recognise them when they arrive.</p>
+
+      <dl class="faq">
+        <dt>What if a learner submits something that does not fit any category?</dt>
+        <dd>
+          <p>Look harder before deciding it does not fit. Almost every authentic act of learning will sit under at least one of the seven categories &mdash; sometimes under <code>problem_finding</code> or <code>judgment</code> rather than the obvious skill-based ones. If after careful reading you still cannot place it, reject with a note explaining your reasoning and suggest a category the learner could resubmit under. Do not invent a new category in your note. The seven are deliberately fixed; widening them is a Director-level decision, not a faculty workaround.</p>
+        </dd>
+
+        <dt>What if I disagree with a peer validator's earlier validation?</dt>
+        <dd>
+          <p>Each demonstration can carry validations from more than one party (a peer plus a faculty, for instance). If a peer attested and you, reviewing later, would not have attested, you have two options. First, flag the demonstration for institutional review &mdash; this opens an audit thread that the institution admin can resolve. Second, do nothing if the demonstration is already validated and the issue is minor; your disagreement is itself logged through the audit signal. Do not silently overwrite a peer's attestation. The point of multiple validators is to surface disagreement, not erase it.</p>
+        </dd>
+
+        <dt>A learner has an existing certificate &mdash; can they bridge it into PDE?</dt>
+        <dd>
+          <p>Yes. The <code>credential</code> category exists for this. The learner submits a demonstration in <code>credential</code>, attaches the certificate as evidence, and you validate by confirming the certificate is real, current, and from a body JKKN recognises. The PDE record then carries the credential alongside everything else the learner has demonstrated, in one portfolio.</p>
+        </dd>
+
+        <dt>How do legacy capabilities &mdash; the things in the older PDE module &mdash; map to the new categories?</dt>
+        <dd>
+          <p>Old PDE artefacts (assessments, badges, capability marks) continue to exist in parallel during the transition. A separate bridging workstream will eventually map them into the seven-category model so that each learner has one consolidated portfolio. Until then, do not double-validate a learner's old assessment as a new demonstration; if they want PDE credit for that learning, they submit a fresh demonstration with evidence and you validate it on its own terms.</p>
+        </dd>
+
+        <dt>The learner asks me to validate something they did before joining JKKN.</dt>
+        <dd>
+          <p>This is fine for <code>credential</code> (a school-leaving exam, an external certification) and for <code>cultural_civic</code> (sustained pre-existing community engagement). It is harder for <code>embodied</code> and <code>judgment</code> because you were not there to witness. Use your discretion: if the evidence is independently verifiable (a signed checklist from a recognised supervisor, for instance), validate it; if it is only the learner's word, reject with a note explaining why and suggest they generate fresh evidence inside JKKN.</p>
+        </dd>
+
+        <dt>What if I receive a flood of validations all at once?</dt>
+        <dd>
+          <p>You will not, by design. The pace-cap (Section 8) keeps the early load manageable. If you genuinely see more than a handful of pending validations in your inbox, flag this to your institution admin &mdash; it likely means a workflow upstream is misconfigured (for instance, a course has been set to auto-trigger demonstration submissions when it should be opt-in).</p>
+        </dd>
+
+        <dt>The learner disputes my rejection.</dt>
+        <dd>
+          <p>Their right. The dispute opens a case for institutional review by the Director's office or a designated reviewer. You do not have to defend your rejection in real time; the rejection note you wrote at the time is the record. Be brief, be evidence-based, and trust the audit process.</p>
+        </dd>
+      </dl>
+    </section>
+
+    <!-- ==================== SECTION 8 ==================== -->
+    <section id="section-8">
+      <h2>8. Pace-cap and onboarding flow</h2>
+
+      <p>PDE is rolling out with a deliberately small first wave. The current pace-cap is <strong>30 coordinators across all eight institutions per 60-day window</strong>, set by the policy key <code>pde.rollout.pace_cap_coordinators_per_60d</code> and adjustable by the Director.</p>
+
+      <h3>Why a pace-cap exists</h3>
+
+      <p>Two reasons, equally weighted. <strong>Quality:</strong> the first records set the standard for everything that follows. If the first hundred demonstrations are sloppy because the system was overrun, the bar for what counts as a "PDE record" is set low for years. The pace-cap protects the bar. <strong>Faculty bandwidth:</strong> validation is real work, and asking too much of faculty too early collapses the model into a tick-box exercise. Starting small lets each validator give each demonstration the time it deserves while the patterns settle.</p>
+
+      <h3>How the first thirty are selected</h3>
+
+      <p>The selection criteria are governed by the PDE Pilot Cohort Selection Framework (a companion document maintained by the Director's office). In short: a mix of institutions, disciplines, and faculty experience levels, biased toward coordinators who have already shown enthusiasm for evidence-based assessment in other contexts. If you are not in the first wave, the second wave begins on day 61 with another 30 slots; you may be in that one, or a later one. Wave size and cadence are tunable as the rollout learns.</p>
+
+      <p>While waiting for your wave, the most useful thing you can do is read this playbook, read the seven-category reference, and start informally noticing in your own teaching which student moments would make good PDE demonstrations. That mental practice is what makes the live validation work fast when it arrives.</p>
+    </section>
+
+    <!-- ==================== SECTION 9 ==================== -->
+    <section id="section-9">
+      <h2>9. Where to get help</h2>
+
+      <p>For questions about a specific demonstration or rubric: ask your <strong>institution admin</strong>. They can see your validator inbox, the policy settings, and the audit log.</p>
+
+      <p>For questions about PDE policy &mdash; rubric design, category interpretation, pace-cap, scoring weights, governance: contact the <strong>Director's office</strong>. The runtime-tunable policies are visible at <code>/admin/pde/policies/*</code> (scoring, visibility, rollout, quests, governance) for institution admins, and changes to those policies are the canonical way operational behaviour is adjusted across all eight institutions.</p>
+
+      <p>For technical issues with the MyJKKN platform itself: use the standard MyJKKN support channel.</p>
+
+      <p>Director: <a href="mailto:director@jkkn.ac.in">director@jkkn.ac.in</a></p>
+    </section>
+
+    <footer class="footer">
+      <p>PDE Faculty Training Playbook &middot; JKKN Institutions</p>
+      <p>Version 1.0 &middot; Living document &mdash; revisions land alongside platform releases</p>
+    </footer>
+
+  </div>
+</body>
+</html>
+
