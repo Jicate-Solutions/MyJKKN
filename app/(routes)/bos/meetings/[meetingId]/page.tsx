@@ -38,10 +38,12 @@ import { AttendanceTab } from './_components/attendance-tab';
 import { DocumentsTab } from './_components/documents-tab';
 import { SyllabusTab } from './_components/syllabi-tab';
 import { MembersTab } from './_components/members-tab';
+import { MinutesTab } from './_components/minutes-tab';
 
 import { useBosMeeting, useTransitionBosMeetingStatus } from '@/hooks/bos/use-bos-meetings';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useAuth } from '@/hooks/use-auth';
+import { useBosBoardScope } from '@/hooks/bos/use-bos-board-scope';
 import { MeetingStatusStepper } from '../_components/meeting-status-stepper';
 import {
   BosMeetingStatus,
@@ -55,12 +57,12 @@ import { logger } from '@/lib/utils/enhanced-logger';
 
 const TRANSITION_LABELS: Partial<Record<BosMeetingStatus, string>> = {
   principal_approved: 'Submit for Principal Approval',
-  noticed: 'Mark Notice Sent',
-  expert_invited: 'Mark Experts Invited',
-  completed: 'Mark Meeting Completed',
+  noticed: 'Approved',
+  expert_invited: 'Forward to Experts Invite',
+  completed: 'Meeting Finalized',
   minutes_drafted: 'Draft Minutes',
-  minutes_approved: 'Approve Minutes',
-  ratified: 'Record Ratification',
+  minutes_approved: 'Forward to Minutes Approval',
+  ratified: 'Minutes Approved',
 };
 
 // ── Transitions that need extra metadata from the user ────────────────────────
@@ -69,6 +71,20 @@ const METADATA_TRANSITIONS = new Set<BosMeetingStatus>([
   'principal_approved',
   'minutes_approved',
   'ratified',
+  // The entries below are included purely for *confirmation* — they don't
+  // need extra metadata, but each is a non-trivial workflow step:
+  //   • 'noticed'         → triggers post-approval handoff (this is the
+  //                         principal confirming the approval; a misclick
+  //                         shouldn't fire it).
+  //   • 'expert_invited'  → sends invitation requests to external experts
+  //                         (will fan out emails/notifications downstream).
+  //   • 'completed'       → marks the meeting as finished; no rollback.
+  // The TransitionDialog falls through to its generic "Confirm moving this
+  // meeting to ..." branch for any nextStatus that isn't approval /
+  // ratification / minutes-draft, so no dialog code changes are needed.
+  'noticed',
+  'expert_invited',
+  'completed',
 ]);
 
 interface TransitionMetadata {
@@ -291,6 +307,7 @@ export default function MeetingDetailPage({ params }: MeetingDetailPageProps) {
   const router = useRouter();
   const { canAccess, isSuperAdmin } = usePermissions();
   const { profile } = useAuth();
+  const bosScope = useBosBoardScope();
   const { data: meeting, isLoading } = useBosMeeting(meetingId);
   const transitionStatus = useTransitionBosMeetingStatus();
   const [isTransitioning, setIsTransitioning] = useState(false);
@@ -303,6 +320,15 @@ export default function MeetingDetailPage({ params }: MeetingDetailPageProps) {
     if (!meeting) return;
     const nextStatus = BOS_MEETING_NEXT_STATUS[meeting.status];
     if (!nextStatus) return;
+
+    // Block draft → principal_approved if no agenda items exist. The server
+    // route enforces the same rule (so we stay correct under stale cache), but
+    // catching it here avoids opening the approver picker for an action that
+    // will fail anyway.
+    if (nextStatus === 'principal_approved' && (meeting.agenda_item_count ?? 0) < 1) {
+      toast.error('Add at least one agenda item before submitting for Principal Approval.');
+      return;
+    }
 
     if (METADATA_TRANSITIONS.has(nextStatus)) {
       setShowTransitionDialog(true);
@@ -319,7 +345,35 @@ export default function MeetingDetailPage({ params }: MeetingDetailPageProps) {
     setIsTransitioning(true);
     try {
       await transitionStatus.mutateAsync({ id: meetingId, newStatus: nextStatus, metadata: meta as any });
-      toast.success(`Status updated to: ${BOS_MEETING_STATUS_LABELS[nextStatus]}`);
+
+      // Chain through the hidden 'completed' state: per the 2026-05-20 UX
+      // change, clicking "Meeting Finalized" at expert_invited collapses the
+      // expert_invited → completed → minutes_drafted sequence into a single
+      // user action. The first PATCH lands at 'completed', then we fire a
+      // follow-up to advance straight to 'minutes_drafted' so the stepper
+      // visibly jumps past the Completed step. If the second PATCH fails,
+      // the meeting is left at 'completed' — a super-admin can recover via
+      // the legacy "Draft Minutes" button (the state-machine entry
+      // completed → minutes_drafted is still permitted).
+      if (nextStatus === 'completed') {
+        const followUp = BOS_MEETING_NEXT_STATUS.completed;
+        if (followUp) {
+          try {
+            await transitionStatus.mutateAsync({
+              id: meetingId,
+              newStatus: followUp,
+              metadata: {},
+            });
+            toast.success(`Status updated to: ${BOS_MEETING_STATUS_LABELS[followUp]}`);
+          } catch (chainError) {
+            logger.error('academic/bos', 'Failed to chain to minutes_drafted', chainError);
+            toast.error('Meeting marked completed, but advancing to Minutes Drafted failed. Use Draft Minutes to continue.');
+          }
+        }
+      } else {
+        toast.success(`Status updated to: ${BOS_MEETING_STATUS_LABELS[nextStatus]}`);
+      }
+
       setShowTransitionDialog(false);
     } catch (error) {
       logger.error('academic/bos', 'Failed to transition meeting status', error);
@@ -331,7 +385,7 @@ export default function MeetingDetailPage({ params }: MeetingDetailPageProps) {
 
   if (isLoading) {
     return (
-      <div className='max-w-4xl space-y-4'>
+      <div className='w-full space-y-4'>
         <Skeleton className='h-10 w-72' />
         <Skeleton className='h-20 w-full' />
         <Skeleton className='h-32 w-full' />
@@ -342,7 +396,7 @@ export default function MeetingDetailPage({ params }: MeetingDetailPageProps) {
 
   if (!meeting) {
     return (
-      <div className='max-w-4xl'>
+      <div className='w-full'>
         <p className='text-muted-foreground'>Meeting not found.</p>
       </div>
     );
@@ -366,21 +420,58 @@ export default function MeetingDetailPage({ params }: MeetingDetailPageProps) {
     approverProfileId !== null
       ? !!profile?.id && profile.id === approverProfileId
       : isSuperAdmin;
-  const canTransitionNext = meeting.status === 'principal_approved'
-    ? canAdvanceFromPrincipalApproved
-    : canEdit;
+  // Workflow gate:
+  //   • draft → principal_approved (Submit for Principal Approval): only
+  //     super admin OR a board member of THIS meeting's composition can push.
+  //     memberOf already includes chairmen (chairman is a member record with
+  //     member_type='chairman'), so a single Set check covers both. The
+  //     previous rule allowed any user with the broad edit permission OR any
+  //     principal — too permissive for a workflow-initiating action; tightened
+  //     per UX request on 2026-05-20.
+  //   • principal_approved → noticed: only the recorded approver may advance
+  //   • noticed → expert_invited (Forward to Experts Invite),
+  //     expert_invited → completed (Meeting Finalized),
+  //     minutes_drafted → minutes_approved (Forward to Minutes Approval):
+  //     same tightened rule as the draft submission — super admin OR a board
+  //     member/chairman of this composition. Broad role-perm holders (e.g.
+  //     someone with bos.meetings.edit but no membership) and principals can
+  //     no longer push.
+  //   • minutes_approved → ratified (Minutes Approved): the final
+  //     ratification step belongs to the principal who oversees the academic
+  //     council process. Only super-admin or principal can push — board
+  //     members and chairmen who drafted the minutes are explicitly excluded
+  //     from this one transition.
+  //   • everything else: canEdit
+  const isCompositionMember =
+    !!meeting.composition_id && bosScope.memberOf.has(meeting.composition_id);
+  // Minutes tab is meaningful from the minutes-drafting phase onward. We
+  // explicitly include 'completed' because legacy meetings stuck at that
+  // status (created before the 2026-05-20 skip-chain shipped) still need a
+  // place to draft minutes — without this they'd be locked out of the tab
+  // until a super-admin advances them.
+  const showMinutesTab = ['completed', 'minutes_drafted', 'minutes_approved', 'ratified'].includes(
+    meeting.status,
+  );
+  const canTransitionNext =
+    meeting.status === 'principal_approved'
+      ? canAdvanceFromPrincipalApproved
+      : meeting.status === 'minutes_approved'
+        ? isSuperAdmin || bosScope.isPrincipal
+        : meeting.status === 'draft' ||
+            meeting.status === 'noticed' ||
+            meeting.status === 'expert_invited' ||
+            meeting.status === 'minutes_drafted'
+          ? isSuperAdmin || isCompositionMember
+          : canEdit;
 
   return (
-    <div className='max-w-4xl space-y-6'>
+    <div className='w-full space-y-6'>
       {/* ── Header ─────────────────────────────────────────────────────── */}
       <PageHeader
         title={meeting.meeting_title ?? `Meeting #${meeting.meeting_number}/${meeting.academic_year}`}
         description={board ? `${board.board_name} · ${BOS_MEETING_TYPE_LABELS[meeting.meeting_type]}` : ''}
       >
         <div className='flex items-center gap-2'>
-          <Badge variant='outline'>
-            {BOS_MEETING_STATUS_LABELS[meeting.status]}
-          </Badge>
           {canEdit && isDraft && (
             <Button
               size='sm'
@@ -566,6 +657,9 @@ export default function MeetingDetailPage({ params }: MeetingDetailPageProps) {
               <TabsTrigger value='members'>Members</TabsTrigger>
               <TabsTrigger value='documents'>Documents</TabsTrigger>
               <TabsTrigger value='syllabus'>Syllabus</TabsTrigger>
+              {showMinutesTab && (
+                <TabsTrigger value='minutes'>Minutes</TabsTrigger>
+              )}
             </TabsList>
 
             <TabsContent value='agenda'>
@@ -602,10 +696,31 @@ export default function MeetingDetailPage({ params }: MeetingDetailPageProps) {
                 meetingId={meetingId}
                 boardId={meeting.board_id}
                 regulationId={meeting.regulation_id}
+                compositionId={meeting.composition_id}
                 institutionsId={meeting.institutions_id}
+                meetingStatus={meeting.status}
                 canEdit={canEdit}
               />
             </TabsContent>
+
+            {showMinutesTab && (
+              <TabsContent value='minutes'>
+                {/* Force read-only once minutes are approved or the meeting
+                    is ratified: at that point the minutes are formally
+                    accepted by the academic council and editing them would
+                    invalidate the auto-forked V2 syllabi that were created
+                    on that approval. canEdit composed with the status gate
+                    keeps both permission and lifecycle rules in one place. */}
+                <MinutesTab
+                  meeting={meeting}
+                  canEdit={
+                    canEdit &&
+                    meeting.status !== 'minutes_approved' &&
+                    meeting.status !== 'ratified'
+                  }
+                />
+              </TabsContent>
+            )}
           </Tabs>
         </CardContent>
       </Card>

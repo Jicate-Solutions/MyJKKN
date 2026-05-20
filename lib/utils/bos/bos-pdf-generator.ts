@@ -1,6 +1,17 @@
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { BosMeeting, BosMember, BosAgendaItem, BosMeetingAttendee } from '@/types/bos';
+import { stripHtml } from '@/components/ui/rich-text-editor';
+
+// Normalize the multi-select shape used by changes_log rows for topic and
+// sub_topic. The editor stores arrays now but legacy rows may still hold a
+// single string. Mirrors asTopicArray() in minutes-tab.tsx — duplicated here
+// so the PDF generator doesn't pull a React file into its module graph.
+function asArray(v: string | string[] | null | undefined): string[] {
+  if (!v) return [];
+  if (Array.isArray(v)) return v.filter(Boolean);
+  return [v];
+}
 
 // ── Layout constants ──────────────────────────────────────────────────────────
 const MARGIN = 10;
@@ -25,6 +36,19 @@ export interface BosPdfHeader {
   rightLogoImage?: string;
   /** Letterhead-style officials line rendered below the institutional banner. */
   officials?: BosPdfOfficials;
+  /**
+   * Bottom-left circular college seal (base64 data URL). Mirrors the call
+   * letter PDF — when present the meeting-notice signature block uses
+   * seal + signature image; when absent it falls back to the text-only
+   * "Principal" line so engineering institutions (no seal asset) still
+   * render cleanly.
+   */
+  sealImage?: string;
+  /**
+   * Bottom-right principal signature PNG (signature + "PRINCIPAL" + college
+   * line baked-in). Loaded as base64 data URL by the caller.
+   */
+  signImage?: string;
 }
 
 // ── Shared drawing helpers ────────────────────────────────────────────────────
@@ -164,6 +188,92 @@ function sigRow(doc: jsPDF, y: number, labels: string[][]): void {
   });
 }
 
+// Member-by-member signature grid. Renders one signature box per board member
+// who attended, laid out in a wrapping grid (3 per row). Each box has a thin
+// signature line on top + the member's display_name + designation underneath.
+// Pagination: starts a new page if the next row would overflow the page
+// bottom, so a 14-member board (≈5 rows) doesn't run off the edge silently.
+//
+// Returns the new y after the last rendered row so the caller can continue
+// laying out content below if needed (e.g. timestamp).
+function memberSignatureGrid(
+  doc: jsPDF,
+  startY: number,
+  members: Array<{ name: string; designation?: string }>,
+  perRow = 3,
+): number {
+  if (members.length === 0) return startY;
+
+  const colW = CONTENT_W / perRow;
+  const rowH = 22; // signature space (8) + name (5) + designation (5) + padding (4)
+  const lineInset = 8; // how far the signature underline sits inside the column
+
+  let y = startY + 6;
+
+  // Section header
+  doc.setFont('times', 'bold');
+  doc.setFontSize(10);
+  doc.text('SIGNATURES OF BOARD MEMBERS', MARGIN, y);
+  y += 8;
+
+  doc.setFont('times', 'normal');
+  doc.setFontSize(8);
+
+  for (let i = 0; i < members.length; i++) {
+    const colIdx = i % perRow;
+
+    // Wrap to next row when we fill the current one — and start a fresh page
+    // if the next row would overflow the bottom margin.
+    if (colIdx === 0 && i > 0) {
+      y += rowH;
+      if (y + rowH > PAGE_H - 18) {
+        doc.addPage();
+        y = MARGIN + 6;
+      }
+    }
+    // Defensive: if the very first row of the grid won't fit, page-break.
+    if (i === 0 && y + rowH > PAGE_H - 18) {
+      doc.addPage();
+      y = MARGIN + 6;
+      // Re-print the section header on the new page so context isn't lost.
+      doc.setFont('times', 'bold');
+      doc.setFontSize(10);
+      doc.text('SIGNATURES OF BOARD MEMBERS (cont.)', MARGIN, y);
+      y += 8;
+      doc.setFont('times', 'normal');
+      doc.setFontSize(8);
+    }
+
+    const colX = MARGIN + colIdx * colW;
+    const cx = colX + colW / 2;
+
+    // Signature line (top of the box, leaves ~8mm of empty space above name)
+    doc.setDrawColor(0, 0, 0);
+    doc.setLineWidth(0.3);
+    doc.line(colX + lineInset, y + 8, colX + colW - lineInset, y + 8);
+
+    // Member name (immediately below the signature line)
+    const nameLines = doc.splitTextToSize(
+      members[i].name || '—',
+      colW - lineInset * 2,
+    );
+    doc.text(nameLines[0] ?? '', cx, y + 12, { align: 'center' });
+
+    // Designation (one more line below, lighter)
+    if (members[i].designation) {
+      doc.setTextColor(80, 80, 80);
+      const desigLines = doc.splitTextToSize(
+        members[i].designation ?? '',
+        colW - lineInset * 2,
+      );
+      doc.text(desigLines[0] ?? '', cx, y + 16, { align: 'center' });
+      doc.setTextColor(0, 0, 0);
+    }
+  }
+
+  return y + rowH;
+}
+
 function timestamp(doc: jsPDF): void {
   doc.setFont('times', 'normal');
   doc.setFontSize(7);
@@ -275,13 +385,49 @@ export function buildMeetingNoticeDoc({
     y += agendaLines.length * 5 + 10;
   }
 
-  if (y + 20 > PAGE_H - 15) { doc.addPage(); y = MARGIN + 10; }
+  // ── Signature block ─────────────────────────────────────────────────────
+  // Two layouts:
+  //   • Assets present (Arts/Science): seal image (left) + signature PNG (right),
+  //     matching the call-letter PDF the user referenced. The sign PNG already
+  //     has "PRINCIPAL" baked into the artwork, so no extra text line is needed.
+  //   • No assets (Engineering etc.): fall back to text-only "Principal" line.
+  const hasSignatureAssets = !!(header.sealImage || header.signImage);
+  const signatureBlockHeight = hasSignatureAssets ? 38 : 12;
+  if (y + signatureBlockHeight > PAGE_H - 15) { doc.addPage(); y = MARGIN + 10; }
 
-  // Signature (right-aligned, Principal)
-  doc.setFont('times', 'normal');
-  doc.setFontSize(10);
-  doc.text(principalName, PAGE_W - MARGIN, y, { align: 'right' });
-  doc.text('Principal', PAGE_W - MARGIN, y + 5, { align: 'right' });
+  if (hasSignatureAssets) {
+    const sealSize = 32;
+    const signWidth = 60;
+    const signHeight = 28;
+    if (header.sealImage) {
+      try {
+        doc.addImage(header.sealImage, detectImageFormat(header.sealImage), MARGIN, y, sealSize, sealSize);
+      } catch {
+        // If the embedded asset can't be decoded, silently drop it — the
+        // signature side still renders independently so the doc isn't lost.
+      }
+    }
+    if (header.signImage) {
+      try {
+        doc.addImage(
+          header.signImage,
+          detectImageFormat(header.signImage),
+          PAGE_W - MARGIN - signWidth,
+          y + (sealSize - signHeight) / 2, // visually baseline-align with the seal
+          signWidth,
+          signHeight,
+        );
+      } catch {
+        // Same defensive fallback — if the sign asset is unreadable we still
+        // want the seal (if present) and the doc to be downloadable.
+      }
+    }
+  } else {
+    doc.setFont('times', 'normal');
+    doc.setFontSize(10);
+    doc.text(principalName, PAGE_W - MARGIN, y, { align: 'right' });
+    doc.text('Principal', PAGE_W - MARGIN, y + 5, { align: 'right' });
+  }
 
   timestamp(doc);
   return doc;
@@ -330,15 +476,22 @@ export function generateMinutesPdf({
   doc.text('MINUTES OF BOARD OF STUDIES MEETING', PAGE_W / 2, y, { align: 'center' });
   y += 7;
 
-  // Meeting details
+  // Meeting details.
+  // Date/Start Time fall back to the scheduled values when actuals haven't
+  // been recorded — the previous nullish-coalescing (`??`) wouldn't catch
+  // empty-string actuals (which is what the DB stores when the meeting is
+  // saved but not yet "completed"); using `||` covers both null/undefined
+  // AND empty string so the printed PDF shows the schedule even before
+  // the chairman fills in actual timings.
+  // The Quorum row was removed per UX request — it added noise for meetings
+  // that simply hadn't been marked complete yet, and the same info is
+  // implied by the attendance count below.
   y = detailsTable(doc, [
     ['Meeting No.', `${meeting.meeting_number} / ${meeting.academic_year}`],
-    ['Date', fmtDate(meeting.actual_date ?? meeting.scheduled_date)],
-    ['Start Time', fmtTime(meeting.actual_start_time ?? meeting.scheduled_time)],
-    ['End Time', fmtTime(meeting.actual_end_time)],
-    ['Venue', meeting.venue ?? '—'],
+    ['Date', fmtDate(meeting.actual_date || meeting.scheduled_date)],
+    ['Start Time', fmtTime(meeting.actual_start_time || meeting.scheduled_time)],
+    ['Venue', meeting.venue || '—'],
     ['Chairman', chairmanName],
-    ['Quorum', meeting.quorum_met ? 'Met' : 'Not Met'],
   ], y);
 
   // Attendance
@@ -416,6 +569,86 @@ export function generateMinutesPdf({
     }
   }
 
+  // ── Rich minutes narrative (TipTap HTML → plain text with line breaks) ──
+  // The editor stores rich HTML; in the PDF we render it as plain paragraphs
+  // because jsPDF's text engine doesn't natively render arbitrary HTML and
+  // pulling in html-to-pdf machinery for this one section would balloon the
+  // bundle. stripHtml() already preserves <br>, <p>, and <li> as logical
+  // line breaks, so paragraphs and bulleted lists survive intact even if
+  // bold/italic formatting doesn't. Users who need formatted exports can be
+  // routed to a future Puppeteer-based renderer in a later phase.
+  const narrativeHtml = meeting.minutes_content?.narrative_html;
+  const narrativePlain = narrativeHtml ? stripHtml(narrativeHtml) : '';
+  if (narrativePlain) {
+    if (y > 240) { doc.addPage(); y = MARGIN; }
+    doc.setFont('times', 'bold');
+    doc.setFontSize(10);
+    doc.text('MINUTES NARRATIVE', MARGIN, y);
+    y += 5;
+    doc.setFont('times', 'normal');
+    doc.setFontSize(9);
+    const narrativeLines = doc.splitTextToSize(narrativePlain, CONTENT_W);
+    // Hand-paginate so a long narrative doesn't run off the page silently.
+    for (const line of narrativeLines) {
+      if (y > 270) { doc.addPage(); y = MARGIN; }
+      doc.text(line, MARGIN, y);
+      y += 5;
+    }
+    y += 4;
+  }
+
+  // ── Suggested Changes (structured per-syllabus changes log) ─────────────
+  // Each row in the editor's changes_log becomes one row in this table. Topic
+  // and sub-topic arrays are joined with " · " for compact display; if a row
+  // skipped some fields they render as em-dashes.
+  const changesLog = meeting.minutes_content?.changes_log ?? [];
+  if (changesLog.length > 0) {
+    if (y > 240) { doc.addPage(); y = MARGIN; }
+    doc.setFont('times', 'bold');
+    doc.setFontSize(10);
+    doc.text('SUGGESTED CHANGES', MARGIN, y);
+    y += 4;
+
+    autoTable(doc, {
+      head: [['#', 'Course', 'Unit', 'Topics', 'Sub-topics', 'Suggested by', 'Change']],
+      body: changesLog.map((row, idx) => [
+        idx + 1,
+        row.syllabus_code ?? '—',
+        row.unit ?? '—',
+        asArray(row.topic).join(' · ') || '—',
+        asArray(row.sub_topic).join(' · ') || '—',
+        // suggested_by_name can be a single string (legacy) or string[] (new
+        // multi-select shape). asArray normalizes; join with ', ' to separate
+        // co-suggestors in the printed cell.
+        asArray(row.suggested_by_name).join(', ') || '—',
+        row.suggestion_text ?? '',
+      ]),
+      startY: y,
+      margin: { left: MARGIN, right: MARGIN },
+      tableWidth: CONTENT_W,
+      theme: 'grid',
+      styles: {
+        font: 'times', fontSize: 8, cellPadding: 2,
+        lineColor: [0, 0, 0], lineWidth: 0.3,
+        textColor: [0, 0, 0], valign: 'top', overflow: 'linebreak',
+      },
+      headStyles: {
+        font: 'times', fontStyle: 'bold',
+        fillColor: [230, 230, 230], textColor: [0, 0, 0], halign: 'center', fontSize: 8,
+      },
+      columnStyles: {
+        0: { cellWidth: 8, halign: 'center' },
+        1: { cellWidth: 24 },
+        2: { cellWidth: 26 },
+        3: { cellWidth: 32 },
+        4: { cellWidth: 32 },
+        5: { cellWidth: 28 },
+        // 6 (Change) takes remaining width via tableWidth.
+      },
+    });
+    y = lastAutoY(doc, y + 30) + 8;
+  }
+
   if (meeting.minutes_summary) {
     if (y > 250) { doc.addPage(); y = MARGIN; }
     doc.setFont('times', 'bold');
@@ -431,11 +664,20 @@ export function generateMinutesPdf({
 
   if (y + 22 > PAGE_H - 12) { doc.addPage(); y = MARGIN + 10; }
 
-  sigRow(doc, y, [
-    ['Signature of the Subject In-Charge'],
-    ['Signature of the HOD'],
-    ['Signature of the Principal'],
-  ]);
+  // Signatures of the board members who attended. Replaces the generic
+  // 3-role row (Subject In-Charge / HOD / Principal) per UX request — the
+  // actual approvers of these minutes are the present board members, so the
+  // PDF now reflects who signed off.
+  const presentMembers = attendees
+    .filter((a) => a.attendance_status === 'present')
+    .map((a) => {
+      const m = (a as unknown as { member?: { display_name?: string; display_designation?: string } }).member;
+      return {
+        name: m?.display_name ?? '—',
+        designation: m?.display_designation ?? undefined,
+      };
+    });
+  memberSignatureGrid(doc, y, presentMembers);
 
   timestamp(doc);
   doc.save(`minutes-meeting-${meeting.meeting_number}-${meeting.academic_year}.pdf`);

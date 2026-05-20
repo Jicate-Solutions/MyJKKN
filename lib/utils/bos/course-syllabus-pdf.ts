@@ -4,6 +4,7 @@ import type {
 	BosCourseObjective,
 	BosCourseLearnOutcome,
 	BosUnit,
+	BosChapterSubtopic,
 	BosTextbook,
 	BosWebResource,
 	BosPoMapping,
@@ -101,6 +102,18 @@ function table(
 	body: AnyCell[][],
 	columnStyles: Record<number, AnyCell> = {},
 ): number {
+	// Orphan-prevention: every section's first row is the bold heading
+	// (e.g. "Unit | Course content"). If less than ~24mm of page remains,
+	// autoTable would draw the bold heading at the bottom of the current
+	// page and push the first data row to the next — visually orphaned.
+	// Push the entire table to a fresh page when we're that close to the
+	// margin so heading + first data row land together.
+	// 24mm ≈ heading row (~9mm) + a reasonable first data row (~15mm).
+	const PAGE_BOTTOM_THRESHOLD = 24
+	if (body.length >= 2 && startY > A4_H - MARGIN - PAGE_BOTTOM_THRESHOLD) {
+		doc.addPage()
+		startY = MARGIN
+	}
 	autoTable(doc, {
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
 		body: body as any,
@@ -351,6 +364,8 @@ export interface CourseSyllabusPDFData {
 	/** K-code → description map from regulation taxonomy; falls back to Bloom's defaults */
 	k_values?: Record<string, string>
 	units?: BosUnit[]
+	/** Flat numbered list of experiments — set instead of `units` for practical/lab papers. */
+	practical_topics?: BosChapterSubtopic[]
 	textbooks?: BosTextbook[]
 	references?: BosTextbook[]
 	web_resources?: BosWebResource[]
@@ -366,8 +381,24 @@ export interface CourseSyllabusPDFData {
 
 // ── Main generator ────────────────────────────────────────────────────────────
 
-export function generateCourseSyllabusPDF(data: CourseSyllabusPDFData): string {
-	const doc = new jsPDF('portrait', 'mm', 'a4')
+/**
+ * Renders a single course syllabus into the given jsPDF document.
+ *
+ * Use this when you need to compose multiple syllabi (e.g. all courses in a
+ * regulation) into one combined PDF. The bos/course-scheme "Download Syllabi"
+ * report calls this once per course inside a single shared `doc`.
+ *
+ * The renderer does NOT call `doc.save()` — the caller is responsible.
+ * If `opts.startNewPage` is true, a `doc.addPage()` is issued before drawing
+ * the institutional header, which is the right behaviour for every syllabus
+ * after the first in a combined report.
+ */
+export function renderCourseSyllabusPDF(
+	doc: jsPDF,
+	data: CourseSyllabusPDFData,
+	opts?: { startNewPage?: boolean },
+): void {
+	if (opts?.startNewPage) doc.addPage()
 	let y = MARGIN
 
 	// ── INSTITUTION HEADER ────────────────────────────────────────────────────
@@ -485,13 +516,33 @@ export function generateCourseSyllabusPDF(data: CourseSyllabusPDFData): string {
 	}
 
 	// ── SECTION 5: Course Content ─────────────────────────────────────────────
+	// Practical-paper variant: when the syllabus is a lab/practical course, the
+	// form stores a flat numbered `topics` list instead of unit/chapter trees
+	// (see ContentEditor.toggleMode in components/bos/syllabus-form.tsx).
+	// Render it as an "S.No | List of Experiments" table. This branch wins over
+	// the units block — the two modes are mutually exclusive by construction.
+	if (data.practical_topics && data.practical_topics.length > 0) {
+		const expRows: AnyCell[][] = [
+			[
+				bold('S.No', { halign: 'center' }),
+				bold('List of Experiments', { halign: 'center' }),
+			],
+			...data.practical_topics.map(t => [
+				bold(String(t.number), { halign: 'center' }),
+				cell(sanitize(t.title || ''), { halign: 'left' }),
+			]),
+		]
+		y = table(doc, y, expRows, {
+			0: { cellWidth: LABEL_W },
+			1: { cellWidth: TABLE_W - LABEL_W },
+		})
+	} else if (data.units && data.units.length > 0) {
 	// One row per unit, two columns: the unit_id label (e.g. "I", "II") on the
 	// left, and all chapters merged into a single content cell on the right.
 	// Each chapter renders as one inline paragraph with a bold "Title:" prefix
 	// and regular subtopic tail; multiple chapters in the same unit are stacked
 	// on consecutive lines within the cell. Mixed bold/regular within one cell
 	// is achieved via the shared table() helper's `_bosMixed` hooks.
-	if (data.units && data.units.length > 0) {
 		const contentColW = TABLE_W - LABEL_W
 		const contentMaxTextW = contentColW - 4 // cellPadding (2) on each side
 
@@ -741,9 +792,18 @@ export function generateCourseSyllabusPDF(data: CourseSyllabusPDFData): string {
 		doc.text('H–High;  M–Medium;  L–Low', MARGIN, y)
 	}
 
-	
+}
 
-	// ── SAVE ─────────────────────────────────────────────────────────────────
+/**
+ * Original single-course download entry point — creates a new jsPDF doc,
+ * renders one syllabus, and saves it to disk. Kept as a thin wrapper around
+ * {@link renderCourseSyllabusPDF} so existing call-sites
+ * (bos/syllabus row actions, course-syllabus DOCX export) continue to work
+ * unchanged.
+ */
+export function generateCourseSyllabusPDF(data: CourseSyllabusPDFData): string {
+	const doc = new jsPDF('portrait', 'mm', 'a4')
+	renderCourseSyllabusPDF(doc, data)
 	const date = new Date().toISOString().split('T')[0]
 	const fileName = `${data.course_code}_syllabus_${date}.pdf`
 	doc.save(fileName)
