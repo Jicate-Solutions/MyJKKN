@@ -68,32 +68,32 @@ export async function GET(request: NextRequest) {
     // we recompute `overall` from pde_demonstrations and tag the payload so
     // the client knows to poll. semester_end (and any unknown mode) keeps
     // the snapshot path untouched.
-    const mode = await getAgencyIndexMode();
+    const visibilityMode = await getAgencyIndexMode();
 
     // If no existing index, compute a basic one from engagement data
     if (!latest) {
       const agencyIndex = await computeBasicAgencyIndex(supabase, learnerId, courseId);
-      if (mode !== 'semester_end') {
+      if (visibilityMode !== 'semester_end') {
         const live = await PDEAgencyLiveService.recomputeForLearner(learnerId);
         return NextResponse.json({
           data: { ...agencyIndex, overall: live.agency_score },
-          mode,
+          mode: visibilityMode,
           source: live.source,
         });
       }
-      return NextResponse.json({ data: agencyIndex, mode, source: 'snapshot' });
+      return NextResponse.json({ data: agencyIndex, mode: visibilityMode, source: 'snapshot' });
     }
 
-    if (mode !== 'semester_end') {
+    if (visibilityMode !== 'semester_end') {
       const live = await PDEAgencyLiveService.recomputeForLearner(learnerId);
       return NextResponse.json({
         data: { ...latest, overall: live.agency_score },
-        mode,
+        mode: visibilityMode,
         source: live.source,
       });
     }
 
-    return NextResponse.json({ data: latest, mode, source: 'snapshot' });
+    return NextResponse.json({ data: latest, mode: visibilityMode, source: 'snapshot' });
   } catch (error: any) {
     console.error('Error fetching agency index:', error);
     return NextResponse.json(
