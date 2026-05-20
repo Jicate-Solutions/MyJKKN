@@ -8,7 +8,8 @@
 // - Added Quota field (moved from Academic Information tab). Community is
 //   collected on the Basic Details tab; the redundant "Category" dropdown
 //   that lived here was removed 2026-05-07 along with the underlying column.
-// - Added Entry Type, Academic Year, Section (required)
+// - Added Entry Type (required); Academic Year + Section relaxed to optional
+//   2026-05-21 — counsellors set those during onboarding, not on enquiry capture.
 // - Added Roll Number, College Email, Register Number (optional)
 // - Added Regulation and Batch fields (optional)
 // - Matches admissions form structure completely
@@ -624,7 +625,7 @@ export function CourseSelectionSection({ form, showLearnerType = false }: Course
           name="academic_year_id"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Academic Year <span className="text-red-500">*</span></FormLabel>
+              <FormLabel>Academic Year</FormLabel>
               <Select
                 onValueChange={field.onChange}
                 value={field.value || ''}
@@ -713,15 +714,14 @@ export function CourseSelectionSection({ form, showLearnerType = false }: Course
           )}
         />
 
-        {/* Section - REQUIRED */}
+        {/* Section — optional 2026-05-21 (was required). Counsellors set
+         *  this during onboarding once the student is placed in a section. */}
         <FormField
           control={form.control}
           name="section_id"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>
-                Section <span className="text-red-500">*</span>
-              </FormLabel>
+              <FormLabel>Section</FormLabel>
               <Select
                 onValueChange={field.onChange}
                 value={field.value || ''}

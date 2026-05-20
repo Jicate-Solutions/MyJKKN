@@ -34,8 +34,8 @@ import {
 } from '@/components/ui/alert-dialog';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useUpdateLearnerProfile } from '@/hooks/use-learner-profiles';
-import { useMarkAsAccount } from '@/hooks/billing/use-onboarding';
 import { OnboardingService } from '@/lib/services/billing/onboarding/onboarding-service';
+import { AccountTransitionService } from '@/lib/services/admission/account-transition-service';
 import type { LearnerProfile, LifecycleStatus } from '@/types/learner-profile';
 
 interface EnquiryStatusUpdateProps {
@@ -80,9 +80,12 @@ export function EnquiryStatusUpdate({ enquiry }: EnquiryStatusUpdateProps) {
   const router = useRouter();
   const { canAccess, isSuperAdmin, isLoading: permissionsLoading } = usePermissions();
   const [pendingStatus, setPendingStatus] = useState<LifecycleStatus | null>(null);
+  // Local submitting flag for the 'account' transition. The other status
+  // changes use updateMutation.isPending; account uses a service-direct
+  // call so we track it ourselves.
+  const [accountSubmitting, setAccountSubmitting] = useState(false);
 
   const updateMutation = useUpdateLearnerProfile();
-  const markAsAccountMutation = useMarkAsAccount();
 
   const canEdit =
     !permissionsLoading && (isSuperAdmin || canAccess('learners.admissions', 'edit'));
@@ -102,7 +105,12 @@ export function EnquiryStatusUpdate({ enquiry }: EnquiryStatusUpdateProps) {
   const handleSelect = (status: LifecycleStatus) => {
     if (status === enquiry.lifecycle_status) return;
 
-    // Pre-validate finance fields for 'account' before opening the confirmation.
+    // Pre-validate finance fields for 'account' — no point firing the
+    // transition RPC if fees aren't configured yet. Document verification
+    // is NOT enforced here on purpose (2026-05-21): documents are tracked
+    // separately on the Checklist tab, so the status update path bypasses
+    // the RPC's required_documents check by passing an empty list. See
+    // confirmUpdate below.
     if (status === 'account') {
       const validation = OnboardingService.validateFinanceFields(enquiry);
       if (!validation.valid) {
@@ -122,8 +130,18 @@ export function EnquiryStatusUpdate({ enquiry }: EnquiryStatusUpdateProps) {
 
     try {
       if (target === 'account') {
-        await markAsAccountMutation.mutateAsync(enquiry.id);
-        // markAsAccount hook shows its own success/error toast
+        // Documents are tracked on the Checklist tab, NOT here. So we call
+        // the RPC directly with an empty required_documents list, which
+        // skips the RPC's documents-missing check. Everything else the
+        // RPC does (lifecycle update, bill generation, fee resolution)
+        // still runs atomically.
+        setAccountSubmitting(true);
+        await AccountTransitionService.transitionToAccount({
+          learner_id: enquiry.id,
+          required_documents: [],
+          received_documents: [],
+        });
+        toast.success(`Status updated to ${prettyStatus(target)}`);
       } else {
         await updateMutation.mutateAsync({
           id: enquiry.id,
@@ -135,15 +153,14 @@ export function EnquiryStatusUpdate({ enquiry }: EnquiryStatusUpdateProps) {
       setTimeout(() => router.refresh(), 300);
     } catch (error) {
       console.error('[enquiry-status-update] Failed to update status:', error);
-      if (target !== 'account') {
-        // markAsAccount hook already shows its own error toast
-        toast.error('Failed to update status. Please try again.');
-      }
+      toast.error('Failed to update status. Please try again.');
       setPendingStatus(null);
+    } finally {
+      setAccountSubmitting(false);
     }
   };
 
-  const submitting = updateMutation.isPending || markAsAccountMutation.isPending;
+  const submitting = updateMutation.isPending || accountSubmitting;
 
   return (
     <>
@@ -194,14 +211,6 @@ export function EnquiryStatusUpdate({ enquiry }: EnquiryStatusUpdateProps) {
               Move {enquiry.first_name} {enquiry.last_name || ''} from{' '}
               <strong>{prettyStatus(enquiry.lifecycle_status)}</strong> to{' '}
               <strong>{pendingStatus ? prettyStatus(pendingStatus) : ''}</strong>?
-              {pendingStatus === 'account' && (
-                <>
-                  <br /><br />
-                  This sends the learner to the Accounts team&apos;s onboarding
-                  queue. Bills are not auto-created — the accounts team creates
-                  them manually from captured fee items.
-                </>
-              )}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -212,6 +221,7 @@ export function EnquiryStatusUpdate({ enquiry }: EnquiryStatusUpdateProps) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
     </>
   );
 }

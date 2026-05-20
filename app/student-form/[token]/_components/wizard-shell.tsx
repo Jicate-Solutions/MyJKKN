@@ -120,10 +120,10 @@ export function WizardShell({ token, learner, sectionProgress, expiresAt }: Prop
     return () => clearInterval(tick);
   }, [expiresAt, token]);
 
-  // Scroll to top whenever the active step changes. Covers Continue, Back,
-  // stepper-circle clicks, and Edit-from-preview navigation uniformly.
-  // Save Draft deliberately doesn't trigger this — step doesn't change on
-  // save, so the user stays in place.
+  // Scroll to top whenever the active step changes. Covers Save & Continue,
+  // Back, stepper-circle clicks, and Edit-from-preview navigation uniformly.
+  // Triggered by step state changes only — anything that advances the step
+  // also scrolls to top.
   //
   // `behavior: 'smooth'` is auto-disabled by modern browsers when the user
   // has prefers-reduced-motion set, so this is accessibility-safe.
@@ -160,7 +160,8 @@ export function WizardShell({ token, learner, sectionProgress, expiresAt }: Prop
     fields: Record<string, any>,
   ) {
     // Validate this section's required fields BEFORE saving + advancing.
-    // Save Draft skips this; only Continue triggers it.
+    // The "Save & Continue" button is the only entry point now; per-step
+    // draft saves were retired 2026-05-21.
     const reqs = REQUIRED_BY_SECTION[section];
     const merged = { ...data, ...fields };
     const missing = reqs.filter((r) => !looksFilled(merged[r.key])).map((r) => r.label);
@@ -177,19 +178,10 @@ export function WizardShell({ token, learner, sectionProgress, expiresAt }: Prop
     }
   }
 
-  // Save the current section without advancing. Used by the "Save Draft"
-  // button on each step. Permissive — does not enforce required fields.
-  async function handleStepSaveDraft(
-    section: Section,
-    fields: Record<string, any>,
-  ) {
-    try {
-      await saveSection(section, fields, false);
-      toast.success('Draft saved / வரைவு சேமிக்கப்பட்டது', { duration: 2500 });
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Could not save draft');
-    }
-  }
+  // Note (2026-05-21): the per-step "Save Draft" button was retired in favour
+  // of a single "Save & Continue" CTA. Drafts still persist via the same
+  // saveSection(section, fields, false) call inside handleStepContinue —
+  // every advance is now a draft write + step bump in one action.
 
   async function handleFinalSubmit() {
     // Cross-section validation. If any required field is missing anywhere,
@@ -296,7 +288,6 @@ export function WizardShell({ token, learner, sectionProgress, expiresAt }: Prop
             lang={lang}
             data={data}
             onContinue={(fields) => handleStepContinue('basic', fields)}
-            onSaveDraft={(fields) => handleStepSaveDraft('basic', fields)}
             submitting={submitting}
           />
         )}
@@ -305,7 +296,6 @@ export function WizardShell({ token, learner, sectionProgress, expiresAt }: Prop
             lang={lang}
             data={data}
             onContinue={(fields) => handleStepContinue('academic', fields)}
-            onSaveDraft={(fields) => handleStepSaveDraft('academic', fields)}
             onBack={() => setStep(1)}
             submitting={submitting}
           />
@@ -316,7 +306,6 @@ export function WizardShell({ token, learner, sectionProgress, expiresAt }: Prop
             data={data}
             token={token}
             onContinue={(fields) => handleStepContinue('course', fields)}
-            onSaveDraft={(fields) => handleStepSaveDraft('course', fields)}
             onBack={() => setStep(2)}
             submitting={submitting}
           />
@@ -326,7 +315,6 @@ export function WizardShell({ token, learner, sectionProgress, expiresAt }: Prop
             lang={lang}
             data={data}
             onContinue={(fields) => handleStepContinue('accommodation', fields)}
-            onSaveDraft={(fields) => handleStepSaveDraft('accommodation', fields)}
             onBack={() => setStep(3)}
             submitting={submitting}
           />
@@ -336,7 +324,6 @@ export function WizardShell({ token, learner, sectionProgress, expiresAt }: Prop
             lang={lang}
             data={data}
             onContinue={(fields) => handleStepContinue('contact', fields)}
-            onSaveDraft={(fields) => handleStepSaveDraft('contact', fields)}
             onBack={() => setStep(4)}
             submitting={submitting}
           />

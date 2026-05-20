@@ -429,10 +429,18 @@ export function FinanceDetailsSection({
         </section>
       )}
 
-      {/* Legacy fee fields — preserved but only visible when legacy_fee_mode=true.
-       *  These are individual NUMERIC columns on learners_profiles that predate
-       *  the fee_items[] flow. Editable so users can zero out or clear all. */}
-      {legacyFeeMode && (
+      {/* Legacy fee fields — preserved but only visible when:
+       *    (a) the learner is still in legacy_fee_mode, AND
+       *    (b) NO matrix structure has matched for their dims.
+       *  When a matrix structure IS matched, the new structure card above
+       *  is the canonical display — duplicating the same numbers in legacy
+       *  zero-amount inputs (per the 2026-05-21 screenshot bug report) adds
+       *  noise without adding value. The legacy fields remain as a fallback
+       *  so legacy learners with no matching matrix structure aren't left
+       *  with a totally blank Finance tab. The "Adopt Structure" button on
+       *  LegacyModeBanner above is the canonical migration path once a
+       *  matrix structure exists. */}
+      {legacyFeeMode && !matchedStructure && (
         <div className='space-y-3 pt-6 border-t border-dashed'>
           <div className='flex items-start justify-between gap-4'>
             <div>

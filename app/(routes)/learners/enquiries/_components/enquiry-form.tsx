@@ -164,9 +164,14 @@ export const enquiryFormSchema = z.object({
   degree_id: z.string().min(1, 'Degree is required'),
   department_id: z.string().min(1, 'Department is required'),
   program_id: z.string().min(1, 'Program is required'),
-  academic_year_id: z.string().min(1, 'Academic year is required'),
+  // 2026-05-21: academic_year_id and section_id relaxed from required → optional
+  // on the enquiry form. Most enquiries are captured before the student is
+  // placed in an academic-year cohort / section; counsellors set those fields
+  // later during onboarding. Keeping them required was blocking save on the
+  // entry-point form.
+  academic_year_id: z.string().nullable().optional(),
   semester_id: z.string().min(1, 'Semester is required'),
-  section_id: z.string().min(1, 'Section is required'),
+  section_id: z.string().nullable().optional(),
   roll_number: z.string().nullable().optional(),
   register_number: z.string().nullable().optional(),
   college_email: z.string().nullable().optional(),

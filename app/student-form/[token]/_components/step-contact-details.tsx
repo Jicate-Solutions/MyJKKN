@@ -11,7 +11,7 @@ import {
   SelectContent,
   SelectItem,
 } from '@/components/ui/select';
-import { Loader2, Save } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 import { indianStates, getDistrictsByState, getTaluksByDistrict } from '@/lib/data/locations';
 import type { Language } from './language-toggle';
 
@@ -19,7 +19,6 @@ interface Props {
   lang: Language;
   data: Record<string, any>;
   onContinue: (fields: Record<string, any>) => void;
-  onSaveDraft: (fields: Record<string, any>) => void;
   onBack: () => void;
   submitting: boolean;
 }
@@ -68,7 +67,6 @@ function Field({
 export function StepContactDetails({
   data,
   onContinue,
-  onSaveDraft,
   onBack,
   submitting,
 }: Props) {
@@ -228,19 +226,9 @@ export function StepContactDetails({
         >
           Back / பின்
         </Button>
-        <Button
-          type="button"
-          variant="outline"
-          className="flex-1 h-12 text-sm sm:text-base"
-          onClick={() => onSaveDraft(v)}
-          disabled={submitting}
-        >
-          <Save className="h-4 w-4 mr-1.5" />
-          Save Draft
-        </Button>
         <Button type="submit" className="flex-1 h-12 text-sm sm:text-base" disabled={submitting}>
           {submitting && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-          Continue / தொடரவும்
+          Save & Continue / சேமித்துத் தொடரவும்
         </Button>
       </div>
     </form>

@@ -38,6 +38,7 @@ type Kind =
   | 'programs'
   | 'semesters'
   | 'department'
+  | 'admission_year'
   | 'names';
 
 export async function POST(
@@ -146,6 +147,31 @@ export async function POST(
           .maybeSingle();
         if (dErr) throw dErr;
         return NextResponse.json({ data: deptRow ?? null });
+      }
+
+      case 'admission_year': {
+        // Auto-fetch the admission_year row for the current calendar year
+        // scoped to the learner's (institution, program). Used by the
+        // student-form's Course Selection step to render a READ-ONLY
+        // Admission Year field — the student can't edit it, but the value
+        // is saved with the form so the fee-structure matrix lookup picks
+        // up the right cohort. Returns null when no row matches (admin
+        // hasn't configured this institution+program for the current
+        // year yet).
+        if (!filters.institution_id || !filters.program_id) {
+          return NextResponse.json({ data: null });
+        }
+        const currentYear = new Date().getFullYear();
+        const { data, error } = await (svc as any)
+          .from('admission_years')
+          .select('id, admission_year_name, program_start_year, program_end_year')
+          .eq('institution_id', filters.institution_id)
+          .eq('program_id', filters.program_id)
+          .eq('program_start_year', currentYear)
+          .eq('is_active', true)
+          .maybeSingle();
+        if (error) throw error;
+        return NextResponse.json({ data: data ?? null });
       }
 
       case 'names': {

@@ -4,19 +4,19 @@
 // ============================================
 // Created: 2025-01-18
 // Updated: 2025-01-19 - Updated to match admissions form structure
-// Purpose: Hostel, food, and reference details
-// Changes:
-// - Changed to RadioGroup for accommodation type
-// - Added conditional rendering (hostel fields only when HOSTEL selected)
-// - Updated reference types to match admission form
-// - Added form descriptions
-// - Added reset logic for dependent fields
-// - Updated all values to uppercase format
+// Updated: 2026-05-21 - Removed the legacy "Reference Information" block
+//   (reference_type / reference_name / reference_contact). Referral
+//   attribution is now captured in the leads module's "Referral & Consultant"
+//   section using the FK-based referral_type / referred_by_id /
+//   referred_by_name columns and flows into learners_profiles via
+//   /api/admission/bridge/convert. The DB columns + form-schema entries are
+//   kept (2,066 historical rows in production + 9 API integration files
+//   reference them, including B2A endpoints), so this is a UI-only removal.
+// Purpose: Hostel + food preferences only
 // ============================================
 
 
 import { UseFormReturn, useWatch } from 'react-hook-form';
-import { Input } from '@/components/ui/input';
 import {
   FormControl,
   FormDescription,
@@ -43,18 +43,12 @@ interface AccommodationPreferencesProps {
 
 export function AccommodationPreferencesSection({
   form,
-  isStudentView = false
+  isStudentView: _isStudentView = false
 }: AccommodationPreferencesProps) {
   // Watch for accommodation type to show conditional fields
   const accommodationType = useWatch({
     control: form.control,
     name: 'accommodation_type'
-  });
-
-  // Watch for reference type to show conditional fields
-  const referenceType = useWatch({
-    control: form.control,
-    name: 'reference_type'
   });
 
   // Reset dependent fields when selection changes
@@ -77,16 +71,6 @@ export function AccommodationPreferencesSection({
     { value: 'NON-AC HOSTEL', label: 'Non-AC Hostel' }
   ];
 
-  // Reference type options (values match database format - uppercase)
-  const referenceTypeOptions = [
-    { value: 'DIRECT APPLICATION', label: 'Direct Application' },
-    { value: 'JKKN STAFF', label: 'JKKN Staff' },
-    { value: 'CURRENT/FORMER STUDENT', label: 'Current/Former Student' },
-    { value: 'EDUCATIONAL CONSULTANT', label: 'Educational Consultant' },
-    { value: 'SOCIAL MEDIA', label: 'Social Media' },
-    { value: 'OTHERS', label: 'Others' }
-  ];
-
   return (
     <div className='space-y-8'>
       <div>
@@ -94,7 +78,7 @@ export function AccommodationPreferencesSection({
           Accommodation Preferences
         </h2>
         <p className='text-sm text-muted-foreground'>
-          Specify your accommodation needs and how you heard about us.
+          Specify your accommodation needs.
         </p>
       </div>
 
@@ -189,81 +173,14 @@ export function AccommodationPreferencesSection({
           </>
         )}
 
-        {/* Reference section - hidden for student view */}
-        {!isStudentView && (
-          <div className='pt-4 border-t border-border'>
-            <FormField
-              control={form.control}
-              name='reference_type'
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>How did you hear about us?</FormLabel>
-                  <Select
-                    onValueChange={field.onChange}
-                    value={field.value || ''}
-                  >
-                    <FormControl>
-                      <SelectTrigger>
-                        <SelectValue placeholder='Select reference type' />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent className='max-h-60 overflow-y-auto'>
-                      {referenceTypeOptions.map((option) => (
-                        <SelectItem key={option.value} value={option.value}>
-                          {option.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            {referenceType && referenceType !== 'DIRECT APPLICATION' && (
-              <>
-                <div className='grid grid-cols-1 md:grid-cols-2 gap-6 mt-4'>
-                  <FormField
-                    control={form.control}
-                    name='reference_name'
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Reference Name</FormLabel>
-                        <FormControl>
-                          <Input
-                            {...field}
-                            placeholder='Name of the reference person'
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  <FormField
-                    control={form.control}
-                    name='reference_contact'
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Reference Contact</FormLabel>
-                        <FormControl>
-                          <Input
-                            {...field}
-                            placeholder='Contact number of reference'
-                            maxLength={10}
-                            inputMode='tel'
-                          />
-                        </FormControl>
-                        <FormDescription>10-digit mobile number</FormDescription>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </div>
-              </>
-            )}
-          </div>
-        )}
+        {/* Legacy "Reference Information" section removed 2026-05-21.
+         *  Referral attribution now lives on the leads module under the
+         *  Referral & Consultant section and propagates to learners_profiles
+         *  via /api/admission/bridge/convert (referral_type, referred_by_id,
+         *  referred_by_name). The DB columns reference_type / reference_name
+         *  / reference_contact are kept for historical data + B2A API
+         *  compatibility but are no longer user-editable from the enquiry
+         *  form. */}
       </div>
     </div>
   );

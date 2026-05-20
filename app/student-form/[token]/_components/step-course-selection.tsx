@@ -11,7 +11,7 @@ import {
   SelectContent,
   SelectItem,
 } from '@/components/ui/select';
-import { Loader2, Lock, Save } from 'lucide-react';
+import { Loader2, Lock } from 'lucide-react';
 import type { Language } from './language-toggle';
 import {
   QUOTA_OPTIONS,
@@ -23,7 +23,6 @@ interface Props {
   data: Record<string, any>;
   token: string;
   onContinue: (fields: Record<string, any>) => void;
-  onSaveDraft: (fields: Record<string, any>) => void;
   onBack: () => void;
   submitting: boolean;
 }
@@ -51,6 +50,12 @@ interface SemesterRow {
 interface DepartmentRow {
   id: string;
   department_name: string;
+}
+interface AdmissionYearRow {
+  id: string;
+  admission_year_name: string;
+  program_start_year: number;
+  program_end_year: number;
 }
 
 function Req() {
@@ -127,13 +132,15 @@ export function StepCourseSelection({
   data,
   token,
   onContinue,
-  onSaveDraft,
   onBack,
   submitting,
 }: Props) {
   // Form state pre-filled from learners_profiles (the conversion bridge
   // sets institution_id always; degree/department/program/semester may be
   // null on legacy leads — student fills them in).
+  // admission_year_id is auto-fetched (not student-edited) — see the
+  // useEffect below. It's persisted on save so the fee-structure matrix
+  // lookup has the right cohort.
   const [v, setV] = useState({
     quota: data.quota ?? '',
     institution_id: data.institution_id ?? '',
@@ -142,6 +149,7 @@ export function StepCourseSelection({
     program_id: data.program_id ?? '',
     entry_type: data.entry_type ?? '',
     semester_id: data.semester_id ?? '',
+    admission_year_id: data.admission_year_id ?? '',
   });
   const set = <K extends keyof typeof v>(k: K, val: typeof v[K]) =>
     setV((p) => ({ ...p, [k]: val }));
@@ -153,15 +161,23 @@ export function StepCourseSelection({
   const [programs, setPrograms] = useState<ProgramRow[]>([]);
   const [semesters, setSemesters] = useState<SemesterRow[]>([]);
   const [department, setDepartment] = useState<DepartmentRow | null>(null);
+  const [admissionYear, setAdmissionYear] = useState<AdmissionYearRow | null>(null);
 
   const [loadingI, setLoadingI] = useState(false);
   const [loadingD, setLoadingD] = useState(false);
   const [loadingP, setLoadingP] = useState(false);
   const [loadingS, setLoadingS] = useState(false);
   const [loadingDept, setLoadingDept] = useState(false);
+  const [loadingAY, setLoadingAY] = useState(false);
 
   async function fetchOptions(
-    kind: 'institutions' | 'degrees' | 'programs' | 'semesters' | 'department',
+    kind:
+      | 'institutions'
+      | 'degrees'
+      | 'programs'
+      | 'semesters'
+      | 'department'
+      | 'admission_year',
     filters?: Record<string, string>,
   ) {
     const res = await fetch(`/api/student-form/${encodeURIComponent(token)}/course-options`, {
@@ -225,25 +241,43 @@ export function StepCourseSelection({
   }, [v.degree_id]);
 
   // When program changes, load semesters AND look up the department for
-  // the read-only Department display.
+  // the read-only Department display. Also auto-fetch the current-year
+  // admission_year row scoped to (institution, program) — see
+  // 2026-05-21 change. Result is rendered read-only and saved with the
+  // form so the fee-structure matrix lookup has the correct cohort.
   useEffect(() => {
-    if (!v.program_id) {
+    if (!v.program_id || !v.institution_id) {
       setSemesters([]);
       setDepartment(null);
+      setAdmissionYear(null);
+      if (v.admission_year_id) set('admission_year_id', '');
       return;
     }
     let alive = true;
     setLoadingS(true);
     setLoadingDept(true);
+    setLoadingAY(true);
     Promise.all([
       fetchOptions('semesters', { program_id: v.program_id }),
       fetchOptions('department', { program_id: v.program_id }),
-    ]).then(([sems, dept]) => {
+      fetchOptions('admission_year', {
+        institution_id: v.institution_id,
+        program_id: v.program_id,
+      }),
+    ]).then(([sems, dept, ay]) => {
       if (!alive) return;
       if (sems) setSemesters(sems);
       if (dept) setDepartment(dept);
+      const ayRow = (ay as AdmissionYearRow | null) ?? null;
+      setAdmissionYear(ayRow);
+      // Persist the FK id into form state so it's submitted on Save & Continue.
+      // Empty string when no row matches — admin hasn't configured the
+      // current-year cohort for this (institution, program) yet; the
+      // render below shows that hint to the student.
+      set('admission_year_id', ayRow?.id ?? '');
       setLoadingS(false);
       setLoadingDept(false);
+      setLoadingAY(false);
     });
     return () => {
       alive = false;
@@ -445,6 +479,37 @@ export function StepCourseSelection({
             <Lock className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           </div>
         </Field>
+
+        {/* Admission Year — read-only, auto-fetched from the current calendar
+         *  year scoped to the picked (institution, program). The value is
+         *  saved with the form so the fee-structure matrix has the correct
+         *  cohort. Added 2026-05-21.
+         */}
+        <Field
+          label="Admission Year / சேர்க்கை ஆண்டு"
+          required
+          helper="Automatically set for the current admission cycle. Cannot be changed."
+        >
+          <div className="relative">
+            <Input
+              value={
+                loadingAY
+                  ? 'Loading…'
+                  : admissionYear?.admission_year_name ?? ''
+              }
+              readOnly
+              placeholder={
+                !v.program_id
+                  ? 'Pick program first / முதலில் பாடம் தேர்வு செய்க'
+                  : loadingAY
+                    ? 'Loading admission year…'
+                    : 'No admission year configured for the current cycle — contact admission'
+              }
+              className="h-12 bg-muted/40 pr-10"
+            />
+            <Lock className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          </div>
+        </Field>
       </Section>
 
       <Section title={{ en: 'Entry & Semester', ta: 'சேர்க்கை மற்றும் பருவம்' }}>
@@ -534,19 +599,9 @@ export function StepCourseSelection({
         >
           Back / பின்
         </Button>
-        <Button
-          type="button"
-          variant="outline"
-          className="flex-1 h-12 text-sm sm:text-base"
-          onClick={() => onSaveDraft(v)}
-          disabled={submitting}
-        >
-          <Save className="h-4 w-4 mr-1.5" />
-          Save Draft
-        </Button>
         <Button type="submit" className="flex-1 h-12 text-sm sm:text-base" disabled={submitting}>
           {submitting && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-          Continue / தொடரவும்
+          Save & Continue / சேமித்துத் தொடரவும்
         </Button>
       </div>
     </form>
