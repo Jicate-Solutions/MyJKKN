@@ -1,8 +1,9 @@
 'use client';
 
 import Link from 'next/link';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { useQuery } from '@tanstack/react-query';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
   Breadcrumb,
@@ -16,15 +17,51 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { SearchableSelect } from '@/components/ui/searchable-select';
 import { ArrowLeft, Loader2 } from 'lucide-react';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { useCreateCdcPlacement } from '@/hooks/cdc/use-cdc-placements';
-import { useCdcLookups } from '@/hooks/cdc/use-cdc-drives';
+import { useCdcLookups, useCdcDrives } from '@/hooks/cdc/use-cdc-drives';
 import type { CdcPlacementInsert } from '@/types/cdc/placements';
+
+/** Active + graduated learners for the placement-recipient picker. */
+function useLearnersForPicker() {
+  return useQuery({
+    queryKey: ['cdc-placement-learner-picker'],
+    queryFn: async () => {
+      const supabase = createClientSupabaseClient();
+      const { data, error } = await (supabase as any)
+        .from('learners_profiles')
+        .select('id, first_name, last_name, register_number')
+        .in('lifecycle_status', ['active', 'graduated'])
+        .order('first_name', { ascending: true })
+        .limit(5000);
+      if (error) {
+        console.error('[placement-new] Failed to load learners:', error.message);
+        return [];
+      }
+      return (data || []).map((l: any) => ({
+        id: l.id as string,
+        label: `${l.first_name ?? ''} ${l.last_name ?? ''}`.trim() +
+               (l.register_number ? ` (${l.register_number})` : ''),
+      }));
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+}
 
 export default function NewCdcPlacementPage() {
   const router = useRouter();
   const createPlacement = useCreateCdcPlacement();
   const { data: lookups } = useCdcLookups();
+  const { data: learners, isLoading: learnersLoading } = useLearnersForPicker();
+  // Only show drives in states where recording a placement makes sense
+  // (announced through closed). Skip draft + cancelled.
+  const { data: drivesRes, isLoading: drivesLoading } = useCdcDrives({
+    status: ['announced', 'willingness_open', 'eligibility_locked',
+             'attendance_day', 'results_announced', 'closed'],
+    pageSize: 500,
+  });
 
   const [form, setForm] = useState<Partial<CdcPlacementInsert>>({
     is_remote: false,
@@ -35,6 +72,44 @@ export default function NewCdcPlacementPage() {
 
   const set = <K extends keyof CdcPlacementInsert>(key: K, value: CdcPlacementInsert[K]) =>
     setForm((f) => ({ ...f, [key]: value }));
+
+  const learnerOptions = useMemo(
+    () => (learners ?? []).map((l: { id: string; label: string }) => ({ value: l.id, label: l.label })),
+    [learners]
+  );
+
+  const recruiterById = useMemo(() => {
+    const m = new Map<string, string>();
+    (lookups?.recruiters ?? []).forEach((r) => m.set(r.id, r.name));
+    return m;
+  }, [lookups]);
+
+  const driveOptions = useMemo(() => {
+    return ((drivesRes?.data ?? []) as Array<{ id: string; title: string; recruiter_id: string; status: string }>)
+      .map((d) => ({
+        value: d.id,
+        label: `${d.title} — ${recruiterById.get(d.recruiter_id) ?? '?'} · ${d.status}`,
+      }));
+  }, [drivesRes, recruiterById]);
+
+  const recruiterOptions = useMemo(
+    () => (lookups?.recruiters ?? []).map((r) => ({ value: r.id, label: r.name })),
+    [lookups]
+  );
+
+  const offerTypeOptions = useMemo(
+    () => (lookups?.offer_types ?? []).map((o) => ({ value: o.id, label: o.display_name })),
+    [lookups]
+  );
+
+  const handleWalkInToggle = (checked: boolean) => {
+    setForm((f) => ({
+      ...f,
+      is_walk_in: checked,
+      // Walk-ins have no drive; clear any prior selection
+      drive_id: checked ? null : f.drive_id,
+    }));
+  };
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -82,22 +157,16 @@ export default function NewCdcPlacementPage() {
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="space-y-1">
-                <Label htmlFor="learner_id">Learner ID <span className="text-destructive">*</span></Label>
-                <Input
-                  id="learner_id"
-                  placeholder="UUID from learners_profiles"
+                <Label htmlFor="learner_id">Learner <span className="text-destructive">*</span></Label>
+                <SearchableSelect
                   value={form.learner_id ?? ''}
-                  onChange={(e) => set('learner_id', e.target.value)}
-                  required
-                />
-              </div>
-              <div className="space-y-1">
-                <Label htmlFor="drive_id">Drive (optional)</Label>
-                <Input
-                  id="drive_id"
-                  placeholder="Drive UUID — leave blank for walk-in"
-                  value={form.drive_id ?? ''}
-                  onChange={(e) => set('drive_id', e.target.value || null)}
+                  onValueChange={(v) => set('learner_id', v)}
+                  options={learnerOptions}
+                  placeholder="Search by name or register number…"
+                  searchPlaceholder="Type to search learners…"
+                  emptyMessage="No matching learners"
+                  loading={learnersLoading}
+                  className="w-full"
                 />
               </div>
               <div className="flex items-center gap-2">
@@ -105,11 +174,28 @@ export default function NewCdcPlacementPage() {
                   type="checkbox"
                   id="is_walk_in"
                   checked={form.is_walk_in ?? false}
-                  onChange={(e) => set('is_walk_in', e.target.checked)}
+                  onChange={(e) => handleWalkInToggle(e.target.checked)}
                   className="h-4 w-4 rounded border-gray-300"
                 />
-                <Label htmlFor="is_walk_in" className="cursor-pointer">Walk-in placement (no pre-registered drive)</Label>
+                <Label htmlFor="is_walk_in" className="cursor-pointer">
+                  Walk-in placement (no pre-registered drive)
+                </Label>
               </div>
+              {!form.is_walk_in && (
+                <div className="space-y-1">
+                  <Label htmlFor="drive_id">Drive (optional)</Label>
+                  <SearchableSelect
+                    value={form.drive_id ?? ''}
+                    onValueChange={(v) => set('drive_id', v || null)}
+                    options={driveOptions}
+                    placeholder="Search drive by title or recruiter…"
+                    searchPlaceholder="Type to search drives…"
+                    emptyMessage="No drives match — check 'Walk-in' above if no drive was registered"
+                    loading={drivesLoading}
+                    className="w-full"
+                  />
+                </div>
+              )}
             </CardContent>
           </Card>
 
@@ -121,33 +207,27 @@ export default function NewCdcPlacementPage() {
             <CardContent className="space-y-4">
               <div className="space-y-1">
                 <Label htmlFor="recruiter_id">Recruiter <span className="text-destructive">*</span></Label>
-                <select
-                  id="recruiter_id"
+                <SearchableSelect
                   value={form.recruiter_id ?? ''}
-                  onChange={(e) => set('recruiter_id', e.target.value)}
-                  required
-                  className="w-full border rounded-md px-3 py-2 text-sm bg-background"
-                >
-                  <option value="">Select recruiter...</option>
-                  {(lookups?.recruiters ?? []).map((r) => (
-                    <option key={r.id} value={r.id}>{r.name}</option>
-                  ))}
-                </select>
+                  onValueChange={(v) => set('recruiter_id', v)}
+                  options={recruiterOptions}
+                  placeholder="Select recruiter…"
+                  searchPlaceholder="Type to search recruiters…"
+                  emptyMessage="No recruiters found"
+                  className="w-full"
+                />
               </div>
               <div className="space-y-1">
                 <Label htmlFor="offer_type_id">Offer Type <span className="text-destructive">*</span></Label>
-                <select
-                  id="offer_type_id"
+                <SearchableSelect
                   value={form.offer_type_id ?? ''}
-                  onChange={(e) => set('offer_type_id', e.target.value)}
-                  required
-                  className="w-full border rounded-md px-3 py-2 text-sm bg-background"
-                >
-                  <option value="">Select offer type...</option>
-                  {(lookups?.offer_types ?? []).map((o) => (
-                    <option key={o.id} value={o.id}>{o.display_name}</option>
-                  ))}
-                </select>
+                  onValueChange={(v) => set('offer_type_id', v)}
+                  options={offerTypeOptions}
+                  placeholder="Select offer type…"
+                  searchPlaceholder="Type to search…"
+                  emptyMessage="No offer types found"
+                  className="w-full"
+                />
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1">
