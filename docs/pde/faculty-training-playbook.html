@@ -439,3 +439,150 @@
 
       <p>A typical validation reads in 5 to 10 minutes. Most of that is reading the learner's evidence carefully, not filling in the form. The form itself is short. If you find yourself spending more than 15 minutes on a single demonstration, that is usually a sign the evidence is thin and you should ask for more — not that the form is heavy.</p>
     </section>
+
+    <!-- ==================== SECTION 4 ==================== -->
+    <section id="section-4">
+      <h2>4. Walkthrough &mdash; submitting a demonstration</h2>
+
+      <p>This section is what a <em>learner</em> does. You should know the flow end-to-end so you can answer questions and spot submissions that took a wrong turn before they reach you.</p>
+
+      <ol class="steps">
+        <li>
+          <h4>Open the demonstrations page</h4>
+          <p>The learner navigates to <code>/learn/pde/demonstrations</code> in MyJKKN. This page lists every demonstration the learner has ever submitted, with status and dates. The "Submit new demonstration" button is at the top right.</p>
+        </li>
+        <li>
+          <h4>Choose a category</h4>
+          <p>The learner picks one of the seven categories from Section 2. The form gives a short plain-English description of each so the learner can decide. <strong>One demonstration = one category.</strong> If something genuinely sits across two, the learner picks the primary one and notes the secondary in the description.</p>
+        </li>
+        <li>
+          <h4>Select a rubric (if available)</h4>
+          <p>For <code>embodied</code>, <code>social_leadership</code>, and <code>cultural_civic</code>, a list of structured rubrics appears. The learner picks the one closest to the demonstration. For other categories, no rubric is shown; the learner writes a narrative description instead.</p>
+        </li>
+        <li>
+          <h4>Name and describe the skill demonstrated</h4>
+          <p>One-line skill name (for example, "intramuscular injection &mdash; gluteal site") plus a short paragraph describing what was demonstrated, where, and when. This is the field a validator reads first.</p>
+        </li>
+        <li>
+          <h4>Attach evidence</h4>
+          <p>Accepted evidence types include written documents, photos, videos, signed checklists from a supervisor, simulator logs, third-party certificates, and links to published work. File size and accepted types are shown on the form. <em>If the evidence is a live demonstration with no recording, the learner names a supervising faculty as the witness; the validator then confirms with that faculty before attesting.</em></p>
+        </li>
+        <li>
+          <h4>Save as draft or submit</h4>
+          <p>The learner can save the form as a <code>draft</code> and come back later, or submit it. Once submitted, the demonstration enters the validator inbox and the learner can no longer edit it (they can withdraw and resubmit if they catch a mistake).</p>
+        </li>
+      </ol>
+
+      <h4>Status flow</h4>
+
+      <div class="status-chain">
+        <span>draft</span>
+        <span class="arrow">&rarr;</span>
+        <span>submitted</span>
+        <span class="arrow">&rarr;</span>
+        <span>under_review</span>
+        <span class="arrow">&rarr;</span>
+        <span>validated</span>
+        <span class="arrow">&rarr;</span>
+        <span>scored</span>
+      </div>
+
+      <p>A demonstration can also end in <code>rejected</code> (validator declined to attest, with reason) or <code>withdrawn</code> (learner pulled it back before validation). Rejected demonstrations are not deleted &mdash; they stay in the learner's record with the rejection reason visible to the learner only.</p>
+
+      <div class="callout callout--pitfall">
+        <div class="label">Common pitfall</div>
+        <p>Learners sometimes attach a photo and write three words in the description, expecting the photo to "speak for itself." It rarely does. Coach learners (and your students) to write at least one paragraph explaining the <em>context, the action, and the outcome</em>. The evidence supports the narrative, not the other way around.</p>
+      </div>
+    </section>
+
+    <!-- ==================== SECTION 5 ==================== -->
+    <section id="section-5">
+      <h2>5. Walkthrough &mdash; validating a demonstration</h2>
+
+      <p>This is the part you will do most. Five to ten minutes per demonstration, once or twice a week, depending on your wave.</p>
+
+      <ol class="steps">
+        <li>
+          <h4>Open your validator inbox</h4>
+          <p>Navigate to <code>/admin/pde/demonstrations</code>. You see every demonstration in <code>submitted</code> status for your institution, oldest first. Filters let you narrow by category, learner cohort, or programme.</p>
+        </li>
+        <li>
+          <h4>Open a single submission</h4>
+          <p>Click any row. The detail page shows: learner name and programme, category and rubric, the skill name and description, all attached evidence (inline preview where possible), and the learner's submission timestamp. Take your time reading. This is the load-bearing minute.</p>
+        </li>
+        <li>
+          <h4>Decide on the three questions</h4>
+          <p>Hold yourself to the three questions from Section 3: is the work <em>authentic</em>, is the evidence <em>sufficient</em>, does it fit the <em>category</em> claimed? If all three are yes, you validate. If any one is a no, you have two choices &mdash; ask the learner for more (which moves the demonstration back to <code>draft</code> with a note), or reject with reason.</p>
+        </li>
+        <li>
+          <h4>Fill the validation form</h4>
+          <p>The form asks for: your attestation (a checkbox confirming the three questions are satisfied), a short validator note (one to three sentences explaining your basis &mdash; "observed in OSCE station 4 on 12 May", "verified certificate against issuing body"), and an optional raw score on the rubric criteria (only shown for the three rubric-backed categories).</p>
+        </li>
+        <li>
+          <h4>Submit the validation</h4>
+          <p>Once you submit, the demonstration moves to <code>validated</code>. If scoring applies, the scoring engine runs and the status moves to <code>scored</code> within seconds. The learner sees your name, the date, and your note on their record.</p>
+        </li>
+      </ol>
+
+      <h4>What "passed" means</h4>
+
+      <p>Some demonstrations end with a <code>passed: true</code> flag in addition to a score. "Passed" means the weighted score met the threshold for that rubric &mdash; in other words, the learner has cleared the bar for that specific capability. A "scored but not passed" demonstration is still a useful record &mdash; it shows the learner attempted and reached a partial level, and they can resubmit later as their capability grows.</p>
+
+      <div class="callout callout--example">
+        <div class="label">Example validation note</div>
+        <p>"Witnessed the venepuncture procedure on a simulator arm on 18 May 2026. Learner verbalised landmark identification correctly, maintained sterile technique, and explained the choice of gauge appropriately for the use case. Evidence: signed simulator log + my direct observation. Authentic, sufficient, fits <code>embodied</code>."</p>
+      </div>
+
+      <div class="callout callout--pitfall">
+        <div class="label">Common pitfall</div>
+        <p>Validators sometimes leave the note blank because the rubric score "speaks for itself." It does not. A future reviewer (NAAC, employer, or the learner ten years later) reads the note as the meaning of the record. A blank note makes the record fragile. Always write at least one sentence stating <em>what you observed</em> and <em>how you know it was real</em>.</p>
+      </div>
+    </section>
+
+    <!-- ==================== SECTION 6 ==================== -->
+    <section id="section-6">
+      <h2>6. Scoring and rubrics</h2>
+
+      <p>Not every demonstration is scored. Scoring applies only when the learner selected a structured rubric. For the other categories, the validation itself is the record &mdash; no number is attached.</p>
+
+      <h3>How a weighted score is computed</h3>
+
+      <p>For rubric-backed demonstrations, the scoring engine reads two things: the validator's raw scores against each rubric criterion, and the <em>weighting policy</em> set by the Director for that category. The weighted score is a single number on a fixed scale that combines the criteria according to the weighting. The "passed" flag flips to <code>true</code> when the weighted score meets the threshold for that rubric.</p>
+
+      <p>You do not need to do this math yourself. You assign the raw scores; the engine does the rest. The weights and thresholds are visible to institution admins at <code>/admin/pde/policies/scoring</code> and can be tuned over time as the patterns settle.</p>
+
+      <h3>The thirteen rubrics</h3>
+
+      <table>
+        <thead>
+          <tr>
+            <th>Category</th>
+            <th>Rubrics</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>embodied</code></td>
+            <td>medical &middot; pharmacy &middot; nursing &middot; dental &middot; engineering (5 rubrics)</td>
+          </tr>
+          <tr>
+            <td><code>social_leadership</code></td>
+            <td>peer mentor &middot; team project lead &middot; committee role &middot; community organiser (4 rubrics)</td>
+          </tr>
+          <tr>
+            <td><code>cultural_civic</code></td>
+            <td>Indian language proficiency &middot; local community project &middot; tradition attunement &middot; civic engagement (4 rubrics)</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>Why some categories have no rubric yet</h3>
+
+      <p>The other four categories &mdash; <code>judgment</code>, <code>problem_finding</code>, <code>accountability</code>, <code>credential</code> &mdash; are deliberately rubric-free at launch. Two reasons. First, the variance in how these show up across disciplines is so wide that a premature rubric would do more harm than good. Second, the substrate is designed to <em>learn from real demonstrations</em>: once enough validated narratives accumulate, common patterns will emerge, and rubrics can be added without changing the model.</p>
+
+      <div class="callout">
+        <div class="label">Director's policy</div>
+        <p>Adding or changing a rubric is an institutional decision made via <code>/admin/pde/rubrics/&lt;category&gt;</code>, owned by the Director's office. Faculty input is welcome &mdash; flag patterns you see, and the rubric library will grow from real practice.</p>
+      </div>
+    </section>
+
