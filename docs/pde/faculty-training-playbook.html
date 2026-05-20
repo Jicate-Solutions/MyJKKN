@@ -1,0 +1,671 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PDE Faculty Training Playbook — JKKN Institutions</title>
+  <style>
+    /* ---------- Reset + base ---------- */
+    *, *::before, *::after { box-sizing: border-box; }
+    html { -webkit-text-size-adjust: 100%; }
+    body {
+      margin: 0;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+      font-size: 17px;
+      line-height: 1.65;
+      color: #1F2937;
+      background: #FAFAF7;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+
+    /* ---------- Layout ---------- */
+    .wrap {
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 4rem 1.5rem 6rem;
+    }
+
+    /* ---------- Typography ---------- */
+    h1, h2, h3, h4 {
+      color: #1B2A4E;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+      margin-top: 0;
+    }
+    h1 {
+      font-size: 2.4rem;
+      line-height: 1.15;
+      margin-bottom: 0.5rem;
+    }
+    h2 {
+      font-size: 1.7rem;
+      line-height: 1.25;
+      margin-top: 4rem;
+      margin-bottom: 1.25rem;
+      padding-bottom: 0.5rem;
+      border-bottom: 2px solid #E5E1D6;
+    }
+    h3 {
+      font-size: 1.25rem;
+      line-height: 1.3;
+      margin-top: 2.5rem;
+      margin-bottom: 0.75rem;
+    }
+    h4 {
+      font-size: 1.05rem;
+      margin-top: 1.75rem;
+      margin-bottom: 0.5rem;
+      color: #2D3D63;
+    }
+    p {
+      margin: 0 0 1.5rem;
+    }
+    a {
+      color: #1B2A4E;
+      text-decoration: underline;
+      text-decoration-color: #D4A437;
+      text-underline-offset: 3px;
+      text-decoration-thickness: 2px;
+    }
+    a:hover {
+      color: #D4A437;
+    }
+    strong {
+      color: #1B2A4E;
+      font-weight: 600;
+    }
+    em {
+      font-style: italic;
+      color: #2D3D63;
+    }
+    code {
+      font-family: 'JetBrains Mono', 'SF Mono', Menlo, Consolas, monospace;
+      font-size: 0.9em;
+      background: #F0EDE3;
+      padding: 0.1em 0.4em;
+      border-radius: 3px;
+      color: #1B2A4E;
+    }
+
+    /* ---------- Subtitle / lede ---------- */
+    .subtitle {
+      font-size: 1.15rem;
+      color: #555;
+      margin-bottom: 0.5rem;
+    }
+    .meta {
+      font-size: 0.9rem;
+      color: #888;
+      letter-spacing: 0.02em;
+      text-transform: uppercase;
+      margin-bottom: 3rem;
+      padding-bottom: 2rem;
+      border-bottom: 1px solid #E5E1D6;
+    }
+
+    /* ---------- TOC ---------- */
+    .toc {
+      background: #FFFFFF;
+      border: 1px solid #E5E1D6;
+      border-radius: 6px;
+      padding: 1.5rem 2rem;
+      margin-bottom: 3rem;
+    }
+    .toc h3 {
+      margin-top: 0;
+      margin-bottom: 0.75rem;
+      font-size: 0.85rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: #888;
+      font-weight: 600;
+    }
+    .toc ol {
+      margin: 0;
+      padding-left: 1.5rem;
+      color: #2D3D63;
+    }
+    .toc li {
+      margin-bottom: 0.35rem;
+    }
+    .toc a {
+      text-decoration: none;
+      color: #1B2A4E;
+    }
+    .toc a:hover {
+      color: #D4A437;
+      text-decoration: underline;
+    }
+
+    /* ---------- Lists ---------- */
+    ul, ol {
+      margin: 0 0 1.5rem;
+      padding-left: 1.5rem;
+    }
+    li {
+      margin-bottom: 0.5rem;
+    }
+
+    /* ---------- Callouts ---------- */
+    .callout {
+      background: #FFFFFF;
+      border-left: 4px solid #D4A437;
+      padding: 1.25rem 1.5rem;
+      margin: 2rem 0;
+      border-radius: 0 4px 4px 0;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+    }
+    .callout .label {
+      font-size: 0.75rem;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: #D4A437;
+      font-weight: 700;
+      margin-bottom: 0.5rem;
+    }
+    .callout p:last-child {
+      margin-bottom: 0;
+    }
+    .callout--insight { border-left-color: #1B2A4E; }
+    .callout--insight .label { color: #1B2A4E; }
+    .callout--pitfall { border-left-color: #B23A48; }
+    .callout--pitfall .label { color: #B23A48; }
+    .callout--example { border-left-color: #38744F; }
+    .callout--example .label { color: #38744F; }
+
+    /* ---------- Category blocks ---------- */
+    .category {
+      background: #FFFFFF;
+      border: 1px solid #E5E1D6;
+      border-radius: 6px;
+      padding: 1.5rem 1.75rem;
+      margin-bottom: 1.5rem;
+    }
+    .category h4 {
+      margin-top: 0;
+      margin-bottom: 0.5rem;
+      display: flex;
+      align-items: baseline;
+      gap: 0.75rem;
+    }
+    .category h4 code {
+      font-size: 0.8rem;
+      font-weight: 500;
+      color: #888;
+      background: transparent;
+      padding: 0;
+    }
+    .category p:last-child {
+      margin-bottom: 0;
+    }
+
+    /* ---------- Step lists ---------- */
+    .steps {
+      list-style: none;
+      padding-left: 0;
+      counter-reset: step;
+    }
+    .steps > li {
+      counter-increment: step;
+      padding-left: 3rem;
+      position: relative;
+      margin-bottom: 1.25rem;
+    }
+    .steps > li::before {
+      content: counter(step);
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 2rem;
+      height: 2rem;
+      background: #1B2A4E;
+      color: #FFFFFF;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      font-size: 0.9rem;
+    }
+
+    /* ---------- Status chain ---------- */
+    .status-chain {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      align-items: center;
+      margin: 1.5rem 0;
+      padding: 1rem 1.25rem;
+      background: #FFFFFF;
+      border: 1px solid #E5E1D6;
+      border-radius: 6px;
+      font-family: 'JetBrains Mono', 'SF Mono', Menlo, monospace;
+      font-size: 0.85rem;
+      color: #1B2A4E;
+    }
+    .status-chain .arrow { color: #D4A437; font-weight: 700; }
+
+    /* ---------- Tables ---------- */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 1.5rem;
+      font-size: 0.95rem;
+    }
+    th, td {
+      text-align: left;
+      padding: 0.65rem 0.75rem;
+      border-bottom: 1px solid #E5E1D6;
+      vertical-align: top;
+    }
+    th {
+      color: #1B2A4E;
+      font-weight: 600;
+      background: #F0EDE3;
+      font-size: 0.85rem;
+      letter-spacing: 0.02em;
+      text-transform: uppercase;
+    }
+
+    /* ---------- FAQ ---------- */
+    .faq {
+      margin-bottom: 2rem;
+    }
+    .faq dt {
+      font-weight: 600;
+      color: #1B2A4E;
+      margin-top: 1.75rem;
+      margin-bottom: 0.5rem;
+      font-size: 1.05rem;
+    }
+    .faq dt::before {
+      content: "Q.";
+      color: #D4A437;
+      margin-right: 0.4rem;
+      font-weight: 700;
+    }
+    .faq dd {
+      margin: 0 0 1.25rem;
+      padding-left: 1.6rem;
+    }
+
+    /* ---------- Footer ---------- */
+    .footer {
+      margin-top: 5rem;
+      padding-top: 2rem;
+      border-top: 1px solid #E5E1D6;
+      font-size: 0.85rem;
+      color: #888;
+      text-align: center;
+    }
+    .footer p { margin-bottom: 0.4rem; }
+
+    /* ---------- Print ---------- */
+    @media print {
+      body { background: #FFFFFF; font-size: 11pt; }
+      .wrap { padding: 1rem; max-width: 100%; }
+      h2 { page-break-before: auto; page-break-after: avoid; }
+      h3, h4 { page-break-after: avoid; }
+      .callout, .category, .status-chain { page-break-inside: avoid; }
+      a { color: #1B2A4E; }
+    }
+
+    /* ---------- Mobile ---------- */
+    @media (max-width: 600px) {
+      .wrap { padding: 2.5rem 1.25rem 4rem; }
+      h1 { font-size: 1.85rem; }
+      h2 { font-size: 1.4rem; margin-top: 3rem; }
+      body { font-size: 16px; }
+      .toc { padding: 1.25rem 1.5rem; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+
+    <header>
+      <h1>PDE Faculty Training Playbook</h1>
+      <p class="subtitle">Your guide to the Principal Development Engine — what it is, what you do, and how it works.</p>
+      <p class="meta">JKKN Institutions &middot; Version 1.0 &middot; For all faculty validators</p>
+    </header>
+
+    <nav class="toc" aria-label="Contents">
+      <h3>Contents</h3>
+      <ol>
+        <li><a href="#section-1">What is PDE</a></li>
+        <li><a href="#section-2">The seven categories</a></li>
+        <li><a href="#section-3">Your role as faculty</a></li>
+        <li><a href="#section-4">Walkthrough — submitting a demonstration</a></li>
+        <li><a href="#section-5">Walkthrough — validating a demonstration</a></li>
+        <li><a href="#section-6">Scoring and rubrics</a></li>
+        <li><a href="#section-7">Common scenarios</a></li>
+        <li><a href="#section-8">Pace-cap and onboarding flow</a></li>
+        <li><a href="#section-9">Where to get help</a></li>
+      </ol>
+    </nav>
+
+    <!-- ==================== SECTION 1 ==================== -->
+    <section id="section-1">
+      <h2>1. What is PDE</h2>
+
+      <p>The <strong>Principal Development Engine (PDE)</strong> is JKKN's post-AI higher-education engine. Its premise: AI now handles most content delivery (lectures, summaries, explanations, even feedback on routine work). The durable value a human institution can still produce is <em>capability that AI cannot fake</em> — exercised judgment, embodied skill, problem-finding, accountability, social leadership, cultural-civic grounding, and earned credentials.</p>
+
+      <p>PDE is the system that <em>captures and validates</em> those seven categories of capability across your students' time at JKKN. Instead of asking "did this learner consume the content?", it asks "what has this learner <em>demonstrated</em>, and who attests to it?"</p>
+
+      <div class="callout callout--insight">
+        <div class="label">Why this matters now</div>
+        <p>PDE gives JKKN three things at once: <strong>NAAC and NBA evidence</strong> that goes beyond attendance and marks; an <strong>employer signal</strong> that says what a graduate can actually do; and <strong>learner agency</strong> — every student carries a record of their own demonstrated capability, owned by them, not buried in a marks register.</p>
+      </div>
+
+      <p>You are not being asked to grade more. You are being asked to <em>attest</em> — to put your name on a learner's demonstration and confirm it was authentic. That attestation is what makes the record trustworthy.</p>
+    </section>
+
+    <!-- ==================== SECTION 2 ==================== -->
+    <section id="section-2">
+      <h2>2. The seven categories</h2>
+
+      <p>Every demonstration in PDE falls under exactly one of seven categories. The categories were cross-validated against Fink's taxonomy, the OECD Learning Compass, and India's National Education Policy. Together they cover what a human professional must be able to do in a world where AI handles routine cognitive work.</p>
+
+      <div class="category">
+        <h4>Judgment <code>judgment</code></h4>
+        <p>The capacity to weigh trade-offs, sit with ambiguity, and decide under uncertainty. <strong>Example demonstrations:</strong> a clinical reasoning case where the learner explains their differential diagnosis, a design choice defended against alternatives, an ethics dilemma worked through in writing. <strong>Attest when:</strong> the learner has shown <em>how</em> they decided, not just <em>what</em> they decided.</p>
+      </div>
+
+      <div class="category">
+        <h4>Embodied skill <code>embodied</code></h4>
+        <p>Capability that lives in the hands and the body — clinical procedures, lab technique, surgical skill, prescription compounding, machine operation, physical assessment. <strong>Example demonstrations:</strong> OSCE-style station, supervised procedure, simulated patient encounter, lab protocol executed end-to-end. <strong>Attest when:</strong> you have watched the learner perform the skill or reviewed reliable evidence of performance (video, simulator log, signed supervisor checklist).</p>
+      </div>
+
+      <div class="category">
+        <h4>Problem-finding <code>problem_finding</code></h4>
+        <p>The capacity to <em>notice</em> a problem worth solving — not just solve a problem someone else has framed. <strong>Example demonstrations:</strong> a learner identifies a clinical workflow gap in their hospital posting and proposes an intervention; a project proposal framed around a real unmet need; a literature review that names a gap others have missed. <strong>Attest when:</strong> the problem the learner named was theirs to name — not assigned, not hinted at.</p>
+      </div>
+
+      <div class="category">
+        <h4>Accountability <code>accountability</code></h4>
+        <p>Following through on what you said you would do, including when it gets hard or unglamorous. <strong>Example demonstrations:</strong> a multi-week project shipped on its stated timeline; an error or miss owned and corrected in writing; a commitment to a peer or patient honoured. <strong>Attest when:</strong> you have evidence the learner did what they said they would, or owned the gap if they did not.</p>
+      </div>
+
+      <div class="category">
+        <h4>Social leadership <code>social_leadership</code></h4>
+        <p>The capacity to make a group work better than its individuals — coordinating, mentoring, mediating, advocating. <strong>Example demonstrations:</strong> peer mentoring across a semester, leading a team project to completion, chairing a committee responsibly, organising a community outreach. <strong>Attest when:</strong> the learner's role visibly improved what others were able to do.</p>
+      </div>
+
+      <div class="category">
+        <h4>Cultural and civic capacity <code>cultural_civic</code></h4>
+        <p>Grounded participation in the cultural and civic life around the learner — language, tradition, community, polity. NEP-aligned. <strong>Example demonstrations:</strong> demonstrated proficiency in an Indian language beyond mother-tongue, a sustained community project, attunement to local tradition shown through participation, a civic engagement (panchayat work, public-health drive, voter education). <strong>Attest when:</strong> the learner's engagement was sustained and substantive — not a one-off photo opportunity.</p>
+      </div>
+
+      <div class="category">
+        <h4>Credential <code>credential</code></h4>
+        <p>Formal certifications, licences, and credentials earned from a third party JKKN recognises. <strong>Example demonstrations:</strong> a passed pharmacy council exam, an industry certification (Cisco, AWS, NPTEL), a clinical licence, a published paper accepted in a recognised venue. <strong>Attest when:</strong> the credential is real, current, and the evidence (certificate, ID, publication link) checks out.</p>
+      </div>
+
+      <div class="callout">
+        <div class="label">Substrate note</div>
+        <p>The three categories with the most variance in how they look across disciplines — embodied, social leadership, cultural/civic — currently carry <strong>structured rubrics</strong> (see Section 6). The other four are validated against narrative attestation today; rubrics may be added later as patterns emerge.</p>
+      </div>
+    </section>
+
+    <!-- ==================== SECTION 3 ==================== -->
+    <section id="section-3">
+      <h2>3. Your role as faculty</h2>
+
+      <p>In PDE you are a <strong>validator</strong>, not a grader. Validators do one thing: they look at a learner's submitted demonstration and attest, in writing, whether it represents authentic capability.</p>
+
+      <h3>What attestation actually means</h3>
+
+      <p>When you validate a demonstration, you are saying three things at once:</p>
+
+      <ul>
+        <li><strong>Authenticity</strong> — the work or performance is the learner's own (not AI-generated, not copied, not someone else's).</li>
+        <li><strong>Sufficiency</strong> — the evidence shown is enough to credibly demonstrate the capability claimed.</li>
+        <li><strong>Category fit</strong> — the demonstration sits cleanly in the category the learner selected (and if not, you say so).</li>
+      </ul>
+
+      <p>You are <em>not</em> being asked to assign a percentage, rank the learner against peers, or pass judgment on their overall worth. You are answering: <em>did this happen, and was it real?</em></p>
+
+      <h3>How this differs from grading</h3>
+
+      <p>Grading reduces a learner to a number. Validation produces a <em>record</em> — a dated, named, evidenced statement that "on this date, this learner demonstrated this capability, attested by me." Records accumulate into a portfolio the learner owns for life. The Director receives the same record. NAAC sees the same record. An employer sees the same record. There is one source of truth, and your name is on it.</p>
+
+      <div class="callout callout--insight">
+        <div class="label">Pace-cap context</div>
+        <p>PDE is rolling out gradually. The first 60-day window onboards <strong>up to 30 coordinators across all eight institutions</strong>, by Director policy (see Section 8). You may be among the first 30, or you may join in a later wave. Either way, the load is deliberately small at the start so quality stays high while the patterns settle.</p>
+      </div>
+
+      <h3>How much time this takes</h3>
+
+      <p>A typical validation reads in 5 to 10 minutes. Most of that is reading the learner's evidence carefully, not filling in the form. The form itself is short. If you find yourself spending more than 15 minutes on a single demonstration, that is usually a sign the evidence is thin and you should ask for more — not that the form is heavy.</p>
+    </section>
+
+    <!-- ==================== SECTION 4 ==================== -->
+    <section id="section-4">
+      <h2>4. Walkthrough &mdash; submitting a demonstration</h2>
+
+      <p>This section is what a <em>learner</em> does. You should know the flow end-to-end so you can answer questions and spot submissions that took a wrong turn before they reach you.</p>
+
+      <ol class="steps">
+        <li>
+          <h4>Open the demonstrations page</h4>
+          <p>The learner navigates to <code>/learn/pde/demonstrations</code> in MyJKKN. This page lists every demonstration the learner has ever submitted, with status and dates. The "Submit new demonstration" button is at the top right.</p>
+        </li>
+        <li>
+          <h4>Choose a category</h4>
+          <p>The learner picks one of the seven categories from Section 2. The form gives a short plain-English description of each so the learner can decide. <strong>One demonstration = one category.</strong> If something genuinely sits across two, the learner picks the primary one and notes the secondary in the description.</p>
+        </li>
+        <li>
+          <h4>Select a rubric (if available)</h4>
+          <p>For <code>embodied</code>, <code>social_leadership</code>, and <code>cultural_civic</code>, a list of structured rubrics appears. The learner picks the one closest to the demonstration. For other categories, no rubric is shown; the learner writes a narrative description instead.</p>
+        </li>
+        <li>
+          <h4>Name and describe the skill demonstrated</h4>
+          <p>One-line skill name (for example, "intramuscular injection &mdash; gluteal site") plus a short paragraph describing what was demonstrated, where, and when. This is the field a validator reads first.</p>
+        </li>
+        <li>
+          <h4>Attach evidence</h4>
+          <p>Accepted evidence types include written documents, photos, videos, signed checklists from a supervisor, simulator logs, third-party certificates, and links to published work. File size and accepted types are shown on the form. <em>If the evidence is a live demonstration with no recording, the learner names a supervising faculty as the witness; the validator then confirms with that faculty before attesting.</em></p>
+        </li>
+        <li>
+          <h4>Save as draft or submit</h4>
+          <p>The learner can save the form as a <code>draft</code> and come back later, or submit it. Once submitted, the demonstration enters the validator inbox and the learner can no longer edit it (they can withdraw and resubmit if they catch a mistake).</p>
+        </li>
+      </ol>
+
+      <h4>Status flow</h4>
+
+      <div class="status-chain">
+        <span>draft</span>
+        <span class="arrow">&rarr;</span>
+        <span>submitted</span>
+        <span class="arrow">&rarr;</span>
+        <span>under_review</span>
+        <span class="arrow">&rarr;</span>
+        <span>validated</span>
+        <span class="arrow">&rarr;</span>
+        <span>scored</span>
+      </div>
+
+      <p>A demonstration can also end in <code>rejected</code> (validator declined to attest, with reason) or <code>withdrawn</code> (learner pulled it back before validation). Rejected demonstrations are not deleted &mdash; they stay in the learner's record with the rejection reason visible to the learner only.</p>
+
+      <div class="callout callout--pitfall">
+        <div class="label">Common pitfall</div>
+        <p>Learners sometimes attach a photo and write three words in the description, expecting the photo to "speak for itself." It rarely does. Coach learners (and your students) to write at least one paragraph explaining the <em>context, the action, and the outcome</em>. The evidence supports the narrative, not the other way around.</p>
+      </div>
+    </section>
+
+    <!-- ==================== SECTION 5 ==================== -->
+    <section id="section-5">
+      <h2>5. Walkthrough &mdash; validating a demonstration</h2>
+
+      <p>This is the part you will do most. Five to ten minutes per demonstration, once or twice a week, depending on your wave.</p>
+
+      <ol class="steps">
+        <li>
+          <h4>Open your validator inbox</h4>
+          <p>Navigate to <code>/admin/pde/demonstrations</code>. You see every demonstration in <code>submitted</code> status for your institution, oldest first. Filters let you narrow by category, learner cohort, or programme.</p>
+        </li>
+        <li>
+          <h4>Open a single submission</h4>
+          <p>Click any row. The detail page shows: learner name and programme, category and rubric, the skill name and description, all attached evidence (inline preview where possible), and the learner's submission timestamp. Take your time reading. This is the load-bearing minute.</p>
+        </li>
+        <li>
+          <h4>Decide on the three questions</h4>
+          <p>Hold yourself to the three questions from Section 3: is the work <em>authentic</em>, is the evidence <em>sufficient</em>, does it fit the <em>category</em> claimed? If all three are yes, you validate. If any one is a no, you have two choices &mdash; ask the learner for more (which moves the demonstration back to <code>draft</code> with a note), or reject with reason.</p>
+        </li>
+        <li>
+          <h4>Fill the validation form</h4>
+          <p>The form asks for: your attestation (a checkbox confirming the three questions are satisfied), a short validator note (one to three sentences explaining your basis &mdash; "observed in OSCE station 4 on 12 May", "verified certificate against issuing body"), and an optional raw score on the rubric criteria (only shown for the three rubric-backed categories).</p>
+        </li>
+        <li>
+          <h4>Submit the validation</h4>
+          <p>Once you submit, the demonstration moves to <code>validated</code>. If scoring applies, the scoring engine runs and the status moves to <code>scored</code> within seconds. The learner sees your name, the date, and your note on their record.</p>
+        </li>
+      </ol>
+
+      <h4>What "passed" means</h4>
+
+      <p>Some demonstrations end with a <code>passed: true</code> flag in addition to a score. "Passed" means the weighted score met the threshold for that rubric &mdash; in other words, the learner has cleared the bar for that specific capability. A "scored but not passed" demonstration is still a useful record &mdash; it shows the learner attempted and reached a partial level, and they can resubmit later as their capability grows.</p>
+
+      <div class="callout callout--example">
+        <div class="label">Example validation note</div>
+        <p>"Witnessed the venepuncture procedure on a simulator arm on 18 May 2026. Learner verbalised landmark identification correctly, maintained sterile technique, and explained the choice of gauge appropriately for the use case. Evidence: signed simulator log + my direct observation. Authentic, sufficient, fits <code>embodied</code>."</p>
+      </div>
+
+      <div class="callout callout--pitfall">
+        <div class="label">Common pitfall</div>
+        <p>Validators sometimes leave the note blank because the rubric score "speaks for itself." It does not. A future reviewer (NAAC, employer, or the learner ten years later) reads the note as the meaning of the record. A blank note makes the record fragile. Always write at least one sentence stating <em>what you observed</em> and <em>how you know it was real</em>.</p>
+      </div>
+    </section>
+
+    <!-- ==================== SECTION 6 ==================== -->
+    <section id="section-6">
+      <h2>6. Scoring and rubrics</h2>
+
+      <p>Not every demonstration is scored. Scoring applies only when the learner selected a structured rubric. For the other categories, the validation itself is the record &mdash; no number is attached.</p>
+
+      <h3>How a weighted score is computed</h3>
+
+      <p>For rubric-backed demonstrations, the scoring engine reads two things: the validator's raw scores against each rubric criterion, and the <em>weighting policy</em> set by the Director for that category. The weighted score is a single number on a fixed scale that combines the criteria according to the weighting. The "passed" flag flips to <code>true</code> when the weighted score meets the threshold for that rubric.</p>
+
+      <p>You do not need to do this math yourself. You assign the raw scores; the engine does the rest. The weights and thresholds are visible to institution admins at <code>/admin/pde/policies/scoring</code> and can be tuned over time as the patterns settle.</p>
+
+      <h3>The thirteen rubrics</h3>
+
+      <table>
+        <thead>
+          <tr>
+            <th>Category</th>
+            <th>Rubrics</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>embodied</code></td>
+            <td>medical &middot; pharmacy &middot; nursing &middot; dental &middot; engineering (5 rubrics)</td>
+          </tr>
+          <tr>
+            <td><code>social_leadership</code></td>
+            <td>peer mentor &middot; team project lead &middot; committee role &middot; community organiser (4 rubrics)</td>
+          </tr>
+          <tr>
+            <td><code>cultural_civic</code></td>
+            <td>Indian language proficiency &middot; local community project &middot; tradition attunement &middot; civic engagement (4 rubrics)</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>Why some categories have no rubric yet</h3>
+
+      <p>The other four categories &mdash; <code>judgment</code>, <code>problem_finding</code>, <code>accountability</code>, <code>credential</code> &mdash; are deliberately rubric-free at launch. Two reasons. First, the variance in how these show up across disciplines is so wide that a premature rubric would do more harm than good. Second, the substrate is designed to <em>learn from real demonstrations</em>: once enough validated narratives accumulate, common patterns will emerge, and rubrics can be added without changing the model.</p>
+
+      <div class="callout">
+        <div class="label">Director's policy</div>
+        <p>Adding or changing a rubric is an institutional decision made via <code>/admin/pde/rubrics/&lt;category&gt;</code>, owned by the Director's office. Faculty input is welcome &mdash; flag patterns you see, and the rubric library will grow from real practice.</p>
+      </div>
+    </section>
+
+    <!-- ==================== SECTION 7 ==================== -->
+    <section id="section-7">
+      <h2>7. Common scenarios</h2>
+
+      <p>The questions below come from the kind of edge cases that surface in the first weeks of any rollout. Read them now so you recognise them when they arrive.</p>
+
+      <dl class="faq">
+        <dt>What if a learner submits something that does not fit any category?</dt>
+        <dd>
+          <p>Look harder before deciding it does not fit. Almost every authentic act of learning will sit under at least one of the seven categories &mdash; sometimes under <code>problem_finding</code> or <code>judgment</code> rather than the obvious skill-based ones. If after careful reading you still cannot place it, reject with a note explaining your reasoning and suggest a category the learner could resubmit under. Do not invent a new category in your note. The seven are deliberately fixed; widening them is a Director-level decision, not a faculty workaround.</p>
+        </dd>
+
+        <dt>What if I disagree with a peer validator's earlier validation?</dt>
+        <dd>
+          <p>Each demonstration can carry validations from more than one party (a peer plus a faculty, for instance). If a peer attested and you, reviewing later, would not have attested, you have two options. First, flag the demonstration for institutional review &mdash; this opens an audit thread that the institution admin can resolve. Second, do nothing if the demonstration is already validated and the issue is minor; your disagreement is itself logged through the audit signal. Do not silently overwrite a peer's attestation. The point of multiple validators is to surface disagreement, not erase it.</p>
+        </dd>
+
+        <dt>A learner has an existing certificate &mdash; can they bridge it into PDE?</dt>
+        <dd>
+          <p>Yes. The <code>credential</code> category exists for this. The learner submits a demonstration in <code>credential</code>, attaches the certificate as evidence, and you validate by confirming the certificate is real, current, and from a body JKKN recognises. The PDE record then carries the credential alongside everything else the learner has demonstrated, in one portfolio.</p>
+        </dd>
+
+        <dt>How do legacy capabilities &mdash; the things in the older PDE module &mdash; map to the new categories?</dt>
+        <dd>
+          <p>Old PDE artefacts (assessments, badges, capability marks) continue to exist in parallel during the transition. A separate bridging workstream will eventually map them into the seven-category model so that each learner has one consolidated portfolio. Until then, do not double-validate a learner's old assessment as a new demonstration; if they want PDE credit for that learning, they submit a fresh demonstration with evidence and you validate it on its own terms.</p>
+        </dd>
+
+        <dt>The learner asks me to validate something they did before joining JKKN.</dt>
+        <dd>
+          <p>This is fine for <code>credential</code> (a school-leaving exam, an external certification) and for <code>cultural_civic</code> (sustained pre-existing community engagement). It is harder for <code>embodied</code> and <code>judgment</code> because you were not there to witness. Use your discretion: if the evidence is independently verifiable (a signed checklist from a recognised supervisor, for instance), validate it; if it is only the learner's word, reject with a note explaining why and suggest they generate fresh evidence inside JKKN.</p>
+        </dd>
+
+        <dt>What if I receive a flood of validations all at once?</dt>
+        <dd>
+          <p>You will not, by design. The pace-cap (Section 8) keeps the early load manageable. If you genuinely see more than a handful of pending validations in your inbox, flag this to your institution admin &mdash; it likely means a workflow upstream is misconfigured (for instance, a course has been set to auto-trigger demonstration submissions when it should be opt-in).</p>
+        </dd>
+
+        <dt>The learner disputes my rejection.</dt>
+        <dd>
+          <p>Their right. The dispute opens a case for institutional review by the Director's office or a designated reviewer. You do not have to defend your rejection in real time; the rejection note you wrote at the time is the record. Be brief, be evidence-based, and trust the audit process.</p>
+        </dd>
+      </dl>
+    </section>
+
+    <!-- ==================== SECTION 8 ==================== -->
+    <section id="section-8">
+      <h2>8. Pace-cap and onboarding flow</h2>
+
+      <p>PDE is rolling out with a deliberately small first wave. The current pace-cap is <strong>30 coordinators across all eight institutions per 60-day window</strong>, set by the policy key <code>pde.rollout.pace_cap_coordinators_per_60d</code> and adjustable by the Director.</p>
+
+      <h3>Why a pace-cap exists</h3>
+
+      <p>Two reasons, equally weighted. <strong>Quality:</strong> the first records set the standard for everything that follows. If the first hundred demonstrations are sloppy because the system was overrun, the bar for what counts as a "PDE record" is set low for years. The pace-cap protects the bar. <strong>Faculty bandwidth:</strong> validation is real work, and asking too much of faculty too early collapses the model into a tick-box exercise. Starting small lets each validator give each demonstration the time it deserves while the patterns settle.</p>
+
+      <h3>How the first thirty are selected</h3>
+
+      <p>The selection criteria are governed by the PDE Pilot Cohort Selection Framework (a companion document maintained by the Director's office). In short: a mix of institutions, disciplines, and faculty experience levels, biased toward coordinators who have already shown enthusiasm for evidence-based assessment in other contexts. If you are not in the first wave, the second wave begins on day 61 with another 30 slots; you may be in that one, or a later one. Wave size and cadence are tunable as the rollout learns.</p>
+
+      <p>While waiting for your wave, the most useful thing you can do is read this playbook, read the seven-category reference, and start informally noticing in your own teaching which student moments would make good PDE demonstrations. That mental practice is what makes the live validation work fast when it arrives.</p>
+    </section>
+
+    <!-- ==================== SECTION 9 ==================== -->
+    <section id="section-9">
+      <h2>9. Where to get help</h2>
+
+      <p>For questions about a specific demonstration or rubric: ask your <strong>institution admin</strong>. They can see your validator inbox, the policy settings, and the audit log.</p>
+
+      <p>For questions about PDE policy &mdash; rubric design, category interpretation, pace-cap, scoring weights, governance: contact the <strong>Director's office</strong>. The runtime-tunable policies are visible at <code>/admin/pde/policies/*</code> (scoring, visibility, rollout, quests, governance) for institution admins, and changes to those policies are the canonical way operational behaviour is adjusted across all eight institutions.</p>
+
+      <p>For technical issues with the MyJKKN platform itself: use the standard MyJKKN support channel.</p>
+
+      <p>Director: <a href="mailto:director@jkkn.ac.in">director@jkkn.ac.in</a></p>
+    </section>
+
+    <footer class="footer">
+      <p>PDE Faculty Training Playbook &middot; JKKN Institutions</p>
+      <p>Version 1.0 &middot; Living document &mdash; revisions land alongside platform releases</p>
+    </footer>
+
+  </div>
+</body>
+</html>
+
