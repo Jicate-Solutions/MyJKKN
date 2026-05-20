@@ -144,6 +144,7 @@ function GateEntryForm() {
   const {
     values: form,
     setValue: setDraftField,
+    setValues: setDraftValues,
     clearDraft,
   } = useFormDraftObject<FormData>(draftKey, INITIAL_FORM);
 
@@ -240,6 +241,10 @@ function GateEntryForm() {
 
   // Submission
   const [submitting, setSubmitting] = useState(false);
+  // In-flight ref shadows the `submitting` state so a fast double-click can't
+  // race past the React commit before disabled={submitting} kicks in.
+  // Pattern documented in MEMORY.md → feedback_react_query_disabled_prop_alone_isnt_enough.
+  const submittingRef = useRef(false);
   // Errors keyed by form-field OR top-level surface (e.g. 'institution').
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [lastResult, setLastResult] = useState<GateEntryResult | null>(null);
@@ -278,7 +283,11 @@ function GateEntryForm() {
   }, [form, institutionId]);
 
   const handleSubmit = useCallback(async () => {
+    // Hard guard — ref-based so a rapid double-click that arrives before the
+    // disabled={submitting} attribute is committed still gets rejected.
+    if (submittingRef.current) return;
     if (!validate()) return;
+    submittingRef.current = true;
     setSubmitting(true);
     try {
       const input: GateEntryInput = {
@@ -318,10 +327,14 @@ function GateEntryForm() {
       // delayed both, which meant the form appeared "stuck" on the prior
       // entry's data for 1.5s).
       //
-      // Only clearDraft() is needed — it sets values back to INITIAL_FORM
-      // AND wipes sessionStorage. The redundant setDraftValues(INITIAL_FORM)
-      // that used to live here was a no-op once the hook's reset ran.
+      // Belt-and-suspenders reset (2026-05-20): clearDraft() alone should be
+      // enough — the hook sets values back to INITIAL_FORM and wipes
+      // sessionStorage. We ALSO call setDraftValues(INITIAL_FORM) explicitly
+      // because some gate kiosks reported the form retaining data after
+      // submit; redundant write defends against any race in the hook's
+      // isCleared flag without changing its public API.
       clearDraft();
+      setDraftValues(INITIAL_FORM);
       setErrors({});
       setReferrerInstitutionId('');
       setReferrerDepartmentId('');
@@ -336,9 +349,10 @@ function GateEntryForm() {
       const msg = err instanceof Error ? err.message : 'Failed to log gate entry';
       toast.error(msg);
     } finally {
+      submittingRef.current = false;
       setSubmitting(false);
     }
-  }, [form, institutionId, selectedConsultant, validate, clearDraft]);
+  }, [form, institutionId, selectedConsultant, validate, clearDraft, setDraftValues]);
 
   // Group programmes by degree.degree_name for nicer rendering
   const programsByDegree = useMemo(() => {
