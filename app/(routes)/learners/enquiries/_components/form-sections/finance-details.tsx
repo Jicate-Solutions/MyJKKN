@@ -27,7 +27,8 @@
 
 import { UseFormReturn, useWatch } from 'react-hook-form';
 import { useEffect, useMemo, useState } from 'react';
-import { Trash2 } from 'lucide-react';
+import { Trash2, RefreshCw, Loader2 } from 'lucide-react';
+import toast from 'react-hot-toast';
 import { LookupService } from '@/lib/services/admission/lookup-service';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { Input } from '@/components/ui/input';
@@ -302,7 +303,13 @@ export function FinanceDetailsSection({
   // ----- Component state -----
   const [matchedStructure, setMatchedStructure] =
     useState<AdmissionFeeStructureWithItems | null>(null);
-  const [, setRefreshTick] = useState(0);
+  // Capture the tick value (not just the setter) so it can be forwarded into
+  // FeeStructureReadonlyPanel's effect deps — bumping it manually via the
+  // "Sync Fees" button or after an Adopt / Adjustment write triggers a refetch
+  // even when `dims` is unchanged. Previously only the setter was kept; the
+  // value was discarded, so refresh bumps never actually re-fetched the panel.
+  const [refreshTick, setRefreshTick] = useState(0);
+  const [syncing, setSyncing] = useState(false);
 
   // ----- Legacy fee fields (only rendered when legacyFeeMode=true) -----
   const legacyFields: Array<{ name: string; label: string }> = [
@@ -354,12 +361,59 @@ export function FinanceDetailsSection({
 
       {/* Fee Structure (read-only, matrix-derived) */}
       <section className='space-y-2'>
-        <h3 className='text-sm font-medium'>Fee Structure</h3>
+        <div className='flex items-center justify-between gap-3'>
+          <h3 className='text-sm font-medium'>Fee Structure</h3>
+          {/* Sync Fees — manual refresh of the matrix lookup. The panel
+           *  already re-fetches automatically when `dims` changes, but the
+           *  user-facing form sometimes lags (React Query stale cache, slow
+           *  TEXT→FK resolveLookupId, or simply needing a visible "I'm doing
+           *  something" affordance after filling the last field). This
+           *  button bumps `refreshTick` which is wired into the panel's
+           *  effect deps. Disabled until all 8 dims are filled so users
+           *  understand why nothing happens before then. */}
+          <Button
+            type='button'
+            variant='outline'
+            size='sm'
+            disabled={!isFullDims(dims) || syncing || readOnly}
+            onClick={() => {
+              setSyncing(true);
+              setRefreshTick((t) => t + 1);
+              toast.success('Syncing fee structure…');
+              // Release the button after a short delay — long enough for
+              // the panel's fetch to land in the typical case, short enough
+              // that a misclick doesn't feel stuck. The panel's own loading
+              // state covers the actual fetch indicator.
+              setTimeout(() => setSyncing(false), 800);
+            }}
+            title={
+              !isFullDims(dims)
+                ? 'Fill all 8 matrix dimensions (institution, degree, department, programme, quota, community, accommodation, admission year) to enable sync'
+                : 'Refresh the fee structure matrix lookup'
+            }
+          >
+            {syncing ? (
+              <Loader2 className='mr-2 h-4 w-4 animate-spin' />
+            ) : (
+              <RefreshCw className='mr-2 h-4 w-4' />
+            )}
+            {syncing ? 'Syncing…' : 'Sync Fees'}
+          </Button>
+        </div>
         <FeeStructureReadonlyPanel
           dims={dims}
           onMatchChange={(m) => setMatchedStructure(m)}
+          refreshTick={refreshTick}
         />
-        {!matchedStructure && isFullDims(dims) && !legacyFeeMode && (
+        {/* Show the "no match" reason whenever all dims are filled but the
+         *  matrix returned no structure — including for learners still in
+         *  legacy_fee_mode. Previously the `!legacyFeeMode` guard hid this
+         *  banner for legacy users, leaving them with no explanation of
+         *  why the new structure didn't load. Per 2026-05-20 product call,
+         *  legacy users should always see either (a) the matched structure
+         *  or (b) the no-match reason, so they can decide whether to fix
+         *  their dims or click "Adopt Structure" on the legacy banner. */}
+        {!matchedStructure && isFullDims(dims) && (
           <NoMatchEmptyState dims={dims} dimLabels={dimLabels} />
         )}
       </section>

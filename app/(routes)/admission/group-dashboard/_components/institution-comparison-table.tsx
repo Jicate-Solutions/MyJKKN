@@ -48,9 +48,13 @@ export function InstitutionComparisonTable({
             <TableHead className="text-right">Leads</TableHead>
             {/* 2026-05-20: Applied/Enrolled (funnel_stage) replaced with
                  lifecycle-status counts. Enquiry = entry-point inflow;
-                 Account = billing queue; Reserved = universal fees paid;
-                 Admitted = post-threshold (includes Active). */}
+                 Enquiry Submitted = learner completed QR self-fill, awaiting
+                 officer verification; Account = billing queue; Reserved =
+                 universal fees paid; Admitted = post-threshold (includes
+                 Active). Column order mirrors the lifecycle workflow + the
+                 top KPI strip on the page header. */}
             <TableHead className="text-right">Enquiry</TableHead>
+            <TableHead className="text-right">Enquiry Submitted</TableHead>
             <TableHead className="text-right">Account</TableHead>
             <TableHead className="text-right">Reserved</TableHead>
             <TableHead className="text-right">Admitted</TableHead>
@@ -70,6 +74,7 @@ export function InstitutionComparisonTable({
               </TableCell>
               <TableCell className="text-right">{inst.total_leads}</TableCell>
               <TableCell className="text-right">{inst.enquiry_count}</TableCell>
+              <TableCell className="text-right">{inst.enquiry_submitted_count}</TableCell>
               <TableCell className="text-right">{inst.account_count}</TableCell>
               <TableCell className="text-right">{inst.reserved_count}</TableCell>
               <TableCell className="text-right font-semibold">{inst.admitted_count}</TableCell>

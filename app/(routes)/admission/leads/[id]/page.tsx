@@ -697,6 +697,43 @@ function LeadDetailPageContent() {
         }
         throw new Error(json.error || 'Conversion failed');
       }
+
+      // Audit log — record WHO moved this lead. created_by + lead_id +
+      // learner_profile_id are all already captured at the column / FK level
+      // (ActivityService auto-sets created_by from auth.getUser(), the FK on
+      // the lead row points at the new learner profile). The description
+      // text is for HUMAN readers on the timeline, so we keep only the parts
+      // that read naturally — name, email, role, timestamp — and omit UUIDs
+      // that clutter the card without adding value. Fire-and-forget: if the
+      // audit insert fails, the primary action (conversion + redirect) must
+      // NOT be blocked, so we wrap in try/catch and only console.warn on
+      // failure.
+      try {
+        const performerName =
+          (profile as { full_name?: string } | null | undefined)?.full_name ??
+          profile?.email ??
+          'Unknown user';
+        const performerEmail = profile?.email ?? 'no email on file';
+        const performerRole =
+          (profile as { role?: string } | null | undefined)?.role ?? 'unknown role';
+        await createActivity.mutateAsync({
+          lead_id: lead.id,
+          activity_type: 'moved_to_counselor',
+          title: 'Moved to Counselor',
+          description: [
+            `Moved by: ${performerName}`,
+            `Email: ${performerEmail}`,
+            `Role: ${performerRole}`,
+          ].join(' · '),
+        });
+      } catch (logErr) {
+        // Audit-only failure — conversion already succeeded, so we continue.
+        console.warn(
+          '[admission/leads] Failed to log Move-to-Counselor activity:',
+          logErr,
+        );
+      }
+
       toast.success('Moved to counselor — redirecting…');
       router.push(`/learners/enquiries/${json.profileId}/edit`);
     } catch (err: unknown) {

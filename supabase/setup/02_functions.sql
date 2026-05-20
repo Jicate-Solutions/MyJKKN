@@ -11587,7 +11587,11 @@ BEGIN
 
   v_institution_id := (p_lead->>'institution_id')::UUID;
   v_phone          := p_lead->>'phone';
-  v_user_id        := NULLIF(p_lead->>'created_by', '')::UUID;
+  -- 2026-05-20 fix: fall back to auth.uid() so the "Moved to New" stage
+  -- history row carries the real author when the caller doesn't pass
+  -- created_by (gate_entry RPC, captureLead TS). Without the COALESCE,
+  -- changed_by was always NULL and the activity timeline rendered "System".
+  v_user_id        := COALESCE(NULLIF(p_lead->>'created_by', '')::UUID, auth.uid());
 
   IF v_institution_id IS NULL THEN
     RAISE EXCEPTION 'institution_id is required' USING ERRCODE = '22023';
@@ -13415,8 +13419,14 @@ BEGIN
         RAISE EXCEPTION 'learner_not_found: %', p_learner_id USING ERRCODE = 'P0002';
     END IF;
 
-    IF v_lead.lifecycle_status NOT IN ('admitted','pending','approved') THEN
-        RAISE EXCEPTION 'invalid_status_for_account_transition: current=%, allowed=admitted/pending/approved',
+    -- Allow-list extended 2026-05-20 to include the renamed entry-point
+    -- statuses ('enquiry', 'enquiry_submitted'). Pre-realignment statuses
+    -- kept for in-flight workflow and legacy data compatibility.
+    IF v_lead.lifecycle_status NOT IN (
+        'enquiry', 'enquiry_submitted',
+        'admitted', 'pending', 'approved'
+    ) THEN
+        RAISE EXCEPTION 'invalid_status_for_account_transition: current=%, allowed=enquiry/enquiry_submitted/admitted/pending/approved',
             v_lead.lifecycle_status;
     END IF;
 

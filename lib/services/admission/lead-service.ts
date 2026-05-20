@@ -249,7 +249,49 @@ export class LeadService {
     if (error) {
       throw new Error(error.message || 'Failed to log gate entry');
     }
-    return data as GateEntryResult;
+
+    const result = data as GateEntryResult;
+
+    // ─── Lead-created audit activity ───────────────────────────────────
+    // The gate-entry RPC (capture_gate_entry_lead) wraps capture_admission_lead
+    // server-side and never returns through LeadService.captureLead's
+    // runCreateSideEffects path. So without this insert, gate-captured leads
+    // would have no 'lead_created' row on the activity timeline. We only
+    // log on `action === 'created'` — a returning visitor (action='merged')
+    // already has the original creation audit from their first visit.
+    if (result?.action === 'created') {
+      try {
+        const { data: userRes } = await supabase.auth.getUser();
+        const performer = userRes?.user ?? null;
+        const performerLabel =
+          performer?.email ?? performer?.id ?? 'gate kiosk';
+        const descParts = [
+          `Source: gate_entry`,
+          `Captured by: ${performerLabel}`,
+        ];
+        if (input.source === 'referral' && input.referral_type) {
+          descParts.push(`Referral type: ${input.referral_type}`);
+        }
+        if (input.source === 'referral' && input.referred_by_name) {
+          descParts.push(`Referrer: ${input.referred_by_name}`);
+        }
+        await (supabase as any).from('admission_lead_activities').insert({
+          lead_id: result.lead_id,
+          activity_type: 'lead_created',
+          subject: 'Lead Created (Gate Entry)',
+          description: descParts.join(' · '),
+          created_by: performer?.id ?? null,
+        });
+      } catch (activityErr) {
+        // Audit-only failure — gate entry is already saved, never block UX.
+        console.warn(
+          '[LeadService] Failed to log gate-entry lead_created activity:',
+          activityErr,
+        );
+      }
+    }
+
+    return result;
   }
 
   /**
@@ -430,6 +472,41 @@ export class LeadService {
    * capture_admission_lead RPC, so the TS path no longer logs it here.
    */
   private static async runCreateSideEffects(data: any, user: any, db: any): Promise<void> {
+    // ─── Lead-created audit activity ───────────────────────────────────
+    // Without this row the activity timelines (both /admission/leads/[id]
+    // and /learners/enquiries/[id]/edit) show no record of when the lead
+    // first entered the system — only later interactions. Best-effort:
+    // failure here doesn't roll back the lead. The expo branch below adds
+    // a SECOND, more specific 'Captured at Exhibition' note when the
+    // source is education_fair; keeping both is intentional (the
+    // lead_created row is the canonical provenance, the expo note adds
+    // event/city detail).
+    try {
+      const sourceLabel = data.source ?? 'unknown';
+      const performerLabel =
+        (user?.email as string | undefined) ??
+        (user?.id as string | undefined) ??
+        'system';
+      const descParts = [
+        `Source: ${sourceLabel}`,
+        `Captured by: ${performerLabel}`,
+      ];
+      if (data.referral_type) descParts.push(`Referral type: ${data.referral_type}`);
+      if (data.referred_by_name) descParts.push(`Referrer: ${data.referred_by_name}`);
+      await db.from('admission_lead_activities').insert({
+        lead_id: data.id,
+        activity_type: 'lead_created',
+        subject: 'Lead Created',
+        description: descParts.join(' · '),
+        created_by: user?.id ?? null,
+      });
+    } catch (createActivityErr) {
+      console.warn(
+        '[LeadService] Failed to log lead_created activity:',
+        createActivityErr,
+      );
+    }
+
     // Expo Bridge — increment total_leads_collected on the linked expo event (best-effort)
     if (data.expo_event_id) {
       try {
