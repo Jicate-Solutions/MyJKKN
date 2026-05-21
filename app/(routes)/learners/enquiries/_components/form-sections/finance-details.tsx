@@ -156,20 +156,25 @@ export function FinanceDetailsSection({
     return match?.id;
   };
 
-  const resolvedQuotaId = useMemo(
-    () => extraDims?.quota_id ?? resolveLookupId(quotaText, quotaLookup),
-    [extraDims?.quota_id, quotaText, quotaLookup],
-  );
-  const resolvedCommunityId = useMemo(
-    () => extraDims?.community_category_id ?? resolveLookupId(communityText, communityLookup),
-    [extraDims?.community_category_id, communityText, communityLookup],
-  );
-  const resolvedAccommodationId = useMemo(
-    () =>
-      extraDims?.accommodation_type_id ??
-      resolveLookupId(accommodationText, accommodationLookup),
-    [extraDims?.accommodation_type_id, accommodationText, accommodationLookup],
-  );
+  // 2026-05-21: priority INVERTED. Previously `extraDims.X ?? resolveText()`
+  // — which made the saved FK win over live form-state. Result: changing
+  // accommodation/quota/community in the form and clicking Sync Fees did
+  // nothing because the panel still queried the matrix against the SAVED
+  // FK. Now we prefer the freshly-resolved text id; the saved FK is only
+  // a fallback for the case where the form text is empty (new enquiry
+  // pre-fill, or edit-mode hydration before the lookup arrays load).
+  const resolvedQuotaId = useMemo(() => {
+    const fromText = resolveLookupId(quotaText, quotaLookup);
+    return fromText ?? extraDims?.quota_id;
+  }, [extraDims?.quota_id, quotaText, quotaLookup]);
+  const resolvedCommunityId = useMemo(() => {
+    const fromText = resolveLookupId(communityText, communityLookup);
+    return fromText ?? extraDims?.community_category_id;
+  }, [extraDims?.community_category_id, communityText, communityLookup]);
+  const resolvedAccommodationId = useMemo(() => {
+    const fromText = resolveLookupId(accommodationText, accommodationLookup);
+    return fromText ?? extraDims?.accommodation_type_id;
+  }, [extraDims?.accommodation_type_id, accommodationText, accommodationLookup]);
 
   const dims: Partial<FeeStructureMatrixDimensions> = {
     institution_id: institutionId,
