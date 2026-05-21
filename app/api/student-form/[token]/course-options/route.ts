@@ -74,9 +74,17 @@ export async function POST(
   try {
     switch (body.kind) {
       case 'institutions': {
+        // 2026-05-21: filter to entity_type='institution' so only the
+        // student-admitting bodies appear in the QR form picker. The
+        // institutions table also stores 'company' (Jicate Solutions,
+        // Nattraja Incubation) and 'admin_office' (JKKN Main Office)
+        // rows that have no programmes/degrees and don't admit students.
+        // Also honour is_active to hide retired institutions.
         const { data, error } = await (svc as any)
           .from('institutions')
           .select('id, name, counselling_code')
+          .eq('entity_type', 'institution')
+          .eq('is_active', true)
           .order('name', { ascending: true });
         if (error) throw error;
         return NextResponse.json({ data: data ?? [] });
