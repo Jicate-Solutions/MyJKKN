@@ -93,6 +93,18 @@ async function EnquiriesContent({
   const institution_id = parsedParams.institution_id;
   const degree_id = parsedParams.degree_id;
   const department_id = parsedParams.department_id;
+  // 2026-05-21: forward programme/semester/section/academic-year so filtering
+  // beyond the department level actually narrows results. Previously these
+  // four URL params were parsed by the schema, written by the filter UI, but
+  // never reached getEnquiries — so picking e.g. "BSc CS Cyber Security"
+  // returned every BSc CS lead in the department, indistinguishable from
+  // base-programme leads.
+  const program_id = parsedParams.program_id;
+  const semester_id = parsedParams.semester_id;
+  const section_id = parsedParams.section_id;
+  // URL param `academic_year_id` maps to the `admission_year_id` FK on
+  // learners_profiles — see data-table-schema.ts naming history.
+  const admission_year_id = parsedParams.academic_year_id;
   // Default to newest-first by created_at so freshly added enquiries surface
   // at the top of the list. Users can still click any column header to override.
   const sortBy = parsedParams.sort_by || 'created_at';
@@ -107,6 +119,10 @@ async function EnquiriesContent({
     institution_id,
     degree_id,
     department_id,
+    program_id,
+    semester_id,
+    section_id,
+    admission_year_id,
     sortBy,
     sortOrder
   });

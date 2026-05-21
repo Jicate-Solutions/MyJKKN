@@ -51,6 +51,18 @@ interface GetEnquiriesParams {
   institution_id?: string;
   degree_id?: string;
   department_id?: string;
+  // 2026-05-21: programme/semester/section/academic-year were dropped silently
+  // because the page.tsx → getEnquiries handoff only forwarded the top-3 FK
+  // filters. Users filtering by a specific programme variant (e.g. BSc CS
+  // Cyber Security) saw all department leads, indistinguishable from leads
+  // on the base programme. URL params already exist (see data-table-schema.ts),
+  // we just need the service to honour them.
+  program_id?: string;
+  semester_id?: string;
+  section_id?: string;
+  // URL param is `academic_year_id` but the FK column on learners_profiles
+  // is `admission_year_id` — translate at the page→service boundary.
+  admission_year_id?: string;
   lifecycle_status?: string;
   sortBy?: string;
   sortOrder?: 'asc' | 'desc';
@@ -104,6 +116,10 @@ async function getEnquiriesInner(
     institution_id,
     degree_id,
     department_id,
+    program_id,
+    semester_id,
+    section_id,
+    admission_year_id,
     lifecycle_status,
     sortBy = 'created_at',
     sortOrder = 'desc'
@@ -189,6 +205,22 @@ async function getEnquiriesInner(
 
   if (department_id) {
     query = query.eq('department_id', department_id);
+  }
+
+  if (program_id) {
+    query = query.eq('program_id', program_id);
+  }
+
+  if (semester_id) {
+    query = query.eq('semester_id', semester_id);
+  }
+
+  if (section_id) {
+    query = query.eq('section_id', section_id);
+  }
+
+  if (admission_year_id) {
+    query = query.eq('admission_year_id', admission_year_id);
   }
 
   // Apply sorting
