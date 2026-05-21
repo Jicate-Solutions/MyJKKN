@@ -303,25 +303,24 @@ export function DataTableRowActions<TData extends BosCourseSyllabus>({
 }: DataTableRowActionsProps<TData>) {
   // institutionName is consumed by SyllabusPdfDownloadButton rendered alongside this component
   const router = useRouter();
-  const { canAccess } = usePermissions();
   const { profile } = useAuth();
   const boardScope = useBosBoardScope();
   const syllabus = row.original as BosCourseSyllabus;
   const deleteBosSyllabus = useDeleteBosSyllabus();
 
-  // Per spec: only the creator, the board chairman, or super-admin can edit
-  // a published syllabus. All other board members are view-only.
-  // hasRolePermEdit is the legacy module-level gate; the syllabus-specific
-  // creator/chairman check is layered on top.
-  const hasRolePermEdit = canAccess('academic.bos-syllabus', 'edit');
-  const hasRolePermDelete = canAccess('academic.bos-syllabus', 'delete');
+  // Why: BoS write-action UI must be gated on board ownership (creator /
+  // chairman / super-admin) only — NOT additionally on the flat
+  // `academic.bos-syllabus.edit` role-permission key. Custom-role grants drift
+  // out of sync with composition membership, which previously caused syllabus
+  // creators to lose the Edit button. The server still enforces the same
+  // creator/chairman rule via guardSyllabusEdit, so this is safe.
   const boardOwnership = canEditSyllabus(
     boardScope,
     { board_id: syllabus.board_id ?? null, created_by: syllabus.created_by ?? null },
     profile?.id ?? null,
   );
-  const canEdit = hasRolePermEdit && boardOwnership;
-  const canDelete = hasRolePermDelete && boardOwnership;
+  const canEdit = boardOwnership;
+  const canDelete = boardOwnership;
 
   const [reviseDialogOpen, setReviseDialogOpen] = useState(false);
   const [duplicateDialogOpen, setDuplicateDialogOpen] = useState(false);
