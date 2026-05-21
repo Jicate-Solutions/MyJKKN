@@ -29,6 +29,7 @@ export type ActivityType =
   // Surface on the timeline so officers can see the lead's full provenance.
   | 'lead_created'
   | 'moved_to_counselor'
+  | 'moved_to_account_verified'
   | 'enquiry_submitted'
   | 'student_section_filled';
 
@@ -412,6 +413,7 @@ export class ActivityService {
       checklist_marked: 'check-circle',
       lead_created: 'user-plus',
       moved_to_counselor: 'user-plus',
+      moved_to_account_verified: 'check-circle',
       enquiry_submitted: 'file-text',
       student_section_filled: 'file-text',
     };
@@ -431,6 +433,7 @@ export class ActivityService {
       checklist_marked: 'emerald',
       lead_created: 'blue',
       moved_to_counselor: 'emerald',
+      moved_to_account_verified: 'orange',
       enquiry_submitted: 'purple',
       student_section_filled: 'emerald',
     };

@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
+import { PermissionGuard } from '@/components/auth/permission-guard';
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -161,6 +162,7 @@ export default function IndustryMentorsPage() {
   const totalPages = Math.ceil(total / 20);
 
   return (
+    <PermissionGuard module="cdc.industry_mentors" action="view">
     <ContentLayout title="CDC — Industry Mentors">
       <div className="space-y-6">
         <Breadcrumb>
@@ -189,12 +191,14 @@ export default function IndustryMentorsPage() {
               {total} mentor{total !== 1 ? 's' : ''} in the directory
             </p>
           </div>
-          <Button asChild>
-            <Link href="/cdc/industry-mentors/new">
-              <Plus className="h-4 w-4 mr-2" />
-              Add Mentor
-            </Link>
-          </Button>
+          <PermissionGuard module="cdc.industry_mentors" action="create">
+            <Button asChild>
+              <Link href="/cdc/industry-mentors/new">
+                <Plus className="h-4 w-4 mr-2" />
+                Add Mentor
+              </Link>
+            </Button>
+          </PermissionGuard>
         </div>
 
         <Separator />
@@ -246,9 +250,11 @@ export default function IndustryMentorsPage() {
           <div className="text-center py-12 text-muted-foreground">
             <Users className="h-12 w-12 mx-auto mb-3 opacity-30" />
             <p>No mentors found.</p>
-            <Button asChild variant="outline" className="mt-4">
-              <Link href="/cdc/industry-mentors/new">Add the first mentor</Link>
-            </Button>
+            <PermissionGuard module="cdc.industry_mentors" action="create">
+              <Button asChild variant="outline" className="mt-4">
+                <Link href="/cdc/industry-mentors/new">Add the first mentor</Link>
+              </Button>
+            </PermissionGuard>
           </div>
         )}
 
@@ -290,5 +296,6 @@ export default function IndustryMentorsPage() {
         )}
       </div>
     </ContentLayout>
+    </PermissionGuard>
   );
 }

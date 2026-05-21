@@ -3,6 +3,7 @@
 import { use, useState } from 'react';
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
+import { PermissionGuard } from '@/components/auth/permission-guard';
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -39,7 +40,15 @@ import type { UpdateIndustryMentorInput } from '@/types/cdc/industry-mentors';
 
 type Props = { params: Promise<{ id: string }> };
 
-export default function IndustryMentorDetailPage({ params }: Props) {
+export default function IndustryMentorDetailPage(props: Props) {
+  return (
+    <PermissionGuard module="cdc.industry_mentors" action="view">
+      <IndustryMentorDetailContent {...props} />
+    </PermissionGuard>
+  );
+}
+
+function IndustryMentorDetailContent({ params }: Props) {
   const { id } = use(params);
   const { mentor, loading, error } = useIndustryMentor(id);
   const { updateMentor, loading: saving, error: saveError } = useUpdateIndustryMentor(id);
@@ -157,10 +166,12 @@ export default function IndustryMentorDetailPage({ params }: Props) {
                       </Badge>
                     )}
                     {!editing && (
-                      <Button size="sm" variant="outline" onClick={startEdit}>
-                        <Pencil className="h-3 w-3 mr-1" />
-                        Edit
-                      </Button>
+                      <PermissionGuard module="cdc.industry_mentors" action="edit">
+                        <Button size="sm" variant="outline" onClick={startEdit}>
+                          <Pencil className="h-3 w-3 mr-1" />
+                          Edit
+                        </Button>
+                      </PermissionGuard>
                     )}
                   </div>
                 </div>

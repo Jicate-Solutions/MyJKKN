@@ -43,20 +43,36 @@ const looksFilled = (v: unknown) =>
 
 // Per-section required-field map. The auto-jump on final submit uses this to
 // find the first step with anything missing.
+// 2026-05-21: Added quota, community, and admission_year_id as required.
+// These three are fee-structure-matrix dimensions (alongside institution/
+// degree/department/programme/accommodation_type) — without them the
+// matrix can't resolve a unique row at account-transition time, and the
+// resolver either picks the wrong fallback or fails entirely. The
+// AccountVerificationDialog still surfaces missing dims as a safety net,
+// but blocking at the QR form keeps the data clean upstream.
+//
+// admission_year_id is auto-fetched in step-course-selection.tsx based on
+// the current calendar year × (institution, programme); when admin hasn't
+// seeded `admission_years` for that pair the field stays empty and this
+// rule triggers a "Please fill: Admission Year" toast that nudges the
+// student to contact admission.
 const REQUIRED_BY_SECTION: Record<Section, Array<{ key: string; label: string }>> = {
   basic: [
     { key: 'first_name', label: 'First Name' },
+    { key: 'community',  label: 'Community' },
   ],
   academic: [
     // Marks are optional at the wizard level — students can submit blanks.
     // Validation here is permissive on purpose.
   ],
   course: [
-    { key: 'institution_id', label: 'Institution' },
-    { key: 'degree_id',      label: 'Degree' },
-    { key: 'program_id',     label: 'Program' },
-    { key: 'entry_type',     label: 'Entry Type' },
-    { key: 'semester_id',    label: 'Semester' },
+    { key: 'institution_id',    label: 'Institution' },
+    { key: 'degree_id',         label: 'Degree' },
+    { key: 'program_id',        label: 'Program' },
+    { key: 'entry_type',        label: 'Entry Type' },
+    { key: 'semester_id',       label: 'Semester' },
+    { key: 'quota',             label: 'Quota' },
+    { key: 'admission_year_id', label: 'Admission Year' },
   ],
   accommodation: [
     { key: 'accommodation_type', label: 'Accommodation Type' },

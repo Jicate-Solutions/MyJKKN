@@ -3,6 +3,7 @@
 import { use } from 'react';
 import { useRouter } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
+import { PermissionGuard } from '@/components/auth/permission-guard';
 import {
   Breadcrumb, BreadcrumbItem, BreadcrumbLink,
   BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator
@@ -25,7 +26,15 @@ const STATUS_COLORS: Record<MentoringStatus, string> = {
   concluded: 'bg-gray-100 text-gray-600 border-gray-200',
 };
 
-export default function MentorPairingDetailPage({ params }: PageProps) {
+export default function MentorPairingDetailPage(props: PageProps) {
+  return (
+    <PermissionGuard module="cdc.mentors" action="view">
+      <MentorPairingDetailContent {...props} />
+    </PermissionGuard>
+  );
+}
+
+function MentorPairingDetailContent({ params }: PageProps) {
   const { id } = use(params);
   const router = useRouter();
 

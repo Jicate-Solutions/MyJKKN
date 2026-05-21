@@ -288,7 +288,12 @@ export default function NewReceiptPage() {
       toast.success(
         `Receipt generated successfully for ${receiptItems.length} bill(s)`
       );
-      router.push('/billing/receipts');
+      // 2026-05-21: redirect back to the student's billing schedule page
+      // (Receipts tab) instead of the global receipts list. Receipts are
+      // always created in the context of a single learner — the schedule
+      // page lets the operator see the new receipt next to the bill it
+      // settled, plus any remaining outstanding bills, in one view.
+      router.push(`/billing/schedule/students/${formData.student_id}?tab=receipts`);
     } catch (error) {
       console.error('Error creating receipt:', error);
       toast.error('Failed to generate receipt');

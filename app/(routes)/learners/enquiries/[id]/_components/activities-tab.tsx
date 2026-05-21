@@ -22,6 +22,7 @@ import {
   Pencil,
   UserPlus,
   FileText,
+  Landmark,
 } from 'lucide-react';
 import { formatDateTimeDMY } from '@/lib/utils/date-format';
 import { NotesAndMemoCapture } from '@/components/admission/notes-and-memo-capture';
@@ -66,6 +67,11 @@ const TYPE_VISUAL: Record<string, { Icon: typeof Activity; tint: string; label: 
   // and LeadService.createGateEntry. Surfaces the lead's first touch on the
   // timeline so officers can see when (and from where) it entered the system.
   lead_created:         { Icon: UserPlus,   tint: 'bg-blue-100 text-blue-700',         label: 'Lead created' },
+  // 2026-05-21: Verified account transition — written by
+  // AccountVerificationDialog after the admin ticks every academic
+  // dimension and confirms. Distinct amber tint so reviewers can spot
+  // verified vs unverified transitions on a scrolling timeline.
+  moved_to_account_verified: { Icon: Landmark, tint: 'bg-amber-100 text-amber-800',    label: 'Moved to account (verified)' },
 };
 
 function getVisual(type: string) {

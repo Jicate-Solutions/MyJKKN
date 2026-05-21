@@ -10,8 +10,9 @@
  * Permission: `learners.admissions:edit` (or super admin). When the user
  * lacks it, the component renders only the read-only status badge.
  *
- * Special-case: moving to `account` triggers OnboardingService.markAsAccount
- * which validates finance fields before flipping the status.
+ * Special-case: moving to `account` opens AccountVerificationDialog, which
+ * fires admission_account_transition_with_bills atomically (resolves fees
+ * from the matrix, persists fee_items, flips lifecycle, generates bills).
  */
 
 import { useState } from 'react';
@@ -34,8 +35,12 @@ import {
 } from '@/components/ui/alert-dialog';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useUpdateLearnerProfile } from '@/hooks/use-learner-profiles';
-import { OnboardingService } from '@/lib/services/billing/onboarding/onboarding-service';
-import { AccountTransitionService } from '@/lib/services/admission/account-transition-service';
+// 2026-05-21: the Account transition now routes through AccountVerificationDialog
+// (Phase 4 of the verification-flow rollout). The previous direct call to
+// AccountTransitionService.transitionToAccount has moved INTO that dialog,
+// gated behind an explicit dimension-verification + fee-preview UX so wrong
+// programmes can't silently generate bills.
+import { AccountVerificationDialog } from './_account/account-verification-dialog';
 import type { LearnerProfile, LifecycleStatus } from '@/types/learner-profile';
 
 interface EnquiryStatusUpdateProps {
@@ -80,10 +85,9 @@ export function EnquiryStatusUpdate({ enquiry }: EnquiryStatusUpdateProps) {
   const router = useRouter();
   const { canAccess, isSuperAdmin, isLoading: permissionsLoading } = usePermissions();
   const [pendingStatus, setPendingStatus] = useState<LifecycleStatus | null>(null);
-  // Local submitting flag for the 'account' transition. The other status
-  // changes use updateMutation.isPending; account uses a service-direct
-  // call so we track it ourselves.
-  const [accountSubmitting, setAccountSubmitting] = useState(false);
+  // The Account transition has its own multi-step verification dialog;
+  // every OTHER status goes through the lightweight AlertDialog below.
+  const [accountVerifyOpen, setAccountVerifyOpen] = useState(false);
 
   const updateMutation = useUpdateLearnerProfile();
 
@@ -105,22 +109,24 @@ export function EnquiryStatusUpdate({ enquiry }: EnquiryStatusUpdateProps) {
   const handleSelect = (status: LifecycleStatus) => {
     if (status === enquiry.lifecycle_status) return;
 
-    // Pre-validate finance fields for 'account' — no point firing the
-    // transition RPC if fees aren't configured yet. Document verification
-    // is NOT enforced here on purpose (2026-05-21): documents are tracked
-    // separately on the Checklist tab, so the status update path bypasses
-    // the RPC's required_documents check by passing an empty list. See
-    // confirmUpdate below.
     if (status === 'account') {
-      const validation = OnboardingService.validateFinanceFields(enquiry);
-      if (!validation.valid) {
-        toast.error(
-          `Missing finance fields: ${(validation as { missing: string[] }).missing.join(', ')}. ` +
-          `Please edit the enquiry to add finance details first.`,
-        );
-        return;
-      }
+      // Open the multi-step verification dialog. It handles all gating:
+      //   - 8 dim-verified checkboxes
+      //   - fee structure must match (via FeeStructureReadonlyPanel)
+      //   - no pending fee-change-event for this learner
+      //   - drift detection on structure changes
+      // The dialog ALSO triggers the atomic RPC which resolves fees fresh
+      // from the matrix — so we no longer need to pre-check fee_items on
+      // the learner row. The old validateFinanceFields check (which read
+      // the already-stored fee_items column) was a hold-over from the
+      // pre-2026-05-21 flow where admins manually entered fee items on
+      // the form. After the verification rollout, fee_items is populated
+      // BY the RPC at confirm-time, not BEFORE it. Pre-checking the empty
+      // column would block every legitimate transition.
+      setAccountVerifyOpen(true);
+      return;
     }
+
     setPendingStatus(status);
   };
 
@@ -129,38 +135,23 @@ export function EnquiryStatusUpdate({ enquiry }: EnquiryStatusUpdateProps) {
     const target = pendingStatus;
 
     try {
-      if (target === 'account') {
-        // Documents are tracked on the Checklist tab, NOT here. So we call
-        // the RPC directly with an empty required_documents list, which
-        // skips the RPC's documents-missing check. Everything else the
-        // RPC does (lifecycle update, bill generation, fee resolution)
-        // still runs atomically.
-        setAccountSubmitting(true);
-        await AccountTransitionService.transitionToAccount({
-          learner_id: enquiry.id,
-          required_documents: [],
-          received_documents: [],
-        });
-        toast.success(`Status updated to ${prettyStatus(target)}`);
-      } else {
-        await updateMutation.mutateAsync({
-          id: enquiry.id,
-          dto: { lifecycle_status: target },
-        });
-        toast.success(`Status updated to ${prettyStatus(target)}`);
-      }
+      // The 'account' path no longer reaches this handler — it's routed
+      // through AccountVerificationDialog. Every OTHER status flows here.
+      await updateMutation.mutateAsync({
+        id: enquiry.id,
+        dto: { lifecycle_status: target },
+      });
+      toast.success(`Status updated to ${prettyStatus(target)}`);
       setPendingStatus(null);
       setTimeout(() => router.refresh(), 300);
     } catch (error) {
       console.error('[enquiry-status-update] Failed to update status:', error);
       toast.error('Failed to update status. Please try again.');
       setPendingStatus(null);
-    } finally {
-      setAccountSubmitting(false);
     }
   };
 
-  const submitting = updateMutation.isPending || accountSubmitting;
+  const submitting = updateMutation.isPending;
 
   return (
     <>
@@ -222,6 +213,23 @@ export function EnquiryStatusUpdate({ enquiry }: EnquiryStatusUpdateProps) {
         </AlertDialogContent>
       </AlertDialog>
 
+      {/* Account-transition verification dialog — opened ONLY when the
+       *  user picks 'account' from the dropdown. Mounts conditionally so
+       *  the FeeChangeEventService.hasPendingForLearner check doesn't fire
+       *  on every render of the status updater. */}
+      {accountVerifyOpen && (
+        <AccountVerificationDialog
+          learner={enquiry}
+          open={accountVerifyOpen}
+          onOpenChange={setAccountVerifyOpen}
+          onSuccess={() => {
+            // Dialog already toasted + audited; we just refresh the page
+            // so the new lifecycle status reflects in the header badge
+            // and parent table.
+            setTimeout(() => router.refresh(), 300);
+          }}
+        />
+      )}
     </>
   );
 }

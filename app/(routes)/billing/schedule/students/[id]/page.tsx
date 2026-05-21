@@ -2,7 +2,7 @@
 
 
 import { useEffect, useState, useRef } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import {
   ArrowLeft,
@@ -54,8 +54,18 @@ import { toast } from 'react-hot-toast';
 export default function StudentBillingDetailPage() {
   const params = useParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const studentId = params.id as string;
   const { profile } = useAuth();
+
+  // 2026-05-21: tab is now URL-driven so the receipt-create flow can
+  // deep-link the user back here onto the Receipts tab. Only three valid
+  // tab values; fall back to 'bills' on anything else (or no param).
+  const initialTab = ((): 'bills' | 'receipts' | 'transactions' => {
+    const t = searchParams.get('tab');
+    if (t === 'receipts' || t === 'transactions') return t;
+    return 'bills';
+  })();
 
   // Check if user is a student
   const isStudent = profile?.role === 'student';
@@ -291,11 +301,40 @@ export default function StudentBillingDetailPage() {
               <ArrowLeft className='h-4 w-4' />
             </Button>
             <div className='min-w-0 flex-1'>
-              <h1 className='text-xl sm:text-2xl font-bold text-gray-900 dark:text-gray-100 truncate'>
-                {[student.first_name, student.last_name]
-                  .filter(Boolean)
-                  .join(' ') || 'N/A'}
-              </h1>
+              <div className='flex flex-wrap items-center gap-2'>
+                <h1 className='text-xl sm:text-2xl font-bold text-gray-900 dark:text-gray-100 truncate'>
+                  {[student.first_name, student.last_name]
+                    .filter(Boolean)
+                    .join(' ') || 'N/A'}
+                </h1>
+                {/* 2026-05-21: lifecycle badge so accounts team sees the
+                 *  learner's current state (account → reserved → admitted →
+                 *  active) alongside the name without flipping to enquiry. */}
+                {student.lifecycle_status && (
+                  <Badge
+                    variant='outline'
+                    className={(() => {
+                      switch (student.lifecycle_status) {
+                        case 'account':
+                          return 'bg-amber-50 text-amber-800 border-amber-200';
+                        case 'reserved':
+                          return 'bg-purple-50 text-purple-700 border-purple-200';
+                        case 'admitted':
+                          return 'bg-emerald-50 text-emerald-700 border-emerald-200';
+                        case 'active':
+                          return 'bg-emerald-100 text-emerald-800 border-emerald-300';
+                        default:
+                          return 'bg-muted text-muted-foreground border-input';
+                      }
+                    })()}
+                  >
+                    {student.lifecycle_status
+                      .split('_')
+                      .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+                      .join(' ')}
+                  </Badge>
+                )}
+              </div>
               <p className='text-sm text-muted-foreground mt-1 sm:block'>
                 Student billing information and transaction history
               </p>
@@ -579,7 +618,7 @@ export default function StudentBillingDetailPage() {
         {/* Billing Details Tabs - Enhanced for Mobile */}
         <Card className='overflow-hidden'>
           <CardContent className='p-0'>
-            <Tabs defaultValue='bills' className='w-full'>
+            <Tabs defaultValue={initialTab} className='w-full'>
               {/* Tab Header with Filter */}
               <div className='flex flex-col gap-4 p-4 sm:p-6 bg-gray-50 dark:bg-gray-800 border-b'>
                 <TabsList className='grid w-full grid-cols-3'>

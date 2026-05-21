@@ -27,8 +27,12 @@ import toast from 'react-hot-toast';
 import { usePermissions } from '@/hooks/use-permissions';
 import { LearnerProfile } from '@/types/learner-profile';
 import { useDeleteLearnerProfile } from '@/hooks/use-learner-profiles';
-import { useMarkAsAccount } from '@/hooks/billing/use-onboarding';
-import { OnboardingService } from '@/lib/services/billing/onboarding/onboarding-service';
+// 2026-05-21: detail-page header's 'Mark as Account' (the MoreVertical dropdown)
+// now opens AccountVerificationDialog, mirroring the status updater + table
+// row-actions. The legacy useMarkAsAccount / OnboardingService validation path
+// (which read fee_items BEFORE the transition) doesn't fit the new flow where
+// the RPC resolves + persists fee_items at confirm-time.
+import { AccountVerificationDialog } from './_account/account-verification-dialog';
 
 interface EnquiryDetailActionsProps {
   enquiry: LearnerProfile;
@@ -47,7 +51,6 @@ export function EnquiryDetailActions({ enquiry }: EnquiryDetailActionsProps) {
 
   // Use React Query mutation for delete with automatic cache invalidation
   const deleteMutation = useDeleteLearnerProfile();
-  const markAsAccountMutation = useMarkAsAccount();
 
   // Only access permissions after they've loaded - use learners.admissions module for enquiries
   const hasEditPermission =
@@ -66,12 +69,12 @@ export function EnquiryDetailActions({ enquiry }: EnquiryDetailActionsProps) {
     router.push(`/learners/enquiries/${enquiry.id}/edit`);
   };
 
+  // 2026-05-21: opens AccountVerificationDialog directly. The dialog itself
+  // calls admission_account_transition_with_bills which resolves fees fresh
+  // from the matrix and persists fee_items in the same atomic call, so the
+  // old pre-validation read against the (still-empty) fee_items column is
+  // no longer correct here.
   const handleMarkAsAccount = () => {
-    const validation = OnboardingService.validateFinanceFields(enquiry);
-    if (!validation.valid) {
-      toast.error(`Missing finance fields: ${(validation as any).missing.join(', ')}. Please edit the enquiry to add finance details.`);
-      return;
-    }
     setAccountDialogOpen(true);
   };
 
@@ -167,33 +170,21 @@ export function EnquiryDetailActions({ enquiry }: EnquiryDetailActionsProps) {
         />
       )}
 
-      <AlertDialog open={accountDialogOpen} onOpenChange={setAccountDialogOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Send to Accounts Team?</AlertDialogTitle>
-            <AlertDialogDescription>
-              {enquiry.first_name} {enquiry.last_name || ''} will move to the
-              Accounts team's onboarding queue. Bills will not be created
-              automatically — the accounts team will create them manually
-              using the captured fee items as reference.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={markAsAccountMutation.isPending}>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={async () => {
-                try {
-                  await markAsAccountMutation.mutateAsync(enquiry.id);
-                  setAccountDialogOpen(false);
-                } catch {}
-              }}
-              disabled={markAsAccountMutation.isPending}
-            >
-              {markAsAccountMutation.isPending ? 'Processing...' : 'Confirm'}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      {/* Account-transition verification dialog — mounted conditionally so
+       *  the FeeChangeEventService.hasPendingForLearner probe + 8-dim resolve
+       *  only runs when the user actually opens it. */}
+      {accountDialogOpen && (
+        <AccountVerificationDialog
+          learner={enquiry}
+          open={accountDialogOpen}
+          onOpenChange={setAccountDialogOpen}
+          onSuccess={() => {
+            // Dialog toasts + writes activity audit; we refresh so the
+            // updated lifecycle status surfaces in the header badge.
+            setTimeout(() => router.refresh(), 300);
+          }}
+        />
+      )}
     </>
   );
 }

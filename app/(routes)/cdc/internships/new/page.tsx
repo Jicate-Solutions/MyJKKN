@@ -8,6 +8,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowLeft, Save } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
+import { PermissionGuard } from '@/components/auth/permission-guard';
 import { Button } from '@/components/ui/button';
 import {
   Breadcrumb,
@@ -105,6 +106,7 @@ export default function NewCdcInternshipPage() {
     setFormData(prev => ({ ...prev, [key]: val }));
 
   return (
+    <PermissionGuard module="cdc.internships" action="create">
     <ContentLayout title="New Corporate Internship">
       <div className="max-w-2xl space-y-6">
         {/* Breadcrumb */}
@@ -287,5 +289,6 @@ export default function NewCdcInternshipPage() {
         </form>
       </div>
     </ContentLayout>
+    </PermissionGuard>
   );
 }

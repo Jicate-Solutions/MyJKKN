@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
+import { PermissionGuard } from '@/components/auth/permission-guard';
 import {
   Breadcrumb, BreadcrumbItem, BreadcrumbLink,
   BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator
@@ -42,6 +43,7 @@ export default function IdpListPage() {
   });
 
   return (
+    <PermissionGuard module="cdc.idp" action="view">
     <ContentLayout title="IDP Responses">
       <Breadcrumb>
         <BreadcrumbList>
@@ -59,12 +61,14 @@ export default function IdpListPage() {
             <ClipboardList className="w-6 h-6 text-blue-600" />
             Individual Development Plans
           </h1>
-          <Button asChild>
-            <Link href="/cdc/idp/new">
-              <Plus className="w-4 h-4 mr-1" />
-              New IDP Response
-            </Link>
-          </Button>
+          <PermissionGuard module="cdc.idp" action="create">
+            <Button asChild>
+              <Link href="/cdc/idp/new">
+                <Plus className="w-4 h-4 mr-1" />
+                New IDP Response
+              </Link>
+            </Button>
+          </PermissionGuard>
         </div>
 
         {/* Filters */}
@@ -193,5 +197,6 @@ export default function IdpListPage() {
         )}
       </div>
     </ContentLayout>
+    </PermissionGuard>
   );
 }

@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { use, useState } from 'react';
 import { ContentLayout } from '@/components/layout/content-layout';
+import { PermissionGuard } from '@/components/auth/permission-guard';
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -32,7 +33,15 @@ const STATUS_BADGE_VARIANT: Record<CdcDriveStatus, 'default' | 'secondary' | 'de
   cancelled: 'destructive',
 };
 
-export default function CdcDriveDetailPage({
+export default function CdcDriveDetailPage(props: { params: Promise<{ id: string }> }) {
+  return (
+    <PermissionGuard module="cdc.drives" action="view">
+      <CdcDriveDetailContent {...props} />
+    </PermissionGuard>
+  );
+}
+
+function CdcDriveDetailContent({
   params,
 }: {
   params: Promise<{ id: string }>;
@@ -251,6 +260,7 @@ export default function CdcDriveDetailPage({
             </CardContent>
           </Card>
 
+          <PermissionGuard module="cdc.drives" action="edit">
           <Card>
             <CardHeader>
               <CardTitle className="text-base">Advance state</CardTitle>
@@ -332,6 +342,7 @@ export default function CdcDriveDetailPage({
               )}
             </CardContent>
           </Card>
+          </PermissionGuard>
         </div>
       </div>
     </ContentLayout>

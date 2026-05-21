@@ -267,6 +267,10 @@ export function StepBasicDetails({
           onCommunityChange={(val) => set('community', val)}
           onCasteChange={(val) => set('caste', val)}
           bilingual
+          // Community is a fee-structure-matrix dimension and is required
+          // by REQUIRED_BY_SECTION.basic in the wizard. Caste stays optional
+          // (and is hidden entirely for OC), so don't asterisk it.
+          communityRequired
         />
       </Section>
 

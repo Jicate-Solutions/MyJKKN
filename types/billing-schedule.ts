@@ -540,6 +540,10 @@ export interface StudentForBilling {
   program_id?: string;
   semester_id?: string;
   section_id?: string;
+  // 2026-05-21: shown on /billing/schedule/students/[id] header so the
+  // accounts team sees the learner's current state (account → reserved →
+  // admitted → active) at a glance.
+  lifecycle_status?: string;
   outstanding_amount: number;
 
   // Related data

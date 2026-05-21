@@ -1,6 +1,20 @@
 'use client';
 
-import { AlertCircle, Building2, RefreshCw } from 'lucide-react';
+import {
+  AlertCircle,
+  Building2,
+  RefreshCw,
+  Users,
+  HelpCircle,
+  Send,
+  Landmark,
+  BookmarkCheck,
+  GraduationCap,
+  XCircle,
+  LayoutGrid,
+  Gauge,
+  type LucideIcon,
+} from 'lucide-react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -78,20 +92,51 @@ function resolveDrilldownRole(
  * 'active' previously passed through 'admitted' (sequential gates in the
  * payment-driven RPC), so we sum both for the headline KPI.
  */
+// 2026-05-21: each card now carries an icon + tone for visual identity.
+// Tones mirror the lifecycle palette used by enquiry status badges +
+// billing schedule badges (amber=account, purple=reserved, etc) so the
+// dashboard echoes the colour vocabulary users already learned. The three
+// non-lifecycle metrics (Total Leads / Total Seats / Fill Rate) get
+// distinct hues (indigo / blue / cyan).
+type CardTone = {
+  /** Tailwind classes for the icon disc background + foreground colour. */
+  disc: string;
+  /** Tailwind classes for the card's coloured left-border accent. */
+  accent: string;
+  /** Tailwind classes for the subtle gradient background overlay. */
+  bg: string;
+  /** Tailwind class for the value text colour. */
+  value: string;
+};
+
+const TONES: Record<string, CardTone> = {
+  indigo:  { disc: 'bg-indigo-100  text-indigo-700',  accent: 'border-l-indigo-400',  bg: 'from-indigo-50/60 to-transparent',  value: 'text-indigo-900' },
+  slate:   { disc: 'bg-slate-100   text-slate-700',   accent: 'border-l-slate-400',   bg: 'from-slate-50/60 to-transparent',   value: 'text-slate-900' },
+  sky:     { disc: 'bg-sky-100     text-sky-700',     accent: 'border-l-sky-400',     bg: 'from-sky-50/60 to-transparent',     value: 'text-sky-900' },
+  amber:   { disc: 'bg-amber-100   text-amber-800',   accent: 'border-l-amber-400',   bg: 'from-amber-50/60 to-transparent',   value: 'text-amber-900' },
+  purple:  { disc: 'bg-purple-100  text-purple-700',  accent: 'border-l-purple-400',  bg: 'from-purple-50/60 to-transparent',  value: 'text-purple-900' },
+  emerald: { disc: 'bg-emerald-100 text-emerald-700', accent: 'border-l-emerald-500', bg: 'from-emerald-50/60 to-transparent', value: 'text-emerald-900' },
+  rose:    { disc: 'bg-rose-100    text-rose-700',    accent: 'border-l-rose-400',    bg: 'from-rose-50/60 to-transparent',    value: 'text-rose-900' },
+  blue:    { disc: 'bg-blue-100    text-blue-700',    accent: 'border-l-blue-400',    bg: 'from-blue-50/60 to-transparent',    value: 'text-blue-900' },
+  cyan:    { disc: 'bg-cyan-100    text-cyan-700',    accent: 'border-l-cyan-400',    bg: 'from-cyan-50/60 to-transparent',    value: 'text-cyan-900' },
+};
+
 const TOP_CARDS: ReadonlyArray<{
   label: string;
   metric: DrilldownMetric;
+  icon: LucideIcon;
+  tone: keyof typeof TONES;
   tooltip?: string;
 }> = [
-  { label: 'Total Leads',       metric: 'total_leads' },
-  { label: 'Enquiry',           metric: 'enquiry' },
-  { label: 'Enquiry Submitted', metric: 'enquiry_submitted' },
-  { label: 'Account',           metric: 'account' },
-  { label: 'Reserved',          metric: 'reserved' },
-  { label: 'Admitted', metric: 'admitted_active', tooltip: 'Includes Active learners (admitted → active is sequential)' },
-  { label: 'Rejected',          metric: 'rejected_lifecycle' },
-  { label: 'Total Seats',       metric: 'total_seats' },
-  { label: 'Fill Rate',         metric: 'fill_rate' },
+  { label: 'Total Leads',       metric: 'total_leads',         icon: Users,          tone: 'indigo'  },
+  { label: 'Enquiry',           metric: 'enquiry',             icon: HelpCircle,     tone: 'slate'   },
+  { label: 'Enquiry Submitted', metric: 'enquiry_submitted',   icon: Send,           tone: 'sky'     },
+  { label: 'Account',           metric: 'account',             icon: Landmark,       tone: 'amber'   },
+  { label: 'Reserved',          metric: 'reserved',            icon: BookmarkCheck,  tone: 'purple'  },
+  { label: 'Admitted',          metric: 'admitted_active',     icon: GraduationCap,  tone: 'emerald', tooltip: 'Includes Active learners (admitted → active is sequential)' },
+  { label: 'Rejected',          metric: 'rejected_lifecycle',  icon: XCircle,        tone: 'rose'    },
+  { label: 'Total Seats',       metric: 'total_seats',         icon: LayoutGrid,     tone: 'blue'    },
+  { label: 'Fill Rate',         metric: 'fill_rate',           icon: Gauge,          tone: 'cyan'    },
 ];
 
 export default function GroupDashboardPage() {
@@ -354,20 +399,44 @@ export default function GroupDashboardPage() {
                   const href = resolved
                     ? appendDashboardScope(resolved, selectedYear, scopedInstitutionIds)
                     : null;
+                  const tone = TONES[card.tone];
+                  const Icon = card.icon;
+                  // 2026-05-21: redesigned card body — tinted icon disc on top
+                  // (or left on wider layouts), big value, label below. Fixed
+                  // min-h-[120px] for uniform size across the 9 cards. The
+                  // gradient background + coloured left border deliver the
+                  // attractive/colour requirement without overpowering the data.
                   const cardInner = (
-                    <CardContent className="p-3 text-center" title={card.tooltip}>
-                      <p className="text-xs text-muted-foreground">{card.label}</p>
-                      <p className="text-lg font-bold">{valueByMetric[card.metric]}</p>
-                      {card.tooltip && (
-                        <p className="text-[10px] text-muted-foreground/70 mt-0.5">
-                          {card.tooltip}
+                    <CardContent
+                      className={`flex h-full min-h-[120px] flex-col justify-between gap-2 bg-gradient-to-br ${tone.bg} p-3`}
+                      title={card.tooltip}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div
+                          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${tone.disc} shadow-sm`}
+                        >
+                          <Icon className="h-4 w-4" aria-hidden />
+                        </div>
+                        <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground sm:text-xs">
+                          {card.label}
                         </p>
-                      )}
+                      </div>
+                      <div className="mt-auto">
+                        <p className={`text-2xl font-bold leading-tight ${tone.value} sm:text-3xl`}>
+                          {valueByMetric[card.metric]}
+                        </p>
+                        {card.tooltip && (
+                          <p className="mt-1 line-clamp-2 text-[10px] text-muted-foreground/70">
+                            {card.tooltip}
+                          </p>
+                        )}
+                      </div>
                     </CardContent>
                   );
+                  const cardClasses = `h-full overflow-hidden border-l-4 ${tone.accent}`;
                   if (!href) {
                     nodes.push(
-                      <Card key={card.label} aria-busy="true">
+                      <Card key={card.label} className={cardClasses} aria-busy="true">
                         {cardInner}
                       </Card>
                     );
@@ -377,9 +446,11 @@ export default function GroupDashboardPage() {
                         key={card.label}
                         href={href}
                         aria-label={`Drill down to ${card.label} (role: ${drilldownRole})`}
-                        className="rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                        className="block h-full rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                       >
-                        <Card className="cursor-pointer transition hover:ring-1 hover:ring-primary/20 hover:shadow-sm">
+                        <Card
+                          className={`${cardClasses} cursor-pointer transition hover:-translate-y-0.5 hover:shadow-md hover:ring-1 hover:ring-primary/20`}
+                        >
                           {cardInner}
                         </Card>
                       </Link>

@@ -3,6 +3,7 @@
 import { use } from 'react';
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
+import { PermissionGuard } from '@/components/auth/permission-guard';
 import { PageBreadcrumb } from '@/components/navigation';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -24,7 +25,15 @@ interface Props {
   params: Promise<{ id: string }>;
 }
 
-export default function BulletinOpportunityDetailPage({ params }: Props) {
+export default function BulletinOpportunityDetailPage(props: Props) {
+  return (
+    <PermissionGuard module="cdc.bulletin" action="view">
+      <BulletinOpportunityDetailContent {...props} />
+    </PermissionGuard>
+  );
+}
+
+function BulletinOpportunityDetailContent({ params }: Props) {
   const { id } = use(params);
   const { profile } = useAuth();
   const { data: opp, isLoading } = useCdcOpportunity(id);
@@ -157,19 +166,21 @@ export default function BulletinOpportunityDetailPage({ params }: Props) {
         )}
 
         {/* Admin actions */}
-        {canManage && !opp.archived_at && (
-          <div className="flex gap-3">
-            <Button
-              variant="outline"
-              size="sm"
-              className="text-red-600 border-red-200 hover:bg-red-50"
-              onClick={() => archiveMutation.mutate(id)}
-              disabled={archiveMutation.isPending}
-            >
-              <Archive className="w-4 h-4 mr-2" />
-              Archive
-            </Button>
-          </div>
+        {!opp.archived_at && (
+          <PermissionGuard module="cdc.bulletin" action="delete">
+            <div className="flex gap-3">
+              <Button
+                variant="outline"
+                size="sm"
+                className="text-red-600 border-red-200 hover:bg-red-50"
+                onClick={() => archiveMutation.mutate(id)}
+                disabled={archiveMutation.isPending}
+              >
+                <Archive className="w-4 h-4 mr-2" />
+                Archive
+              </Button>
+            </div>
+          </PermissionGuard>
         )}
       </div>
     </ContentLayout>

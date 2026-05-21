@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
+import { PermissionGuard } from '@/components/auth/permission-guard';
 import {
   Breadcrumb, BreadcrumbItem, BreadcrumbLink,
   BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator
@@ -29,6 +30,7 @@ export default function ClubsListPage() {
   );
 
   return (
+    <PermissionGuard module="cdc.clubs" action="view">
     <ContentLayout title="Clubs">
       <Breadcrumb>
         <BreadcrumbList>
@@ -46,12 +48,14 @@ export default function ClubsListPage() {
             <Users className="w-6 h-6 text-blue-600" />
             Clubs
           </h1>
-          <Button asChild>
-            <Link href="/cdc/clubs/new">
-              <Plus className="w-4 h-4 mr-1" />
-              New Club
-            </Link>
-          </Button>
+          <PermissionGuard module="cdc.clubs" action="create">
+            <Button asChild>
+              <Link href="/cdc/clubs/new">
+                <Plus className="w-4 h-4 mr-1" />
+                New Club
+              </Link>
+            </Button>
+          </PermissionGuard>
         </div>
 
         {/* Filters */}
@@ -137,5 +141,6 @@ export default function ClubsListPage() {
         )}
       </div>
     </ContentLayout>
+    </PermissionGuard>
   );
 }

@@ -3,6 +3,7 @@
 import { useState, useMemo } from 'react';
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
+import { PermissionGuard } from '@/components/auth/permission-guard';
 import { PageBreadcrumb } from '@/components/navigation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -11,7 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useCdcOpportunities } from '@/hooks/cdc/use-cdc-bulletin';
-import { useAuth } from '@/hooks/use-auth';
+import { usePermissions } from '@/hooks/use-permissions';
 import { Plus, Search, Megaphone, Calendar, ExternalLink } from 'lucide-react';
 import { BULLETIN_CATEGORIES } from '@/types/cdc/bulletin';
 import type { BulletinStatus, OpportunityFilters } from '@/types/cdc/bulletin';
@@ -35,7 +36,7 @@ function formatDeadline(date: string | null): string {
 }
 
 export default function CdcBulletinPage() {
-  const { profile } = useAuth();
+  const { canAccess, isSuperAdmin } = usePermissions([], { waitForLoad: true });
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<string>('active');
@@ -48,13 +49,11 @@ export default function CdcBulletinPage() {
 
   const { data: opportunities, isLoading } = useCdcOpportunities(filters);
 
-  const canManage = profile?.is_super_admin ||
-    profile?.role === 'admin' ||
-    profile?.role === 'administrator' ||
-    profile?.role === 'cdc_head' ||
-    profile?.role === 'cdc_coordinator';
+  // 'archived' status is a manage-only filter option; gate it on edit perms.
+  const canSeeArchived = isSuperAdmin || canAccess('cdc.bulletin', 'edit');
 
   return (
+    <PermissionGuard module="cdc.bulletin" action="view">
     <ContentLayout title="CDC — Opportunities Bulletin">
       <PageBreadcrumb items={[
         { label: 'Home', href: '/' },
@@ -70,14 +69,14 @@ export default function CdcBulletinPage() {
               Hackathons, conferences, scholarships, and external opportunities
             </p>
           </div>
-          {canManage && (
+          <PermissionGuard module="cdc.bulletin" action="create">
             <Button asChild>
               <Link href="/cdc/bulletin/new">
                 <Plus className="w-4 h-4 mr-2" />
                 Post Opportunity
               </Link>
             </Button>
-          )}
+          </PermissionGuard>
         </div>
 
         {/* Filters */}
@@ -110,7 +109,7 @@ export default function CdcBulletinPage() {
               <SelectItem value="all">All</SelectItem>
               <SelectItem value="active">Active</SelectItem>
               <SelectItem value="expired">Expired</SelectItem>
-              {canManage && <SelectItem value="archived">Archived</SelectItem>}
+              {canSeeArchived && <SelectItem value="archived">Archived</SelectItem>}
             </SelectContent>
           </Select>
         </div>
@@ -127,15 +126,15 @@ export default function CdcBulletinPage() {
             <Megaphone className="w-12 h-12 text-muted-foreground mb-4" />
             <p className="text-lg font-medium">No opportunities found</p>
             <p className="text-sm text-muted-foreground mt-1">
-              {canManage ? 'Post the first opportunity.' : 'Check back soon.'}
+              Check back soon, or post one if you have access.
             </p>
-            {canManage && (
+            <PermissionGuard module="cdc.bulletin" action="create">
               <Button asChild className="mt-4">
                 <Link href="/cdc/bulletin/new">
                   <Plus className="w-4 h-4 mr-2" /> Post Opportunity
                 </Link>
               </Button>
-            )}
+            </PermissionGuard>
           </div>
         ) : (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -182,5 +181,6 @@ export default function CdcBulletinPage() {
         )}
       </div>
     </ContentLayout>
+    </PermissionGuard>
   );
 }

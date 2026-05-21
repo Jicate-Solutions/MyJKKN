@@ -7,6 +7,7 @@ import { useEffect, useState, use } from 'react';
 import Link from 'next/link';
 import { Award, Download, ArrowLeft, CheckCircle, Clock, XCircle, AlertCircle } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
+import { PermissionGuard } from '@/components/auth/permission-guard';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -49,7 +50,15 @@ const STATUS_TRANSITIONS: Record<string, string[]> = {
   cancelled: [],
 };
 
-export default function CdcInternshipDetailPage({
+export default function CdcInternshipDetailPage(props: { params: Promise<{ id: string }> }) {
+  return (
+    <PermissionGuard module="cdc.internships" action="view">
+      <CdcInternshipDetailContent {...props} />
+    </PermissionGuard>
+  );
+}
+
+function CdcInternshipDetailContent({
   params,
 }: {
   params: Promise<{ id: string }>;
@@ -245,6 +254,7 @@ export default function CdcInternshipDetailPage({
           )}
 
           {canIssueCert && (
+            <PermissionGuard module="cdc.internships" action="edit">
             <Card className="border-dashed border-2 border-gray-200">
               <CardContent className="p-5 text-center">
                 <Award className="w-10 h-10 text-gray-300 mx-auto mb-3" />
@@ -257,6 +267,7 @@ export default function CdcInternshipDetailPage({
                 </Button>
               </CardContent>
             </Card>
+            </PermissionGuard>
           )}
 
           {!hasCert && !canIssueCert && (

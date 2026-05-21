@@ -334,7 +334,14 @@ interface CommunityCasteSelectorProps {
   caste: string;
   onCommunityChange: (val: string) => void;
   onCasteChange: (val: string) => void;
+  /** Marks BOTH community and caste fields as required. */
   required?: boolean;
+  // 2026-05-21: added so the QR student form can require Community
+  // (a fee-structure-matrix dimension) without also asterisking Caste
+  // (which is not part of the fee resolver and is genuinely optional
+  // for the OC community).
+  /** Marks community required without affecting caste. Overrides `required`. */
+  communityRequired?: boolean;
   bilingual?: boolean;
 }
 
@@ -344,15 +351,17 @@ export function CommunityCasteSelector({
   onCommunityChange,
   onCasteChange,
   required = false,
+  communityRequired,
   bilingual = false,
 }: CommunityCasteSelectorProps) {
+  const commReq = communityRequired ?? required;
   return (
     <div className="space-y-4">
       <CommunityField
         value={community}
         onChange={onCommunityChange}
         onCascadeReset={() => onCasteChange('')}
-        required={required}
+        required={commReq}
         bilingual={bilingual}
       />
       <CasteField

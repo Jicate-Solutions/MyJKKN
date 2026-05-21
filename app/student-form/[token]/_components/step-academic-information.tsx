@@ -114,10 +114,17 @@ export function StepAcademicInformation({
     //   { max_marks, obtained_marks, percentage }
     // Matches enquiry form's data model. 5,178 existing rows use this shape;
     // 0 rows use the older max/obtained shape, so no migration needed.
-    tenth_marks: data.tenth_marks ?? {},
+    //
+    // 2026-05-21: Default max_marks to 500 (Tamil Nadu SSLC standard). The
+    // spread order ensures legacy data takes priority — only fields the
+    // student hasn't already filled get the default.
+    tenth_marks: { max_marks: '500', ...(data.tenth_marks ?? {}) },
     // twelfth_marks JSONB:
     //   { max_marks, obtained_marks, percentage, group, subjects: { physics, chemistry, mathematics, biology, botany, zoology, accountancy, commerce, economics, computer_science, history, statistics, geography } }
-    twelfth_marks: data.twelfth_marks ?? {},
+    //
+    // 2026-05-21: Default max_marks to 600 (Tamil Nadu HSC standard, 6 papers ×
+    // 100 marks). Same spread-after-default pattern as 10th.
+    twelfth_marks: { max_marks: '600', ...(data.twelfth_marks ?? {}) },
     last_school: data.last_school ?? '',
     board_of_study: data.board_of_study ?? '',
     neet_roll_number: data.neet_roll_number ?? '',

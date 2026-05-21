@@ -11,7 +11,8 @@ import {
   SelectContent,
   SelectItem,
 } from '@/components/ui/select';
-import { Loader2, Lock } from 'lucide-react';
+import { Loader2, Lock, Info } from 'lucide-react';
+import toast from 'react-hot-toast';
 import type { Language } from './language-toggle';
 import {
   QUOTA_OPTIONS,
@@ -39,6 +40,11 @@ interface ProgramRow {
   id: string;
   program_name: string;
   department_id: string;
+  // 2026-05-21: department_code is embedded from departments via the
+  // course-options endpoint so the client can apply the
+  // engineering-first-year rule (only Science & Humanities programmes
+  // shown when entry_type='FIRST YEAR' at an institution with an SH dept).
+  department_code?: string | null;
 }
 interface SemesterRow {
   id: string;
@@ -301,13 +307,88 @@ export function StepCourseSelection({
     }
   };
 
+  // ──────────────────────────────────────────────────────────────────────
+  // Engineering-college first-year programme filter (2026-05-21)
+  // ──────────────────────────────────────────────────────────────────────
+  // Convention at JKKN College of Engineering and Technology (and any
+  // future institution that follows the same pattern): a learner entering
+  // FIRST YEAR enrols under the "Science and Humanities" (SH) department,
+  // NOT their branch department. The SH dept hosts a mirror of every
+  // branch programme — e.g. "B.E. CSE" exists once in CSE-dept and once
+  // in SH-dept, with identical names.
+  //
+  // Detection signal: the institution exposes any programme with
+  // department_code='SH' (via the embed in course-options/programs).
+  // Activation signal: entry_type === 'FIRST YEAR'.
+  // When both fire, the Programme picker is restricted to SH rows only.
+  //
+  // No `institution_type` check — that column is funding model
+  // (autonomous/aided/self), not discipline. Presence of SH dept IS the
+  // discipline signal.
+  const institutionHasShDept = programs.some(
+    (p) => p.department_code === 'SH',
+  );
+  // 2026-05-21: the SH (Science & Humanities) dept is the first-year-only
+  // home for engineering students. Inverted rule per user:
+  //   - entry_type === 'FIRST YEAR' → show ONLY SH programmes
+  //   - any other entry_type (LATERAL ENTRY, etc.) → HIDE SH programmes
+  //   - entry_type unset → also hide SH (safer default; SH is only ever
+  //     intentional for FIRST YEAR, so it shouldn't show before the
+  //     student has committed to that entry type)
+  const restrictToSh = institutionHasShDept && v.entry_type === 'FIRST YEAR';
+  const hideSh = institutionHasShDept && v.entry_type !== 'FIRST YEAR';
+  const displayedPrograms = useMemo(() => {
+    if (!institutionHasShDept) return programs;
+    if (restrictToSh) return programs.filter((p) => p.department_code === 'SH');
+    if (hideSh) return programs.filter((p) => p.department_code !== 'SH');
+    return programs;
+  }, [programs, restrictToSh, hideSh, institutionHasShDept]);
+
   // When picking Entry Type, auto-pick the semester if rule applies.
   // Only runs on user interaction (in onValueChange), not on mount —
   // preserves manual overrides from prefilled data.
+  //
+  // 2026-05-21: also clear program_id if entry_type=FIRST YEAR is picked
+  // at an engineering institution and the current programme isn't a
+  // Science & Humanities one — the dropdown about to refilter would hide
+  // the picked row otherwise, leaving a phantom selection.
   const handleEntryTypeChange = (entryType: string) => {
     set('entry_type', entryType);
     const picked = autoPickSemester(entryType, semesters);
     if (picked) set('semester_id', picked);
+
+    if (institutionHasShDept && v.program_id) {
+      const currentProg = programs.find((p) => p.id === v.program_id);
+      if (currentProg) {
+        const switchingIntoFirstYear =
+          entryType === 'FIRST YEAR' && currentProg.department_code !== 'SH';
+        const switchingOutOfFirstYear =
+          entryType !== 'FIRST YEAR' && currentProg.department_code === 'SH';
+
+        if (switchingIntoFirstYear) {
+          set('program_id', '');
+          set('department_id', '');
+          set('semester_id', '');
+          setDepartment(null);
+          toast(
+            'First-year admissions at this institution go through the Science and Humanities department — please re-pick the programme.',
+            { duration: 6000, icon: 'ℹ️' },
+          );
+        } else if (switchingOutOfFirstYear) {
+          // Inverse: leaving FIRST YEAR but the picked programme is the
+          // first-year-only SH variant. Clear so the student picks the
+          // branch-department version.
+          set('program_id', '');
+          set('department_id', '');
+          set('semester_id', '');
+          setDepartment(null);
+          toast(
+            'Lateral entry and later admissions belong to the branch department — please re-pick the programme.',
+            { duration: 6000, icon: 'ℹ️' },
+          );
+        }
+      }
+    }
   };
 
   // When semesters list LOADS (after program change), re-apply the
@@ -352,7 +433,11 @@ export function StepCourseSelection({
       </header>
 
       <Section title={{ en: 'Quota', ta: 'ஒதுக்கீடு' }}>
-        <Field label="Quota / ஒதுக்கீடு">
+        <Field
+          label="Quota / ஒதுக்கீடு"
+          required
+          helper="Required — affects the fee structure applied to your admission."
+        >
           <Select value={v.quota} onValueChange={(s) => set('quota', s)}>
             <SelectTrigger className="h-12">
               <SelectValue placeholder="Select quota / ஒதுக்கீடு தேர்வு செய்க" />
@@ -428,6 +513,41 @@ export function StepCourseSelection({
           </Select>
         </Field>
 
+        {restrictToSh && (
+          <div className="flex items-start gap-2 rounded-md border border-blue-200 bg-blue-50 p-3 text-xs text-blue-900 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-200">
+            <Info className="mt-0.5 h-4 w-4 shrink-0" />
+            <div className="leading-relaxed">
+              <p className="font-medium">
+                First-year admission — Science &amp; Humanities only
+              </p>
+              <p className="mt-0.5 text-blue-800/90 dark:text-blue-300/90">
+                At this institution, first-year students enrol under the
+                Science &amp; Humanities department. The Programme dropdown
+                shows only those programmes; you&apos;ll move to your branch
+                department from year&nbsp;2 onward.
+                <span className="block opacity-75">
+                  முதலாம் ஆண்டு மாணவர்கள் இந்நிறுவனத்தில் அறிவியல் &amp;
+                  மனிதவியல் துறையில் சேர்க்கப்படுவர்.
+                </span>
+              </p>
+            </div>
+          </div>
+        )}
+        {hideSh && v.entry_type && (
+          <div className="flex items-start gap-2 rounded-md border border-slate-200 bg-slate-50 p-3 text-xs text-slate-800 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+            <Info className="mt-0.5 h-4 w-4 shrink-0" />
+            <div className="leading-relaxed">
+              <p className="font-medium">
+                Branch-department programmes only
+              </p>
+              <p className="mt-0.5 text-slate-700/90 dark:text-slate-300/90">
+                Lateral entry and later admissions skip the Science &amp;
+                Humanities first-year track. Only branch-department
+                programmes are shown.
+              </p>
+            </div>
+          </div>
+        )}
         <Field label="Program / பாடம்" required>
           <Select
             value={v.program_id}
@@ -446,7 +566,7 @@ export function StepCourseSelection({
               />
             </SelectTrigger>
             <SelectContent>
-              {programs.map((p) => (
+              {displayedPrograms.map((p) => (
                 <SelectItem key={p.id} value={p.id}>
                   {p.program_name}
                 </SelectItem>

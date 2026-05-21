@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
+import { PermissionGuard } from '@/components/auth/permission-guard';
 import {
   Breadcrumb, BreadcrumbItem, BreadcrumbLink,
   BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator
@@ -69,6 +70,7 @@ export default function NewIdpPage() {
   };
 
   return (
+    <PermissionGuard module="cdc.idp" action="create">
     <ContentLayout title="New IDP Response">
       <Breadcrumb>
         <BreadcrumbList>
@@ -263,5 +265,6 @@ export default function NewIdpPage() {
         </form>
       </div>
     </ContentLayout>
+    </PermissionGuard>
   );
 }

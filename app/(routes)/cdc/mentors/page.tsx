@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
+import { PermissionGuard } from '@/components/auth/permission-guard';
 import {
   Breadcrumb, BreadcrumbItem, BreadcrumbLink,
   BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator
@@ -37,6 +38,7 @@ export default function MentorPairingsPage() {
   };
 
   return (
+    <PermissionGuard module="cdc.mentors" action="view">
     <ContentLayout title="Mentor Pairings">
       <Breadcrumb>
         <BreadcrumbList>
@@ -54,12 +56,14 @@ export default function MentorPairingsPage() {
             <UserCog className="w-6 h-6 text-blue-600" />
             Mentor Pairings
           </h1>
-          <Button asChild>
-            <Link href="/cdc/mentors/new">
-              <Plus className="w-4 h-4 mr-1" />
-              New Pairing
-            </Link>
-          </Button>
+          <PermissionGuard module="cdc.mentors" action="create">
+            <Button asChild>
+              <Link href="/cdc/mentors/new">
+                <Plus className="w-4 h-4 mr-1" />
+                New Pairing
+              </Link>
+            </Button>
+          </PermissionGuard>
         </div>
 
         {/* Filter */}
@@ -132,5 +136,6 @@ export default function MentorPairingsPage() {
         )}
       </div>
     </ContentLayout>
+    </PermissionGuard>
   );
 }

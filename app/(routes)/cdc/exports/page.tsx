@@ -4,6 +4,7 @@ import { useState } from 'react';
 import {
   ContentLayout
 } from '@/components/layout/content-layout';
+import { PermissionGuard } from '@/components/auth/permission-guard';
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -76,18 +77,20 @@ function NaacSection() {
             </Select>
           </div>
           <div className="flex items-end">
-            <Button
-              onClick={() => exportNaac(cycle, format)}
-              disabled={loading}
-              className="w-full"
-            >
-              {loading ? (
-                <Loader2 className="h-4 w-4 animate-spin mr-2" />
-              ) : (
-                <Download className="h-4 w-4 mr-2" />
-              )}
-              {loading ? 'Generating…' : 'Download'}
-            </Button>
+            <PermissionGuard module="cdc.exports" action="download">
+              <Button
+                onClick={() => exportNaac(cycle, format)}
+                disabled={loading}
+                className="w-full"
+              >
+                {loading ? (
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                ) : (
+                  <Download className="h-4 w-4 mr-2" />
+                )}
+                {loading ? 'Generating…' : 'Download'}
+              </Button>
+            </PermissionGuard>
           </div>
         </div>
         {error && (
@@ -147,18 +150,20 @@ function AicteSection() {
             </Select>
           </div>
           <div className="flex items-end">
-            <Button
-              onClick={() => exportAicte(year, format)}
-              disabled={loading}
-              className="w-full"
-            >
-              {loading ? (
-                <Loader2 className="h-4 w-4 animate-spin mr-2" />
-              ) : (
-                <Download className="h-4 w-4 mr-2" />
-              )}
-              {loading ? 'Generating…' : 'Download'}
-            </Button>
+            <PermissionGuard module="cdc.exports" action="download">
+              <Button
+                onClick={() => exportAicte(year, format)}
+                disabled={loading}
+                className="w-full"
+              >
+                {loading ? (
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                ) : (
+                  <Download className="h-4 w-4 mr-2" />
+                )}
+                {loading ? 'Generating…' : 'Download'}
+              </Button>
+            </PermissionGuard>
           </div>
         </div>
         {error && (
@@ -309,18 +314,20 @@ function FlexSection() {
           </Alert>
         )}
 
-        <Button
-          onClick={handleExport}
-          disabled={loading || columns.length === 0 || !dateFrom || !dateTo}
-          className="w-full sm:w-auto"
-        >
-          {loading ? (
-            <Loader2 className="h-4 w-4 animate-spin mr-2" />
-          ) : (
-            <Download className="h-4 w-4 mr-2" />
-          )}
-          {loading ? 'Generating…' : 'Generate Export'}
-        </Button>
+        <PermissionGuard module="cdc.exports" action="download">
+          <Button
+            onClick={handleExport}
+            disabled={loading || columns.length === 0 || !dateFrom || !dateTo}
+            className="w-full sm:w-auto"
+          >
+            {loading ? (
+              <Loader2 className="h-4 w-4 animate-spin mr-2" />
+            ) : (
+              <Download className="h-4 w-4 mr-2" />
+            )}
+            {loading ? 'Generating…' : 'Generate Export'}
+          </Button>
+        </PermissionGuard>
       </CardContent>
     </Card>
   );
@@ -328,6 +335,7 @@ function FlexSection() {
 
 export default function CdcExportsPage() {
   return (
+    <PermissionGuard module="cdc.exports" action="view">
     <ContentLayout title="CDC — Exports">
       <div className="space-y-6">
         <Breadcrumb>
@@ -361,5 +369,6 @@ export default function CdcExportsPage() {
         <FlexSection />
       </div>
     </ContentLayout>
+    </PermissionGuard>
   );
 }
