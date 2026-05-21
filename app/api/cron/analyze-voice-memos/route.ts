@@ -271,8 +271,10 @@ export async function GET(request: NextRequest) {
         transcript = result.text;
         language = result.language;
 
-        // Best-effort cost estimate. Whisper response_format=verbose_json gives
-        // duration but we don't surface it through the helper yet — leave null.
+        // Cost estimate: pass the audio duration parsed from the provider's
+        // verbose_json `duration` field. Without it the estimator returns null
+        // and the admin Cost panel reports ₹0 even when thousands of calls
+        // fire (the bug receipt this comment replaces — 2026-05-21).
         await recordUsage(
           'voice_memo.transcribe',
           transcribeConfig.provider,
@@ -282,7 +284,7 @@ export async function GET(request: NextRequest) {
             success: true,
             cost_inr: estimateTranscriptionCostInr(
               transcribePricing?.perMinuteInr,
-              null,
+              result.durationSeconds,
             ),
             call_log_id: c.id,
           },
