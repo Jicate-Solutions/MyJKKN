@@ -352,7 +352,11 @@ export function StepCourseSelection({
       </header>
 
       <Section title={{ en: 'Quota', ta: 'ஒதுக்கீடு' }}>
-        <Field label="Quota / ஒதுக்கீடு">
+        <Field
+          label="Quota / ஒதுக்கீடு"
+          required
+          helper="Required — affects the fee structure applied to your admission."
+        >
           <Select value={v.quota} onValueChange={(s) => set('quota', s)}>
             <SelectTrigger className="h-12">
               <SelectValue placeholder="Select quota / ஒதுக்கீடு தேர்வு செய்க" />
