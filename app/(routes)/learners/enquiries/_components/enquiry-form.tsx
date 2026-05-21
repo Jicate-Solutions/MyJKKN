@@ -489,6 +489,72 @@ const fieldToTabMap: Record<string, string> = {
   placement_fee: 'finance-details',
 };
 
+// 2026-05-21: human-readable labels keyed by the same field name as
+// `fieldToTabMap`. Used by BOTH onInvalid (resolver-time rejection) and
+// onSubmit (final-required-fields rejection) so the operator sees the
+// SAME specific field list in either path. Previously onInvalid only
+// reported a count and onSubmit duplicated this map inline.
+const FIELD_LABELS: Record<string, string> = {
+  first_name:                 'First Name',
+  last_name:                  'Last Name',
+  date_of_birth:              'Date of Birth',
+  gender:                     'Gender',
+  religion:                   'Religion',
+  community:                  'Community',
+  caste:                      'Caste',
+  father_name:                "Father's Name",
+  mother_name:                "Mother's Name",
+  student_mobile:             'Student Mobile',
+  institution_id:             'Institution',
+  degree_id:                  'Degree',
+  department_id:              'Department',
+  program_id:                 'Program',
+  academic_year_id:           'Academic Year',
+  semester_id:                'Semester',
+  section_id:                 'Section',
+  scholarship_type:           'Scholarship Type',
+  entry_type:                 'Entry Type',
+  permanent_address_street:   'Street Address',
+  permanent_address_taluk:    'Taluk',
+  permanent_address_district: 'District',
+  permanent_address_state:    'State',
+  permanent_address_pin_code: 'PIN Code',
+  accommodation_type:         'Accommodation Type',
+};
+
+// Tab labels keyed by tab id (mirrors ALL_TABS but module-level for use
+// in the error-grouping helpers without closing over component state).
+const TAB_LABELS: Record<string, string> = {
+  'basic-details':            'Basic Details',
+  'academic-information':     'Academic Information',
+  'course-selection':         'Course Selection',
+  'contact-details':          'Contact Details',
+  'accommodation-preferences':'Accommodation',
+  'finance-details':          'Finance Details',
+};
+
+/**
+ * Group a set of invalid field paths by their tab.
+ * Used by both onInvalid (zod-resolver rejections, where `errors` keys can
+ * include dotted nested paths like `tenth_marks.max_marks`) and onSubmit
+ * (final-required-fields rejection, where keys are top-level only).
+ */
+function groupFieldsByTab(fields: string[]): Record<string, string[]> {
+  const byTab: Record<string, string[]> = {};
+  fields.forEach((field) => {
+    // Nested fields (e.g. `tenth_marks.max_marks`) resolve to their root key
+    const rootKey = field.split('.')[0];
+    const tabId = fieldToTabMap[rootKey] ?? 'unknown';
+    const tabLabel = TAB_LABELS[tabId] ?? 'Other';
+    const label = FIELD_LABELS[rootKey] ?? rootKey;
+    if (!byTab[tabLabel]) byTab[tabLabel] = [];
+    if (!byTab[tabLabel].includes(`• ${label}`)) {
+      byTab[tabLabel].push(`• ${label}`);
+    }
+  });
+  return byTab;
+}
+
 /**
  * EnquiryForm Component
  *
@@ -1204,29 +1270,64 @@ export function EnquiryForm({
   };
 
   // Handle form validation errors (triggered by react-hook-form)
+  // 2026-05-21: rewritten so the operator sees WHICH fields are missing,
+  // grouped by tab, instead of just "Found N errors". Also auto-switches
+  // to the first error tab AND focuses the first invalid field (after a
+  // microtask so the Tabs switch lands first).
   const onInvalid = (errors: FieldErrors<EnquiryFormValues>) => {
     const errorKeys = Object.keys(errors);
-    if (errorKeys.length > 0) {
-      const firstErrorField = errorKeys[0];
-      const tabId = fieldToTabMap[firstErrorField] || fieldToTabMap[firstErrorField.split('.')[0]]; // Handle nested fields
-      
-      if (tabId) {
-        setActiveTab(tabId);
-        
-        // Find tab label
-        const tabLabel = ALL_TABS.find(t => t.id === tabId)?.label || 'the relevant tab';
-        
-        const errorCount = Object.keys(errors).length;
-        toast.error(
-          `Validation Failed: Please check ${tabLabel}.\nFound ${errorCount} error${errorCount > 1 ? 's' : ''}.`,
-          { duration: 4000 }
-        );
-        
-        console.log('[enquiry-form] Form validation failed:', errors);
-      } else {
-        toast.error('Please check the form for errors.');
-      }
+    if (errorKeys.length === 0) return;
+
+    const firstErrorField = errorKeys[0];
+    const rootKey = firstErrorField.split('.')[0];
+    const tabId =
+      fieldToTabMap[firstErrorField] ?? fieldToTabMap[rootKey];
+
+    if (tabId) {
+      setActiveTab(tabId);
     }
+
+    // Focus the first invalid field after the Tabs switch settles.
+    // setFocus is a no-op if the input isn't registered yet, so the
+    // setTimeout gives React a tick to mount the newly-visible tab.
+    setTimeout(() => {
+      try {
+        form.setFocus(firstErrorField as any);
+        // Best-effort scrollIntoView for the field's label (the input is
+        // often a Select trigger; scrolling its container is more useful
+        // than scrolling the input itself).
+        const el = document.querySelector(
+          `[name="${firstErrorField}"], [id="${firstErrorField}"]`,
+        );
+        if (el && 'scrollIntoView' in el) {
+          (el as HTMLElement).scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      } catch (e) {
+        console.warn('[enquiry-form] could not focus invalid field', firstErrorField, e);
+      }
+    }, 50);
+
+    const errorsByTab = groupFieldsByTab(errorKeys);
+    const errorMessage = Object.entries(errorsByTab)
+      .map(([tab, fields]) => `${tab}:\n${fields.join('\n')}`)
+      .join('\n\n');
+
+    console.log('[enquiry-form] Validation failed (onInvalid):', {
+      keys: errorKeys,
+      errors,
+      errorsByTab,
+    });
+
+    toast.error(
+      `Please fill in the following required fields:\n\n${errorMessage}`,
+      {
+        duration: 8000,
+        style: {
+          maxWidth: '500px',
+          whiteSpace: 'pre-line',
+        },
+      },
+    );
   };
 
   // ========================================================================
@@ -1478,53 +1579,32 @@ export function EnquiryForm({
       const errors = validation.error.flatten().fieldErrors;
       const errorKeys = Object.keys(errors);
 
-      // Auto-switch to tab with first error
+      // Auto-switch to first error tab + focus + scroll. Same helpers
+      // as onInvalid so both validation paths behave identically.
       if (errorKeys.length > 0) {
         const firstErrorField = errorKeys[0];
-        const tabId = fieldToTabMap[firstErrorField];
-        if (tabId) {
-          setActiveTab(tabId);
-        }
+        const rootKey = firstErrorField.split('.')[0];
+        const tabId = fieldToTabMap[firstErrorField] ?? fieldToTabMap[rootKey];
+        if (tabId) setActiveTab(tabId);
+        setTimeout(() => {
+          try {
+            form.setFocus(firstErrorField as any);
+            const el = document.querySelector(
+              `[name="${firstErrorField}"], [id="${firstErrorField}"]`,
+            );
+            if (el && 'scrollIntoView' in el) {
+              (el as HTMLElement).scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+          } catch (e) {
+            console.warn('[enquiry-form] could not focus invalid field', firstErrorField, e);
+          }
+        }, 50);
       }
 
-      // Create user-friendly field names
-      const fieldNames: Record<string, { label: string; tab: string }> = {
-        first_name: { label: 'First Name', tab: 'Basic Details' },
-        last_name: { label: 'Last Name', tab: 'Basic Details' },
-        date_of_birth: { label: 'Date of Birth', tab: 'Basic Details' },
-        gender: { label: 'Gender', tab: 'Basic Details' },
-        religion: { label: 'Religion', tab: 'Basic Details' },
-        community: { label: 'Community', tab: 'Basic Details' },
-        caste: { label: 'Caste', tab: 'Basic Details' },
-        father_name: { label: "Father's Name", tab: 'Basic Details' },
-        mother_name: { label: "Mother's Name", tab: 'Basic Details' },
-        student_mobile: { label: 'Student Mobile', tab: 'Contact Details' },
-        institution_id: { label: 'Institution', tab: 'Course Selection' },
-        degree_id: { label: 'Degree', tab: 'Course Selection' },
-        department_id: { label: 'Department', tab: 'Course Selection' },
-        program_id: { label: 'Program', tab: 'Course Selection' },
-        academic_year_id: { label: 'Academic Year', tab: 'Course Selection' },
-        semester_id: { label: 'Semester', tab: 'Course Selection' },
-        section_id: { label: 'Section', tab: 'Course Selection' },
-        scholarship_type: { label: 'Scholarship Type', tab: 'Academic Information' },
-        entry_type: { label: 'Entry Type', tab: 'Academic Information' },
-        permanent_address_street: { label: 'Street Address', tab: 'Contact Details' },
-        permanent_address_taluk: { label: 'Taluk', tab: 'Contact Details' },
-        permanent_address_district: { label: 'District', tab: 'Contact Details' },
-        permanent_address_state: { label: 'State', tab: 'Contact Details' },
-        permanent_address_pin_code: { label: 'PIN Code', tab: 'Contact Details' },
-        accommodation_type: { label: 'Accommodation Type', tab: 'Accommodation' },
-      };
-
-      // Group errors by tab
-      const errorsByTab: Record<string, string[]> = {};
-      Object.entries(errors).forEach(([field, messages]) => {
-        const fieldInfo = fieldNames[field] || { label: field, tab: 'Unknown' };
-        if (!errorsByTab[fieldInfo.tab]) {
-          errorsByTab[fieldInfo.tab] = [];
-        }
-        errorsByTab[fieldInfo.tab].push(`• ${fieldInfo.label}`);
-      });
+      // 2026-05-21: groupFieldsByTab is the shared helper between onInvalid
+      // (zod-resolver path) and onSubmit (final-required-fields path). The
+      // local fieldNames map that lived here was duplicating FIELD_LABELS.
+      const errorsByTab = groupFieldsByTab(errorKeys);
 
       // Create detailed error message
       const errorMessage = Object.entries(errorsByTab)
