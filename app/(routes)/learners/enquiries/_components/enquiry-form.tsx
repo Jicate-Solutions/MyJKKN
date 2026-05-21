@@ -322,76 +322,80 @@ function getLocationIdByName(
   stateId?: string
 ): string | undefined {
   if (!name) {
-    console.log(`[enquiry-form] No ${type} name provided`);
     return '';
   }
 
   try {
-    console.log(`[enquiry-form] Converting ${type} name "${name}" to ID`);
-
-    // Normalize name for case-insensitive comparison
-    const normalizedName = name.trim().toLowerCase();
+    // Two storage formats coexist in production for permanent_address_*
+    // columns: (a) legacy entries store the display NAME (e.g.
+    // 'TAMIL NADU', 'TIRUVANNAMALAI'); (b) student-form-QR entries store
+    // the snake_case ID directly (e.g. 'tamil_nadu', 'tiruvannamalai').
+    // We try ID-match FIRST (cheap and unambiguous) and fall back to
+    // name-match. Pre-2026-05-21 this function only did name-match, so
+    // every student-form-submitted row's state+district+taluk silently
+    // failed to load into the edit form, then the cascading-reset
+    // effect in contact-details.tsx cleared them. Found by user report
+    // 2026-05-21; verified against learner SUNITHA who had
+    // state='tamil_nadu' / district='krishnagiri' stored correctly
+    // but didn't populate on edit.
+    const normalized = name.trim().toLowerCase();
 
     if (type === 'state') {
-      const state = indianStates.find((s) => s.name.toLowerCase() === normalizedName);
-      if (state) {
-        console.log(`[enquiry-form] Found state ID: ${state.id} for name: ${name}`);
-        return state.id;
-      } else {
-        console.warn(`[enquiry-form] State "${name}" not found in indianStates`);
-        return '';
-      }
+      const byId = indianStates.find((s) => s.id.toLowerCase() === normalized);
+      if (byId) return byId.id;
+      const byName = indianStates.find((s) => s.name.toLowerCase() === normalized);
+      return byName?.id ?? '';
     }
 
-    // For district and taluk, we need to search across all states
     if (type === 'district') {
+      // ID-first scan across all states
       for (const state of indianStates) {
         const districts = getDistrictsByState(state.id);
-        const district = districts.find((d) => d.name.toLowerCase() === normalizedName);
-        if (district) {
-          console.log(`[enquiry-form] Found district ID: ${district.id} for name: ${name}`);
-          return district.id;
-        }
+        const byId = districts.find((d) => d.id.toLowerCase() === normalized);
+        if (byId) return byId.id;
       }
-      console.warn(`[enquiry-form] District "${name}" not found`);
+      // Fall back to name-match
+      for (const state of indianStates) {
+        const districts = getDistrictsByState(state.id);
+        const byName = districts.find((d) => d.name.toLowerCase() === normalized);
+        if (byName) return byName.id;
+      }
       return '';
     }
 
     if (type === 'taluk') {
-      // If we have stateId, search more efficiently
-      if (stateId) {
-        console.log(`[enquiry-form] Searching taluk in state: ${stateId}`);
-        const districts = getDistrictsByState(stateId);
+      const search = (sid: string): string | undefined => {
+        const districts = getDistrictsByState(sid);
+        // ID-first
         for (const district of districts) {
-          const taluks = getTaluksByDistrict(stateId, district.id);
-          const taluk = taluks.find((t) => t.name.toLowerCase() === normalizedName);
-          if (taluk) {
-            console.log(`[enquiry-form] Found taluk ID: ${taluk.id} for name: ${name}`);
-            return taluk.id;
-          }
+          const taluks = getTaluksByDistrict(sid, district.id);
+          const byId = taluks.find((t) => t.id.toLowerCase() === normalized);
+          if (byId) return byId.id;
         }
+        // Name fallback
+        for (const district of districts) {
+          const taluks = getTaluksByDistrict(sid, district.id);
+          const byName = taluks.find((t) => t.name.toLowerCase() === normalized);
+          if (byName) return byName.id;
+        }
+        return undefined;
+      };
+
+      if (stateId) {
+        const hit = search(stateId);
+        if (hit) return hit;
       } else {
-        // Search all states if no stateId provided
-        console.log(`[enquiry-form] Searching taluk across all states`);
         for (const state of indianStates) {
-          const districts = getDistrictsByState(state.id);
-          for (const district of districts) {
-            const taluks = getTaluksByDistrict(state.id, district.id);
-            const taluk = taluks.find((t) => t.name.toLowerCase() === normalizedName);
-            if (taluk) {
-              console.log(`[enquiry-form] Found taluk ID: ${taluk.id} for name: ${name}`);
-              return taluk.id;
-            }
-          }
+          const hit = search(state.id);
+          if (hit) return hit;
         }
       }
-      console.warn(`[enquiry-form] Taluk "${name}" not found`);
       return '';
     }
 
     return '';
   } catch (error) {
-    console.error('[enquiry-form] Error converting location name to ID:', error, { name, type, stateId });
+    console.error('[enquiry-form] Error converting location name/id to ID:', error, { name, type, stateId });
     return '';
   }
 }
