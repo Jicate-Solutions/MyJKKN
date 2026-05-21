@@ -3,35 +3,24 @@
 // ============================================================================
 // AccountVerificationDialog
 // ----------------------------------------------------------------------------
-// The pre-account verification gate. Opened from enquiry-status-update.tsx
-// when an admin clicks "Move to Account". Renders:
-//   - Student name header
-//   - 8-row Academic Dimensions Summary (each with a Verified checkbox)
-//   - Fee Structure preview (read-only, matrix-driven)
-//   - Notes textarea (audit trail)
-//   - Cancel / Confirm footer
+// The pre-account verification gate. Opens from enquiry-status-update.tsx
+// when an admin clicks "Move to Account". The dialog is preview-only — the
+// admin REVIEWS the dimensions + fee structure, then either:
+//   • Confirms → atomic RPC: persists fee_items, flips lifecycle to 'account',
+//                generates bills, stamps account_verified_* audit columns,
+//                writes the activity log row.
+//   • Cancels → closes the modal; admin goes back to edit the enquiry if
+//                anything looks wrong.
 //
-// Confirm is enabled only when:
-//   (a) all 8 dim checkboxes are ticked
-//   (b) a fee structure has matched for the learner's current dims
-//   (c) no pending admission_fee_change_events exist
+// Confirm is enabled when:
+//   • A fee structure has matched for the learner's current dims
+//   • No pending admission_fee_change_events row exists
+//   • Not currently submitting
 //
-// Confirm flow:
-//   1. Re-resolve the fee structure (fresh) and compare to the snapshot
-//      taken when the dialog opened. If different → inline diff warning +
-//      checkboxes reset + admin must re-verify.
-//   2. If unchanged → call AccountTransitionService.transitionToAccount
-//      with the generated idempotency key + notes. Documents check is
-//      bypassed (required_documents: []) since documents are tracked on
-//      the Checklist tab.
-//   3. On success → write an admission_lead_activities row of type
-//      moved_to_account_verified + toast + close + refresh.
-//
-// 2026-05-21 — Created as Phase 1 of the pre-account verification flow.
-//              Phase 2 (DB) adds the idempotency_key + p_notes RPC params
-//              + admission_account_transition_log table. Until Phase 2
-//              ships, the client passes the key but the RPC ignores it
-//              (forward-compat).
+// 2026-05-21 v3 — Removed per-row "Verified" checkboxes per product call.
+// Preview is enough; the admin's responsibility is to read carefully, not
+// click 8 boxes. Layout polished with gradients, responsive sizing, and a
+// colour-coded fee summary card.
 // ============================================================================
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -47,7 +36,15 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { AlertTriangle, Loader2, Landmark } from 'lucide-react';
+import {
+  AlertTriangle,
+  Loader2,
+  Landmark,
+  UserCircle2,
+  Receipt,
+  StickyNote,
+  CheckCircle2,
+} from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { useRouter } from 'next/navigation';
 
@@ -72,9 +69,6 @@ interface Props {
   onSuccess?: () => void;
 }
 
-// Build the matrix dims from the learner's columns. Note: the
-// FeeStructureMatrixDimensions type uses `programme_id` (British spelling)
-// while the learner row column is `program_id` (American). Remap inline.
 function dimsFromLearner(learner: LearnerProfile): Partial<FeeStructureMatrixDimensions> {
   return {
     institution_id:        learner.institution_id ?? undefined,
@@ -99,7 +93,6 @@ export function AccountVerificationDialog({
   const [leadId, setLeadId] = useState<string | null>(null);
   const { createActivity } = useActivityMutations(leadId ?? undefined);
 
-  const [allDimsVerified, setAllDimsVerified] = useState(false);
   const [matchedStructure, setMatchedStructure] =
     useState<AdmissionFeeStructureWithItems | null>(null);
   const [notes, setNotes] = useState('');
@@ -108,26 +101,21 @@ export function AccountVerificationDialog({
   const [hasPendingFeeChange, setHasPendingFeeChange] = useState(false);
   const [structureChangedSinceOpen, setStructureChangedSinceOpen] = useState(false);
 
-  // Idempotency key — generated ONCE per dialog open so rapid double-clicks
-  // on Confirm don't fire the RPC twice. Phase 2 of the rollout wires this
-  // into the RPC; until then it's a forward-compat hint.
   const [idempotencyKey, setIdempotencyKey] = useState<string>(() =>
     typeof crypto !== 'undefined' && 'randomUUID' in crypto
       ? crypto.randomUUID()
-      : `${Date.now()}-${Math.random()}`
+      : `${Date.now()}-${Math.random()}`,
   );
 
-  // Snapshot of the matched structure id at open time. Used for the diff
-  // check at confirm time.
   const structureSnapshotIdRef = useRef<string | null>(null);
   const structureSnapshotItemsHashRef = useRef<string | null>(null);
 
   const dims = useMemo(() => dimsFromLearner(learner), [learner]);
 
-  // Reset state every time the dialog opens.
+  const fullName = `${learner.first_name} ${learner.last_name || ''}`.trim();
+
   useEffect(() => {
     if (open) {
-      setAllDimsVerified(false);
       setMatchedStructure(null);
       setNotes('');
       setSubmitting(false);
@@ -139,14 +127,11 @@ export function AccountVerificationDialog({
       setIdempotencyKey(
         typeof crypto !== 'undefined' && 'randomUUID' in crypto
           ? crypto.randomUUID()
-          : `${Date.now()}-${Math.random()}`
+          : `${Date.now()}-${Math.random()}`,
       );
     }
   }, [open]);
 
-  // Resolve the lead_id linked to this learner so the activity-log write
-  // can reference it. Best-effort — if no lead exists (legacy import),
-  // we'll skip the activity row.
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
@@ -161,7 +146,7 @@ export function AccountVerificationDialog({
           .maybeSingle();
         if (!cancelled) setLeadId(data?.id ?? null);
       } catch {
-        // Non-fatal
+        /* non-fatal */
       }
     })();
     return () => {
@@ -169,8 +154,6 @@ export function AccountVerificationDialog({
     };
   }, [open, learner.id]);
 
-  // Pre-flight check: any pending admission_fee_change_events for this
-  // learner? If yes, block the confirm path and surface the warning.
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
@@ -179,8 +162,6 @@ export function AccountVerificationDialog({
         if (!cancelled) setHasPendingFeeChange(pending);
       })
       .catch(() => {
-        // If the check itself fails, fail closed (assume no pending) — the
-        // RPC will block us anyway if there's a pending event.
         if (!cancelled) setHasPendingFeeChange(false);
       });
     return () => {
@@ -188,8 +169,6 @@ export function AccountVerificationDialog({
     };
   }, [open, learner.id]);
 
-  // Capture the structure snapshot the first time onMatchChange fires with
-  // a non-null structure. Subsequent re-fetches trigger the diff check.
   const handleMatchChange = useCallback(
     (m: AdmissionFeeStructureWithItems | null) => {
       setMatchedStructure(m);
@@ -204,24 +183,20 @@ export function AccountVerificationDialog({
   );
 
   const confirmEnabled =
-    allDimsVerified &&
-    matchedStructure !== null &&
-    !hasPendingFeeChange &&
-    !submitting;
+    matchedStructure !== null && !hasPendingFeeChange && !submitting;
+
+  const subtotal = matchedStructure?.items.reduce(
+    (sum, it) => sum + Number(it.amount),
+    0,
+  ) ?? 0;
 
   const handleConfirm = async () => {
-    if (submittingRef.current) return;
-    if (!confirmEnabled) return;
-    if (!matchedStructure) return;
+    if (submittingRef.current || !confirmEnabled || !matchedStructure) return;
 
     submittingRef.current = true;
     setSubmitting(true);
 
     try {
-      // Diff check: re-compare the current matched structure to the snapshot.
-      // We're already showing the latest in the panel (FeeStructureReadonlyPanel
-      // re-fetches on dim changes); the snapshot lets us detect drift in the
-      // matrix config itself.
       const currentHash = JSON.stringify(
         matchedStructure.items.map((it) => ({ c: it.billing_category_id, a: it.amount })),
       );
@@ -230,29 +205,20 @@ export function AccountVerificationDialog({
         structureSnapshotItemsHashRef.current !== currentHash
       ) {
         setStructureChangedSinceOpen(true);
-        // Reset the snapshot to the new structure so the next confirm
-        // will pass once the admin re-verifies.
         structureSnapshotIdRef.current = matchedStructure.id;
         structureSnapshotItemsHashRef.current = currentHash;
-        setAllDimsVerified(false); // also forces dim re-tick
         setSubmitting(false);
         submittingRef.current = false;
         return;
       }
 
-      // Fire the transition. Documents are tracked on the Checklist tab so
-      // we pass empty arrays for required_documents/received_documents —
-      // skips the RPC's docs check (existing behaviour after 2026-05-21).
       await AccountTransitionService.transitionToAccount({
         learner_id: learner.id,
         required_documents: [],
         received_documents: [],
-        // Phase 2 will land idempotency_key + notes as RPC params. Until
-        // then these are inert — pass them now so the wire is in place.
         ...({ idempotency_key: idempotencyKey, notes: notes || undefined } as any),
       });
 
-      // Audit row on the lead's activity timeline.
       if (leadId) {
         try {
           const performerName =
@@ -274,7 +240,6 @@ export function AccountVerificationDialog({
             description: lines.join(' · '),
           });
         } catch (logErr) {
-          // Non-fatal — the lifecycle change succeeded; we just lost an audit row.
           console.warn('[account-verification-dialog] activity log failed:', logErr);
         }
       }
@@ -295,21 +260,52 @@ export function AccountVerificationDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2 text-lg">
-            <Landmark className="h-5 w-5 text-amber-600" />
-            Verify and Move to Account — {learner.first_name} {learner.last_name || ''}
-          </DialogTitle>
-          <DialogDescription>
-            Review the academic dimensions and fee structure below. Confirm
-            each row, then click <strong>Confirm</strong> to flip the lifecycle
-            to <em>Account</em> and generate the bills. This action is
-            recorded on the activity timeline.
-          </DialogDescription>
-        </DialogHeader>
+      <DialogContent
+        className="
+          w-[calc(100vw-2rem)]
+          max-w-4xl
+          max-h-[92vh]
+          overflow-y-auto
+          p-0
+          gap-0
+          sm:rounded-xl
+        "
+      >
+        {/* Gradient header strip */}
+        <div className="rounded-t-xl bg-gradient-to-br from-amber-500 via-orange-500 to-rose-500 px-5 py-4 text-white">
+          <DialogHeader className="space-y-1.5 text-left">
+            <DialogTitle className="flex items-center gap-2 text-lg font-bold sm:text-xl">
+              <Landmark className="h-5 w-5 sm:h-6 sm:w-6" />
+              Verify & Move to Account
+            </DialogTitle>
+            <DialogDescription className="text-sm text-white/90">
+              Review the academic dimensions and fee structure below. Click
+              <strong className="text-white"> Confirm </strong>
+              to flip the lifecycle to <em>Account</em> and generate the
+              bills. Cancel to go back and edit if anything looks off.
+            </DialogDescription>
+          </DialogHeader>
+        </div>
 
-        <div className="space-y-5">
+        <div className="space-y-5 px-5 py-5">
+          {/* Student identity card */}
+          <div className="flex items-center gap-3 rounded-lg border bg-gradient-to-r from-slate-50 to-slate-100 px-4 py-3 shadow-sm dark:from-slate-900 dark:to-slate-800">
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 text-white shadow">
+              <UserCircle2 className="h-6 w-6" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                Student
+              </p>
+              <p className="truncate text-base font-bold">{fullName || 'Unnamed Learner'}</p>
+              {learner.application_id && (
+                <p className="text-xs text-muted-foreground">
+                  Application ID: <span className="font-mono">{learner.application_id}</span>
+                </p>
+              )}
+            </div>
+          </div>
+
           {/* Pending fee-change-event guard */}
           {hasPendingFeeChange && (
             <Alert variant="destructive">
@@ -325,62 +321,94 @@ export function AccountVerificationDialog({
 
           {/* Structure changed since open */}
           {structureChangedSinceOpen && (
-            <Alert variant="default" className="border-amber-300 bg-amber-50 text-amber-900">
+            <Alert className="border-amber-300 bg-amber-50 text-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
               <AlertTriangle className="h-4 w-4" />
               <AlertTitle>Fee structure changed since you opened this dialog</AlertTitle>
               <AlertDescription>
-                The matrix configuration was updated by an admin while this
-                dialog was open. We've refreshed the preview below — please
-                re-tick the dimensions to acknowledge the new values, then
-                click Confirm again.
+                The matrix configuration was updated while this dialog was
+                open. The preview below reflects the new values — please
+                re-read carefully, then click Confirm again.
               </AlertDescription>
             </Alert>
           )}
 
-          {/* Academic dimensions summary with per-row verification */}
+          {/* Academic Dimensions */}
           <section className="space-y-2">
-            <h3 className="text-sm font-semibold">Academic Dimensions</h3>
+            <div className="flex items-center gap-2">
+              <div className="h-1 w-6 rounded-full bg-gradient-to-r from-blue-500 to-purple-500" />
+              <h3 className="text-sm font-bold uppercase tracking-wide text-foreground">
+                Academic Dimensions
+              </h3>
+            </div>
             <p className="text-xs text-muted-foreground">
-              Confirm each row below matches the student's chosen
-              programme. If any value is wrong, cancel and edit the enquiry
-              before returning here.
+              Read each card. If any value is wrong, click <em>Cancel</em>
+              and edit the enquiry before returning here.
             </p>
-            <AcademicDimensionsSummary
-              learner={learner}
-              requireVerification
-              onVerificationChange={setAllDimsVerified}
-            />
+            <AcademicDimensionsSummary learner={learner} />
           </section>
 
-          {/* Fee structure preview — live, matrix-driven */}
+          {/* Fee Structure */}
           <section className="space-y-2">
-            <h3 className="text-sm font-semibold">Fee Structure to be Committed</h3>
+            <div className="flex items-center gap-2">
+              <div className="h-1 w-6 rounded-full bg-gradient-to-r from-emerald-500 to-teal-500" />
+              <h3 className="text-sm font-bold uppercase tracking-wide text-foreground">
+                Fee Structure to be Committed
+              </h3>
+            </div>
             <p className="text-xs text-muted-foreground">
-              These line items will be persisted on the learner and a
-              bill row will be created for each on confirmation.
+              These line items will be persisted on the learner and a bill
+              row created for each on confirmation.
             </p>
-            <FeeStructureReadonlyPanel
-              dims={dims}
-              onMatchChange={handleMatchChange}
-            />
+
+            {/* Use the existing read-only matrix panel — it already does
+                the fetch, renders the line-item table, and handles the
+                "no match" empty state. We just wrap it in our own card. */}
+            <div className="rounded-lg border bg-card shadow-sm">
+              <FeeStructureReadonlyPanel
+                dims={dims}
+                onMatchChange={handleMatchChange}
+              />
+              {matchedStructure && (
+                <div className="flex items-center justify-between border-t bg-gradient-to-r from-emerald-50 to-teal-50 px-4 py-3 dark:from-emerald-950/40 dark:to-teal-950/40">
+                  <div className="flex items-center gap-2 text-sm font-semibold text-emerald-800 dark:text-emerald-200">
+                    <Receipt className="h-4 w-4" />
+                    Bills to be generated: {matchedStructure.items.length}
+                  </div>
+                  <div className="text-right">
+                    <p className="text-[10px] font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">
+                      Total
+                    </p>
+                    <p className="text-lg font-bold tabular-nums text-emerald-900 dark:text-emerald-100">
+                      ₹{subtotal.toLocaleString('en-IN')}
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+
             {!matchedStructure && (
-              <Alert variant="default" className="border-amber-300 bg-amber-50 text-amber-900">
+              <Alert className="border-amber-300 bg-amber-50 text-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
                 <AlertTriangle className="h-4 w-4" />
                 <AlertTitle>No fee structure configured</AlertTitle>
                 <AlertDescription>
                   The matrix has no row for this learner's exact dimension
                   combination. Ask an admin to create the configuration at
-                  /admission/settings/fees-structure before confirming.
+                  <span className="font-mono"> /admission/settings/fees-structure </span>
+                  before confirming.
                 </AlertDescription>
               </Alert>
             )}
           </section>
 
-          {/* Notes textarea — audit trail */}
+          {/* Notes */}
           <section className="space-y-2">
-            <Label htmlFor="account-verify-notes" className="text-sm font-semibold">
-              Notes <span className="text-xs font-normal text-muted-foreground">(optional)</span>
-            </Label>
+            <div className="flex items-center gap-2">
+              <div className="h-1 w-6 rounded-full bg-gradient-to-r from-slate-400 to-slate-500" />
+              <Label htmlFor="account-verify-notes" className="text-sm font-bold uppercase tracking-wide">
+                <StickyNote className="mr-1 inline h-4 w-4" />
+                Notes <span className="text-[10px] font-normal text-muted-foreground">(optional)</span>
+              </Label>
+            </div>
             <Textarea
               id="account-verify-notes"
               value={notes}
@@ -388,6 +416,7 @@ export function AccountVerificationDialog({
               placeholder="Any context for this transition (e.g. 'Confirmed dims with parent over phone')…"
               rows={3}
               disabled={submitting}
+              className="resize-none"
             />
             <p className="text-[11px] text-muted-foreground">
               Stored on the activity timeline alongside the verification record.
@@ -395,23 +424,37 @@ export function AccountVerificationDialog({
           </section>
         </div>
 
-        <DialogFooter className="gap-2 sm:gap-2">
+        <DialogFooter className="border-t bg-muted/40 px-5 py-3 sm:gap-2">
           <Button
             variant="outline"
             onClick={() => onOpenChange(false)}
             disabled={submitting}
+            className="w-full sm:w-auto"
           >
             Cancel — needs correction
           </Button>
           <Button
             onClick={handleConfirm}
             disabled={!confirmEnabled}
-            className="bg-amber-600 hover:bg-amber-700 text-white"
+            className="
+              w-full sm:w-auto
+              bg-gradient-to-r from-amber-600 to-orange-600
+              text-white shadow-md
+              hover:from-amber-700 hover:to-orange-700
+              disabled:from-muted disabled:to-muted disabled:text-muted-foreground
+            "
           >
-            {submitting && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-            {submitting
-              ? 'Generating bills…'
-              : 'Confirm — Move to Account & Generate Bills'}
+            {submitting ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Generating bills…
+              </>
+            ) : (
+              <>
+                <CheckCircle2 className="mr-2 h-4 w-4" />
+                Confirm — Move to Account & Generate Bills
+              </>
+            )}
           </Button>
         </DialogFooter>
       </DialogContent>

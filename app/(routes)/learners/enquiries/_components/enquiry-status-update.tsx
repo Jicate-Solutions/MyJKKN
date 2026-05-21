@@ -10,8 +10,9 @@
  * Permission: `learners.admissions:edit` (or super admin). When the user
  * lacks it, the component renders only the read-only status badge.
  *
- * Special-case: moving to `account` triggers OnboardingService.markAsAccount
- * which validates finance fields before flipping the status.
+ * Special-case: moving to `account` opens AccountVerificationDialog, which
+ * fires admission_account_transition_with_bills atomically (resolves fees
+ * from the matrix, persists fee_items, flips lifecycle, generates bills).
  */
 
 import { useState } from 'react';
@@ -34,7 +35,6 @@ import {
 } from '@/components/ui/alert-dialog';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useUpdateLearnerProfile } from '@/hooks/use-learner-profiles';
-import { OnboardingService } from '@/lib/services/billing/onboarding/onboarding-service';
 // 2026-05-21: the Account transition now routes through AccountVerificationDialog
 // (Phase 4 of the verification-flow rollout). The previous direct call to
 // AccountTransitionService.transitionToAccount has moved INTO that dialog,
@@ -110,20 +110,19 @@ export function EnquiryStatusUpdate({ enquiry }: EnquiryStatusUpdateProps) {
     if (status === enquiry.lifecycle_status) return;
 
     if (status === 'account') {
-      // Pre-validate finance fields BEFORE opening the verification dialog —
-      // no point asking the admin to verify dims if fees aren't configured
-      // yet. Document verification is NOT enforced here (2026-05-21):
-      // documents live on the Checklist tab.
-      const validation = OnboardingService.validateFinanceFields(enquiry);
-      if (!validation.valid) {
-        toast.error(
-          `Missing finance fields: ${(validation as { missing: string[] }).missing.join(', ')}. ` +
-          `Please edit the enquiry to add finance details first.`,
-        );
-        return;
-      }
-      // Open the multi-step verification dialog. It handles the RPC call,
-      // success toast, and audit log itself.
+      // Open the multi-step verification dialog. It handles all gating:
+      //   - 8 dim-verified checkboxes
+      //   - fee structure must match (via FeeStructureReadonlyPanel)
+      //   - no pending fee-change-event for this learner
+      //   - drift detection on structure changes
+      // The dialog ALSO triggers the atomic RPC which resolves fees fresh
+      // from the matrix — so we no longer need to pre-check fee_items on
+      // the learner row. The old validateFinanceFields check (which read
+      // the already-stored fee_items column) was a hold-over from the
+      // pre-2026-05-21 flow where admins manually entered fee items on
+      // the form. After the verification rollout, fee_items is populated
+      // BY the RPC at confirm-time, not BEFORE it. Pre-checking the empty
+      // column would block every legitimate transition.
       setAccountVerifyOpen(true);
       return;
     }

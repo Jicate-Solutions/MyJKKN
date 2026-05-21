@@ -828,37 +828,14 @@ export function EnquiryDetail({ enquiry }: EnquiryDetailProps) {
                   </div>
                 </div>
 
-                <Separator />
-
-                <div className='space-y-4'>
-                  <h3 className='text-sm font-semibold'>Reference Information</h3>
-                  <div className='grid grid-cols-2 gap-4'>
-                    <div className='space-y-1'>
-                      <h4 className='text-sm font-medium text-muted-foreground'>
-                        Reference Type
-                      </h4>
-                      <p className='text-sm'>
-                        {enquiry.reference_type || 'Not specified'}
-                      </p>
-                    </div>
-                    <div className='space-y-1'>
-                      <h4 className='text-sm font-medium text-muted-foreground'>
-                        Reference Name
-                      </h4>
-                      <p className='text-sm'>
-                        {enquiry.reference_name || 'Not applicable'}
-                      </p>
-                    </div>
-                    <div className='space-y-1'>
-                      <h4 className='text-sm font-medium text-muted-foreground'>
-                        Reference Contact
-                      </h4>
-                      <p className='text-sm'>
-                        {enquiry.reference_contact || 'Not applicable'}
-                      </p>
-                    </div>
-                  </div>
-                </div>
+                {/* Reference Information block removed 2026-05-21.
+                 *  Referral attribution lives on the lead's Referral &
+                 *  Consultant section and propagates to the learner via
+                 *  /api/admission/bridge/convert (referral_type,
+                 *  referred_by_id, referred_by_name). The legacy text
+                 *  columns reference_type / reference_name / reference_contact
+                 *  stay on learners_profiles for historical data + B2A
+                 *  compatibility but are no longer surfaced on this view. */}
               </CardContent>
             </>
           )}
