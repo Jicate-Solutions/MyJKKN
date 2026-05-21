@@ -73,6 +73,29 @@ export interface DirectorDigest {
   bucket_counts: Record<string, number>; // { interested: 12, concerned: 4, neutral: 7 }
 }
 
+/**
+ * Per-counsellor breakdown of memo outcomes within the policy window.
+ *
+ * Surfaces WHO is producing what. Under English-only policy, the rejection_pct
+ * column tells the Director which counsellors are recording in Tamil/Hindi
+ * (and therefore generating rejected_non_english rows that burn AI spend
+ * without producing usable transcripts).
+ *
+ * Added 2026-05-22 after audit found 100% rejection rate in production with
+ * no per-counsellor visibility — Director could see the aggregate failure but
+ * not the responsible counsellors.
+ */
+export interface PerCounselorBreakdown {
+  counselor_id: string | null; // null = no counselor assigned to the call_log row
+  counselor_name: string | null; // from admission_counselors.name; null when counselor_id is null
+  total: number; // count of memo_audio_url rows in window
+  completed: number;
+  rejected_non_english: number;
+  failed: number;
+  in_flight: number; // pending + transcribing + analyzing
+  rejection_pct: number; // rejected_non_english / total * 100 (0-100)
+}
+
 export interface VoiceMemoMonitorSnapshot {
   policy: VoiceMemoMonitorPolicy;
   counters: MemoCounters;
@@ -81,5 +104,6 @@ export interface VoiceMemoMonitorSnapshot {
   recent_completions: RecentCompletion[];
   cost: CostRollup;
   digest: DirectorDigest;
+  per_counselor: PerCounselorBreakdown[]; // ordered by rejection_pct DESC then total DESC
   generated_at: string; // ISO of when snapshot was computed
 }
