@@ -13,6 +13,7 @@ export const SHEET_NAMES = {
   objectives: 'Objectives',
   clos: 'COs',
   units: 'Units',
+  practicalTopics: 'Practical Topics',
   textbooks: 'Textbooks',
   references: 'References',
   webResources: 'WebResources',
@@ -145,40 +146,60 @@ export async function buildSyllabusTemplate(): Promise<ArrayBuffer> {
     ],
   });
 
+  // Units sheet shape mirrors buildSyllabusWorkbook so template + export are
+  // visually identical. 'Sections' (e.g. "6.1, 6.2, 6.3") is a chapter-level
+  // detail field, separate from the chapter 'title'.
   addSheet(wb, SHEET_NAMES.units, {
-    headers: ['Unit *', 'Title', 'Chapter', 'Sub-topic', 'Remarks'],
+    headers: ['Unit *', 'Title', 'Chapter', 'Sections', 'Sub-topic', 'Remarks'],
     rows: [
-      ['I', 'Reciprocal Equations', 'Reciprocal Equations - Standard form', '', 'Book 1 - Chapter 6'],
-      ['I', '', '', 'Definition and properties of reciprocal equations', ''],
-      ['I', '', '', 'Roots of standard reciprocal equations', ''],
-      ['I', 'Reciprocal Equations', "Horner's method for roots of polynomials", '', ''],
-      ['II', 'Series', 'Summation of Series: Binomial-Exponential-Logarithmic', '', 'Book 1 - Chapter 3'],
-      ['II', '', '', 'Binomial series expansion', ''],
-      ['II', '', '', 'Exponential and logarithmic series', ''],
-      ['III', 'Matrices', 'Inverse of a square matrix, Characteristic equation', '', 'Book 2 - Chapter 2'],
-      ['IV', 'Trigonometry', 'Expansions of sinθ, cosθ in powers of sinθ, cosθ', '', 'Book 3 - Chapter 3'],
-      ['V', 'Hyperbolic Functions', 'Relation between circular and hyperbolic functions', '', 'Book 3 - Chapter 4'],
+      ['I', 'Reciprocal Equations', 'Reciprocal Equations - Standard form', '1.1, 1.2', '', 'Book 1 - Chapter 6'],
+      ['I', '', '', '', 'Definition and properties of reciprocal equations', ''],
+      ['I', '', '', '', 'Roots of standard reciprocal equations', ''],
+      ['I', 'Reciprocal Equations', "Horner's method for roots of polynomials", '1.3', '', ''],
+      ['II', 'Series', 'Summation of Series: Binomial-Exponential-Logarithmic', '2.1, 2.2', '', 'Book 1 - Chapter 3'],
+      ['II', '', '', '', 'Binomial series expansion', ''],
+      ['II', '', '', '', 'Exponential and logarithmic series', ''],
+      ['III', 'Matrices', 'Inverse of a square matrix, Characteristic equation', '3.1', '', 'Book 2 - Chapter 2'],
+      ['IV', 'Trigonometry', 'Expansions of sinθ, cosθ in powers of sinθ, cosθ', '4.1', '', 'Book 3 - Chapter 3'],
+      ['V', 'Hyperbolic Functions', 'Relation between circular and hyperbolic functions', '5.1', '', 'Book 3 - Chapter 4'],
     ],
-    colWidths: [10, 28, 50, 40, 30],
+    colWidths: [10, 28, 50, 22, 40, 30],
     validations: [{ sqref: 'A2:A60', values: ROMAN_NUMERALS, errorTitle: 'Invalid unit', error: 'Pick a Roman numeral I-X.' }],
   });
 
-  addSheet(wb, SHEET_NAMES.textbooks, {
-    headers: ['Title', 'Author'],
+  // Practical Topics sheet — only consumed when the syllabus is_practical=true.
+  // Present in the template (with example rows) so the shape matches the
+  // export side; harmless for regular-mode papers that just leave it empty.
+  addSheet(wb, SHEET_NAMES.practicalTopics, {
+    headers: ['S.No', 'Experiment / Topic'],
     rows: [
-      ['Algebra Vol-I, Viswanathan Publishers, 2008', 'Manickavasagam Pillai, T.K.'],
-      ['Algebra Vol-II, Viswanathan Publishers, 2008', 'Manickavasagam Pillai, T.K.'],
+      [1, 'Introduction to the laboratory and safety protocols'],
+      [2, 'Experiment 1: Basic measurements and observations'],
+      [3, 'Experiment 2: Data collection and analysis'],
     ],
-    colWidths: [60, 35],
+    colWidths: [8, 80],
+  });
+
+  const bookHeaders = ['Title', 'Author', 'Publication Year', 'Publisher'];
+  // 18 wch fits the 16-char 'Publication Year' header with breathing room.
+  const bookColWidths = [60, 35, 18, 30];
+
+  addSheet(wb, SHEET_NAMES.textbooks, {
+    headers: bookHeaders,
+    rows: [
+      ['Algebra Vol-I', 'Manickavasagam Pillai, T.K.', 2008, 'Viswanathan Publishers'],
+      ['Algebra Vol-II', 'Manickavasagam Pillai, T.K.', 2008, 'Viswanathan Publishers'],
+    ],
+    colWidths: bookColWidths,
   });
 
   addSheet(wb, SHEET_NAMES.references, {
-    headers: ['Title', 'Author'],
+    headers: bookHeaders,
     rows: [
-      ['Theory of Equations', 'W.S. Burnstine and A.W. Panton'],
-      ['Linear Algebra and its Applications, 3rd Ed., Pearson, 2007', 'David C. Lay'],
+      ['Theory of Equations', 'W.S. Burnstine and A.W. Panton', '', ''],
+      ['Linear Algebra and its Applications, 3rd Ed.', 'David C. Lay', 2007, 'Pearson'],
     ],
-    colWidths: [60, 35],
+    colWidths: bookColWidths,
   });
 
   addSheet(wb, SHEET_NAMES.webResources, {
@@ -251,45 +272,79 @@ export async function buildSyllabusWorkbook(syllabus: BosCourseSyllabus): Promis
     ],
   });
 
-  const units = (syllabus.course_content as any)?.units ?? [];
+  // course_content has two mutually exclusive shapes (see types/bos.ts):
+  //   • units[]  — regular papers
+  //   • topics[] with is_practical=true — lab/practical papers
+  // Earlier versions of this exporter only handled the units[] shape, silently
+  // dropping the body of every practical paper. See memory:
+  // project_bos_practical_topics_shape.
+  const content = syllabus.course_content as any;
+  const units = content?.units ?? [];
+  const isPractical = !!content?.is_practical;
+  const practicalTopics: Array<{ number?: number; title?: string }> = content?.topics ?? [];
+
   const unitRows: (string | number)[][] = [];
   for (const u of units) {
     const chapters = u.chapters ?? [];
     if (chapters.length === 0) {
-      unitRows.push([u.unit_id ?? '', u.unit_title ?? '', '', '', u.remarks ?? '']);
+      unitRows.push([u.unit_id ?? '', u.unit_title ?? '', '', '', '', u.remarks ?? '']);
     } else {
       chapters.forEach((ch: any, idx: number) => {
+        // 'Sections' (e.g. "6.1, 6.2, 6.3") is a separate field from 'title' —
+        // form writes both, PDF reads both, but this exporter used to drop it.
         unitRows.push([
-          u.unit_id ?? '', u.unit_title ?? '', ch.title ?? '', '',
+          u.unit_id ?? '', u.unit_title ?? '', ch.title ?? '', ch.sections ?? '', '',
           idx === 0 ? (u.remarks ?? '') : '',
         ]);
         const subtopics = ch.subtopics ?? [];
         for (const st of subtopics) {
-          unitRows.push([u.unit_id ?? '', '', '', st.title ?? '', '']);
+          unitRows.push([u.unit_id ?? '', '', '', '', st.title ?? '', '']);
         }
       });
     }
   }
   const unitRowCount = Math.max(unitRows.length + 5, 60);
   addSheet(wb, SHEET_NAMES.units, {
-    headers: ['Unit *', 'Title', 'Chapter', 'Sub-topic', 'Remarks'],
+    headers: ['Unit *', 'Title', 'Chapter', 'Sections', 'Sub-topic', 'Remarks'],
     rows: unitRows,
-    colWidths: [10, 28, 50, 40, 30],
+    colWidths: [10, 28, 50, 22, 40, 30],
     validations: [{ sqref: `A2:A${unitRowCount}`, values: ROMAN_NUMERALS }],
   });
 
+  if (isPractical && practicalTopics.length > 0) {
+    addSheet(wb, SHEET_NAMES.practicalTopics, {
+      headers: ['S.No', 'Experiment / Topic'],
+      rows: practicalTopics.map((t, i) => [t.number ?? i + 1, t.title ?? '']),
+      colWidths: [8, 80],
+    });
+  }
+
+  // BosTextbook has 4 fields (title, author, publication_year, publisher) —
+  // exporter used to write only the first two, silently dropping year/publisher.
+  // The importer only reads title+author back, so year/publisher are
+  // export-only (not round-trip-safe) until the parser is extended.
+  const bookRow = (b: any) => [
+    b.title ?? '',
+    b.author ?? '',
+    b.publication_year ?? '',
+    b.publisher ?? '',
+  ];
+  const bookHeaders = ['Title', 'Author', 'Publication Year', 'Publisher'];
+  // 18 wch fits the 16-char 'Publication Year' header with breathing room.
+  const bookColWidths = [60, 35, 18, 30];
+
   const primary = (syllabus.textbooks as any)?.primary ?? [];
   addSheet(wb, SHEET_NAMES.textbooks, {
-    headers: ['Title', 'Author'],
-    rows: primary.map((b: any) => [b.title ?? '', b.author ?? '']),
-    colWidths: [60, 35],
+    headers: bookHeaders,
+    rows: primary.map(bookRow),
+    colWidths: bookColWidths,
   });
 
   const refs = (syllabus.textbooks as any)?.references ?? [];
   addSheet(wb, SHEET_NAMES.references, {
-    headers: ['Title', 'Author'],
-    rows: refs.map((b: any) => [b.title ?? '', b.author ?? '']),
-    colWidths: [60, 35],
+    headers: bookHeaders,
+    rows: refs.map(bookRow),
+    colWidths: bookColWidths,
   });
 
   const webRes = (syllabus.web_resources as any)?.resources ?? [];

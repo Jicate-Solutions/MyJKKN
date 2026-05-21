@@ -130,8 +130,33 @@ export async function PUT(
       delete (patch as { institutions_id?: string }).institutions_id;
     }
 
+    // If the board is being re-assigned, re-resolve board_type from COE so the
+    // denormalized value on the row stays in sync. Best-effort: a COE failure
+    // leaves board_type unchanged rather than blocking the edit.
+    let resolvedBoardType: string | null | undefined;
+    if (patch.board_id) {
+      try {
+        const { data: existingForInst } = await supabase
+          .from('bos_compositions')
+          .select('institutions_id')
+          .eq('id', id)
+          .maybeSingle();
+        const instId =
+          (patch as { institutions_id?: string }).institutions_id ??
+          (existingForInst as { institutions_id?: string } | null)?.institutions_id;
+        if (instId) {
+          const { fetchCoeBoardMap } = await import('@/lib/utils/bos/coe-boards');
+          const boardMap = await fetchCoeBoardMap(instId);
+          resolvedBoardType = boardMap.get(patch.board_id)?.board_type ?? null;
+        }
+      } catch (boardLookupErr) {
+        console.warn('[bos/compositions/[id]] board_type re-lookup failed:', boardLookupErr);
+      }
+    }
+
     const payload = {
       ...patch,
+      ...(resolvedBoardType !== undefined ? { board_type: resolvedBoardType } : {}),
       ratified_date: patch.ratified_date || null,
       term_end_date: patch.term_end_date || null,
       constituted_by: patch.constituted_by || null,

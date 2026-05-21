@@ -18,7 +18,19 @@ export class BosAttendanceService {
     return res.json();
   }
 
-  /** Bulk upsert attendance records. Replaces any existing records for the same meeting+member. */
+  /**
+   * Bulk upsert attendance records. Replaces any existing records for the
+   * same meeting+member.
+   *
+   * Response unwrap (2026-05-21 SOP redesign): the attendance POST route
+   * now returns `{ attendees, autoClaims }` so the auto-claim sync result
+   * is available to callers that want to surface "N claims generated".
+   * This service unwraps to keep the legacy `BosMeetingAttendee[]` return
+   * contract — useSaveBosAttendance writes this directly into the GET
+   * cache via setQueryData, and that cache is typed as an array. Without
+   * the unwrap, the cache would hold an object and the next render of
+   * AttendanceTab would crash on `.map`.
+   */
   static async saveAttendance(
     meetingId: string,
     records: AttendanceUpsertRecord[]
@@ -32,6 +44,8 @@ export class BosAttendanceService {
       const err = await res.json().catch(() => ({ error: 'Failed to save attendance' }));
       throw new Error(err.error ?? 'Failed to save attendance');
     }
-    return res.json();
+    const json = await res.json();
+    // Bare-array shape (pre-SOP redesign) or envelope shape — both supported.
+    return Array.isArray(json) ? json : (json?.attendees ?? []);
   }
 }

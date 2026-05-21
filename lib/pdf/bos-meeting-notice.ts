@@ -150,7 +150,20 @@ export interface BosCallLetterData {
   meeting: BosMeeting;
   agendaItems: BosAgendaItem[];
   recipient: BosCallLetterRecipient;
+  /**
+   * Bare board name (e.g. "Computer Science"). The caller is expected to
+   * strip any "Board of Studies - " prefix from bos_boards.board_name before
+   * passing it in — otherwise the rendered subject line will duplicate the
+   * phrase ("Meeting of the PG Board of Studies - Computer Science Board of
+   * Studies"). See preview-pdf / notify-members for the canonical stripper.
+   */
   boardName: string;
+  /**
+   * Academic level prefix (e.g. "PG", "UG"). Denormalized onto bos_meetings
+   * at meeting-create time from the parent composition's board_type column.
+   * When null/empty, the subject + body use boardName alone.
+   */
+  boardType?: string | null;
   header: InstitutionPdfHeader;
 }
 
@@ -171,7 +184,32 @@ export function buildCallLetterHtml(
   data: BosCallLetterData,
   logos: LogoBundle,
 ): string {
-  const { meeting, agendaItems, recipient, boardName, header } = data;
+  const { meeting, agendaItems, recipient, boardName, boardType, header } = data;
+
+  // Compose "UG - Computer Science" / "PG - Mathematics" / etc. when both are
+  // present. board_type is null on legacy rows (created before the 20260521
+  // migration) — in that case we render the name alone with no leading dash
+  // ("Meeting of the Computer Science Board of Studies").
+  //
+  // Casing rules:
+  //   • board_type → uppercased ("ug" → "UG") in case COE ever returns it lower.
+  //   • board_name → Title Case, but acronyms (all-uppercase 2+ letter tokens
+  //     like "BBA", "TFD", "MCA") are preserved as-is. Without that guard,
+  //     "BBA" would become "Bba" which reads as a typo.
+  const formattedType = boardType?.trim().toUpperCase() ?? '';
+  const formattedName = (boardName ?? '')
+    .trim()
+    .split(/(\s+)/) // capture whitespace so multi-space sequences round-trip
+    .map((part) => {
+      if (/^\s+$/.test(part) || part.length === 0) return part;
+      if (/^[A-Z]{2,}$/.test(part)) return part; // preserve acronym
+      return part[0].toUpperCase() + part.slice(1).toLowerCase();
+    })
+    .join('');
+
+  const boardLabel = [formattedType, formattedName]
+    .filter((s) => s.length > 0)
+    .join(' - ');
 
   const institutionName = (header.institution_name ?? '').toUpperCase();
   const accreditation = header.institution_accreditation ?? '';
@@ -194,7 +232,7 @@ export function buildCallLetterHtml(
     : '';
 
   // ── Subject line ─────────────────────────────────────────────────────────
-  const subjectText = `Meeting of the ${boardName} Board of Studies${
+  const subjectText = `Meeting of the ${boardLabel} Board of Studies${
     meeting.agenda_text
       ? ' - ' + meeting.agenda_text.split('\n')[0].slice(0, 80).trim()
       : ''
@@ -510,7 +548,7 @@ export function buildCallLetterHtml(
 
   <!-- ── Body paragraph ────────────────────────────────────── -->
   <p class="body-para">
-    We are happy to have the privilege of inviting you for the <strong>${meetingOrd}</strong> Meeting of ${escapeHtml(boardName)} Board of Studies to be conducted on <strong>${meetingDateStr}</strong>${meetingTimeStr ? ` at <strong>${escapeHtml(meetingTimeStr)}</strong>` : ''} ${venueClause}.
+    We are happy to have the privilege of inviting you for the <strong>${meetingOrd}</strong> Meeting of ${escapeHtml(boardLabel)} Board of Studies to be conducted on <strong>${meetingDateStr}</strong>${meetingTimeStr ? ` at <strong>${escapeHtml(meetingTimeStr)}</strong>` : ''} ${venueClause}.
   </p>
 
   <!-- ── Agenda ────────────────────────────────────────────── -->

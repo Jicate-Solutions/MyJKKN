@@ -27,6 +27,7 @@ import {
   Document,
   Packer,
   Paragraph,
+  PageBreak,
   TextRun,
   Table,
   TableRow,
@@ -42,9 +43,52 @@ import type {
   BosMeeting,
   BosAgendaItem,
   BosMeetingAttendee,
+  BosMemberType,
 } from '@/types/bos';
 import type { BosPdfHeader } from './bos-pdf-generator';
 import { stripHtml } from '@/components/ui/rich-text-editor';
+
+// Canonical ordering for BoS members in attendance / signature tables.
+// Duplicated from bos-pdf-generator.ts because the PDF module pulls jsPDF
+// (a browser-only dep) and importing it into this server-renderable file
+// would balloon the docx bundle. If this list diverges from the PDF's, the
+// two exports will silently differ — keep them in sync.
+const MEMBER_TYPE_ORDER: Record<BosMemberType, number> = {
+  chairman: 1,
+  university_nominee: 2,
+  subject_expert: 3,
+  industry_expert: 4,
+  alumni: 5,
+  internal_member: 6,
+  hod: 7,
+  startup: 8,
+  facilitator: 9,
+  principal: 10,
+};
+
+function memberTypeRank(t: BosMemberType | null | undefined): number {
+  if (!t) return 99;
+  return MEMBER_TYPE_ORDER[t] ?? 99;
+}
+
+function sortAttendeesForDocx(attendees: BosMeetingAttendee[]): BosMeetingAttendee[] {
+  type AttendeeMember = {
+    member_type?: BosMemberType | null;
+    sort_order?: number | null;
+    display_name?: string | null;
+  };
+  const memberOf = (a: BosMeetingAttendee): AttendeeMember =>
+    ((a as unknown as { member?: AttendeeMember }).member) ?? {};
+  return [...attendees].sort((a, b) => {
+    const ma = memberOf(a);
+    const mb = memberOf(b);
+    const rankDiff = memberTypeRank(ma.member_type) - memberTypeRank(mb.member_type);
+    if (rankDiff !== 0) return rankDiff;
+    const soDiff = (ma.sort_order ?? 0) - (mb.sort_order ?? 0);
+    if (soDiff !== 0) return soDiff;
+    return (ma.display_name ?? '').localeCompare(mb.display_name ?? '');
+  });
+}
 
 // ── Constants ────────────────────────────────────────────────────────────────
 const FONT = 'Times New Roman';
@@ -352,11 +396,17 @@ function buildDetailsTable(meeting: BosMeeting, chairmanName: string): Table {
 }
 
 function buildAttendanceTable(attendees: BosMeetingAttendee[]): Table {
+  // 5-column attendance table, mirroring the PDF's page-1 attendance sheet:
+  // S.No | Name | Designation | Status | Signature.
+  //
+  // The Signature column gets the largest share of the page so members have
+  // room to physically sign on a printed copy.
   const colWidths = [
-    convertMillimetersToTwip(15),
-    convertMillimetersToTwip(70),
-    convertMillimetersToTwip(60),
-    convertMillimetersToTwip(35),
+    convertMillimetersToTwip(12),
+    convertMillimetersToTwip(46),
+    convertMillimetersToTwip(46),
+    convertMillimetersToTwip(22),
+    convertMillimetersToTwip(54), // Signature — widest
   ];
 
   const header = new TableRow({
@@ -366,10 +416,13 @@ function buildAttendanceTable(attendees: BosMeetingAttendee[]): Table {
       cellText('Name', { bold: true, shading: 'E6E6E6' }),
       cellText('Designation', { bold: true, shading: 'E6E6E6' }),
       cellText('Status', { bold: true, align: AlignmentType.CENTER, shading: 'E6E6E6' }),
+      cellText('Signature', { bold: true, align: AlignmentType.CENTER, shading: 'E6E6E6' }),
     ],
   });
 
-  const body = attendees.map((a, i) => {
+  // Sort canonically (chairman → external experts → internal members).
+  const sorted = sortAttendeesForDocx(attendees);
+  const body = sorted.map((a, i) => {
     const m = (a as unknown as { member?: { display_name?: string; display_designation?: string } }).member;
     const isPresent = a.attendance_status === 'present';
     return new TableRow({
@@ -378,9 +431,125 @@ function buildAttendanceTable(attendees: BosMeetingAttendee[]): Table {
         cellText(m?.display_name ?? '—'),
         cellText(m?.display_designation ?? ''),
         cellText(isPresent ? 'Present' : 'Absent', { align: AlignmentType.CENTER }),
+        cellText('', { align: AlignmentType.CENTER }), // blank — signed in person
       ],
     });
   });
+
+  return new Table({
+    width: { size: CONTENT_WIDTH_DXA, type: WidthType.DXA },
+    columnWidths: colWidths,
+    rows: [header, ...body],
+  });
+}
+
+// Page-1 attendance-sheet heading + metadata strip. Returns the paragraphs
+// that sit between the letterhead and the attendance table. Heading format
+// matches the PDF: "<BOARD_TYPE> - <BOARD_NAME> ATTENDANCE SHEET".
+function buildAttendanceSheetHeader(
+  meeting: BosMeeting,
+  boardName: string | undefined,
+): Paragraph[] {
+  const boardType = (meeting.board_type ?? '').trim().toUpperCase();
+  const boardNameUpper = (boardName ?? '').trim().toUpperCase();
+  const parts: string[] = [];
+  if (boardType) parts.push(boardType);
+  if (boardNameUpper) parts.push(boardNameUpper);
+  const heading = parts.length
+    ? `${parts.join(' - ')} ATTENDANCE SHEET`
+    : 'ATTENDANCE SHEET';
+
+  const meta = [
+    `Meeting No. ${meeting.meeting_number} / ${meeting.academic_year}`,
+    `Date: ${fmtDate(meeting.actual_date || meeting.scheduled_date)}`,
+    `Venue: ${meeting.venue || '—'}`,
+  ].join('   |   ');
+
+  return [
+    new Paragraph({
+      alignment: AlignmentType.CENTER,
+      spacing: { before: 240, after: 120 },
+      children: [
+        new TextRun({ text: heading, font: FONT, size: SIZE_TITLE, bold: true }),
+      ],
+    }),
+    new Paragraph({
+      alignment: AlignmentType.CENTER,
+      spacing: { after: 120 },
+      children: [new TextRun({ text: meta, font: FONT, size: SIZE_BODY })],
+    }),
+  ];
+}
+
+// New signatures table replacing the old 3-per-row signature grid. Matches
+// the PDF's "S.No | Members | Signature" layout where the Members cell stacks
+// Name / Designation / Institution / Address. Only present members are
+// listed, in canonical sort order.
+function buildSignaturesTable(attendees: BosMeetingAttendee[]): Table | null {
+  type MemberRow = {
+    display_name?: string;
+    display_designation?: string;
+    display_institution?: string;
+    address?: string;
+  };
+
+  const presentRows = sortAttendeesForDocx(attendees)
+    .filter((a) => a.attendance_status === 'present')
+    .map((a) => ((a as unknown as { member?: MemberRow }).member) ?? {});
+
+  if (presentRows.length === 0) return null;
+
+  const colWidths = [
+    convertMillimetersToTwip(14),
+    convertMillimetersToTwip(106), // Members — widest because it stacks 4 lines
+    convertMillimetersToTwip(60),  // Signature
+  ];
+
+  // Compose the Members cell as one TableCell with multiple Paragraphs —
+  // each Paragraph becomes a visible line inside the cell. Empty fields are
+  // skipped to avoid a blank line in the middle of the stack.
+  const memberCell = (m: MemberRow): TableCell => {
+    const lines = [
+      m.display_name ?? '—',
+      m.display_designation ?? '',
+      m.display_institution ?? '',
+      m.address ?? '',
+    ].filter((s) => s && s.trim().length > 0);
+    return new TableCell({
+      borders: ALL_BORDERS,
+      children: lines.map(
+        (text) =>
+          new Paragraph({
+            children: [new TextRun({ text, font: FONT, size: SIZE_BODY })],
+          }),
+      ),
+    });
+  };
+
+  const header = new TableRow({
+    tableHeader: true,
+    children: [
+      cellText('S.No', { bold: true, align: AlignmentType.CENTER, shading: 'E6E6E6' }),
+      cellText('Members', { bold: true, align: AlignmentType.CENTER, shading: 'E6E6E6' }),
+      cellText('Signature', { bold: true, align: AlignmentType.CENTER, shading: 'E6E6E6' }),
+    ],
+  });
+
+  const body = presentRows.map(
+    (m, idx) =>
+      new TableRow({
+        children: [
+          cellText(String(idx + 1), { align: AlignmentType.CENTER }),
+          memberCell(m),
+          // Blank signature cell — needs visible borders so the user can see
+          // where to sign on a printed copy.
+          new TableCell({
+            borders: ALL_BORDERS,
+            children: [new Paragraph({ children: [new TextRun({ text: '' })] })],
+          }),
+        ],
+      }),
+  );
 
   return new Table({
     width: { size: CONTENT_WIDTH_DXA, type: WidthType.DXA },
@@ -484,16 +653,19 @@ function buildChangesLogTable(
     convertMillimetersToTwip(36),
   ];
 
+  // Font size bumped from SIZE_SMALL (9pt) to SIZE_BODY (11pt) per UX
+  // request — the smaller font was hard to read on a printed copy. Mirrors
+  // the same bump applied to the PDF generator's Suggested Changes table.
   const header = new TableRow({
     tableHeader: true,
     children: [
-      cellText('#', { bold: true, align: AlignmentType.CENTER, shading: 'E6E6E6', size: SIZE_SMALL }),
-      cellText('Course', { bold: true, shading: 'E6E6E6', size: SIZE_SMALL }),
-      cellText('Unit', { bold: true, shading: 'E6E6E6', size: SIZE_SMALL }),
-      cellText('Topics', { bold: true, shading: 'E6E6E6', size: SIZE_SMALL }),
-      cellText('Sub-topics', { bold: true, shading: 'E6E6E6', size: SIZE_SMALL }),
-      cellText('Suggested by', { bold: true, shading: 'E6E6E6', size: SIZE_SMALL }),
-      cellText('Change', { bold: true, shading: 'E6E6E6', size: SIZE_SMALL }),
+      cellText('#', { bold: true, align: AlignmentType.CENTER, shading: 'E6E6E6', size: SIZE_BODY }),
+      cellText('Course', { bold: true, shading: 'E6E6E6', size: SIZE_BODY }),
+      cellText('Unit', { bold: true, shading: 'E6E6E6', size: SIZE_BODY }),
+      cellText('Topics', { bold: true, shading: 'E6E6E6', size: SIZE_BODY }),
+      cellText('Sub-topics', { bold: true, shading: 'E6E6E6', size: SIZE_BODY }),
+      cellText('Suggested by', { bold: true, shading: 'E6E6E6', size: SIZE_BODY }),
+      cellText('Change', { bold: true, shading: 'E6E6E6', size: SIZE_BODY }),
     ],
   });
 
@@ -501,15 +673,15 @@ function buildChangesLogTable(
     (row, idx) =>
       new TableRow({
         children: [
-          cellText(String(idx + 1), { align: AlignmentType.CENTER, size: SIZE_SMALL }),
-          cellText(row.syllabus_code ?? '—', { size: SIZE_SMALL }),
-          cellText(row.unit ?? '—', { size: SIZE_SMALL }),
-          cellText(asArray(row.topic).join(' · ') || '—', { size: SIZE_SMALL }),
-          cellText(asArray(row.sub_topic).join(' · ') || '—', { size: SIZE_SMALL }),
+          cellText(String(idx + 1), { align: AlignmentType.CENTER, size: SIZE_BODY }),
+          cellText(row.syllabus_code ?? '—', { size: SIZE_BODY }),
+          cellText(row.unit ?? '—', { size: SIZE_BODY }),
+          cellText(asArray(row.topic).join(' · ') || '—', { size: SIZE_BODY }),
+          cellText(asArray(row.sub_topic).join(' · ') || '—', { size: SIZE_BODY }),
           // Multi-suggestor support: join co-suggestor names with ', ' for
           // the Word table cell. Mirrors the PDF cell formatting.
-          cellText(asArray(row.suggested_by_name).join(', ') || '—', { size: SIZE_SMALL }),
-          cellText(row.suggestion_text ?? '', { size: SIZE_SMALL }),
+          cellText(asArray(row.suggested_by_name).join(', ') || '—', { size: SIZE_BODY }),
+          cellText(row.suggestion_text ?? '', { size: SIZE_BODY }),
         ],
       }),
   );
@@ -598,37 +770,84 @@ export interface MinutesDocxParams {
   attendees: BosMeetingAttendee[];
   agendaItems: BosAgendaItem[];
   chairmanName: string;
+  /**
+   * Board display name (e.g. "Computer Science"). Drives both the page-1
+   * attendance-sheet heading ("<BOARD_TYPE> - <BOARD_NAME> ATTENDANCE
+   * SHEET") and the page-2 title ("<BOARD_TYPE> - <BOARD_NAME> - MINUTES OF
+   * BOARD OF STUDIES MEETING"). Falls back to a generic heading if absent.
+   */
+  boardName?: string;
 }
 
 export function buildMinutesDocxDoc(params: MinutesDocxParams): Document {
-  const { header, meeting, attendees, agendaItems, chairmanName } = params;
+  const { header, meeting, attendees, agendaItems, chairmanName, boardName } = params;
 
-  // Letterhead: returns paragraphs + a stashed officials table reference.
-  const letterheadParas = buildLetterhead(header);
-  const officialsTable = (letterheadParas as unknown as { _officialsTable?: Table })
-    ._officialsTable;
-
-  // Replace the marker paragraph with… nothing here. We splice it out and
-  // splice the actual Table into the section children list below.
-  const children: (Paragraph | Table)[] = [];
-  for (const p of letterheadParas) {
-    const text =
-      (p.options as unknown as { children?: Array<{ text?: string }> })?.children?.[0]?.text;
-    if (text === '__OFFICIALS_TABLE__') {
-      if (officialsTable) children.push(officialsTable);
-      continue;
+  // Helper to materialize the letterhead block, swapping the officials-table
+  // marker for the actual Table reference. Called twice — once for page 1
+  // (attendance sheet) and once for page 2 (minutes), so each printed page
+  // shows the institution banner.
+  const renderLetterhead = (): (Paragraph | Table)[] => {
+    const paras = buildLetterhead(header);
+    const officialsTable = (paras as unknown as { _officialsTable?: Table })._officialsTable;
+    const out: (Paragraph | Table)[] = [];
+    for (const p of paras) {
+      const text =
+        (p.options as unknown as { children?: Array<{ text?: string }> })?.children?.[0]?.text;
+      if (text === '__OFFICIALS_TABLE__') {
+        if (officialsTable) out.push(officialsTable);
+        continue;
+      }
+      out.push(p);
     }
-    children.push(p);
-  }
+    return out;
+  };
 
-  // Title
+  const children: (Paragraph | Table)[] = [];
+
+  // ── Page 1: Standalone Attendance Sheet ────────────────────────────────
+  children.push(...renderLetterhead());
+  children.push(...buildAttendanceSheetHeader(meeting, boardName));
+  const presentTotal = attendees.filter((a) => a.attendance_status === 'present').length;
+  children.push(
+    new Paragraph({
+      spacing: { after: 80 },
+      children: [
+        new TextRun({
+          text: `ATTENDANCE  (${presentTotal} Present / ${attendees.length} Total)`,
+          font: FONT,
+          size: SIZE_SECTION,
+          bold: true,
+        }),
+      ],
+    }),
+  );
+  children.push(buildAttendanceTable(attendees));
+
+  // ── Page break — Word renders subsequent content from a fresh page ────
+  children.push(
+    new Paragraph({
+      children: [new PageBreak()],
+    }),
+  );
+
+  // ── Page 2+: Minutes content ──────────────────────────────────────────
+  children.push(...renderLetterhead());
+
+  // Title — prefixed with board type + name when available, mirroring the
+  // PDF's "UG - COMPUTER SCIENCE - MINUTES OF BOARD OF STUDIES MEETING".
+  const tBoardType = (meeting.board_type ?? '').trim().toUpperCase();
+  const tBoardName = (boardName ?? '').trim().toUpperCase();
+  const titleParts: string[] = [];
+  if (tBoardType) titleParts.push(tBoardType);
+  if (tBoardName) titleParts.push(tBoardName);
+  titleParts.push('MINUTES OF BOARD OF STUDIES MEETING');
   children.push(
     new Paragraph({
       alignment: AlignmentType.CENTER,
       spacing: { before: 240, after: 120 },
       children: [
         new TextRun({
-          text: 'MINUTES OF BOARD OF STUDIES MEETING',
+          text: titleParts.join(' - '),
           font: FONT,
           size: SIZE_TITLE,
           bold: true,
@@ -640,10 +859,20 @@ export function buildMinutesDocxDoc(params: MinutesDocxParams): Document {
   // Details
   children.push(buildDetailsTable(meeting, chairmanName));
 
-  // Attendance
-  const present = attendees.filter((a) => a.attendance_status === 'present').length;
-  children.push(sectionHeading(`ATTENDANCE  (${present} Present / ${attendees.length} Total)`));
-  children.push(buildAttendanceTable(attendees));
+  // Attendance summary line — full roster is on page 1, so this is just a
+  // pointer for someone reading the minutes section in isolation.
+  children.push(
+    new Paragraph({
+      spacing: { before: 120, after: 120 },
+      children: [
+        new TextRun({
+          text: `Attendance: ${presentTotal} Present / ${attendees.length} Total (see attendance sheet on page 1).`,
+          font: FONT,
+          size: SIZE_BODY,
+        }),
+      ],
+    }),
+  );
 
   // Agenda
   if (agendaItems.length > 0) {
@@ -671,21 +900,12 @@ export function buildMinutesDocxDoc(params: MinutesDocxParams): Document {
     children.push(para(meeting.minutes_summary));
   }
 
-  // Signatures
-  const presentMembers = attendees
-    .filter((a) => a.attendance_status === 'present')
-    .map((a) => {
-      const m = (a as unknown as { member?: { display_name?: string; display_designation?: string } })
-        .member;
-      return {
-        name: m?.display_name ?? '—',
-        designation: m?.display_designation ?? undefined,
-      };
-    });
-  const sigGrid = buildSignatureGrid(presentMembers, 3);
-  if (sigGrid) {
+  // Signatures — new table layout matching the PDF: S.No | Members (stacked
+  // Name/Designation/Institution/Address) | Signature. Present-only, sorted.
+  const sigTable = buildSignaturesTable(attendees);
+  if (sigTable) {
     children.push(sectionHeading('SIGNATURES OF BOARD MEMBERS'));
-    children.push(sigGrid);
+    children.push(sigTable);
   }
 
   return new Document({

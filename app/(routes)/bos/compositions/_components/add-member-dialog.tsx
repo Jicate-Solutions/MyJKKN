@@ -213,7 +213,7 @@ export function AddMemberDialog({
   const handleSelectExpert = (row: BosExternalExpert) => {
     setSelectedExpert(row);
     setSelectedFacilitator(null);
-    setDisplayName(row.name);
+    setDisplayName(row.title ? `${row.title} ${row.name}` : row.name);
     setDisplayDesignation(row.designation ?? '');
     // External experts store department directly on the expert row.
     setDisplayDepartment(row.department_name ?? '');
@@ -584,7 +584,9 @@ function ExpertPicker({
       <div className='space-y-2'>
         <Label>Select External Expert <span className='text-destructive'>*</span></Label>
         <div className='flex items-center justify-between rounded-md border px-3 py-2'>
-          <span className='text-sm font-medium'>{selected.name}</span>
+          <span className='text-sm font-medium'>
+            {selected.title ? `${selected.title} ` : ''}{selected.name}
+          </span>
           <Button type='button' variant='ghost' size='sm' className='h-7 px-2 text-xs' onClick={onClear}>
             <X className='mr-1 h-3 w-3' />Change
           </Button>
@@ -628,7 +630,9 @@ function ExpertPicker({
                     className='flex flex-col items-start gap-0.5'
                   >
                     <div className='flex w-full items-center justify-between gap-2'>
-                      <span className='font-medium text-sm truncate'>{row.name}</span>
+                      <span className='font-medium text-sm truncate'>
+                        {row.title ? `${row.title} ` : ''}{row.name}
+                      </span>
                       <Badge variant='outline' className='text-[10px] py-0'>
                         {row.category}
                       </Badge>

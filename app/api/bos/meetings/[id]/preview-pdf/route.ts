@@ -51,7 +51,7 @@ export async function GET(
     const { data: meeting, error: meetingErr } = await supabase
       .from('bos_meetings')
       .select(
-        'id, composition_id, institutions_id, status, meeting_title, meeting_number, academic_year, scheduled_date, scheduled_time, venue, agenda_text, board_id'
+        'id, composition_id, institutions_id, status, meeting_title, meeting_number, academic_year, scheduled_date, scheduled_time, venue, agenda_text, board_id, board_type'
       )
       .eq('id', meetingId)
       .single();
@@ -116,15 +116,39 @@ export async function GET(
     const agendaItems = agendaItemsRaw ?? [];
     const instHeader = getInstitutionHeader(instRow?.name ?? null);
 
-    let boardName = 'PG';
-    if (meeting.board_id) {
+    // Resolve board metadata. COE is the authoritative source — bos_boards is
+    // only a partial local seed (9 UUIDs from the 20260510 migration), so any
+    // board added in COE after that will silently return null from bos_boards.
+    // One COE round-trip here gives us both board_name and board_type.
+    //
+    // Fallbacks (cheapest to most expensive):
+    //   1. meeting.board_type column (denormalized at create-time, 20260521 mig)
+    //   2. COE /api/public/boards lookup (authoritative, always present)
+    //   3. bos_boards local seed (only useful when COE is unreachable)
+    //
+    // The "Board of Studies - " prefix is stripped from whatever name source
+    // wins, so the rendered subject doesn't duplicate the phrase.
+    const { fetchCoeBoardMap } = await import('@/lib/utils/bos/coe-boards');
+    const coeBoardMap = meeting.institutions_id
+      ? await fetchCoeBoardMap(meeting.institutions_id)
+      : new Map<string, { board_name: string; board_type?: string | null }>();
+    const coeBoard = meeting.board_id ? coeBoardMap.get(meeting.board_id) : undefined;
+
+    let rawBoardName = coeBoard?.board_name ?? '';
+    if (!rawBoardName && meeting.board_id) {
       const { data: boardRow } = await supabase
         .from('bos_boards')
         .select('board_name')
         .eq('id', meeting.board_id)
         .maybeSingle();
-      boardName = (boardRow as { board_name?: string } | null)?.board_name ?? boardName;
+      rawBoardName = (boardRow as { board_name?: string } | null)?.board_name ?? '';
     }
+    const boardName = rawBoardName.replace(/^\s*Board of Studies\s*-\s*/i, '').trim();
+
+    const boardType =
+      (meeting as { board_type?: string | null }).board_type ??
+      coeBoard?.board_type ??
+      null;
 
     // Single render — no batch, so we go through generateBosCallLetterPdf
     // which opens + closes its own browser. For one PDF this is fine; the
@@ -141,6 +165,7 @@ export async function GET(
         contact_no: member.contact_no ?? null,
       },
       boardName,
+      boardType,
       header: instHeader,
     });
 

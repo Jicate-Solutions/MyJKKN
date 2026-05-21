@@ -264,11 +264,25 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Pull board_type from the parent composition (denormalized at composition-
+    // create time, see 20260521 migration). This avoids a COE round-trip per
+    // call-letter render. If the composition predates the column or COE was
+    // unreachable when it was created, board_type will be null and the PDF
+    // falls back to board_name only.
+    const { data: parentComp } = await supabase
+      .from('bos_compositions')
+      .select('board_type')
+      .eq('id', body.composition_id)
+      .maybeSingle();
+    const parentBoardType =
+      (parentComp as { board_type?: string | null } | null)?.board_type ?? null;
+
     // Normalize empty strings → null for optional date/time fields
     const insertData = {
       ...body,
       meeting_number: meetingNumber,
       status: 'draft' as BosMeetingStatus,
+      board_type: parentBoardType,
       meeting_title:
         body.meeting_title ||
         `Meeting ${meetingNumber} of ${body.academic_year}`,

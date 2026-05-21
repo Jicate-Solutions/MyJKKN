@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import { Save, Users, Lock } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 
@@ -21,7 +21,25 @@ interface AttendanceEntry {
   memberType: BosMemberType;
   designation?: string;
   status: BosAttendanceStatus;
-  taEligible: boolean;
+}
+
+// Per-member local edits that the user has made but not yet saved. Stored
+// separately from the server-side `savedAttendance` so we can derive the
+// displayed `entries` array purely from props + query data + this overlay —
+// no useEffect-driven setState (which previously caused a render loop when
+// the React-Query data refs churned).
+interface AttendanceOverride {
+  status?: BosAttendanceStatus;
+}
+
+// SOP cutover (2026-05-21): the TA/DA "eligible" toggle was removed because
+// the per-role claim shape is fully determined by member type. Internal
+// members (chairman + internal_member) get honorarium only; everyone else
+// is external and also receives the round-trip TA component. The flag is
+// kept in the database but is now derived, not user-controlled.
+const INTERNAL_MEMBER_TYPES = new Set<BosMemberType>(['internal_member', 'chairman']);
+function isExternalMember(memberType: BosMemberType): boolean {
+  return !INTERNAL_MEMBER_TYPES.has(memberType);
 }
 
 // ── Status toggle button labels ────────────────────────────────────────────────
@@ -44,11 +62,9 @@ function nextStatus(current: BosAttendanceStatus): BosAttendanceStatus {
 function AttendanceRow({
   entry,
   onToggle,
-  onTaToggle,
 }: {
   entry: AttendanceEntry;
   onToggle: () => void;
-  onTaToggle: () => void;
 }) {
   const statusColor: Record<BosAttendanceStatus, string> = {
     present: 'bg-green-100 text-green-800 border-green-200 hover:bg-green-200',
@@ -68,20 +84,17 @@ function AttendanceRow({
         )}
       </div>
       <div className='flex items-center gap-2 shrink-0'>
-        {/* TA/DA eligible toggle — only shown for non-internal members */}
-        {entry.memberType !== 'internal_member' && entry.memberType !== 'chairman' && (
-          <button
-            type='button'
-            onClick={onTaToggle}
-            className={`text-xs px-2 py-0.5 rounded border transition-colors ${
-              entry.taEligible
-                ? 'bg-blue-100 text-blue-800 border-blue-200'
-                : 'bg-muted text-muted-foreground border-transparent'
-            }`}
-            title='Toggle TA/DA eligibility'
+        {/* Static TA/DA marker — shown for external members so reviewers can
+            see at a glance which attendees will receive the travel allowance
+            component on the auto-generated claim. Not interactive: eligibility
+            is now determined by member type, not by per-meeting toggle. */}
+        {isExternalMember(entry.memberType) && (
+          <span
+            className='text-xs px-2 py-0.5 rounded border bg-blue-100 text-blue-800 border-blue-200'
+            title='External member — claim will include round-trip TA (km × 2 × Rs.5)'
           >
             TA/DA
-          </button>
+          </span>
         )}
         {/* Attendance status toggle */}
         <button
@@ -117,52 +130,45 @@ export function AttendanceTab({
   const currentStatusIndex = BOS_MEETING_STATUS_ORDER.indexOf(meetingStatus);
   const isBeforeMeeting = currentStatusIndex < completedIndex;
   const isReadOnly = meetingStatus === 'ratified';
-  const { data: members = [], isLoading: loadingMembers } = useBosMembersByComposition(compositionId);
-  const { data: savedAttendance = [], isLoading: loadingAttendance } = useBosAttendance(meetingId);
+  const { data: members, isLoading: loadingMembers } = useBosMembersByComposition(compositionId);
+  const { data: savedAttendance, isLoading: loadingAttendance } = useBosAttendance(meetingId);
   const saveAttendance = useSaveBosAttendance(meetingId);
 
-  const [entries, setEntries] = useState<AttendanceEntry[]>([]);
-  const [isDirty, setIsDirty] = useState(false);
+  // Only the user's unsaved edits live in local state. Server-side values are
+  // read directly from React-Query data and merged during render — see the
+  // `entries` useMemo below. Avoid the old `useEffect → setEntries` sync,
+  // which infinite-looped whenever the query data refs were re-allocated.
+  const [overrides, setOverrides] = useState<Record<string, AttendanceOverride>>({});
 
-  // Seed local state from saved attendance + composition members
-  useEffect(() => {
-    if (loadingMembers || loadingAttendance) return;
-
-    const activeMembers = members.filter((m) => m.is_active);
-    const attendanceMap = new Map(savedAttendance.map((a) => [a.member_id, a]));
-
-    const merged: AttendanceEntry[] = activeMembers.map((member) => {
+  const entries = useMemo<AttendanceEntry[]>(() => {
+    const activeMembers = (members ?? []).filter((m) => m.is_active);
+    const attendanceMap = new Map(
+      (savedAttendance ?? []).map((a) => [a.member_id, a]),
+    );
+    return activeMembers.map((member) => {
       const existing = attendanceMap.get(member.id);
+      const override = overrides[member.id];
       return {
         memberId: member.id,
         memberName: member.display_name,
         memberType: member.member_type,
         designation: member.display_designation,
-        status: existing?.attendance_status ?? 'absent',
-        taEligible: existing?.ta_da_eligible ?? false,
+        status:
+          override?.status ?? existing?.attendance_status ?? 'absent',
       };
     });
+  }, [members, savedAttendance, overrides]);
 
-    setEntries(merged);
-    setIsDirty(false);
-  }, [members, savedAttendance, loadingMembers, loadingAttendance]);
+  const isDirty = Object.keys(overrides).length > 0;
 
   const toggle = (memberId: string) => {
-    setEntries((prev) =>
-      prev.map((e) =>
-        e.memberId === memberId ? { ...e, status: nextStatus(e.status) } : e
-      )
-    );
-    setIsDirty(true);
-  };
-
-  const toggleTa = (memberId: string) => {
-    setEntries((prev) =>
-      prev.map((e) =>
-        e.memberId === memberId ? { ...e, taEligible: !e.taEligible } : e
-      )
-    );
-    setIsDirty(true);
+    const current = entries.find((e) => e.memberId === memberId);
+    if (!current) return;
+    const newStatus = nextStatus(current.status);
+    setOverrides((prev) => ({
+      ...prev,
+      [memberId]: { ...prev[memberId], status: newStatus },
+    }));
   };
 
   const presentCount = useMemo(
@@ -175,15 +181,23 @@ export function AttendanceTab({
 
   const handleSave = async () => {
     try {
+      // ta_da_eligible is derived, not user-set: external members are
+      // always eligible (auto-TA via distance_km), internals are always
+      // marked ineligible (honorarium-only per SOP). Kept on the payload
+      // so the column has a meaningful value for downstream reporting,
+      // but no longer gates claim generation server-side.
       const records = entries.map((e) => ({
         member_id: e.memberId,
         attendance_status: e.status,
-        ta_da_eligible: e.taEligible,
+        ta_da_eligible: isExternalMember(e.memberType),
         institutions_id: institutionsId,
       }));
       await saveAttendance.mutateAsync(records);
       toast.success('Attendance saved');
-      setIsDirty(false);
+      // Saved values are now authoritative in React-Query cache (via the
+      // mutation's onSuccess setQueryData). Drop local overrides so the next
+      // render shows the server-confirmed state.
+      setOverrides({});
     } catch (err) {
       logger.error('academic/bos', 'Failed to save attendance', err);
       toast.error((err as Error).message || 'Failed to save attendance');
@@ -245,7 +259,6 @@ export function AttendanceTab({
             key={entry.memberId}
             entry={entry}
             onToggle={() => toggle(entry.memberId)}
-            onTaToggle={() => toggleTa(entry.memberId)}
           />
         ))}
       </div>

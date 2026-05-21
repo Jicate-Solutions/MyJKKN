@@ -1275,6 +1275,18 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
+            "path": "/admin/pde/bos-evidence",
+            "label": "BoS PDE Evidence",
+            "iconName": "FileSearch",
+            "children": []
+          },
+          {
+            "path": "/admin/pde/bridge",
+            "label": "PDE Bridge (legacy → new)",
+            "iconName": "GitMerge",
+            "children": []
+          },
+          {
             "path": "/admin/pde/capabilities",
             "label": "Capabilities",
             "iconName": "Cpu",
@@ -1312,9 +1324,27 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
+            "path": "/admin/pde/feedback-moderation",
+            "label": "PDE Feedback Moderation",
+            "iconName": "ShieldAlert",
+            "children": []
+          },
+          {
+            "path": "/admin/pde/kpi",
+            "label": "PDE KPI Dashboard",
+            "iconName": "Gauge",
+            "children": []
+          },
+          {
             "path": "/admin/pde/lti",
             "label": "Lti",
             "iconName": "PlugZap",
+            "children": []
+          },
+          {
+            "path": "/admin/pde/placement-signals",
+            "label": "PDE Placement Signals",
+            "iconName": "Megaphone",
             "children": []
           },
           {
@@ -1353,6 +1383,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
                 "children": []
               }
             ]
+          },
+          {
+            "path": "/admin/pde/quest-supply",
+            "label": "PDE Quest Supply",
+            "iconName": "Inbox",
+            "children": []
           },
           {
             "path": "/admin/pde/quests",
@@ -1862,6 +1898,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
           {
             "path": "/admission/settings/assignment-rules",
             "label": "Assignment Rules",
+            "iconName": "GraduationCap",
+            "children": []
+          },
+          {
+            "path": "/admission/settings/checklists",
+            "label": "Checklists",
             "iconName": "GraduationCap",
             "children": []
           },
@@ -3892,6 +3934,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
                 "children": []
               }
             ]
+          },
+          {
+            "path": "/learn/pde/transcript",
+            "label": "Transcript",
+            "iconName": "FileText",
+            "children": []
           }
         ]
       },

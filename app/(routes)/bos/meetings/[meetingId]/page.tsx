@@ -27,6 +27,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogFooter,
+  DialogDescription,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -312,11 +313,19 @@ export default function MeetingDetailPage({ params }: MeetingDetailPageProps) {
   const transitionStatus = useTransitionBosMeetingStatus();
   const [isTransitioning, setIsTransitioning] = useState(false);
   const [showTransitionDialog, setShowTransitionDialog] = useState(false);
+  // Email-threshold info dialog state. Surfaced when the user clicks
+  // "Meeting Finalized" (expert_invited → completed) but fewer than half of
+  // the composition members have a successful email send recorded for this
+  // meeting. The dialog points them at the Members tab to send more.
+  const [emailThresholdInfo, setEmailThresholdInfo] = useState<{
+    sent: number;
+    total: number;
+  } | null>(null);
 
   const canEdit = isSuperAdmin || canAccess('academic.bos-meetings', 'edit');
 
   // Open dialog for transitions that need extra metadata; fire directly otherwise
-  const handleTransition = () => {
+  const handleTransition = async () => {
     if (!meeting) return;
     const nextStatus = BOS_MEETING_NEXT_STATUS[meeting.status];
     if (!nextStatus) return;
@@ -328,6 +337,46 @@ export default function MeetingDetailPage({ params }: MeetingDetailPageProps) {
     if (nextStatus === 'principal_approved' && (meeting.agenda_item_count ?? 0) < 1) {
       toast.error('Add at least one agenda item before submitting for Principal Approval.');
       return;
+    }
+
+    // Email-threshold check for "Meeting Finalized" (expert_invited → completed).
+    // We require ≥ 50% of composition members to have a recorded successful
+    // email send for this meeting before allowing finalization. The audit
+    // source is bos_email_send_log via /api/bos/meetings/[id]/email-status —
+    // the same endpoint the Members tab uses to render send-status badges.
+    // Falling below threshold opens an info dialog steering the user to the
+    // Members tab to send more invites; it does NOT itself send anything.
+    if (nextStatus === 'completed') {
+      const compositionMembers =
+        ((meeting as { bos_compositions?: { bos_members?: unknown[] } }).bos_compositions
+          ?.bos_members ?? []) as unknown[];
+      const totalMembers = compositionMembers.length;
+      if (totalMembers > 0) {
+        try {
+          const res = await fetch(`/api/bos/meetings/${meetingId}/email-status`);
+          if (res.ok) {
+            const json = (await res.json()) as {
+              byMemberId?: Record<string, { status: string }>;
+            };
+            const sentCount = Object.values(json.byMemberId ?? {}).filter(
+              (e) => e.status === 'sent',
+            ).length;
+            const pct = sentCount / totalMembers;
+            if (pct < 0.5) {
+              // Park the user-facing reminder; abort further flow until the
+              // user dismisses the info dialog.
+              setEmailThresholdInfo({ sent: sentCount, total: totalMembers });
+              return;
+            }
+          }
+          // If the status endpoint fails (e.g. log table missing), fall
+          // through to the dialog — better to allow finalization than to
+          // hard-block on an infra hiccup. The server-side workflow gates
+          // still apply.
+        } catch (e) {
+          console.warn('[bos/meeting] email-status check failed, proceeding anyway:', e);
+        }
+      }
     }
 
     if (METADATA_TRANSITIONS.has(nextStatus)) {
@@ -485,7 +534,7 @@ export default function MeetingDetailPage({ params }: MeetingDetailPageProps) {
           {canTransitionNext && nextStatus && !isRatified && (
             <Button
               size='sm'
-              onClick={handleTransition}
+              onClick={() => void handleTransition()}
               disabled={isTransitioning || transitionStatus.isPending}
             >
               <ArrowRight className='mr-2 h-4 w-4' />
@@ -736,6 +785,43 @@ export default function MeetingDetailPage({ params }: MeetingDetailPageProps) {
           isPending={isTransitioning || transitionStatus.isPending}
         />
       )}
+
+      {/* ── Email-threshold info dialog ───────────────────────────────────
+          Shown when "Meeting Finalized" is clicked but the per-meeting email
+          send log shows fewer than 50% of composition members have a
+          successful send recorded. Pure info — no action wired (the user
+          must navigate to the Members tab themselves and send more emails). */}
+      <Dialog
+        open={!!emailThresholdInfo}
+        onOpenChange={(v) => { if (!v) setEmailThresholdInfo(null); }}
+      >
+        <DialogContent className='max-w-md'>
+          <DialogHeader>
+            <DialogTitle>Email threshold not reached</DialogTitle>
+            <DialogDescription>
+              {emailThresholdInfo && (
+                <>
+                  Only <strong>{emailThresholdInfo.sent}</strong> of{' '}
+                  <strong>{emailThresholdInfo.total}</strong> members
+                  {' '}({Math.round(
+                    (emailThresholdInfo.sent / Math.max(1, emailThresholdInfo.total)) * 100,
+                  )}
+                  %) have a successful meeting-invitation email recorded.
+                  At least <strong>50%</strong> must be notified before this
+                  meeting can be finalized.
+                  <br />
+                  <br />
+                  Open the <strong>Members</strong> tab to send invitations to
+                  the remaining members, then try again.
+                </>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button onClick={() => setEmailThresholdInfo(null)}>OK</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

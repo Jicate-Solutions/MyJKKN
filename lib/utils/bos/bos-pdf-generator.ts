@@ -1,7 +1,56 @@
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { BosMeeting, BosMember, BosAgendaItem, BosMeetingAttendee } from '@/types/bos';
+import { BosMeeting, BosMember, BosAgendaItem, BosMeetingAttendee, BosMemberType } from '@/types/bos';
 import { stripHtml } from '@/components/ui/rich-text-editor';
+
+// Canonical order in which BoS members appear in attendance / signature
+// blocks. Per the academic protocol JKKN follows, the chairman leads, then
+// the externally-nominated experts in order of statutory weight, then the
+// internal "board members" (and a long tail of fringe roles after). Any
+// member_type not listed here sorts to the end via fallback rank 99.
+const MEMBER_TYPE_ORDER: Record<BosMemberType, number> = {
+  chairman: 1,
+  university_nominee: 2,
+  subject_expert: 3,
+  industry_expert: 4,
+  alumni: 5,
+  internal_member: 6,
+  hod: 7,
+  startup: 8,
+  facilitator: 9,
+  principal: 10,
+};
+
+function memberTypeRank(t: BosMemberType | null | undefined): number {
+  if (!t) return 99;
+  return MEMBER_TYPE_ORDER[t] ?? 99;
+}
+
+// Sort attendees by member-type rank first, then by the existing per-member
+// sort_order, then by display name — so two members of the same type appear
+// in the same order users see them in the Members tab. Returns a new array;
+// the input is left untouched (PDF generation should never mutate its caller's
+// data).
+function sortAttendeesForPdf(
+  attendees: BosMeetingAttendee[],
+): BosMeetingAttendee[] {
+  type AttendeeMember = {
+    member_type?: BosMemberType | null;
+    sort_order?: number | null;
+    display_name?: string | null;
+  };
+  const memberOf = (a: BosMeetingAttendee): AttendeeMember =>
+    ((a as unknown as { member?: AttendeeMember }).member) ?? {};
+  return [...attendees].sort((a, b) => {
+    const ma = memberOf(a);
+    const mb = memberOf(b);
+    const rankDiff = memberTypeRank(ma.member_type) - memberTypeRank(mb.member_type);
+    if (rankDiff !== 0) return rankDiff;
+    const soDiff = (ma.sort_order ?? 0) - (mb.sort_order ?? 0);
+    if (soDiff !== 0) return soDiff;
+    return (ma.display_name ?? '').localeCompare(mb.display_name ?? '');
+  });
+}
 
 // Normalize the multi-select shape used by changes_log rows for topic and
 // sub_topic. The editor stores arrays now but legacy rows may still hold a
@@ -454,8 +503,119 @@ export interface MinutesParams {
   attendees: BosMeetingAttendee[];
   agendaItems: BosAgendaItem[];
   chairmanName: string;
+  /**
+   * Board display name (e.g. "Computer Science"). Used to compose the page-1
+   * attendance-sheet heading "<BOARD_TYPE> - <BOARD_NAME> ATTENDANCE SHEET"
+   * (e.g. "UG - COMPUTER SCIENCE ATTENDANCE SHEET"). When absent, the heading
+   * falls back to "ATTENDANCE SHEET" alone so the doc still renders cleanly
+   * for older callers that don't pass it.
+   */
+  boardName?: string;
   /** @deprecated pass header instead */
   collegeName?: string;
+}
+
+// ── Page 1: standalone Attendance Sheet ──────────────────────────────────────
+// Rendered before the rest of the minutes content. Mirrors the existing
+// banner+officials letterhead, adds a centered heading and a wide attendance
+// table with a blank Signature column for members to physically sign on the
+// printed copy. Column widths and minCellHeight are tuned so the signature
+// cell has enough horizontal AND vertical room for a real signature.
+function drawAttendanceSheet(
+  doc: jsPDF,
+  header: BosPdfHeader,
+  meeting: BosMeeting,
+  rawAttendees: BosMeetingAttendee[],
+  boardName: string | undefined,
+): void {
+  // Sort up-front so the printed roster follows the canonical
+  // chairman → external experts → internal members → tail ordering.
+  const attendees = sortAttendeesForPdf(rawAttendees);
+  let y = drawBanner(doc, header, PAGE_W, MARGIN);
+  if (header.officials) y = drawOfficials(doc, header.officials, y);
+  y = divider(doc, y);
+
+  // Heading — "<BOARD_TYPE> - <BOARD_NAME> ATTENDANCE SHEET", uppercased.
+  // board_type and board_name are denormalized on the meeting (board_type via
+  // the 20260521 migration; board_name passed in by the caller after a COE
+  // lookup). Either may be absent on legacy meetings — the heading degrades
+  // gracefully to just "ATTENDANCE SHEET" in that case.
+  const boardType = (meeting.board_type ?? '').trim().toUpperCase();
+  const boardNameUpper = (boardName ?? '').trim().toUpperCase();
+  const headingParts: string[] = [];
+  if (boardType) headingParts.push(boardType);
+  if (boardNameUpper) headingParts.push(boardNameUpper);
+  const heading = headingParts.length
+    ? `${headingParts.join(' - ')} ATTENDANCE SHEET`
+    : 'ATTENDANCE SHEET';
+
+  doc.setFont('times', 'bold');
+  doc.setFontSize(12);
+  doc.text(heading, PAGE_W / 2, y, { align: 'center' });
+  y += 7;
+
+  // Compact meeting metadata strip so the attendance sheet is self-contained
+  // (someone holding only this page can still identify the meeting).
+  doc.setFont('times', 'normal');
+  doc.setFontSize(9);
+  const metaLine = [
+    `Meeting No. ${meeting.meeting_number} / ${meeting.academic_year}`,
+    `Date: ${fmtDate(meeting.actual_date || meeting.scheduled_date)}`,
+    `Venue: ${meeting.venue || '—'}`,
+  ].join('   |   ');
+  doc.text(metaLine, PAGE_W / 2, y, { align: 'center' });
+  y += 6;
+
+  // Attendance table — same shape as the existing in-minutes table but with
+  // an extra Signature column. Cells are intentionally tall (minCellHeight
+  // 12mm) so each row gives the signer ~8-9mm of clear writing height inside
+  // the cell; the Signature column gets the largest share of the page width.
+  const present = attendees.filter((a) => a.attendance_status === 'present');
+  doc.setFont('times', 'bold');
+  doc.setFontSize(10);
+  doc.text(`ATTENDANCE  (${present.length} Present / ${attendees.length} Total)`, MARGIN, y);
+  y += 4;
+
+  autoTable(doc, {
+    head: [['S.No', 'Name', 'Designation', 'Status', 'Signature']],
+    body: attendees.map((a, i) => [
+      i + 1,
+      (a as { member?: { display_name?: string } }).member?.display_name ?? '—',
+      (a as { member?: { display_designation?: string } }).member?.display_designation ?? '',
+      a.attendance_status === 'present' ? 'Present' : 'Absent',
+      '', // empty — to be signed in person on the printed copy
+    ]),
+    startY: y,
+    margin: { left: MARGIN, right: MARGIN },
+    tableWidth: CONTENT_W,
+    theme: 'grid',
+    styles: {
+      font: 'times', fontSize: 9, cellPadding: 2.5,
+      lineColor: [0, 0, 0], lineWidth: 0.3,
+      textColor: [0, 0, 0], valign: 'middle', overflow: 'linebreak',
+      minCellHeight: 12, // ← extra vertical room so signatures fit
+    },
+    headStyles: {
+      font: 'times', fontStyle: 'bold',
+      fillColor: [230, 230, 230], textColor: [0, 0, 0], halign: 'center', fontSize: 9,
+      minCellHeight: 8,
+    },
+    // Column widths sum to CONTENT_W (190mm). Signature gets the most space
+    // (56mm) since that's the column users actually fill on the printed copy.
+    columnStyles: {
+      0: { cellWidth: 12, halign: 'center' },
+      1: { cellWidth: 50 },
+      2: { cellWidth: 50 },
+      3: { cellWidth: 22, halign: 'center' },
+      4: { cellWidth: 56 }, // Signature — widest
+    },
+    didParseCell(data) {
+      if (data.section === 'body' && data.column.index === 3) {
+        const v = data.cell.raw as string;
+        data.cell.styles.textColor = v === 'Present' ? [0, 120, 0] : [180, 0, 0];
+      }
+    },
+  });
 }
 
 export function generateMinutesPdf({
@@ -464,16 +624,36 @@ export function generateMinutesPdf({
   attendees,
   agendaItems,
   chairmanName,
+  boardName,
 }: MinutesParams): void {
   const doc = new jsPDF('portrait', 'mm', 'a4');
+
+  // ── Page 1: Standalone Attendance Sheet ────────────────────────────────
+  // Has its own banner + custom heading + table-with-Signature-column. The
+  // members are sorted by canonical board-protocol order (chairman first,
+  // then external experts, then internal members). The in-minutes attendance
+  // block was removed below so the same data isn't printed twice.
+  drawAttendanceSheet(doc, header, meeting, attendees, boardName);
+
+  // ── Page 2+: Existing minutes content ──────────────────────────────────
+  doc.addPage();
   let y = drawBanner(doc, header, PAGE_W, MARGIN);
   if (header.officials) y = drawOfficials(doc, header.officials, y);
   y = divider(doc, y);
 
-  // Title
+  // Title — prefixed with board type + name when available, e.g.
+  // "UG - COMPUTER SCIENCE - MINUTES OF BOARD OF STUDIES MEETING". When
+  // either prefix is missing, falls back to just the suffix so legacy
+  // meetings (pre-2026-05-21 board_type backfill) still render cleanly.
+  const titleBoardType = (meeting.board_type ?? '').trim().toUpperCase();
+  const titleBoardName = (boardName ?? '').trim().toUpperCase();
+  const titleParts: string[] = [];
+  if (titleBoardType) titleParts.push(titleBoardType);
+  if (titleBoardName) titleParts.push(titleBoardName);
+  titleParts.push('MINUTES OF BOARD OF STUDIES MEETING');
   doc.setFont('times', 'bold');
   doc.setFontSize(12);
-  doc.text('MINUTES OF BOARD OF STUDIES MEETING', PAGE_W / 2, y, { align: 'center' });
+  doc.text(titleParts.join(' - '), PAGE_W / 2, y, { align: 'center' });
   y += 7;
 
   // Meeting details.
@@ -494,54 +674,26 @@ export function generateMinutesPdf({
     ['Chairman', chairmanName],
   ], y);
 
-  // Attendance
+  // (Attendance table intentionally omitted here — page 1 is now a
+  // standalone Attendance Sheet rendered by drawAttendanceSheet(). Leaving
+  // a counts-summary line here so the minutes section still mentions the
+  // headcount without duplicating the full roster.)
   const present = attendees.filter((a) => a.attendance_status === 'present');
-  doc.setFont('times', 'bold');
-  doc.setFontSize(10);
-  doc.text(`ATTENDANCE  (${present.length} Present / ${attendees.length} Total)`, MARGIN, y);
-  y += 4;
-
-  autoTable(doc, {
-    head: [['S.No', 'Name', 'Designation', 'Status']],
-    body: attendees.map((a, i) => [
-      i + 1,
-      (a as any).member?.display_name ?? '—',
-      (a as any).member?.display_designation ?? '',
-      a.attendance_status === 'present' ? 'Present' : 'Absent',
-    ]),
-    startY: y,
-    margin: { left: MARGIN, right: MARGIN },
-    tableWidth: CONTENT_W,
-    theme: 'grid',
-    styles: {
-      font: 'times', fontSize: 9, cellPadding: 2.5,
-      lineColor: [0, 0, 0], lineWidth: 0.3,
-      textColor: [0, 0, 0], valign: 'middle', overflow: 'linebreak',
-    },
-    headStyles: {
-      font: 'times', fontStyle: 'bold',
-      fillColor: [230, 230, 230], textColor: [0, 0, 0], halign: 'center', fontSize: 9,
-    },
-    columnStyles: {
-      0: { cellWidth: 12, halign: 'center' },
-      1: { cellWidth: 65 },
-      3: { cellWidth: 22, halign: 'center' },
-    },
-    didParseCell(data) {
-      if (data.section === 'body' && data.column.index === 3) {
-        const v = data.cell.raw as string;
-        data.cell.styles.textColor = v === 'Present' ? [0, 120, 0] : [180, 0, 0];
-      }
-    },
-  });
-  y = lastAutoY(doc, y + 30) + 8;
+  doc.setFont('times', 'normal');
+  doc.setFontSize(9);
+  doc.text(
+    `Attendance: ${present.length} Present / ${attendees.length} Total (see attendance sheet on page 1).`,
+    MARGIN,
+    y,
+  );
+  y += 6;
 
   // Agenda & Resolutions
   if (agendaItems.length > 0) {
     if (y > 240) { doc.addPage(); y = MARGIN; }
     doc.setFont('times', 'bold');
     doc.setFontSize(10);
-    doc.text('AGENDA ITEMS & RESOLUTIONS', MARGIN, y);
+    doc.text('Meeting AGENDA', MARGIN, y);
     y += 5;
 
     for (const item of [...agendaItems].sort((a, b) => a.sort_order - b.sort_order)) {
@@ -581,18 +733,31 @@ export function generateMinutesPdf({
   const narrativePlain = narrativeHtml ? stripHtml(narrativeHtml) : '';
   if (narrativePlain) {
     if (y > 240) { doc.addPage(); y = MARGIN; }
+    // Section header above the bordered narrative table. Body sits inside
+    // a single-cell autoTable so the narrative gets a visible border and
+    // justified alignment — matching the visual treatment of the other
+    // sections (details, suggested changes) on the page.
     doc.setFont('times', 'bold');
-    doc.setFontSize(10);
+    doc.setFontSize(12);
     doc.text('MINUTES NARRATIVE', MARGIN, y);
     y += 5;
+
+    // Plain doc.text() loop instead of autoTable: autoTable doesn't expose
+    // per-line line-height for a multi-line cell, and the user asked for
+    // *both* a larger font AND more vertical breathing room between lines.
+    // The loop gives explicit `y += LINE_HEIGHT` control. No table means
+    // no outer border (matches the earlier "no need table outer border"
+    // request) and left-alignment is the default — same conventional body-
+    // text alignment a reader expects.
     doc.setFont('times', 'normal');
-    doc.setFontSize(9);
+    doc.setFontSize(12); // +1 size from 11pt per UX request
+    const LINE_HEIGHT = 8; // mm — 12pt body at ~1.5x line-height feels right
     const narrativeLines = doc.splitTextToSize(narrativePlain, CONTENT_W);
-    // Hand-paginate so a long narrative doesn't run off the page silently.
     for (const line of narrativeLines) {
-      if (y > 270) { doc.addPage(); y = MARGIN; }
+      // Hand-paginate so a long narrative doesn't run off the bottom edge.
+      if (y + LINE_HEIGHT > PAGE_H - 12) { doc.addPage(); y = MARGIN; }
       doc.text(line, MARGIN, y);
-      y += 5;
+      y += LINE_HEIGHT;
     }
     y += 4;
   }
@@ -604,10 +769,11 @@ export function generateMinutesPdf({
   const changesLog = meeting.minutes_content?.changes_log ?? [];
   if (changesLog.length > 0) {
     if (y > 240) { doc.addPage(); y = MARGIN; }
+    // Font sizes here also bumped per UX request — readability over density.
     doc.setFont('times', 'bold');
-    doc.setFontSize(10);
+    doc.setFontSize(12);
     doc.text('SUGGESTED CHANGES', MARGIN, y);
-    y += 4;
+    y += 5;
 
     autoTable(doc, {
       head: [['#', 'Course', 'Unit', 'Topics', 'Sub-topics', 'Suggested by', 'Change']],
@@ -628,13 +794,13 @@ export function generateMinutesPdf({
       tableWidth: CONTENT_W,
       theme: 'grid',
       styles: {
-        font: 'times', fontSize: 8, cellPadding: 2,
+        font: 'times', fontSize: 10, cellPadding: 2.5,
         lineColor: [0, 0, 0], lineWidth: 0.3,
         textColor: [0, 0, 0], valign: 'top', overflow: 'linebreak',
       },
       headStyles: {
         font: 'times', fontStyle: 'bold',
-        fillColor: [230, 230, 230], textColor: [0, 0, 0], halign: 'center', fontSize: 8,
+        fillColor: [230, 230, 230], textColor: [0, 0, 0], halign: 'center', fontSize: 10,
       },
       columnStyles: {
         0: { cellWidth: 8, halign: 'center' },
@@ -662,22 +828,135 @@ export function generateMinutesPdf({
     y += summaryLines.length * 5 + 8;
   }
 
-  if (y + 22 > PAGE_H - 12) { doc.addPage(); y = MARGIN + 10; }
+  // Signatures of the board members who attended.
+  //
+  // Layout (replaces the older 3-per-row signature grid per UX request):
+  //   S.No | Members | Signature
+  //
+  // Where the "Members" cell stacks four lines per row — Name / Designation
+  // / Institution / Address — so the printed copy reads like a mailing
+  // sheet ("send to this address"). Only present members are listed.
+  // Sorted in the canonical chairman → external experts → internal-member
+  // order so this table mirrors page 1.
+  //
+  // Important: we BUILD the row data first, then do a height-fit check, THEN
+  // draw the section heading exactly once. Drawing the heading first would
+  // either (a) orphan it at the bottom of the current page if the table then
+  // page-breaks, or (b) cause us to re-emit it on the new page, producing a
+  // duplicate. Both happened in earlier iterations.
 
-  // Signatures of the board members who attended. Replaces the generic
-  // 3-role row (Subject In-Charge / HOD / Principal) per UX request — the
-  // actual approvers of these minutes are the present board members, so the
-  // PDF now reflects who signed off.
-  const presentMembers = attendees
+  type MemberRow = {
+    display_name?: string;
+    display_designation?: string;
+    display_institution?: string;
+    address?: string;
+    member_type?: BosMemberType | null;
+  };
+  // Internal member types — staff who live at the JKKN campus and won't
+  // have a bos_members.address filled in. For these, fall back to the
+  // letterhead's institution address so the signatures cell still shows a
+  // postal address. External experts (university nominee, subject/industry
+  // expert, alumni, startup) carry their own address and need no fallback.
+  const INTERNAL_TYPES: ReadonlySet<BosMemberType> = new Set([
+    'chairman',
+    'internal_member',
+    'hod',
+    'facilitator',
+    'principal',
+  ]);
+  const presentMemberCells = sortAttendeesForPdf(attendees)
     .filter((a) => a.attendance_status === 'present')
-    .map((a) => {
-      const m = (a as unknown as { member?: { display_name?: string; display_designation?: string } }).member;
-      return {
-        name: m?.display_name ?? '—',
-        designation: m?.display_designation ?? undefined,
-      };
+    .map((a, idx) => {
+      const m = ((a as unknown as { member?: MemberRow }).member) ?? {};
+      // Compose the Members cell as stacked lines: name, designation,
+      // institution, address. Empty fields are skipped so a member without
+      // an institution doesn't render a blank line in the middle. For
+      // internal members lacking an explicit address, fall back to the
+      // institution address from the letterhead (matches what the call
+      // letter PDF implicitly does via its "To" address block).
+      const memberAddress = (m.address ?? '').trim();
+      const addressFallback =
+        memberAddress ||
+        (m.member_type && INTERNAL_TYPES.has(m.member_type)
+          ? (header.institution_address ?? '').trim()
+          : '');
+      const lines = [
+        m.display_name ?? '—',
+        m.display_designation ?? '',
+        m.display_institution ?? '',
+        addressFallback,
+      ].filter((s) => s && s.trim().length > 0);
+      return [String(idx + 1), lines.join('\n'), ''];
     });
-  memberSignatureGrid(doc, y, presentMembers);
+
+  // Page-break decision happens BEFORE the section heading is drawn — that
+  // way the heading appears exactly once (either on the current page if the
+  // table fits, or on the new page after the break). Earlier iterations
+  // drew the heading first and re-emitted it on overflow, which produced
+  // an orphan heading on the previous page AND a duplicate on the next.
+  //
+  // Height estimate includes:
+  //   • SECTION_HEADER_H (8mm): the bold "SIGNATURES OF BOARD MEMBERS" line
+  //   • TABLE_HEADER_H (10mm): the autoTable column-header row
+  //   • rows × ROW_H (32mm each): generous over-estimate per data row, since
+  //     Members cells with 4-line stacked content can exceed the 24mm floor
+  //
+  // For very large boards (~20+ present members) the table is taller than
+  // a full page anyway — in that case autoTable falls back to its default
+  // split-with-repeated-header behavior, which is the least bad option for
+  // genuinely page-busting tables.
+  if (presentMemberCells.length > 0) {
+    const SECTION_HEADER_H = 8;
+    const TABLE_HEADER_H = 10;
+    const ROW_H = 32;
+    const estimatedHeight =
+      SECTION_HEADER_H + TABLE_HEADER_H + presentMemberCells.length * ROW_H;
+    const remainingSpace = PAGE_H - y - 12; // 12mm bottom margin
+    if (estimatedHeight > remainingSpace) {
+      doc.addPage();
+      y = MARGIN;
+    }
+  }
+
+  // Section heading — drawn exactly once, AFTER the page-break decision so
+  // there's no orphan on the prior page.
+  doc.setFont('times', 'bold');
+  doc.setFontSize(11);
+  doc.text('SIGNATURES OF BOARD MEMBERS', MARGIN, y);
+  y += 5;
+
+  if (presentMemberCells.length === 0) {
+    doc.setFont('times', 'italic');
+    doc.setFontSize(10);
+    doc.text('No members were recorded as present.', MARGIN, y);
+  } else {
+    autoTable(doc, {
+      head: [['S.No', 'Members', 'Signature']],
+      body: presentMemberCells,
+      startY: y,
+      margin: { left: MARGIN, right: MARGIN },
+      tableWidth: CONTENT_W,
+      theme: 'grid',
+      styles: {
+        font: 'times', fontSize: 10, cellPadding: 3,
+        lineColor: [0, 0, 0], lineWidth: 0.3,
+        textColor: [0, 0, 0], valign: 'top', overflow: 'linebreak',
+        // 4-line Members cell × ~5mm per line ≈ 20mm; signature column also
+        // needs ~20mm of clear writing space, so this is a sensible floor.
+        minCellHeight: 24,
+      },
+      headStyles: {
+        font: 'times', fontStyle: 'bold',
+        fillColor: [230, 230, 230], textColor: [0, 0, 0], halign: 'center', fontSize: 10,
+        minCellHeight: 8,
+      },
+      columnStyles: {
+        0: { cellWidth: 14, halign: 'center', valign: 'middle' },
+        1: { cellWidth: 106 },          // Members — widest because it stacks 4 lines
+        2: { cellWidth: CONTENT_W - 14 - 106 }, // Signature — remaining ~70mm
+      },
+    });
+  }
 
   timestamp(doc);
   doc.save(`minutes-meeting-${meeting.meeting_number}-${meeting.academic_year}.pdf`);

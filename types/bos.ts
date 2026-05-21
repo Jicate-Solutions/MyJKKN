@@ -542,6 +542,13 @@ export interface BosExternalExpert {
   specialization?: string;
   qualifications?: string;
   is_active: boolean;
+  /**
+   * One-way distance in km from this expert to the institution. The runtime
+   * compute step doubles it for round-trip TA (distance_km × 2 × ₹5/km).
+   * NULL → no TA component on the auto-generated claim (honorarium still paid).
+   * See 20260521_bos_ta_da_sop_redesign.sql.
+   */
+  distance_km?: number | null;
   notes?: string;
   created_at: string;
   updated_at: string;
@@ -567,6 +574,13 @@ export interface BosComposition {
   id: string;
   institutions_id: string;
   board_id: string;
+  /**
+   * Academic level of the board (e.g. 'PG', 'UG'), denormalized from COE
+   * /api/public/boards.board_type at composition-create time. Used to render
+   * "Meeting of the {board_type} {board_name} Board of Studies" on call letters.
+   * Nullable for legacy rows created before 20260521_add_board_type_to_bos_compositions_meetings.
+   */
+  board_type?: string | null;
   composition_title: string;
   term_start_date: string;
   term_end_date: string;
@@ -620,6 +634,13 @@ export interface BosMember {
   display_designation?: string;
   display_department?: string;
   display_institution?: string;
+  /**
+   * Snapshot mirror of bos_external_experts.distance_km, kept in sync by
+   * trg_sync_bos_members_from_expert. NULL for internal (staff) members.
+   * Read on the auto-claim hot path so the attendance route doesn't need
+   * to join out to bos_external_experts on every save.
+   */
+  display_distance_km?: number | null;
   address?: string;
   contact_no?: string;
   email?: string;
@@ -698,6 +719,13 @@ export interface BosMeeting {
   id: string;
   institutions_id: string;
   board_id: string;
+  /**
+   * Academic level of the board (e.g. 'PG', 'UG'), copied from the parent
+   * composition at meeting-create time so the per-recipient call-letter PDF
+   * render path doesn't need a COE round-trip per render. See
+   * 20260521_add_board_type_to_bos_compositions_meetings.sql.
+   */
+  board_type?: string | null;
   composition_id: string;
   meeting_number: number;
   academic_year: string;
@@ -871,9 +899,22 @@ export interface BosTaDaClaim {
   travel_from?: string;
   travel_to?: string;
   travel_amount: number;
-  da_days: number;
-  da_rate: number;
-  da_amount: number;
+  /**
+   * Renamed from da_days on 2026-05-21 per SOP redesign — kept on the
+   * interface for back-compat reads of legacy rows. Auto-generated claims
+   * write 1 here (units × rate = amount when units=1).
+   */
+  honorarium_units: number;
+  /**
+   * Renamed from da_rate. Auto-generated claims set this to the honorarium
+   * amount (₹1,500 external / ₹1,000 internal) so rate × units = amount.
+   */
+  honorarium_rate: number;
+  /**
+   * Renamed from da_amount. The per-meeting honorarium that contributes to
+   * the GENERATED total_amount. ₹1,500 external / ₹1,000 internal per SOP.
+   */
+  honorarium_amount: number;
   other_amount: number;
   other_description?: string;
   total_amount: number;  // GENERATED column — database computes this

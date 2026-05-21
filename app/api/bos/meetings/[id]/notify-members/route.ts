@@ -70,7 +70,7 @@ export async function POST(
     const { data: meeting, error: meetingErr } = await supabase
       .from('bos_meetings')
       .select(
-        'id, composition_id, institutions_id, status, meeting_title, meeting_number, academic_year, scheduled_date, scheduled_time, venue, agenda_text, board_id'
+        'id, composition_id, institutions_id, status, meeting_title, meeting_number, academic_year, scheduled_date, scheduled_time, venue, agenda_text, board_id, board_type'
       )
       .eq('id', meetingId)
       .single();
@@ -167,18 +167,38 @@ export async function POST(
     // below. Pure mapping function (no I/O), safe to call hoisted.
     const instHeader = getInstitutionHeader(instRow?.name ?? null);
 
-    // Fetch the board name for the call-letter subject + body line
-    // ("Meeting of the {board_name} Board of Studies"). Best-effort —
-    // fall back to a generic phrase if the board lookup misses.
-    let boardName = 'PG'; // generic fallback
-    if (meeting.board_id) {
+    // Fetch board metadata for the call-letter subject + body line
+    // ("Meeting of the {board_type} {board_name} Board of Studies"). COE is
+    // the authoritative source — bos_boards is only a partial local seed (9
+    // UUIDs from the 20260510 migration), so newer boards return null from
+    // it. One COE call per batch (not per recipient) gives us both
+    // board_name and board_type.
+    //
+    // Fallbacks (cheapest to most expensive):
+    //   1. meeting.board_type column (denormalized at create-time, 20260521 mig)
+    //   2. COE /api/public/boards lookup (authoritative, always present)
+    //   3. bos_boards local seed (only useful when COE is unreachable)
+    const { fetchCoeBoardMap } = await import('@/lib/utils/bos/coe-boards');
+    const coeBoardMap = meeting.institutions_id
+      ? await fetchCoeBoardMap(meeting.institutions_id)
+      : new Map<string, { board_name: string; board_type?: string | null }>();
+    const coeBoard = meeting.board_id ? coeBoardMap.get(meeting.board_id) : undefined;
+
+    let rawBoardName = coeBoard?.board_name ?? '';
+    if (!rawBoardName && meeting.board_id) {
       const { data: boardRow } = await supabase
         .from('bos_boards')
         .select('board_name')
         .eq('id', meeting.board_id)
         .maybeSingle();
-      boardName = (boardRow as { board_name?: string } | null)?.board_name ?? boardName;
+      rawBoardName = (boardRow as { board_name?: string } | null)?.board_name ?? '';
     }
+    const boardName = rawBoardName.replace(/^\s*Board of Studies\s*-\s*/i, '').trim();
+
+    const boardType =
+      (meeting as { board_type?: string | null }).board_type ??
+      coeBoard?.board_type ??
+      null;
 
     // Members eligible for direct send vs. those skipped due to missing email.
     const withEmail = members.filter((m) => m.email && m.email.includes('@'));
@@ -312,6 +332,7 @@ export async function POST(
               contact_no: m.contact_no ?? null,
             },
             boardName,
+            boardType,
             header: instHeader,
           });
         } catch (pdfErr) {

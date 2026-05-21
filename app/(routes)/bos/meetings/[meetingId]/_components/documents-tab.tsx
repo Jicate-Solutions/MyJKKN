@@ -11,6 +11,7 @@ import { BosMeeting, BOS_MEETING_STATUS_ORDER } from '@/types/bos';
 import { useBosAgendaItems } from '@/hooks/bos/use-bos-agenda';
 import { useBosAttendance } from '@/hooks/bos/use-bos-attendance';
 import { useBosMembersByComposition } from '@/hooks/bos/use-bos-members';
+import { useBosBoard } from '@/hooks/bos/use-bos-boards';
 import { useInstitutionContext } from '@/hooks/use-institution-context';
 import { getInstitutionHeader } from '@/lib/utils/internal-marks/institution-header';
 import { logger } from '@/lib/utils/enhanced-logger';
@@ -99,6 +100,13 @@ export function DocumentsTab({ meeting, compositionId }: DocumentsTabProps) {
   const { data: attendance = [], isLoading: loadingAttendance } = useBosAttendance(meeting.id);
   const { data: members = [], isLoading: loadingMembers } = useBosMembersByComposition(compositionId);
   const { data: institutionCtx } = useInstitutionContext();
+  // Board lookup — drives the page-1 attendance-sheet heading on the
+  // Minutes PDF: "<BOARD_TYPE> - <BOARD_NAME> ATTENDANCE SHEET". The hook
+  // is cheap (cached 5min) and shared with other parts of the app; we don't
+  // gate any UI on it, so an undefined result just degrades to a generic
+  // "ATTENDANCE SHEET" heading.
+  const { data: board } = useBosBoard(meeting.board_id);
+  const boardName = board?.board_name?.replace(/^\s*Board of Studies\s*-\s*/i, '').trim();
 
   const chairmanMember = members.find((m) => m.member_type === 'chairman');
   const chairmanName = chairmanMember?.display_name ?? 'Chairman';
@@ -149,7 +157,14 @@ export function DocumentsTab({ meeting, compositionId }: DocumentsTabProps) {
       import('@/lib/utils/bos/bos-pdf-generator'),
       buildHeader(),
     ]);
-    generateMinutesPdf({ header, meeting, attendees: attendance, agendaItems, chairmanName });
+    generateMinutesPdf({
+      header,
+      meeting,
+      attendees: attendance,
+      agendaItems,
+      chairmanName,
+      boardName,
+    });
     toast.success('Minutes downloaded');
   };
 
@@ -161,7 +176,14 @@ export function DocumentsTab({ meeting, compositionId }: DocumentsTabProps) {
       import('@/lib/utils/bos/meeting-minutes-docx'),
       buildHeader(),
     ]);
-    await generateMinutesDocx({ header, meeting, attendees: attendance, agendaItems, chairmanName });
+    await generateMinutesDocx({
+      header,
+      meeting,
+      attendees: attendance,
+      agendaItems,
+      chairmanName,
+      boardName,
+    });
     toast.success('Minutes (Word) downloaded');
   };
 

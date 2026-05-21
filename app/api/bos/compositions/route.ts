@@ -274,6 +274,21 @@ export async function POST(request: NextRequest) {
     const deny = guardInstitutionWrite(scope, institutionsId);
     if (deny) return NextResponse.json({ error: deny }, { status: 403 });
 
+    // Resolve board_type from the COE boards endpoint. Denormalized onto the
+    // composition row so meeting-create + call-letter PDF render don't each
+    // need their own COE round-trip. Best-effort — if COE is unreachable or
+    // the board isn't in the map, we persist null and downstream callers fall
+    // back to board_name only. The 20260521 migration allows NULL for this
+    // exact reason.
+    let resolvedBoardType: string | null = null;
+    try {
+      const { fetchCoeBoardMap } = await import('@/lib/utils/bos/coe-boards');
+      const boardMap = await fetchCoeBoardMap(institutionsId);
+      resolvedBoardType = boardMap.get(body.board_id)?.board_type ?? null;
+    } catch (boardLookupErr) {
+      console.warn('[bos/compositions] board_type lookup failed:', boardLookupErr);
+    }
+
     // Normalize empty strings → null for optional date/text columns so Postgres
     // doesn't reject them with "invalid input syntax for type date: ''"
     // created_by is stamped from the auth user so the GET visibility guard can
@@ -282,6 +297,7 @@ export async function POST(request: NextRequest) {
       ...body,
       institutions_id: institutionsId,
       created_by: user.id,
+      board_type: resolvedBoardType,
       ratified_date: body.ratified_date || null,
       term_end_date: body.term_end_date || null,
       constituted_by: body.constituted_by || null,
