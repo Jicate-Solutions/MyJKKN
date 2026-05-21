@@ -2,6 +2,7 @@
 
 import { use, useState } from 'react';
 import { ContentLayout } from '@/components/layout/content-layout';
+import { PermissionGuard } from '@/components/auth/permission-guard';
 import { PageBreadcrumb } from '@/components/navigation';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -33,7 +34,15 @@ interface Props {
   params: Promise<{ id: string }>;
 }
 
-export default function TrainingProgrammeDetailPage({ params }: Props) {
+export default function TrainingProgrammeDetailPage(props: Props) {
+  return (
+    <PermissionGuard module="cdc.training" action="view">
+      <TrainingProgrammeDetailContent {...props} />
+    </PermissionGuard>
+  );
+}
+
+function TrainingProgrammeDetailContent({ params }: Props) {
   const { id } = use(params);
   const { profile } = useAuth();
   const { data: programme, isLoading } = useCdcProgramme(id);
@@ -150,11 +159,11 @@ export default function TrainingProgrammeDetailPage({ params }: Props) {
             <h2 className="text-lg font-semibold">
               Enrolled Learners {!enrollmentsLoading && `(${enrollments?.length ?? 0})`}
             </h2>
-            {canManage && (
+            <PermissionGuard module="cdc.training" action="edit">
               <Button size="sm" onClick={() => setAddOpen(true)}>
                 <Plus className="w-4 h-4 mr-1" /> Add Learner
               </Button>
-            )}
+            </PermissionGuard>
           </div>
 
           {enrollmentsLoading ? (

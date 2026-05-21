@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
+import { PermissionGuard } from '@/components/auth/permission-guard';
 import { PageBreadcrumb } from '@/components/navigation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -45,6 +46,7 @@ export default function NewBulletinOpportunityPage() {
   }
 
   return (
+    <PermissionGuard module="cdc.bulletin" action="create">
     <ContentLayout title="Post Opportunity">
       <PageBreadcrumb items={[
         { label: 'Home', href: '/' },
@@ -191,5 +193,6 @@ export default function NewBulletinOpportunityPage() {
         </Card>
       </div>
     </ContentLayout>
+    </PermissionGuard>
   );
 }

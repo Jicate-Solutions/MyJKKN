@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
+import { PermissionGuard } from '@/components/auth/permission-guard';
 import {
   Breadcrumb, BreadcrumbItem, BreadcrumbLink,
   BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator
@@ -38,6 +39,7 @@ export default function NewMentorPairingPage() {
   };
 
   return (
+    <PermissionGuard module="cdc.mentors" action="create">
     <ContentLayout title="New Mentor Pairing">
       <Breadcrumb>
         <BreadcrumbList>
@@ -114,5 +116,6 @@ export default function NewMentorPairingPage() {
         </form>
       </div>
     </ContentLayout>
+    </PermissionGuard>
   );
 }

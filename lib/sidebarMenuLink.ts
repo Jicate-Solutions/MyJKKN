@@ -77,7 +77,10 @@ import {
   Lightbulb,
   BookOpenCheck,
   UsersRound,
-  Wallet
+  Wallet,
+  Users2,
+  Factory,
+  FileDown
 } from 'lucide-react';
 import { CustomRole } from '@/types/auth';
 // FEATURE_FLAGS import removed - not used in sidebar filtering
@@ -496,6 +499,40 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/ims': 'ims.view',
   '/meetings': 'meetings.view',
 
+  // CDC — module landing hub
+  '/cdc': 'cdc.view',
+
+  // CDC — Campus Drives
+  '/cdc/drives': 'cdc.drives.view',
+  '/cdc/drives/new': 'cdc.drives.create',
+  '/cdc/drives/[id]': 'cdc.drives.view',
+  '/cdc/drives/[id]/willingness': 'cdc.drives.edit',
+
+  // CDC — Placements
+  '/cdc/placements': 'cdc.placements.view',
+  '/cdc/placements/new': 'cdc.placements.create',
+  '/cdc/placements/[id]': 'cdc.placements.view',
+
+  // CDC — Internships
+  '/cdc/internships': 'cdc.internships.view',
+  '/cdc/internships/new': 'cdc.internships.create',
+  '/cdc/internships/[id]': 'cdc.internships.view',
+
+  // CDC — Individual Development Plans
+  '/cdc/idp': 'cdc.idp.view',
+  '/cdc/idp/new': 'cdc.idp.create',
+  '/cdc/idp/[id]': 'cdc.idp.view',
+
+  // CDC — Clubs
+  '/cdc/clubs': 'cdc.clubs.view',
+  '/cdc/clubs/new': 'cdc.clubs.create',
+  '/cdc/clubs/[id]': 'cdc.clubs.view',
+
+  // CDC — Mentor Pairings
+  '/cdc/mentors': 'cdc.mentors.view',
+  '/cdc/mentors/new': 'cdc.mentors.create',
+  '/cdc/mentors/[id]': 'cdc.mentors.view',
+
   // CDC — Training Programmes
   '/cdc/training': 'cdc.training.view',
   '/cdc/training/new': 'cdc.training.create',
@@ -504,7 +541,15 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // CDC — Opportunities Bulletin
   '/cdc/bulletin': 'cdc.bulletin.view',
   '/cdc/bulletin/new': 'cdc.bulletin.create',
-  '/cdc/bulletin/[id]': 'cdc.bulletin.view'
+  '/cdc/bulletin/[id]': 'cdc.bulletin.view',
+
+  // CDC — Industry Mentors directory
+  '/cdc/industry-mentors': 'cdc.industry_mentors.view',
+  '/cdc/industry-mentors/new': 'cdc.industry_mentors.create',
+  '/cdc/industry-mentors/[id]': 'cdc.industry_mentors.view',
+
+  // CDC — Reports & Exports
+  '/cdc/exports': 'cdc.exports.view'
 };
 
 export function GetPages(pathname: string): MenuGroup[] {
@@ -1933,6 +1978,55 @@ export function GetPages(pathname: string): MenuGroup[] {
       groupLabel: 'CDC',
       menus: [
         {
+          href: '/cdc',
+          label: 'CDC Hub',
+          active: pathname === '/cdc',
+          icon: LayoutGrid,
+          submenus: []
+        },
+        {
+          href: '/cdc/drives',
+          label: 'Campus Drives',
+          active: pathname.startsWith('/cdc/drives'),
+          icon: Briefcase,
+          submenus: []
+        },
+        {
+          href: '/cdc/placements',
+          label: 'Placements',
+          active: pathname.startsWith('/cdc/placements'),
+          icon: Award,
+          submenus: []
+        },
+        {
+          href: '/cdc/internships',
+          label: 'Internships',
+          active: pathname.startsWith('/cdc/internships'),
+          icon: GraduationCap,
+          submenus: []
+        },
+        {
+          href: '/cdc/idp',
+          label: 'Development Plans',
+          active: pathname.startsWith('/cdc/idp'),
+          icon: ClipboardList,
+          submenus: []
+        },
+        {
+          href: '/cdc/clubs',
+          label: 'Clubs',
+          active: pathname.startsWith('/cdc/clubs'),
+          icon: Users2,
+          submenus: []
+        },
+        {
+          href: '/cdc/mentors',
+          label: 'Mentor Pairings',
+          active: pathname.startsWith('/cdc/mentors'),
+          icon: UserCheck,
+          submenus: []
+        },
+        {
           href: '/cdc/training',
           label: 'Training Programmes',
           active: pathname.startsWith('/cdc/training'),
@@ -1944,6 +2038,20 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'Opportunities Bulletin',
           active: pathname.startsWith('/cdc/bulletin'),
           icon: Megaphone,
+          submenus: []
+        },
+        {
+          href: '/cdc/industry-mentors',
+          label: 'Industry Mentors',
+          active: pathname.startsWith('/cdc/industry-mentors'),
+          icon: Factory,
+          submenus: []
+        },
+        {
+          href: '/cdc/exports',
+          label: 'Reports & Exports',
+          active: pathname.startsWith('/cdc/exports'),
+          icon: FileDown,
           submenus: []
         },
       ]

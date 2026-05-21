@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useState } from 'react';
 import { ContentLayout } from '@/components/layout/content-layout';
+import { PermissionGuard } from '@/components/auth/permission-guard';
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -47,6 +48,7 @@ export default function CdcPlacementsListPage() {
   const metadata = data?.metadata;
 
   return (
+    <PermissionGuard module="cdc.placements" action="view">
     <ContentLayout title="Placements">
       <div className="space-y-6">
         {/* Breadcrumb */}
@@ -72,12 +74,14 @@ export default function CdcPlacementsListPage() {
               </p>
             )}
           </div>
-          <Button asChild>
-            <Link href="/cdc/placements/new">
-              <Plus className="mr-2 h-4 w-4" />
-              Record Placement
-            </Link>
-          </Button>
+          <PermissionGuard module="cdc.placements" action="create">
+            <Button asChild>
+              <Link href="/cdc/placements/new">
+                <Plus className="mr-2 h-4 w-4" />
+                Record Placement
+              </Link>
+            </Button>
+          </PermissionGuard>
         </div>
 
         {/* Status filter chips */}
@@ -122,9 +126,11 @@ export default function CdcPlacementsListPage() {
             <CardContent className="flex flex-col items-center justify-center py-12 gap-3">
               <Briefcase className="h-10 w-10 text-muted-foreground/40" />
               <p className="text-muted-foreground">No placements found.</p>
-              <Button asChild size="sm" variant="outline">
-                <Link href="/cdc/placements/new">Record first placement</Link>
-              </Button>
+              <PermissionGuard module="cdc.placements" action="create">
+                <Button asChild size="sm" variant="outline">
+                  <Link href="/cdc/placements/new">Record first placement</Link>
+                </Button>
+              </PermissionGuard>
             </CardContent>
           </Card>
         )}
@@ -199,5 +205,6 @@ export default function CdcPlacementsListPage() {
         )}
       </div>
     </ContentLayout>
+    </PermissionGuard>
   );
 }

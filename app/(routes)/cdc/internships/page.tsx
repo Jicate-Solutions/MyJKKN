@@ -7,6 +7,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Plus, Briefcase, CheckCircle, Clock, XCircle, AlertCircle } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
+import { PermissionGuard } from '@/components/auth/permission-guard';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -73,6 +74,7 @@ export default function CdcInternshipsPage() {
   };
 
   return (
+    <PermissionGuard module="cdc.internships" action="view">
     <ContentLayout title="Corporate Internships">
       <div className="space-y-6">
         {/* Breadcrumb */}
@@ -100,12 +102,14 @@ export default function CdcInternshipsPage() {
               {total} internship{total !== 1 ? 's' : ''} total
             </p>
           </div>
-          <Link href="/cdc/internships/new">
-            <Button>
-              <Plus className="w-4 h-4 mr-2" />
-              New Internship
-            </Button>
-          </Link>
+          <PermissionGuard module="cdc.internships" action="create">
+            <Link href="/cdc/internships/new">
+              <Button>
+                <Plus className="w-4 h-4 mr-2" />
+                New Internship
+              </Button>
+            </Link>
+          </PermissionGuard>
         </div>
 
         {/* Filters */}
@@ -133,12 +137,14 @@ export default function CdcInternshipsPage() {
             <CardContent className="flex flex-col items-center justify-center py-16">
               <Briefcase className="w-12 h-12 text-gray-300 mb-4" />
               <p className="text-gray-500 text-sm">No corporate internships found.</p>
-              <Link href="/cdc/internships/new" className="mt-4">
-                <Button variant="outline" size="sm">
-                  <Plus className="w-4 h-4 mr-2" />
-                  Create first internship
-                </Button>
-              </Link>
+              <PermissionGuard module="cdc.internships" action="create">
+                <Link href="/cdc/internships/new" className="mt-4">
+                  <Button variant="outline" size="sm">
+                    <Plus className="w-4 h-4 mr-2" />
+                    Create first internship
+                  </Button>
+                </Link>
+              </PermissionGuard>
             </CardContent>
           </Card>
         )}
@@ -201,5 +207,6 @@ export default function CdcInternshipsPage() {
         )}
       </div>
     </ContentLayout>
+    </PermissionGuard>
   );
 }

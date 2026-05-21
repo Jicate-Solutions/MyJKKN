@@ -4,6 +4,7 @@ import { use, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
+import { PermissionGuard } from '@/components/auth/permission-guard';
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -29,7 +30,15 @@ import {
   isPlacementTerminal,
 } from '@/types/cdc/placements';
 
-export default function CdcPlacementDetailPage({
+export default function CdcPlacementDetailPage(props: { params: Promise<{ id: string }> }) {
+  return (
+    <PermissionGuard module="cdc.placements" action="view">
+      <CdcPlacementDetailContent {...props} />
+    </PermissionGuard>
+  );
+}
+
+function CdcPlacementDetailContent({
   params,
 }: {
   params: Promise<{ id: string }>;
@@ -216,6 +225,7 @@ export default function CdcPlacementDetailPage({
 
         {/* Status actions */}
         {!terminal && (
+          <PermissionGuard module="cdc.placements" action="edit">
           <Card>
             <CardHeader>
               <CardTitle className="text-base">Update Status</CardTitle>
@@ -319,6 +329,7 @@ export default function CdcPlacementDetailPage({
               )}
             </CardContent>
           </Card>
+          </PermissionGuard>
         )}
 
         {/* Back navigation */}

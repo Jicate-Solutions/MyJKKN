@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
+import { PermissionGuard } from '@/components/auth/permission-guard';
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -74,6 +75,7 @@ export default function NewIndustryMentorPage() {
   }
 
   return (
+    <PermissionGuard module="cdc.industry_mentors" action="create">
     <ContentLayout title="CDC — Add Industry Mentor">
       <div className="space-y-6 max-w-2xl">
         <Breadcrumb>
@@ -224,5 +226,6 @@ export default function NewIndustryMentorPage() {
         </form>
       </div>
     </ContentLayout>
+    </PermissionGuard>
   );
 }

@@ -3,6 +3,7 @@
 import { use, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
+import { PermissionGuard } from '@/components/auth/permission-guard';
 import {
   Breadcrumb, BreadcrumbItem, BreadcrumbLink,
   BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator
@@ -24,7 +25,15 @@ interface PageProps {
   params: Promise<{ id: string }>;
 }
 
-export default function ClubDetailPage({ params }: PageProps) {
+export default function ClubDetailPage(props: PageProps) {
+  return (
+    <PermissionGuard module="cdc.clubs" action="view">
+      <ClubDetailContent {...props} />
+    </PermissionGuard>
+  );
+}
+
+function ClubDetailContent({ params }: PageProps) {
   const { id } = use(params);
   const router = useRouter();
 

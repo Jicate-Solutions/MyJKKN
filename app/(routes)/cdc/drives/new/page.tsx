@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { ContentLayout } from '@/components/layout/content-layout';
+import { PermissionGuard } from '@/components/auth/permission-guard';
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -94,6 +95,7 @@ export default function NewCdcDrivePage() {
   }
 
   return (
+    <PermissionGuard module="cdc.drives" action="create">
     <ContentLayout title="New Campus Drive">
       <Breadcrumb>
         <BreadcrumbList>
@@ -319,5 +321,6 @@ export default function NewCdcDrivePage() {
         </div>
       </form>
     </ContentLayout>
+    </PermissionGuard>
   );
 }

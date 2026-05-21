@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useMemo, useState } from 'react';
 import { ContentLayout } from '@/components/layout/content-layout';
+import { PermissionGuard } from '@/components/auth/permission-guard';
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -66,6 +67,7 @@ export default function CdcDrivesListPage() {
   });
 
   return (
+    <PermissionGuard module="cdc.drives" action="view">
     <ContentLayout title="Career Development Centre — Drives">
       <Breadcrumb>
         <BreadcrumbList>
@@ -95,12 +97,14 @@ export default function CdcDrivesListPage() {
               Recruiter-led placement and internship drives across all institutions.
             </p>
           </div>
-          <Button asChild>
-            <Link href="/cdc/drives/new">
-              <Plus className="h-4 w-4 mr-2" />
-              New Drive
-            </Link>
-          </Button>
+          <PermissionGuard module="cdc.drives" action="create">
+            <Button asChild>
+              <Link href="/cdc/drives/new">
+                <Plus className="h-4 w-4 mr-2" />
+                New Drive
+              </Link>
+            </Button>
+          </PermissionGuard>
         </div>
 
         {/* Filter chips + search */}
@@ -191,5 +195,6 @@ export default function CdcDrivesListPage() {
         </Card>
       </div>
     </ContentLayout>
+    </PermissionGuard>
   );
 }

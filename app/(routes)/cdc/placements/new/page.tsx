@@ -5,6 +5,7 @@ import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import { ContentLayout } from '@/components/layout/content-layout';
+import { PermissionGuard } from '@/components/auth/permission-guard';
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -129,6 +130,7 @@ export default function NewCdcPlacementPage() {
   }
 
   return (
+    <PermissionGuard module="cdc.placements" action="create">
     <ContentLayout title="Record Placement">
       <div className="space-y-6 max-w-2xl">
         {/* Breadcrumb */}
@@ -361,5 +363,6 @@ export default function NewCdcPlacementPage() {
         </form>
       </div>
     </ContentLayout>
+    </PermissionGuard>
   );
 }

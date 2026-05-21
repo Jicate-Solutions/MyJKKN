@@ -3,6 +3,7 @@
 import { use, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
+import { PermissionGuard } from '@/components/auth/permission-guard';
 import {
   Breadcrumb, BreadcrumbItem, BreadcrumbLink,
   BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator
@@ -21,7 +22,15 @@ interface PageProps {
   params: Promise<{ id: string }>;
 }
 
-export default function IdpDetailPage({ params }: PageProps) {
+export default function IdpDetailPage(props: PageProps) {
+  return (
+    <PermissionGuard module="cdc.idp" action="view">
+      <IdpDetailContent {...props} />
+    </PermissionGuard>
+  );
+}
+
+function IdpDetailContent({ params }: PageProps) {
   const { id } = use(params);
   const router = useRouter();
   const { data: idp, isLoading, error } = useIdpById(id);
@@ -120,7 +129,9 @@ export default function IdpDetailPage({ params }: PageProps) {
             )}
           </div>
           {!editing && (
-            <Button onClick={startEdit} variant="outline">Edit</Button>
+            <PermissionGuard module="cdc.idp" action="edit">
+              <Button onClick={startEdit} variant="outline">Edit</Button>
+            </PermissionGuard>
           )}
         </div>
 

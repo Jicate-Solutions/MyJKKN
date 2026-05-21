@@ -3,6 +3,7 @@
 import { useState, useMemo } from 'react';
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
+import { PermissionGuard } from '@/components/auth/permission-guard';
 import { PageBreadcrumb } from '@/components/navigation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -11,7 +12,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useCdcProgrammes, useCdcTrainingTypes } from '@/hooks/cdc/use-cdc-training';
-import { useAuth } from '@/hooks/use-auth';
 import { Plus, Search, BookOpen, Calendar, Users } from 'lucide-react';
 import type { TrainingProgrammeFilters, TrainingProgrammeStatus } from '@/types/cdc/training';
 
@@ -30,7 +30,6 @@ const STATUS_COLORS: Record<TrainingProgrammeStatus, string> = {
 };
 
 export default function CdcTrainingPage() {
-  const { profile } = useAuth();
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
@@ -44,13 +43,8 @@ export default function CdcTrainingPage() {
   const { data: programmes, isLoading } = useCdcProgrammes(filters);
   const { data: trainingTypes } = useCdcTrainingTypes();
 
-  const canManage = profile?.is_super_admin ||
-    profile?.role === 'admin' ||
-    profile?.role === 'administrator' ||
-    profile?.role === 'cdc_head' ||
-    profile?.role === 'cdc_coordinator';
-
   return (
+    <PermissionGuard module="cdc.training" action="view">
     <ContentLayout title="CDC — Training Programmes">
       <PageBreadcrumb items={[
         { label: 'Home', href: '/' },
@@ -66,14 +60,14 @@ export default function CdcTrainingPage() {
               Unnati, MRB, Springboard and other training initiatives
             </p>
           </div>
-          {canManage && (
+          <PermissionGuard module="cdc.training" action="create">
             <Button asChild>
               <Link href="/cdc/training/new">
                 <Plus className="w-4 h-4 mr-2" />
                 New Programme
               </Link>
             </Button>
-          )}
+          </PermissionGuard>
         </div>
 
         {/* Filters */}
@@ -123,15 +117,15 @@ export default function CdcTrainingPage() {
             <BookOpen className="w-12 h-12 text-muted-foreground mb-4" />
             <p className="text-lg font-medium">No training programmes found</p>
             <p className="text-sm text-muted-foreground mt-1">
-              {canManage ? 'Create the first programme to get started.' : 'Check back later.'}
+              Check back later or create one if you have access.
             </p>
-            {canManage && (
+            <PermissionGuard module="cdc.training" action="create">
               <Button asChild className="mt-4">
                 <Link href="/cdc/training/new">
                   <Plus className="w-4 h-4 mr-2" /> New Programme
                 </Link>
               </Button>
-            )}
+            </PermissionGuard>
           </div>
         ) : (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -179,5 +173,6 @@ export default function CdcTrainingPage() {
         )}
       </div>
     </ContentLayout>
+    </PermissionGuard>
   );
 }

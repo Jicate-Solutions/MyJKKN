@@ -9,6 +9,14 @@
  *
  * Coordinator detail page at /cdc/drives/[id] is NOT modified.
  *
+ * 2026-05-21 — INTENTIONALLY not wrapped in <PermissionGuard module="cdc.drives" action="view">
+ *   because this is a learner self-service surface. Students typically lack
+ *   cdc.drives.view (that's the coordinator dashboard) but must be able to
+ *   respond to the willingness invite they received. Access is enforced at the
+ *   RLS layer: the willingness service queries the row keyed on
+ *   `learner_id = auth.uid()`, so unauthorized users get a "not eligible" view
+ *   instead of data leakage.
+ *
  * Behavior matrix:
  *   - drive not willingness_open  → "drive not currently open" message
  *   - learner not eligible        → friendly explainer, no submit buttons

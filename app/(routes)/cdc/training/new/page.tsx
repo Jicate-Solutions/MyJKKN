@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
+import { PermissionGuard } from '@/components/auth/permission-guard';
 import { PageBreadcrumb } from '@/components/navigation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -44,6 +45,7 @@ export default function NewTrainingProgrammePage() {
   }
 
   return (
+    <PermissionGuard module="cdc.training" action="create">
     <ContentLayout title="New Training Programme">
       <PageBreadcrumb items={[
         { label: 'Home', href: '/' },
@@ -188,5 +190,6 @@ export default function NewTrainingProgrammePage() {
         </Card>
       </div>
     </ContentLayout>
+    </PermissionGuard>
   );
 }

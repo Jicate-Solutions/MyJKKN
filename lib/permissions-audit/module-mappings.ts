@@ -193,7 +193,9 @@ export const MODULE_WITHOUT_CATEGORY = new Set<string>([
   'Chatbot', // chatbot tables exist; no permission catalog yet
   'Expo', // expo tables exist; no permission catalog yet
   'Marathon', // marathon tables exist; no permission catalog yet
-  'CDC', // CDC tables exist (cdc_*); no permission catalog yet — added 2026-05-19 unblocking deploy after Sprints 1-7 landed
+  // 'CDC' — removed 2026-05-21. CDC permission catalog now lives in
+  // lib/constants/permissions.ts (cdc.* keys for 10 sub-modules). Audit
+  // dashboard should report against those keys instead of em-dashing the row.
 ]);
 
 // ── 4. Permission-key module display helpers ─────────────────────────────

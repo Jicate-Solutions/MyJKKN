@@ -1949,6 +1949,80 @@ export const PERMISSION_CATEGORIES = [
     permissions: [
       { key: 'meetings.view', label: 'View Meetings Module' }
     ]
+  },
+  // ======================================================================
+  // CDC (Career Development Centre) — 2026-05-21.
+  // Closes the gap flagged in lib/permissions-audit/module-mappings.ts:196
+  // ("CDC tables exist; no permission catalog yet"). RLS continues to honour
+  // cdc_head / cdc_coordinator roles via is_cdc_head_or_super() helpers; the
+  // helpers were extended in the same migration to OR with user_has_permission()
+  // so custom roles granted cdc.* keys also pass RLS without losing the
+  // existing hardcoded paths.
+  // ======================================================================
+  {
+    name: 'Career Development Centre',
+    key: 'cdc',
+    permissions: [
+      { key: 'cdc.view', label: 'View CDC Module (sidebar group)' },
+
+      // Campus Drives
+      { key: 'cdc.drives.view', label: 'View Campus Drives' },
+      { key: 'cdc.drives.create', label: 'Create Campus Drives' },
+      { key: 'cdc.drives.edit', label: 'Edit Campus Drives' },
+      { key: 'cdc.drives.delete', label: 'Delete Campus Drives' },
+
+      // Placements
+      { key: 'cdc.placements.view', label: 'View Placements' },
+      { key: 'cdc.placements.create', label: 'Create Placement Records' },
+      { key: 'cdc.placements.edit', label: 'Edit Placement Records' },
+      { key: 'cdc.placements.delete', label: 'Delete Placement Records' },
+
+      // Internships
+      { key: 'cdc.internships.view', label: 'View Internships' },
+      { key: 'cdc.internships.create', label: 'Create Internship Records' },
+      { key: 'cdc.internships.edit', label: 'Edit Internship Records' },
+      { key: 'cdc.internships.delete', label: 'Delete Internship Records' },
+
+      // Individual Development Plans
+      { key: 'cdc.idp.view', label: 'View Individual Development Plans' },
+      { key: 'cdc.idp.create', label: 'Create Individual Development Plans' },
+      { key: 'cdc.idp.edit', label: 'Edit Individual Development Plans' },
+      { key: 'cdc.idp.delete', label: 'Delete Individual Development Plans' },
+
+      // Clubs
+      { key: 'cdc.clubs.view', label: 'View Clubs' },
+      { key: 'cdc.clubs.create', label: 'Create Clubs' },
+      { key: 'cdc.clubs.edit', label: 'Edit Clubs' },
+      { key: 'cdc.clubs.delete', label: 'Delete Clubs' },
+
+      // Mentor Pairings
+      { key: 'cdc.mentors.view', label: 'View Mentor Pairings' },
+      { key: 'cdc.mentors.create', label: 'Create Mentor Pairings' },
+      { key: 'cdc.mentors.edit', label: 'Edit Mentor Pairings' },
+      { key: 'cdc.mentors.delete', label: 'Delete Mentor Pairings' },
+
+      // Training Programmes
+      { key: 'cdc.training.view', label: 'View Training Programmes' },
+      { key: 'cdc.training.create', label: 'Create Training Programmes' },
+      { key: 'cdc.training.edit', label: 'Edit Training Programmes' },
+      { key: 'cdc.training.delete', label: 'Delete Training Programmes' },
+
+      // Opportunities Bulletin
+      { key: 'cdc.bulletin.view', label: 'View Opportunities Bulletin' },
+      { key: 'cdc.bulletin.create', label: 'Create Opportunities Bulletin Entries' },
+      { key: 'cdc.bulletin.edit', label: 'Edit Opportunities Bulletin Entries' },
+      { key: 'cdc.bulletin.delete', label: 'Delete Opportunities Bulletin Entries' },
+
+      // Industry Mentors directory
+      { key: 'cdc.industry_mentors.view', label: 'View Industry Mentors' },
+      { key: 'cdc.industry_mentors.create', label: 'Create Industry Mentors' },
+      { key: 'cdc.industry_mentors.edit', label: 'Edit Industry Mentors' },
+      { key: 'cdc.industry_mentors.delete', label: 'Delete Industry Mentors' },
+
+      // Reports & Exports (NAAC / AICTE / flex)
+      { key: 'cdc.exports.view', label: 'View CDC Reports & Exports Page' },
+      { key: 'cdc.exports.download', label: 'Download CDC Reports (NAAC / AICTE / CSV)' }
+    ]
   }
 ];
 
