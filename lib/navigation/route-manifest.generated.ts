@@ -3258,6 +3258,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         ]
       },
       {
+        "path": "/events/proposals",
+        "label": "Proposals",
+        "iconName": "CalendarHeart",
+        "children": []
+      },
+      {
         "path": "/events/propose",
         "label": "Propose",
         "iconName": "CalendarHeart",

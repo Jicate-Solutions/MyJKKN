@@ -57,9 +57,12 @@ export function EnquiriesSearchWrapper({ statusFilter }: EnquiriesSearchWrapperP
     // Reset to page 1 when searching
     params.set('page', '1');
 
-    // Preserve lifecycle status
+    // Preserve the active tab. The page (page.tsx) reads `?tab=` to decide
+    // which lifecycle tab is active since the 2026-05-20 URL-driven tabs
+    // refactor — writing `lifecycle_status` here would silently drop the
+    // user back to the default 'Enquiry' tab after each search.
     if (statusFilter) {
-      params.set('lifecycle_status', statusFilter);
+      params.set('tab', statusFilter);
     }
 
     // Preserve non-search filters from current URL
@@ -78,9 +81,9 @@ export function EnquiriesSearchWrapper({ statusFilter }: EnquiriesSearchWrapperP
     const cleanParams = new URLSearchParams();
     cleanParams.set('page', '1');
 
-    // Preserve lifecycle status if set
+    // Preserve the active tab (see handleSearch above).
     if (statusFilter) {
-      cleanParams.set('lifecycle_status', statusFilter);
+      cleanParams.set('tab', statusFilter);
     }
 
     // Preserve non-search filters (institution, degree, department)

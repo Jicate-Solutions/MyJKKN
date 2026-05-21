@@ -11,7 +11,7 @@ import {
   SelectItem,
 } from '@/components/ui/select';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
-import { Loader2, Save, Home, Bus } from 'lucide-react';
+import { Loader2, Home, Bus } from 'lucide-react';
 import type { Language } from './language-toggle';
 import {
   HOSTEL_TYPE_OPTIONS,
@@ -22,7 +22,6 @@ interface Props {
   lang: Language;
   data: Record<string, any>;
   onContinue: (fields: Record<string, any>) => void;
-  onSaveDraft: (fields: Record<string, any>) => void;
   onBack: () => void;
   submitting: boolean;
 }
@@ -75,7 +74,6 @@ function Field({
 export function StepAccommodation({
   data,
   onContinue,
-  onSaveDraft,
   onBack,
   submitting,
 }: Props) {
@@ -231,19 +229,9 @@ export function StepAccommodation({
         >
           Back / பின்
         </Button>
-        <Button
-          type="button"
-          variant="outline"
-          className="flex-1 h-12 text-sm sm:text-base"
-          onClick={() => onSaveDraft(v)}
-          disabled={submitting}
-        >
-          <Save className="h-4 w-4 mr-1.5" />
-          Save Draft
-        </Button>
         <Button type="submit" className="flex-1 h-12 text-sm sm:text-base" disabled={submitting}>
           {submitting && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-          Continue / தொடரவும்
+          Save & Continue / சேமித்துத் தொடரவும்
         </Button>
       </div>
     </form>

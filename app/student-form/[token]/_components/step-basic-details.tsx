@@ -11,7 +11,7 @@ import {
   SelectContent,
   SelectItem,
 } from '@/components/ui/select';
-import { Loader2, Save } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import type { Language } from './language-toggle';
 import { OccupationField } from '@/components/admission/occupation-field';
@@ -26,7 +26,6 @@ interface Props {
   lang: Language;
   data: Record<string, any>;
   onContinue: (fields: Record<string, any>) => void;
-  onSaveDraft: (fields: Record<string, any>) => void;
   submitting: boolean;
 }
 
@@ -135,7 +134,6 @@ function calcAge(dobStr: string): number {
 export function StepBasicDetails({
   data,
   onContinue,
-  onSaveDraft,
   submitting,
 }: Props) {
   const [v, setV] = useState({
@@ -340,20 +338,14 @@ export function StepBasicDetails({
         </Field>
       </Section>
 
-      <div className="flex gap-3 pt-2">
-        <Button
-          type="button"
-          variant="outline"
-          className="flex-1 h-12 text-base"
-          onClick={() => onSaveDraft(v)}
-          disabled={submitting}
-        >
-          <Save className="h-4 w-4 mr-2" />
-          Save Draft
-        </Button>
-        <Button type="submit" className="flex-1 h-12 text-base" disabled={submitting}>
+      <div className="pt-2">
+        {/* 2026-05-21: Single "Save & Continue" CTA replaces the previous
+         *  Save Draft + Continue pair. Server-side save still happens via
+         *  saveSection(section, fields, false=draft), then the wizard
+         *  advances to the next step. */}
+        <Button type="submit" className="w-full h-12 text-base" disabled={submitting}>
           {submitting && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-          {T.cont.en} / {T.cont.ta}
+          Save & Continue / சேமித்துத் தொடரவும்
         </Button>
       </div>
     </form>

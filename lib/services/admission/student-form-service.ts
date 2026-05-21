@@ -15,7 +15,12 @@ import {
 } from './student-form-write-whitelist';
 import { signToken, hashRawToken } from './student-form-hmac';
 
-const TOKEN_TTL_SECONDS = 30 * 60;
+// Token lifetime in seconds. Updated 2026-05-20 from 30 to 60 minutes per
+// product call — students at the counter often need more time to chase parent
+// signatures / mark-sheets between sections. Both the HMAC-signed `exp` claim
+// (signToken below) and the DB `expires_at` column (insert below) derive from
+// this constant, so this is the single source of truth.
+const TOKEN_TTL_SECONDS = 60 * 60;
 
 interface GenerateResult {
   token: string;        // raw signed token; goes in URL

@@ -15,7 +15,22 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 
 // Types
-export type ActivityType = 'call' | 'email' | 'meeting' | 'note' | 'sms' | 'whatsapp' | 'stage_change' | 'task' | 'checklist_marked';
+export type ActivityType =
+  | 'call'
+  | 'email'
+  | 'meeting'
+  | 'note'
+  | 'sms'
+  | 'whatsapp'
+  | 'stage_change'
+  | 'task'
+  | 'checklist_marked'
+  // Audit activities — written by service-layer hooks, not by user-driven UI.
+  // Surface on the timeline so officers can see the lead's full provenance.
+  | 'lead_created'
+  | 'moved_to_counselor'
+  | 'enquiry_submitted'
+  | 'student_section_filled';
 
 export interface LeadActivity {
   id: string;
@@ -395,6 +410,10 @@ export class ActivityService {
       stage_change: 'git-branch',
       task: 'check-circle',
       checklist_marked: 'check-circle',
+      lead_created: 'user-plus',
+      moved_to_counselor: 'user-plus',
+      enquiry_submitted: 'file-text',
+      student_section_filled: 'file-text',
     };
     return icons[type] || 'activity';
   }
@@ -410,6 +429,10 @@ export class ActivityService {
       stage_change: 'indigo',
       task: 'emerald',
       checklist_marked: 'emerald',
+      lead_created: 'blue',
+      moved_to_counselor: 'emerald',
+      enquiry_submitted: 'purple',
+      student_section_filled: 'emerald',
     };
     return colors[type] || 'gray';
   }

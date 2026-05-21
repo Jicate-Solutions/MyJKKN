@@ -38,8 +38,13 @@ export const STUDENT_WRITABLE_COLUMNS = {
     // Course Selection step — added 2026-05-19. Cascade is Institution ->
     // Degree -> Program (Department auto-fills from Program). Semester is
     // auto-picked when Entry Type changes (FIRST YEAR / LATERAL ENTRY).
+    // 2026-05-21: admission_year_id added. The student form auto-fetches
+    // the current-year admission_year row scoped to (institution, program)
+    // and renders it as a READ-ONLY field — the value is locked but still
+    // submitted with the rest of the course fields so the fee-structure
+    // matrix lookup has the right cohort.
     'institution_id', 'degree_id', 'department_id', 'program_id', 'semester_id',
-    'quota', 'entry_type',
+    'quota', 'entry_type', 'admission_year_id',
   ],
   accommodation: [
     // Accommodation step — added 2026-05-19. The "How did you hear about us?"

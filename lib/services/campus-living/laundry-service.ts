@@ -14,8 +14,15 @@ import { logger } from '@/lib/utils/enhanced-logger';
 //   Renamed `garment_count` -> `total_items` (real column). Renamed
 //   `received_at` -> `collected_at`. Added missing real columns. Removed
 //   `service_type` (lives on hostel_laundry_config row referenced by config_id,
-//   not on the order). LaundryFilters.service_type kept for ergonomic filter
-//   API even though it doesn't map to a column on this table.
+//   not on the order).
+// 2026-05-20: Removed `service_type` from LaundryFilters + getOrders. Prior
+//   code emitted `.eq('service_type', filters.service_type)` against
+//   hostel_laundry_orders — a column that does not exist on that table; the
+//   filter was silently inert (Supabase ignores unknown column eqs without
+//   erroring on simple `.eq` clauses). No callers in the codebase passed
+//   service_type (verified by grep across app/, hooks/, lib/). Re-add as a
+//   joined filter via hostel_laundry_config.config_id when a real caller
+//   needs it.
 export type LaundryStatus =
   | 'submitted'
   | 'collected'
@@ -52,13 +59,6 @@ export interface LaundryFilters {
   status?: LaundryStatus | string;
   block_id?: string;
   learner_id?: string;
-  /**
-   * service_type filter is preserved for legacy callers — it does NOT map to
-   * a column on hostel_laundry_orders (lives on hostel_laundry_config, joined
-   * via config_id). Callers filtering by service_type must use a join in
-   * future migrations of this method.
-   */
-  service_type?: string;
   date_from?: string;
   date_to?: string;
 }
@@ -86,7 +86,6 @@ export class LaundryService {
       if (filters?.status) query = query.eq('status', filters.status);
       if (filters?.block_id) query = query.eq('block_id', filters.block_id);
       if (filters?.learner_id) query = query.eq('learner_id', filters.learner_id);
-      if (filters?.service_type) query = query.eq('service_type', filters.service_type);
       if (filters?.date_from) query = query.gte('created_at', filters.date_from);
       if (filters?.date_to) query = query.lte('created_at', filters.date_to);
 
