@@ -9,6 +9,25 @@ import type {
   BillingInvoice
 } from '@/types/billing-schedule';
 
+// ============================================================================
+// Lifecycle statuses where a student is billable.
+// ----------------------------------------------------------------------------
+// Post-2026-05-21 workflow realignment, the lifecycle flows:
+//   account   → bills generated for the joining cycle
+//   reserved  → one cycle's bills paid, seat held
+//   admitted  → joining confirmed
+//   active    → post-joining, regular semester billing
+//
+// All four states have outstanding or paid bills that the billing module
+// must surface. Earlier code hardcoded ['active'] (or ['active','account'])
+// in five different spots — every post-realignment learner in 'reserved' or
+// 'admitted' silently 404'd from the billing schedule student detail page
+// with PGRST116 (single-row fetch returned 0 rows).
+//
+// Centralized here so the next realignment is one edit instead of five.
+// ============================================================================
+const BILLABLE_LIFECYCLE_STATUSES = ['account', 'reserved', 'admitted', 'active'] as const;
+
 // Helper type for raw Supabase response
 type RawStudentData = {
   id: string;
@@ -25,6 +44,10 @@ type RawStudentData = {
   program_id: string;
   semester_id: string;
   section_id: string;
+  // 2026-05-21: surfaced so the billing detail page can show the learner's
+  // current lifecycle (account / reserved / admitted / active) next to
+  // the bill totals. Selected by getStudentForBilling only.
+  lifecycle_status?: string;
   institution?: any;
   academic_year?: any;
   degree?: any;
@@ -82,6 +105,7 @@ export class StudentSearchService {
         id: rawData.section_id,
         section_name: ''
       },
+      lifecycle_status: rawData.lifecycle_status,
       outstanding_amount: outstandingAmount
     };
   }
@@ -117,7 +141,7 @@ export class StudentSearchService {
         `,
           { count: 'exact' }
         )
-        .eq('lifecycle_status', 'active')
+        .in('lifecycle_status', [...BILLABLE_LIFECYCLE_STATUSES])
         .eq('is_profile_complete', true);
 
       // Apply filters
@@ -220,6 +244,7 @@ export class StudentSearchService {
           father_name,
           student_mobile,
           college_email,
+          lifecycle_status,
           institution_id,
           academic_year_id,
           degree_id,
@@ -237,7 +262,7 @@ export class StudentSearchService {
         `
         )
         .eq('id', studentId)
-        .in('lifecycle_status', ['active', 'account'])
+        .in('lifecycle_status', [...BILLABLE_LIFECYCLE_STATUSES])
         .single();
 
       if (error) throw error;
@@ -499,7 +524,7 @@ export class StudentSearchService {
         `
         )
         .eq('institution_id', institutionId)
-        .eq('lifecycle_status', 'active')
+        .in('lifecycle_status', [...BILLABLE_LIFECYCLE_STATUSES])
         .order('first_name', { ascending: true })
         .limit(limit);
 
@@ -556,7 +581,7 @@ export class StudentSearchService {
           section:sections!section_id(id, section_name)
         `
         )
-        .eq('lifecycle_status', 'active');
+        .in('lifecycle_status', [...BILLABLE_LIFECYCLE_STATUSES]);
 
       if (institutionId) {
         query = query.eq('institution_id', institutionId);
@@ -613,7 +638,7 @@ export class StudentSearchService {
           department:departments(id, department_name)
         `
         )
-        .eq('lifecycle_status', 'active');
+        .in('lifecycle_status', [...BILLABLE_LIFECYCLE_STATUSES]);
 
       if (institutionId) {
         query = query.eq('institution_id', institutionId);
