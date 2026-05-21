@@ -15,8 +15,10 @@
 // - Matches admissions form structure completely
 // ============================================
 
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
 import { UseFormReturn } from 'react-hook-form';
+import toast from 'react-hot-toast';
+import { Info } from 'lucide-react';
 import {
   FormControl,
   FormDescription,
@@ -66,6 +68,9 @@ export function CourseSelectionSection({ form, showLearnerType = false }: Course
   const watchedDepartmentId = form.watch('department_id');
   const watchedProgramId = form.watch('program_id');
   const watchedSemesterId = form.watch('semester_id');
+  // 2026-05-21: watched so the SH-department engineering-first-year rule
+  // can react to entry-type changes (filter departments + clear stale pick).
+  const watchedEntryType = form.watch('entry_type');
 
   // Fetch organizations data with hierarchical filtering
   const { institutions } = useInstitutionsWithAccess();
@@ -151,6 +156,35 @@ export function CourseSelectionSection({ form, showLearnerType = false }: Course
   const departments = currentDepartmentToUse && !filteredDepartments.find((d: Department) => d.id === watchedDepartmentId)
     ? [currentDepartmentToUse, ...filteredDepartments]
     : filteredDepartments;
+
+  // ──────────────────────────────────────────────────────────────────────
+  // Engineering-college first-year department filter (2026-05-21)
+  // ──────────────────────────────────────────────────────────────────────
+  // JKKN College of Engineering and Technology (and any future institution
+  // that follows the same convention) routes ALL first-year learners
+  // through the Science and Humanities ('SH') department. For lateral
+  // entry and later admissions, students go straight into their branch
+  // department — SH should NOT be selectable.
+  //
+  // Detection: any department with department_code='SH' belongs to the
+  //            institution → trigger the rule. No institution_type check
+  //            (that column is funding model, not discipline).
+  // Activation:
+  //   - entry_type === 'FIRST YEAR' → show ONLY SH dept
+  //   - entry_type set, NOT FIRST YEAR → HIDE SH dept
+  //   - entry_type unset → also hide SH (SH only makes sense when
+  //     entry_type is committed to FIRST YEAR)
+  const institutionHasShDept = departments.some(
+    (d: Department) => d.department_code === 'SH',
+  );
+  const restrictToSh = institutionHasShDept && watchedEntryType === 'FIRST YEAR';
+  const hideSh = institutionHasShDept && watchedEntryType !== 'FIRST YEAR';
+  const displayedDepartments = useMemo(() => {
+    if (!institutionHasShDept) return departments;
+    if (restrictToSh) return departments.filter((d: Department) => d.department_code === 'SH');
+    if (hideSh) return departments.filter((d: Department) => d.department_code !== 'SH');
+    return departments;
+  }, [departments, restrictToSh, hideSh, institutionHasShDept]);
 
   console.log('[course-selection] Department Debug:', {
     watchedDegreeId,
@@ -376,6 +410,33 @@ export function CourseSelectionSection({ form, showLearnerType = false }: Course
           )}
         />
 
+        {/* Engineering-first-year info banner — shown when the SH-dept rule
+         *  is actively filtering the department list. */}
+        {restrictToSh && (
+          <div className="flex items-start gap-2 rounded-md border border-blue-200 bg-blue-50 p-3 text-xs text-blue-900 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-200">
+            <Info className="mt-0.5 h-4 w-4 shrink-0" />
+            <div className="leading-relaxed">
+              <p className="font-medium">First-year — Science &amp; Humanities only</p>
+              <p className="mt-0.5 text-blue-800/90 dark:text-blue-300/90">
+                First-year learners at this institution enrol under Science &amp;
+                Humanities. Only that department + its programmes are selectable.
+              </p>
+            </div>
+          </div>
+        )}
+        {hideSh && watchedEntryType && (
+          <div className="flex items-start gap-2 rounded-md border border-slate-200 bg-slate-50 p-3 text-xs text-slate-800 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+            <Info className="mt-0.5 h-4 w-4 shrink-0" />
+            <div className="leading-relaxed">
+              <p className="font-medium">Branch-department admission</p>
+              <p className="mt-0.5 text-slate-700/90 dark:text-slate-300/90">
+                Lateral entry and later admissions skip the Science &amp;
+                Humanities first-year track. Only branch departments are shown.
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* Department */}
         <FormField
           control={form.control}
@@ -405,8 +466,8 @@ export function CourseSelectionSection({ form, showLearnerType = false }: Course
                     <div className="px-2 py-4 text-sm text-muted-foreground text-center">
                       Loading...
                     </div>
-                  ) : departments.length > 0 ? (
-                    departments.map((dept: Department) => (
+                  ) : displayedDepartments.length > 0 ? (
+                    displayedDepartments.map((dept: Department) => (
                       <SelectItem key={dept.id} value={dept.id}>
                         {dept.department_name}
                       </SelectItem>
@@ -436,6 +497,40 @@ export function CourseSelectionSection({ form, showLearnerType = false }: Course
               <Select
                 onValueChange={(value) => {
                   field.onChange(value);
+
+                  // 2026-05-21: SH-dept first-year rule — if the entry-type
+                  // change makes the currently-picked department invalid,
+                  // clear it (and program_id, which cascades from it) so
+                  // the user re-picks from the now-filtered list.
+                  if (institutionHasShDept && watchedDepartmentId) {
+                    const currentDept = departments.find(
+                      (d: Department) => d.id === watchedDepartmentId,
+                    );
+                    if (currentDept) {
+                      const into1Y =
+                        value === 'FIRST YEAR' &&
+                        currentDept.department_code !== 'SH';
+                      const outOf1Y =
+                        value !== 'FIRST YEAR' &&
+                        currentDept.department_code === 'SH';
+                      if (into1Y) {
+                        form.setValue('department_id', '');
+                        form.setValue('program_id', '');
+                        toast(
+                          'First-year admissions at this institution belong to Science and Humanities — please re-pick the department.',
+                          { duration: 6000, icon: 'ℹ️' },
+                        );
+                      } else if (outOf1Y) {
+                        form.setValue('department_id', '');
+                        form.setValue('program_id', '');
+                        toast(
+                          'Lateral entry and later admissions belong to the branch department — please re-pick the department.',
+                          { duration: 6000, icon: 'ℹ️' },
+                        );
+                      }
+                    }
+                  }
+
                   // Auto-pick semester based on entry type. Fires only on
                   // user-initiated change (not on initial form load), so a
                   // manually-picked semester from an existing lead is not

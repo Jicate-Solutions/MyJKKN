@@ -99,16 +99,30 @@ export async function POST(
         // Programs are filtered by degree (skipping the Department step in
         // the student wizard). The picked program's department_id is then
         // used to auto-fill the Department field client-side.
+        //
+        // 2026-05-21: also embed `department.department_code` so the
+        // client can apply the engineering-first-year rule (department_code='SH'
+        // is the Science & Humanities mirror dept that all first-year
+        // engineering students enrol under). Client filters to those rows
+        // when entry_type='FIRST YEAR' AND the institution has an SH dept.
         if (!filters.degree_id) {
           return NextResponse.json({ data: [] });
         }
-        const { data, error } = await (svc as any)
+        const { data: rows, error } = await (svc as any)
           .from('programs')
-          .select('id, program_name, department_id, degree_id, institution_id')
+          .select(
+            'id, program_name, department_id, degree_id, institution_id, department:departments(department_code)',
+          )
           .eq('degree_id', filters.degree_id)
           .order('program_name', { ascending: true });
         if (error) throw error;
-        return NextResponse.json({ data: data ?? [] });
+        // Flatten the embed so the client sees a plain `department_code`
+        // string. The embed returns `{ department_code: 'SH' }` or null.
+        const data = (rows ?? []).map((r: any) => ({
+          ...r,
+          department_code: r.department?.department_code ?? null,
+        }));
+        return NextResponse.json({ data });
       }
 
       case 'semesters': {
