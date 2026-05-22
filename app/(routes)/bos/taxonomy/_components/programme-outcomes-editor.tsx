@@ -455,7 +455,7 @@ export function ProgrammeOutcomesEditor({ regulationId, boardId, institutionsId 
     <div className='space-y-3'>
       {programmes.map((programme) => (
         <ProgrammeCard
-          key={programme.programme_code}
+          key={`${programme.board_id}:${programme.programme_code}`}
           regulationId={regulationId}
           programme={programme}
           institutionsId={institutionsId}

@@ -272,15 +272,26 @@ export interface BosUnit {
   chapters: BosChapter[];
 }
 
+// Practical-paper topic: a numbered heading (e.g. "MAJOR PRACTICALS") that may
+// hold child sub-topics (e.g. "Estimation of dissolved Oxygen"). Sub-topics
+// are optional — rows authored before the hierarchy shipped continue to work
+// as flat single-line entries because the PDF renderer falls back on
+// `{ number, title }` when `subtopics` is empty or absent.
+export interface BosPracticalTopic {
+  number: number;
+  title: string;
+  subtopics?: BosChapterSubtopic[];
+}
+
 export interface BosCourseContentData {
   units: BosUnit[];
   // Practical-paper mode (e.g. lab courses): when true, `topics` is the
-  // authoritative content — a flat numbered list of experiments rendered as
-  // "S.No | List of Experiments" in the PDF. `units` is ignored in this mode.
+  // authoritative content — a numbered list of headings, each optionally
+  // carrying its own sub-experiments. `units` is ignored in this mode.
   // The form toggle in components/bos/syllabus-form.tsx (toggleMode) maintains
   // the invariant that exactly one of units/topics is populated.
   is_practical?: boolean;
-  topics?: BosChapterSubtopic[];
+  topics?: BosPracticalTopic[];
 }
 
 // ── Textbooks & References ────────────────────────────────────────────

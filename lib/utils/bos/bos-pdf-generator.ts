@@ -535,24 +535,32 @@ function drawAttendanceSheet(
   if (header.officials) y = drawOfficials(doc, header.officials, y);
   y = divider(doc, y);
 
-  // Heading — "<BOARD_TYPE> - <BOARD_NAME> ATTENDANCE SHEET", uppercased.
-  // board_type and board_name are denormalized on the meeting (board_type via
-  // the 20260521 migration; board_name passed in by the caller after a COE
-  // lookup). Either may be absent on legacy meetings — the heading degrades
-  // gracefully to just "ATTENDANCE SHEET" in that case.
-  const boardType = (meeting.board_type ?? '').trim().toUpperCase();
-  const boardNameUpper = (boardName ?? '').trim().toUpperCase();
-  const headingParts: string[] = [];
-  if (boardType) headingParts.push(boardType);
-  if (boardNameUpper) headingParts.push(boardNameUpper);
-  const heading = headingParts.length
-    ? `${headingParts.join(' - ')} ATTENDANCE SHEET`
-    : 'ATTENDANCE SHEET';
-
+  // Heading — always "ATTENDANCE SHEET" (centered). The board identity moves
+  // to a left-aligned "Name of the board:" line directly below the heading so
+  // the title stays consistent across boards and the identifier becomes a
+  // labeled row instead of a prefix on the title.
   doc.setFont('times', 'bold');
   doc.setFontSize(12);
-  doc.text(heading, PAGE_W / 2, y, { align: 'center' });
+  doc.text('ATTENDANCE SHEET', PAGE_W / 2, y, { align: 'center' });
   y += 7;
+
+  // "Name of the board: <BOARD_TYPE> - <BOARD_NAME>" — left-aligned beneath
+  // the heading. board_type and board_name are denormalized on the meeting
+  // (board_type via the 20260521 migration; board_name passed in by the
+  // caller after a COE lookup). Either may be absent on legacy meetings, in
+  // which case we render whatever is available and skip the row entirely if
+  // both are blank.
+  const boardType = (meeting.board_type ?? '').trim().toUpperCase();
+  const boardNameUpper = (boardName ?? '').trim().toUpperCase();
+  const boardLabelParts: string[] = [];
+  if (boardType) boardLabelParts.push(boardType);
+  if (boardNameUpper) boardLabelParts.push(boardNameUpper);
+  if (boardLabelParts.length) {
+    doc.setFont('times', 'bold');
+    doc.setFontSize(10);
+    doc.text(`Name of the board: ${boardLabelParts.join(' - ')}`, MARGIN, y);
+    y += 6;
+  }
 
   // Compact meeting metadata strip so the attendance sheet is self-contained
   // (someone holding only this page can still identify the meeting).
@@ -641,20 +649,30 @@ export function generateMinutesPdf({
   if (header.officials) y = drawOfficials(doc, header.officials, y);
   y = divider(doc, y);
 
-  // Title — prefixed with board type + name when available, e.g.
-  // "UG - COMPUTER SCIENCE - MINUTES OF BOARD OF STUDIES MEETING". When
-  // either prefix is missing, falls back to just the suffix so legacy
-  // meetings (pre-2026-05-21 board_type backfill) still render cleanly.
-  const titleBoardType = (meeting.board_type ?? '').trim().toUpperCase();
-  const titleBoardName = (boardName ?? '').trim().toUpperCase();
-  const titleParts: string[] = [];
-  if (titleBoardType) titleParts.push(titleBoardType);
-  if (titleBoardName) titleParts.push(titleBoardName);
-  titleParts.push('MINUTES OF BOARD OF STUDIES MEETING');
+  // Title — always "MINUTES OF BOARD OF STUDIES MEETING" (centered). The
+  // board identity moves to a left-aligned "Name of the board:" line below
+  // the title for the same reason as the attendance sheet on page 1 — keeps
+  // the title consistent across boards and turns the identifier into a
+  // labeled row instead of a prefix.
   doc.setFont('times', 'bold');
   doc.setFontSize(12);
-  doc.text(titleParts.join(' - '), PAGE_W / 2, y, { align: 'center' });
+  doc.text('MINUTES OF BOARD OF STUDIES MEETING', PAGE_W / 2, y, { align: 'center' });
   y += 7;
+
+  // "Name of the board: <BOARD_TYPE> - <BOARD_NAME>" — left-aligned beneath
+  // the title. Falls back gracefully when board_type or board_name is missing
+  // on legacy meetings; if both are blank, the row is skipped entirely.
+  const titleBoardType = (meeting.board_type ?? '').trim().toUpperCase();
+  const titleBoardName = (boardName ?? '').trim().toUpperCase();
+  const titleBoardParts: string[] = [];
+  if (titleBoardType) titleBoardParts.push(titleBoardType);
+  if (titleBoardName) titleBoardParts.push(titleBoardName);
+  if (titleBoardParts.length) {
+    doc.setFont('times', 'bold');
+    doc.setFontSize(10);
+    doc.text(`Name of the board: ${titleBoardParts.join(' - ')}`, MARGIN, y);
+    y += 6;
+  }
 
   // Meeting details.
   // Date/Start Time fall back to the scheduled values when actuals haven't

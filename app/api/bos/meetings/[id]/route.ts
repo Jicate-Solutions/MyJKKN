@@ -110,10 +110,28 @@ export async function GET(
       agenda_items_agg?: CountRow[] | null;
       attendees_agg?: CountRow[] | null;
     };
+    // Board enrichment — mirrors what /api/bos/meetings (list) already does.
+    // bos_meetings only stores board_id (a COE UUID); board_name/board_code/
+    // board_type live in the COE DB, reached via the cross-DB resolver keyed
+    // by the meeting's institutions_id (counselling_code = institution_code
+    // bridge). Without this, the detail page sees `meeting.board = undefined`,
+    // breaks the documents-tab board-name lookup, and the Minutes/Attendance
+    // PDF heading degrades to just "<BOARD_TYPE> ATTENDANCE SHEET" with no
+    // board name.
+    const meetingRowForBoard = data as { board_id: string | null; institutions_id: string | null };
+    let board: { board_code: string; board_name: string; board_type?: string | null } | null = null;
+    if (meetingRowForBoard.board_id && meetingRowForBoard.institutions_id) {
+      const { fetchCoeBoardMaps } = await import('@/lib/utils/bos/coe-boards');
+      const boardMap = await fetchCoeBoardMaps([meetingRowForBoard.institutions_id]);
+      const b = boardMap.get(meetingRowForBoard.board_id);
+      if (b) board = { board_code: b.board_code, board_name: b.board_name, board_type: b.board_type };
+    }
+
     const flattened = {
       ...data,
       agenda_item_count: meetingWithAgg.agenda_items_agg?.[0]?.count ?? 0,
       attendee_count: meetingWithAgg.attendees_agg?.[0]?.count ?? 0,
+      board,
     };
     delete (flattened as Record<string, unknown>).agenda_items_agg;
     delete (flattened as Record<string, unknown>).attendees_agg;

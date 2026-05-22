@@ -338,6 +338,24 @@ export function SyllabusForm({
     }));
   }, [isSuperAdmin, isEditingProp, syllabusProp, institutionCtx]);
 
+  // Super-admin edit path: the syllabus may store any CAS sibling UUID, but the
+  // Institution dropdown's option values are `inst.id` (the FIRST sibling UUID
+  // returned by /api/bos/institutions). SearchableSelect matches strictly by
+  // ===, so a stored Self-Financed UUID against an Aided-keyed option shows
+  // the placeholder. Normalise to the option's `inst.id` once the list loads.
+  useEffect(() => {
+    if (!isSuperAdmin) return;
+    if (!formData.institutions_id) return;
+    if (institutions.length === 0) return;
+    if (institutions.some((i) => i.id === formData.institutions_id)) return;
+    const match = institutions.find((i) =>
+      i.myjkkn_institution_ids?.includes(formData.institutions_id ?? '')
+    );
+    if (match && match.id !== formData.institutions_id) {
+      setFormData((prev) => ({ ...prev, institutions_id: match.id }));
+    }
+  }, [isSuperAdmin, institutions, formData.institutions_id]);
+
   // Fetch institutions
   useEffect(() => {
     const fetchInstitutions = async () => {
@@ -493,6 +511,13 @@ export function SyllabusForm({
           }
         } else if (formData.institutions_id) {
           url.searchParams.set('institutionId', formData.institutions_id);
+        }
+        // On edit, ensure the dedup-by-code in /api/bos/regulations keeps the
+        // exact row this syllabus already references (CAS Aided+Self share
+        // codes, otherwise the dropdown shows the placeholder). Use the
+        // original syllabus value so this stays stable across user edits.
+        if (isEditingProp && existingSyllabus?.regulation_id) {
+          url.searchParams.set('preferId', existingSyllabus.regulation_id);
         }
         const res = await fetch(url.toString());
         if (res.ok) {
@@ -1408,7 +1433,11 @@ function CloEditor({ clos, kValues, onChange }: any) {
 function ContentEditor({ content, onChange }: any) {
   const isPractical = !!content?.is_practical;
   const units = content?.units || [];
-  const topics: { number: number; title: string }[] = content?.topics || [];
+  const topics: {
+    number: number;
+    title: string;
+    subtopics?: { number: number; title: string }[];
+  }[] = content?.topics || [];
 
   // Migrate legacy single-letter unit IDs (A, B, C…) to Roman numerals (I, II, III…).
   // The regex excludes I, V, X — those are valid Roman numerals already and must
@@ -1548,6 +1577,35 @@ function ContentEditor({ content, onChange }: any) {
     onChange({ ...content, topics: updated });
   };
 
+  const addPracticalSubtopic = (topicIdx: number) => {
+    const updated = topics.map((t, i) => {
+      if (i !== topicIdx) return t;
+      const existing = t.subtopics ?? [];
+      return { ...t, subtopics: [...existing, { number: existing.length + 1, title: '' }] };
+    });
+    onChange({ ...content, topics: updated });
+  };
+
+  const updatePracticalSubtopic = (topicIdx: number, stIdx: number, title: string) => {
+    const updated = topics.map((t, i) => {
+      if (i !== topicIdx) return t;
+      const subs = (t.subtopics ?? []).map((s, j) => (j === stIdx ? { ...s, title } : s));
+      return { ...t, subtopics: subs };
+    });
+    onChange({ ...content, topics: updated });
+  };
+
+  const removePracticalSubtopic = (topicIdx: number, stIdx: number) => {
+    const updated = topics.map((t, i) => {
+      if (i !== topicIdx) return t;
+      const subs = (t.subtopics ?? [])
+        .filter((_, j) => j !== stIdx)
+        .map((s, j) => ({ ...s, number: j + 1 }));
+      return { ...t, subtopics: subs };
+    });
+    onChange({ ...content, topics: updated });
+  };
+
   return (
     <div className="space-y-4">
       {/* ── Mode toggle ────────────────────────────────────────────── */}
@@ -1585,20 +1643,57 @@ function ContentEditor({ content, onChange }: any) {
         /* ── Practical mode ──────────────────────────────────────── */
         <div className="space-y-2">
           {topics.map((topic, idx) => (
-            <div key={idx} className="flex items-start gap-2.5">
+            <div key={idx} className="flex items-start gap-2.5 group">
               <span className="mt-2 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[11px] font-bold text-primary">
                 {topic.number}
               </span>
-              <MathInput
-                placeholder="Topic title"
-                value={topic.title}
-                onChange={(v) => updateTopic(idx, v)}
-                className="flex-1 text-sm"
-              />
+              <div className="flex-1 space-y-1">
+                <MathInput
+                  placeholder="Topic heading (e.g. MAJOR PRACTICALS)"
+                  value={topic.title}
+                  onChange={(v) => updateTopic(idx, v)}
+                  className="text-sm"
+                />
+
+                {/* Sub-topics — mirror of theory-mode subtopic block */}
+                {(topic.subtopics?.length ?? 0) > 0 && (
+                  <div className="mt-2 ml-3 space-y-1.5 border-l-2 border-muted pl-3">
+                    {topic.subtopics!.map((st, stIdx) => (
+                      <div key={stIdx} className="flex items-start gap-2 group/sub">
+                        <span className="mt-1.5 shrink-0 text-[10px] font-semibold text-muted-foreground tabular-nums">
+                          {topic.number}.{st.number}
+                        </span>
+                        <MathInput
+                          placeholder="Sub-topic title"
+                          value={st.title}
+                          onChange={(v) => updatePracticalSubtopic(idx, stIdx, v)}
+                          className="flex-1 text-xs"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => removePracticalSubtopic(idx, stIdx)}
+                          className="mt-1 rounded p-0.5 text-muted-foreground opacity-0 group-hover/sub:opacity-100 hover:bg-destructive/10 hover:text-destructive transition-all"
+                          title="Remove sub-topic"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <button
+                  type="button"
+                  onClick={() => addPracticalSubtopic(idx)}
+                  className="mt-1 inline-flex items-center gap-1 rounded-md border border-dashed px-2 py-0.5 text-[11px] font-medium text-muted-foreground hover:border-primary/50 hover:text-primary transition-colors"
+                >
+                  <Plus className="h-3 w-3" /> Add Sub-topic
+                </button>
+              </div>
               <button
                 type="button"
                 onClick={() => removeTopic(idx)}
-                className="mt-2 rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors"
+                className="mt-2 rounded p-1 text-muted-foreground opacity-0 group-hover:opacity-100 hover:bg-destructive/10 hover:text-destructive transition-all"
+                title="Remove topic"
               >
                 <X className="h-3.5 w-3.5" />
               </button>

@@ -4,7 +4,7 @@ import type {
 	BosCourseObjective,
 	BosCourseLearnOutcome,
 	BosUnit,
-	BosChapterSubtopic,
+	BosPracticalTopic,
 	BosTextbook,
 	BosWebResource,
 	BosPoMapping,
@@ -364,8 +364,13 @@ export interface CourseSyllabusPDFData {
 	/** K-code → description map from regulation taxonomy; falls back to Bloom's defaults */
 	k_values?: Record<string, string>
 	units?: BosUnit[]
-	/** Flat numbered list of experiments — set instead of `units` for practical/lab papers. */
-	practical_topics?: BosChapterSubtopic[]
+	/**
+	 * Numbered list of practical-paper topics — set instead of `units` for
+	 * practical/lab papers. Each topic is a heading (e.g. "MAJOR PRACTICALS")
+	 * and may optionally carry its own numbered sub-topics (rendered with
+	 * "1.1, 1.2, …" prefixes under the parent heading).
+	 */
+	practical_topics?: BosPracticalTopic[]
 	textbooks?: BosTextbook[]
 	references?: BosTextbook[]
 	web_resources?: BosWebResource[]
@@ -522,19 +527,74 @@ export function renderCourseSyllabusPDF(
 	// Render it as an "S.No | List of Experiments" table. This branch wins over
 	// the units block — the two modes are mutually exclusive by construction.
 	if (data.practical_topics && data.practical_topics.length > 0) {
-		const expRows: AnyCell[][] = [
+		// Bordered table — one row per parent topic, with the bold heading +
+		// numbered sub-items stacked inside the content cell via the shared
+		// `_bosMixed` line mechanism (same machinery theory-mode unit content
+		// uses below). Row borders only appear between *different* parent
+		// topics, so each heading and its children read as one visual block.
+		const contentColW = TABLE_W - LABEL_W
+		const contentMaxTextW = contentColW - 4 // cellPadding (2) on each side
+
+		const rows: AnyCell[][] = [
 			[
 				bold('S.No', { halign: 'center' }),
 				bold('List of Experiments', { halign: 'center' }),
 			],
-			...data.practical_topics.map(t => [
-				bold(String(t.number), { halign: 'center' }),
-				cell(sanitize(t.title || ''), { halign: 'left' }),
-			]),
 		]
-		y = table(doc, y, expRows, {
+
+		for (const t of data.practical_topics) {
+			// Normalize: strip trailing ":"/whitespace from stored data
+			// (legacy rows often have "MAJOR PRACTICALS:" baked in) so we
+			// always append exactly one colon below.
+			const rawTitle = sanitize(t.title || '').replace(/[:\s]+$/, '')
+			const headingText = rawTitle.length > 0 ? `${rawTitle}:` : ''
+
+			const allLines: BosMixedLine[] = []
+
+			// Bold heading line(s). Use splitTextToSize against the bold font
+			// width so a long heading wraps inside the cell rather than
+			// overflowing horizontally.
+			if (headingText) {
+				doc.setFont('times', 'bold')
+				doc.setFontSize(FONT_SIZE)
+				const headingWrapped = doc.splitTextToSize(headingText, contentMaxTextW) as string[]
+				headingWrapped.forEach(ln =>
+					allLines.push({ text: ln, prefixEnd: ln.length }),
+				)
+			}
+
+			// Sub-items (plain, leading number from stored data). Wrap with
+			// the regular font so width calculations match the rendered glyphs.
+			if ((t.subtopics?.length ?? 0) > 0) {
+				doc.setFont('times', 'normal')
+				doc.setFontSize(FONT_SIZE)
+				for (const st of t.subtopics!) {
+					const subText = `${st.number}. ${sanitize(st.title || '')}`
+					const subWrapped = doc.splitTextToSize(subText, contentMaxTextW) as string[]
+					subWrapped.forEach(ln =>
+						allLines.push({ text: ln, prefixEnd: 0 }),
+					)
+				}
+			}
+
+			if (allLines.length === 0) allLines.push({ text: '', prefixEnd: 0 })
+
+			rows.push([
+				{
+					content: String(t.number),
+					styles: { fontStyle: 'bold', halign: 'center', valign: 'top' },
+				},
+				{
+					content: allLines.map(l => l.text).join('\n'),
+					_bosMixed: { lines: allLines },
+					styles: { valign: 'top' },
+				},
+			])
+		}
+
+		y = table(doc, y, rows, {
 			0: { cellWidth: LABEL_W },
-			1: { cellWidth: TABLE_W - LABEL_W },
+			1: { cellWidth: contentColW },
 		})
 	} else if (data.units && data.units.length > 0) {
 	// One row per unit, two columns: the unit_id label (e.g. "I", "II") on the

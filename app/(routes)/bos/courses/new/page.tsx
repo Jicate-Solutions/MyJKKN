@@ -172,6 +172,7 @@ export default function NewCoursePage() {
                 value={institutionId}
                 onChange={setInstitutionId}
                 onSelect={handleInstitutionSelect}
+                hideLabel
               />
             )}
             {!isSuperAdmin && showMultiInstitutionPicker && (

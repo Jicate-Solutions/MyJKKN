@@ -26,7 +26,7 @@ export const COURSE_TYPE_VALUES = [
   'Foundation Course','Generic Elective Practical','Generic Elective',
   'Internship','Language','Naanmuthalvan','Non Academic',
   'Non Major Elective Practical','Non Major Elective',
-  'Practical','Project',
+  'Practical','Professional Competency Skill','Project',
   'Skill Enhancement Practical','Skill Enhancement',
 ] as const;
 
