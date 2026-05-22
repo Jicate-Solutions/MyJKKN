@@ -202,12 +202,17 @@ export async function GET(request: NextRequest) {
   // schedule is */5 * * * *, max single-memo duration ≤ 30s in practice).
   const ORPHAN_AGE_MS = 5 * 60 * 1000;
   const orphanCutoffIso = new Date(Date.now() - ORPHAN_AGE_MS).toISOString();
+  // Build the OR clause as three equality branches plus a nested AND for the
+  // orphan-recovery branch. Using three top-level branches (eq.pending /
+  // eq.failed / and(eq.transcribing,lt.cutoff)) is friendlier to the
+  // PostgREST parser than .in.(...) when an ISO timestamp (containing ':'
+  // and '.') is in the same expression.
   const { data: candidatesRaw, error: candidatesErr } = await supabase
     .from('admission_call_logs')
     .select('id, institution_id, memo_audio_url')
     .not('memo_audio_url', 'is', null)
     .or(
-      `memo_analyze_status.in.(pending,failed),and(memo_analyze_status.eq.transcribing,updated_at.lt.${orphanCutoffIso})`,
+      `memo_analyze_status.eq.pending,memo_analyze_status.eq.failed,and(memo_analyze_status.eq.transcribing,updated_at.lt.${orphanCutoffIso})`,
     )
     .order('created_at', { ascending: true })
     .limit(BATCH_LIMIT);
