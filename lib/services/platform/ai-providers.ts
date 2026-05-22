@@ -163,8 +163,15 @@ export const AI_PROVIDER_REGISTRY: ProviderRegistryEntry[] = [
     envVarHint: 'SARVAM_API_KEY',
     models: [
       {
+        id: 'saarika:v2.5',
+        label: 'Saarika v2.5 (multilingual ASR, current)',
+        perMinuteInr: 0.42,
+        modality: 'audio_transcription',
+        notes: 'Better Tamil/Hindi accuracy than Whisper; auto-detects language via language_code=unknown.',
+      },
+      {
         id: 'saaras:v2',
-        label: 'Saaras v2 (multilingual ASR)',
+        label: 'Saaras v2 (multilingual ASR, legacy)',
         perMinuteInr: 0.42,
         modality: 'audio_transcription',
         notes: 'Better Tamil/Hindi accuracy than Whisper.',
