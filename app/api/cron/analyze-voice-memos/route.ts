@@ -41,6 +41,7 @@
 //
 // Created: 2026-05-09 (Build #4 voice memo backend).
 // Updated: 2026-05-09 (multi-provider via ai_model_config).
+// Updated: 2026-05-22 (language-code normalization + Sarvam + orphan recovery).
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
