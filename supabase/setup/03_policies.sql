@@ -4585,17 +4585,21 @@ CREATE POLICY "events_reg_self_read" ON public.events_registrations
 
 ALTER TABLE public.event_payment_transactions ENABLE ROW LEVEL SECURITY;
 
--- Anyone can insert (payment gateway initiates transactions)
-CREATE POLICY "event_payments_public_insert" ON public.event_payment_transactions
-  FOR INSERT WITH CHECK (true);
+-- Tightened 2026-05-22 for Razorpay migration: writes must come from service_role
+-- (webhook handler / server-side API routes). Legacy permissive policies removed.
+DROP POLICY IF EXISTS "event_payments_public_insert" ON public.event_payment_transactions;
+DROP POLICY IF EXISTS "event_payments_public_read" ON public.event_payment_transactions;
+DROP POLICY IF EXISTS "event_payments_public_update" ON public.event_payment_transactions;
 
--- Public read needed for status checks by external app and payers
-CREATE POLICY "event_payments_public_read" ON public.event_payment_transactions
-  FOR SELECT USING (true);
+-- Service role inserts payment rows (server-side API routes only)
+CREATE POLICY "Service role can insert event payments" ON public.event_payment_transactions
+  FOR INSERT WITH CHECK (auth.role() = 'service_role');
 
--- Public update needed for gateway webhooks to update status
-CREATE POLICY "event_payments_public_update" ON public.event_payment_transactions
-  FOR UPDATE USING (true);
+-- Service role updates payment rows (webhook handler only)
+CREATE POLICY "Service role can update event payments" ON public.event_payment_transactions
+  FOR UPDATE
+  USING (auth.role() = 'service_role')
+  WITH CHECK (auth.role() = 'service_role');
 
 -- Authenticated users can read all payment transactions for their institution
 CREATE POLICY "event_payments_auth_read" ON public.event_payment_transactions
@@ -4604,6 +4608,25 @@ CREATE POLICY "event_payments_auth_read" ON public.event_payment_transactions
       SELECT institution_id FROM public.profiles WHERE id = auth.uid()
     )
   );
+
+-- ── payment_disputes (Razorpay chargebacks) ───────────────────────────────────
+
+ALTER TABLE public.payment_disputes ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Admins can view all disputes" ON public.payment_disputes;
+CREATE POLICY "Admins can view all disputes" ON public.payment_disputes
+  FOR SELECT
+  USING (auth.role() = 'service_role' OR EXISTS (
+    SELECT 1 FROM public.profiles
+    WHERE profiles.id = auth.uid()
+      AND profiles.role IN ('super_admin','admin','institution_admin')
+  ));
+
+DROP POLICY IF EXISTS "Service role can write disputes" ON public.payment_disputes;
+CREATE POLICY "Service role can write disputes" ON public.payment_disputes
+  FOR ALL
+  USING (auth.role() = 'service_role')
+  WITH CHECK (auth.role() = 'service_role');
 
 -- ── marathon_sponsors ─────────────────────────────────────────────────────────
 

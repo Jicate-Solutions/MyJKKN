@@ -3670,6 +3670,65 @@ CREATE INDEX IF NOT EXISTS idx_event_payments_status ON public.event_payment_tra
 CREATE INDEX IF NOT EXISTS idx_event_payments_session ON public.event_payment_transactions(gateway_session_id);
 CREATE INDEX IF NOT EXISTS idx_event_payments_ref ON public.event_payment_transactions(transaction_ref);
 
+-- Razorpay (HDFC Collect Now) provider columns — added 2026-05-22
+-- See: supabase/migrations/20260522120000_razorpay_payment_columns.sql
+ALTER TABLE public.event_payment_transactions
+  ADD COLUMN IF NOT EXISTS provider text NOT NULL DEFAULT 'hdfc_smartgateway'
+    CHECK (provider IN ('hdfc_smartgateway','razorpay')),
+  ADD COLUMN IF NOT EXISTS razorpay_order_id text,
+  ADD COLUMN IF NOT EXISTS razorpay_payment_id text,
+  ADD COLUMN IF NOT EXISTS razorpay_signature text,
+  ADD COLUMN IF NOT EXISTS amount_paise bigint,
+  ADD COLUMN IF NOT EXISTS captured_at timestamptz,
+  ADD COLUMN IF NOT EXISTS refund_status text
+    CHECK (refund_status IN ('none','partial','full'))
+    DEFAULT 'none';
+
+CREATE UNIQUE INDEX IF NOT EXISTS event_payment_transactions_razorpay_order_id_key
+  ON public.event_payment_transactions (razorpay_order_id)
+  WHERE razorpay_order_id IS NOT NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS event_payment_transactions_razorpay_payment_id_key
+  ON public.event_payment_transactions (razorpay_payment_id)
+  WHERE razorpay_payment_id IS NOT NULL;
+
+ALTER TABLE public.event_payment_transactions
+  DROP CONSTRAINT IF EXISTS event_payment_transactions_provider_identifiers_chk;
+ALTER TABLE public.event_payment_transactions
+  ADD CONSTRAINT event_payment_transactions_provider_identifiers_chk CHECK (
+    (provider = 'hdfc_smartgateway' AND gateway_session_id IS NOT NULL) OR
+    (provider = 'razorpay' AND razorpay_order_id IS NOT NULL)
+  );
+
+CREATE INDEX IF NOT EXISTS idx_event_payment_transactions_provider
+  ON public.event_payment_transactions (provider);
+
+-- payment_disputes (Razorpay chargebacks) — added 2026-05-22
+CREATE TABLE IF NOT EXISTS public.payment_disputes (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  provider text NOT NULL CHECK (provider IN ('razorpay')),
+  razorpay_dispute_id text UNIQUE NOT NULL,
+  razorpay_payment_id text NOT NULL,
+  payment_transaction_id uuid REFERENCES public.payment_transactions(id),
+  event_payment_transaction_id uuid REFERENCES public.event_payment_transactions(id),
+  amount_paise bigint NOT NULL,
+  currency text NOT NULL DEFAULT 'INR',
+  reason_code text,
+  phase text CHECK (phase IN ('fraud','retrieval','chargeback','pre_arbitration','arbitration')),
+  status text NOT NULL CHECK (status IN ('open','under_review','won','lost','closed')),
+  respond_by timestamptz,
+  raw_payload jsonb NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT payment_disputes_attached_to_one_transaction_chk CHECK (
+    (payment_transaction_id IS NOT NULL AND event_payment_transaction_id IS NULL) OR
+    (payment_transaction_id IS NULL AND event_payment_transaction_id IS NOT NULL)
+  )
+);
+
+CREATE INDEX IF NOT EXISTS idx_payment_disputes_payment_id ON public.payment_disputes (razorpay_payment_id);
+CREATE INDEX IF NOT EXISTS idx_payment_disputes_status ON public.payment_disputes (status);
+
 -- ============================================================================
 -- EVENTS MODULE — Marathon Extension Tables
 -- Created: 2026-04-07
