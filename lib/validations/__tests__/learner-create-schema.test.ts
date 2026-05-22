@@ -117,4 +117,30 @@ describe('createLearnerSchema', () => {
     expect(out.last_school).toBe('');
     expect(out.board_of_study).toBe('');
   });
+
+  it('accepts empty strings for unselected optional dropdowns (form-emitted default)', () => {
+    const result = createLearnerSchema.safeParse({
+      ...validInput,
+      blood_group: '',
+      hostel_type: '',
+      food_type: '',
+      quota: '',
+      regulation_id: '',
+      batch_id: '',
+      admission_year_id: '',
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('createLearnerWithDefaults coerces null last_school/board_of_study to empty string', () => {
+    const out = createLearnerWithDefaults({
+      ...validInput,
+      // @ts-expect-error — exercising the null path explicitly
+      last_school: null,
+      // @ts-expect-error — exercising the null path explicitly
+      board_of_study: null,
+    });
+    expect(out.last_school).toBe('');
+    expect(out.board_of_study).toBe('');
+  });
 });
