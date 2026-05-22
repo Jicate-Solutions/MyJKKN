@@ -3729,6 +3729,20 @@ CREATE TABLE IF NOT EXISTS public.payment_disputes (
 CREATE INDEX IF NOT EXISTS idx_payment_disputes_payment_id ON public.payment_disputes (razorpay_payment_id);
 CREATE INDEX IF NOT EXISTS idx_payment_disputes_status ON public.payment_disputes (status);
 
+-- updated_at trigger for payment_disputes
+CREATE OR REPLACE FUNCTION update_payment_disputes_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.updated_at = now();
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trigger_payment_disputes_updated_at ON public.payment_disputes;
+CREATE TRIGGER trigger_payment_disputes_updated_at
+BEFORE UPDATE ON public.payment_disputes
+FOR EACH ROW EXECUTE FUNCTION update_payment_disputes_updated_at();
+
 -- ============================================================================
 -- EVENTS MODULE — Marathon Extension Tables
 -- Created: 2026-04-07

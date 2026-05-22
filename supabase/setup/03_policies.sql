@@ -4581,6 +4581,17 @@ CREATE POLICY "events_reg_public_event_read" ON public.events_registrations
 CREATE POLICY "events_reg_self_read" ON public.events_registrations
   FOR SELECT TO authenticated USING (profile_id = auth.uid());
 
+-- ── payment_transactions (billing module) ────────────────────────────────────
+-- Razorpay migration (2026-05-22): tighten UPDATE on payment_transactions to service_role only.
+-- This replaces the legacy "System can update payment transactions" policy that allowed any
+-- authenticated user to UPDATE; webhook handlers run under the service role.
+DROP POLICY IF EXISTS "System can update payment transactions" ON public.payment_transactions;
+DROP POLICY IF EXISTS "Service role can update payment transactions" ON public.payment_transactions;
+CREATE POLICY "Service role can update payment transactions" ON public.payment_transactions
+  FOR UPDATE
+  USING (auth.role() = 'service_role')
+  WITH CHECK (auth.role() = 'service_role');
+
 -- ── event_payment_transactions ────────────────────────────────────────────────
 
 ALTER TABLE public.event_payment_transactions ENABLE ROW LEVEL SECURITY;

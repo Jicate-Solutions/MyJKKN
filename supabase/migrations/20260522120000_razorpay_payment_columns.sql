@@ -38,6 +38,8 @@ ALTER TABLE payment_transactions
 CREATE INDEX IF NOT EXISTS idx_payment_transactions_provider
   ON payment_transactions (provider);
 
+-- Backfill amount_paise from total_amount (NUMERIC stored as rupees with 2 decimal places).
+-- One-time migration; later writes set amount_paise directly via the Razorpay provider.
 UPDATE payment_transactions
 SET amount_paise = (total_amount * 100)::bigint
 WHERE amount_paise IS NULL AND total_amount IS NOT NULL;
@@ -76,6 +78,8 @@ ALTER TABLE event_payment_transactions
 CREATE INDEX IF NOT EXISTS idx_event_payment_transactions_provider
   ON event_payment_transactions (provider);
 
+-- Backfill amount_paise from amount (NUMERIC stored as rupees with 2 decimal places).
+-- One-time migration; later writes set amount_paise directly via the Razorpay provider.
 UPDATE event_payment_transactions
 SET amount_paise = (amount * 100)::bigint
 WHERE amount_paise IS NULL AND amount IS NOT NULL;
@@ -107,6 +111,20 @@ CREATE TABLE IF NOT EXISTS payment_disputes (
 
 CREATE INDEX IF NOT EXISTS idx_payment_disputes_payment_id ON payment_disputes (razorpay_payment_id);
 CREATE INDEX IF NOT EXISTS idx_payment_disputes_status ON payment_disputes (status);
+
+-- updated_at trigger for payment_disputes
+CREATE OR REPLACE FUNCTION update_payment_disputes_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.updated_at = now();
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trigger_payment_disputes_updated_at ON payment_disputes;
+CREATE TRIGGER trigger_payment_disputes_updated_at
+BEFORE UPDATE ON payment_disputes
+FOR EACH ROW EXECUTE FUNCTION update_payment_disputes_updated_at();
 
 ALTER TABLE payment_disputes ENABLE ROW LEVEL SECURITY;
 
