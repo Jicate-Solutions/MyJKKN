@@ -14,7 +14,7 @@
 'use client';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { createClient } from '@/lib/supabase/client';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 import type {
   CoachRequestBody,
   CoachResponseBody,
@@ -44,7 +44,8 @@ export function useAttemptHistory(assessmentId: string, learnerId: string | unde
   return useQuery({
     queryKey: clinicalReasoningKeys.attempts(assessmentId, learnerId || ''),
     queryFn: async () => {
-      const supabase = createClient();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const supabase = createClientSupabaseClient() as any;
       const { data, error } = await supabase
         .from('pde_submissions')
         .select('id, attempt_number, completed_at, auto_score, final_score, passed, created_at')
@@ -120,10 +121,21 @@ export function useCoachFeedback() {
 // locally in ImageTagQuestion against question.expected_regions.
 // ──────────────────────────────────────────────────────────────────────────────
 
+export interface FinalizeAttemptDomainScore {
+  domain_key: string;
+  domain_label: string;
+  score: number;
+  max_score: number;
+  justification: string;
+  evidence_q_numbers: number[];
+}
+
 export interface FinalizeAttemptResult {
   osce_score: {
+    total_score: number;
+    max_score: number;
     percentage: number;
-    domain_scores?: Record<string, number>;
+    domain_scores: FinalizeAttemptDomainScore[];
   };
   passed: boolean;
   evidence_created: boolean;
@@ -175,7 +187,11 @@ export function useCompleteAttempt() {
     }
   >({
     mutationFn: async (input) => {
-      const supabase = createClient();
+      // Typed client + JSONB columns + the new audit columns (assessment_version,
+      // roll_number_snapshot) need an any-cast — the generated Database type
+      // hasn't been regenerated since A6 added them.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const supabase = createClientSupabaseClient() as any;
 
       const startedAt = new Date(Date.now() - input.timeSpentSeconds * 1000).toISOString();
 
@@ -223,7 +239,8 @@ export function useSubmission(submissionId: string | undefined) {
   return useQuery({
     queryKey: clinicalReasoningKeys.submission(submissionId ?? ''),
     queryFn: async () => {
-      const supabase = createClient();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const supabase = createClientSupabaseClient() as any;
       const { data, error } = await supabase
         .from('pde_submissions')
         .select('*')

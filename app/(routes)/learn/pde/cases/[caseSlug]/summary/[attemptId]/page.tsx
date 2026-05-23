@@ -15,10 +15,9 @@ import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation/Breadcrumbs';
 import type {
   ClinicalAnswerEnvelope,
-  ClinicalEvidenceEnvelope,
   ClinicalQuestion,
-  OsceDomain,
 } from '@/types/pde-clinical-reasoning';
+import type { FinalizeAttemptDomainScore } from '@/hooks/pde/use-clinical-reasoning';
 
 export const dynamic = 'force-dynamic';
 
@@ -31,7 +30,7 @@ interface SummaryPageProps {
   params: Promise<{ caseSlug: string; attemptId: string }>;
 }
 
-function domainLabel(d: OsceDomain): string {
+function prettify(d: string): string {
   return d.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
@@ -79,12 +78,22 @@ export default async function SummaryPage({ params }: SummaryPageProps) {
     .order('order_index', { ascending: true });
 
   const questions: ClinicalQuestion[] = (qRows ?? []) as ClinicalQuestion[];
-  const answers: ClinicalAnswerEnvelope[] = (submission.answers ?? []) as ClinicalAnswerEnvelope[];
-  const evidence: ClinicalEvidenceEnvelope | null =
-    (submission.evidence_urls as ClinicalEvidenceEnvelope) ?? null;
 
-  const score =
-    submission.final_score ?? submission.auto_score ?? evidence?.osce_score ?? null;
+  // Answers shape varies — pre-scoring it's ClinicalAnswerEnvelope[],
+  // post-scoring (Agent E's /score write-back) it's wrapped as
+  // { items: ClinicalAnswerEnvelope[], osce_score: OsceScore }.
+  const rawAnswers = submission.answers;
+  const answers: ClinicalAnswerEnvelope[] = Array.isArray(rawAnswers)
+    ? (rawAnswers as ClinicalAnswerEnvelope[])
+    : Array.isArray((rawAnswers as { items?: unknown })?.items)
+      ? ((rawAnswers as { items: ClinicalAnswerEnvelope[] }).items)
+      : [];
+
+  const osceScore = !Array.isArray(rawAnswers) && rawAnswers && typeof rawAnswers === 'object'
+    ? (rawAnswers as { osce_score?: { percentage?: number; domain_scores?: FinalizeAttemptDomainScore[] } }).osce_score
+    : undefined;
+
+  const score = submission.final_score ?? submission.auto_score ?? osceScore?.percentage ?? null;
 
   const minutes = Math.round((submission.time_spent_seconds ?? 0) / 60);
 
@@ -123,18 +132,19 @@ export default async function SummaryPage({ params }: SummaryPageProps) {
             ) : null}
           </div>
 
-          {evidence?.domain_scores ? (
+          {osceScore?.domain_scores && osceScore.domain_scores.length > 0 ? (
             <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-5">
-              {(Object.keys(evidence.domain_scores) as OsceDomain[]).map((d) => (
-                <div key={d} className="rounded-md bg-background px-3 py-2 text-center">
-                  <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                    {domainLabel(d)}
+              {osceScore.domain_scores.map((d) => {
+                const pct = d.max_score > 0 ? (d.score / d.max_score) * 100 : 0;
+                return (
+                  <div key={d.domain_key} className="rounded-md bg-background px-3 py-2 text-center">
+                    <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                      {prettify(d.domain_label || d.domain_key)}
+                    </div>
+                    <div className="text-base font-semibold">{Math.round(pct)}%</div>
                   </div>
-                  <div className="text-base font-semibold">
-                    {Math.round(Number(evidence.domain_scores![d] ?? 0))}%
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           ) : null}
         </header>

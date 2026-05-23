@@ -101,7 +101,7 @@ export function FreeTextSocraticQuestion({
           <button
             type="button"
             onClick={submit}
-            disabled={!answer.trim() || status === 'loading'}
+            disabled={!answer.trim()}
             className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50"
           >
             Get coach feedback
