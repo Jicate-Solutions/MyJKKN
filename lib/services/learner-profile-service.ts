@@ -904,6 +904,19 @@ export class LearnerProfileService {
         }
       }
 
+      // Delete orphaned consultant_lead_attributions where admission_id is NULL
+      // (ON DELETE SET NULL on learner_profile_id would violate the check constraint
+      //  requiring at least one of learner_profile_id/admission_id to be non-null)
+      const { error: attrError } = await supabase
+        .from('consultant_lead_attributions')
+        .delete()
+        .eq('learner_profile_id', id)
+        .is('admission_id', null);
+
+      if (attrError) {
+        console.warn(`[learner-profile-service] Failed to clean up orphaned attributions for ${id}:`, attrError);
+      }
+
       // Delete the learner record
       const { error } = await supabase
         .from('learners_profiles')

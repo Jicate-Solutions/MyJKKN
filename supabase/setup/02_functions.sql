@@ -13268,7 +13268,7 @@ DECLARE
 BEGIN
     SELECT institution_id, degree_id, department_id, program_id,
            quota_id, community_category_id, accommodation_type_id, admission_year_id,
-           legacy_fee_mode
+           legacy_fee_mode, gender
       INTO v_lead
       FROM public.learners_profiles
      WHERE id = p_learner_id;
@@ -13281,17 +13281,24 @@ BEGIN
         RETURN COALESCE((SELECT fee_items FROM public.learners_profiles WHERE id = p_learner_id), '[]'::jsonb);
     END IF;
 
-    SELECT id INTO v_structure_id
-      FROM public.admission_fee_structures
-     WHERE institution_id        = v_lead.institution_id
-       AND degree_id             = v_lead.degree_id
-       AND department_id         = v_lead.department_id
-       AND programme_id          = v_lead.program_id
-       AND quota_id              = v_lead.quota_id
-       AND community_category_id = v_lead.community_category_id
-       AND accommodation_type_id = v_lead.accommodation_type_id
-       AND admission_year_id     = v_lead.admission_year_id
-       AND status = 'active'
+    -- Lookup: prefer exact gender match, fall back to gender IS NULL (any)
+    SELECT afs.id INTO v_structure_id
+      FROM public.admission_fee_structures afs
+     WHERE afs.institution_id        = v_lead.institution_id
+       AND afs.degree_id             = v_lead.degree_id
+       AND afs.department_id         = v_lead.department_id
+       AND afs.programme_id          = v_lead.program_id
+       AND afs.quota_id              = v_lead.quota_id
+       AND afs.accommodation_type_id = v_lead.accommodation_type_id
+       AND afs.admission_year_id     = v_lead.admission_year_id
+       AND afs.status = 'active'
+       AND EXISTS (
+             SELECT 1 FROM public.admission_fee_structure_communities j
+              WHERE j.fee_structure_id      = afs.id
+                AND j.community_category_id = v_lead.community_category_id
+           )
+       AND (afs.gender = UPPER(v_lead.gender) OR afs.gender IS NULL)
+     ORDER BY afs.gender IS NOT NULL DESC
      LIMIT 1;
 
     IF v_structure_id IS NULL THEN
@@ -13438,7 +13445,15 @@ BEGIN
     ELSE
         v_fee_items := v_lead.fee_items;
         IF v_fee_items IS NULL OR jsonb_array_length(v_fee_items) = 0 THEN
-            RAISE EXCEPTION 'legacy_fee_items_empty: cannot transition with no fees';
+            UPDATE public.learners_profiles
+               SET legacy_fee_mode = false,
+                   updated_at      = now()
+             WHERE id = p_learner_id;
+
+            v_fee_items := public.admission_resolve_fee_items_for_lead(p_learner_id);
+            IF jsonb_array_length(v_fee_items) = 0 THEN
+                RAISE EXCEPTION 'fee_items_empty: no legacy fees and no matching fee structure in the matrix';
+            END IF;
         END IF;
     END IF;
 
