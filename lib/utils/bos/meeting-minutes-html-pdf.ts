@@ -110,11 +110,9 @@ function generateMinutesHtml({
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Minutes of Board of Studies Meeting</title>
   <style>
-    @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+Tamil:wght@400;700&display=swap');
-
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
-      font-family: 'Times New Roman', 'Noto Sans Tamil', serif;
+      font-family: 'Times New Roman', serif;
       line-height: 1.5;
       color: #000;
       background: white;
@@ -271,7 +269,7 @@ function generateMinutesHtml({
       border: 1px solid #000;
       padding: 8px 8px;
       text-align: left;
-      font-family: 'Noto Sans Tamil', serif;
+      font-family: 'Times New Roman', serif;
       page-break-inside: avoid;
       height: auto;
       vertical-align: top;
@@ -328,7 +326,7 @@ function generateMinutesHtml({
       font-size: 11px;
       line-height: 1.6;
       text-align: justify;
-      font-family: 'Noto Sans Tamil', serif;
+      font-family: 'Times New Roman', serif;
     }
 
     .agenda-item {
