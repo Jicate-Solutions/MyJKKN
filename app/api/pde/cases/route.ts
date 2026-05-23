@@ -32,32 +32,39 @@ function validateDomainWeights(w: CreateClinicalCaseInput['metadata']['domain_we
   return null;
 }
 
-function validateInput(body: any): { ok: true; input: CreateClinicalCaseInput } | { ok: false; error: string } {
-  if (!body || typeof body !== 'object') return { ok: false, error: 'invalid body' };
-  if (!body.course_id || typeof body.course_id !== 'string') return { ok: false, error: 'course_id required' };
-  if (!body.title || typeof body.title !== 'string') return { ok: false, error: 'title required' };
-  if (!body.case_scenario || typeof body.case_scenario !== 'object') return { ok: false, error: 'case_scenario required' };
-  if (!body.case_scenario.patient_name) return { ok: false, error: 'case_scenario.patient_name required' };
-  if (!body.case_scenario.chief_complaint) return { ok: false, error: 'case_scenario.chief_complaint required' };
-  if (!body.metadata?.domain_weights) return { ok: false, error: 'metadata.domain_weights required' };
+interface ValidationResult {
+  ok: boolean;
+  input: CreateClinicalCaseInput | null;
+  error: string;
+}
+
+function validateInput(body: any): ValidationResult {
+  const fail = (error: string): ValidationResult => ({ ok: false, input: null, error });
+  if (!body || typeof body !== 'object') return fail('invalid body');
+  if (!body.course_id || typeof body.course_id !== 'string') return fail('course_id required');
+  if (!body.title || typeof body.title !== 'string') return fail('title required');
+  if (!body.case_scenario || typeof body.case_scenario !== 'object') return fail('case_scenario required');
+  if (!body.case_scenario.patient_name) return fail('case_scenario.patient_name required');
+  if (!body.case_scenario.chief_complaint) return fail('case_scenario.chief_complaint required');
+  if (!body.metadata?.domain_weights) return fail('metadata.domain_weights required');
   const wErr = validateDomainWeights(body.metadata.domain_weights);
-  if (wErr) return { ok: false, error: wErr };
+  if (wErr) return fail(wErr);
   if (!Array.isArray(body.questions) || body.questions.length === 0) {
-    return { ok: false, error: 'questions array required (at least 1)' };
+    return fail('questions array required (at least 1)');
   }
   for (let i = 0; i < body.questions.length; i++) {
     const q = body.questions[i];
-    if (!q.question_text) return { ok: false, error: `questions[${i}].question_text required` };
-    if (!q.question_type) return { ok: false, error: `questions[${i}].question_type required` };
+    if (!q.question_text) return fail(`questions[${i}].question_text required`);
+    if (!q.question_type) return fail(`questions[${i}].question_type required`);
     if (!['free_text_socratic', 'mcq_warmup', 'image_tag'].includes(q.question_type)) {
-      return { ok: false, error: `questions[${i}].question_type invalid` };
+      return fail(`questions[${i}].question_type invalid`);
     }
     if (!q.metadata || typeof q.metadata !== 'object') {
-      return { ok: false, error: `questions[${i}].metadata required` };
+      return fail(`questions[${i}].metadata required`);
     }
-    if (!q.metadata.osce_domain) return { ok: false, error: `questions[${i}].metadata.osce_domain required` };
+    if (!q.metadata.osce_domain) return fail(`questions[${i}].metadata.osce_domain required`);
   }
-  return { ok: true, input: body as CreateClinicalCaseInput };
+  return { ok: true, input: body as CreateClinicalCaseInput, error: '' };
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -164,7 +171,7 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json();
     const v = validateInput(body);
-    if (!v.ok) return NextResponse.json({ error: v.error }, { status: 400 });
+    if (!v.ok || !v.input) return NextResponse.json({ error: v.error }, { status: 400 });
     const input = v.input;
 
     // Sanity: ensure course exists + faculty has access (institution_id match unless super_admin)

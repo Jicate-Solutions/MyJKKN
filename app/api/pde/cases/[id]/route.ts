@@ -64,20 +64,26 @@ async function loadFull(supabase: any, id: string): Promise<ClinicalCaseWithQues
   };
 }
 
+interface AuthResult {
+  ok: boolean;
+  status: number;
+  error: string;
+}
+
 async function requireOwnerOrSuper(
   supabase: any,
   userId: string,
   institutionId?: string | null
-): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
+): Promise<AuthResult> {
   const { data: profile } = await supabase
     .from('profiles')
     .select('institution_id, role')
     .eq('id', userId)
     .single();
   const isSuper = profile?.role === 'super_admin' || profile?.role === 'platform_admin';
-  if (isSuper) return { ok: true };
+  if (isSuper) return { ok: true, status: 200, error: '' };
   if (institutionId && profile?.institution_id && profile.institution_id === institutionId) {
-    return { ok: true };
+    return { ok: true, status: 200, error: '' };
   }
   return { ok: false, status: 403, error: 'Forbidden — institution scope mismatch' };
 }
