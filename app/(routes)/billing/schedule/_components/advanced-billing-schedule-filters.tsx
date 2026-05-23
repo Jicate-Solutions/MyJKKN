@@ -12,7 +12,6 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { RotateCcw, Filter, X } from 'lucide-react';
-import { OrganizationService } from '@/lib/services/organization/organization-service';
 import { BillingCategoryService } from '@/lib/services/billing/categories/billing-category-service';
 import { AcademicYearService } from '@/lib/services/academic/academic-year-service';
 import { DegreeService } from '@/lib/services/organization/degree-service';
@@ -22,6 +21,7 @@ import { SemesterService } from '@/lib/services/organization/semester-service';
 import { SectionService } from '@/lib/services/organization/section-service';
 import { BillingScheduleSearchParams } from './data-table-schema';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import { DatePickerWithRange } from '@/components/ui/date-range-picker';
 import { DateRange } from 'react-day-picker';
 import { Badge } from '@/components/ui/badge';
@@ -91,7 +91,12 @@ export function AdvancedBillingScheduleFilters({
   });
 
   const [isCollapsed, setIsCollapsed] = useState(false);
-  const { canAccess, isSuperAdmin, userProfile } = usePermissions();
+  const { canAccess } = usePermissions();
+  const {
+    institutions: accessibleInstitutions,
+    loading: loadingAccessibleInstitutions,
+  } = useInstitutionsWithAccess({ isActive: true });
+  const hasMultiInstitutionAccess = accessibleInstitutions.length > 1;
 
   // Smart filter validation that checks hierarchy consistency
   const validateFilters = useCallback((): FilterValidation => {
@@ -229,9 +234,16 @@ export function AdvancedBillingScheduleFilters({
     }
   }, [searchParams]);
 
-  // Load institutions and categories on mount
+  // Sync accessible institutions into filterState for cascade logic.
   useEffect(() => {
-    loadFilterData('institutions', () => OrganizationService.getInstitutionNames(true));
+    if (!loadingAccessibleInstitutions) {
+      setFilterState(prev => ({ ...prev, institutions: accessibleInstitutions }));
+      setLoading(prev => ({ ...prev, institutions: false }));
+    }
+  }, [accessibleInstitutions, loadingAccessibleInstitutions]);
+
+  // Load categories on mount
+  useEffect(() => {
     loadFilterData('categories', async () => {
       const result = await BillingCategoryService.getBillingCategories();
       return result.data;
@@ -304,22 +316,20 @@ export function AdvancedBillingScheduleFilters({
     }
   }, [searchParams.semester_id, loadFilterData]);
 
-  // Auto-set institution for non-super admin users
+  // Auto-pin institution for single-institution users.
   useEffect(() => {
     if (
-      !isSuperAdmin &&
-      userProfile?.institution_id &&
-      !searchParams.institution_id &&
-      !loading.institutions
+      !loadingAccessibleInstitutions &&
+      accessibleInstitutions.length === 1 &&
+      !searchParams.institution_id
     ) {
-      onFilterChange('institution_id', userProfile.institution_id);
+      onFilterChange('institution_id', accessibleInstitutions[0].id);
     }
   }, [
-    userProfile,
-    isSuperAdmin,
+    accessibleInstitutions,
     searchParams.institution_id,
     onFilterChange,
-    loading.institutions
+    loadingAccessibleInstitutions,
   ]);
 
   const handleDateRangeChange = useCallback((range: DateRange | undefined) => {
@@ -486,7 +496,7 @@ export function AdvancedBillingScheduleFilters({
         <>
           {/* Institution & Academic Hierarchy */}
           <div className='grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4'>
-            {isSuperAdmin && (
+            {hasMultiInstitutionAccess && (
               <div className='space-y-2'>
                 <Label>Institution</Label>
                 <Select
@@ -494,14 +504,14 @@ export function AdvancedBillingScheduleFilters({
                   onValueChange={(value) => {
                     handleSmartFilterChange('institution_id', value === 'all' ? undefined : value);
                   }}
-                  disabled={loading.institutions}
+                  disabled={loadingAccessibleInstitutions}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder='Select institution' />
                   </SelectTrigger>
                   <SelectContent className='max-h-60 overflow-y-auto'>
                     <SelectItem value='all'>All Institutions</SelectItem>
-                    {filterState.institutions.map((inst) => (
+                    {accessibleInstitutions.map((inst) => (
                       <SelectItem key={inst.id} value={inst.id}>
                         {inst.name}
                       </SelectItem>

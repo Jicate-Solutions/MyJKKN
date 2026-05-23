@@ -12,7 +12,6 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { RotateCcw } from 'lucide-react';
-import { OrganizationService } from '@/lib/services/organization/organization-service';
 import { BillingCategoryService } from '@/lib/services/billing/categories/billing-category-service';
 import { AcademicYearService } from '@/lib/services/academic/academic-year-service';
 import { DegreeService } from '@/lib/services/organization/degree-service';
@@ -22,6 +21,7 @@ import { SemesterService } from '@/lib/services/organization/semester-service';
 import { SectionService } from '@/lib/services/organization/section-service';
 import { BillingScheduleSearchParams } from './data-table-schema';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import { DatePickerWithRange } from '@/components/ui/date-range-picker';
 import { DateRange } from 'react-day-picker';
 
@@ -36,9 +36,12 @@ export function BillingScheduleFilters({
   onFilterChange,
   onClearFilters
 }: BillingScheduleFiltersProps) {
-  const [institutions, setInstitutions] = useState<
-    Array<{ id: string; name: string }>
-  >([]);
+  const {
+    institutions,
+    loading: loadingInstitutions,
+  } = useInstitutionsWithAccess({ isActive: true });
+  const hasMultiInstitutionAccess = institutions.length > 1;
+
   const [categories, setCategories] = useState<
     Array<{ id: string; category_name: string }>
   >([]);
@@ -60,23 +63,18 @@ export function BillingScheduleFilters({
   const [sections, setSections] = useState<
     Array<{ id: string; section_name: string }>
   >([]);
-  const [loading, setLoading] = useState(false);
-  const { canAccess, isSuperAdmin, userProfile } = usePermissions();
+  const { canAccess } = usePermissions();
 
+  // Auto-pin institution for single-institution users.
   useEffect(() => {
-    async function loadInstitutions() {
-      try {
-        setLoading(true);
-        const data = await OrganizationService.getInstitutionNames(true);
-        setInstitutions(data);
-      } catch (error) {
-        console.error('Error loading institutions:', error);
-      } finally {
-        setLoading(false);
-      }
+    if (
+      !loadingInstitutions &&
+      institutions.length === 1 &&
+      !searchParams.institution_id
+    ) {
+      onFilterChange('institution_id', institutions[0].id);
     }
-    loadInstitutions();
-  }, []);
+  }, [institutions, searchParams.institution_id, onFilterChange, loadingInstitutions]);
 
   useEffect(() => {
     async function loadCategories() {
@@ -89,24 +87,6 @@ export function BillingScheduleFilters({
     }
     loadCategories();
   }, []);
-
-  // Auto-set institution filter for non-super admin users
-  useEffect(() => {
-    if (
-      !isSuperAdmin &&
-      userProfile?.institution_id &&
-      !searchParams.institution_id &&
-      !loading
-    ) {
-      onFilterChange('institution_id', userProfile.institution_id);
-    }
-  }, [
-    userProfile,
-    isSuperAdmin,
-    searchParams.institution_id,
-    onFilterChange,
-    loading
-  ]);
 
   useEffect(() => {
     async function loadDegrees() {
@@ -216,24 +196,6 @@ export function BillingScheduleFilters({
     loadAcademicYears();
   }, [searchParams.institution_id]);
 
-  // Auto-set institution filter for non-super admin users
-  useEffect(() => {
-    if (
-      !isSuperAdmin &&
-      userProfile?.institution_id &&
-      !searchParams.institution_id &&
-      !loading
-    ) {
-      onFilterChange('institution_id', userProfile.institution_id);
-    }
-  }, [
-    userProfile,
-    isSuperAdmin,
-    searchParams.institution_id,
-    onFilterChange,
-    loading
-  ]);
-
   const handleDateRangeChange = (range: DateRange | undefined) => {
     if (range?.from || range?.to) {
       onFilterChange(
@@ -268,7 +230,7 @@ export function BillingScheduleFilters({
     <div className='space-y-4'>
       <div className='flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between'>
         <div className='flex flex-col gap-4 sm:flex-row sm:items-center'>
-          {isSuperAdmin && (
+          {hasMultiInstitutionAccess && (
             <Select
               value={searchParams.institution_id || 'all'}
               onValueChange={(value) => {
@@ -466,7 +428,7 @@ export function BillingScheduleFilters({
               value === 'all' ? undefined : value
             )
           }
-          disabled={loading}
+          disabled={loadingInstitutions}
         >
           <SelectTrigger className='w-full sm:w-[200px]'>
             <SelectValue placeholder='Select category' />

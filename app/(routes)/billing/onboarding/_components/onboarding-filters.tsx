@@ -10,11 +10,10 @@ import {
 } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
 import { RotateCcw } from 'lucide-react';
-import { OrganizationService } from '@/lib/services/organization/organization-service';
 import { DegreeService } from '@/lib/services/organization/degree-service';
 import { DepartmentService } from '@/lib/services/organization/department-service';
 import { ProgramService } from '@/lib/services/organization/program-service';
-import { usePermissions } from '@/hooks/use-permissions';
+import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import type { OnboardingFilters as OnboardingFilterShape } from '@/lib/services/billing/onboarding/onboarding-service';
 
 // Subset of OnboardingFilters that this component manages. The data table owns
@@ -41,9 +40,6 @@ export function OnboardingFilters({
   onFilterChange,
   onClearFilters,
 }: OnboardingFiltersProps) {
-  const [institutions, setInstitutions] = useState<
-    Array<{ id: string; name: string }>
-  >([]);
   const [degrees, setDegrees] = useState<
     Array<{ id: string; degree_name: string }>
   >([]);
@@ -53,42 +49,24 @@ export function OnboardingFilters({
   const [programs, setPrograms] = useState<
     Array<{ id: string; program_name: string }>
   >([]);
-  const [loadingInstitutions, setLoadingInstitutions] = useState(false);
-  const { isSuperAdmin, userProfile } = usePermissions();
+  const {
+    institutions,
+    loading: loadingInstitutions,
+  } = useInstitutionsWithAccess({ isActive: true });
 
-  // Load institutions once on mount.
-  useEffect(() => {
-    let cancelled = false;
-    async function load() {
-      try {
-        setLoadingInstitutions(true);
-        const data = await OrganizationService.getInstitutionNames(true);
-        if (!cancelled) setInstitutions(data);
-      } catch (error) {
-        console.error('[onboarding-filters] load institutions failed:', error);
-      } finally {
-        if (!cancelled) setLoadingInstitutions(false);
-      }
-    }
-    load();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  const hasMultiInstitutionAccess = institutions.length > 1;
 
-  // Auto-pin institution for non-super-admin users (their access is scoped).
+  // Auto-pin institution for single-institution users.
   useEffect(() => {
     if (
-      !isSuperAdmin &&
-      userProfile?.institution_id &&
-      !filters.institution_id &&
-      !loadingInstitutions
+      !loadingInstitutions &&
+      institutions.length === 1 &&
+      !filters.institution_id
     ) {
-      onFilterChange('institution_id', userProfile.institution_id);
+      onFilterChange('institution_id', institutions[0].id);
     }
   }, [
-    userProfile,
-    isSuperAdmin,
+    institutions,
     filters.institution_id,
     onFilterChange,
     loadingInstitutions,
@@ -190,7 +168,7 @@ export function OnboardingFilters({
       {/* Row 1: Institution → Degree → Department → Programme + Reset */}
       <div className='flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between'>
         <div className='flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center'>
-          {isSuperAdmin && (
+          {hasMultiInstitutionAccess && (
             <Select
               value={filters.institution_id || 'all'}
               onValueChange={(value) => {
