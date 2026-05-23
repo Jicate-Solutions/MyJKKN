@@ -36,10 +36,10 @@ const OSCE_DOMAIN_LABELS: Record<string, string> = {
 };
 
 export default function ClinicalCaseCohortPage() {
-  const params = useParams<{ slug: string }>();
-  const slug = params?.slug;
-  const { data: detail } = useFacultyCaseDetail(slug);
-  const { data: cohort, isLoading, error } = useFacultyCaseCohort(slug);
+  const params = useParams<{ id: string }>();
+  const id = params?.id;
+  const { data: detail } = useFacultyCaseDetail(id);
+  const { data: cohort, isLoading, error } = useFacultyCaseCohort(id);
   const [grantOpen, setGrantOpen] = useState<{
     learnerId: string;
     learnerName: string;
@@ -81,7 +81,7 @@ export default function ClinicalCaseCohortPage() {
           { label: 'Faculty', href: '/faculty' },
           { label: 'PDE', href: '/faculty/pde/dashboard' },
           { label: 'Clinical Cases', href: '/faculty/pde/cases' },
-          { label: c?.title?.slice(0, 36) || data.case_title, href: `/faculty/pde/cases/${slug}/edit` },
+          { label: c?.title?.slice(0, 36) || data.case_title, href: `/faculty/pde/cases/${id}/edit` },
           { label: 'Cohort' },
         ]}
       />
@@ -228,7 +228,7 @@ export default function ClinicalCaseCohortPage() {
                         </TableCell>
                         <TableCell className="text-right space-x-1">
                           <Button asChild variant="ghost" size="sm">
-                            <Link href={`/faculty/pde/cases/${slug}/attempts/${s.learner_id}`}>
+                            <Link href={`/faculty/pde/cases/${id}/attempts/${s.learner_id}`}>
                               View transcript
                             </Link>
                           </Button>

@@ -28,11 +28,11 @@ const OSCE_DOMAIN_LABELS: Record<string, string> = {
 };
 
 export default function FacultyTranscriptDrillPage() {
-  const params = useParams<{ slug: string; studentId: string }>();
-  const slug = params?.slug;
+  const params = useParams<{ id: string; studentId: string }>();
+  const id = params?.id;
   const studentId = params?.studentId;
-  const { data: detail } = useFacultyCaseDetail(slug);
-  const { data, isLoading, error } = useFacultyCaseTranscript(slug, studentId);
+  const { data: detail } = useFacultyCaseDetail(id);
+  const { data, isLoading, error } = useFacultyCaseTranscript(id, studentId);
   const [grantOpen, setGrantOpen] = useState(false);
 
   if (isLoading) {
@@ -72,9 +72,9 @@ export default function FacultyTranscriptDrillPage() {
           { label: 'Clinical Cases', href: '/faculty/pde/cases' },
           {
             label: c?.title?.slice(0, 36) || 'Case',
-            href: `/faculty/pde/cases/${slug}/edit`,
+            href: `/faculty/pde/cases/${id}/edit`,
           },
-          { label: 'Cohort', href: `/faculty/pde/cases/${slug}/attempts` },
+          { label: 'Cohort', href: `/faculty/pde/cases/${id}/attempts` },
           { label: learnerName },
         ]}
       />
