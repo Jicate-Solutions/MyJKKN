@@ -170,9 +170,24 @@ export default async function EnquiriesPage({ searchParams }: EnquiriesPageProps
   // Resolve the active tab from ?tab=… and validate against the allow-list.
   // Falls back to 'enquiry' for an unknown / missing value so a hand-typed URL
   // never breaks the page. The fees_setup_pending sentinel is included.
+  //
+  // 2026-05-23: Also accept ?lifecycle_status=… as a tab-selector fallback.
+  // The 2026-05-20 dashboard-drilldown policy keys point here with
+  // ?lifecycle_status=admitted (etc.) but the same-day URL-driven tabs
+  // refactor read only ?tab=. The mismatch silently dropped users on the
+  // default Enquiry tab — they saw enquiry rows where they expected the
+  // admitted/reserved/account rows the dashboard KPI linked to, which read
+  // as "student name not shown in this field" since their expected row
+  // wasn't present (BUG-003869 + BUG-003870). Reading ?lifecycle_status=
+  // as a fallback restores the link without breaking existing ?tab= writers.
   const rawTab = typeof params.tab === 'string' ? params.tab : undefined;
+  const rawLifecycleStatus =
+    typeof params.lifecycle_status === 'string' ? params.lifecycle_status : undefined;
+  const resolvedTab = rawTab ?? rawLifecycleStatus;
   const activeTab: TabValue =
-    rawTab && TAB_VALUES.has(rawTab as TabValue) ? (rawTab as TabValue) : 'enquiry';
+    resolvedTab && TAB_VALUES.has(resolvedTab as TabValue)
+      ? (resolvedTab as TabValue)
+      : 'enquiry';
 
   return (
     <ContentLayout title="Admission Management">
