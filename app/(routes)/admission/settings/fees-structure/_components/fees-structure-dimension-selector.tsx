@@ -163,6 +163,8 @@ export function FeesStructureDimensionSelector({ selectedDims, onChange }: Props
     onChange({ ...selectedDims, quota_id: id });
   const setAccommodation = (id: string) =>
     onChange({ ...selectedDims, accommodation_type_id: id });
+  const setGender = (val: string) =>
+    onChange({ ...selectedDims, gender: val === '__any__' ? undefined : val });
 
   const handleReset = () => onChange({});
 
@@ -192,9 +194,9 @@ export function FeesStructureDimensionSelector({ selectedDims, onChange }: Props
         <div>
           <h2 className="text-sm font-medium">Select Fee Structure Dimensions</h2>
           <p className="text-xs text-muted-foreground">
-            Pick all 7 dimensions to view, edit, or create the fee structure
-            for that combination. Communities are selected separately in the
-            form below — one structure can cover N communities.
+            Pick the 7 required dimensions to view, edit, or create the fee
+            structure. Gender is optional — leave as &quot;Any&quot; if fees
+            don&apos;t vary by gender. Communities are selected in the form below.
           </p>
         </div>
         <Button variant="ghost" size="sm" onClick={handleReset}>
@@ -381,12 +383,27 @@ export function FeesStructureDimensionSelector({ selectedDims, onChange }: Props
             </SelectContent>
           </Select>
         </div>
+
+        {/* 8. Gender (optional) */}
+        <div className="space-y-1">
+          <Label className="text-xs">8. Gender <span className="text-muted-foreground">(optional)</span></Label>
+          <Select value={selectedDims.gender ?? ''} onValueChange={setGender}>
+            <SelectTrigger className="w-full">
+              <SelectValue placeholder="Any Gender" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__any__">Any Gender</SelectItem>
+              <SelectItem value="MALE">Male</SelectItem>
+              <SelectItem value="FEMALE">Female</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
       {allDimsSelected ? (
         <div className="flex items-center gap-2 text-xs text-emerald-700 bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900 rounded p-2">
           <CheckCircle2 className="h-4 w-4 shrink-0" />
-          <span>All 7 dimensions selected — fee structure form loaded below.</span>
+          <span>All dimensions selected{selectedDims.gender ? ` (${selectedDims.gender})` : ''} — fee structure form loaded below.</span>
         </div>
       ) : (
         <p className="text-xs text-muted-foreground">

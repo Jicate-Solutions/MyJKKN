@@ -1735,6 +1735,7 @@ export function EnquiryForm({
           community_category_id: resolvedCommunityId,
           accommodation_type_id: resolvedAccommodationId,
           admission_year_id: values.admission_year_id ?? undefined,
+          gender: (values as { gender?: string }).gender?.toUpperCase() || undefined,
         };
         const allDimsPresent = !!(
           dims.institution_id &&

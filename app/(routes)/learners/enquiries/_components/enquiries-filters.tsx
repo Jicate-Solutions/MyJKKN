@@ -31,6 +31,7 @@ interface EnquiriesFiltersProps {
   searchParams: EnquiriesSearchParams;
   // 2026-05-20: Extended status union to cover the new workflow tabs.
   statusFilter?:
+    | 'all'
     | 'enquiry'
     | 'enquiry_submitted'
     | 'admitted'

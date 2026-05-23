@@ -120,6 +120,12 @@ export const columns: ColumnDef<FeeStructureRow>[] = [
     size: 150,
   },
   {
+    id: 'gender',
+    header: ({ column }) => <DataTableColumnHeader column={column} title="Gender" />,
+    cell: ({ row }) => row.original.gender ?? 'Any',
+    size: 90,
+  },
+  {
     accessorKey: 'item_count',
     header: ({ column }) => <DataTableColumnHeader column={column} title="Items" />,
     cell: ({ row }) => (

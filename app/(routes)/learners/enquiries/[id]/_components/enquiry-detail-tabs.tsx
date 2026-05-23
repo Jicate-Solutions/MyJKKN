@@ -2,40 +2,38 @@
 
 // app/(routes)/learners/enquiries/[id]/_components/enquiry-detail-tabs.tsx
 //
-// Client wrapper that adds the Activities tab to the read-only enquiry
-// detail page. Mirrors the edit page's tab structure so the navigation
-// pattern is consistent — admission officers see Details + Activities;
-// users without permission see Details only (no tab UI at all).
-//
-// The enquiry detail page is a server component (force-dynamic), but
-// shadcn Tabs use Radix which is client-only. This thin wrapper bridges
-// the boundary: parent server component fetches the enquiry data and
-// passes it in; we render the Tabs client-side and route the Details
-// content through the existing <EnquiryDetail/> renderer.
+// Client wrapper that adds tabs to the read-only enquiry detail page.
+// Tabs: Details (always), Activities (permission), Checklist (permission),
+// Billing (permission + status gate: account/reserved/admitted only).
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { FileText, Activity as ActivityIcon, ClipboardCheck } from 'lucide-react';
+import { FileText, Activity as ActivityIcon, ClipboardCheck, IndianRupee } from 'lucide-react';
 import { EnquiryDetail } from '../../_components/enquiry-detail';
 import { ActivitiesTab } from './activities-tab';
 import { ChecklistTab } from './checklist-tab';
+import { BillingTab } from './billing-tab';
 import { usePermissions } from '@/hooks/use-permissions';
 import type { LearnerProfile } from '@/types/learner-profile';
+
+const BILLING_VISIBLE_STATUSES = new Set(['account', 'reserved', 'admitted']);
 
 interface EnquiryDetailTabsProps {
   enquiry: LearnerProfile;
 }
 
 export function EnquiryDetailTabs({ enquiry }: EnquiryDetailTabsProps) {
-  // Same permission gate as the edit page — super_admin always sees;
-  // admission + admission_staff get it via migration; counselor roles
-  // and custom roles without the perm see only Details.
   const { canAccess, isSuperAdmin } = usePermissions();
   const canSeeActivities =
     isSuperAdmin || canAccess('admission.enquiries.activities', 'view');
   const canSeeChecklist =
     isSuperAdmin || canAccess('admission.enquiries.checklist', 'view');
+  const canSeeBilling =
+    BILLING_VISIBLE_STATUSES.has(enquiry.lifecycle_status) &&
+    (isSuperAdmin || canAccess('learners', 'finance.view'));
 
-  if (!canSeeActivities && !canSeeChecklist) {
+  const hasTabs = canSeeActivities || canSeeChecklist || canSeeBilling;
+
+  if (!hasTabs) {
     return (
       <div className="flex flex-col lg:flex-row gap-8">
         <EnquiryDetail enquiry={enquiry} />
@@ -62,6 +60,12 @@ export function EnquiryDetailTabs({ enquiry }: EnquiryDetailTabsProps) {
             Checklist
           </TabsTrigger>
         )}
+        {canSeeBilling && (
+          <TabsTrigger value="billing" className="gap-2">
+            <IndianRupee className="h-4 w-4" />
+            Billing
+          </TabsTrigger>
+        )}
       </TabsList>
 
       <TabsContent value="details" className="mt-4">
@@ -82,6 +86,12 @@ export function EnquiryDetailTabs({ enquiry }: EnquiryDetailTabsProps) {
       {canSeeChecklist && (
         <TabsContent value="checklist" className="mt-4">
           <ChecklistTab learnerProfileId={enquiry.id} />
+        </TabsContent>
+      )}
+
+      {canSeeBilling && (
+        <TabsContent value="billing" className="mt-4">
+          <BillingTab learnerId={enquiry.id} />
         </TabsContent>
       )}
     </Tabs>

@@ -147,8 +147,13 @@ async function getEnquiriesInner(
   // 2026-05-20: Default lifecycle list now includes 'enquiry', 'enquiry_submitted'.
   // Avoids the May 2026 regression where the default filter dropped 'enquiry'.
   const isFeesSetupPending = lifecycle_status === FEES_SETUP_PENDING;
+  const isAllStatuses = lifecycle_status === 'all';
   if (isFeesSetupPending) {
     query = query.eq('lifecycle_status', 'enquiry').eq('legacy_fee_mode', true);
+  } else if (isAllStatuses) {
+    // Search across all admission lifecycle stages EXCEPT 'active' —
+    // active students are managed in the Profiles page, not Enquiries.
+    query = query.neq('lifecycle_status', 'active');
   } else if (lifecycle_status) {
     query = query.eq('lifecycle_status', lifecycle_status);
   } else {

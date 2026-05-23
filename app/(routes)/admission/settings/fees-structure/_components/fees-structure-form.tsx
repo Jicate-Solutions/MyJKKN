@@ -164,6 +164,7 @@ export function FeesStructureForm({ dims, onChanged }: Props) {
       quota_id:              dims.quota_id!,
       accommodation_type_id: dims.accommodation_type_id!,
       admission_year_id:     dims.admission_year_id!,
+      gender:                dims.gender,
     };
     FeeStructureService.findByDimensions(sevenDims, dims.community_category_id!)
       .then((s) => {
@@ -240,6 +241,7 @@ export function FeesStructureForm({ dims, onChanged }: Props) {
           quota_id:              dims.quota_id!,
           accommodation_type_id: dims.accommodation_type_id!,
           admission_year_id:     dims.admission_year_id!,
+          gender:                dims.gender,
         }}
         // Leaf hint is optional; absent on /new where the user hasn't drilled
         // into a community yet. The form treats it as a default selection.

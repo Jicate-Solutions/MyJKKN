@@ -80,6 +80,7 @@ function dimsFromLearner(learner: LearnerProfile): Partial<FeeStructureMatrixDim
     community_category_id: (learner as { community_category_id?: string }).community_category_id ?? undefined,
     accommodation_type_id: (learner as { accommodation_type_id?: string }).accommodation_type_id ?? undefined,
     admission_year_id:     learner.admission_year_id ?? undefined,
+    gender:                (learner as { gender?: string }).gender?.toUpperCase() || undefined,
   };
 }
 

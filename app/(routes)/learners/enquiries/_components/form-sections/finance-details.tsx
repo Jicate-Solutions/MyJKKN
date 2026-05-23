@@ -115,6 +115,7 @@ export function FinanceDetailsSection({
   const quotaText = useWatch({ control: form.control, name: 'quota' }) as string | null | undefined;
   const communityText = useWatch({ control: form.control, name: 'community' }) as string | null | undefined;
   const accommodationText = useWatch({ control: form.control, name: 'accommodation_type' }) as string | null | undefined;
+  const genderValue = useWatch({ control: form.control, name: 'gender' }) as string | null | undefined;
 
   const [quotaLookup, setQuotaLookup] = useState<Array<{ id: string; code: string; name: string }>>([]);
   const [communityLookup, setCommunityLookup] = useState<Array<{ id: string; code: string; name: string }>>([]);
@@ -185,6 +186,7 @@ export function FinanceDetailsSection({
     community_category_id: resolvedCommunityId,
     accommodation_type_id: resolvedAccommodationId,
     admission_year_id: admissionYearIdValue,
+    gender: genderValue?.toUpperCase() || undefined,
   };
 
   // ----- Org-side label resolution for NoMatchEmptyState -----

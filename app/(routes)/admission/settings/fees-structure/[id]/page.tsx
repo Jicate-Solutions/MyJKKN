@@ -63,6 +63,7 @@ import {
   Plus,
   Clock,
   Trash2,
+  UserCircle,
 } from 'lucide-react';
 import { AdmissionErrorBoundary } from '@/components/admission';
 import { PermissionGuard } from '@/components/auth/permission-guard';
@@ -196,6 +197,7 @@ function FeeStructureDetailPageContent({ id }: { id: string }) {
         community_category_id: structure.community_category_ids?.[0],
         accommodation_type_id: structure.accommodation_type_id,
         admission_year_id: structure.admission_year_id,
+        gender: structure.gender ?? undefined,
       }
     : null;
 
@@ -397,6 +399,12 @@ function FeeStructureDetailPageContent({ id }: { id: string }) {
                     label="Accommodation"
                     name={structure.accommodation_name}
                     id={structure.accommodation_type_id}
+                  />
+                  <DimCard
+                    icon={<UserCircle className="h-4 w-4" />}
+                    label="Gender"
+                    name={structure.gender ?? 'Any Gender'}
+                    id={structure.gender ? '' : 'applies to all'}
                   />
                 </div>
                 <p className="text-xs text-muted-foreground mt-3">

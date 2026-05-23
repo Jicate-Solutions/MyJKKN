@@ -74,7 +74,9 @@ interface EnquiriesTableServerProps {
     total_pages: number;
   };
   // 2026-05-20: Extended for the new workflow tabs.
+  // 2026-05-23: Added 'all' for global cross-status search.
   statusFilter?:
+    | 'all'
     | 'enquiry'
     | 'enquiry_submitted'
     | 'admitted'
