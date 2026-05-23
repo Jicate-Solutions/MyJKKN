@@ -128,7 +128,7 @@ export function ImageTagQuestion({
               onClick={handleImageClick}
               className={`w-full max-h-[60vh] object-contain ${submitted ? 'cursor-default' : 'cursor-crosshair'}`}
             />
-            {click && imgRef.current ? (
+            {click ? (
               <div
                 aria-hidden
                 className="pointer-events-none absolute h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-amber-500 bg-amber-200/50"

@@ -1180,7 +1180,7 @@ export class PDEService {
         timestamp: now,
       };
 
-      let conversation = await this.getCoachConversation(learnerId, contextType, contextId);
+      const conversation = await this.getCoachConversation(learnerId, contextType, contextId);
       if (!conversation) {
         const { data, error } = await supabase
           .from('pde_coach_conversations')
@@ -1216,7 +1216,7 @@ export class PDEService {
 
     // ------ non-clinical_case branch — existing placeholder behavior ------
     // 1. Get or create conversation
-    let conversation = await this.getCoachConversation(learnerId, contextType, contextId);
+    const conversation = await this.getCoachConversation(learnerId, contextType, contextId);
 
     // Determine coaching style from agency level
     const agencyIndex = await this.getAgencyIndex(learnerId);
