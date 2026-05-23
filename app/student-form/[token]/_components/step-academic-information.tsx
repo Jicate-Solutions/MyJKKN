@@ -17,6 +17,11 @@ import {
   BOARD_OF_STUDY_OPTIONS,
   SCHOLARSHIP_TYPE_OPTIONS,
 } from '@/lib/constants/learner-dropdown-values';
+import {
+  NEW_TWELFTH_SUBJECTS,
+  TWELFTH_GROUP_LABEL_MAP,
+  type TwelfthGroupKey,
+} from '@/lib/utils/mappings/enquiry-excel-mappings';
 
 interface Props {
   lang: Language;
@@ -28,19 +33,9 @@ interface Props {
 
 // Match enquiry form's group options verbatim so the admin-side UI and the
 // auto-calc formulas pick up the same selection downstream.
-const GROUP_OPTIONS = [
-  { value: 'science', label: 'Science (General)' },
-  { value: 'pcbm', label: 'PCBM (Physics, Chemistry, Biology, Mathematics)' },
-  { value: 'pccs', label: 'PCCS (Physics, Chemistry, Computer Science, Mathematics)' },
-  { value: 'pcbz', label: 'PCBZ (Physics, Chemistry, Botany, Zoology)' },
-  { value: 'commerce', label: 'Commerce (General)' },
-  { value: 'cseca', label: 'CSECA (Computer Science, Economics, Commerce, Accountancy)' },
-  { value: 'heca', label: 'HECA (History, Economics, Commerce, Accountancy)' },
-  { value: 'seca', label: 'SECA (Statistics, Economics, Commerce, Accountancy)' },
-  { value: 'arts', label: 'Arts' },
-  { value: 'vocational', label: 'Vocational' },
-  { value: 'diploma', label: 'Diploma' },
-] as const;
+const GROUP_OPTIONS = (
+  Object.entries(TWELFTH_GROUP_LABEL_MAP) as Array<[TwelfthGroupKey, string]>
+).map(([value, label]) => ({ value, label }));
 
 function Section({
   title,
@@ -275,8 +270,23 @@ export function StepAcademicInformation({
             <SubjectInput label="Economics" value={subjects.economics} onChange={(s) => setSubject('economics', s)} />
           </>
         );
-      default:
-        return null;
+      default: {
+        // 2026-05-22: data-driven render for the 15 new streams.
+        const newSubjects = NEW_TWELFTH_SUBJECTS[group as TwelfthGroupKey];
+        if (!newSubjects) return null;
+        return (
+          <>
+            {newSubjects.map(({ key, label, labelTa }) => (
+              <SubjectInput
+                key={key}
+                label={labelTa ? `${label} / ${labelTa}` : label}
+                value={(subjects as Record<string, string>)[key] ?? ''}
+                onChange={(s) => setSubject(key, s)}
+              />
+            ))}
+          </>
+        );
+      }
     }
   };
 

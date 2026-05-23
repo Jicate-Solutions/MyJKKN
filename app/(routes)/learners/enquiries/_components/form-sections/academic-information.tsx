@@ -27,6 +27,11 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { SCHOLARSHIP_TYPE_OPTIONS } from '@/lib/constants/learner-dropdown-values';
+import {
+  NEW_TWELFTH_SUBJECTS,
+  TWELFTH_GROUP_LABEL_MAP,
+  type TwelfthGroupKey,
+} from '@/lib/utils/mappings/enquiry-excel-mappings';
 
 interface AcademicInformationProps {
   form: UseFormReturn<any>;
@@ -485,9 +490,39 @@ export function AcademicInformationSection({ form }: AcademicInformationProps) {
           </div>
         );
 
-      default:
-        // No specific group selected - show common subjects
-        return null;
+      default: {
+        // 2026-05-22: 15 new streams render from NEW_TWELFTH_SUBJECTS map.
+        // PCB-extension streams (pcbcs/pcbn/pcbhs/pcbce/pcbnd/pcbbc/pcbmb) share
+        // the existing subjects.biology JSONB key, so the Medical Cutoff
+        // useEffect above fires for them with no extra wiring.
+        const subjects = NEW_TWELFTH_SUBJECTS[twelfthGroup as TwelfthGroupKey];
+        if (!subjects) return null;
+        return (
+          <div className="grid gap-4 md:grid-cols-2">
+            {subjects.map(({ key, label }) => (
+              <FormField
+                key={key}
+                control={form.control}
+                name={`twelfth_marks.subjects.${key}`}
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{label} Marks</FormLabel>
+                    <FormControl>
+                      <Input
+                        type="number"
+                        placeholder={`${label} marks`}
+                        {...field}
+                        value={field.value || ''}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            ))}
+          </div>
+        );
+      }
     }
   };
 
@@ -601,17 +636,13 @@ export function AcademicInformationSection({ form }: AcademicInformationProps) {
                   </SelectTrigger>
                 </FormControl>
                 <SelectContent>
-                  <SelectItem value="science">Science (General)</SelectItem>
-                  <SelectItem value="pcbm">PCBM (Physics, Chemistry, Biology, Mathematics)</SelectItem>
-                  <SelectItem value="pccs">PCCS (Physics, Chemistry, Computer Science, Mathematics)</SelectItem>
-                  <SelectItem value="pcbz">PCBZ (Physics, Chemistry, Botany, Zoology)</SelectItem>
-                  <SelectItem value="commerce">Commerce (General)</SelectItem>
-                  <SelectItem value="cseca">CSECA (Computer Science, Economics, Commerce, Accountancy)</SelectItem>
-                  <SelectItem value="heca">HECA (History, Economics, Commerce, Accountancy)</SelectItem>
-                  <SelectItem value="seca">SECA (Statistics, Economics, Commerce, Accountancy)</SelectItem>
-                  <SelectItem value="arts">Arts</SelectItem>
-                  <SelectItem value="vocational">Vocational</SelectItem>
-                  <SelectItem value="diploma">Diploma</SelectItem>
+                  {(Object.entries(TWELFTH_GROUP_LABEL_MAP) as Array<[TwelfthGroupKey, string]>).map(
+                    ([value, label]) => (
+                      <SelectItem key={value} value={value}>
+                        {label}
+                      </SelectItem>
+                    ),
+                  )}
                 </SelectContent>
               </Select>
               <FormMessage />

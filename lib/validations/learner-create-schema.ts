@@ -117,7 +117,6 @@ export const createLearnerSchema = z
     counseling_applied: z.union([z.boolean(), z.string()]).optional(),
     counseling_number: z.string().optional(),
     quota: z.enum(asTuple(QUOTA_VALUES)).optional().or(z.literal('')),
-    category: z.string().optional(),
     reference_type: z.string().optional(),
     reference_name: z.string().optional(),
     reference_contact: z.string().optional(),
