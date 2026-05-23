@@ -39,6 +39,8 @@ import {
   Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList,
   BreadcrumbPage, BreadcrumbSeparator,
 } from '@/components/ui/breadcrumb';
+import { DatePickerWithRange } from '@/components/ui/date-range-picker';
+import type { DateRange } from 'react-day-picker';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
 import { usePermissions } from '@/hooks/use-permissions';
@@ -139,6 +141,118 @@ const TOP_CARDS: ReadonlyArray<{
   { label: 'Fill Rate',         metric: 'fill_rate',           icon: Gauge,          tone: 'cyan'    },
 ];
 
+// ──────────────────────────────────────────────────────────────────────────
+// DateRangeFilter — segmented "All time / Today / Custom range" toggle.
+// 2026-05-21: drives the Overview tab's optional date filter. Today mode
+// pins from=to=current IST date so the dashboard always shows "today" in
+// the operator's local timezone (the RPC already interprets dates in
+// Asia/Kolkata).
+// ──────────────────────────────────────────────────────────────────────────
+function todayIsoIST(): string {
+  // Get YYYY-MM-DD for today in IST regardless of the user's browser TZ.
+  const now = new Date();
+  const ist = new Date(now.getTime() + (5.5 * 60 - now.getTimezoneOffset()) * 60_000);
+  return ist.toISOString().slice(0, 10);
+}
+
+function DateRangeFilter({
+  fromDate,
+  toDate,
+  onChange,
+}: {
+  fromDate: string | null;
+  toDate: string | null;
+  onChange: (from: string | null, to: string | null) => void;
+}) {
+  const today = todayIsoIST();
+  // Derive the active mode from the URL state alone — no separate state
+  // needed; the URL is the single source of truth.
+  const mode: 'all' | 'today' | 'custom' = (() => {
+    if (!fromDate && !toDate) return 'all';
+    if (fromDate === today && toDate === today) return 'today';
+    return 'custom';
+  })();
+
+  const dateRangeValue: DateRange | undefined = (() => {
+    if (!fromDate && !toDate) return undefined;
+    return {
+      from: fromDate ? new Date(`${fromDate}T00:00:00`) : undefined,
+      to: toDate ? new Date(`${toDate}T00:00:00`) : undefined,
+    };
+  })();
+
+  return (
+    <div className="flex flex-wrap items-center gap-2 rounded-lg border bg-muted/30 p-2">
+      <span className="ml-2 text-xs font-medium text-muted-foreground">Show:</span>
+      {/* Segmented toggle */}
+      <div className="inline-flex overflow-hidden rounded-md border bg-background">
+        <button
+          type="button"
+          onClick={() => onChange(null, null)}
+          className={`px-3 py-1.5 text-xs font-medium transition-colors ${
+            mode === 'all' ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'
+          }`}
+          aria-pressed={mode === 'all'}
+        >
+          All time
+        </button>
+        <button
+          type="button"
+          onClick={() => onChange(today, today)}
+          className={`border-l px-3 py-1.5 text-xs font-medium transition-colors ${
+            mode === 'today' ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'
+          }`}
+          aria-pressed={mode === 'today'}
+        >
+          Today
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            // When entering Custom from All/Today, seed the picker with
+            // today's date so the calendar opens in a useful state. The
+            // user can immediately pick a different range.
+            if (mode !== 'custom') onChange(today, today);
+          }}
+          className={`border-l px-3 py-1.5 text-xs font-medium transition-colors ${
+            mode === 'custom' ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'
+          }`}
+          aria-pressed={mode === 'custom'}
+        >
+          Custom range
+        </button>
+      </div>
+      {/* Calendar appears only in Custom mode */}
+      {mode === 'custom' && (
+        <DatePickerWithRange
+          value={dateRangeValue}
+          onChange={(range) => {
+            const fmt = (d: Date | undefined) =>
+              d
+                ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(
+                    d.getDate(),
+                  ).padStart(2, '0')}`
+                : null;
+            // Single click = `from` set, `to` undefined → treat as a one-day
+            // window for consistency with Today mode.
+            const from = fmt(range?.from);
+            const to = fmt(range?.to ?? range?.from);
+            onChange(from, to);
+          }}
+          placeholder="Pick a range"
+          className="w-auto"
+        />
+      )}
+      {/* Helper hint shows the active range */}
+      {mode !== 'all' && fromDate && toDate && (
+        <span className="ml-1 text-xs text-muted-foreground">
+          {fromDate === toDate ? `On ${fromDate}` : `${fromDate} → ${toDate}`}
+        </span>
+      )}
+    </div>
+  );
+}
+
 export default function GroupDashboardPage() {
   const queryClient = useQueryClient();
   const router = useRouter();
@@ -173,17 +287,33 @@ export default function GroupDashboardPage() {
       ? (raw as DashboardTab)
       : 'overview';
   })();
+  // 2026-05-21: optional date-range filter on the Overview tab. URL state
+  // mirrors how ?ay= and ?tab= already work so middle-click + browser-back
+  // restore the same view.
+  const fromDateFromUrl = searchParams.get('from'); // ISO 'YYYY-MM-DD' or null
+  const toDateFromUrl = searchParams.get('to');
 
   const [selectedYear, setSelectedYearState] = useState<number | null>(yearFromUrl);
   const [activeTab, setActiveTabState] = useState<DashboardTab>(tabFromUrl);
+  const [fromDate, setFromDateState] = useState<string | null>(fromDateFromUrl);
+  const [toDate, setToDateState] = useState<string | null>(toDateFromUrl);
 
   // Sync state → URL (replace, not push, so the dashboard doesn't pollute history).
   const syncUrl = useCallback(
-    (year: number | null, tab: DashboardTab) => {
+    (
+      year: number | null,
+      tab: DashboardTab,
+      from: string | null,
+      to: string | null,
+    ) => {
       const sp = new URLSearchParams(searchParams.toString());
       if (year !== null) sp.set('ay', String(year));
       else sp.delete('ay');
       sp.set('tab', tab);
+      if (from) sp.set('from', from);
+      else sp.delete('from');
+      if (to) sp.set('to', to);
+      else sp.delete('to');
       const qs = sp.toString();
       router.replace(`/admission/group-dashboard${qs ? `?${qs}` : ''}`, { scroll: false });
     },
@@ -193,9 +323,9 @@ export default function GroupDashboardPage() {
   const handleYearChange = useCallback(
     (year: number | null) => {
       setSelectedYearState(year);
-      syncUrl(year, activeTab);
+      syncUrl(year, activeTab, fromDate, toDate);
     },
-    [activeTab, syncUrl]
+    [activeTab, fromDate, toDate, syncUrl]
   );
 
   const handleTabChange = useCallback(
@@ -204,15 +334,28 @@ export default function GroupDashboardPage() {
         ? (tab as DashboardTab)
         : 'overview';
       setActiveTabState(next);
-      syncUrl(selectedYear, next);
+      syncUrl(selectedYear, next, fromDate, toDate);
     },
-    [selectedYear, syncUrl]
+    [selectedYear, fromDate, toDate, syncUrl]
+  );
+
+  // 2026-05-21: date-range handler. NULL on both = "All time" mode.
+  // Today mode sets from=to=current IST date. Custom range sets both.
+  const handleDateRangeChange = useCallback(
+    (from: string | null, to: string | null) => {
+      setFromDateState(from);
+      setToDateState(to);
+      syncUrl(selectedYear, activeTab, from, to);
+    },
+    [selectedYear, activeTab, syncUrl]
   );
 
   const { data, isLoading, isFetching, isError, error } = useGroupDashboard(
     scopedInstitutionIds,
     null,
-    selectedYear
+    selectedYear,
+    fromDate,
+    toDate,
   );
 
   // Top KPI strip is leads-sourced by default; on the Seats tab we re-source
@@ -484,6 +627,15 @@ export default function GroupDashboardPage() {
               <p className="text-xs text-muted-foreground">
                 <span className="font-medium text-foreground">Lead funnel</span> — this admission cycle's prospects walking through the CRM. Counts come from the leads pipeline only.
               </p>
+
+              {/* 2026-05-21: date-range segmented filter. Drives every KPI on
+               *  the Overview tab via ?from / ?to URL params. NULL on both =
+               *  cumulative (preserves prior behaviour). */}
+              <DateRangeFilter
+                fromDate={fromDate}
+                toDate={toDate}
+                onChange={handleDateRangeChange}
+              />
               {data && (
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                   <GroupFunnelChart data={data} />

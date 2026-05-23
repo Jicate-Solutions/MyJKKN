@@ -50,7 +50,12 @@ export class GroupDashboardService {
   static async getGroupDashboard(
     institutionIds?: string[],
     admissionYearId?: string | null,
-    programStartYear?: number | null
+    programStartYear?: number | null,
+    // 2026-05-21: optional date-range filter (IST). NULL on both sides
+    // preserves prior behaviour. Drives the Overview tab's
+    // "All time / Today / Custom range" segmented toggle.
+    fromDate?: string | null,
+    toDate?: string | null
   ): Promise<GroupDashboardData> {
     if (institutionIds !== undefined && institutionIds.length === 0) {
       return EMPTY_GROUP_DASHBOARD;
@@ -75,6 +80,8 @@ export class GroupDashboardService {
       p_institution_ids: resolvedInstitutionIds,
       p_admission_year_id: admissionYearId ?? null,
       p_program_start_year: programStartYear ?? null,
+      p_from_date: fromDate ?? null,
+      p_to_date: toDate ?? null,
     });
 
     if (error) {

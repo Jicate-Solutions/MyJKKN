@@ -287,7 +287,6 @@ export function BulkUploadProfilesDialogEnhanced({ onSuccess }: { onSuccess?: ()
         'Counseling Applied': 'TRUE',
         'Counseling Number': 'COUN2024001',
         'Quota': 'MANAGEMENT',
-        'Category': 'General',
 
         // Reference (Optional)
         'Reference Type': 'Alumni',

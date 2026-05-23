@@ -136,7 +136,6 @@ const COLUMN_MAPPING: Record<string, string[]> = {
   'roll_number': ['Roll Number', 'roll_number'],
   'register_number': ['Register Number', 'register_number'],
   'quota': ['Quota', 'quota'],
-  'category': ['Category', 'category'],
   'student_photo_url': ['Photo URL', 'photo_url', 'student_photo_url'],
 };
 
@@ -371,7 +370,6 @@ export async function POST(request: NextRequest) {
         roll_number: mappedData.roll_number || '',
         register_number: mappedData.register_number || '',
         quota: normalizeDropdownValue(mappedData.quota, QUOTA_VALUES),
-        category: sanitizeValue(mappedData.category, 'text'),
         student_photo_url: mappedData.student_photo_url || '',
       };
 
