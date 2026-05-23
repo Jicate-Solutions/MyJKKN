@@ -17,7 +17,7 @@
  * the layout can be eyeballed at the three breakpoints.
  */
 
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import type {
   ClinicalCaseBundle,
@@ -44,6 +44,15 @@ export function CaseAttempt({ bundle, rollNumberSnapshot }: CaseAttemptProps) {
   const completeMutation = useCompleteAttempt();
   const finalizeMutation = useFinalizeAttempt();
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const questionRef = useRef<HTMLDivElement>(null);
+
+  // On mobile/tablet, scrolling the new question into view after Continue
+  // avoids the "where did the next Q go?" silent-failure pattern.
+  useEffect(() => {
+    if (questionRef.current && questionIndex > 0) {
+      questionRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }, [questionIndex]);
 
   if (bundle.capReached) {
     return (
@@ -210,7 +219,7 @@ export function CaseAttempt({ bundle, rollNumberSnapshot }: CaseAttemptProps) {
 
         {/* Question column */}
         <main className="min-w-0">
-          <div className="rounded-lg border bg-card p-4 sm:p-6">
+          <div ref={questionRef} className="rounded-lg border bg-card p-4 sm:p-6">
             <div className="text-xs uppercase tracking-wide text-muted-foreground">
               Question {questionIndex + 1} of {bundle.questions.length}
             </div>
@@ -244,8 +253,15 @@ export function CaseAttempt({ bundle, rollNumberSnapshot }: CaseAttemptProps) {
               />
             ) : null}
 
+            {completeMutation.isPending || finalizeMutation.isPending ? (
+              <div className="mt-4 flex items-center gap-2 rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-900" role="status" aria-live="polite">
+                <span className="inline-block h-3 w-3 animate-pulse rounded-full bg-sky-500" />
+                {completeMutation.isPending ? 'Saving your attempt…' : 'Computing OSCE score…'}
+              </div>
+            ) : null}
+
             {submitError ? (
-              <div className="mt-4 rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900">
+              <div className="mt-4 rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900" role="alert">
                 {submitError}
                 <button
                   type="button"
