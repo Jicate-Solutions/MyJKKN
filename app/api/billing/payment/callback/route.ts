@@ -50,6 +50,86 @@ export async function POST(request: NextRequest) {
       logger.dev('billing/payment-callback', 'No form data in POST request');
     }
 
+    // ------------------------------------------------------------------
+    // Task 15: Razorpay callback branch.
+    // Razorpay Checkout.js POSTs razorpay_order_id, razorpay_payment_id,
+    // razorpay_signature in the form body. Detect that and route through
+    // the signature-verification + dual-inquiry path.
+    // ------------------------------------------------------------------
+    if (formData) {
+      const razorpayOrderId = formData.get('razorpay_order_id')?.toString();
+      const razorpayPaymentId = formData.get('razorpay_payment_id')?.toString();
+      const razorpaySignature = formData.get('razorpay_signature')?.toString();
+
+      if (razorpayOrderId && razorpayPaymentId && razorpaySignature) {
+        const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+        const supabase = createServiceRoleClient();
+
+        const { data: txn } = await (supabase as any)
+          .from('payment_transactions')
+          .select('id, student_id, institution_id, total_amount')
+          .eq('razorpay_order_id', razorpayOrderId)
+          .single();
+
+        if (!txn) {
+          logger.warn('billing/payment-callback', 'Razorpay callback for unknown order', { razorpayOrderId });
+          return NextResponse.redirect(new URL('/billing/schedule/students', baseUrl), 303);
+        }
+
+        // Log callback received for audit trail (mirrors HDFC path)
+        await PaymentAuditService.logCallbackReceived(
+          txn.id,
+          txn.student_id,
+          txn.institution_id,
+          'razorpay_modal',
+          ipAddress,
+          userAgent
+        );
+
+        const verification = await PaymentGatewayService.verifyPaymentWithGateway(txn.id, {
+          paymentId: razorpayPaymentId,
+          signature: razorpaySignature,
+        });
+
+        const processResult = await PaymentGatewayService.processVerifiedPayment(
+          txn.id,
+          verification,
+          'razorpay',
+          ipAddress,
+          userAgent
+        );
+
+        const redirectPage =
+          verification.verified && verification.status === 'success'
+            ? '/billing/payment/success'
+            : '/billing/payment/failed';
+
+        const redirectUrl = new URL(redirectPage, baseUrl);
+        redirectUrl.searchParams.set('transaction_id', txn.id);
+        if (processResult.receiptId) {
+          redirectUrl.searchParams.set('receipt_id', processResult.receiptId);
+        }
+        redirectUrl.searchParams.set('razorpay_order_id', razorpayOrderId);
+        redirectUrl.searchParams.set('razorpay_payment_id', razorpayPaymentId);
+        if (verification.amount) {
+          redirectUrl.searchParams.set('amount', verification.amount.toString());
+        }
+        redirectUrl.searchParams.set('verified', verification.verified.toString());
+        redirectUrl.searchParams.set('verified_status', verification.status);
+        redirectUrl.searchParams.set('provider', 'razorpay');
+
+        const processingTime = Date.now() - startTime;
+        logger.info('billing/payment-callback', 'Razorpay callback processed', {
+          transactionId: txn.id,
+          verifiedStatus: verification.status,
+          receiptCreated: !!processResult.receiptId,
+          processingTimeMs: processingTime,
+        });
+
+        return NextResponse.redirect(redirectUrl, 303);
+      }
+    }
+
     // Extract our transaction_id from URL params (set when creating payment session)
     let ourTransactionId = searchParams.get('transaction_id');
 

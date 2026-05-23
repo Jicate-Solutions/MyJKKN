@@ -26,6 +26,9 @@ import type {
 import { PaymentAuditService } from './security/payment-audit-service';
 import crypto from 'crypto';
 import { logger } from '@/lib/utils/enhanced-logger';
+import { getActiveProviderName, getPaymentProvider } from '@/lib/services/payments/factory';
+import { toPaise } from '@/lib/services/payments/amount';
+import { dualInquiry } from '@/lib/services/payments/razorpay/get-status';
 
 // ============================================================================
 // Configuration
@@ -216,6 +219,111 @@ export class PaymentGatewayService {
       // Step 3: Generate unique transaction reference
       const transactionRef = this.generateTransactionReference();
 
+      // ----------------------------------------------------------------------
+      // Provider branch (Task 14): If BILLING_PAYMENT_PROVIDER=razorpay, create
+      // a Razorpay order via the PaymentProvider abstraction and return early.
+      // Otherwise, fall through to the existing HDFC SmartGateway flow below.
+      // ----------------------------------------------------------------------
+      if (getActiveProviderName('billing') === 'razorpay') {
+        const provider = getPaymentProvider('billing');
+        const amountPaise = toPaise(totalAmount);
+
+        const customerEmail = student.student_email || student.college_email || 'noreply@jkkn.ai';
+        const customerName = [student.first_name, student.last_name].filter(Boolean).join(' ').trim() || 'Student';
+        const customerPhone = student.student_mobile || '';
+
+        const order = await provider.createOrder({
+          transactionRef,
+          amountPaise,
+          currency: 'INR',
+          module: 'billing',
+          notes: {
+            student_id: sessionData.student_id,
+            institution_id: institutionId,
+            transaction_ref: transactionRef,
+          },
+          description: `Payment for ${bills.length} bill(s)`,
+          customer: {
+            name: customerName,
+            email: customerEmail,
+            phone: customerPhone,
+          },
+        });
+
+        // Insert payment transaction row (Razorpay variant)
+        // Note: 'as any' cast matches the HDFC path below — payment_transactions
+        // types haven't been regenerated yet for the new columns.
+        const { data: transaction, error: transactionError } = await (supabase as any)
+          .from('payment_transactions')
+          .insert({
+            transaction_ref: transactionRef,
+            session_id: order.gatewayOrderId, // Use gateway order id for non-null backward-compat
+            student_id: sessionData.student_id,
+            institution_id: institutionId,
+            bill_ids: sessionData.bill_ids,
+            total_amount: totalAmount,
+            amount_paise: amountPaise,
+            currency: 'INR',
+            status: 'initiated',
+            provider: 'razorpay',
+            razorpay_order_id: order.gatewayOrderId,
+            gateway_response: order.raw,
+          })
+          .select()
+          .single();
+
+        if (transactionError || !transaction) {
+          logger.error('billing/payment-gateway', 'Failed to create Razorpay transaction', transactionError);
+          throw transactionError;
+        }
+
+        // Insert transaction items (identical shape to HDFC path)
+        const transactionItems = transactionItemsData.map((item) => ({
+          transaction_id: transaction.id,
+          bill_id: item.bill_id,
+          amount: item.amount,
+        }));
+
+        const { error: itemsError } = await supabase
+          .from('payment_transaction_items')
+          .insert(transactionItems);
+
+        if (itemsError) {
+          logger.error('billing/payment-gateway', 'Failed to create Razorpay transaction items', itemsError);
+          throw itemsError;
+        }
+
+        logger.info('billing/payment-gateway', 'Razorpay payment session created successfully', {
+          transaction_id: transaction.id,
+          gateway_order_id: order.gatewayOrderId,
+        });
+
+        const razorpayResponse: PaymentSessionResponse = {
+          transaction_id: transaction.id,
+          // Backward-compat: existing UI reads these fields. Set non-null values so
+          // pre-Task-18 UI doesn't crash. Task 18 will branch on `provider`.
+          session_id: order.gatewayOrderId,
+          payment_url: '',
+          amount: totalAmount,
+          expires_at: '',
+          provider: 'razorpay',
+          transaction_ref: transactionRef,
+          razorpay_order_id: order.gatewayOrderId,
+          razorpay_key_id: order.clientKeyId,
+          amount_paise: amountPaise,
+          customer: {
+            name: customerName,
+            email: customerEmail,
+            phone: customerPhone,
+          },
+        };
+
+        return {
+          success: true,
+          data: razorpayResponse,
+        };
+      }
+
       // Generate a temporary session ID (will be updated with HDFC session ID later)
       const tempSessionId = `temp_${transactionRef}`;
 
@@ -326,6 +434,8 @@ export class PaymentGatewayService {
         payment_url: paymentUrl,
         amount: totalAmount,
         expires_at: expiresAt,
+        provider: 'hdfc_smartgateway',
+        transaction_ref: transactionRef,
       };
 
       return {
@@ -599,6 +709,55 @@ export class PaymentGatewayService {
         };
       }
 
+      // ------------------------------------------------------------------
+      // Provider branch (Task 16): Razorpay status check.
+      // Calls provider.getOrderStatus() and maps Razorpay status → our enum.
+      // ------------------------------------------------------------------
+      if (transaction.provider === 'razorpay') {
+        const provider = getPaymentProvider('billing');
+        const rzpStatus = await provider.getOrderStatus(transaction.razorpay_order_id);
+
+        let newStatus: PaymentStatus = transaction.status;
+        if (rzpStatus.status === 'captured') newStatus = 'success';
+        else if (rzpStatus.status === 'failed') newStatus = 'failed';
+        else if (rzpStatus.status === 'refunded') newStatus = 'refunded';
+
+        if (newStatus !== transaction.status) {
+          const { error: updateError } = await (supabase as any)
+            .from('payment_transactions')
+            .update({
+              status: newStatus,
+              gateway_response: rzpStatus.raw,
+              captured_at: rzpStatus.capturedAt?.toISOString() ?? null,
+              completed_at: new Date().toISOString(),
+              payment_date: rzpStatus.capturedAt?.toISOString() ?? null,
+            })
+            .eq('id', transaction.id);
+          if (updateError) {
+            logger.error('billing/payment-gateway', 'Failed to update Razorpay transaction status', updateError);
+          }
+
+          if (newStatus === 'success') {
+            await this.processSuccessfulPayment({ ...transaction, status: newStatus });
+          }
+        }
+
+        const response: PaymentStatusCheckResponse = {
+          transaction_id: transaction.id,
+          student_id: transaction.student_id,
+          status: newStatus,
+          amount: transaction.total_amount,
+          payment_date: rzpStatus.capturedAt?.toISOString() ?? transaction.payment_date,
+          payment_method: transaction.payment_method,
+          bills_paid: transaction.bill_ids.length,
+        };
+
+        return {
+          success: true,
+          data: response,
+        };
+      }
+
       // Step 3: Query HDFC for latest status
       const hdfcStatus = await this.callHDFCApi<HDFCOrderStatusResponse>(
         `/orders/${transaction.transaction_ref}`,
@@ -678,7 +837,8 @@ export class PaymentGatewayService {
    * @returns PaymentVerificationResult with verified status from HDFC
    */
   static async verifyPaymentWithGateway(
-    transactionId: string
+    transactionId: string,
+    razorpayCallback?: { paymentId: string; signature: string }
   ): Promise<PaymentVerificationResult> {
     try {
       logger.info('billing/payment-gateway', 'Starting server-side payment verification', {
@@ -705,6 +865,102 @@ export class PaymentGatewayService {
           amount: 0,
           error: 'Transaction not found',
         };
+      }
+
+      // ----------------------------------------------------------------------
+      // Provider branch (Task 15): Razorpay verification path.
+      // Required when transaction.provider === 'razorpay'. Performs
+      // 1) HMAC signature check on the callback args (anti-tampering)
+      // 2) Dual-inquiry GET /orders + GET /payments (anti-replay, anti-spoof)
+      // 3) Amount-in-paise match check
+      // ----------------------------------------------------------------------
+      if (transaction.provider === 'razorpay') {
+        if (!razorpayCallback) {
+          logger.error('billing/payment-gateway', 'Razorpay transaction verified without callback args', {
+            transactionId,
+          });
+          return {
+            verified: false,
+            status: 'failed',
+            amount: Number(transaction.total_amount ?? 0),
+            error: 'Missing Razorpay callback parameters',
+          };
+        }
+
+        const provider = getPaymentProvider('billing');
+        const signatureValid = provider.verifySignature({
+          gatewayOrderId: transaction.razorpay_order_id,
+          gatewayPaymentId: razorpayCallback.paymentId,
+          signature: razorpayCallback.signature,
+        });
+
+        if (!signatureValid) {
+          await PaymentAuditService.logManipulationDetected(
+            transactionId,
+            transaction.student_id,
+            transaction.institution_id,
+            'razorpay_callback',
+            'signature_invalid',
+            undefined,
+            undefined,
+            { reason: 'razorpay_signature_invalid' }
+          );
+          return {
+            verified: false,
+            status: 'failed',
+            amount: Number(transaction.total_amount ?? 0),
+            error: 'Razorpay signature verification failed',
+          };
+        }
+
+        // Dual inquiry: server-side fetch from BOTH /orders and /payments.
+        // This is mandatory per the Razorpay security audit checklist.
+        const status = await dualInquiry(transaction.razorpay_order_id, razorpayCallback.paymentId);
+
+        // Amount mismatch check (compare paise, not rupees, for exactness)
+        const expectedPaise = Number(transaction.amount_paise ?? 0);
+        if (status.amountPaise !== expectedPaise) {
+          await PaymentAuditService.logAmountMismatch(
+            transactionId,
+            transaction.student_id,
+            transaction.institution_id,
+            expectedPaise,
+            status.amountPaise,
+            undefined,
+            { source: 'razorpay_dual_inquiry' }
+          );
+          return {
+            verified: false,
+            status: 'failed',
+            amount: status.amountPaise / 100,
+            error: 'Amount mismatch - potential manipulation detected',
+            rawResponse: status.raw as any,
+          };
+        }
+
+        const mappedStatus: PaymentStatus =
+          status.status === 'captured' ? 'success' :
+          status.status === 'failed' ? 'failed' :
+          status.status === 'refunded' ? 'refunded' :
+          'processing';
+
+        const result: PaymentVerificationResult = {
+          verified: mappedStatus === 'success',
+          status: mappedStatus,
+          amount: status.amountPaise / 100,
+          gatewayOrderId: transaction.razorpay_order_id,
+          gatewayTransactionId: razorpayCallback.paymentId,
+          paymentTime: status.capturedAt?.toISOString(),
+          rawResponse: status.raw as any,
+        };
+
+        logger.info('billing/payment-gateway', 'Razorpay payment verification completed', {
+          transactionId,
+          verified: result.verified,
+          status: result.status,
+        });
+
+        return result;
       }
 
       // Step 2: Check if already processed (anti-replay protection)

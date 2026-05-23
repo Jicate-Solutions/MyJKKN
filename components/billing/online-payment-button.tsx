@@ -18,7 +18,18 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import { RazorpayCheckoutLauncher } from './razorpay-checkout-launcher';
 import type { CreatePaymentSessionDto } from '@/types/payment-gateway';
+
+interface RazorpayLaunchProps {
+  razorpayKeyId: string;
+  razorpayOrderId: string;
+  amountPaise: number;
+  currency: 'INR';
+  transactionId: string;
+  customer: { name?: string; email?: string; phone?: string };
+  description?: string;
+}
 
 interface OnlinePaymentButtonProps {
   studentId: string;
@@ -44,6 +55,7 @@ export function OnlinePaymentButton({
   onSuccess,
 }: OnlinePaymentButtonProps) {
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
+  const [razorpayLaunchProps, setRazorpayLaunchProps] = useState<RazorpayLaunchProps | null>(null);
   const { openPaymentGateway, isOpening } = useOpenPaymentGateway();
 
   const handlePaymentClick = () => {
@@ -59,7 +71,23 @@ export function OnlinePaymentButton({
       bill_amounts: billAmounts,  // Include custom amounts if provided
     };
 
-    await openPaymentGateway(paymentData);
+    const session = await openPaymentGateway(paymentData);
+
+    // Razorpay flow: mount the launcher with the session details. Checkout
+    // modal opens once checkout.js loads.
+    if (session?.provider === 'razorpay' && session.razorpay_key_id && session.razorpay_order_id) {
+      setRazorpayLaunchProps({
+        razorpayKeyId: session.razorpay_key_id,
+        razorpayOrderId: session.razorpay_order_id,
+        amountPaise: session.amount_paise ?? Math.round(session.amount * 100),
+        currency: 'INR',
+        transactionId: session.transaction_id,
+        customer: session.customer ?? {},
+        description: `Bill payment for ${billIds.length} ${billIds.length === 1 ? 'bill' : 'bills'}`,
+      });
+    }
+
+    // HDFC flow: window.location.href already happened inside the hook.
 
     // Call onSuccess callback if provided
     if (onSuccess) {
@@ -118,6 +146,13 @@ export function OnlinePaymentButton({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {razorpayLaunchProps && (
+        <RazorpayCheckoutLauncher
+          {...razorpayLaunchProps}
+          onClose={() => setRazorpayLaunchProps(null)}
+        />
+      )}
     </>
   );
 }
