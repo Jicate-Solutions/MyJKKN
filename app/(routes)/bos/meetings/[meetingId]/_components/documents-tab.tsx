@@ -159,19 +159,53 @@ export function DocumentsTab({ meeting, compositionId }: DocumentsTabProps) {
   };
 
   const generateMinutes = async () => {
-    const [{ generateMinutesPdf }, header] = await Promise.all([
-      import('@/lib/utils/bos/bos-pdf-generator'),
-      buildHeader(),
-    ]);
-    generateMinutesPdf({
-      header,
-      meeting,
-      attendees: attendance,
-      agendaItems,
-      chairmanName,
-      boardName,
-    });
-    toast.success('Minutes downloaded');
+    try {
+      const [header, h] = await Promise.all([
+        buildHeader(),
+        Promise.resolve(getInstitutionHeader(institutionCtx?.name)),
+      ]);
+
+      const response = await fetch(`/api/bos/meetings/${meeting.id}/minutes-pdf`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          meeting,
+          attendees: attendance,
+          agendaItems,
+          chairmanName,
+          boardName,
+          boardType: meeting.board_type,
+          institutionName: institutionCtx?.name || 'Institution',
+          institutionAddress: institutionCtx?.address,
+          institutionAccreditation: h.institution_accreditation,
+          secretaryName: h.officials?.secretary_name || 'Secretary',
+          principalName: h.officials?.principal_name || 'Principal',
+          principalTitle: 'Principal',
+          contactCell: h.officials?.contact_cell,
+          contactWeb: h.officials?.contact_web,
+          contactEmail: h.officials?.contact_email,
+          logoImage: header.logoImage,
+          rightLogoImage: header.rightLogoImage,
+        }),
+      });
+
+      if (!response.ok) throw new Error('PDF generation failed');
+
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `minutes-meeting-${meeting.meeting_number}-${meeting.academic_year}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      toast.success('Minutes downloaded');
+    } catch (error) {
+      console.error('Failed to generate minutes PDF:', error);
+      toast.error('Failed to generate PDF. Please try again.');
+    }
   };
 
   // DOCX twin of generateMinutes — same payload shape, different renderer. The

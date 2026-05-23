@@ -162,7 +162,6 @@ function parseExcelRow(row: any[], rowNumber: number): {
 
   const counselingAppliedLabel = getCellValue(row[50]);
   const quotaLabel = getCellValue(row[51]);
-  const category = getCellValue(row[52]);
 
   const referenceType = getCellValue(row[53]);
   const referenceName = getCellValue(row[54]);
@@ -485,7 +484,6 @@ function parseExcelRow(row: any[], rowNumber: number): {
       // Counseling
       counseling_applied: counselingApplied || false,
       quota: quota || null,
-      category: category || null,
 
       // Reference
       reference_type: referenceType || null,
