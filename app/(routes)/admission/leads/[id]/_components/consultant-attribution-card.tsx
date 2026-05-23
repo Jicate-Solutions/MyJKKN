@@ -55,8 +55,15 @@ export function ConsultantAttributionCard({
 
   // Data
   const { attributions, isLoading } = useLeadAttributions(leadId);
+  // Fetch the GLOBAL list of consultants (no institution filter). Consultants
+  // are global entities — scoping to a single institution via the
+  // consultant_institutions junction would silently return [] for any
+  // institution that hasn't explicitly linked consultants yet. The attribution
+  // record created on Link still scopes to institutionId; only the picker is
+  // global. Matches the convention used by the other call sites
+  // (lead detail page, new lead, gate-entry).
   const { data: consultants = [], isLoading: consultantsLoading } =
-    useConsultantsForDropdown(institutionId);
+    useConsultantsForDropdown();
 
   const handleCloseDialog = (open: boolean) => {
     setShowLinkDialog(open);
