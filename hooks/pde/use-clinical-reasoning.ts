@@ -15,15 +15,12 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createClient } from '@/lib/supabase/client';
-import { PDEService } from '@/lib/services/pde-service';
 import type {
   CoachRequestBody,
   CoachResponseBody,
   ClinicalAnswerEnvelope,
   ClinicalEvidenceEnvelope,
-  ImageTagClickPoint,
 } from '@/types/pde-clinical-reasoning';
-import type { LogEngagementInput } from '@/types/pde';
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Query keys
@@ -112,26 +109,33 @@ export function useCoachFeedback() {
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
-// Submit an image_tag click point to Agent E's scoring endpoint.
-// Returns 0-100 score for this region.
+// Finalize an attempt — calls Agent E's /api/pde/clinical-reasoning/score
+// with just the submissionId. The server reads the row, runs the OSCE
+// rubric, writes back final_score + domain_scores + engagement event +
+// quality_evidence_mappings (if above threshold).
+//
+// Spec deviation note: my initial assumption was per-click image_tag
+// scoring against /score. Agent E's actual contract is whole-attempt
+// scoring with { submissionId }. Image-tag per-click validation runs
+// locally in ImageTagQuestion against question.expected_regions.
 // ──────────────────────────────────────────────────────────────────────────────
 
-export function useImageTagScore() {
-  return useMutation<
-    { score: number; matched_label?: string },
-    Error,
-    {
-      assessmentId: string;
-      questionId: string;
-      learnerId: string;
-      clickPoint: ImageTagClickPoint;
-    }
-  >({
-    mutationFn: async (body) => {
+export interface FinalizeAttemptResult {
+  osce_score: {
+    percentage: number;
+    domain_scores?: Record<string, number>;
+  };
+  passed: boolean;
+  evidence_created: boolean;
+}
+
+export function useFinalizeAttempt() {
+  return useMutation<FinalizeAttemptResult, Error, { submissionId: string }>({
+    mutationFn: async ({ submissionId }) => {
       const res = await fetch('/api/pde/clinical-reasoning/score', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
+        body: JSON.stringify({ submissionId }),
       });
       const contentType = res.headers.get('content-type') ?? '';
       if (!contentType.includes('application/json')) {
@@ -141,14 +145,15 @@ export function useImageTagScore() {
       if (!res.ok) {
         throw new Error(payload?.error ?? `HTTP ${res.status}`);
       }
-      return payload;
+      return payload as FinalizeAttemptResult;
     },
   });
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
-// Complete a case attempt — writes pde_submissions row + engagement event.
-// One INSERT per finished attempt (not per question).
+// Complete a case attempt — writes pde_submissions row only.
+// One INSERT per finished attempt (not per question). Agent E's /score
+// endpoint runs the OSCE rubric and writes final_score + engagement event.
 // ──────────────────────────────────────────────────────────────────────────────
 
 export function useCompleteAttempt() {
@@ -167,8 +172,6 @@ export function useCompleteAttempt() {
       timeSpentSeconds: number;
       autoScore: number | null;
       passed: boolean | null;
-      courseId: string;
-      lessonId: string | null;
     }
   >({
     mutationFn: async (input) => {
@@ -200,27 +203,9 @@ export function useCompleteAttempt() {
         throw new Error(`Failed to save attempt: ${error?.message ?? 'no data'}`);
       }
 
-      // Engagement event — fire and forget; failures here must not roll back.
-      try {
-        const payload: LogEngagementInput = {
-          learner_id: input.learnerId,
-          event_type: 'assessment_submit',
-          course_id: input.courseId,
-          lesson_id: input.lessonId ?? undefined,
-          metadata: {
-            domain: 'clinical_reasoning',
-            event_subtype: 'clinical_case_completed',
-            assessment_id: input.assessmentId,
-            submission_id: data.id,
-            attempt_number: input.attemptNumber,
-            auto_score: input.autoScore,
-            passed: input.passed,
-          },
-        };
-        await PDEService.logEngagement(payload);
-      } catch {
-        // intentional: telemetry must never break the primary action
-      }
+      // NOTE: engagement event is written by Agent E's /score endpoint
+      // (event_type='clinical_case_completed'), so we do NOT duplicate it
+      // here. See app/api/pde/clinical-reasoning/score/route.ts side-effect 3.
 
       return { submissionId: data.id };
     },

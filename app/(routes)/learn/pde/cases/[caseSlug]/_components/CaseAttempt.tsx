@@ -29,7 +29,7 @@ import { CapReachedState } from './CapReachedState';
 import { FreeTextSocraticQuestion } from './FreeTextSocraticQuestion';
 import { MCQWarmupQuestion } from './MCQWarmupQuestion';
 import { ImageTagQuestion } from './ImageTagQuestion';
-import { useCompleteAttempt } from '@/hooks/pde/use-clinical-reasoning';
+import { useCompleteAttempt, useFinalizeAttempt } from '@/hooks/pde/use-clinical-reasoning';
 
 interface CaseAttemptProps {
   bundle: ClinicalCaseBundle;
@@ -42,6 +42,7 @@ export function CaseAttempt({ bundle, rollNumberSnapshot }: CaseAttemptProps) {
   const [answers, setAnswers] = useState<ClinicalAnswerEnvelope[]>([]);
   const [startTime] = useState(() => Date.now());
   const completeMutation = useCompleteAttempt();
+  const finalizeMutation = useFinalizeAttempt();
   const [submitError, setSubmitError] = useState<string | null>(null);
 
   if (bundle.capReached) {
@@ -121,9 +122,18 @@ export function CaseAttempt({ bundle, rollNumberSnapshot }: CaseAttemptProps) {
         timeSpentSeconds,
         autoScore,
         passed: autoScore !== null ? autoScore >= 60 : null,
-        courseId: bundle.assessment.course_id,
-        lessonId: bundle.assessment.lesson_id,
       });
+
+      // Fire Agent E's OSCE scoring + engagement event + evidence mapping.
+      // Failures here don't roll back the saved attempt — the learner can
+      // still see their submission on the summary page; faculty can re-run.
+      try {
+        await finalizeMutation.mutateAsync({ submissionId: result.submissionId });
+      } catch (e) {
+        // Surface to console so dev sees it but don't block navigation.
+        // eslint-disable-next-line no-console
+        console.warn('OSCE scoring failed; summary will show without it:', e);
+      }
 
       router.push(`/learn/pde/cases/${bundle.assessment.id}/summary/${result.submissionId}`);
     } catch (e) {
@@ -228,8 +238,6 @@ export function CaseAttempt({ bundle, rollNumberSnapshot }: CaseAttemptProps) {
             {question.question_type === 'image_tag' ? (
               <ImageTagQuestion
                 question={question}
-                learnerId={bundle.learnerProfileId}
-                assessmentId={bundle.assessment.id}
                 onAnswered={recordAnswer}
                 onContinue={moveNext}
                 isLastQuestion={isLastQuestion}

@@ -15,7 +15,6 @@
  */
 
 import { useRef, useState } from 'react';
-import { useImageTagScore } from '@/hooks/pde/use-clinical-reasoning';
 import type {
   ClinicalQuestion,
   ClinicalAnswerEnvelope,
@@ -25,8 +24,6 @@ import type {
 
 interface ImageTagQuestionProps {
   question: ClinicalQuestion;
-  learnerId: string;
-  assessmentId: string;
   onAnswered: (envelope: ClinicalAnswerEnvelope) => void;
   onContinue: () => void;
   isLastQuestion: boolean;
@@ -63,8 +60,6 @@ function localFallbackScore(
 
 export function ImageTagQuestion({
   question,
-  learnerId,
-  assessmentId,
   onAnswered,
   onContinue,
   isLastQuestion,
@@ -74,8 +69,6 @@ export function ImageTagQuestion({
   const [score, setScore] = useState<number | null>(null);
   const [matchedLabel, setMatchedLabel] = useState<string | undefined>(undefined);
   const [submitted, setSubmitted] = useState(false);
-  const [scoreError, setScoreError] = useState<string | null>(null);
-  const scoreMutation = useImageTagScore();
 
   const mediaUrl = question.question_media_url;
 
@@ -97,40 +90,20 @@ export function ImageTagQuestion({
     });
   }
 
-  async function submit() {
+  function submit() {
     if (!click) return;
-    setScoreError(null);
-    try {
-      // Try Agent E's endpoint; fall back to local heuristic on 404.
-      const res = await scoreMutation.mutateAsync({
-        assessmentId,
-        questionId: question.id,
-        learnerId,
-        clickPoint: click,
-      });
-      finalize(res.score, res.matched_label);
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : 'unknown';
-      // 404 (endpoint missing — Agent E not live) → silent fallback
-      // Other errors → surface for retry but still allow continuation
-      if (msg.toLowerCase().includes('404') || msg.toLowerCase().includes('non-json')) {
-        const fb = localFallbackScore(click, question.expected_regions);
-        finalize(fb.score, fb.matched_label);
-        return;
-      }
-      setScoreError(msg);
-    }
-  }
-
-  function finalize(s: number, label: string | undefined) {
-    setScore(s);
-    setMatchedLabel(label);
+    // Local per-click validation against the question's expected_regions.
+    // The whole-attempt OSCE score is computed server-side by Agent E's
+    // /api/pde/clinical-reasoning/score after the attempt is saved.
+    const fb = localFallbackScore(click, question.expected_regions);
+    setScore(fb.score);
+    setMatchedLabel(fb.matched_label);
     setSubmitted(true);
     onAnswered({
       question_id: question.id,
       question_type: 'image_tag',
-      click_point: click!,
-      region_score: s,
+      click_point: click,
+      region_score: fb.score,
       submitted_at: new Date().toISOString(),
     });
   }
@@ -178,13 +151,13 @@ export function ImageTagQuestion({
           <button
             type="button"
             onClick={submit}
-            disabled={!click || scoreMutation.isPending}
+            disabled={!click}
             className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50"
           >
-            {scoreMutation.isPending ? 'Scoring…' : 'Submit click'}
+            Submit click
           </button>
           <span className="text-xs text-muted-foreground">
-            {click ? 'Click submitted; review your point above' : 'Click on the image to mark your answer'}
+            {click ? 'Point captured — submit to score' : 'Click on the image to mark your answer'}
           </span>
         </div>
       ) : (
@@ -203,14 +176,6 @@ export function ImageTagQuestion({
         </div>
       )}
 
-      {scoreError ? (
-        <div className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900">
-          {scoreError}
-          <button type="button" onClick={submit} className="ml-2 underline hover:no-underline">
-            Retry
-          </button>
-        </div>
-      ) : null}
     </div>
   );
 }
