@@ -709,6 +709,55 @@ export class PaymentGatewayService {
         };
       }
 
+      // ------------------------------------------------------------------
+      // Provider branch (Task 16): Razorpay status check.
+      // Calls provider.getOrderStatus() and maps Razorpay status → our enum.
+      // ------------------------------------------------------------------
+      if (transaction.provider === 'razorpay') {
+        const provider = getPaymentProvider('billing');
+        const rzpStatus = await provider.getOrderStatus(transaction.razorpay_order_id);
+
+        let newStatus: PaymentStatus = transaction.status;
+        if (rzpStatus.status === 'captured') newStatus = 'success';
+        else if (rzpStatus.status === 'failed') newStatus = 'failed';
+        else if (rzpStatus.status === 'refunded') newStatus = 'refunded';
+
+        if (newStatus !== transaction.status) {
+          const { error: updateError } = await (supabase as any)
+            .from('payment_transactions')
+            .update({
+              status: newStatus,
+              gateway_response: rzpStatus.raw,
+              captured_at: rzpStatus.capturedAt?.toISOString() ?? null,
+              completed_at: new Date().toISOString(),
+              payment_date: rzpStatus.capturedAt?.toISOString() ?? null,
+            })
+            .eq('id', transaction.id);
+          if (updateError) {
+            logger.error('billing/payment-gateway', 'Failed to update Razorpay transaction status', updateError);
+          }
+
+          if (newStatus === 'success') {
+            await this.processSuccessfulPayment({ ...transaction, status: newStatus });
+          }
+        }
+
+        const response: PaymentStatusCheckResponse = {
+          transaction_id: transaction.id,
+          student_id: transaction.student_id,
+          status: newStatus,
+          amount: transaction.total_amount,
+          payment_date: rzpStatus.capturedAt?.toISOString() ?? transaction.payment_date,
+          payment_method: transaction.payment_method,
+          bills_paid: transaction.bill_ids.length,
+        };
+
+        return {
+          success: true,
+          data: response,
+        };
+      }
+
       // Step 3: Query HDFC for latest status
       const hdfcStatus = await this.callHDFCApi<HDFCOrderStatusResponse>(
         `/orders/${transaction.transaction_ref}`,
