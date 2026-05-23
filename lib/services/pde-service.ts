@@ -1102,8 +1102,22 @@ export class PDEService {
 
   /**
    * Send a message to the AI Coach. Stores the learner message,
-   * generates a placeholder coach reply (actual Gemini integration is follow-up).
-   * Returns the coach reply and conversation ID.
+   * generates a coach reply, and persists both to pde_coach_conversations.
+   *
+   * Routing by context_type:
+   * - clinical_case → POSTs to /api/pde/coach which runs the Socratic
+   *   service (lib/services/pde-coach-clinical-reasoning.ts) server-side
+   *   with policy-driven AI dispatch, lifetime-attempt cap enforcement,
+   *   and ai_model_usage cost tracking. The API route surfaces typed
+   *   errors (CAP_REACHED 429, AI_FAILURE 502, etc.) via JSON body;
+   *   callers should inspect res.status / body.code to drive UI.
+   * - any other context_type → placeholder reply (existing behavior
+   *   preserved for non-clinical PDE coach surfaces).
+   *
+   * The contextId for clinical_case is the pde_assessments.id (the case).
+   * The message payload for clinical_case must be JSON-encoded as
+   * '{"questionId":"<uuid>","answer":"<text>"}' since the API route
+   * needs both fields to route the Socratic call.
    */
   static async sendCoachMessage(
     learnerId: string,
@@ -1113,6 +1127,94 @@ export class PDEService {
   ): Promise<CoachMessageResponse> {
     const supabase = getSupabase();
 
+    // ------ clinical_case branch — route to Socratic API ------
+    if (contextType === 'clinical_case') {
+      // The student UI is responsible for passing message as JSON
+      // containing { questionId, answer }. If the caller passed raw
+      // text we treat the whole thing as the answer with a sentinel
+      // questionId so the API can return a 400 with a clear error.
+      let questionId = '';
+      let answer = message;
+      try {
+        const parsed = JSON.parse(message) as { questionId?: string; answer?: string };
+        if (parsed && typeof parsed.questionId === 'string' && typeof parsed.answer === 'string') {
+          questionId = parsed.questionId;
+          answer = parsed.answer;
+        }
+      } catch {
+        // not JSON — leave as raw text; API will validate
+      }
+
+      const res = await fetch('/api/pde/coach', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          learnerId,
+          assessmentId: contextId,
+          questionId,
+          answer,
+        }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        // Preserve typed error info on the thrown Error so callers
+        // (useSendCoachMessage hook, student UI) can branch on code.
+        const err = new Error(body.error || `Coach request failed (${res.status})`) as Error & {
+          code?: string;
+          status?: number;
+          retryable?: boolean;
+        };
+        err.code = body.code;
+        err.status = res.status;
+        err.retryable = body.retryable;
+        throw err;
+      }
+
+      // Persist the exchange to pde_coach_conversations (same shape as
+      // non-clinical path). The reply we store is the Socratic feedback.
+      const now = new Date().toISOString();
+      const learnerMsg: CoachMessage = { role: 'learner', content: answer, timestamp: now };
+      const coachMsg: CoachMessage = {
+        role: 'coach',
+        content: body.feedback as string,
+        timestamp: now,
+      };
+
+      let conversation = await this.getCoachConversation(learnerId, contextType, contextId);
+      if (!conversation) {
+        const { data, error } = await supabase
+          .from('pde_coach_conversations')
+          .insert({
+            learner_id: learnerId,
+            context_type: contextType,
+            context_id: contextId,
+            messages: [learnerMsg, coachMsg],
+            coaching_style: 'socratic',
+            tokens_used: answer.length + (body.feedback as string).length,
+          })
+          .select()
+          .single();
+        if (error) throw new Error(`Failed to create coach conversation: ${error.message}`);
+        return { reply: body.feedback as string, conversation_id: data.id };
+      }
+      const updatedMessages = [...(conversation.messages || []), learnerMsg, coachMsg];
+      const { error } = await supabase
+        .from('pde_coach_conversations')
+        .update({
+          messages: updatedMessages,
+          coaching_style: 'socratic',
+          tokens_used:
+            (conversation.tokens_used || 0) +
+            answer.length +
+            (body.feedback as string).length,
+          updated_at: now,
+        })
+        .eq('id', conversation.id);
+      if (error) throw new Error(`Failed to update coach conversation: ${error.message}`);
+      return { reply: body.feedback as string, conversation_id: conversation.id };
+    }
+
+    // ------ non-clinical_case branch — existing placeholder behavior ------
     // 1. Get or create conversation
     let conversation = await this.getCoachConversation(learnerId, contextType, contextId);
 
