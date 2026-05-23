@@ -82,16 +82,31 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
 
     // ------ Clinical-reasoning branch — Socratic feedback ------
-    if (
+    //
+    // Accept TWO body shapes for the same Socratic operation so both the
+    // PDEService.sendCoachMessage caller (assessmentId/questionId/answer)
+    // and Agent C's useCoachFeedback hook (contextType/contextId/message
+    // /questionId) can hit this endpoint without coordination friction.
+    //
+    // Detection rules:
+    //   - shape A: body has all of {assessmentId, questionId, answer}
+    //   - shape B: body has contextType==='clinical_case' AND questionId
+    //              AND (message OR answer)
+    const isShapeA =
       typeof body.assessmentId === 'string' &&
       typeof body.questionId === 'string' &&
-      typeof body.answer === 'string'
-    ) {
+      typeof body.answer === 'string';
+    const isShapeB =
+      body.contextType === 'clinical_case' &&
+      typeof body.questionId === 'string' &&
+      (typeof body.message === 'string' || typeof body.answer === 'string');
+
+    if (isShapeA || isShapeB) {
       const input: ClinicalReasoningCoachInput = {
         learnerId: body.learnerId,
-        assessmentId: body.assessmentId,
+        assessmentId: isShapeA ? body.assessmentId : body.contextId,
         questionId: body.questionId,
-        answer: body.answer,
+        answer: isShapeA ? body.answer : (body.answer ?? body.message),
       };
       try {
         const result = await generateClinicalReasoningFeedback(input);
