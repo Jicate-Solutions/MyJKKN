@@ -2,6 +2,11 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse, connection } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
+import {
+  generateClinicalReasoningFeedback,
+  type ClinicalReasoningCoachInput,
+} from '@/lib/services/pde-coach-clinical-reasoning';
+import { FeedbackError } from '@/lib/services/pde-coach-errors';
 
 // GET /api/pde/coach?learnerId=xxx&contextType=xxx&contextId=xxx
 // Returns coach conversation history
@@ -49,7 +54,22 @@ export async function GET(request: NextRequest) {
 }
 
 // POST /api/pde/coach — send message to coach
-// Body: { learnerId, contextType, contextId, message }
+//
+// Two body shapes accepted:
+//
+// 1. Clinical-reasoning (Socratic) — when body has assessmentId+questionId:
+//    { learnerId, assessmentId, questionId, answer }
+//    Routes through lib/services/pde-coach-clinical-reasoning.ts.
+//    Responses:
+//      200 { feedback, provider, model, latencyMs, costInr, priorAttempts, capPerCase }
+//      400 { error, code:'INVALID_INPUT' }   — bad inputs
+//      404 { error, code:'NOT_FOUND' }       — case or question missing
+//      429 { error, code:'CAP_REACHED' }     — lifetime attempt cap hit
+//      502 { error, code:'AI_FAILURE', retryable:true } — AI provider error
+//
+// 2. Legacy non-clinical — when body has contextType+message:
+//    { learnerId, contextType, contextId, message }
+//    Existing placeholder behavior preserved for non-clinical PDE coach.
 export async function POST(request: NextRequest) {
   await connection();
   try {
@@ -60,6 +80,39 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
+
+    // ------ Clinical-reasoning branch — Socratic feedback ------
+    if (
+      typeof body.assessmentId === 'string' &&
+      typeof body.questionId === 'string' &&
+      typeof body.answer === 'string'
+    ) {
+      const input: ClinicalReasoningCoachInput = {
+        learnerId: body.learnerId,
+        assessmentId: body.assessmentId,
+        questionId: body.questionId,
+        answer: body.answer,
+      };
+      try {
+        const result = await generateClinicalReasoningFeedback(input);
+        return NextResponse.json(result, { status: 200 });
+      } catch (err) {
+        if (err instanceof FeedbackError) {
+          return NextResponse.json(err.toJSON(), { status: err.status });
+        }
+        console.error('Clinical reasoning coach error:', err);
+        return NextResponse.json(
+          {
+            error: err instanceof Error ? err.message : 'Internal error',
+            code: 'INTERNAL',
+            retryable: false,
+          },
+          { status: 500 }
+        );
+      }
+    }
+
+    // ------ Legacy non-clinical branch ------
     const { learnerId, contextType, contextId, message } = body;
 
     if (!learnerId || !message) {
