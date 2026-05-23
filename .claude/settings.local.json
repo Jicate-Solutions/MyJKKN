@@ -259,7 +259,9 @@
       "Bash(rm \"D:/Projects/MyJKKN/.git/COMMIT_MSG_D1.txt\")",
       "Bash(rm .git/COMMIT_EDITMSG_TMP.txt)",
       "Bash(\"/c/Program Files/Git/bin/git.exe\" log -1 --format=\"%H %s\")",
-      "Read(//tmp/**)"
+      "Read(//tmp/**)",
+      "Bash(:)",
+      "Bash(break)"
     ],
     "deny": [],
     "ask": []
