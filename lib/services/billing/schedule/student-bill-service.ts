@@ -257,7 +257,14 @@ export class StudentBillService {
       let query;
 
       if (hasAcademicFilters) {
-        // Use the billing_student_bills table with joins when academic filters are needed
+        // Use the billing_student_bills table with joins when academic filters are needed.
+        // CRITICAL: `student:learners_profiles!inner` is required so that PostgREST applies
+        // the `.eq('student.<col>', ...)` filters as INNER JOIN constraints. Without `!inner`,
+        // those filters are evaluated on the LEFT-joined embedded resource — the parent
+        // billing_student_bills rows are NOT filtered out, leading to either inflated counts
+        // or (more commonly) empty result sets when the full hierarchy chain is selected.
+        // Reference: this matches the working pattern in billing-receipt-service.ts line 1116.
+        // Fix for BUG-003857 + BUG-003924 (filter cascade returning empty schedule list).
         query = (this.supabase as any).from('billing_student_bills').select(
           `
             id,
@@ -281,7 +288,7 @@ export class StudentBillService {
             created_by,
             created_at,
             updated_at,
-            student:learners_profiles(
+            student:learners_profiles!inner(
               first_name,
               last_name,
               roll_number,
