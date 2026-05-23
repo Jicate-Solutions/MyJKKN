@@ -850,7 +850,7 @@ export default function AdminBugReportsPage() {
                     columns={columns}
                     data={reports}
                     permissions={{
-                      module: 'system',
+                      module: 'system.bugs',
                       actions: { view: true }
                     }}
                     onRefresh={refetch}
