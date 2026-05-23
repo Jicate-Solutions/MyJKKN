@@ -134,7 +134,7 @@ function CloneFeeStructurePageContent({ id }: { id: string }) {
         setCommunityOptions(comms);
         setSourceName(source.name);
 
-        // Pre-fill all 7 matrix dims from source.
+        // Pre-fill all matrix dims from source (including optional gender).
         setSelectedDims({
           institution_id: source.institution_id,
           degree_id: source.degree_id,
@@ -143,6 +143,7 @@ function CloneFeeStructurePageContent({ id }: { id: string }) {
           quota_id: source.quota_id,
           accommodation_type_id: source.accommodation_type_id,
           admission_year_id: source.admission_year_id,
+          gender: source.gender ?? undefined,
         });
 
         // Pre-fill the form values. Adding "(cloned)" to the name avoids
