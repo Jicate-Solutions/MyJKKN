@@ -102,7 +102,6 @@ const COLUMN_MAPPING: Record<string, string[]> = {
   'roll_number': ['Roll Number', 'roll_number'],
   'register_number': ['Register Number', 'register_number'],
   'quota': ['Quota', 'quota'],
-  'category': ['Category', 'category'],
   'student_photo_url': ['Photo URL', 'photo_url', 'student_photo_url'],
 };
 

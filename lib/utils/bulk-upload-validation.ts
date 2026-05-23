@@ -159,7 +159,6 @@ export const COLUMN_MAPPING: Record<string, string[]> = {
   'counseling_applied': ['Counseling Applied', 'counseling_applied'],
   'counseling_number': ['Counseling Number', 'counseling_number'],
   'quota': ['Quota', 'quota'],
-  'category': ['Category', 'category'],
 
   // SECTION 11: Reference Information
   'reference_type': ['Reference Type', 'reference_type'],

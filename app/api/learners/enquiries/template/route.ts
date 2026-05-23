@@ -552,7 +552,6 @@ export async function GET(request: NextRequest) {
       neet_score: '',
       counseling_applied: EXCEL_BOOLEAN[0],
       quota: EXCEL_QUOTA[0],
-      category: 'General',
       reference_type: EXCEL_REFERENCE_TYPE[0], // Use first reference type from list
       reference_name: 'Dr. Kumar',
       reference_contact: '9999999999'
