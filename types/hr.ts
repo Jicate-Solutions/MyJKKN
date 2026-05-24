@@ -2,9 +2,10 @@
  * HR Module TypeScript Types (Sprint 1 redesigned schema)
  *
  * Architecture:
- * - JKKN full-time employees live in `staff` (canonical) + `hr_staff_details` (HR extension)
- * - Non-staff employment types (guest, student_ta, vendor_monitored) live in `hr_employees`
- * - Single list view is a UNION of both
+ * - All employees live in `staff` (canonical) + `hr_staff_details` (HR extension)
+ * - hr_employees table has been consolidated into staff (see migration
+ *   20260524083600_consolidate_hr_employees_to_staff.sql)
+ * - Non-staff types (guest, student_ta, vendor_monitored) are now also managed via staff
  *
  * Shadow-tenant pattern: jkknkb/MyJKKN/Architecture/shadow-tenant-pattern.md
  */
@@ -64,7 +65,7 @@ export interface HRDesignation {
   updated_at: string;
 }
 
-// === Employment Types (5 total, 1 via staff + 4 via hr_employees) ===
+// === Employment Types (all via staff + hr_staff_details after consolidation) ===
 export type HREmploymentType =
   | 'full_time'           // JKKN staff — lives in staff + hr_staff_details
   | 'guest'               // External guest lecturer
@@ -96,47 +97,21 @@ export interface HRStaffDetailsInsert
 
 export type HRStaffDetailsUpdate = Partial<HRStaffDetails>;
 
-// === hr_employees — non-staff types only (guest, student_ta, vendor_monitored) ===
+// === Non-staff employment type (kept for filter/display logic) ===
 export type HRNonStaffEmploymentType = Exclude<HREmploymentType, 'full_time'>;
 
-export interface HREmployee {
-  id: string;
-  hr_organization_id: string;
-  employment_type: HRNonStaffEmploymentType;
-  learner_profile_id: string | null;
-  vendor_name: string | null;
-  employee_code: string;
-  first_name: string;
-  last_name: string | null;
-  email: string | null;
-  phone: string | null;
-  designation_id: string | null;
-  cadre_id: string | null;
-  reports_to_employee_id: string | null;
-  date_of_exit: string | null;
-  is_active: boolean;
-  deactivated_at: string | null;
-  deactivation_reason: string | null;
-  created_at: string;
-  updated_at: string;
-  created_by: string | null;
-  updated_by: string | null;
-}
+// NOTE: HREmployee interface removed — hr_employees table consolidated into staff.
+// Non-staff types (guest, student_ta, vendor_monitored, unpaid_volunteer) now
+// also use the staff table. Legacy code that referenced HREmployee should use
+// the staff table directly or the HRPersonView unified interface.
+//
+// HREmployeeInsert and HREmployeeUpdate also removed.
+// Use staff insert/update patterns instead.
 
-export interface HREmployeeInsert
-  extends Partial<Omit<HREmployee, 'id' | 'created_at' | 'updated_at'>> {
-  hr_organization_id: string;
-  employment_type: HRNonStaffEmploymentType;
-  employee_code: string;
-  first_name: string;
-}
-
-export type HREmployeeUpdate = Partial<HREmployee>;
-
-// === Unified view: "HR Person" — represents either a staff-backed row or a hr_employees row ===
+// === Unified view: "HR Person" — now always backed by staff table ===
 export interface HRPersonView {
-  source: 'staff' | 'hr_employees';
-  // Stable id used for routing; for staff source it's staff.id, for hr_employees it's hr_employees.id
+  source: 'staff';
+  // Stable id used for routing — always staff.id after consolidation
   id: string;
   hr_organization_id: string;
   organization_name: string | null;
@@ -151,9 +126,7 @@ export interface HRPersonView {
   department_id: string | null;
   date_of_joining: string | null;
   is_active: boolean;
-  // Source-specific raw rows for detail page joins
   staff_id?: string;
-  hr_employee_id?: string;
 }
 
 // === Filters ===
@@ -167,11 +140,7 @@ export interface HRPersonFilters {
   search?: string;
   page?: number;
   pageSize?: number;
-  // When false, the list endpoint skips full-time staff rows entirely.
-  // Used by /hr/employees (scoped to non-staff: guests, vendors, TAs, volunteers).
-  // Full-time staff are managed on /staff/list; showing them in both places caused
-  // visible-but-not-real duplication (the two URLs showed the same 393 rows).
-  include_staff?: boolean;
+  // include_staff removed — all employees now live in staff table after consolidation.
 }
 
 // === API response ===
@@ -201,7 +170,6 @@ export interface HRAdditionalRole {
   id: string;
   hr_organization_id: string;
   staff_id: string | null;
-  hr_employee_id: string | null;
   role_type: string;                       // Extensible text (HOD, IQAC Coordinator, etc.)
   role_category: HRAdditionalRoleCategory | null;
   department_id: string | null;
