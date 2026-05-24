@@ -30,7 +30,7 @@ export class HRPersonService {
     const page = filters.page ?? 1;
     const pageSize = filters.pageSize ?? 25;
 
-    const { search, employment_type, hr_organization_id, cadre_id, designation_id, department_id, is_active } = filters;
+    const { search, hr_organization_id, cadre_id, designation_id, department_id, is_active } = filters;
 
     const people: HRPersonView[] = [];
 

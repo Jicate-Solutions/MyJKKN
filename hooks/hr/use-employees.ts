@@ -33,7 +33,7 @@ export function useHREmployees(filters: HRPersonFilters = {}, enabled = true) {
   });
 }
 
-export function useHREmployee(id: string | undefined, source: 'staff' | 'hr_employees' = 'staff', enabled = true) {
+export function useHREmployee(id: string | undefined, _source: 'staff' = 'staff', enabled = true) {
   return useQuery({
     queryKey: ['hr-person', 'staff', id],
     queryFn: async () => {

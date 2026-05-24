@@ -10,7 +10,6 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextResponse, connection } from 'next/server';
-import type { NextRequest } from 'next/server';
 import { withAuth } from '@/lib/auth/with-auth';
 import { PayrollPeriodsService } from '@/lib/services/hr/payroll/periods-service';
 

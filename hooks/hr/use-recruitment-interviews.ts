@@ -11,7 +11,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import type {
   HRRecruitmentInterview,
-  InterviewMode,
 } from '@/types/hr-recruitment';
 
 const BASE = '/api/hr/recruitment';

@@ -41,7 +41,7 @@ export function usePayrollPayslips(periodId: string | undefined) {
   return useQuery<PayslipWithStaff[]>({
     queryKey: ['hr-payroll-payslips', periodId],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error } = await (supabase as any)
         .from('hr_payslips')
         .select(
           `

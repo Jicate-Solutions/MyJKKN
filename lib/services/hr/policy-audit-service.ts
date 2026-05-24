@@ -167,7 +167,7 @@ export class PolicyAuditService {
       edited_by: args.user_id,
     });
 
-    return data as PolicyPublicationInfo;
+    return data as unknown as PolicyPublicationInfo;
   }
 
   // -------------------------------------------------------------------------
@@ -226,7 +226,7 @@ export class PolicyAuditService {
       edited_by: args.user_id,
     });
 
-    return data as PolicyPublicationInfo;
+    return data as unknown as PolicyPublicationInfo;
   }
 
   // -------------------------------------------------------------------------
@@ -253,7 +253,7 @@ export class PolicyAuditService {
 
     const { data, error } = await q.maybeSingle();
     if (error) throw error;
-    return data as (PolicyPublicationInfo & { scope_type: string; scope_id: string | null; description: string | null }) | null;
+    return data as unknown as (PolicyPublicationInfo & { scope_type: string; scope_id: string | null; description: string | null }) | null;
   }
 
   private static async insertAudit(

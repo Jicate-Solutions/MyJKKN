@@ -85,7 +85,6 @@ export class HRAnalyticsService {
       (s, h) => s + h.inactive,
       0
     );
-    const totalJoined = attrition.reduce((s, a) => s + a.joined, 0);
     const totalLeft = attrition.reduce((s, a) => s + a.left, 0);
     const overallAttritionRate =
       totalStaff > 0 ? Math.round((totalLeft / totalStaff) * 100 * 10) / 10 : 0;

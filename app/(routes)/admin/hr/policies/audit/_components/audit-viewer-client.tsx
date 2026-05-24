@@ -340,7 +340,7 @@ function AuditTimeline({ entries }: { entries: HRPolicyAuditLogEntry[] }) {
   return (
     <div className="relative space-y-0 pl-2">
       <div className="absolute left-[21px] top-3 bottom-3 w-px bg-border" />
-      {entries.map((entry, idx) => (
+      {entries.map((entry) => (
         <TimelineEntry key={entry.id} entry={entry} />
       ))}
     </div>
