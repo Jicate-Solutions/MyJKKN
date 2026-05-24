@@ -40,7 +40,9 @@ import { PeriodBackdateBadge } from '@/features/hr/payroll/period-backdate-badge
 import { PeriodDetailStepper } from '@/features/hr/payroll/period-detail-stepper';
 import { PeriodAuditTimeline } from '@/features/hr/payroll/period-audit-timeline';
 import { PeriodActionButtons } from '@/features/hr/payroll/period-action-buttons';
+import { PayslipTable } from '@/features/hr/payroll/payslip-table';
 import { usePayrollPeriodRealtime } from '@/features/hr/payroll/use-payroll-period-realtime';
+import { usePayrollPayslips } from '@/hooks/hr/payroll/use-payroll-payslips';
 
 const MONTH_NAMES = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -79,6 +81,7 @@ export default function PayrollPeriodDetailPage({
 function PayrollPeriodDetailContent({ id }: { id: string }) {
   const { data: period, isLoading, error } = usePayrollPeriod(id);
   const { data: approvals = [], isLoading: approvalsLoading } = usePayrollApprovals(id);
+  const { data: payslips = [], isLoading: payslipsLoading } = usePayrollPayslips(id);
   const { data: institutionsData } = useJkknInstitutions({ limit: 50 });
 
   // Realtime subscription — caches invalidate when other actors transition
@@ -179,6 +182,15 @@ function PayrollPeriodDetailContent({ id }: { id: string }) {
           </dl>
         </CardContent>
       </Card>
+
+      {/* Payslips table — visible once period is at least 'prepared' */}
+      {period.status !== 'draft' && (
+        <PayslipTable
+          payslips={payslips}
+          periodLabel={periodLabel}
+          isLoading={payslipsLoading}
+        />
+      )}
 
       {/* Audit timeline */}
       <PeriodAuditTimeline
