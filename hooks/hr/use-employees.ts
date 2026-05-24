@@ -1,12 +1,11 @@
 'use client';
 
 /**
- * React Query hooks for HR People (unified view over staff + hr_employees).
+ * React Query hooks for HR People (all backed by staff table after consolidation).
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { HRPersonFilters, HRPersonListResponse } from '@/types/hr';
-import type { HREmployeeInsert } from '@/types/hr';
 
 const BASE = '/api/hr/employees';
 
@@ -34,35 +33,16 @@ export function useHREmployees(filters: HRPersonFilters = {}, enabled = true) {
   });
 }
 
-export function useHREmployee(id: string | undefined, source: 'staff' | 'hr_employees' = 'hr_employees', enabled = true) {
+export function useHREmployee(id: string | undefined, source: 'staff' | 'hr_employees' = 'staff', enabled = true) {
   return useQuery({
-    queryKey: ['hr-person', source, id],
+    queryKey: ['hr-person', 'staff', id],
     queryFn: async () => {
-      const res = await fetch(`${BASE}/${id}?source=${source}`);
+      const res = await fetch(`${BASE}/${id}?source=staff`);
       if (!res.ok) throw new Error(`HR person get failed: ${res.status}`);
       const json = await res.json();
       return json.data;
     },
     enabled: enabled && !!id,
-  });
-}
-
-export function useCreateHREmployee() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (input: HREmployeeInsert) => {
-      const res = await fetch(BASE, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(input),
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.error || 'Create failed');
-      }
-      return res.json();
-    },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['hr-people'] }),
   });
 }
 
