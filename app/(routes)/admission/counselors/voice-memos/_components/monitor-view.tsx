@@ -28,6 +28,7 @@ import { RecentFailuresTable } from './recent-failures-table';
 import { RecentCompletionsTable } from './recent-completions-table';
 import { CostRollupCard } from './cost-rollup-card';
 import { DirectorDigestCard } from './director-digest-card';
+import { PerCounselorTable } from './per-counselor-table';
 
 function LoadingSkeleton() {
   return (
@@ -154,6 +155,11 @@ export function VoiceMemoMonitorView() {
           </div>
 
           <RecentFailuresTable rows={data.recent_failures} />
+
+          <PerCounselorTable
+            rows={data.per_counselor}
+            windowHours={data.policy.window_hours}
+          />
 
           <RecentCompletionsTable rows={data.recent_completions} />
 
