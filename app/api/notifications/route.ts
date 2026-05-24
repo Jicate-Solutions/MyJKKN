@@ -26,6 +26,25 @@ export async function GET(request: NextRequest) {
     }
 
     const searchParams = request.nextUrl.searchParams;
+
+    // Pagination: support both `?offset=` (explicit) and `?page=` (1-indexed)
+    // contracts. hooks/use-notifications.ts sends `?page=N&limit=20` for
+    // infinite scroll; without `page` translation, every loadMore() call
+    // returned the SAME first 20 rows, so users never reached older items.
+    // Bug found 2026-05-11 (BUG-003936): Director's month-old Announcements
+    // existed in the DB but were unreachable because pagination was broken.
+    const limitParam = searchParams.get('limit');
+    const offsetParam = searchParams.get('offset');
+    const pageParam = searchParams.get('page');
+    const limit = limitParam ? parseInt(limitParam) : undefined;
+    let offset: number | undefined = offsetParam
+      ? parseInt(offsetParam)
+      : undefined;
+    if (offset === undefined && pageParam) {
+      const page = Math.max(1, parseInt(pageParam) || 1);
+      offset = (page - 1) * (limit ?? 20);
+    }
+
     const filters = {
       user_id: user.id,
       type: (searchParams.get('type') as any) || undefined,
@@ -41,12 +60,8 @@ export async function GET(request: NextRequest) {
       search: searchParams.get('search') || undefined,
       from_date: searchParams.get('from_date') || undefined,
       to_date: searchParams.get('to_date') || undefined,
-      limit: searchParams.get('limit')
-        ? parseInt(searchParams.get('limit')!)
-        : undefined,
-      offset: searchParams.get('offset')
-        ? parseInt(searchParams.get('offset')!)
-        : undefined
+      limit,
+      offset
     };
 
     // Pass the route's cookie-scoped server client so the query runs as
@@ -60,13 +75,13 @@ export async function GET(request: NextRequest) {
     //   - `notifications` / `unread_count` / `has_more` — what hooks/use-notifications.ts
     //     expects for the /notifications page list. Without these, the page renders
     //     "No notifications yet" even though the API returns rows. Bug found 2026-05-04.
-    const limit = filters.limit ?? 20;
+    const effectiveLimit = limit ?? 20;
     return NextResponse.json({
       data: notifications,
       count: notifications.length,
       notifications,
       unread_count: notifications.filter((n) => !n.is_read).length,
-      has_more: notifications.length === limit
+      has_more: notifications.length === effectiveLimit
     });
   } catch (error: any) {
     console.error('Error fetching notifications:', error);
