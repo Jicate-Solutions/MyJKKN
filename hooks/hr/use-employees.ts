@@ -46,6 +46,23 @@ export function useHREmployee(id: string | undefined, source: 'staff' | 'hr_empl
   });
 }
 
+/**
+ * @deprecated hr_employees table has been dropped. Non-staff creation should
+ * go through the staff module. This stub prevents compile errors in
+ * app/(routes)/hr/employees/new/page.tsx until that page is updated.
+ */
+export function useCreateHREmployee() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (_input: Record<string, unknown>) => {
+      throw new Error(
+        'hr_employees table has been dropped. Use the staff module to create employees.'
+      );
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['hr-people'] }),
+  });
+}
+
 export function useDeactivateHREmployee() {
   const qc = useQueryClient();
   return useMutation({
