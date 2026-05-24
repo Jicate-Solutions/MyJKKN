@@ -80,13 +80,16 @@ export function AcademicInformationSection({ form }: AcademicInformationProps) {
 
   useEffect(() => {
     // Engineering Cutoff: ((Physics + Chemistry) / 2) + Mathematics
+    // Only auto-fill when all three subjects are present. For streams without
+    // Mathematics (e.g. PCB / Bio-Botany dental students), leave the field
+    // alone so the student can leave it blank or enter a value manually.
+    // BUG-003929: previously cleared the field on every render for non-engg
+    // streams, making it impossible for biology-group students to save.
     if (physicsMarks && chemistryMarks && mathsMarks) {
       const engineeringCutoff = (
         (Number(physicsMarks) + Number(chemistryMarks)) / 2 + Number(mathsMarks)
       ).toFixed(2);
       form.setValue('engineering_cutoff_marks', engineeringCutoff);
-    } else {
-      form.setValue('engineering_cutoff_marks', '');
     }
 
     // Medical Cutoff (Biology): ((Physics + Chemistry) / 2) + Biology
@@ -104,9 +107,8 @@ export function AcademicInformationSection({ form }: AcademicInformationProps) {
         Number(zoologyMarks) / 2
       ).toFixed(2);
       form.setValue('medical_cutoff_marks', medicalCutoff);
-    } else {
-      form.setValue('medical_cutoff_marks', '');
     }
+    // Same rationale as engineering: don't clear manually entered values.
   }, [physicsMarks, chemistryMarks, mathsMarks, biologyMarks, botanyMarks, zoologyMarks, form]);
 
   // ============================================
