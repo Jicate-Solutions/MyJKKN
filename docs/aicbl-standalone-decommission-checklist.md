@@ -1,10 +1,23 @@
 # AICBL Standalone Decommission Checklist
 
-**Status:** GATED. Do NOT execute until MyJKKN port (`feat/aicbl-as-pde-clinical-reasoning`) is verified live in production AND a real BDS learner has completed at least one full attempt through the new `/learn/pde/cases/leukoplakia` path.
+**Status:** PARTIAL PROGRESS. MyJKKN port is live in production (verified 2026-05-24 via discriminating route probe — `POST /api/pde/clinical-reasoning/score` returns 401, route only exists post-merge). Real-learner verification + Vercel project deletion + Supabase row archival remain gated on Director action.
 
 **Author:** Agent E, AICBL→PDE Clinical Reasoning sprint
 **Spec reference:** `specs/aicbl-as-pde-clinical-reasoning-2026-05-21.md` (lines 343–347)
-**Last updated:** 2026-05-23
+**Last updated:** 2026-05-24
+
+## Current decommission status (post-merge snapshot)
+
+| Step | Status | Notes |
+|---|---|---|
+| MyJKKN port deployed to production | ✅ Verified 2026-05-24 | Discriminating route probe: `POST /api/pde/clinical-reasoning/score` returns 401 (route only exists post-merge). PR #1059 merged 2026-05-23 15:12 UTC. |
+| Visual verification by real BDS learner | ⏳ Director action | Log in as BDS student, navigate to `/learn/pde/cases/leukoplakia`, complete a full attempt. Then run gating SQL queries below. |
+| `pde_attempt_grants` migration applied | ⏳ Agent J running in parallel | Re-read DB state when Agent J completes; update this row to ✅ once verified via information_schema probe. |
+| Receiver code (`handler.ts`) removed | ✅ Agent K running in parallel | Agent K owns deletion of `lib/pde/external-providers/aicbl/handler.ts` + related route registration. Re-read repo when complete; this checklist documents the change, doesn't perform it. |
+| Standalone `aicbl.vercel.app` retirement | ⏳ Director action | Manual deletion via Vercel dashboard (see Step 1 below). Do NOT use deploy-hook curl per `feedback_vercel_deploy_hook_is_method_agnostic`. |
+| `prototype_policies` AICBL rows archived | ⏳ Pending | See Step 4 — applies AFTER Vercel retirement. |
+| `/Users/omm/PROJECTS/aicbl` local repo archived | ⏳ Pending | See Step 3 — rename + GitHub-archive AFTER Vercel retirement. |
+| `reference_aicbl_project.md` updated with final disposition | ⏳ Pending | See Step 5 — last step, after all above complete. |
 
 ---
 
