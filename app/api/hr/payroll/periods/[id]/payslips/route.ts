@@ -76,53 +76,31 @@ export const GET = withAuth(async (_request, auth, context) => {
   }
 }, { allowApiKey: false, requirePermission: 'hr.payroll.view' });
 
-// ── POST — generate payslips (T4.4 stub) ───────────────────────
+// ── POST — generate payslips (T4.4) ───────────────────────────
+
+import { PayslipGenerator } from '@/lib/services/hr/payroll/payslip-generator';
 
 export const POST = withAuth(async (_request, auth, context) => {
   await connection();
   try {
     const { id } = await context!.params!;
 
-    // Verify period exists and is at least 'prepared'
-    const { data: period, error: periodErr } = await auth.supabase
-      .from('hr_payroll_periods')
-      .select('id, status')
-      .eq('id', id)
-      .maybeSingle();
+    const result = await PayslipGenerator.generate(auth.supabase, id);
 
-    if (periodErr) throw periodErr;
-    if (!period) {
-      return NextResponse.json({ error: 'Period not found' }, { status: 404 });
-    }
-
-    if (period.status === 'draft') {
-      return NextResponse.json(
-        { error: 'Period must be prepared before payslips can be generated' },
-        { status: 400 },
-      );
-    }
-
-    // T4.4 will implement the full generation loop:
-    //   1. Load staff for institution + engine_type
-    //   2. Load pay scales, LOP data, deduction policies
-    //   3. Run deduction engine per staff
-    //   4. Bulk-insert hr_payslips + hr_payslip_line_items
-    //   5. Update period aggregates (total_gross, etc.)
-    //
-    // For now, return a 501 with a clear message.
-    return NextResponse.json(
-      {
-        error: 'Payslip generation not yet implemented (ships with T4.4)',
-        period_id: id,
-        period_status: period.status,
-      },
-      { status: 501 },
-    );
+    return NextResponse.json({
+      data: result,
+      message: result.generated > 0
+        ? `Generated ${result.generated} payslips (${result.skipped} skipped)`
+        : result.errors.length > 0
+          ? 'No payslips generated — check errors'
+          : 'No active staff found for this institution',
+    });
   } catch (err) {
     console.error('[hr/payroll/periods/[id]/payslips] POST error', err);
+    const status = err instanceof Error && err.message.includes('must be') ? 400 : 500;
     return NextResponse.json(
       { error: err instanceof Error ? err.message : 'Unknown error' },
-      { status: 500 },
+      { status },
     );
   }
 }, { allowApiKey: false, requirePermission: 'hr.payroll.manage' });

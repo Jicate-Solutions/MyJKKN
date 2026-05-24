@@ -15,7 +15,7 @@
  */
 
 import { useMemo, useState } from 'react';
-import { Download, ArrowUpDown, FileSpreadsheet } from 'lucide-react';
+import { Download, ArrowUpDown, FileSpreadsheet, Pencil } from 'lucide-react';
 
 import {
   Table,
@@ -235,10 +235,12 @@ export function PayslipTable({
   payslips,
   periodLabel,
   isLoading,
+  onOverride,
 }: {
   payslips: PayslipWithStaff[];
   periodLabel: string;
   isLoading?: boolean;
+  onOverride?: (slip: PayslipWithStaff) => void;
 }) {
   const [sortField, setSortField] = useState<SortField>('name');
   const [sortDir, setSortDir] = useState<SortDir>('asc');
@@ -287,7 +289,7 @@ export function PayslipTable({
             <FileSpreadsheet className="mx-auto h-10 w-10 text-muted-foreground/40 mb-3" />
             <p>No payslips generated for this period yet.</p>
             <p className="text-xs mt-1">
-              Payslip generation will be available in T4.4.
+              Use the &ldquo;Generate Payslips&rdquo; button after preparing the period.
             </p>
           </div>
         </CardContent>
@@ -352,6 +354,7 @@ export function PayslipTable({
                   className="text-right"
                 />
                 <TableHead className="text-xs">Mode</TableHead>
+                {onOverride && <TableHead className="text-xs w-16">Actions</TableHead>}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -385,6 +388,19 @@ export function PayslipTable({
                     <TableCell className="text-xs">
                       {PAYMENT_MODE_LABELS[slip.payment_mode] ?? slip.payment_mode}
                     </TableCell>
+                    {onOverride && (
+                      <TableCell>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7"
+                          onClick={() => onOverride(slip)}
+                          title="Override deductions"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </Button>
+                      </TableCell>
+                    )}
                   </TableRow>
                 );
               })}
