@@ -66,11 +66,8 @@ export function usePayrollPayslips(periodId: string | undefined) {
 // =====================================================================================
 
 /**
- * Triggers payslip generation via the API route. Currently returns 501
- * until T4.4 implements the full deduction engine loop.
- *
- * Uses API route (not direct Supabase) because generation is a multi-step
- * server operation that may take several seconds.
+ * Triggers payslip generation via the API route (T4.4 live).
+ * Uses API route because generation is a multi-step server operation.
  */
 export function useGeneratePayslips() {
   const qc = useQueryClient();
@@ -89,6 +86,48 @@ export function useGeneratePayslips() {
       if (!res.ok) {
         throw new Error(json.error ?? `Generation failed: ${res.status}`);
       }
+      return json;
+    },
+    onSuccess: (_data, { periodId }) => {
+      qc.invalidateQueries({ queryKey: ['hr-payroll-payslips', periodId] });
+      qc.invalidateQueries({ queryKey: ['hr-payroll-period', periodId] });
+    },
+  });
+}
+
+// =====================================================================================
+// Mutation — override individual payslip deductions (T4.4)
+// =====================================================================================
+
+export interface OverrideDeductionsInput {
+  periodId: string;
+  slipId: string;
+  pf?: number;
+  esi?: number;
+  tds?: number;
+  pt?: number;
+  reason: string;
+}
+
+export function useOverridePayslipDeductions() {
+  const qc = useQueryClient();
+
+  return useMutation<
+    { data: { newSlipId: string }; message: string },
+    Error,
+    OverrideDeductionsInput
+  >({
+    mutationFn: async ({ periodId, slipId, ...overrides }) => {
+      const res = await fetch(
+        `/api/hr/payroll/periods/${periodId}/payslips/${slipId}`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(overrides),
+        },
+      );
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? `Override failed: ${res.status}`);
       return json;
     },
     onSuccess: (_data, { periodId }) => {
