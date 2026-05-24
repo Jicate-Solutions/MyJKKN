@@ -22,11 +22,10 @@ import {
   computeDeductions,
   loadPayrollPolicies,
   type DeductionResult,
-  type PayrollPolicies,
 } from './deduction-engine';
 
 interface StaffPayInfo {
-  staff_id: string;
+  id: string;
   first_name: string;
   last_name: string;
   designation_id: string | null;
@@ -157,7 +156,7 @@ export class PayslipGenerator {
       if (!scale) {
         result.skipped++;
         result.errors.push({
-          staff_id: staff.staff_id ?? (staff as any).id,
+          staff_id: staff.id,
           name,
           reason: 'No pay scale configured for designation/cadre',
         });
@@ -167,7 +166,7 @@ export class PayslipGenerator {
       const basicPay = Number(scale.basic_pay) || 0;
       if (basicPay <= 0) {
         result.skipped++;
-        result.errors.push({ staff_id: (staff as any).id, name, reason: 'Basic pay is 0' });
+        result.errors.push({ staff_id: staff.id, name, reason: 'Basic pay is 0' });
         continue;
       }
 
@@ -210,7 +209,7 @@ export class PayslipGenerator {
       payslipInserts.push({
         id: slipId,
         period_id: periodId,
-        staff_id: (staff as any).id,
+        staff_id: staff.id,
         engine_type: period.engine_type,
         basic_pay: basicPay,
         pay_scale_snapshot_id: scale.id,
@@ -297,14 +296,6 @@ export class PayslipGenerator {
 
     if (error || !existing) throw new Error('Payslip not found or already superseded');
 
-    // Recalculate deductions with overrides
-    const adjustedPf = overrides.pf ?? existing.total_deductions; // fallback to existing
-    const adjustedEsi = overrides.esi ?? 0;
-    const adjustedTds = overrides.tds ?? 0;
-    const adjustedPt = overrides.pt ?? 0;
-
-    // For a proper override, we need the line-item breakdown.
-    // Simplified v1: recalculate total deductions from provided overrides.
     const newTotalDeductions = (overrides.pf ?? 0) + (overrides.esi ?? 0) + (overrides.tds ?? 0) + (overrides.pt ?? 0);
     const newNetAmount = Number(existing.gross_amount) - newTotalDeductions;
 
