@@ -187,6 +187,18 @@ export function CaseAttempt({ bundle, rollNumberSnapshot }: CaseAttemptProps) {
             <p className="text-xs text-muted-foreground">{bundle.scenario.occupation}</p>
           ) : null}
 
+          {bundle.scenario.image_url ? (
+            <div className="mt-3 overflow-hidden rounded-md border bg-muted">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={bundle.scenario.image_url}
+                alt={`Clinical photograph: ${bundle.scenario.patient_name}`}
+                className="w-full max-h-64 object-contain"
+                loading="lazy"
+              />
+            </div>
+          ) : null}
+
           <dl className="mt-4 space-y-3 text-sm">
             <div>
               <dt className="font-medium">Chief complaint</dt>
