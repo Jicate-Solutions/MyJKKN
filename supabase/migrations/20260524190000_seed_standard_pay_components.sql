@@ -16,12 +16,12 @@ SELECT
   c.display_order
 FROM institutions i
 CROSS JOIN (VALUES
-  ('BASIC',   'Basic Pay',               'earning',    'fixed',             0, ARRAY['faculty','non_teaching'], 1),
+  ('BASIC',   'Basic Pay',               'earning',    'flat',             0, ARRAY['faculty','non_teaching'], 1),
   ('HRA',     'House Rent Allowance',    'earning',    'percent_of_basic',  40, ARRAY['faculty','non_teaching'], 2),
   ('DA',      'Dearness Allowance',      'earning',    'percent_of_basic',  0, ARRAY['faculty','non_teaching'], 3),
-  ('CA',      'Conveyance Allowance',    'earning',    'fixed',             1600, ARRAY['faculty','non_teaching'], 4),
-  ('SA',      'Special Allowance',       'earning',    'fixed',             0, ARRAY['faculty','non_teaching'], 5),
-  ('MA',      'Medical Allowance',       'earning',    'fixed',             1250, ARRAY['faculty','non_teaching'], 6),
+  ('CA',      'Conveyance Allowance',    'earning',    'flat',             1600, ARRAY['faculty','non_teaching'], 4),
+  ('SA',      'Special Allowance',       'earning',    'flat',             0, ARRAY['faculty','non_teaching'], 5),
+  ('MA',      'Medical Allowance',       'earning',    'flat',             1250, ARRAY['faculty','non_teaching'], 6),
   ('LTA',     'Leave Travel Allowance',  'earning',    'percent_of_basic',  0, ARRAY['faculty'], 7)
 ) AS c(code, display_name, component_type, calculation_basis, default_amount_or_percent, applies_to_engine_types, display_order)
 ON CONFLICT DO NOTHING;
