@@ -53,7 +53,7 @@ export const GET = withAuth(async (_request, auth, context) => {
         correction_type,
         reason,
         created_at,
-        staff:staff!inner(id, full_name, employee_id)
+        staff:staff!inner(id, first_name, last_name, designation)
         `,
         { count: 'exact' },
       )

@@ -25,8 +25,9 @@ import type { HRPayslip } from '@/types/hr-payroll';
 export interface PayslipWithStaff extends HRPayslip {
   staff: {
     id: string;
-    full_name: string;
-    employee_id: string | null;
+    first_name: string;
+    last_name: string;
+    designation: string | null;
   } | null;
 }
 
@@ -45,7 +46,7 @@ export function usePayrollPayslips(periodId: string | undefined) {
         .select(
           `
           *,
-          staff:staff!inner(id, full_name, employee_id)
+          staff:staff!inner(id, first_name, last_name, designation)
           `,
         )
         .eq('period_id', periodId as string)

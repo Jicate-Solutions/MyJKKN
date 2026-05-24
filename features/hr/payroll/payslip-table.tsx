@@ -39,6 +39,11 @@ import type { PayslipWithStaff } from '@/hooks/hr/payroll/use-payroll-payslips';
 type SortField = 'name' | 'net_amount' | 'gross_amount' | 'basic_pay';
 type SortDir = 'asc' | 'desc';
 
+function staffName(slip: PayslipWithStaff): string {
+  if (!slip.staff) return '';
+  return `${slip.staff.first_name ?? ''} ${slip.staff.last_name ?? ''}`.trim();
+}
+
 function formatINR(amount: number): string {
   return new Intl.NumberFormat('en-IN', {
     style: 'currency',
@@ -64,7 +69,7 @@ function sortPayslips(
     let cmp = 0;
     switch (field) {
       case 'name':
-        cmp = (a.staff?.full_name ?? '').localeCompare(b.staff?.full_name ?? '');
+        cmp = (staffName(a)).localeCompare(staffName(b));
         break;
       case 'net_amount':
         cmp = a.net_amount - b.net_amount;
@@ -87,8 +92,8 @@ function sortPayslips(
 
 function exportPayslipsCSV(payslips: PayslipWithStaff[], periodLabel: string) {
   const headers = [
-    'Employee ID',
     'Employee Name',
+    'Designation',
     'Basic Pay',
     'Allowances',
     'Gross Amount',
@@ -101,8 +106,8 @@ function exportPayslipsCSV(payslips: PayslipWithStaff[], periodLabel: string) {
   ];
 
   const rows = payslips.map((slip) => [
-    slip.staff?.employee_id ?? '',
-    slip.staff?.full_name ?? '',
+    staffName(slip),
+    slip.staff?.designation ?? '',
     slip.basic_pay.toString(),
     (slip.gross_amount - slip.basic_pay).toString(),
     slip.gross_amount.toString(),
@@ -154,7 +159,7 @@ export function PayslipTableSkeleton({ rows = 6 }: { rows?: number }) {
           <Table>
             <TableHeader>
               <TableRow>
-                {Array.from({ length: 8 }).map((_, i) => (
+                {Array.from({ length: 7 }).map((_, i) => (
                   <TableHead key={i}>
                     <div className="h-4 w-16 rounded bg-muted animate-pulse" />
                   </TableHead>
@@ -164,7 +169,7 @@ export function PayslipTableSkeleton({ rows = 6 }: { rows?: number }) {
             <TableBody>
               {Array.from({ length: rows }).map((_, i) => (
                 <TableRow key={i}>
-                  {Array.from({ length: 8 }).map((__, j) => (
+                  {Array.from({ length: 7 }).map((__, j) => (
                     <TableCell key={j}>
                       <div className="h-4 w-20 rounded bg-muted animate-pulse" />
                     </TableCell>
@@ -313,7 +318,6 @@ export function PayslipTable({
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead className="text-xs">Emp ID</TableHead>
                 <SortableHead
                   label="Employee Name"
                   field="name"
@@ -355,11 +359,13 @@ export function PayslipTable({
                 const allowances = slip.gross_amount - slip.basic_pay;
                 return (
                   <TableRow key={slip.id}>
-                    <TableCell className="text-xs text-muted-foreground font-mono">
-                      {slip.staff?.employee_id ?? '—'}
-                    </TableCell>
                     <TableCell className="font-medium text-sm">
-                      {slip.staff?.full_name ?? '—'}
+                      {staffName(slip) || '—'}
+                      {slip.staff?.designation && (
+                        <span className="block text-xs text-muted-foreground font-normal">
+                          {slip.staff.designation}
+                        </span>
+                      )}
                     </TableCell>
                     <TableCell className="text-right text-sm tabular-nums">
                       {formatINR(slip.basic_pay)}
@@ -385,7 +391,7 @@ export function PayslipTable({
             </TableBody>
             <TableFooter>
               <TableRow className="bg-muted/50 font-semibold">
-                <TableCell colSpan={2} className="text-sm">
+                <TableCell className="text-sm">
                   Totals
                 </TableCell>
                 <TableCell className="text-right text-sm tabular-nums">
@@ -416,11 +422,13 @@ export function PayslipTable({
               <CardContent className="py-3 space-y-1.5">
                 <div className="flex items-center justify-between">
                   <span className="font-medium text-sm">
-                    {slip.staff?.full_name ?? '—'}
+                    {staffName(slip) || '—'}
                   </span>
-                  <span className="text-xs text-muted-foreground font-mono">
-                    {slip.staff?.employee_id ?? ''}
-                  </span>
+                  {slip.staff?.designation && (
+                    <span className="text-xs text-muted-foreground">
+                      {slip.staff.designation}
+                    </span>
+                  )}
                 </div>
                 <div className="grid grid-cols-3 gap-2 text-xs">
                   <div>
