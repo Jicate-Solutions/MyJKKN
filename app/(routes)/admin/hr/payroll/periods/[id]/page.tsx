@@ -15,7 +15,7 @@
  * for this id; cache invalidates when another actor advances/rejects.
  */
 
-import { use } from 'react';
+import { use, useState } from 'react';
 import Link from 'next/link';
 import { ArrowLeft, AlertTriangle } from 'lucide-react';
 
@@ -42,7 +42,8 @@ import { PeriodAuditTimeline } from '@/features/hr/payroll/period-audit-timeline
 import { PeriodActionButtons } from '@/features/hr/payroll/period-action-buttons';
 import { PayslipTable } from '@/features/hr/payroll/payslip-table';
 import { usePayrollPeriodRealtime } from '@/features/hr/payroll/use-payroll-period-realtime';
-import { usePayrollPayslips } from '@/hooks/hr/payroll/use-payroll-payslips';
+import { usePayrollPayslips, type PayslipWithStaff } from '@/hooks/hr/payroll/use-payroll-payslips';
+import { PayslipOverrideDialog } from '@/features/hr/payroll/payslip-override-dialog';
 
 const MONTH_NAMES = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -83,6 +84,7 @@ function PayrollPeriodDetailContent({ id }: { id: string }) {
   const { data: approvals = [], isLoading: approvalsLoading } = usePayrollApprovals(id);
   const { data: payslips = [], isLoading: payslipsLoading } = usePayrollPayslips(id);
   const { data: institutionsData } = useJkknInstitutions({ limit: 50 });
+  const [overrideSlip, setOverrideSlip] = useState<PayslipWithStaff | null>(null);
 
   // Realtime subscription — caches invalidate when other actors transition
   usePayrollPeriodRealtime(id);
@@ -189,6 +191,20 @@ function PayrollPeriodDetailContent({ id }: { id: string }) {
           payslips={payslips}
           periodLabel={periodLabel}
           isLoading={payslipsLoading}
+          onOverride={setOverrideSlip}
+        />
+      )}
+
+      {/* Override dialog */}
+      {overrideSlip && (
+        <PayslipOverrideDialog
+          open={!!overrideSlip}
+          onOpenChange={(open) => { if (!open) setOverrideSlip(null); }}
+          periodId={id}
+          slipId={overrideSlip.id}
+          staffName={`${overrideSlip.staff?.first_name ?? ''} ${overrideSlip.staff?.last_name ?? ''}`.trim()}
+          currentGross={overrideSlip.gross_amount}
+          currentDeductions={overrideSlip.total_deductions}
         />
       )}
 
