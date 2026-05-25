@@ -31,24 +31,15 @@ export async function GET(request: NextRequest) {
   await connection();
   try {
     const supabase = await getClient();
-
     const { data: { user }, error: authError } = await supabase.auth.getUser();
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    if (authError || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     const url = new URL(request.url);
     const filters: WorkloadFilters = {
       institution_id: url.searchParams.get('institution_id') ?? undefined,
       academic_year: url.searchParams.get('academic_year') ?? undefined,
-      semester: url.searchParams.get('semester')
-        ? (Number(url.searchParams.get('semester')) as 1 | 2)
-        : undefined,
-      verified: url.searchParams.get('verified') === 'true'
-        ? true
-        : url.searchParams.get('verified') === 'false'
-          ? false
-          : undefined,
+      semester: url.searchParams.get('semester') ? (Number(url.searchParams.get('semester')) as 1 | 2) : undefined,
+      verified: url.searchParams.get('verified') === 'true' ? true : url.searchParams.get('verified') === 'false' ? false : undefined,
       staff_id: url.searchParams.get('staff_id') ?? undefined,
     };
 
@@ -64,20 +55,12 @@ export async function POST(request: NextRequest) {
   await connection();
   try {
     const supabase = await getClient();
-
     const { data: { user }, error: authError } = await supabase.auth.getUser();
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    if (authError || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     const body = await request.json();
-
-    // Basic validation
     if (!body.staff_id || !body.institution_id || !body.academic_year || !body.semester || body.weekly_contact_hours == null) {
-      return NextResponse.json(
-        { error: 'Missing required fields: staff_id, institution_id, academic_year, semester, weekly_contact_hours' },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: 'Missing required fields: staff_id, institution_id, academic_year, semester, weekly_contact_hours' }, { status: 400 });
     }
 
     const data = await WorkloadService.create(supabase, {
@@ -91,7 +74,6 @@ export async function POST(request: NextRequest) {
       source: body.source ?? 'manual',
       notes: body.notes ?? null,
     });
-
     return NextResponse.json(data, { status: 201 });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Internal server error';

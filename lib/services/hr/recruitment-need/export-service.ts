@@ -8,7 +8,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type {
   HRRecruitmentSignalCache,
-  SignalInputKey,
   OverallSignalStatus,
 } from '@/types/hr-recruitment-need';
 
@@ -39,16 +38,6 @@ export interface ExportRow {
   computed_at: string;
 }
 
-const INPUT_KEYS: SignalInputKey[] = [
-  'sanctioned_gap',
-  'sfr',
-  'specialization_gap',
-  'workload',
-  'projected_intake',
-  'attrition_pipeline',
-  'peer_benchmark',
-];
-
 export class ExportService {
   /**
    * Fetch signal cache rows with institution names joined.
@@ -57,7 +46,6 @@ export class ExportService {
     supabase: SupabaseClient,
     params: ExportParams
   ): Promise<ExportRow[]> {
-    // Fetch signal cache
     let query = supabase
       .from('hr_recruitment_signal_cache')
       .select('*')
@@ -75,43 +63,45 @@ export class ExportService {
     if (error) throw error;
     if (!signals || signals.length === 0) return [];
 
-    // Fetch institution names
-    const institutionIds = [...new Set((signals as HRRecruitmentSignalCache[]).map((s) => s.institution_id))];
+    const institutionIds = [
+      ...new Set(
+        (signals as HRRecruitmentSignalCache[]).map((s) => s.institution_id)
+      ),
+    ];
     const { data: institutions } = await supabase
       .from('institutions')
       .select('id, name')
       .in('id', institutionIds);
 
-    const instMap = new Map((institutions ?? []).map((i: { id: string; name: string }) => [i.id, i.name]));
+    const instMap = new Map(
+      (institutions ?? []).map((i: { id: string; name: string }) => [i.id, i.name])
+    );
 
-    return (signals as HRRecruitmentSignalCache[]).map((s) => {
-      const row: ExportRow = {
-        institution_name: instMap.get(s.institution_id) ?? s.institution_id,
-        program_name: null, // Could be enriched if program join available
-        overall_status: s.overall_status,
-        composite_score: s.composite_score,
-        sanctioned_gap_status: s.input_signals?.sanctioned_gap?.status ?? 'insufficient_data',
-        sanctioned_gap_value: s.input_signals?.sanctioned_gap?.value ?? null,
-        sfr_status: s.input_signals?.sfr?.status ?? 'insufficient_data',
-        sfr_value: s.input_signals?.sfr?.value ?? null,
-        specialization_gap_status: s.input_signals?.specialization_gap?.status ?? 'insufficient_data',
-        specialization_gap_value: s.input_signals?.specialization_gap?.value ?? null,
-        workload_status: s.input_signals?.workload?.status ?? 'insufficient_data',
-        workload_value: s.input_signals?.workload?.value ?? null,
-        projected_intake_status: s.input_signals?.projected_intake?.status ?? 'insufficient_data',
-        projected_intake_value: s.input_signals?.projected_intake?.value ?? null,
-        attrition_pipeline_status: s.input_signals?.attrition_pipeline?.status ?? 'insufficient_data',
-        attrition_pipeline_value: s.input_signals?.attrition_pipeline?.value ?? null,
-        peer_benchmark_status: s.input_signals?.peer_benchmark?.status ?? 'insufficient_data',
-        peer_benchmark_value: s.input_signals?.peer_benchmark?.value ?? null,
-        computed_at: s.computed_at,
-      };
-      return row;
-    });
+    return (signals as HRRecruitmentSignalCache[]).map((s) => ({
+      institution_name: instMap.get(s.institution_id) ?? s.institution_id,
+      program_name: null,
+      overall_status: s.overall_status,
+      composite_score: s.composite_score,
+      sanctioned_gap_status: s.input_signals?.sanctioned_gap?.status ?? 'insufficient_data',
+      sanctioned_gap_value: s.input_signals?.sanctioned_gap?.value ?? null,
+      sfr_status: s.input_signals?.sfr?.status ?? 'insufficient_data',
+      sfr_value: s.input_signals?.sfr?.value ?? null,
+      specialization_gap_status: s.input_signals?.specialization_gap?.status ?? 'insufficient_data',
+      specialization_gap_value: s.input_signals?.specialization_gap?.value ?? null,
+      workload_status: s.input_signals?.workload?.status ?? 'insufficient_data',
+      workload_value: s.input_signals?.workload?.value ?? null,
+      projected_intake_status: s.input_signals?.projected_intake?.status ?? 'insufficient_data',
+      projected_intake_value: s.input_signals?.projected_intake?.value ?? null,
+      attrition_pipeline_status: s.input_signals?.attrition_pipeline?.status ?? 'insufficient_data',
+      attrition_pipeline_value: s.input_signals?.attrition_pipeline?.value ?? null,
+      peer_benchmark_status: s.input_signals?.peer_benchmark?.status ?? 'insufficient_data',
+      peer_benchmark_value: s.input_signals?.peer_benchmark?.value ?? null,
+      computed_at: s.computed_at,
+    }));
   }
 
   /**
-   * Generate XLSX buffer from export data.
+   * Generate XLSX buffer from export data using ExcelJS.
    */
   static async generateXlsx(rows: ExportRow[]): Promise<Buffer> {
     const ExcelJS = (await import('exceljs')).default;
@@ -121,7 +111,6 @@ export class ExportService {
 
     const sheet = workbook.addWorksheet('Recruitment Signals');
 
-    // Define columns
     sheet.columns = [
       { header: 'Institution', key: 'institution_name', width: 30 },
       { header: 'Overall Status', key: 'overall_status', width: 18 },
@@ -143,9 +132,7 @@ export class ExportService {
       { header: 'Computed At', key: 'computed_at', width: 22 },
     ];
 
-    // Style header row
     const headerRow = sheet.getRow(1);
-    headerRow.font = { bold: true };
     headerRow.fill = {
       type: 'pattern',
       pattern: 'solid',
@@ -153,7 +140,6 @@ export class ExportService {
     };
     headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' } };
 
-    // Add data rows with status coloring
     const statusColors: Record<string, string> = {
       green: 'FF22C55E',
       amber: 'FFFBBF24',
@@ -164,8 +150,6 @@ export class ExportService {
 
     for (const row of rows) {
       const dataRow = sheet.addRow(row);
-
-      // Color the overall status cell
       const statusCell = dataRow.getCell('overall_status');
       const color = statusColors[row.overall_status] ?? statusColors.insufficient_data;
       statusCell.fill = {
@@ -200,8 +184,7 @@ export class ExportService {
 
     const tableRows = rows
       .map(
-        (r) => `
-      <tr>
+        (r) => `<tr>
         <td>${r.institution_name}</td>
         <td>${statusBadge(r.overall_status)}</td>
         <td style="text-align:right">${r.composite_score?.toFixed(1) ?? '-'}</td>
@@ -215,7 +198,7 @@ export class ExportService {
         <td style="font-size:11px">${new Date(r.computed_at).toLocaleDateString()}</td>
       </tr>`
       )
-      .join('');
+      .join('\n');
 
     return `<!DOCTYPE html>
 <html lang="en">
@@ -230,11 +213,7 @@ export class ExportService {
     th { background: #1f2937; color: #fff; padding: 8px 6px; text-align: left; font-weight: 600; }
     td { padding: 6px; border-bottom: 1px solid #e5e7eb; }
     tr:nth-child(even) { background: #f9fafb; }
-    @media print {
-      body { margin: 0; }
-      table { page-break-inside: auto; }
-      tr { page-break-inside: avoid; }
-    }
+    @media print { body { margin: 0; } table { page-break-inside: auto; } tr { page-break-inside: avoid; } }
   </style>
 </head>
 <body>
@@ -243,22 +222,11 @@ export class ExportService {
   <table>
     <thead>
       <tr>
-        <th>Institution</th>
-        <th>Overall</th>
-        <th>Score</th>
-        <th>Sanctioned</th>
-        <th>SFR</th>
-        <th>Specialization</th>
-        <th>Workload</th>
-        <th>Intake</th>
-        <th>Attrition</th>
-        <th>Peer</th>
-        <th>Computed</th>
+        <th>Institution</th><th>Overall</th><th>Score</th><th>Sanctioned</th><th>SFR</th>
+        <th>Specialization</th><th>Workload</th><th>Intake</th><th>Attrition</th><th>Peer</th><th>Computed</th>
       </tr>
     </thead>
-    <tbody>
-      ${tableRows}
-    </tbody>
+    <tbody>${tableRows}</tbody>
   </table>
 </body>
 </html>`;

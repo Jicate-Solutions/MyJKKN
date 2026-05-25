@@ -11,15 +11,11 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { HRFacultyWorkload } from '@/types/hr-recruitment-need';
 import type { WorkloadFilters, WorkloadInsert, WorkloadUpdate } from '@/lib/services/hr/recruitment-need/workload-service';
 
-// ─── Query Keys ─────────────────────────────────────────────────────────────────
-
 export const workloadKeys = {
   all: ['hr-faculty-workload'] as const,
   list: (filters: WorkloadFilters) => [...workloadKeys.all, 'list', filters] as const,
   detail: (id: string) => [...workloadKeys.all, 'detail', id] as const,
 };
-
-// ─── Fetchers (call API routes) ─────────────────────────────────────────────────
 
 async function fetchWorkloads(filters: WorkloadFilters): Promise<HRFacultyWorkload[]> {
   const params = new URLSearchParams();
@@ -80,55 +76,42 @@ async function verifyWorkload(id: string): Promise<HRFacultyWorkload> {
   return res.json();
 }
 
-// ─── Query Hooks ────────────────────────────────────────────────────────────────
-
 export function useWorkloads(filters: WorkloadFilters = {}) {
   return useQuery({
     queryKey: workloadKeys.list(filters),
     queryFn: () => fetchWorkloads(filters),
-    staleTime: 5 * 60 * 1000, // 5 min
+    staleTime: 5 * 60 * 1000,
   });
 }
 
-// ─── Mutation Hooks ─────────────────────────────────────────────────────────────
-
 export function useCreateWorkload() {
-  const queryClient = useQueryClient();
+  const qc = useQueryClient();
   return useMutation({
     mutationFn: (insert: WorkloadInsert) => createWorkload(insert),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: workloadKeys.all });
-    },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: workloadKeys.all }); },
   });
 }
 
 export function useUpdateWorkload() {
-  const queryClient = useQueryClient();
+  const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, update }: { id: string; update: WorkloadUpdate }) =>
-      updateWorkload(id, update),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: workloadKeys.all });
-    },
+    mutationFn: ({ id, update }: { id: string; update: WorkloadUpdate }) => updateWorkload(id, update),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: workloadKeys.all }); },
   });
 }
 
 export function useDeleteWorkload() {
-  const queryClient = useQueryClient();
+  const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => deleteWorkload(id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: workloadKeys.all });
-    },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: workloadKeys.all }); },
   });
 }
 
 export function useVerifyWorkload() {
-  const queryClient = useQueryClient();
+  const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => verifyWorkload(id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: workloadKeys.all });
-    },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: workloadKeys.all }); },
   });
 }

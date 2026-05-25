@@ -30,44 +30,33 @@ export async function GET(request: NextRequest) {
   await connection();
   try {
     const supabase = await getClient();
-
     const { data: { user }, error: authError } = await supabase.auth.getUser();
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    if (authError || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     const url = new URL(request.url);
     const format = url.searchParams.get('format') ?? 'xlsx';
     const institution_id = url.searchParams.get('institution_id') ?? undefined;
     const financial_year = url.searchParams.get('financial_year') ?? undefined;
 
-    const rows = await ExportService.getExportData(supabase, {
-      institution_id,
-      financial_year,
-    });
+    const rows = await ExportService.getExportData(supabase, { institution_id, financial_year });
 
     if (rows.length === 0) {
-      return NextResponse.json(
-        { error: 'No signal data found for the given scope' },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: 'No signal data found for the given scope' }, { status: 404 });
     }
 
     const title = `HR Recruitment Need Signals${financial_year ? ` — FY ${financial_year}` : ''}`;
 
     if (format === 'pdf') {
-      // Return printable HTML (user can Ctrl+P to PDF in browser)
       const html = ExportService.generatePrintableHtml(rows, title);
       return new NextResponse(html, {
         status: 200,
         headers: {
           'Content-Type': 'text/html; charset=utf-8',
-          'Content-Disposition': `inline; filename="recruitment-signals.html"`,
+          'Content-Disposition': 'inline; filename="recruitment-signals.html"',
         },
       });
     }
 
-    // Default: XLSX
     const buffer = await ExportService.generateXlsx(rows);
     return new NextResponse(buffer, {
       status: 200,
