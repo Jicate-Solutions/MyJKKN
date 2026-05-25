@@ -25,7 +25,6 @@ async function getClient() {
   );
 }
 
-/** GET single snapshot (including signal_data for detail view) */
 export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -33,14 +32,10 @@ export async function GET(
   await connection();
   try {
     const supabase = await getClient();
-
     const { data: { user }, error: authError } = await supabase.auth.getUser();
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    if (authError || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     const { id } = await params;
-
     const { data, error } = await supabase
       .from('hr_recruitment_signal_snapshots')
       .select('*')
@@ -48,10 +43,7 @@ export async function GET(
       .single();
 
     if (error) throw error;
-    if (!data) {
-      return NextResponse.json({ error: 'Snapshot not found' }, { status: 404 });
-    }
-
+    if (!data) return NextResponse.json({ error: 'Snapshot not found' }, { status: 404 });
     return NextResponse.json(data);
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Internal server error';
@@ -59,7 +51,6 @@ export async function GET(
   }
 }
 
-/** PATCH — archive / unarchive / update description */
 export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -67,11 +58,8 @@ export async function PATCH(
   await connection();
   try {
     const supabase = await getClient();
-
     const { data: { user }, error: authError } = await supabase.auth.getUser();
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    if (authError || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     const { id } = await params;
     const body = await request.json();
@@ -93,7 +81,6 @@ export async function PATCH(
       .single();
 
     if (error) throw error;
-
     return NextResponse.json(data);
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Internal server error';

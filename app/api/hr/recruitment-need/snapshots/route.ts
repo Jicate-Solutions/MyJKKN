@@ -31,11 +31,8 @@ export async function GET(request: NextRequest) {
   await connection();
   try {
     const supabase = await getClient();
-
     const { data: { user }, error: authError } = await supabase.auth.getUser();
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    if (authError || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     const url = new URL(request.url);
     const institutionId = url.searchParams.get('institution_id') ?? undefined;
@@ -46,16 +43,11 @@ export async function GET(request: NextRequest) {
       .select('*')
       .order('taken_at', { ascending: false });
 
-    if (!includeArchived) {
-      query = query.eq('is_archived', false);
-    }
-    if (institutionId) {
-      query = query.eq('scope_institution_id', institutionId);
-    }
+    if (!includeArchived) query = query.eq('is_archived', false);
+    if (institutionId) query = query.eq('scope_institution_id', institutionId);
 
     const { data, error } = await query;
     if (error) throw error;
-
     return NextResponse.json(data ?? []);
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Internal server error';
@@ -67,35 +59,21 @@ export async function POST(request: NextRequest) {
   await connection();
   try {
     const supabase = await getClient();
-
     const { data: { user }, error: authError } = await supabase.auth.getUser();
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    if (authError || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     const body = await request.json();
-
     if (!body.snapshot_name) {
-      return NextResponse.json(
-        { error: 'Missing required field: snapshot_name' },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: 'Missing required field: snapshot_name' }, { status: 400 });
     }
 
-    // If no signal_data provided, fetch current cache as snapshot data
+    // If no signal_data provided, snapshot current cache
     let signalData = body.signal_data;
     if (!signalData) {
-      let cacheQuery = supabase
-        .from('hr_recruitment_signal_cache')
-        .select('*');
-
-      if (body.scope_institution_id) {
-        cacheQuery = cacheQuery.eq('institution_id', body.scope_institution_id);
-      }
-
+      let cacheQuery = supabase.from('hr_recruitment_signal_cache').select('*');
+      if (body.scope_institution_id) cacheQuery = cacheQuery.eq('institution_id', body.scope_institution_id);
       const { data: cacheRows, error: cacheError } = await cacheQuery;
       if (cacheError) throw cacheError;
-
       signalData = { signals: cacheRows ?? [], captured_at: new Date().toISOString() };
     }
 

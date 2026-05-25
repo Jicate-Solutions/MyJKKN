@@ -33,11 +33,8 @@ export async function PUT(
   await connection();
   try {
     const supabase = await getClient();
-
     const { data: { user }, error: authError } = await supabase.auth.getUser();
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    if (authError || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     const { id } = await params;
     const body = await request.json();
@@ -49,7 +46,6 @@ export async function PUT(
       source: body.source,
       notes: body.notes,
     });
-
     return NextResponse.json(data);
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Internal server error';
@@ -64,15 +60,11 @@ export async function DELETE(
   await connection();
   try {
     const supabase = await getClient();
-
     const { data: { user }, error: authError } = await supabase.auth.getUser();
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    if (authError || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     const { id } = await params;
     await WorkloadService.delete(supabase, id);
-
     return NextResponse.json({ success: true });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Internal server error';
