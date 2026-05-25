@@ -67,21 +67,30 @@ import { ChangeTrackingBadge } from '@/components/hr/recruitment-need/change-tra
 import { ComparisonView } from '@/components/hr/recruitment-need/comparison-view';
 import { SetupWizard } from '@/components/hr/recruitment-need/setup-wizard';
 import { OVERALL_STATUS_COLORS } from '@/components/hr/recruitment-need/signal-helpers';
+import {
+  BudgetVsActualsTab,
+  TrainingBudgetTab,
+  CompetencyMatrixTab,
+  SkillsMatrixTab,
+  TimesheetSummaryTab,
+  ResourceUtilizationTab,
+  CapacityPlanningTab,
+} from '@/components/hr/intelligence';
 import type { OverallSignalStatus, SignalFilters } from '@/types/hr-recruitment-need';
 
 const INTELLIGENCE_TABS = [
   { id: 'recruitment-need', label: 'Recruitment Need', icon: Users, ready: true },
-  { id: 'workforce-planning', label: 'Workforce Planning', icon: TrendingUp, ready: false },
-  { id: 'attrition-risk', label: 'Attrition Risk', icon: ShieldAlert, ready: false },
-  { id: 'performance-insights', label: 'Performance', icon: Target, ready: false },
-  { id: 'training-gaps', label: 'Training Gaps', icon: GraduationCap, ready: false },
-  { id: 'workload-balance', label: 'Workload Balance', icon: Clock, ready: false },
-  { id: 'compensation-intel', label: 'Compensation', icon: BarChart3, ready: false },
-  { id: 'succession-planning', label: 'Succession', icon: Award, ready: false },
+  { id: 'budget-vs-actuals', label: 'Budget vs Actuals', icon: BarChart3, ready: true },
+  { id: 'training-budget', label: 'Training Budget', icon: GraduationCap, ready: true },
+  { id: 'competency-matrix', label: 'Competency Matrix', icon: Target, ready: true },
+  { id: 'skills-matrix', label: 'Skills Matrix', icon: Award, ready: true },
+  { id: 'timesheet-summary', label: 'Timesheet Summary', icon: Clock, ready: true },
+  { id: 'resource-utilization', label: 'Utilization', icon: TrendingUp, ready: true },
+  { id: 'capacity-planning', label: 'Capacity Planning', icon: Briefcase, ready: true },
   { id: 'compliance-readiness', label: 'Compliance', icon: FileSearch, ready: false },
   { id: 'diversity-metrics', label: 'Diversity', icon: PieChart, ready: false },
   { id: 'engagement-pulse', label: 'Engagement', icon: Zap, ready: false },
-  { id: 'recruitment-analytics', label: 'Recruitment Analytics', icon: Briefcase, ready: false },
+  { id: 'recruitment-analytics', label: 'Recruitment Analytics', icon: ShieldAlert, ready: false },
   { id: 'bench-strength', label: 'Bench Strength', icon: LineChart, ready: false },
   { id: 'cross-institution', label: 'Cross-Institution', icon: Building, ready: false },
   { id: 'predictive-models', label: 'Predictive Models', icon: Brain, ready: false },
@@ -153,6 +162,34 @@ export default function HRIntelligencePage() {
 
           <TabsContent value="recruitment-need" className="mt-6">
             <RecruitmentNeedTab />
+          </TabsContent>
+
+          <TabsContent value="budget-vs-actuals" className="mt-6">
+            <BudgetVsActualsTab />
+          </TabsContent>
+
+          <TabsContent value="training-budget" className="mt-6">
+            <TrainingBudgetTab />
+          </TabsContent>
+
+          <TabsContent value="competency-matrix" className="mt-6">
+            <CompetencyMatrixTab />
+          </TabsContent>
+
+          <TabsContent value="skills-matrix" className="mt-6">
+            <SkillsMatrixTab />
+          </TabsContent>
+
+          <TabsContent value="timesheet-summary" className="mt-6">
+            <TimesheetSummaryTab />
+          </TabsContent>
+
+          <TabsContent value="resource-utilization" className="mt-6">
+            <ResourceUtilizationTab />
+          </TabsContent>
+
+          <TabsContent value="capacity-planning" className="mt-6">
+            <CapacityPlanningTab />
           </TabsContent>
 
           {INTELLIGENCE_TABS.filter((t) => !t.ready).map((tab) => (
