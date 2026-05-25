@@ -104,8 +104,7 @@ interface EditClaimDialogProps {
 function EditClaimDialog({ open, onClose, claim }: EditClaimDialogProps) {
   const updateClaim = useUpdateBosTaDaClaim();
 
-  // NEFT/bank details are still stored as JSON in `notes` — pre-rollout
-  // convention from before there were dedicated payout columns. Keeping the
+ 
   // JSON shape here to avoid a further schema change; if/when bank columns
   // are added, swap the parse/serialize for direct field reads.
   const extra = useMemo(() => parseExtraNotes(claim.notes), [claim.notes]);
