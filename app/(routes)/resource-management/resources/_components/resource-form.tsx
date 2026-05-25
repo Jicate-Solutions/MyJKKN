@@ -1811,10 +1811,19 @@ export function ResourceForm({ resource, mode }: ResourceFormProps) {
                 id='enable_approval'
                 checked={approvalConfig.enabled || false}
                 onCheckedChange={(checked) => {
-                  updateApprovalConfig('enabled', checked);
-                  if (!checked) {
-                    // Clear approvers when disabled
-                    updateApprovalConfig('approvers', []);
+                  if (checked) {
+                    form.setValue('approval_config', {
+                      ...approvalConfig,
+                      enabled: true,
+                      approval_type: approvalConfig.approval_type || 'sequential',
+                      require_all_approvers: approvalConfig.require_all_approvers ?? true,
+                    });
+                  } else {
+                    form.setValue('approval_config', {
+                      ...approvalConfig,
+                      enabled: false,
+                      approvers: [],
+                    });
                   }
                 }}
               />

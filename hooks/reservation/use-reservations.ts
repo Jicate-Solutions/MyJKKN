@@ -156,6 +156,69 @@ export function useUserReservationSummary(userId: string | undefined) {
 }
 
 /**
+ * Hook to fetch the approval chain for a reservation, including approver profiles.
+ */
+export function useReservationApprovals(reservationId: string | undefined) {
+  return useQuery({
+    queryKey: ['reservation-approvals', reservationId],
+    queryFn: async () => {
+      if (!reservationId) return [];
+      const supabase = (
+        await import('@/lib/supabase/client')
+      ).createClientSupabaseClient();
+
+      const { data, error } = await (supabase as any)
+        .from('resource_approvals')
+        .select(
+          `
+          id,
+          approver_user_id,
+          approval_level,
+          status,
+          approved_at,
+          comments,
+          rejection_reason,
+          created_at,
+          approver:profiles!resource_approvals_approver_user_id_fkey(
+            id, full_name, email, avatar_url, role
+          )
+        `
+        )
+        .eq('reservation_id', reservationId)
+        .order('approval_level', { ascending: true });
+
+      if (error) {
+        console.error('Error fetching reservation approvals:', error);
+        return [];
+      }
+
+      return (data || []) as ApprovalChainEntry[];
+    },
+    enabled: !!reservationId,
+    staleTime: 15 * 1000,
+    retry: 3
+  });
+}
+
+export interface ApprovalChainEntry {
+  id: string;
+  approver_user_id: string;
+  approval_level: number;
+  status: 'pending' | 'approved' | 'rejected';
+  approved_at: string | null;
+  comments: string | null;
+  rejection_reason: string | null;
+  created_at: string;
+  approver: {
+    id: string;
+    full_name: string;
+    email: string;
+    avatar_url: string | null;
+    role: string | null;
+  } | null;
+}
+
+/**
  * Hook to fetch upcoming reservations
  */
 export function useUpcomingReservations(userId?: string) {

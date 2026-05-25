@@ -199,12 +199,16 @@ export function useReservationOperations() {
       queryClient.invalidateQueries({ queryKey: ['reservationAnalytics'] });
       queryClient.invalidateQueries({ queryKey: ['dashboardSummary'] });
 
+      const isFullyApproved = data.status === 'approved';
+
       toast.success(
-        '✅ Reservation Approved!\nThe reservation has been approved successfully.',
+        isFullyApproved
+          ? 'Reservation Approved!\nThe reservation has been fully approved.'
+          : 'Approval Recorded!\nYour approval has been recorded. Waiting for remaining approvers.',
         {
           duration: 5000,
           style: {
-            background: '#10b981',
+            background: isFullyApproved ? '#10b981' : '#f59e0b',
             color: '#fff',
             fontSize: '14px',
             fontWeight: '500',
