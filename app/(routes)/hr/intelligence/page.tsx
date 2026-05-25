@@ -67,7 +67,6 @@ import { EscalationQueue } from '@/components/hr/recruitment-need/escalation-que
 import { ChangeTrackingBadge } from '@/components/hr/recruitment-need/change-tracking-badge';
 import { ComparisonView } from '@/components/hr/recruitment-need/comparison-view';
 import { YoYComparison } from '@/components/hr/recruitment-need/yoy-comparison';
-import { SetupWizard } from '@/components/hr/recruitment-need/setup-wizard';
 import { OVERALL_STATUS_COLORS } from '@/components/hr/recruitment-need/signal-helpers';
 import {
   BudgetVsActualsTab,
@@ -78,6 +77,9 @@ import {
   ResourceUtilizationTab,
   CapacityPlanningTab,
 } from '@/components/hr/intelligence';
+import { MobileTabNav } from '@/components/hr/intelligence/mobile-tab-nav';
+import { SetupWizardEnhanced } from '@/components/hr/intelligence/setup-wizard-enhanced';
+import { SignalSummaryCard } from '@/components/hr/intelligence/signal-summary-card';
 import type { OverallSignalStatus, SignalFilters } from '@/types/hr-recruitment-need';
 
 const INTELLIGENCE_TABS = [
@@ -141,7 +143,15 @@ export default function HRIntelligencePage() {
 
       <div className="mt-6">
         <Tabs value={activeTab} onValueChange={handleTabChange}>
-          <TabsList className="flex flex-wrap h-auto gap-1 bg-transparent p-0">
+          {/* Mobile: dropdown selector */}
+          <MobileTabNav
+            tabs={INTELLIGENCE_TABS}
+            activeTab={activeTab}
+            onTabChange={handleTabChange}
+          />
+
+          {/* Desktop: horizontal tab strip */}
+          <TabsList className="hidden md:flex flex-wrap h-auto gap-1 bg-transparent p-0">
             {INTELLIGENCE_TABS.map((tab) => {
               const Icon = tab.icon;
               return (
@@ -402,10 +412,32 @@ function RecruitmentNeedTab() {
       )}
 
       {isEmpty ? (
-        <SetupWizard />
+        <SetupWizardEnhanced />
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-[1fr_300px] gap-4">
-          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
+          {/* Mobile: compact summary cards */}
+          <div className="block md:hidden space-y-2">
+            {signalsLoading ? (
+              <SignalCardSkeleton count={4} />
+            ) : isError ? (
+              <Card>
+                <CardContent className="py-8 text-center text-sm text-muted-foreground">
+                  Failed to load signals. Please try again.
+                </CardContent>
+              </Card>
+            ) : (
+              signals?.map((signal) => (
+                <SignalSummaryCard
+                  key={signal.id}
+                  signal={signal}
+                  institutionName={institutionNames[signal.institution_id]}
+                />
+              ))
+            )}
+          </div>
+
+          {/* Desktop: full signal cards grid */}
+          <div className="hidden md:grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
             {signalsLoading ? (
               <SignalCardSkeleton count={6} />
             ) : isError ? (
