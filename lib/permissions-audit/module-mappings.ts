@@ -118,6 +118,7 @@ export const ROUTE_PREFIX_TO_MODULE: ReadonlyArray<readonly [string, string]> = 
   ['/admin/saml', 'System'],
   ['/admin/ai-query-tools', 'System'],
   ['/admin/reset-driver-passwords', 'System'],
+  ['/admin/hr', 'Staff'], // HR admin pages (recruitment-need, payroll, etc.)
   ['/admin', 'System'], // catch-all for any future /admin/*
 
   // Module-prefixed sidebar entries (sorted longest-first to be safe).

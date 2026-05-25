@@ -9,9 +9,11 @@ import {
   BookOpen,
   Building2,
   Camera,
+  CheckSquare,
   Gauge,
   GraduationCap,
   BarChart3,
+  Shuffle,
   SlidersHorizontal,
   Signal,
 } from 'lucide-react';
@@ -68,6 +70,20 @@ const CARDS: ActionCardProps[] = [
     title: 'Per-Input Thresholds',
     description:
       'Set amber (warning) and red (critical) thresholds for each of the 7 signal inputs.',
+  },
+  {
+    href: '/admin/hr/recruitment-need/approvals',
+    icon: CheckSquare,
+    title: 'Program Approvals',
+    description:
+      'Institution-level program approval status — maps which programs are active and governs sanctioned position calculations.',
+  },
+  {
+    href: '/admin/hr/recruitment-need/allocations',
+    icon: Shuffle,
+    title: 'Cross-Institution Allocations',
+    description:
+      'Staff allocated across institutions — tracks shared faculty that affect headcount at multiple campuses.',
   },
   {
     href: '/admin/hr/recruitment-need/snapshots',
