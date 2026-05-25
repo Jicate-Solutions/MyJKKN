@@ -234,25 +234,23 @@ export default function NewReceiptPage() {
     }));
 
     // When payment_amount changes, redistribute across selected bills using
-    // waterfall allocation: pay each bill's balance in order until funds run out.
+    // waterfall allocation: smallest bill first → largest, until funds run out.
     if (field === 'payment_amount' && selectedBills.length > 0) {
       const paymentAmount = Number(value) || 0;
       let remaining = paymentAmount;
       const newPayAmounts: Record<string, number> = {};
 
-      for (const bill of selectedBills) {
+      const sorted = [...selectedBills].sort((a, b) => {
+        const balA = a.balance_amount > 0 ? a.balance_amount : a.final_amount;
+        const balB = b.balance_amount > 0 ? b.balance_amount : b.final_amount;
+        return balA - balB;
+      });
+
+      for (const bill of sorted) {
         const billBalance = bill.balance_amount > 0 ? bill.balance_amount : bill.final_amount;
         const allocated = Math.min(remaining, billBalance);
         newPayAmounts[bill.id] = allocated;
         remaining -= allocated;
-        if (remaining <= 0) break;
-      }
-
-      // Zero out any bills that didn't get allocation
-      for (const bill of selectedBills) {
-        if (!(bill.id in newPayAmounts)) {
-          newPayAmounts[bill.id] = 0;
-        }
       }
 
       setBillPayAmounts(newPayAmounts);
@@ -545,12 +543,12 @@ export default function NewReceiptPage() {
 
             <form onSubmit={handleSubmit} className='space-y-6'>
               <div className='grid grid-cols-1 md:grid-cols-2 gap-6'>
-                {/* Received Amount — editable for single bill, read-only summary for multi-bill */}
+                {/* Received Amount — editable for all modes. Multi-bill: auto-splits smallest→largest */}
                 <div className='space-y-2'>
                   <Label htmlFor='payment_amount'>
                     Total Received Amount *
                     {selectedBills.length > 1 && (
-                      <span className='text-xs text-muted-foreground ml-2'>(sum of per-bill amounts above)</span>
+                      <span className='text-xs text-muted-foreground ml-2'>(auto-splits across bills, smallest first)</span>
                     )}
                   </Label>
                   <Input
@@ -558,7 +556,7 @@ export default function NewReceiptPage() {
                     type='number'
                     step='0.01'
                     min='0'
-                    placeholder='0.00'
+                    placeholder='Enter total amount received'
                     value={formData.payment_amount || ''}
                     onChange={(e) =>
                       handleInputChange(
@@ -566,8 +564,6 @@ export default function NewReceiptPage() {
                         parseFloat(e.target.value)
                       )
                     }
-                    readOnly={selectedBills.length > 1}
-                    className={selectedBills.length > 1 ? 'bg-muted font-semibold text-green-600' : ''}
                     required
                   />
                 </div>

@@ -480,17 +480,22 @@ export default function StudentBillingDetailPage() {
 
         {/* Student Summary Cards */}
         <div className='grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4'>
-          <Card>
-            <CardContent className='p-3 sm:p-4'>
-              <div className='flex items-center justify-between'>
-                <div className='min-w-0 flex-1'>
-                  <p className='text-sm text-muted-foreground'>Total Bills</p>
-                  <p className='text-xl sm:text-2xl font-bold'>
-                    {billingSummary.summary.total_bills}
-                  </p>
-                </div>
-                <FileText className='h-6 w-6 sm:h-8 sm:w-8 text-blue-600 shrink-0' />
+          <Card className='hover:shadow-md transition-shadow'>
+            <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2'>
+              <CardTitle className='text-sm font-medium text-gray-700 dark:text-gray-300'>
+                Total Fees
+              </CardTitle>
+              <IndianRupee className='h-4 w-4 text-blue-600' />
+            </CardHeader>
+            <CardContent>
+              <div className='text-xl sm:text-2xl font-bold text-blue-600'>
+                {formatCurrency(
+                  billingSummary.bills.reduce((sum, bill) => sum + (bill.status !== 'superseded' ? bill.final_amount : 0), 0)
+                )}
               </div>
+              <p className='text-xs text-muted-foreground'>
+                {billingSummary.summary.total_bills} bill{billingSummary.summary.total_bills !== 1 ? 's' : ''}
+              </p>
             </CardContent>
           </Card>
 
