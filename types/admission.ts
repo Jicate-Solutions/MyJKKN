@@ -1614,6 +1614,8 @@ export interface AdmissionFeeStructure {
   // FK lives on this table any more.
   accommodation_type_id: string;
   admission_year_id: string;
+  /** Optional gender filter. null = any gender. 'MALE'/'FEMALE' = gender-specific. */
+  gender: string | null;
   name: string;
   status: AdmissionFeeStructureStatus;
   notes: string | null;
@@ -1660,7 +1662,7 @@ export type CreateAdmissionFeeStructureInput =
     | 'admission_year_id'
     | 'name'
   > &
-  Partial<Pick<AdmissionFeeStructure, 'status' | 'notes' | 'effective_from' | 'effective_to'>> & {
+  Partial<Pick<AdmissionFeeStructure, 'status' | 'notes' | 'effective_from' | 'effective_to' | 'gender'>> & {
     /** N communities this structure applies to. Must contain at least one. */
     community_category_ids: string[];
     items: Array<Pick<AdmissionFeeStructureItem, 'billing_category_id' | 'amount'> &
@@ -1676,15 +1678,17 @@ export type UpdateAdmissionFeeStructureInput =
     // moves; the UI layer warns the admin before submit.
     | 'institution_id' | 'degree_id' | 'department_id' | 'programme_id'
     | 'quota_id' | 'accommodation_type_id' | 'admission_year_id'
+    | 'gender'
   >> & {
     /** When provided, replaces the community set for this structure. */
     community_category_ids?: string[];
   };
 
 /**
- * 7-dim matrix key. Community is no longer part of the matrix — it lives on
- * the junction (admission_fee_structure_communities). The form's "find or
- * create" lookup uses these 7 dims plus a list of communities.
+ * Matrix key for fee structure lookup. Community lives on the junction
+ * (admission_fee_structure_communities). Gender is optional — NULL means
+ * "any gender"; when set, resolution prefers an exact gender match then
+ * falls back to a gender-NULL (wildcard) structure.
  */
 export interface FeeStructureMatrixDimensions {
   institution_id: string;
@@ -1694,6 +1698,8 @@ export interface FeeStructureMatrixDimensions {
   quota_id: string;
   accommodation_type_id: string;
   admission_year_id: string;
+  /** Optional. When set, fee resolution prefers gender-specific structures. */
+  gender?: string;
 }
 
 /** Coverage report row — one per (institution, academic_year) leaf in the tree */
@@ -1706,6 +1712,7 @@ export interface FeeStructureCoverageReportRow {
   community_category_id: string;
   accommodation_type_id: string;
   admission_year_id: string;
+  gender: string | null;
   has_structure: boolean;
   item_count: number;
 }

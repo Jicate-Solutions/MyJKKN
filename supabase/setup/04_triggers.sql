@@ -989,9 +989,15 @@ FOR EACH ROW EXECUTE FUNCTION public.fn_log_notif_gen_cfg_change();
 
 -- =====================================================================
 -- Plan 5 — Detect matrix-dim changes on learners_profiles
--- Spec §8.4 — fires AFTER UPDATE; inserts admission_fee_change_events
--- when learner's matrix dims change AND non-superseded bills exist AND
--- no pending event already exists.
+-- Spec §8.4 — fires AFTER UPDATE on learners_profiles.
+-- Three behaviors:
+--   1. Always re-resolves fee_items via admission_resolve_fee_items_for_lead
+--      so the profile always reflects the current fee structure.
+--   2. If active (non-superseded) bills exist AND no pending event →
+--      creates admission_fee_change_events + event_lines for admin review.
+--   3. If active bills exist AND a pending event already exists →
+--      UPDATES the existing event with current new_fee_structure_id and
+--      regenerates event_lines with correct new amounts.
 -- =====================================================================
 
 CREATE OR REPLACE FUNCTION public.trigger_detect_fee_dimension_change()
@@ -1003,16 +1009,18 @@ AS $$
 DECLARE
     v_changed_field         text;
     v_has_active_bills      boolean;
-    v_has_pending_event     boolean;
+    v_pending_event_id      uuid;
     v_old_structure_id      uuid;
     v_new_structure_id      uuid;
     v_event_id              uuid;
     v_caller                uuid := auth.uid();
 BEGIN
+    -- Skip if legacy mode or if legacy_fee_mode itself is what changed
     IF NEW.legacy_fee_mode = true OR NEW.legacy_fee_mode IS DISTINCT FROM OLD.legacy_fee_mode THEN
         RETURN NEW;
     END IF;
 
+    -- Detect which fee-matrix dimension changed (first match wins)
     v_changed_field := CASE
         WHEN NEW.program_id IS DISTINCT FROM OLD.program_id THEN 'program_id'
         WHEN NEW.quota_id IS DISTINCT FROM OLD.quota_id THEN 'quota_id'
@@ -1026,48 +1034,121 @@ BEGIN
         RETURN NEW;
     END IF;
 
+    -- Always re-resolve fee_items so profile reflects current structure
+    PERFORM public.admission_resolve_fee_items_for_lead(NEW.id);
+
+    -- Check if bills exist — only create/update change events when they do
     SELECT EXISTS (
         SELECT 1 FROM public.billing_student_bills
          WHERE student_id = NEW.id AND status <> 'superseded'
     ) INTO v_has_active_bills;
+
     IF NOT v_has_active_bills THEN
+        -- No bills → fee_items already refreshed above, nothing else to do
         RETURN NEW;
     END IF;
 
-    SELECT EXISTS (
-        SELECT 1 FROM public.admission_fee_change_events
-         WHERE learner_id = NEW.id AND status = 'pending_review'
-    ) INTO v_has_pending_event;
-    IF v_has_pending_event THEN
+    -- OLD structure — match 7 dims + community via junction
+    SELECT afs.id INTO v_old_structure_id
+      FROM public.admission_fee_structures afs
+     WHERE afs.institution_id        = OLD.institution_id
+       AND afs.degree_id             = OLD.degree_id
+       AND afs.department_id         = OLD.department_id
+       AND afs.programme_id          = OLD.program_id
+       AND afs.quota_id              = OLD.quota_id
+       AND afs.accommodation_type_id = OLD.accommodation_type_id
+       AND afs.admission_year_id     = OLD.admission_year_id
+       AND afs.status = 'active'
+       AND EXISTS (
+             SELECT 1 FROM public.admission_fee_structure_communities j
+              WHERE j.fee_structure_id      = afs.id
+                AND j.community_category_id = OLD.community_category_id
+           )
+     LIMIT 1;
+
+    -- NEW structure — same shape, learner's NEW dimensions
+    SELECT afs.id INTO v_new_structure_id
+      FROM public.admission_fee_structures afs
+     WHERE afs.institution_id        = NEW.institution_id
+       AND afs.degree_id             = NEW.degree_id
+       AND afs.department_id         = NEW.department_id
+       AND afs.programme_id          = NEW.program_id
+       AND afs.quota_id              = NEW.quota_id
+       AND afs.accommodation_type_id = NEW.accommodation_type_id
+       AND afs.admission_year_id     = NEW.admission_year_id
+       AND afs.status = 'active'
+       AND EXISTS (
+             SELECT 1 FROM public.admission_fee_structure_communities j
+              WHERE j.fee_structure_id      = afs.id
+                AND j.community_category_id = NEW.community_category_id
+           )
+     LIMIT 1;
+
+    -- Check for existing pending event
+    SELECT id INTO v_pending_event_id
+      FROM public.admission_fee_change_events
+     WHERE learner_id = NEW.id AND status = 'pending_review'
+     LIMIT 1;
+
+    IF v_pending_event_id IS NOT NULL THEN
+        -- Update existing pending event with latest change info
+        UPDATE public.admission_fee_change_events
+           SET trigger_field         = v_changed_field,
+               new_fee_structure_id  = v_new_structure_id,
+               updated_at            = now()
+         WHERE id = v_pending_event_id;
+
+        -- Regenerate event lines with current amounts
+        DELETE FROM public.admission_fee_change_event_lines
+         WHERE event_id = v_pending_event_id;
+
+        INSERT INTO public.admission_fee_change_event_lines (
+            event_id, billing_category_id, old_amount, new_amount, paid_amount_so_far
+        )
+        SELECT
+            v_pending_event_id,
+            cat_id,
+            old_amount,
+            new_amount,
+            paid
+        FROM (
+            SELECT cat_id,
+                   MAX(old_amount) AS old_amount,
+                   MAX(new_amount) AS new_amount,
+                   COALESCE(MAX(paid), 0) AS paid
+              FROM (
+                  SELECT fsi.billing_category_id AS cat_id,
+                         fsi.amount AS old_amount,
+                         NULL::numeric AS new_amount,
+                         NULL::numeric AS paid
+                    FROM public.admission_fee_structure_items fsi
+                    JOIN public.admission_fee_change_events evt ON evt.id = v_pending_event_id
+                   WHERE fsi.fee_structure_id = evt.old_fee_structure_id
+                  UNION ALL
+                  SELECT fsi.billing_category_id,
+                         NULL::numeric,
+                         fsi.amount,
+                         NULL::numeric
+                    FROM public.admission_fee_structure_items fsi
+                   WHERE fsi.fee_structure_id = v_new_structure_id
+                  UNION ALL
+                  SELECT b.item_category_id,
+                         NULL::numeric,
+                         NULL::numeric,
+                         b.final_amount - b.balance_amount
+                    FROM public.billing_student_bills b
+                   WHERE b.student_id = NEW.id
+                     AND b.status <> 'superseded'
+                     AND b.item_category_id IS NOT NULL
+              ) u
+             GROUP BY cat_id
+        ) g
+        WHERE cat_id IS NOT NULL;
+
         RETURN NEW;
     END IF;
 
-    SELECT id INTO v_old_structure_id
-      FROM public.admission_fee_structures
-     WHERE institution_id        = OLD.institution_id
-       AND degree_id             = OLD.degree_id
-       AND department_id         = OLD.department_id
-       AND programme_id          = OLD.program_id
-       AND quota_id              = OLD.quota_id
-       AND community_category_id = OLD.community_category_id
-       AND accommodation_type_id = OLD.accommodation_type_id
-       AND admission_year_id     = OLD.admission_year_id
-       AND status = 'active'
-     LIMIT 1;
-
-    SELECT id INTO v_new_structure_id
-      FROM public.admission_fee_structures
-     WHERE institution_id        = NEW.institution_id
-       AND degree_id             = NEW.degree_id
-       AND department_id         = NEW.department_id
-       AND programme_id          = NEW.program_id
-       AND quota_id              = NEW.quota_id
-       AND community_category_id = NEW.community_category_id
-       AND accommodation_type_id = NEW.accommodation_type_id
-       AND admission_year_id     = NEW.admission_year_id
-       AND status = 'active'
-     LIMIT 1;
-
+    -- No pending event — create a new one
     INSERT INTO public.admission_fee_change_events (
         learner_id, trigger_field,
         old_program_id, old_quota_id, old_community_category_id,
@@ -1120,9 +1201,10 @@ BEGIN
                WHERE b.student_id = NEW.id
                  AND b.status <> 'superseded'
                  AND b.item_category_id IS NOT NULL
-          ) t
+          ) u
          GROUP BY cat_id
-    ) merged;
+    ) g
+    WHERE cat_id IS NOT NULL;
 
     RETURN NEW;
 END;
