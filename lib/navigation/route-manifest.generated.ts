@@ -807,6 +807,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
                 "children": []
               },
               {
+                "path": "/admin/hr/policies/audit",
+                "label": "Audit",
+                "iconName": "ClipboardCheck",
+                "children": []
+              },
+              {
                 "path": "/admin/hr/policies/audit-log",
                 "label": "Audit Log",
                 "iconName": "ClipboardCheck",
@@ -3432,6 +3438,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
     "iconName": "FileText",
     "children": [
       {
+        "path": "/hr/analytics",
+        "label": "Analytics",
+        "iconName": "BarChart",
+        "children": []
+      },
+      {
         "path": "/hr/attendance",
         "label": "Attendance",
         "iconName": "CheckSquare",
@@ -3454,6 +3466,18 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       {
         "path": "/hr/automation",
         "label": "Automation",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
+        "path": "/hr/benefits",
+        "label": "Benefits",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
+        "path": "/hr/compensation",
+        "label": "Compensation",
         "iconName": "FileText",
         "children": []
       },
@@ -3616,6 +3640,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
           {
             "path": "/hr/recruitment/approvals",
             "label": "Approvals",
+            "iconName": "UserSearch",
+            "children": []
+          },
+          {
+            "path": "/hr/recruitment/interviews",
+            "label": "Interviews",
             "iconName": "UserSearch",
             "children": []
           },

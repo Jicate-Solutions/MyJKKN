@@ -106,8 +106,7 @@ export async function GET(
         *,
         member:bos_members (
           id, display_name, display_designation, display_institution,
-          address,
-          member_type, is_active, sort_order, expert_id, distance_km
+          address, member_type, is_active, sort_order, expert_id
         )
       `)
       .eq('meeting_id', meetingId)
@@ -175,8 +174,7 @@ export async function POST(
         *,
         member:bos_members (
           id, display_name, display_designation, display_institution,
-          address,
-          member_type, is_active, sort_order, expert_id, distance_km
+          address, member_type, is_active, sort_order, expert_id
         )
       `);
 
@@ -231,7 +229,6 @@ type AttendeeRow = {
   ta_da_eligible: boolean;
   member: {
     expert_id: string | null;
-    distance_km: number | null;
   } | null;
 };
 
@@ -254,7 +251,7 @@ async function autoSyncClaims(meetingId: string): Promise<AutoClaimSyncResult> {
       institutions_id,
       attendance_status,
       ta_da_eligible,
-      member:bos_members ( expert_id, distance_km )
+      member:bos_members ( expert_id )
     `)
     .eq('meeting_id', meetingId);
 
@@ -266,6 +263,16 @@ async function autoSyncClaims(meetingId: string): Promise<AutoClaimSyncResult> {
     .eq('meeting_id', meetingId);
 
   if (claimErr) throw claimErr;
+
+  // Batch-fetch expert distances for external members
+  const expertIds = new Set<string>();
+  for (const a of (attendees ?? []) as unknown as AttendeeRow[]) {
+    if (a.member?.expert_id) expertIds.add(a.member.expert_id);
+  }
+  const { data: experts = [] } = expertIds.size > 0
+    ? await admin.from('bos_external_experts').select('id, distance_km').in('id', Array.from(expertIds))
+    : { data: [] };
+  const distancesByExpertId = new Map(experts.map((e: any) => [e.id, e.distance_km]));
 
   const claimsByMember = new Map<string, ClaimRow>(
     (existingClaims ?? []).map((c) => [c.member_id, c as ClaimRow]),
@@ -295,9 +302,12 @@ async function autoSyncClaims(meetingId: string): Promise<AutoClaimSyncResult> {
     if (shouldHaveClaim) {
       if (existing) continue; // idempotent — leave the existing claim alone
       const isExternal = a.member?.expert_id != null;
+      const oneWayKm = isExternal && a.member?.expert_id
+        ? distancesByExpertId.get(a.member.expert_id) ?? null
+        : null;
       const amounts = computeClaimAmounts({
         isExternal,
-        oneWayKm: a.member?.distance_km ?? null,
+        oneWayKm,
       });
       toInsert.push({
         institutions_id: a.institutions_id,
