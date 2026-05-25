@@ -25,6 +25,20 @@ import {
   SelectValue
 } from '@/components/ui/select';
 import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger
+} from '@/components/ui/popover';
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList
+} from '@/components/ui/command';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import {
   Dialog,
   DialogContent,
   DialogHeader,
@@ -40,10 +54,17 @@ import {
   Eye,
   CheckCircle2,
   XCircle,
-  AlertCircle
+  AlertCircle,
+  ChevronsUpDown,
+  Check,
+  Search,
+  FolderOpen,
+  X
 } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import { useCalendarReservations } from '@/hooks/reservation/use-reservations';
 import { useResourcesSelect } from '@/hooks/resource-management/use-resources';
+import { useParentCategoriesSelect } from '@/hooks/resource-management/use-parent-categories';
 import { useAuth } from '@/hooks/use-auth';
 import type { Reservation } from '@/types/reservation';
 import { format } from 'date-fns';
@@ -114,7 +135,9 @@ export default function ReservationCalendarPage() {
   const { profile: user } = useAuth();
   const [currentView, setCurrentView] = useState<View>(Views.MONTH);
   const [currentDate, setCurrentDate] = useState<Date | null>(null);
+  const [categoryFilter, setCategoryFilter] = useState<string>('all');
   const [resourceFilter, setResourceFilter] = useState<string>('all');
+  const [resourcePickerOpen, setResourcePickerOpen] = useState(false);
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [colorBy, setColorBy] = useState<'resource' | 'status'>('resource');
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
@@ -125,6 +148,22 @@ export default function ReservationCalendarPage() {
 
   const { resources: resourceList, loading: loadingResources } =
     useResourcesSelect();
+  const { categories, loading: loadingCategories } =
+    useParentCategoriesSelect();
+
+  // Filter resources by selected category
+  const filteredResourceList = useMemo(() => {
+    if (categoryFilter === 'all') return resourceList;
+    return resourceList.filter(
+      (r) => r.parent_category_id === categoryFilter
+    );
+  }, [resourceList, categoryFilter]);
+
+  // Get selected resource name for display
+  const selectedResourceName = useMemo(() => {
+    if (resourceFilter === 'all') return 'All Resources';
+    return resourceList.find((r) => r.id === resourceFilter)?.name || 'Unknown';
+  }, [resourceFilter, resourceList]);
 
   // Build a stable color map for resources
   const resourceColorMap = useMemo(() => {
@@ -300,31 +339,195 @@ export default function ReservationCalendarPage() {
       <Card className='mb-6'>
         <CardContent className='p-4'>
           <div className='flex items-center gap-4 flex-wrap'>
-            {/* Resource Filter */}
-            <div className='flex-1 min-w-[200px]'>
+            {/* Category Filter */}
+            <div className='min-w-[180px]'>
               <label className='text-xs font-medium text-muted-foreground mb-1 block'>
-                Resource
+                Category
               </label>
               <Select
-                value={resourceFilter}
-                onValueChange={setResourceFilter}
+                value={categoryFilter}
+                onValueChange={(v) => {
+                  setCategoryFilter(v);
+                  setResourceFilter('all');
+                }}
               >
                 <SelectTrigger className='h-9'>
-                  <SelectValue placeholder='All Resources' />
+                  <SelectValue placeholder='All Categories' />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value='all'>All Resources</SelectItem>
-                  {resourceList.map((r) => (
-                    <SelectItem key={r.id} value={r.id}>
-                      {r.name}
+                  <SelectItem value='all'>All Categories</SelectItem>
+                  {categories.map((c) => (
+                    <SelectItem key={c.id} value={c.id}>
+                      {c.name}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
 
+            {/* Searchable Resource Filter */}
+            <div className='flex-1 min-w-[220px]'>
+              <label className='text-xs font-medium text-muted-foreground mb-1 block'>
+                Resource
+              </label>
+              <Popover
+                open={resourcePickerOpen}
+                onOpenChange={setResourcePickerOpen}
+              >
+                <PopoverTrigger asChild>
+                  <Button
+                    variant='outline'
+                    role='combobox'
+                    aria-expanded={resourcePickerOpen}
+                    className='w-full justify-between h-9 font-normal'
+                  >
+                    <span className='truncate'>
+                      {selectedResourceName}
+                    </span>
+                    {resourceFilter !== 'all' ? (
+                      <X
+                        className='ml-2 h-3.5 w-3.5 shrink-0 opacity-50 hover:opacity-100'
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setResourceFilter('all');
+                        }}
+                      />
+                    ) : (
+                      <ChevronsUpDown className='ml-2 h-4 w-4 shrink-0 opacity-50' />
+                    )}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className='w-[320px] p-0' align='start'>
+                  <Command>
+                    <CommandInput placeholder='Search resources...' />
+                    <CommandList>
+                      <CommandEmpty>No resources found.</CommandEmpty>
+                      <CommandGroup>
+                        <CommandItem
+                          value='All Resources'
+                          onSelect={() => {
+                            setResourceFilter('all');
+                            setResourcePickerOpen(false);
+                          }}
+                        >
+                          <Check
+                            className={cn(
+                              'mr-2 h-4 w-4',
+                              resourceFilter === 'all' ? 'opacity-100' : 'opacity-0'
+                            )}
+                          />
+                          All Resources
+                          <Badge variant='secondary' className='ml-auto text-[10px]'>
+                            {filteredResourceList.length}
+                          </Badge>
+                        </CommandItem>
+                      </CommandGroup>
+
+                      {/* Group by category if no category filter is active */}
+                      {categoryFilter === 'all' ? (
+                        <>
+                          {categories.map((cat) => {
+                            const catResources = filteredResourceList.filter(
+                              (r) => r.parent_category_id === cat.id
+                            );
+                            if (catResources.length === 0) return null;
+                            return (
+                              <CommandGroup
+                                key={cat.id}
+                                heading={cat.name}
+                              >
+                                {catResources.map((r) => (
+                                  <CommandItem
+                                    key={r.id}
+                                    value={`${cat.name} ${r.name}`}
+                                    onSelect={() => {
+                                      setResourceFilter(r.id);
+                                      setResourcePickerOpen(false);
+                                    }}
+                                  >
+                                    <Check
+                                      className={cn(
+                                        'mr-2 h-4 w-4',
+                                        resourceFilter === r.id
+                                          ? 'opacity-100'
+                                          : 'opacity-0'
+                                      )}
+                                    />
+                                    <span className='truncate'>{r.name}</span>
+                                  </CommandItem>
+                                ))}
+                              </CommandGroup>
+                            );
+                          })}
+                          {/* Uncategorized resources */}
+                          {(() => {
+                            const uncategorized = filteredResourceList.filter(
+                              (r) => !r.parent_category_id
+                            );
+                            if (uncategorized.length === 0) return null;
+                            return (
+                              <CommandGroup heading='Uncategorized'>
+                                {uncategorized.map((r) => (
+                                  <CommandItem
+                                    key={r.id}
+                                    value={`Uncategorized ${r.name}`}
+                                    onSelect={() => {
+                                      setResourceFilter(r.id);
+                                      setResourcePickerOpen(false);
+                                    }}
+                                  >
+                                    <Check
+                                      className={cn(
+                                        'mr-2 h-4 w-4',
+                                        resourceFilter === r.id
+                                          ? 'opacity-100'
+                                          : 'opacity-0'
+                                      )}
+                                    />
+                                    <span className='truncate'>{r.name}</span>
+                                  </CommandItem>
+                                ))}
+                              </CommandGroup>
+                            );
+                          })()}
+                        </>
+                      ) : (
+                        <CommandGroup
+                          heading={
+                            categories.find((c) => c.id === categoryFilter)
+                              ?.name || 'Filtered'
+                          }
+                        >
+                          {filteredResourceList.map((r) => (
+                            <CommandItem
+                              key={r.id}
+                              value={r.name}
+                              onSelect={() => {
+                                setResourceFilter(r.id);
+                                setResourcePickerOpen(false);
+                              }}
+                            >
+                              <Check
+                                className={cn(
+                                  'mr-2 h-4 w-4',
+                                  resourceFilter === r.id
+                                    ? 'opacity-100'
+                                    : 'opacity-0'
+                                )}
+                              />
+                              <span className='truncate'>{r.name}</span>
+                            </CommandItem>
+                          ))}
+                        </CommandGroup>
+                      )}
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
+            </div>
+
             {/* Status Filter */}
-            <div className='min-w-[160px]'>
+            <div className='min-w-[150px]'>
               <label className='text-xs font-medium text-muted-foreground mb-1 block'>
                 Status
               </label>
@@ -344,7 +547,7 @@ export default function ReservationCalendarPage() {
             </div>
 
             {/* Color By */}
-            <div className='min-w-[160px]'>
+            <div className='min-w-[140px]'>
               <label className='text-xs font-medium text-muted-foreground mb-1 block'>
                 Color By
               </label>
