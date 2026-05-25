@@ -4662,6 +4662,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
+            "path": "/resource-management/reservations/calendar",
+            "label": "Calendar",
+            "iconName": "Calendar",
+            "children": []
+          },
+          {
             "path": "/resource-management/reservations/my-reservations",
             "label": "My Reservations",
             "iconName": "Boxes",
