@@ -102,7 +102,6 @@ export default function HRIntelligencePage() {
     searchParams.get('tab') ?? 'recruitment-need'
   );
 
-  // Persist active tab to URL
   const handleTabChange = useCallback(
     (tab: string) => {
       setActiveTab(tab);
@@ -173,13 +172,15 @@ function RecruitmentNeedTab() {
   const searchParams = useSearchParams();
   const router = useRouter();
 
-  // Filters from URL + localStorage
-  const [institutionFilter, setInstitutionFilter] = useState<string>(
-    () => searchParams.get('institution') ?? localStorage.getItem('rns-institution') ?? 'all'
-  );
-  const [statusFilter, setStatusFilter] = useState<string>(
-    () => searchParams.get('status') ?? localStorage.getItem('rns-status') ?? 'all'
-  );
+  // Filters from URL + localStorage (SSR-safe)
+  const [institutionFilter, setInstitutionFilter] = useState<string>(() => {
+    if (typeof window === 'undefined') return 'all';
+    return searchParams.get('institution') ?? localStorage.getItem('rns-institution') ?? 'all';
+  });
+  const [statusFilter, setStatusFilter] = useState<string>(() => {
+    if (typeof window === 'undefined') return 'all';
+    return searchParams.get('status') ?? localStorage.getItem('rns-status') ?? 'all';
+  });
 
   // Comparison mode
   const [compareIds, setCompareIds] = useState<string[]>([]);
@@ -193,7 +194,6 @@ function RecruitmentNeedTab() {
   // Queries
   const { data: signals, isLoading: signalsLoading, isError } = useRecruitmentSignals(queryFilters);
   const { data: suppressions } = useSuppressions();
-  const { data: pendingEscalations } = useEscalations(undefined, 'pending');
   const { institutions } = useInstitutionsWithAccess({ entityType: 'all' });
   const computeSignal = useComputeSignal();
 
@@ -204,7 +204,7 @@ function RecruitmentNeedTab() {
   });
 
   // Build suppression lookup by institution_id
-  const suppressionMap: Record<string, typeof suppressions extends (infer T)[] | undefined ? T : never> = {};
+  const suppressionMap: Record<string, NonNullable<typeof suppressions>[number]> = {};
   suppressions?.forEach((s) => {
     if (s.is_active) suppressionMap[s.institution_id] = s;
   });
@@ -225,8 +225,10 @@ function RecruitmentNeedTab() {
     params.set('tab', 'recruitment-need');
     router.replace(`?${params.toString()}`, { scroll: false });
 
-    localStorage.setItem('rns-institution', institutionFilter);
-    localStorage.setItem('rns-status', statusFilter);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('rns-institution', institutionFilter);
+      localStorage.setItem('rns-status', statusFilter);
+    }
   }, [institutionFilter, statusFilter]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function handleCompareToggle(instId: string) {
@@ -243,12 +245,11 @@ function RecruitmentNeedTab() {
     }
   }
 
-  // Empty state: no signals and not loading
   const isEmpty = !signalsLoading && (!signals || signals.length === 0);
 
   return (
     <div className="space-y-4">
-      {/* Dashboard header with description + actions */}
+      {/* Dashboard header */}
       <Card>
         <CardHeader className="pb-3">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
@@ -266,9 +267,7 @@ function RecruitmentNeedTab() {
           </div>
         </CardHeader>
         <CardContent className="pt-0">
-          {/* Filters row */}
           <div className="flex flex-wrap items-center gap-3">
-            {/* Institution filter */}
             <Select value={institutionFilter} onValueChange={setInstitutionFilter}>
               <SelectTrigger className="w-[220px] h-8 text-xs">
                 <SelectValue placeholder="All Institutions" />
@@ -283,7 +282,6 @@ function RecruitmentNeedTab() {
               </SelectContent>
             </Select>
 
-            {/* Status filter */}
             <Select value={statusFilter} onValueChange={setStatusFilter}>
               <SelectTrigger className="w-[160px] h-8 text-xs">
                 <SelectValue placeholder="All Statuses" />
@@ -297,7 +295,6 @@ function RecruitmentNeedTab() {
               </SelectContent>
             </Select>
 
-            {/* Force refresh */}
             {institutionFilter !== 'all' && (
               <Button
                 size="sm"
@@ -311,7 +308,6 @@ function RecruitmentNeedTab() {
               </Button>
             )}
 
-            {/* Compare mode toggle */}
             {compareIds.length > 0 && !showComparison && (
               <Badge variant="secondary" className="text-xs gap-1">
                 <ArrowLeftRight className="h-3 w-3" />
@@ -319,7 +315,6 @@ function RecruitmentNeedTab() {
               </Badge>
             )}
 
-            {/* Summary badges */}
             {!signalsLoading && signals && signals.length > 0 && (
               <div className="flex items-center gap-1.5 ml-auto">
                 {(['red', 'amber', 'green', 'blocked'] as const).map((st) => {
@@ -342,7 +337,6 @@ function RecruitmentNeedTab() {
         </CardContent>
       </Card>
 
-      {/* Comparison view */}
       {showComparison && (
         <ComparisonView
           institutionIds={compareIds as [string, string]}
@@ -351,12 +345,10 @@ function RecruitmentNeedTab() {
         />
       )}
 
-      {/* Main content area: cards grid + escalation sidebar */}
       {isEmpty ? (
         <SetupWizard />
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-[1fr_300px] gap-4">
-          {/* Signal cards grid */}
           <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
             {signalsLoading ? (
               <SignalCardSkeleton count={6} />
@@ -380,7 +372,6 @@ function RecruitmentNeedTab() {
             )}
           </div>
 
-          {/* Sidebar: Escalation queue */}
           <div className="space-y-4">
             <EscalationQueue />
           </div>
