@@ -107,7 +107,7 @@ export async function GET(
         member:bos_members (
           id, display_name, display_designation, display_institution,
           address,
-          member_type, is_active, sort_order, expert_id, display_distance_km
+          member_type, is_active, sort_order, expert_id, distance_km
         )
       `)
       .eq('meeting_id', meetingId)
@@ -176,7 +176,7 @@ export async function POST(
         member:bos_members (
           id, display_name, display_designation, display_institution,
           address,
-          member_type, is_active, sort_order, expert_id, display_distance_km
+          member_type, is_active, sort_order, expert_id, distance_km
         )
       `);
 
@@ -231,7 +231,7 @@ type AttendeeRow = {
   ta_da_eligible: boolean;
   member: {
     expert_id: string | null;
-    display_distance_km: number | null;
+    distance_km: number | null;
   } | null;
 };
 
@@ -254,7 +254,7 @@ async function autoSyncClaims(meetingId: string): Promise<AutoClaimSyncResult> {
       institutions_id,
       attendance_status,
       ta_da_eligible,
-      member:bos_members ( expert_id, display_distance_km )
+      member:bos_members ( expert_id, distance_km )
     `)
     .eq('meeting_id', meetingId);
 
@@ -297,7 +297,7 @@ async function autoSyncClaims(meetingId: string): Promise<AutoClaimSyncResult> {
       const isExternal = a.member?.expert_id != null;
       const amounts = computeClaimAmounts({
         isExternal,
-        oneWayKm: a.member?.display_distance_km ?? null,
+        oneWayKm: a.member?.distance_km ?? null,
       });
       toInsert.push({
         institutions_id: a.institutions_id,

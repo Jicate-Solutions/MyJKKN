@@ -270,6 +270,7 @@ export interface BosUnit {
   unit_id: string; // "I", "II", "III", "IV", "V"
   unit_title: string;
   chapters: BosChapter[];
+  remarks?: string;
 }
 
 // Practical-paper topic: a numbered heading (e.g. "MAJOR PRACTICALS") that may
@@ -283,15 +284,33 @@ export interface BosPracticalTopic {
   subtopics?: BosChapterSubtopic[];
 }
 
+// Project-mode rule: a titled guideline with paragraph content
+export interface BosProjectRule {
+  unit_of_experiment: string;  // e.g., "Project Assignment & Submission"
+  content: string;              // The paragraph/guideline text from the PDF
+}
+
+// Project-mode unit: contains project work rules and guidelines
+export interface BosProjectUnit {
+  unit_id: string;              // "I", "II", "III" (auto-generated)
+  unit_title: string;           // e.g., "Timeline & Submission"
+  rules: BosProjectRule[];       // Guidelines for this unit
+  remarks?: string;
+}
+
 export interface BosCourseContentData {
   units: BosUnit[];
   // Practical-paper mode (e.g. lab courses): when true, `topics` is the
   // authoritative content — a numbered list of headings, each optionally
   // carrying its own sub-experiments. `units` is ignored in this mode.
   // The form toggle in components/bos/syllabus-form.tsx (toggleMode) maintains
-  // the invariant that exactly one of units/topics is populated.
+  // the invariant that exactly one of units/topics/project_units is populated.
   is_practical?: boolean;
   topics?: BosPracticalTopic[];
+  // Project-mode: group-based project work rules and guidelines
+  is_project?: boolean;
+  project_units?: BosProjectUnit[];
+  instruction?: string;
 }
 
 // ── Textbooks & References ────────────────────────────────────────────
@@ -646,12 +665,11 @@ export interface BosMember {
   display_department?: string;
   display_institution?: string;
   /**
-   * Snapshot mirror of bos_external_experts.distance_km, kept in sync by
-   * trg_sync_bos_members_from_expert. NULL for internal (staff) members.
+   * Distance in km for external expert members. NULL for internal (staff) members.
    * Read on the auto-claim hot path so the attendance route doesn't need
    * to join out to bos_external_experts on every save.
    */
-  display_distance_km?: number | null;
+  distance_km?: number | null;
   address?: string;
   contact_no?: string;
   email?: string;

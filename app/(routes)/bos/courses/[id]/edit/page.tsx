@@ -21,7 +21,7 @@ export default function EditCoursePage({ params }: { params: Promise<{ id: strin
   // Edit page doesn't know the MyJKKN institution UUID â€” rely on the user's
   // server-side scope (works for non-super-admins). Super-admins editing
   // foreign-institution courses is a known gap; add a reverse-lookup if needed.
-  const { data: boards, isLoading: boardsLoading } = useBosBoards();
+  const { data: boards, isLoading: boardsLoading } = useBosBoards(course?.institutions_id);
 
   // Hard-lock check: trust the URL param (set from list row data which is reliable)
   // as well as the fetched course â€” whichever says locked wins.

@@ -24,6 +24,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { SearchableSelect } from '@/components/ui/searchable-select';
 import { useBosCourses } from '@/hooks/bos/use-bos-courses';
 import { useInstitutionContext } from '@/hooks/use-institution-context';
+import { useBosInstitutionScope } from '@/hooks/bos/use-bos-institution-scope';
 import { X, Trash2, BookOpen, Plus, FlaskConical, BookText, Check, Upload, Loader2, FileText, AlertTriangle } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import {
@@ -449,6 +450,47 @@ export function SyllabusForm({
   // so both must be deps to trigger the single fetch once ctx is ready.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [formData.institutions_id, institutionCtx]);
+
+  // Edit-mode safety net: the /api/bos/compositions list paginates at limit=100
+  // sorted by term_start_date desc, so an older composition the syllabus is
+  // linked to can drop out of the page and the dropdown shows the placeholder
+  // even though every other field is fine. Fetch the linked composition by ID
+  // and merge it in so the dropdown can always render the saved value.
+  useEffect(() => {
+    if (!isEditingProp) return;
+    const linkedId = existingSyllabus?.composition_id;
+    if (!linkedId) return;
+    if (compositions.some((c) => c.id === linkedId)) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/bos/compositions/${linkedId}`);
+        if (!res.ok) return;
+        const comp = await res.json();
+        if (cancelled || !comp?.id) return;
+        setCompositions((prev) =>
+          prev.some((c) => c.id === comp.id)
+            ? prev
+            : [
+                {
+                  id: comp.id,
+                  composition_title: comp.composition_title,
+                  board_id: comp.board_id,
+                  academic_year: comp.academic_year,
+                  institutions_id: comp.institutions_id,
+                  board: comp.board ?? null,
+                },
+                ...prev,
+              ],
+        );
+      } catch (err) {
+        console.error('Failed to fetch linked composition:', err);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isEditingProp, existingSyllabus?.composition_id, compositions]);
 
   // Step 2: fetch meetings for the selected composition.
   // Filtering by compositionId avoids CAS institution-UUID mismatch entirely.
@@ -1157,6 +1199,7 @@ export function SyllabusForm({
               <PoMappingsEditor
                 mappings={formData.po_mappings as BosPOMappingsData | undefined}
                 regulationId={formData.regulation_id || ''}
+                institutionsIds={formData.institutions_id || ''}
                 boardId={formData.board_id || ''}
                 courseOutcomes={((formData.course_learning_outcomes as any)?.clos ?? []) as BosCourseLearnOutcome[]}
                 onChange={(val) => updateField('po_mappings', val)}
@@ -1432,12 +1475,14 @@ function CloEditor({ clos, kValues, onChange }: any) {
 
 function ContentEditor({ content, onChange }: any) {
   const isPractical = !!content?.is_practical;
+  const isProject = !!content?.is_project;
   const units = content?.units || [];
   const topics: {
     number: number;
     title: string;
     subtopics?: { number: number; title: string }[];
   }[] = content?.topics || [];
+  const projectUnits = content?.project_units || [];
 
   // Migrate legacy single-letter unit IDs (A, B, C…) to Roman numerals (I, II, III…).
   // The regex excludes I, V, X — those are valid Roman numerals already and must
@@ -1465,26 +1510,38 @@ function ContentEditor({ content, onChange }: any) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const toggleMode = () => {
-    if (!isPractical) {
-      // Theory → Practical: collect all chapters from all units as flat topics
-      const allChapters = units.flatMap((u: any) => u.chapters || []);
-      const flatTopics = allChapters.map((ch: any, i: number) => ({
-        number: i + 1,
-        title: ch.title || '',
-      }));
-      onChange({ is_practical: true, topics: flatTopics.length > 0 ? flatTopics : [] });
-    } else {
-      // Practical → Theory: move topics back into a single unit
-      const chapters = topics.map((t, i) => ({
-        chapter_number: i + 1,
-        title: t.title,
-        sections: '',
-      }));
-      onChange({
-        is_practical: false,
-        units: [{ unit_id: 'I', unit_title: '', chapters }],
-      });
+  const switchToMode = (targetMode: 'theory' | 'practical' | 'project') => {
+    if (targetMode === 'theory' && !isPractical && !isProject) return;
+    if (targetMode === 'practical' && isPractical) return;
+    if (targetMode === 'project' && isProject) return;
+
+    if (targetMode === 'theory') {
+      // From Practical or Project → Theory
+      if (isPractical) {
+        const chapters = topics.map((t, i) => ({
+          chapter_number: i + 1,
+          title: t.title,
+          sections: '',
+        }));
+        onChange({ is_practical: false, is_project: false, units: [{ unit_id: 'I', unit_title: '', chapters }] });
+      } else {
+        onChange({ is_practical: false, is_project: false, units: projectUnits.length > 0 ? [{ unit_id: 'I', unit_title: '', chapters: [] }] : units });
+      }
+    } else if (targetMode === 'practical') {
+      // From Theory or Project → Practical
+      if (!isPractical && !isProject) {
+        const allChapters = units.flatMap((u: any) => u.chapters || []);
+        const flatTopics = allChapters.map((ch: any, i: number) => ({
+          number: i + 1,
+          title: ch.title || '',
+        }));
+        onChange({ is_practical: true, is_project: false, topics: flatTopics.length > 0 ? flatTopics : [] });
+      } else if (isProject) {
+        onChange({ is_practical: true, is_project: false, topics: [] });
+      }
+    } else if (targetMode === 'project') {
+      // From Theory or Practical → Project
+      onChange({ is_practical: false, is_project: true, project_units: [] });
     }
   };
 
@@ -1606,6 +1663,53 @@ function ContentEditor({ content, onChange }: any) {
     onChange({ ...content, topics: updated });
   };
 
+  // Project mode helpers
+  const addProjectUnit = () => {
+    onChange({
+      ...content,
+      project_units: [...projectUnits, { unit_id: toRoman(projectUnits.length + 1), unit_title: '', rules: [], remarks: '' }],
+    });
+  };
+
+  const removeProjectUnit = (idx: number) => {
+    const updated = projectUnits
+      .filter((_: any, i: number) => i !== idx)
+      .map((u: any, i: number) => ({ ...u, unit_id: toRoman(i + 1) }));
+    onChange({ ...content, project_units: updated });
+  };
+
+  const updateProjectUnit = (idx: number, field: string, value: any) => {
+    onChange({
+      ...content,
+      project_units: projectUnits.map((u: any, i: number) =>
+        i === idx ? { ...u, [field]: value } : u
+      ),
+    });
+  };
+
+  const addProjectRule = (unitIdx: number) => {
+    const newUnits = [...projectUnits];
+    newUnits[unitIdx].rules = [
+      ...(newUnits[unitIdx].rules || []),
+      { unit_of_experiment: '', content: '' },
+    ];
+    onChange({ ...content, project_units: newUnits });
+  };
+
+  const updateProjectRule = (unitIdx: number, ruleIdx: number, field: string, value: string) => {
+    const newUnits = [...projectUnits];
+    const rules = newUnits[unitIdx].rules || [];
+    rules[ruleIdx] = { ...rules[ruleIdx], [field]: value };
+    newUnits[unitIdx].rules = rules;
+    onChange({ ...content, project_units: newUnits });
+  };
+
+  const removeProjectRule = (unitIdx: number, ruleIdx: number) => {
+    const newUnits = [...projectUnits];
+    newUnits[unitIdx].rules = (newUnits[unitIdx].rules || []).filter((_: any, i: number) => i !== ruleIdx);
+    onChange({ ...content, project_units: newUnits });
+  };
+
   return (
     <div className="space-y-4">
       {/* ── Mode toggle ────────────────────────────────────────────── */}
@@ -1614,9 +1718,9 @@ function ContentEditor({ content, onChange }: any) {
         <div className="flex rounded-lg border bg-muted/40 p-0.5 text-sm gap-0.5">
           <button
             type="button"
-            onClick={() => isPractical && toggleMode()}
+            onClick={() => switchToMode('theory')}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md transition-all text-xs font-medium ${
-              !isPractical
+              !isPractical && !isProject
                 ? 'bg-white dark:bg-card shadow-sm text-foreground'
                 : 'text-muted-foreground hover:text-foreground'
             }`}
@@ -1626,7 +1730,7 @@ function ContentEditor({ content, onChange }: any) {
           </button>
           <button
             type="button"
-            onClick={() => !isPractical && toggleMode()}
+            onClick={() => switchToMode('practical')}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md transition-all text-xs font-medium ${
               isPractical
                 ? 'bg-white dark:bg-card shadow-sm text-foreground'
@@ -1636,10 +1740,130 @@ function ContentEditor({ content, onChange }: any) {
             <FlaskConical className="h-3.5 w-3.5" />
             Practical
           </button>
+          <button
+            type="button"
+            onClick={() => switchToMode('project')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md transition-all text-xs font-medium ${
+              isProject
+                ? 'bg-white dark:bg-card shadow-sm text-foreground'
+                : 'text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            <BookOpen className="h-3.5 w-3.5" />
+            Project
+          </button>
         </div>
       </div>
 
-      {isPractical ? (
+      {isProject ? (
+        /* ── Project mode ────────────────────────────────────────── */
+        <div className="space-y-3">
+          {projectUnits.map((unit: any, unitIdx: number) => (
+            <div key={unitIdx} className="rounded-xl border bg-card overflow-hidden shadow-sm">
+              {/* Unit header */}
+              <div className="flex items-center gap-3 bg-primary/5 dark:bg-primary/10 border-b px-4 py-3">
+                <div className="flex items-center gap-2 shrink-0">
+                  <span className="text-[10px] font-bold uppercase tracking-widest text-primary/70">Unit</span>
+                  <span className="inline-flex h-7 min-w-[2.5rem] items-center justify-center px-1 text-base font-bold text-primary tabular-nums">
+                    {unit.unit_id || toRoman(unitIdx + 1)}
+                  </span>
+                </div>
+                <div className="h-5 w-px bg-primary/20" />
+                <Input
+                  placeholder="Unit Title (e.g., Timeline & Submission)"
+                  value={unit.unit_title}
+                  onChange={(e) => updateProjectUnit(unitIdx, 'unit_title', e.target.value)}
+                  className="h-7 flex-1 border-0 bg-transparent px-0 text-sm font-semibold focus-visible:ring-0 focus-visible:ring-offset-0 placeholder:text-muted-foreground/50"
+                />
+                <button
+                  type="button"
+                  onClick={() => removeProjectUnit(unitIdx)}
+                  className="ml-auto rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors"
+                  title="Remove unit"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              </div>
+
+              {/* Rules */}
+              <div className="px-4 py-3 space-y-2">
+                {unit.rules?.map((rule: any, ruleIdx: number) => (
+                  <div key={ruleIdx} className="space-y-2 p-3 rounded-lg border bg-muted/30">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Unit of Experiment</span>
+                      <Input
+                        placeholder="e.g., Project Assignment & Submission"
+                        value={rule.unit_of_experiment || ''}
+                        onChange={(e) => updateProjectRule(unitIdx, ruleIdx, 'unit_of_experiment', e.target.value)}
+                        className="flex-1 h-8 text-sm"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => removeProjectRule(unitIdx, ruleIdx)}
+                        className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors"
+                        title="Remove rule"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                    <Textarea
+                      placeholder="Rule content/guideline (the paragraph from the PDF)"
+                      value={rule.content || ''}
+                      onChange={(e) => updateProjectRule(unitIdx, ruleIdx, 'content', e.target.value)}
+                      rows={3}
+                      className="text-sm bg-transparent border-muted resize-none"
+                    />
+                  </div>
+                ))}
+
+                <button
+                  type="button"
+                  onClick={() => addProjectRule(unitIdx)}
+                  className="flex items-center gap-1.5 rounded-md border border-dashed px-3 py-1.5 text-xs font-medium text-muted-foreground hover:border-primary/50 hover:text-primary transition-colors mt-1"
+                >
+                  <Plus className="h-3.5 w-3.5" /> Add Rule
+                </button>
+              </div>
+
+              {/* Remarks */}
+              <div className="px-4 pb-4">
+                <div className="rounded-lg bg-muted/40 p-3 space-y-1.5">
+                  <div className="flex items-center gap-1.5">
+                    <BookOpen className="h-3.5 w-3.5 text-muted-foreground" />
+                    <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Remarks</span>
+                  </div>
+                  <Textarea
+                    placeholder="Additional notes or remarks for this unit"
+                    value={unit.remarks || ''}
+                    onChange={(e) => updateProjectUnit(unitIdx, 'remarks', e.target.value)}
+                    rows={2}
+                    className="text-xs bg-transparent border-muted resize-none"
+                  />
+                </div>
+              </div>
+            </div>
+          ))}
+
+          <button
+            type="button"
+            onClick={addProjectUnit}
+            className="flex w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed py-3 text-sm font-medium text-muted-foreground hover:border-primary/50 hover:text-primary transition-colors"
+          >
+            <Plus className="h-4 w-4" /> Add Unit
+          </button>
+
+          {/* Instructions */}
+          <div className="px-4 py-3 space-y-2">
+            <Textarea
+              placeholder="General instructions or guidelines for the project work"
+              value={content.instruction || ''}
+              onChange={(e) => onChange({ ...content, instruction: e.target.value })}
+              rows={3}
+              className="text-sm bg-transparent border-muted resize-none"
+            />
+          </div>
+        </div>
+      ) : isPractical ? (
         /* ── Practical mode ──────────────────────────────────────── */
         <div className="space-y-2">
           {topics.map((topic, idx) => (
@@ -1853,6 +2077,17 @@ function ContentEditor({ content, onChange }: any) {
           >
             <Plus className="h-4 w-4" /> Add Unit
           </button>
+
+          {/* Instructions — displayed after all units */}
+          <div className="px-4 py-3 space-y-2">
+            <Textarea
+              placeholder="e.g. Important instructions for students, teaching guidance, special notes about this course content"
+              value={content.instruction || ''}
+              onChange={(e) => onChange({ ...content, instruction: e.target.value })}
+              rows={3}
+              className="text-sm bg-transparent border-muted resize-none"
+            />
+          </div>
         </div>
       )}
     </div>
@@ -2169,17 +2404,22 @@ type AlignmentLevel = '' | 'L' | 'M' | 'H';
 interface PoMappingsEditorProps {
   mappings: BosPOMappingsData | undefined;
   regulationId: string;
+  institutionsIds: string;
   boardId: string;
   courseOutcomes: BosCourseLearnOutcome[];
   onChange: (val: BosPOMappingsData) => void;
 }
 
-function PoMappingsEditor({ mappings, regulationId, boardId, courseOutcomes, onChange }: PoMappingsEditorProps) {
+function PoMappingsEditor({ mappings, regulationId, institutionsIds, boardId, courseOutcomes, onChange }: PoMappingsEditorProps) {
   const [programmes, setProgrammes] = useState<BosBoardProgramme[]>([]);
   const [selectedProgramme, setSelectedProgramme] = useState('');
   const [pos, setPos] = useState<BosProgrammeOutcome[]>([]);
   const [psos, setPsos] = useState<BosProgrammeSpecificOutcome[]>([]);
   const [loadingPos, setLoadingPos] = useState(false);
+
+  // Expand institution_id to full CAS pair (Aided + Self) if needed
+  const scope = useBosInstitutionScope(institutionsIds || null);
+  const resolvedInstitutionsIds = scope.csv;
 
   // Derive the CO→outcome→level matrix directly from the mappings prop.
   // No separate matrix state — avoids stale state when parent re-renders.
@@ -2236,15 +2476,18 @@ function PoMappingsEditor({ mappings, regulationId, boardId, courseOutcomes, onC
   // Fetch POs + PSOs for the selected programme
   useEffect(() => {
     if (!regulationId || !selectedProgramme) { setPos([]); setPsos([]); return; }
+    // Don't fetch until institution scope is resolved (csv is null while loading)
+    if (scope.isLoading) return;
     setLoadingPos(true);
+    const qs = resolvedInstitutionsIds ? `?institutionsIds=${encodeURIComponent(resolvedInstitutionsIds)}` : '';
     Promise.all([
-      fetch(`/api/bos/taxonomy/${regulationId}/programmes/${selectedProgramme}/pos`).then(r => r.json()),
-      fetch(`/api/bos/taxonomy/${regulationId}/programmes/${selectedProgramme}/psos`).then(r => r.json()),
+      fetch(`/api/bos/taxonomy/${regulationId}/programmes/${selectedProgramme}/pos${qs}`).then(r => r.json()),
+      fetch(`/api/bos/taxonomy/${regulationId}/programmes/${selectedProgramme}/psos${qs}`).then(r => r.json()),
     ])
       .then(([posRes, psosRes]) => { setPos(posRes.data ?? []); setPsos(psosRes.data ?? []); })
       .catch(() => { setPos([]); setPsos([]); })
       .finally(() => setLoadingPos(false));
-  }, [regulationId, selectedProgramme]);
+  }, [regulationId, selectedProgramme, resolvedInstitutionsIds, scope.isLoading]);
 
   const handleCellClick = (coCode: string, outcomeCode: string) => {
     const current: AlignmentLevel = matrix[coCode]?.[outcomeCode] ?? '';

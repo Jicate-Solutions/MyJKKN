@@ -293,7 +293,7 @@ export function ExpertForm({ expert, isSubmitting, onSubmit, onCancel }: ExpertF
                   <FormItem>
                     <FormLabel>Institution / Company</FormLabel>
                     <FormControl>
-                      <Input placeholder='e.g. Anna University' {...field} />
+                      <Input placeholder='e.g. JKKN College of Arts and Science (Autonomous)' {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>

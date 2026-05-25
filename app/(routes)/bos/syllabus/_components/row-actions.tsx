@@ -120,6 +120,7 @@ export function SyllabusPdfDownloadButton({
         practical_topics: syllabus.course_content?.is_practical
           ? (syllabus.course_content?.topics ?? [])
           : undefined,
+        instruction: syllabus.course_content?.instruction,
         textbooks: syllabus.textbooks?.primary ?? [],
         references: syllabus.textbooks?.references ?? [],
         web_resources: syllabus.web_resources?.resources ?? [],
@@ -251,6 +252,7 @@ export function SyllabusDocxDownloadButton({
         practical_topics: syllabus.course_content?.is_practical
           ? (syllabus.course_content?.topics ?? [])
           : undefined,
+        instruction: syllabus.course_content?.instruction,
         textbooks: syllabus.textbooks?.primary ?? [],
         references: syllabus.textbooks?.references ?? [],
         web_resources: syllabus.web_resources?.resources ?? [],

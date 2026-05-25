@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 
-import { BosAttendanceStatus, BosMemberType, BosMeetingStatus, BOS_MEETING_STATUS_ORDER } from '@/types/bos';
+import { BosAttendanceStatus, BosMemberType, BosMeetingStatus, BOS_MEETING_STATUS_ORDER, BosMember } from '@/types/bos';
 import { useBosMembersByComposition } from '@/hooks/bos/use-bos-members';
 import { useBosAttendance, useSaveBosAttendance } from '@/hooks/bos/use-bos-attendance';
 import { logger } from '@/lib/utils/enhanced-logger';
@@ -21,6 +21,7 @@ interface AttendanceEntry {
   memberType: BosMemberType;
   designation?: string;
   status: BosAttendanceStatus;
+  distanceKm?: number | null;
 }
 
 // Per-member local edits that the user has made but not yet saved. Stored
@@ -72,6 +73,10 @@ function AttendanceRow({
     leave_of_absence: 'bg-yellow-100 text-yellow-800 border-yellow-200 hover:bg-yellow-200',
   };
 
+  const isExternal = isExternalMember(entry.memberType);
+  const hasNoDistance = isExternal && entry.distanceKm == null;
+  const isToggleDisabled = hasNoDistance;
+
   return (
     <div className='flex items-center gap-3 rounded-lg border p-2.5'>
       <div className='flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted'>
@@ -82,25 +87,42 @@ function AttendanceRow({
         {entry.designation && (
           <p className='text-xs text-muted-foreground truncate'>{entry.designation}</p>
         )}
+        {hasNoDistance && (
+          <p className='text-xs text-amber-600 mt-1'>Distance not assigned</p>
+        )}
       </div>
       <div className='flex items-center gap-2 shrink-0'>
         {/* Static TA/DA marker — shown for external members so reviewers can
             see at a glance which attendees will receive the travel allowance
             component on the auto-generated claim. Not interactive: eligibility
             is now determined by member type, not by per-meeting toggle. */}
-        {isExternalMember(entry.memberType) && (
+        {isExternal && (
           <span
-            className='text-xs px-2 py-0.5 rounded border bg-blue-100 text-blue-800 border-blue-200'
-            title='External member — claim will include round-trip TA (km × 2 × Rs.5)'
+            className={`text-xs px-2 py-0.5 rounded border ${
+              hasNoDistance
+                ? 'bg-amber-100 text-amber-800 border-amber-200'
+                : 'bg-blue-100 text-blue-800 border-blue-200'
+            }`}
+            title={
+              hasNoDistance
+                ? 'Distance not assigned — assign distance before marking attendance'
+                : 'External member — claim will include round-trip TA (km × 2 × Rs.5)'
+            }
           >
-            TA/DA
+            {hasNoDistance ? 'No Distance' : 'TA/DA'}
           </span>
         )}
         {/* Attendance status toggle */}
         <button
           type='button'
           onClick={onToggle}
-          className={`text-xs px-3 py-1 rounded border font-medium transition-colors ${statusColor[entry.status]}`}
+          disabled={isToggleDisabled}
+          className={`text-xs px-3 py-1 rounded border font-medium transition-colors ${
+            isToggleDisabled
+              ? 'opacity-50 cursor-not-allowed bg-gray-100 text-gray-500 border-gray-200'
+              : statusColor[entry.status]
+          }`}
+          title={isToggleDisabled ? 'Assign distance to this expert first' : undefined}
         >
           {STATUS_LABELS[entry.status]}
         </button>
@@ -148,11 +170,15 @@ export function AttendanceTab({
     return activeMembers.map((member) => {
       const existing = attendanceMap.get(member.id);
       const override = overrides[member.id];
+      // bos_members.distance_km is the authoritative source; expert.distance_km is the fallback
+      const memberWithExpert = member as BosMember & { distance_km?: number | null; expert?: { distance_km?: number | null } };
+      const distanceKm = memberWithExpert.distance_km ?? memberWithExpert.expert?.distance_km;
       return {
         memberId: member.id,
         memberName: member.display_name,
         memberType: member.member_type,
         designation: member.display_designation,
+        distanceKm,
         status:
           override?.status ?? existing?.attendance_status ?? 'absent',
       };
@@ -179,8 +205,33 @@ export function AttendanceTab({
   const quorumThreshold = Math.floor(totalCount / 2) + 1;
   const quorumMet = presentCount >= quorumThreshold;
 
+  // Check for external members without distance
+  const externalMembersWithoutDistance = useMemo(
+    () =>
+      entries.filter(
+        (e) => isExternalMember(e.memberType) && e.distanceKm == null
+      ),
+    [entries]
+  );
+
   const handleSave = async () => {
     try {
+      // Validate external members marked as present have distance assigned
+      const membersWithoutDistance = entries.filter(
+        (e) =>
+          isExternalMember(e.memberType) &&
+          e.status === 'present' &&
+          e.distanceKm == null
+      );
+
+      if (membersWithoutDistance.length > 0) {
+        const names = membersWithoutDistance.map((m) => m.memberName).join(', ');
+        toast.error(
+          `Please assign distance for: ${names}`
+        );
+        return;
+      }
+
       // ta_da_eligible is derived, not user-set: external members are
       // always eligible (auto-TA via distance_km), internals are always
       // marked ineligible (honorarium-only per SOP). Kept on the payload
@@ -238,6 +289,14 @@ export function AttendanceTab({
 
   return (
     <div className='space-y-4'>
+      {externalMembersWithoutDistance.length > 0 && (
+        <div className='rounded-lg border border-amber-200 bg-amber-50 p-3'>
+          <p className='text-sm text-amber-900'>
+            <strong>⚠ Distance not assigned:</strong> {externalMembersWithoutDistance.map((m) => m.memberName).join(', ')}
+          </p>
+        </div>
+      )}
+
       {/* ── Quorum indicator ───────────────────────────────── */}
       <div className='flex items-center justify-between rounded-lg border bg-muted/30 px-4 py-2.5'>
         <div className='flex items-center gap-3 text-sm'>

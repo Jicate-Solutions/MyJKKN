@@ -43,6 +43,7 @@ import type {
 	BosTextbook,
 	BosWebResource,
 	BosPoMapping,
+	BosPracticalTopic,
 } from '@/types/bos'
 
 // ── Layout (mirrors PDF dimensions) ───────────────────────────────────────────
@@ -108,6 +109,8 @@ export interface CourseSyllabusDOCXData {
 	clos?: BosCourseLearnOutcome[]
 	k_values?: Record<string, string>
 	units?: BosUnit[]
+	practical_topics?: BosPracticalTopic[]
+	instruction?: string
 	textbooks?: BosTextbook[]
 	references?: BosTextbook[]
 	web_resources?: BosWebResource[]
@@ -468,6 +471,19 @@ function rowsCourseContent(data: CourseSyllabusDOCXData): TableRow[] {
 	return rows
 }
 
+function rowsInstructions(data: CourseSyllabusDOCXData): TableRow[] {
+	if (!data.instruction || !data.instruction.trim()) return []
+
+	return [
+		new TableRow({
+			children: [
+				tc([new Paragraph({ spacing: COMPACT_SPACING })]),
+				tc([p(data.instruction, { bold: true, alignment: AlignmentType.JUSTIFIED })], { columnSpan: 4 }),
+			],
+		}),
+	]
+}
+
 function rowsBooksAndPedagogy(data: CourseSyllabusDOCXData): TableRow[] {
 	const rows: TableRow[] = []
 
@@ -640,6 +656,7 @@ function buildMasterTable(data: CourseSyllabusDOCXData): Table {
 		...rowsObjectives(data),
 		...rowsCLOs(data),
 		...rowsCourseContent(data),
+		...rowsInstructions(data),
 		...rowsBooksAndPedagogy(data),
 	]
 

@@ -113,7 +113,7 @@ function generateMinutesHtml({
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
       font-family: 'Times New Roman', serif;
-      line-height: 1.5;
+      line-height: 1.6;
       color: #000;
       background: white;
     }
@@ -122,17 +122,17 @@ function generateMinutesHtml({
       width: 210mm;
       height: 297mm;
       margin: 0 auto;
-      padding: 12mm 15mm;
+      padding: 12mm 12mm;
       background: white;
       page-break-after: always;
+      position: relative;
     }
 
     .header {
       text-align: center;
-      margin-bottom: 14px;
-      padding-bottom: 8px;
-      position: relative;
-      border-bottom: 1px solid #ddd;
+      margin-bottom: 10px;
+      padding-bottom: 6px;
+      border-bottom: 2px solid #000;
     }
 
     .header-banner {
@@ -141,13 +141,13 @@ function generateMinutesHtml({
       justify-content: center;
       gap: 15mm;
       margin-bottom: 10px;
-      padding-bottom: 8px;
     }
 
     .header-logo {
       width: 20mm;
       height: 20mm;
       flex-shrink: 0;
+      object-fit: contain;
     }
 
     .header-center {
@@ -157,22 +157,26 @@ function generateMinutesHtml({
     }
 
     .header-title {
-      font-size: 14px;
+      font-size: 13px;
       font-weight: bold;
-      margin-bottom: 3px;
-      letter-spacing: 0.5px;
+      margin-bottom: 2px;
+      letter-spacing: 0.2px;
       color: #000;
+      line-height: 1.2;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: clip;
     }
 
     .header-accreditation {
-      font-size: 8px;
-      margin-bottom: 2px;
+      font-size: 8.5px;
+      margin-bottom: 3px;
       line-height: 1.3;
-      color: #333;
+      color: #000;
     }
 
     .header-address {
-      font-size: 9px;
+      font-size: 10px;
       font-weight: bold;
       margin-top: 3px;
       color: #000;
@@ -182,83 +186,78 @@ function generateMinutesHtml({
       display: flex;
       justify-content: space-between;
       align-items: flex-start;
-      margin-bottom: 0;
-      padding: 8px 0;
+      margin-top: 8px;
+      padding-top: 6px;
+      font-size: 8.5px;
+      gap: 10px;
       border-top: 1px solid #000;
-      border-bottom: 1px solid #000;
-      font-size: 9px;
-      gap: 20px;
     }
 
     .official-left {
       text-align: left;
       flex: 1;
-      padding-right: 10mm;
+      padding-right: 8mm;
     }
 
     .official-right {
       text-align: right;
       flex: 1;
-      padding-left: 10mm;
+      padding-left: 8mm;
     }
 
     .official-name {
       font-weight: bold;
-      font-size: 10px;
+      font-size: 9px;
       margin-bottom: 1px;
+      line-height: 1.3;
     }
 
     .official-role {
-      font-size: 9px;
+      font-size: 8px;
+      line-height: 1.3;
     }
 
     .official-contact {
-      font-size: 8px;
-      margin-top: 0.5px;
+      font-size: 7.5px;
+      margin-top: 1px;
+      line-height: 1.3;
+    }
+
+    .board-info {
+      font-weight: bold;
+      margin-bottom: 8px;
+      margin-top: 6px;
+      font-size: 11px;
+    }
+
+    .meeting-details {
+      text-align: center;
+      font-size: 10px;
+      margin-bottom: 8px;
+      padding: 0;
     }
 
     .section-title {
-      font-size: 13px;
-      font-weight: bold;
-      margin-top: 10px;
-      margin-bottom: 8px;
-    }
-
-    .section-subtitle {
       font-size: 12px;
       font-weight: bold;
-      margin-top: 12px;
-      margin-bottom: 8px;
+      margin-top: 8px;
+      margin-bottom: 6px;
+      letter-spacing: 0.2px;
       text-transform: uppercase;
-      letter-spacing: 0.5px;
       page-break-after: avoid;
-    }
-
-    .metadata-table {
-      width: 100%;
-      margin-bottom: 12px;
-      margin-top: 10px;
-      border-collapse: collapse;
-    }
-
-    .metadata-table td {
-      padding: 5px 6px;
-      border: 1px solid #000;
-      font-size: 10px;
-    }
-
-    .metadata-table td:first-child {
-      font-weight: bold;
-      width: 25%;
-      background: #f0f0f0;
     }
 
     table {
       width: 100%;
       border-collapse: collapse;
-      margin-bottom: 12px;
+      margin-bottom: 10px;
       font-size: 10px;
       page-break-inside: avoid;
+      table-layout: fixed;
+    }
+
+    table.attendance-table {
+      margin-top: 6px;
     }
 
     tr {
@@ -267,85 +266,75 @@ function generateMinutesHtml({
 
     th, td {
       border: 1px solid #000;
-      padding: 8px 8px;
+      padding: 6px 6px;
       text-align: left;
-      font-family: 'Times New Roman', serif;
       page-break-inside: avoid;
-      height: auto;
       vertical-align: top;
+      height: auto;
     }
 
     th {
-      background: #c0c0c0;
+      background: #d3d3d3;
       font-weight: bold;
-      height: 24px;
-      text-align: center;
-      padding: 8px 4px;
+      text-align: left;
+      padding: 6px 6px;
       font-size: 10px;
-    }
-
-    tbody tr {
-      height: auto;
     }
 
     tbody tr td:first-child {
       text-align: center;
-      font-weight: 500;
-    }
-
-    tbody tr td:nth-child(4) {
-      text-align: center;
-      font-weight: 600;
-    }
-
-    tbody tr td:nth-child(5) {
-      text-align: center;
+      font-weight: bold;
+      width: 5%;
     }
 
     .status-present { color: #008000; font-weight: bold; }
-    .status-absent { color: #b40000; font-weight: bold; }
-
-    .attendance-title {
-      text-align: center;
-      font-size: 16px;
-      font-weight: bold;
-      margin: 12px 0 10px 0;
-      letter-spacing: 0.3px;
-    }
-
-    .board-name {
-      font-weight: bold;
-      margin-bottom: 10px;
-      font-size: 10px;
-    }
+    .status-absent { color: #c00000; font-weight: bold; }
 
     .narrative {
-      margin: 15px 0;
-      padding: 10px;
+      margin: 8px 0;
+      padding: 6px 8px;
       border: 1px solid #000;
-      font-size: 11px;
-      line-height: 1.6;
-      text-align: justify;
-      font-family: 'Times New Roman', serif;
-    }
-
-    .agenda-item {
-      margin: 10px 0;
-      padding: 8px;
-      background: #f9f9f9;
       font-size: 10px;
+      line-height: 1.5;
+      text-align: left;
     }
 
-    .agenda-number {
+    .agenda-section {
+      margin-bottom: 8px;
+      padding: 0;
+      page-break-inside: avoid;
+    }
+
+    .agenda-title {
       font-weight: bold;
+      font-size: 10px;
+      margin-bottom: 3px;
     }
 
-    .attendance-note {
+    .agenda-detail {
       font-size: 10px;
-      margin: 10px 0 12px 0;
-      padding: 8px 0;
-      border-bottom: 1px solid #ddd;
       line-height: 1.4;
+      margin-top: 2px;
+      margin-left: 0;
+    }
+
+    .agenda-detail-label {
+      font-style: italic;
+      margin-right: 4px;
+    }
+
+    .attendance-summary {
+      font-size: 10px;
+      margin: 8px 0;
+      padding: 0;
+    }
+
+    .footer {
+      margin-top: 14px;
+      padding-top: 8px;
+      font-size: 8px;
+      color: #666;
+      text-align: right;
     }
   </style>
 </head>
@@ -354,13 +343,13 @@ function generateMinutesHtml({
   <div class="page">
     <div class="header">
       <div class="header-banner">
-        ${logoImage ? `<img src="${logoImage}" class="header-logo" alt="Logo">` : '<div style="width: 18mm;"></div>'}
+        ${logoImage ? `<img src="${logoImage}" class="header-logo" alt="Logo">` : '<div style="width: 20mm;"></div>'}
         <div class="header-center">
           <div class="header-title">${htmlEscape(institutionName)}</div>
           ${institutionAccreditation ? `<div class="header-accreditation">${htmlEscape(institutionAccreditation)}</div>` : ''}
           <div class="header-address">${htmlEscape(institutionAddress)}</div>
         </div>
-        ${rightLogoImage ? `<img src="${rightLogoImage}" class="header-logo" alt="Logo">` : '<div style="width: 18mm;"></div>'}
+        ${rightLogoImage ? `<img src="${rightLogoImage}" class="header-logo" alt="Logo">` : '<div style="width: 20mm;"></div>'}
       </div>
       <div class="officials">
         <div class="official-left">
@@ -371,26 +360,27 @@ function generateMinutesHtml({
           <div class="official-name">${htmlEscape(principalName)}</div>
           <div class="official-role">${htmlEscape(principalTitle)}</div>
           ${contactCell ? `<div class="official-contact">Cell: ${htmlEscape(contactCell)}</div>` : ''}
-          ${contactWeb || contactEmail ? `<div class="official-contact">${[contactWeb && `Web: ${htmlEscape(contactWeb)}`, contactEmail && `E-Mail: ${htmlEscape(contactEmail)}`].filter(Boolean).join('   ')}</div>` : ''}
+          ${contactWeb || contactEmail ? `<div class="official-contact">${[contactWeb && `Web: ${htmlEscape(contactWeb)}`, contactEmail && `E-Mail: ${htmlEscape(contactEmail)}`].filter(Boolean).join(' | ')}</div>` : ''}
         </div>
       </div>
     </div>
 
-    <div class="attendance-title">ATTENDANCE SHEET</div>
+    <div class="board-info">Board: ${htmlEscape(boardTitle)}</div>
 
-    <div class="board-name">Name of the board: ${htmlEscape(boardTitle)}</div>
-    <div class="attendance-note">
-      Meeting No. ${meeting.meeting_number} / ${meeting.academic_year} | Date: ${formatDate(meeting.actual_date || meeting.scheduled_date)} | Venue: ${htmlEscape(meeting.venue || '—')}
+    <div class="attendance-summary">
+      <strong>Meeting No.:</strong> ${meeting.meeting_number} / ${meeting.academic_year} |
+      <strong>Date:</strong> ${formatDate(meeting.actual_date || meeting.scheduled_date)} |
+      <strong>Venue:</strong> ${htmlEscape(meeting.venue || '—')} |
+      <strong>Present:</strong> ${present.length} / ${attendees.length}
     </div>
 
-    <div class="section-subtitle" style="margin-top: 8px;">ATTENDANCE (${present.length} Present / ${attendees.length} Total)</div>
-    <table>
+    <table class="attendance-table" style="table-layout: fixed;">
       <thead>
         <tr>
-          <th style="width: 8%;">S.No</th>
-          <th style="width: 24%;">Name</th>
+          <th style="width: 5%;">S.No</th>
+          <th style="width: 28%;">Name</th>
           <th style="width: 28%;">Designation</th>
-          <th style="width: 13%;">Status</th>
+          <th style="width: 12%;">Status</th>
           <th style="width: 27%;">Signature</th>
         </tr>
       </thead>
@@ -401,11 +391,11 @@ function generateMinutesHtml({
           const statusClass = a.attendance_status === 'present' ? 'status-present' : 'status-absent';
           return `
             <tr>
-              <td>${i + 1}</td>
-              <td>${htmlEscape(member.display_name ?? '—')}</td>
-              <td>${htmlEscape(member.display_designation ?? '')}</td>
-              <td><span class="${statusClass}">${status}</span></td>
-              <td></td>
+              <td style="width: 5%;">${i + 1}</td>
+              <td style="width: 28%;">${htmlEscape(member.display_name ?? '—')}</td>
+              <td style="width: 28%;">${htmlEscape(member.display_designation ?? '')}</td>
+              <td style="width: 12%;"><span class="${statusClass}">${status}</span></td>
+              <td style="width: 27%; height: 40px;"></td>
             </tr>
           `;
         }).join('')}
@@ -417,13 +407,13 @@ function generateMinutesHtml({
   <div class="page">
     <div class="header">
       <div class="header-banner">
-        ${logoImage ? `<img src="${logoImage}" class="header-logo" alt="Logo">` : '<div style="width: 18mm;"></div>'}
+        ${logoImage ? `<img src="${logoImage}" class="header-logo" alt="Logo">` : '<div style="width: 20mm;"></div>'}
         <div class="header-center">
           <div class="header-title">${htmlEscape(institutionName)}</div>
           ${institutionAccreditation ? `<div class="header-accreditation">${htmlEscape(institutionAccreditation)}</div>` : ''}
           <div class="header-address">${htmlEscape(institutionAddress)}</div>
         </div>
-        ${rightLogoImage ? `<img src="${rightLogoImage}" class="header-logo" alt="Logo">` : '<div style="width: 18mm;"></div>'}
+        ${rightLogoImage ? `<img src="${rightLogoImage}" class="header-logo" alt="Logo">` : '<div style="width: 20mm;"></div>'}
       </div>
       <div class="officials">
         <div class="official-left">
@@ -434,64 +424,60 @@ function generateMinutesHtml({
           <div class="official-name">${htmlEscape(principalName)}</div>
           <div class="official-role">${htmlEscape(principalTitle)}</div>
           ${contactCell ? `<div class="official-contact">Cell: ${htmlEscape(contactCell)}</div>` : ''}
-          ${contactWeb || contactEmail ? `<div class="official-contact">${[contactWeb && `Web: ${htmlEscape(contactWeb)}`, contactEmail && `E-Mail: ${htmlEscape(contactEmail)}`].filter(Boolean).join('   ')}</div>` : ''}
+          ${contactWeb || contactEmail ? `<div class="official-contact">${[contactWeb && `Web: ${htmlEscape(contactWeb)}`, contactEmail && `E-Mail: ${htmlEscape(contactEmail)}`].filter(Boolean).join(' | ')}</div>` : ''}
         </div>
       </div>
     </div>
 
-    <div class="attendance-title">MINUTES OF BOARD OF STUDIES MEETING</div>
+    <div class="board-info">Board: ${htmlEscape(boardTitle)}</div>
 
-    <div class="board-name">Name of the board: ${htmlEscape(boardTitle)}</div>
+    <div class="meeting-details">
+      Meeting No. ${meeting.meeting_number} / ${meeting.academic_year}   |   Date: ${formatDate(meeting.actual_date || meeting.scheduled_date)}   |   Start Time: ${formatTime(meeting.actual_start_time || meeting.scheduled_time)}   |   Venue: ${htmlEscape(meeting.venue || '—')}   |   Chairman: ${htmlEscape(chairmanName)}
+    </div>
 
-    <table class="metadata-table">
-      <tr><td>Meeting No.</td><td>${meeting.meeting_number} / ${meeting.academic_year}</td></tr>
-      <tr><td>Date</td><td>${formatDate(meeting.actual_date || meeting.scheduled_date)}</td></tr>
-      <tr><td>Start Time</td><td>${formatTime(meeting.actual_start_time || meeting.scheduled_time)}</td></tr>
-      <tr><td>Venue</td><td>${htmlEscape(meeting.venue || '—')}</td></tr>
-      <tr><td>Chairman</td><td>${htmlEscape(chairmanName)}</td></tr>
-    </table>
-
-    <div class="attendance-note">
+    <div class="attendance-summary">
       Attendance: ${present.length} Present / ${attendees.length} Total (see attendance sheet on page 1).
     </div>
 
     ${agendaItems.length > 0 ? `
-      <div class="section-subtitle">MEETING AGENDA</div>
+      <div class="section-title">Meeting Agenda</div>
       ${agendaItems.sort((a, b) => a.sort_order - b.sort_order).map(item => `
-        <div class="agenda-item">
-          <span class="agenda-number">${item.item_number}. ${htmlEscape(item.item_title)}</span>
-          ${item.discussion_notes ? `<br><em>Discussion: ${htmlEscape(item.discussion_notes)}</em>` : ''}
-          ${item.resolution_text ? `<br>Resolution: ${htmlEscape(item.resolution_text)}` : ''}
+        <div class="agenda-section">
+          <div class="agenda-title">${item.item_number}. ${htmlEscape(item.item_title)}</div>
+          ${item.discussion_notes ? `<div class="agenda-detail"><span class="agenda-detail-label">Discussion:</span> ${htmlEscape(item.discussion_notes)}</div>` : ''}
+          ${item.resolution_text ? `<div class="agenda-detail"><span class="agenda-detail-label">Resolution:</span> ${htmlEscape(item.resolution_text)}</div>` : ''}
         </div>
       `).join('')}
     ` : ''}
 
     ${meeting.minutes_content?.narrative_html ? `
-      <div class="section-subtitle">MINUTES NARRATIVE</div>
+      <div class="section-title">Minutes Narrative</div>
       <div class="narrative">
         ${stripHtml(meeting.minutes_content.narrative_html)}
       </div>
     ` : ''}
 
     ${meeting.minutes_summary ? `
-      <div class="section-subtitle">SUMMARY</div>
+      <div class="section-title">Summary</div>
       <div class="narrative">
         ${htmlEscape(meeting.minutes_summary)}
       </div>
     ` : ''}
+
+    <div class="footer">Generated on ${new Date().toLocaleString('en-IN')}</div>
   </div>
 
-  <!-- Signatures Page -->
+  <!-- Page 3: Signatures -->
   <div class="page">
     <div class="header">
       <div class="header-banner">
-        ${logoImage ? `<img src="${logoImage}" class="header-logo" alt="Logo">` : '<div style="width: 18mm;"></div>'}
+        ${logoImage ? `<img src="${logoImage}" class="header-logo" alt="Logo">` : '<div style="width: 20mm;"></div>'}
         <div class="header-center">
           <div class="header-title">${htmlEscape(institutionName)}</div>
           ${institutionAccreditation ? `<div class="header-accreditation">${htmlEscape(institutionAccreditation)}</div>` : ''}
           <div class="header-address">${htmlEscape(institutionAddress)}</div>
         </div>
-        ${rightLogoImage ? `<img src="${rightLogoImage}" class="header-logo" alt="Logo">` : '<div style="width: 18mm;"></div>'}
+        ${rightLogoImage ? `<img src="${rightLogoImage}" class="header-logo" alt="Logo">` : '<div style="width: 20mm;"></div>'}
       </div>
       <div class="officials">
         <div class="official-left">
@@ -502,17 +488,19 @@ function generateMinutesHtml({
           <div class="official-name">${htmlEscape(principalName)}</div>
           <div class="official-role">${htmlEscape(principalTitle)}</div>
           ${contactCell ? `<div class="official-contact">Cell: ${htmlEscape(contactCell)}</div>` : ''}
-          ${contactWeb || contactEmail ? `<div class="official-contact">${[contactWeb && `Web: ${htmlEscape(contactWeb)}`, contactEmail && `E-Mail: ${htmlEscape(contactEmail)}`].filter(Boolean).join('   ')}</div>` : ''}
+          ${contactWeb || contactEmail ? `<div class="official-contact">${[contactWeb && `Web: ${htmlEscape(contactWeb)}`, contactEmail && `E-Mail: ${htmlEscape(contactEmail)}`].filter(Boolean).join(' | ')}</div>` : ''}
         </div>
       </div>
     </div>
-    <div class="section-subtitle">SIGNATURES OF BOARD MEMBERS</div>
-    <table>
+
+    <div class="section-title">Signatures of Board Members</div>
+
+    <table style="table-layout: fixed;">
       <thead>
         <tr>
           <th style="width: 8%;">S.No</th>
-          <th style="width: 48%;">Members</th>
-          <th style="width: 44%;">Signature</th>
+          <th style="width: 60%;">Members</th>
+          <th style="width: 32%;">Signature</th>
         </tr>
       </thead>
       <tbody>
@@ -526,18 +514,16 @@ function generateMinutesHtml({
           ].filter(s => s && s.trim().length > 0);
           return `
             <tr>
-              <td>${i + 1}</td>
+              <td style="text-align: center; font-weight: bold;">${i + 1}</td>
               <td>${lines.map(l => htmlEscape(l)).join('<br>')}</td>
-              <td></td>
+              <td style="height: 45px;"></td>
             </tr>
           `;
         }).join('')}
       </tbody>
     </table>
 
-    <div style="margin-top: 30px; font-size: 10px; color: #666;">
-      Generated on ${new Date().toLocaleString('en-IN')}
-    </div>
+    <div class="footer">Generated on ${new Date().toLocaleString('en-IN')}</div>
   </div>
 </body>
 </html>
@@ -547,22 +533,30 @@ function generateMinutesHtml({
 let browser: Browser | null = null;
 
 async function getBrowser(): Promise<Browser> {
-  if (!browser) {
+  if (browser) {
     try {
-      const args = process.platform !== 'win32'
-        ? ['--no-sandbox', '--disable-setuid-sandbox']
-        : [];
-
-      console.log('[PDF] Launching Puppeteer browser...', { platform: process.platform, args });
-      browser = await puppeteer.launch({
-        headless: 'new',
-        args,
-      });
-      console.log('[PDF] Browser launched successfully');
+      await browser.version();
+      return browser;
     } catch (err) {
-      console.error('[PDF] Failed to launch browser:', err);
-      throw new Error(`Browser launch failed: ${err instanceof Error ? err.message : String(err)}`);
+      console.warn('[PDF] Browser connection lost, relaunching:', err);
+      browser = null;
     }
+  }
+
+  try {
+    const args = process.platform !== 'win32'
+      ? ['--no-sandbox', '--disable-setuid-sandbox']
+      : [];
+
+    console.log('[PDF] Launching Puppeteer browser...', { platform: process.platform, args });
+    browser = await puppeteer.launch({
+      headless: true,
+      args,
+    });
+    console.log('[PDF] Browser launched successfully');
+  } catch (err) {
+    console.error('[PDF] Failed to launch browser:', err);
+    throw new Error(`Browser launch failed: ${err instanceof Error ? err.message : String(err)}`);
   }
   return browser;
 }
@@ -578,12 +572,13 @@ export async function generateMinutesHtmlPdf(
     console.log('[PDF] HTML generated, length:', html.length);
 
     console.log('[PDF] Getting browser...');
-    const browser = await getBrowser();
+    const browserInstance = await getBrowser();
 
-    console.log('[PDF] Creating new page...');
-    const page = await browser.newPage();
-
+    let page = null;
     try {
+      console.log('[PDF] Creating new page...');
+      page = await browserInstance.newPage();
+
       console.log('[PDF] Setting page content...');
       await page.setContent(html, { waitUntil: 'networkidle0', timeout: 30000 });
       console.log('[PDF] Content set, generating PDF...');
@@ -597,11 +592,21 @@ export async function generateMinutesHtmlPdf(
       console.log('[PDF] PDF generated, size:', pdf.length, 'bytes');
       return Buffer.from(pdf);
     } finally {
-      await page.close();
+      if (page) {
+        try {
+          await page.close();
+        } catch (closeErr) {
+          console.warn('[PDF] Warning closing page:', closeErr);
+        }
+      }
     }
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : String(err);
     console.error('[PDF] Error during PDF generation:', errorMsg, err);
+    if (errorMsg.includes('Connection closed') || errorMsg.includes('Target closed')) {
+      console.error('[PDF] Browser connection lost, will reconnect on next request');
+      browser = null;
+    }
     throw err;
   }
 }

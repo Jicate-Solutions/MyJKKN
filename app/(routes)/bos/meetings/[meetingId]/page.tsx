@@ -521,14 +521,14 @@ export default function MeetingDetailPage({ params }: MeetingDetailPageProps) {
         description={board ? `${board.board_name} · ${BOS_MEETING_TYPE_LABELS[meeting.meeting_type]}` : ''}
       >
         <div className='flex items-center gap-2'>
-          {canEdit && isDraft && (
+          {canEdit && (isDraft || meeting.status === 'principal_approved') && (
             <Button
               size='sm'
               variant='outline'
               onClick={() => router.push(`/bos/meetings/${meetingId}/edit`)}
             >
               <Edit className='mr-2 h-4 w-4' />
-              Edit
+              Edit Schedule & Venue
             </Button>
           )}
           {canTransitionNext && nextStatus && !isRatified && (

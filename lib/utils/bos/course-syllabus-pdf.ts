@@ -371,6 +371,8 @@ export interface CourseSyllabusPDFData {
 	 * "1.1, 1.2, …" prefixes under the parent heading).
 	 */
 	practical_topics?: BosPracticalTopic[]
+	/** Instructions displayed after all course content (units/topics) */
+	instruction?: string
 	textbooks?: BosTextbook[]
 	references?: BosTextbook[]
 	web_resources?: BosWebResource[]
@@ -697,6 +699,18 @@ export function renderCourseSyllabusPDF(
 		y = table(doc, y, rows, {
 			0: { cellWidth: LABEL_W },
 			1: { cellWidth: contentColW },
+		})
+	}
+
+	// ── SECTION 5.5: Instructions (after units/topics) ──────────────────────────
+	if (data.instruction && data.instruction.trim()) {
+		const instructionText = sanitize(data.instruction).trim()
+		y = table(doc, y, [
+			[
+				bold(instructionText, { halign: 'left' }),
+			],
+		], {
+			0: { cellWidth: TABLE_W },
 		})
 	}
 

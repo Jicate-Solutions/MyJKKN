@@ -15,7 +15,8 @@ interface CoeBoard {
 // ── GET /api/bos/boards ───────────────────────────────────────────────────────
 // Returns boards for a given institution from the COE API.
 // Query param: institutionsId (MyJKKN UUID)
-// Super-admin may query any institution; others locked to their own scope.
+// Super-admin may query any institution; regular users can query their own
+// institution or CAS siblings (institutions with the same counselling_code).
 export async function GET(request: NextRequest) {
   try {
     const supabase = await createClient();
@@ -28,9 +29,20 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const institutionsId = searchParams.get('institutionsId');
 
-    const targetMyJkknId = scope.isSuperAdmin
-      ? (institutionsId ?? null)
-      : (scope.institutionsId ?? null);
+    // Super-admin can query any institution; regular users can query their own
+    // institution or CAS siblings (via allInstitutionIds).
+    let targetMyJkknId: string | null = null;
+    if (scope.isSuperAdmin) {
+      targetMyJkknId = institutionsId ?? null;
+    } else if (institutionsId) {
+      // User requested a specific institution — allow if it's a CAS sibling.
+      targetMyJkknId = scope.allInstitutionIds.includes(institutionsId)
+        ? institutionsId
+        : null;
+    } else {
+      // No specific institution requested — use user's default scope.
+      targetMyJkknId = scope.institutionsId ?? null;
+    }
 
     if (!targetMyJkknId) {
       return NextResponse.json({ data: [], count: 0 });

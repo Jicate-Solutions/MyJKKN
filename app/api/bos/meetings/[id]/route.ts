@@ -227,14 +227,14 @@ export async function PUT(
 
     const payload = {
       ...body,
-      scheduled_date: body.scheduled_date || null,
-      scheduled_time: body.scheduled_time || null,
-      actual_date: body.actual_date || null,
-      actual_start_time: body.actual_start_time || null,
-      actual_end_time: body.actual_end_time || null,
-      ratified_date: body.ratified_date || null,
-      venue: body.venue || null,
-      notes: body.notes || null,
+      scheduled_date: body.scheduled_date ? body.scheduled_date : null,
+      scheduled_time: body.scheduled_time ? body.scheduled_time : null,
+      actual_date: body.actual_date ? body.actual_date : null,
+      actual_start_time: body.actual_start_time ? body.actual_start_time : null,
+      actual_end_time: body.actual_end_time ? body.actual_end_time : null,
+      ratified_date: body.ratified_date ? body.ratified_date : null,
+      venue: body.venue ? body.venue : null,
+      notes: body.notes ? body.notes : null,
       updated_at: new Date().toISOString(),
     };
 

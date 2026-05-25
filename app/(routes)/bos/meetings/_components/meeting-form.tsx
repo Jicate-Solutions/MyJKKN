@@ -54,7 +54,8 @@ interface CompositionDetail extends CompositionOption {
 
 // ── Schema ────────────────────────────────────────────────────────────────────
 
-const meetingFormSchema = z.object({
+// Schema for creating meetings in draft stage
+const meetingFormSchemaCreate = z.object({
   institutions_id: z.string().min(1),
   board_id: z.string().min(1, 'Board is required'),
   composition_id: z.string().min(1, 'Composition is required'),
@@ -70,7 +71,24 @@ const meetingFormSchema = z.object({
   agenda_text: z.string().optional(),
 });
 
-export type MeetingFormValues = z.infer<typeof meetingFormSchema>;
+// Schema for editing meetings (allows blank scheduled_date for NULL → populated updates)
+const meetingFormSchemaEdit = z.object({
+  institutions_id: z.string().min(1),
+  board_id: z.string().min(1, 'Board is required'),
+  composition_id: z.string().min(1, 'Composition is required'),
+  meeting_number: z
+    .number({ invalid_type_error: 'Meeting number is required' })
+    .int('Must be a whole number')
+    .positive('Must be greater than 0'),
+  meeting_type: z.enum(['regular', 'special', 'emergency', 'online', 'hybrid']),
+  academic_year: z.string().min(1, 'Academic year is required'),
+  scheduled_date: z.string(),
+  scheduled_time: z.string().optional(),
+  venue: z.string().optional(),
+  agenda_text: z.string().optional(),
+});
+
+export type MeetingFormValues = z.infer<typeof meetingFormSchemaCreate>;
 
 // ── Props ─────────────────────────────────────────────────────────────────────
 
@@ -79,6 +97,7 @@ interface MeetingFormProps {
   isSubmitting: boolean;
   onSubmit: (data: MeetingFormValues) => void;
   onCancel: () => void;
+  isEditingScheduleOnly?: boolean;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -91,7 +110,7 @@ function deriveAcademicYear(dateStr: string): string {
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export function MeetingForm({ meeting, isSubmitting, onSubmit, onCancel }: MeetingFormProps) {
+export function MeetingForm({ meeting, isSubmitting, onSubmit, onCancel, isEditingScheduleOnly }: MeetingFormProps) {
   const { isSuperAdmin, isLoading: permissionsLoading } = usePermissions();
   const scope = useBosBoardScope();
 
@@ -106,7 +125,7 @@ export function MeetingForm({ meeting, isSubmitting, onSubmit, onCancel }: Meeti
   const [meetingNumberTouched, setMeetingNumberTouched] = useState(false);
 
   const form = useForm<MeetingFormValues>({
-    resolver: zodResolver(meetingFormSchema),
+    resolver: zodResolver(meeting ? meetingFormSchemaEdit : meetingFormSchemaCreate),
     defaultValues: meeting
       ? {
           institutions_id: meeting.institutions_id,
@@ -306,13 +325,23 @@ export function MeetingForm({ meeting, isSubmitting, onSubmit, onCancel }: Meeti
     <Form {...form}>
       <form onSubmit={form.handleSubmit(handleFormSubmit)} className='space-y-6'>
 
+        {/* Show message when editing only schedule in principal_approved stage */}
+        {isEditingScheduleOnly && (
+          <Card className='border-amber-200 bg-amber-50'>
+            <CardContent className='pt-4 text-sm text-amber-900'>
+              This meeting is in principal approval stage. You can only update the scheduled date, time, and venue.
+            </CardContent>
+          </Card>
+        )}
+
         {/* Two-column layout on xl+: main form (2/3) | sticky chairman side panel (1/3). */}
         <div className='grid grid-cols-1 gap-6 xl:grid-cols-3'>
 
           {/* ── Main column ──────────────────────────────────────────── */}
           <div className='space-y-6 xl:col-span-2'>
 
-            {/* Composition (primary selector) + auto-derived board */}
+            {/* Composition (primary selector) + auto-derived board — hidden in schedule-only edit mode */}
+            {!isEditingScheduleOnly && (
             <Card>
               <CardHeader>
                 <CardTitle className='text-base'>Select Composition</CardTitle>
@@ -372,8 +401,10 @@ export function MeetingForm({ meeting, isSubmitting, onSubmit, onCancel }: Meeti
                 </div>
               </CardContent>
             </Card>
+            )}
 
-            {/* Meeting Identity */}
+            {/* Meeting Identity — hidden in schedule-only edit mode */}
+            {!isEditingScheduleOnly && (
             <Card>
               <CardHeader>
                 <CardTitle className='text-base'>Meeting Details</CardTitle>
@@ -484,6 +515,7 @@ export function MeetingForm({ meeting, isSubmitting, onSubmit, onCancel }: Meeti
                 </div>
               </CardContent>
             </Card>
+            )}
 
             {/* Schedule & Venue */}
             <Card>
@@ -541,7 +573,8 @@ export function MeetingForm({ meeting, isSubmitting, onSubmit, onCancel }: Meeti
               </CardContent>
             </Card>
 
-            {/* Agenda Overview */}
+            {/* Agenda Overview — hidden in schedule-only edit mode */}
+            {!isEditingScheduleOnly && (
             <Card>
               <CardHeader>
                 <CardTitle className='text-base'>Agenda Overview</CardTitle>
@@ -569,10 +602,12 @@ export function MeetingForm({ meeting, isSubmitting, onSubmit, onCancel }: Meeti
                 />
               </CardContent>
             </Card>
+            )}
           </div>
 
-          {/* ── Sidebar (chairman + meeting summary) ─────────────────── */}
-          <aside className='xl:col-span-1'>
+          {/* ── Sidebar (chairman + meeting summary) — hidden in schedule-only edit mode */}
+          {!isEditingScheduleOnly && (
+          <aside className='xl:col-span-1' >
             <div className='space-y-4 xl:sticky xl:top-6'>
               <Card>
                 <CardHeader>
@@ -627,6 +662,7 @@ export function MeetingForm({ meeting, isSubmitting, onSubmit, onCancel }: Meeti
 
             </div>
           </aside>
+          )}
         </div>
 
         {/* ── Actions ───────────────────────────────────────────────── */}

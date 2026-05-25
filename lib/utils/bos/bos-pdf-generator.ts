@@ -358,45 +358,48 @@ export function buildMeetingNoticeDoc({
   if (header.officials) y = drawOfficials(doc, header.officials, y);
   y = divider(doc, y);
 
-  // Title
+  // Title — enhanced for better visual hierarchy
   doc.setFont('times', 'bold');
-  doc.setFontSize(12);
+  doc.setFontSize(14);
   doc.text('NOTICE OF BOARD OF STUDIES MEETING', PAGE_W / 2, y, { align: 'center' });
-  y += 7;
+  y += 8;
 
-  // Ref + Date
+  // Ref + Date with better spacing
   const ref = `Ref: BoS/${meeting.academic_year}/${meeting.meeting_number}`;
   doc.setFont('times', 'normal');
-  doc.setFontSize(9);
+  doc.setFontSize(10);
   doc.text(ref, MARGIN, y);
   doc.text(`Date: ${fmtDate(new Date().toISOString())}`, PAGE_W - MARGIN, y, { align: 'right' });
-  y += 7;
+  y += 8;
 
-  // Meeting details
+  // Meeting details — improved layout with better spacing
   y = detailsTable(doc, [
     ['Meeting No.', `${meeting.meeting_number} / ${meeting.academic_year}`],
     ['Meeting Type', titleCase(meeting.meeting_type ?? '')],
-    ['Date', fmtDate(meeting.scheduled_date)],
+    ['Scheduled Date', fmtDate(meeting.scheduled_date)],
     ['Time', fmtTime(meeting.scheduled_time)],
     ['Venue', meeting.venue ?? '—'],
     ['Chairman', chairmanName],
   ], y);
 
-  // Intro paragraph
+  // Intro paragraph — larger, more readable font
   doc.setFont('times', 'normal');
-  doc.setFontSize(10);
+  doc.setFontSize(11);
   const intro = `All members of the Board of Studies are hereby informed that the ${titleCase(meeting.meeting_type ?? '')} Meeting of the Board of Studies will be held as per the details mentioned above. Your presence is solicited.`;
   const introLines = doc.splitTextToSize(intro, CONTENT_W);
   doc.text(introLines, MARGIN, y);
-  y += introLines.length * 5.5 + 6;
+  y += introLines.length * 5.5 + 8;
 
-  // Agenda
-  if (agendaItems.length > 0) {
+  // Agenda section header — enhanced typography
+  if (agendaItems.length > 0 || meeting.agenda_text) {
     doc.setFont('times', 'bold');
-    doc.setFontSize(10);
+    doc.setFontSize(13);
     doc.text('AGENDA', MARGIN, y);
-    y += 4;
+    y += 6;
+  }
 
+  // Agenda items table
+  if (agendaItems.length > 0) {
     autoTable(doc, {
       head: [['No.', 'Agenda Item', 'Description']],
       body: [...agendaItems]
@@ -407,31 +410,27 @@ export function buildMeetingNoticeDoc({
       tableWidth: CONTENT_W,
       theme: 'grid',
       styles: {
-        font: 'times', fontSize: 9, cellPadding: 2.5,
+        font: 'times', fontSize: 10, cellPadding: 3,
         lineColor: [0, 0, 0], lineWidth: 0.3,
         textColor: [0, 0, 0], valign: 'middle', overflow: 'linebreak',
       },
       headStyles: {
         font: 'times', fontStyle: 'bold',
-        fillColor: [230, 230, 230], textColor: [0, 0, 0], halign: 'center', fontSize: 9,
+        fillColor: [211, 211, 211], textColor: [0, 0, 0], halign: 'center', fontSize: 10,
       },
       columnStyles: {
-        0: { cellWidth: 12, halign: 'center' },
-        1: { cellWidth: 65 },
-        2: { cellWidth: CONTENT_W - 77 },
+        0: { cellWidth: 14, halign: 'center' },
+        1: { cellWidth: 68 },
+        2: { cellWidth: CONTENT_W - 82 },
       },
     });
     y = lastAutoY(doc, y + 30) + 10;
   } else if (meeting.agenda_text) {
-    doc.setFont('times', 'bold');
-    doc.setFontSize(10);
-    doc.text('AGENDA', MARGIN, y);
-    y += 5;
     doc.setFont('times', 'normal');
-    doc.setFontSize(9);
+    doc.setFontSize(10);
     const agendaLines = doc.splitTextToSize(meeting.agenda_text, CONTENT_W);
     doc.text(agendaLines, MARGIN, y);
-    y += agendaLines.length * 5 + 10;
+    y += agendaLines.length * 5.5 + 10;
   }
 
   // ── Signature block ─────────────────────────────────────────────────────
@@ -441,8 +440,8 @@ export function buildMeetingNoticeDoc({
   //     has "PRINCIPAL" baked into the artwork, so no extra text line is needed.
   //   • No assets (Engineering etc.): fall back to text-only "Principal" line.
   const hasSignatureAssets = !!(header.sealImage || header.signImage);
-  const signatureBlockHeight = hasSignatureAssets ? 38 : 12;
-  if (y + signatureBlockHeight > PAGE_H - 15) { doc.addPage(); y = MARGIN + 10; }
+  const signatureBlockHeight = hasSignatureAssets ? 38 : 14;
+  if (y + signatureBlockHeight > PAGE_H - 18) { doc.addPage(); y = MARGIN + 10; }
 
   if (hasSignatureAssets) {
     const sealSize = 32;
@@ -473,9 +472,9 @@ export function buildMeetingNoticeDoc({
     }
   } else {
     doc.setFont('times', 'normal');
-    doc.setFontSize(10);
+    doc.setFontSize(11);
     doc.text(principalName, PAGE_W - MARGIN, y, { align: 'right' });
-    doc.text('Principal', PAGE_W - MARGIN, y + 5, { align: 'right' });
+    doc.text('Principal', PAGE_W - MARGIN, y + 6, { align: 'right' });
   }
 
   timestamp(doc);

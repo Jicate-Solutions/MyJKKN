@@ -57,7 +57,12 @@ export async function GET(request: NextRequest) {
 
     const { data, error } = await supabase
       .from('bos_members')
-      .select(`*, expert:bos_external_experts ( id, name, title, designation, institution_name, email, contact_no, category )`)
+      .select(`
+        *,
+        expert:bos_external_experts (
+          id, name, title, designation, institution_name, email, contact_no, category, distance_km
+        )
+      `)
       .eq('composition_id', compositionId)
       .order('sort_order', { ascending: true })
       .order('member_type', { ascending: true });
@@ -179,7 +184,12 @@ export async function POST(request: NextRequest) {
     const { data, error } = await supabase
       .from('bos_members')
       .insert(insertData)
-      .select(`*, expert:bos_external_experts ( id, name, title, designation, institution_name, email, contact_no, category )`)
+      .select(`
+        *,
+        expert:bos_external_experts (
+          id, name, title, designation, institution_name, email, contact_no, category, distance_km
+        )
+      `)
       .single();
 
     if (error) throw error;

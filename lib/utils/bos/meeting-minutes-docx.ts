@@ -92,12 +92,12 @@ function sortAttendeesForDocx(attendees: BosMeetingAttendee[]): BosMeetingAttend
 
 // ── Constants ────────────────────────────────────────────────────────────────
 const FONT = 'Times New Roman';
-const SIZE_BODY = 22;     // 11pt (docx units = half-points)
-const SIZE_SMALL = 18;    // 9pt
-const SIZE_TITLE = 28;    // 14pt
-const SIZE_SECTION = 22;  // 11pt — section headers
+const SIZE_BODY = 20;     // 10pt (docx units = half-points) — matched to PDF body text
+const SIZE_SMALL = 16;    // 8pt — for accreditation/contact lines
+const SIZE_HEADER = 26;   // 13pt — institution name header (matched to PDF)
+const SIZE_SECTION = 24;  // 12pt — section headers like "AGENDA", "MINUTES" (matched to PDF)
 const PAGE_WIDTH_MM = 210;
-const PAGE_MARGIN_MM = 15;
+const PAGE_MARGIN_MM = 12; // Reduced from 15mm to match PDF
 const CONTENT_WIDTH_DXA = convertMillimetersToTwip(PAGE_WIDTH_MM - PAGE_MARGIN_MM * 2);
 
 // Same normalization used by minutes-tab.tsx and bos-pdf-generator.ts —
@@ -194,11 +194,11 @@ function para(
 
 function sectionHeading(text: string): Paragraph {
   return new Paragraph({
-    heading: HeadingLevel.HEADING_2,
-    spacing: { before: 240, after: 120 },
+    alignment: AlignmentType.LEFT,
+    spacing: { before: 80, after: 60 },
     children: [
       new TextRun({
-        text,
+        text: text.toUpperCase(),
         font: FONT,
         size: SIZE_SECTION,
         bold: true,
@@ -215,11 +215,12 @@ function buildLetterhead(header: BosPdfHeader): Paragraph[] {
   paras.push(
     new Paragraph({
       alignment: AlignmentType.CENTER,
+      spacing: { before: 0, after: 40 },
       children: [
         new TextRun({
           text: (header.institution_name ?? '').toUpperCase(),
           font: FONT,
-          size: SIZE_TITLE,
+          size: SIZE_HEADER,
           bold: true,
         }),
       ],
@@ -348,65 +349,41 @@ function buildLetterhead(header: BosPdfHeader): Paragraph[] {
   return paras;
 }
 
-function buildDetailsTable(meeting: BosMeeting, chairmanName: string): Table {
-  const labelW = convertMillimetersToTwip(40);
-  const valueW = CONTENT_WIDTH_DXA - labelW;
-
-  const rows: Array<[string, string]> = [
-    ['Meeting No.', `${meeting.meeting_number} / ${meeting.academic_year}`],
-    ['Date', fmtDate(meeting.actual_date || meeting.scheduled_date)],
-    ['Start Time', fmtTime(meeting.actual_start_time || meeting.scheduled_time)],
-    ['Venue', meeting.venue || '—'],
-    ['Chairman', chairmanName],
+function buildDetailsLine(meeting: BosMeeting, chairmanName: string): Paragraph {
+  // Match PDF's inline pipe-separated format:
+  // "Meeting No. 3 / 2026-2027 | Date: 22 May 2026 | Start Time: 10:30 AM | Venue: Zoology Department | Chairman: Dr. S. Umavathi"
+  const parts = [
+    `Meeting No. ${meeting.meeting_number} / ${meeting.academic_year}`,
+    `Date: ${fmtDate(meeting.actual_date || meeting.scheduled_date)}`,
+    `Start Time: ${fmtTime(meeting.actual_start_time || meeting.scheduled_time)}`,
+    `Venue: ${meeting.venue || '—'}`,
+    `Chairman: ${chairmanName}`,
   ];
 
-  return new Table({
-    width: { size: CONTENT_WIDTH_DXA, type: WidthType.DXA },
-    rows: rows.map(
-      ([label, value]) =>
-        new TableRow({
-          children: [
-            new TableCell({
-              width: { size: labelW, type: WidthType.DXA },
-              shading: { fill: 'F5F5F5', type: 'clear', color: 'auto' },
-              borders: ALL_BORDERS,
-              children: [
-                new Paragraph({
-                  children: [
-                    new TextRun({ text: label, font: FONT, size: SIZE_BODY, bold: true }),
-                  ],
-                }),
-              ],
-            }),
-            new TableCell({
-              width: { size: valueW, type: WidthType.DXA },
-              borders: ALL_BORDERS,
-              children: [
-                new Paragraph({
-                  children: [
-                    new TextRun({ text: value, font: FONT, size: SIZE_BODY }),
-                  ],
-                }),
-              ],
-            }),
-          ],
-        }),
-    ),
+  return new Paragraph({
+    alignment: AlignmentType.LEFT,
+    spacing: { before: 80, after: 80 },
+    children: [
+      new TextRun({
+        text: parts.join('   |   '),
+        font: FONT,
+        size: SIZE_BODY,
+      }),
+    ],
   });
 }
 
 function buildAttendanceTable(attendees: BosMeetingAttendee[]): Table {
   // 5-column attendance table, mirroring the PDF's page-1 attendance sheet:
   // S.No | Name | Designation | Status | Signature.
-  //
-  // The Signature column gets the largest share of the page so members have
-  // room to physically sign on a printed copy.
+  // Proportions: 5% | 28% | 28% | 12% | 27% (matching PDF redesign)
+  const pageWidth = CONTENT_WIDTH_DXA;
   const colWidths = [
-    convertMillimetersToTwip(12),
-    convertMillimetersToTwip(46),
-    convertMillimetersToTwip(46),
-    convertMillimetersToTwip(22),
-    convertMillimetersToTwip(54), // Signature — widest
+    Math.round(pageWidth * 0.05),   // S.No — 5%
+    Math.round(pageWidth * 0.28),   // Name — 28%
+    Math.round(pageWidth * 0.28),   // Designation — 28%
+    Math.round(pageWidth * 0.12),   // Status — 12%
+    Math.round(pageWidth * 0.27),   // Signature — 27%
   ];
 
   const header = new TableRow({
@@ -443,42 +420,31 @@ function buildAttendanceTable(attendees: BosMeetingAttendee[]): Table {
   });
 }
 
-// Page-1 attendance-sheet heading + metadata strip. Returns the paragraphs
-// that sit between the letterhead and the attendance table. Heading format
-// matches the PDF: "<BOARD_TYPE> - <BOARD_NAME> ATTENDANCE SHEET".
-function buildAttendanceSheetHeader(
+// Board type + name as a simple bold line, matching the PDF format.
+// Replaces the old formal "ATTENDANCE SHEET" heading.
+function buildBoardLine(
   meeting: BosMeeting,
   boardName: string | undefined,
-): Paragraph[] {
+): Paragraph {
   const boardType = (meeting.board_type ?? '').trim().toUpperCase();
   const boardNameUpper = (boardName ?? '').trim().toUpperCase();
   const parts: string[] = [];
   if (boardType) parts.push(boardType);
   if (boardNameUpper) parts.push(boardNameUpper);
-  const heading = parts.length
-    ? `${parts.join(' - ')} ATTENDANCE SHEET`
-    : 'ATTENDANCE SHEET';
+  const boardLabel = parts.length ? parts.join(' - ') : 'Board';
 
-  const meta = [
-    `Meeting No. ${meeting.meeting_number} / ${meeting.academic_year}`,
-    `Date: ${fmtDate(meeting.actual_date || meeting.scheduled_date)}`,
-    `Venue: ${meeting.venue || '—'}`,
-  ].join('   |   ');
-
-  return [
-    new Paragraph({
-      alignment: AlignmentType.CENTER,
-      spacing: { before: 240, after: 120 },
-      children: [
-        new TextRun({ text: heading, font: FONT, size: SIZE_TITLE, bold: true }),
-      ],
-    }),
-    new Paragraph({
-      alignment: AlignmentType.CENTER,
-      spacing: { after: 120 },
-      children: [new TextRun({ text: meta, font: FONT, size: SIZE_BODY })],
-    }),
-  ];
+  return new Paragraph({
+    alignment: AlignmentType.LEFT,
+    spacing: { before: 80, after: 80 },
+    children: [
+      new TextRun({
+        text: `Board: ${boardLabel}`,
+        font: FONT,
+        size: SIZE_BODY,
+        bold: true,
+      }),
+    ],
+  });
 }
 
 // New signatures table replacing the old 3-per-row signature grid. Matches
@@ -499,10 +465,12 @@ function buildSignaturesTable(attendees: BosMeetingAttendee[]): Table | null {
 
   if (presentRows.length === 0) return null;
 
+  // Proportions: 8% | 60% | 32% (matching PDF redesign)
+  const pageWidth = CONTENT_WIDTH_DXA;
   const colWidths = [
-    convertMillimetersToTwip(14),
-    convertMillimetersToTwip(106), // Members — widest because it stacks 4 lines
-    convertMillimetersToTwip(60),  // Signature
+    Math.round(pageWidth * 0.08),   // S.No — 8%
+    Math.round(pageWidth * 0.60),   // Members — 60% (stacks Name/Designation/Institution/Address)
+    Math.round(pageWidth * 0.32),   // Signature — 32%
   ];
 
   // Compose the Members cell as one TableCell with multiple Paragraphs —
@@ -565,7 +533,7 @@ function buildAgendaParagraphs(agendaItems: BosAgendaItem[]): Paragraph[] {
   for (const item of sorted) {
     out.push(
       new Paragraph({
-        spacing: { before: 120, after: 40 },
+        spacing: { before: 80, after: 40 },
         children: [
           new TextRun({
             text: `${item.item_number}. ${item.item_title}`,
@@ -579,13 +547,19 @@ function buildAgendaParagraphs(agendaItems: BosAgendaItem[]): Paragraph[] {
     if (item.discussion_notes) {
       out.push(
         new Paragraph({
-          indent: { left: convertMillimetersToTwip(6) },
+          indent: { left: convertMillimetersToTwip(8) },
+          spacing: { after: 40 },
           children: [
             new TextRun({
-              text: `Discussion: ${item.discussion_notes}`,
+              text: 'Discussion: ',
               font: FONT,
               size: SIZE_BODY,
               italics: true,
+            }),
+            new TextRun({
+              text: item.discussion_notes,
+              font: FONT,
+              size: SIZE_BODY,
             }),
           ],
         }),
@@ -594,10 +568,17 @@ function buildAgendaParagraphs(agendaItems: BosAgendaItem[]): Paragraph[] {
     if (item.resolution_text) {
       out.push(
         new Paragraph({
-          indent: { left: convertMillimetersToTwip(6) },
+          indent: { left: convertMillimetersToTwip(8) },
+          spacing: { after: 40 },
           children: [
             new TextRun({
-              text: `Resolution: ${item.resolution_text}`,
+              text: 'Resolution: ',
+              font: FONT,
+              size: SIZE_BODY,
+              italics: true,
+            }),
+            new TextRun({
+              text: item.resolution_text,
               font: FONT,
               size: SIZE_BODY,
             }),
@@ -803,24 +784,13 @@ export function buildMinutesDocxDoc(params: MinutesDocxParams): Document {
   };
 
   const children: (Paragraph | Table)[] = [];
-
-  // ── Page 1: Standalone Attendance Sheet ────────────────────────────────
-  children.push(...renderLetterhead());
-  children.push(...buildAttendanceSheetHeader(meeting, boardName));
   const presentTotal = attendees.filter((a) => a.attendance_status === 'present').length;
-  children.push(
-    new Paragraph({
-      spacing: { after: 80 },
-      children: [
-        new TextRun({
-          text: `ATTENDANCE  (${presentTotal} Present / ${attendees.length} Total)`,
-          font: FONT,
-          size: SIZE_SECTION,
-          bold: true,
-        }),
-      ],
-    }),
-  );
+
+  // ── Page 1: Attendance Sheet ───────────────────────────────────────────
+  children.push(...renderLetterhead());
+  children.push(buildBoardLine(meeting, boardName));
+  children.push(buildDetailsLine(meeting, chairmanName));
+  children.push(sectionHeading('ATTENDANCE'));
   children.push(buildAttendanceTable(attendees));
 
   // ── Page break — Word renders subsequent content from a fresh page ────
@@ -830,40 +800,16 @@ export function buildMinutesDocxDoc(params: MinutesDocxParams): Document {
     }),
   );
 
-  // ── Page 2+: Minutes content ──────────────────────────────────────────
+  // ── Page 2: Minutes Content ──────────────────────────────────────────
   children.push(...renderLetterhead());
-
-  // Title — prefixed with board type + name when available, mirroring the
-  // PDF's "UG - COMPUTER SCIENCE - MINUTES OF BOARD OF STUDIES MEETING".
-  const tBoardType = (meeting.board_type ?? '').trim().toUpperCase();
-  const tBoardName = (boardName ?? '').trim().toUpperCase();
-  const titleParts: string[] = [];
-  if (tBoardType) titleParts.push(tBoardType);
-  if (tBoardName) titleParts.push(tBoardName);
-  titleParts.push('MINUTES OF BOARD OF STUDIES MEETING');
-  children.push(
-    new Paragraph({
-      alignment: AlignmentType.CENTER,
-      spacing: { before: 240, after: 120 },
-      children: [
-        new TextRun({
-          text: titleParts.join(' - '),
-          font: FONT,
-          size: SIZE_TITLE,
-          bold: true,
-        }),
-      ],
-    }),
-  );
-
-  // Details
-  children.push(buildDetailsTable(meeting, chairmanName));
+  children.push(buildBoardLine(meeting, boardName));
+  children.push(buildDetailsLine(meeting, chairmanName));
 
   // Attendance summary line — full roster is on page 1, so this is just a
   // pointer for someone reading the minutes section in isolation.
   children.push(
     new Paragraph({
-      spacing: { before: 120, after: 120 },
+      spacing: { before: 60, after: 120 },
       children: [
         new TextRun({
           text: `Attendance: ${presentTotal} Present / ${attendees.length} Total (see attendance sheet on page 1).`,
@@ -876,7 +822,7 @@ export function buildMinutesDocxDoc(params: MinutesDocxParams): Document {
 
   // Agenda
   if (agendaItems.length > 0) {
-    children.push(sectionHeading('AGENDA ITEMS & RESOLUTIONS'));
+    children.push(sectionHeading('MEETING AGENDA'));
     children.push(...buildAgendaParagraphs(agendaItems));
   }
 
@@ -900,10 +846,15 @@ export function buildMinutesDocxDoc(params: MinutesDocxParams): Document {
     children.push(para(meeting.minutes_summary));
   }
 
-  // Signatures — new table layout matching the PDF: S.No | Members (stacked
-  // Name/Designation/Institution/Address) | Signature. Present-only, sorted.
+  // ── Page 3+: Signatures ────────────────────────────────────────────────
   const sigTable = buildSignaturesTable(attendees);
   if (sigTable) {
+    children.push(
+      new Paragraph({
+        children: [new PageBreak()],
+      }),
+    );
+    children.push(...renderLetterhead());
     children.push(sectionHeading('SIGNATURES OF BOARD MEMBERS'));
     children.push(sigTable);
   }
