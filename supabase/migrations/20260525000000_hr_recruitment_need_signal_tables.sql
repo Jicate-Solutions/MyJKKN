@@ -245,19 +245,19 @@ CREATE POLICY workload_write ON public.hr_faculty_workload FOR ALL USING (public
 -- ============================================================================
 -- Policy seeds
 -- ============================================================================
-INSERT INTO public.platform_policies (policy_key, value, display_name, description, category, scope, ui_widget, is_active)
+INSERT INTO public.platform_policies (policy_key, value, description, scope_type, ui_widget, ui_category, is_active)
 VALUES
-  ('hr_recruitment.weight_sanctioned_gap',      '14.29', 'Weight: Sanctioned Gap',       'Composite score weight for sanctioned-vs-actual input',           'hr_recruitment', 'global', 'number', true),
-  ('hr_recruitment.weight_sfr',                 '14.29', 'Weight: SFR',                  'Composite score weight for student-faculty ratio input',           'hr_recruitment', 'global', 'number', true),
-  ('hr_recruitment.weight_specialization_gap',  '14.29', 'Weight: Specialization',       'Composite score weight for specialization coverage input',         'hr_recruitment', 'global', 'number', true),
-  ('hr_recruitment.weight_workload',            '14.29', 'Weight: Workload',             'Composite score weight for faculty workload input',                'hr_recruitment', 'global', 'number', true),
-  ('hr_recruitment.weight_projected_intake',    '14.29', 'Weight: Projected Intake',     'Composite score weight for projected next-AY intake input',        'hr_recruitment', 'global', 'number', true),
-  ('hr_recruitment.weight_attrition_pipeline',  '14.29', 'Weight: Attrition',            'Composite score weight for attrition pipeline input',              'hr_recruitment', 'global', 'number', true),
-  ('hr_recruitment.weight_peer_benchmark',      '14.27', 'Weight: Peer Benchmark',       'Composite score weight for peer comparison (adjusted to sum 100)', 'hr_recruitment', 'global', 'number', true),
-  ('hr_recruitment.leave_exclusion_threshold_days', '30', 'Leave Exclusion Threshold',   'Exclude faculty from headcount if on leave > this many days',     'hr_recruitment', 'global', 'number', true),
-  ('hr_recruitment.retirement_age_default',     '60',    'Default Retirement Age',       'Default retirement age for attrition projection',                 'hr_recruitment', 'global', 'number', true),
-  ('hr_recruitment.cache_ttl_seconds',          '3600',  'Signal Cache TTL',             'Signal cache duration in seconds (1 hour default)',                'hr_recruitment', 'global', 'number', true),
-  ('hr_recruitment.signal_granularity',         'program', 'Signal Granularity',         'per-program or per-department (configurable per institution)',     'hr_recruitment', 'institution', 'dropdown', true)
+  ('hr_recruitment.weight_sanctioned_gap',      '14.29'::jsonb, 'Composite score weight for sanctioned-vs-actual input',           'global', 'number', 'hr_recruitment', true),
+  ('hr_recruitment.weight_sfr',                 '14.29'::jsonb, 'Composite score weight for student-faculty ratio input',           'global', 'number', 'hr_recruitment', true),
+  ('hr_recruitment.weight_specialization_gap',  '14.29'::jsonb, 'Composite score weight for specialization coverage input',         'global', 'number', 'hr_recruitment', true),
+  ('hr_recruitment.weight_workload',            '14.29'::jsonb, 'Composite score weight for faculty workload input',                'global', 'number', 'hr_recruitment', true),
+  ('hr_recruitment.weight_projected_intake',    '14.29'::jsonb, 'Composite score weight for projected next-AY intake input',        'global', 'number', 'hr_recruitment', true),
+  ('hr_recruitment.weight_attrition_pipeline',  '14.29'::jsonb, 'Composite score weight for attrition pipeline input',              'global', 'number', 'hr_recruitment', true),
+  ('hr_recruitment.weight_peer_benchmark',      '14.27'::jsonb, 'Composite score weight for peer comparison (adjusted to sum 100)', 'global', 'number', 'hr_recruitment', true),
+  ('hr_recruitment.leave_exclusion_threshold_days', '30'::jsonb, 'Exclude faculty from headcount if on leave > this many days',     'global', 'number', 'hr_recruitment', true),
+  ('hr_recruitment.retirement_age_default',     '60'::jsonb,    'Default retirement age for attrition projection',                  'global', 'number', 'hr_recruitment', true),
+  ('hr_recruitment.cache_ttl_seconds',          '3600'::jsonb,  'Signal cache duration in seconds (1 hour default)',                'global', 'number', 'hr_recruitment', true),
+  ('hr_recruitment.signal_granularity',         '"program"'::jsonb, 'per-program or per-department (configurable per institution)', 'global', 'dropdown', 'hr_recruitment', true)
 ON CONFLICT (policy_key) DO NOTHING;
 
 -- Storage bucket
