@@ -305,6 +305,38 @@ export function useMyApprovalStatuses(userId: string | undefined) {
 }
 
 /**
+ * Hook to fetch reservations for a date range — used by the calendar view.
+ * Fetches all non-cancelled reservations visible to the current user.
+ */
+export function useCalendarReservations(
+  startDate: string | undefined,
+  endDate: string | undefined,
+  resourceId?: string,
+  institutionId?: string
+) {
+  return useQuery({
+    queryKey: [
+      'calendar-reservations',
+      startDate,
+      endDate,
+      resourceId,
+      institutionId
+    ],
+    queryFn: () => {
+      const filters: ReservationFilters = {};
+      if (startDate) filters.start_date = startDate;
+      if (endDate) filters.end_date = endDate;
+      if (resourceId) filters.resource_id = resourceId;
+      if (institutionId) filters.institution_id = institutionId;
+      return ReservationService.getReservations(filters);
+    },
+    enabled: !!startDate && !!endDate,
+    staleTime: 30 * 1000,
+    retry: 3
+  });
+}
+
+/**
  * Hook to fetch upcoming reservations
  */
 export function useUpcomingReservations(userId?: string) {

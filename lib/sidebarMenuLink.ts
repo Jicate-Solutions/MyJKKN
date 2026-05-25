@@ -343,6 +343,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/resource-management/reservations/new': 'resources.reservations.create',
   '/resource-management/reservations/[id]': 'resources.reservations.view',
   '/resource-management/reservations/[id]/edit': 'resources.reservations.edit',
+  '/resource-management/reservations/calendar': 'resources.reservations.view',
   '/resource-management/reservations/approvals': 'resources.approvals.view',
   '/resource-management/maintenance': 'resources.maintenance.view',
   '/resource-management/analytics': 'resources.analytics.view',
@@ -1543,6 +1544,12 @@ export function GetPages(pathname: string): MenuGroup[] {
               label: 'My Reservations',
               active:
                 pathname === '/resource-management/reservations/my-reservations'
+            },
+            {
+              href: '/resource-management/reservations/calendar',
+              label: 'Calendar',
+              active:
+                pathname === '/resource-management/reservations/calendar'
             }
           ]
         },
