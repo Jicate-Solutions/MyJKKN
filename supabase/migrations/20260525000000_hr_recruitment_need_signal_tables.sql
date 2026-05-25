@@ -258,7 +258,7 @@ VALUES
   ('hr_recruitment.retirement_age_default',     '60'::jsonb,    'Default retirement age for attrition projection',                  'global', 'number', 'hr_recruitment', true),
   ('hr_recruitment.cache_ttl_seconds',          '3600'::jsonb,  'Signal cache duration in seconds (1 hour default)',                'global', 'number', 'hr_recruitment', true),
   ('hr_recruitment.signal_granularity',         '"program"'::jsonb, 'per-program or per-department (configurable per institution)', 'global', 'dropdown', 'hr_recruitment', true)
-ON CONFLICT (policy_key) DO NOTHING;
+ON CONFLICT DO NOTHING;
 
 -- Storage bucket
 INSERT INTO storage.buckets (id, name, public) VALUES ('hr-recruitment-escalation-docs', 'hr-recruitment-escalation-docs', false) ON CONFLICT (id) DO NOTHING;
