@@ -8,7 +8,8 @@ export type BillStatus =
   | 'partially_paid'
   | 'cancelled'
   | 'overdue'
-  | 'refunded';
+  | 'refunded'
+  | 'superseded';
 export type PaymentMode = 'cash' | 'online' | 'bank_transfer' | 'dd' | 'cheque';
 export type RecurrencePattern = 'monthly' | 'quarterly' | 'yearly';
 export type DiscountCategory =
