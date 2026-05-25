@@ -23,7 +23,8 @@ import {
   AlertCircle,
   HelpCircle,
   Landmark,
-  ArrowRightLeft
+  ArrowRightLeft,
+  Send,
 } from 'lucide-react';
 import { TransferEnquiryDialog } from './transfer-enquiry-dialog';
 import { Button } from '@/components/ui/button';
@@ -182,6 +183,8 @@ export function DataTableRowActions<TData>({
       }
 
       const statusLabels: Record<string, string> = {
+        enquiry: 'Enquiry',
+        enquiry_submitted: 'Enquiry Submitted',
         admitted: 'Admitted',
         pending: 'Pending Application',
         rejected: 'Rejected',
@@ -252,6 +255,13 @@ export function DataTableRowActions<TData>({
                   >
                     <HelpCircle className="mr-2 h-4 w-4 text-gray-500" />
                     Mark as Enquiry
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => handleStatusUpdate('enquiry_submitted')}
+                    disabled={learner.lifecycle_status === 'enquiry_submitted' || updateMutation.isPending}
+                  >
+                    <Send className="mr-2 h-4 w-4 text-sky-500" />
+                    Mark as Enquiry Submitted
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     onClick={() => handleStatusUpdate('pending')}

@@ -17,7 +17,10 @@ import {
 import { ReservationInfo } from './_components/reservation-info';
 import { ReservationActions } from './_components/reservation-actions';
 import { ReservationTimeline } from './_components/reservation-timeline';
-import { useReservation } from '@/hooks/reservation/use-reservations';
+import {
+  useReservation,
+  useReservationApprovals
+} from '@/hooks/reservation/use-reservations';
 import { useAuth } from '@/hooks/use-auth';
 import { useRouter } from 'next/navigation';
 import { use } from 'react';
@@ -35,6 +38,8 @@ export default function ReservationDetailsPage({
   const reservationId = resolvedParams.id;
 
   const { data: reservation, isLoading } = useReservation(reservationId);
+  const { data: approvals, isLoading: isLoadingApprovals } =
+    useReservationApprovals(reservationId);
 
   if (isLoading) {
     return (
@@ -119,7 +124,11 @@ export default function ReservationDetailsPage({
         {/* Sidebar */}
         <div className='space-y-6'>
           <ReservationActions reservation={reservation} userId={user?.id} />
-          <ReservationTimeline reservation={reservation} />
+          <ReservationTimeline
+            reservation={reservation}
+            approvals={approvals || []}
+            isLoadingApprovals={isLoadingApprovals}
+          />
         </div>
       </div>
     </ContentLayout>

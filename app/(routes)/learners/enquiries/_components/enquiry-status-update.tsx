@@ -19,8 +19,8 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 import {
-  ChevronDown, Clock, CheckCircle, XCircle, AlertCircle, HelpCircle,
-  Landmark, Send, FileCheck,
+  ChevronDown, Clock, XCircle, AlertCircle, HelpCircle,
+  Landmark, Send,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -47,7 +47,17 @@ interface EnquiryStatusUpdateProps {
   enquiry: LearnerProfile;
 }
 
-/** Manually-transitionable statuses (the rest are computed/system-driven). */
+/**
+ * Manually-transitionable statuses.
+ *
+ * 'approved', 'admitted', 'reserved' are intentionally EXCLUDED — they are
+ * payment-driven and set automatically by the
+ * `evaluate_learner_status_after_payment` RPC (and the auto-activation logic
+ * in learner-profile-service.ts). Exposing them as manual options would let
+ * admins desync the lifecycle from the billing state. They still render
+ * correctly via STATUS_BADGE_CLASS when the system promotes a learner into
+ * them — they just aren't selectable here.
+ */
 const STATUS_OPTIONS: Array<{
   value: LifecycleStatus;
   label: string;
@@ -57,9 +67,7 @@ const STATUS_OPTIONS: Array<{
   { value: 'enquiry',           label: 'Enquiry',            icon: HelpCircle,  iconClassName: 'text-gray-500' },
   { value: 'enquiry_submitted', label: 'Enquiry Submitted',  icon: Send,        iconClassName: 'text-sky-500' },
   { value: 'pending',           label: 'Pending',            icon: Clock,       iconClassName: 'text-yellow-500' },
-  { value: 'approved',          label: 'Approved',           icon: CheckCircle, iconClassName: 'text-green-500' },
   { value: 'account',           label: 'Account (Billing)',  icon: Landmark,    iconClassName: 'text-amber-500' },
-  { value: 'admitted',          label: 'Admitted',           icon: FileCheck,   iconClassName: 'text-emerald-500' },
   { value: 'waitlisted',        label: 'Waitlisted',         icon: AlertCircle, iconClassName: 'text-blue-500' },
   { value: 'rejected',          label: 'Rejected',           icon: XCircle,     iconClassName: 'text-red-500' },
 ];

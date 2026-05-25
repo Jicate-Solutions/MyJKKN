@@ -56,11 +56,7 @@ export function BillingScheduleDataTable({
           search: params.search || undefined,
           sortBy: params.sort_by || undefined,
           sortDirection: (params.sort_order as 'asc' | 'desc') || undefined,
-          institution_id:
-            search.institution_id ||
-            (!isSuperAdmin && userProfile?.institution_id
-              ? userProfile.institution_id
-              : undefined),
+          institution_id: search.institution_id || undefined,
           student_id: search.student_id || undefined,
           item_category_id: search.item_category_id || undefined,
           status: search.status || undefined,
@@ -119,8 +115,6 @@ export function BillingScheduleDataTable({
       search.program_id,
       search.semester_id,
       search.section_id,
-      isSuperAdmin,
-      userProfile?.institution_id
     ]
   );
 

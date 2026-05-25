@@ -10,12 +10,15 @@ import {
 } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
 import { RotateCcw } from 'lucide-react';
-import { OrganizationService } from '@/lib/services/organization/organization-service';
 import { DegreeService } from '@/lib/services/organization/degree-service';
 import { DepartmentService } from '@/lib/services/organization/department-service';
 import { ProgramService } from '@/lib/services/organization/program-service';
-import { usePermissions } from '@/hooks/use-permissions';
-import type { OnboardingFilters as OnboardingFilterShape } from '@/lib/services/billing/onboarding/onboarding-service';
+import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
+import {
+  ONBOARDING_LIFECYCLE_STATUSES,
+  type OnboardingFilters as OnboardingFilterShape,
+  type OnboardingLifecycleStatus,
+} from '@/lib/services/billing/onboarding/onboarding-service';
 
 // Subset of OnboardingFilters that this component manages. The data table owns
 // search/payment_status/page/limit and merges these in.
@@ -26,7 +29,14 @@ export type OnboardingHierarchyFilters = Pick<
   | 'department_id'
   | 'program_id'
   | 'bill_status'
+  | 'lifecycle_status'
 >;
+
+const LIFECYCLE_LABELS: Record<OnboardingLifecycleStatus, string> = {
+  account: 'Account',
+  admitted: 'Admitted',
+  reserved: 'Reserved',
+};
 
 export type OnboardingFilterKey = keyof OnboardingHierarchyFilters;
 
@@ -41,9 +51,6 @@ export function OnboardingFilters({
   onFilterChange,
   onClearFilters,
 }: OnboardingFiltersProps) {
-  const [institutions, setInstitutions] = useState<
-    Array<{ id: string; name: string }>
-  >([]);
   const [degrees, setDegrees] = useState<
     Array<{ id: string; degree_name: string }>
   >([]);
@@ -53,42 +60,24 @@ export function OnboardingFilters({
   const [programs, setPrograms] = useState<
     Array<{ id: string; program_name: string }>
   >([]);
-  const [loadingInstitutions, setLoadingInstitutions] = useState(false);
-  const { isSuperAdmin, userProfile } = usePermissions();
+  const {
+    institutions,
+    loading: loadingInstitutions,
+  } = useInstitutionsWithAccess({ isActive: true });
 
-  // Load institutions once on mount.
-  useEffect(() => {
-    let cancelled = false;
-    async function load() {
-      try {
-        setLoadingInstitutions(true);
-        const data = await OrganizationService.getInstitutionNames(true);
-        if (!cancelled) setInstitutions(data);
-      } catch (error) {
-        console.error('[onboarding-filters] load institutions failed:', error);
-      } finally {
-        if (!cancelled) setLoadingInstitutions(false);
-      }
-    }
-    load();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  const hasMultiInstitutionAccess = institutions.length > 1;
 
-  // Auto-pin institution for non-super-admin users (their access is scoped).
+  // Auto-pin institution for single-institution users.
   useEffect(() => {
     if (
-      !isSuperAdmin &&
-      userProfile?.institution_id &&
-      !filters.institution_id &&
-      !loadingInstitutions
+      !loadingInstitutions &&
+      institutions.length === 1 &&
+      !filters.institution_id
     ) {
-      onFilterChange('institution_id', userProfile.institution_id);
+      onFilterChange('institution_id', institutions[0].id);
     }
   }, [
-    userProfile,
-    isSuperAdmin,
+    institutions,
     filters.institution_id,
     onFilterChange,
     loadingInstitutions,
@@ -182,7 +171,8 @@ export function OnboardingFilters({
     filters.degree_id ||
     filters.department_id ||
     filters.program_id ||
-    filters.bill_status
+    filters.bill_status ||
+    filters.lifecycle_status
   );
 
   return (
@@ -190,7 +180,7 @@ export function OnboardingFilters({
       {/* Row 1: Institution → Degree → Department → Programme + Reset */}
       <div className='flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between'>
         <div className='flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center'>
-          {isSuperAdmin && (
+          {hasMultiInstitutionAccess && (
             <Select
               value={filters.institution_id || 'all'}
               onValueChange={(value) => {
@@ -292,10 +282,30 @@ export function OnboardingFilters({
         )}
       </div>
 
-      {/* Row 2: Bill Status — orthogonal to the academic hierarchy.
-          Generated = at least one billing_student_bills row exists.
-          Not Generated = zero bill rows (learner sent to accounts but bills not yet created). */}
+      {/* Row 2: Lifecycle Status + Bill Status — orthogonal to the academic hierarchy. */}
       <div className='flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center'>
+        <Select
+          value={filters.lifecycle_status || 'all'}
+          onValueChange={(value) =>
+            onFilterChange(
+              'lifecycle_status',
+              value === 'all' ? undefined : (value as OnboardingLifecycleStatus)
+            )
+          }
+        >
+          <SelectTrigger className='w-full sm:w-[180px]'>
+            <SelectValue placeholder='Learner status' />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value='all'>All Statuses</SelectItem>
+            {ONBOARDING_LIFECYCLE_STATUSES.map((status) => (
+              <SelectItem key={status} value={status}>
+                {LIFECYCLE_LABELS[status]}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
         <Select
           value={filters.bill_status || 'all'}
           onValueChange={(value) =>

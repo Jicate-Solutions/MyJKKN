@@ -8,11 +8,18 @@
 // is identical — only the base URL and bearer token differ. Sarvam exposes
 // its own form-encoded endpoint with an api-subscription-key header.
 //
-// Returns the same shape regardless of provider, with `language` always
-// normalized to an ISO 639-1 code (e.g. 'en') — never a full-word language
-// name like 'English'. Whisper-verbose-json returns `language: "English"`
-// (capital E, full word); this dispatcher folds that into `'en'` at source
-// so downstream language guardrails can do a simple `=== 'en'` compare.
+// Returns the same shape regardless of provider:
+//   { text: string, language: string, durationSeconds: number | null }
+//
+// `language` is always normalized to an ISO 639-1 code (e.g. 'en') — never a
+// full-word language name like 'English'. Whisper-verbose-json returns
+// `language: "English"` (capital E, full word); this dispatcher folds that
+// into `'en'` at source so downstream language guardrails can do a simple
+// `=== 'en'` compare.
+//
+// `durationSeconds` comes from Whisper's verbose_json `duration` field — needed
+// for accurate per-call cost estimation. Null when the provider doesn't return
+// it (Sarvam currently; future-OpenAI without verbose_json).
 // ============================================================================
 
 export type TranscriptionProvider = 'openai' | 'groq' | 'sarvam';
@@ -20,6 +27,12 @@ export type TranscriptionProvider = 'openai' | 'groq' | 'sarvam';
 export interface TranscriptionResult {
   text: string;
   language: string;
+  /** Audio duration in seconds, parsed from the provider's verbose_json
+   *  `duration` field. Null when the provider response omits it. Needed by
+   *  estimateTranscriptionCostInr — without it, every transcription cost row
+   *  is recorded as null and the admin Cost panel reports ₹0 even when
+   *  thousands of calls fire (the bug this field was added to fix). */
+  durationSeconds: number | null;
 }
 
 interface TranscribeArgs {
@@ -150,10 +163,23 @@ async function openaiCompatibleTranscribe(args: CompatArgs): Promise<Transcripti
     throw new Error(`Transcription API ${response.status}: ${errBody.slice(0, 200)}`);
   }
 
-  const data = (await response.json()) as { text?: string; language?: string };
+  const data = (await response.json()) as {
+    text?: string;
+    language?: string;
+    duration?: number;
+  };
+  // verbose_json on both OpenAI and Groq Whisper returns `duration` in seconds
+  // (float). Coerce defensively — a non-number means we record null and the cost
+  // estimator skips this row rather than recording a wrong value.
+  const rawDuration = data.duration;
+  const durationSeconds =
+    typeof rawDuration === 'number' && Number.isFinite(rawDuration) && rawDuration > 0
+      ? rawDuration
+      : null;
   return {
     text: (data.text || '').trim(),
     language: normalizeLanguageCode(data.language),
+    durationSeconds,
   };
 }
 
@@ -169,6 +195,11 @@ async function openaiCompatibleTranscribe(args: CompatArgs): Promise<Transcripti
 //   Response: { request_id, transcript, language_code }
 //     language_code is BCP-47 ("en-IN", "ta-IN") — normalized to ISO via
 //     normalizeLanguageCode() so downstream guardrails see plain "en"/"ta".
+//
+// Note on cost tracking: Sarvam's response does NOT include audio duration,
+// so we return durationSeconds=null. The cost estimator skips the row rather
+// than recording a wrong cost. Director can wire duration via the audio
+// metadata pre-upload if exact per-call Sarvam cost becomes required.
 async function transcribeViaSarvam(args: TranscribeArgs): Promise<TranscriptionResult> {
   const apiKey = process.env.SARVAM_API_KEY;
   if (!apiKey) {
@@ -220,6 +251,7 @@ async function transcribeViaSarvam(args: TranscribeArgs): Promise<TranscriptionR
   return {
     text: (data.transcript || '').trim(),
     language: normalizeLanguageCode(data.language_code),
+    durationSeconds: null,
   };
 }
 

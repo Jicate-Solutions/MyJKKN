@@ -320,7 +320,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/billing/invoices/[id]': 'billing.invoices.view',
   '/billing/invoices/[id]/edit': 'billing.invoices.edit',
   '/billing/reports': 'billing.reports.view',
-
+  '/billing/onboarding': 'billing.onboarding.view',
 
   // Resource Management
   '/resource-management': 'resources.categories.view',
@@ -549,7 +549,26 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/cdc/industry-mentors/[id]': 'cdc.industry_mentors.view',
 
   // CDC — Reports & Exports
-  '/cdc/exports': 'cdc.exports.view'
+  '/cdc/exports': 'cdc.exports.view',
+
+  // PDE — Clinical Reasoning (AICBL → PDE port, PR #1059)
+  // Closes the [unused-prefix] /admin/pde audit-coverage warning by giving the
+  // prefix at least one MENU_PERMISSIONS entry. Faculty cases (CRUD) and the
+  // student case attempt URL also wired so RBAC enforces the documented matrix:
+  //   - /admin/pde/policies/clinical-reasoning → Director / institution_admin /
+  //     super_admin (uses pde.admin.view)
+  //   - /faculty/pde/cases (+ subroutes) → faculty / institution_admin /
+  //     super_admin (uses pde.faculty.view)
+  //   - /learn/pde/cases/[caseSlug] → auto-discoverable for BDS-enrolled
+  //     learners (uses pde.profile.view; VAC course-page wiring is a follow-up)
+  '/admin/pde/policies/clinical-reasoning': 'pde.admin.view',
+  '/faculty/pde/cases': 'pde.faculty.view',
+  '/faculty/pde/cases/new': 'pde.faculty.view',
+  '/faculty/pde/cases/[id]/edit': 'pde.faculty.view',
+  '/faculty/pde/cases/[id]/preview': 'pde.faculty.view',
+  '/faculty/pde/cases/[id]/attempts': 'pde.faculty.view',
+  '/faculty/pde/cases/[id]/attempts/[studentId]': 'pde.faculty.view',
+  '/learn/pde/cases/[caseSlug]': 'pde.profile.view'
 };
 
 export function GetPages(pathname: string): MenuGroup[] {
@@ -1398,6 +1417,11 @@ export function GetPages(pathname: string): MenuGroup[] {
               href: '/billing/schedule/students',
               label: 'Search Learners',
               active: pathname.startsWith('/billing/schedule/students')
+            },
+            {
+              href: '/billing/onboarding',
+              label: 'Learner Onboarding',
+              active: pathname.startsWith('/billing/onboarding')
             }
           ]
         },

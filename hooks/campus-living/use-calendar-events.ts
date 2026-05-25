@@ -144,6 +144,29 @@ export interface UseCalendarEventsResult {
 }
 
 /**
+ * Extract a row array from a react-query result whose `data` may either be:
+ *   - a plain `T[]` (legacy / some hooks), OR
+ *   - a paginated wrapper `{ data: T[], count: number }` (all current
+ *     campus-living services return this shape).
+ *
+ * Returns `[]` for any other value (undefined, null, error states, malformed).
+ * This is what was missing in PR #1050 and caused the
+ * `.forEach is not a function` crash on /campus-living/calendar.
+ */
+function extractRows<T>(queryData: unknown): T[] {
+  if (Array.isArray(queryData)) return queryData as T[];
+  if (
+    queryData &&
+    typeof queryData === 'object' &&
+    'data' in queryData &&
+    Array.isArray((queryData as { data: unknown }).data)
+  ) {
+    return (queryData as { data: T[] }).data;
+  }
+  return [];
+}
+
+/**
  * Aggregator hook. Pass the institution_id from `useAuth().profile.institution_id`.
  *
  * Returns a flat, de-duplicated array of CalendarEvents. Filtering by source
@@ -166,13 +189,13 @@ export function useCalendarEvents(institutionId: string | undefined): UseCalenda
       out.push(e);
     };
 
-    (leaves.data ?? []).forEach((row) => push(mapLeave(row as HostelLeaveRequest)));
-    (passes.data ?? []).forEach((row) => push(mapGatePass(row as HostelGatePass)));
-    (maintenance.data ?? []).forEach((row) =>
-      push(mapMaintenance(row as HostelMaintenanceRequest)),
+    extractRows<HostelLeaveRequest>(leaves.data).forEach((row) => push(mapLeave(row)));
+    extractRows<HostelGatePass>(passes.data).forEach((row) => push(mapGatePass(row)));
+    extractRows<HostelMaintenanceRequest>(maintenance.data).forEach((row) =>
+      push(mapMaintenance(row)),
     );
-    (menus.data ?? []).forEach((row) => push(mapMessMenu(row as MessMenu)));
-    (incidents.data ?? []).forEach((row) => push(mapIncident(row as HostelIncident)));
+    extractRows<MessMenu>(menus.data).forEach((row) => push(mapMessMenu(row)));
+    extractRows<HostelIncident>(incidents.data).forEach((row) => push(mapIncident(row)));
 
     return out;
   }, [leaves.data, passes.data, maintenance.data, menus.data, incidents.data]);

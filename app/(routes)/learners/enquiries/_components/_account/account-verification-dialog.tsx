@@ -53,6 +53,7 @@ import { FeeStructureReadonlyPanel } from '../form-sections/_fee/fee-structure-r
 
 import { AccountTransitionService } from '@/lib/services/admission/account-transition-service';
 import { FeeChangeEventService } from '@/lib/services/admission/fee-change-event-service';
+import { getErrorMessage } from '@/lib/utils';
 import { useActivityMutations } from '@/hooks/admission/use-activities';
 import { useAuth } from '@/hooks/use-auth';
 
@@ -79,6 +80,7 @@ function dimsFromLearner(learner: LearnerProfile): Partial<FeeStructureMatrixDim
     community_category_id: (learner as { community_category_id?: string }).community_category_id ?? undefined,
     accommodation_type_id: (learner as { accommodation_type_id?: string }).accommodation_type_id ?? undefined,
     admission_year_id:     learner.admission_year_id ?? undefined,
+    gender:                (learner as { gender?: string }).gender?.toUpperCase() || undefined,
   };
 }
 
@@ -250,7 +252,7 @@ export function AccountVerificationDialog({
       setTimeout(() => router.refresh(), 300);
     } catch (err) {
       console.error('[account-verification-dialog] transition failed:', err);
-      const msg = err instanceof Error ? err.message : 'Transition failed';
+      const msg = getErrorMessage(err);
       toast.error(msg);
     } finally {
       submittingRef.current = false;

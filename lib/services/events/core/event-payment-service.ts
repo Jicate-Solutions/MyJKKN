@@ -7,6 +7,25 @@ import { createServiceRoleClient } from '@/lib/supabase/server';
 import { HDFCEventClient } from './hdfc-event-client';
 import { logger } from '@/lib/utils/enhanced-logger';
 import type { EventPaymentTransaction } from '@/types/events';
+import { getActiveProviderName, getPaymentProvider } from '@/lib/services/payments/factory';
+import { toPaise } from '@/lib/services/payments/amount';
+import { dualInquiry } from '@/lib/services/payments/razorpay/get-status';
+
+export interface EventInitiatePaymentResult {
+  payment_url: string;
+  transaction_id: string;
+  // --- Razorpay migration additions (Task 23) ---
+  provider?: 'hdfc_smartgateway' | 'razorpay';
+  transaction_ref?: string;
+  razorpay_order_id?: string;
+  razorpay_key_id?: string;
+  amount_paise?: number;
+  customer?: {
+    name?: string;
+    email?: string;
+    phone?: string;
+  };
+}
 
 // ============================================================================
 // EventPaymentService
@@ -37,7 +56,7 @@ export class EventPaymentService {
     payerPhone: string;
     discountCode?: string;
     returnUrl: string;
-  }): Promise<{ payment_url: string; transaction_id: string }> {
+  }): Promise<EventInitiatePaymentResult> {
     const supabase = createServiceRoleClient();
 
     logger.info('events/payment', 'Initiating event payment', {
@@ -69,6 +88,85 @@ export class EventPaymentService {
     // Step 2: Generate unique transaction reference
     // Format: E{YYYYMMDDHHMMSS}{XXXXX} — 20 chars, alphanumeric, non-sequential
     const transactionRef = this.generateTransactionRef();
+
+    // ----------------------------------------------------------------------
+    // Provider branch (Task 23): If EVENTS_PAYMENT_PROVIDER=razorpay, create
+    // an order via the provider abstraction and return early. Otherwise the
+    // existing HDFC SmartGateway flow runs below.
+    // ----------------------------------------------------------------------
+    if (getActiveProviderName('events') === 'razorpay') {
+      const provider = getPaymentProvider('events');
+      const amountPaise = toPaise(params.amount);
+
+      const order = await provider.createOrder({
+        transactionRef,
+        amountPaise,
+        currency: 'INR',
+        module: 'events',
+        notes: {
+          registration_id: params.registrationId,
+          event_id: params.eventId,
+          transaction_ref: transactionRef,
+          institution_id: registration.institution_id ?? '',
+        },
+        description: `Event Registration - ${registration.participant_name || 'Participant'}`,
+        customer: {
+          name: params.payerName,
+          email: params.payerEmail,
+          phone: params.payerPhone,
+        },
+      });
+
+      const { data: txn, error: txnError } = await (supabase as any)
+        .from('event_payment_transactions')
+        .insert({
+          event_id: params.eventId,
+          registration_id: params.registrationId,
+          transaction_ref: transactionRef,
+          amount: params.amount,
+          amount_paise: amountPaise,
+          currency: 'INR',
+          status: 'initiated',
+          payer_name: params.payerName,
+          payer_email: params.payerEmail,
+          payer_phone: params.payerPhone,
+          discount_code: params.discountCode || null,
+          discount_amount: 0,
+          institution_id: registration.institution_id,
+          provider: 'razorpay',
+          razorpay_order_id: order.gatewayOrderId,
+          gateway_session_id: order.gatewayOrderId,
+          gateway_response: order.raw,
+        })
+        .select('id')
+        .single();
+
+      if (txnError || !txn) {
+        logger.error('events/payment', 'Failed to create Razorpay event transaction', txnError);
+        throw new Error('Failed to create payment transaction');
+      }
+
+      logger.info('events/payment', 'Razorpay event payment initiated', {
+        transactionId: txn.id,
+        transactionRef,
+        razorpayOrderId: order.gatewayOrderId,
+      });
+
+      return {
+        payment_url: '',
+        transaction_id: txn.id,
+        provider: 'razorpay',
+        transaction_ref: transactionRef,
+        razorpay_order_id: order.gatewayOrderId,
+        razorpay_key_id: order.clientKeyId,
+        amount_paise: amountPaise,
+        customer: {
+          name: params.payerName,
+          email: params.payerEmail,
+          phone: params.payerPhone,
+        },
+      };
+    }
 
     // Step 3: Create event_payment_transactions row
     const { data: transaction, error: txnError } = await supabase
@@ -138,6 +236,8 @@ export class EventPaymentService {
     return {
       payment_url: hdfcResult.payment_url,
       transaction_id: transaction.id,
+      provider: 'hdfc_smartgateway',
+      transaction_ref: transactionRef,
     };
   }
 

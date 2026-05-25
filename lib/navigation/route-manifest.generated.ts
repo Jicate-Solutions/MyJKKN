@@ -1353,6 +1353,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "iconName": "BookText",
             "children": [
               {
+                "path": "/admin/pde/policies/clinical-reasoning",
+                "label": "PDE Clinical Reasoning",
+                "iconName": "Stethoscope",
+                "children": []
+              },
+              {
                 "path": "/admin/pde/policies/governance",
                 "label": "PDE Gamification & Defense",
                 "iconName": "ShieldCheck",
@@ -3325,6 +3331,19 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
+            "path": "/faculty/pde/cases",
+            "label": "Cases",
+            "iconName": "FileText",
+            "children": [
+              {
+                "path": "/faculty/pde/cases/new",
+                "label": "New",
+                "iconName": "Plus",
+                "children": []
+              }
+            ]
+          },
+          {
             "path": "/faculty/pde/dashboard",
             "label": "Dashboard",
             "iconName": "LayoutGrid",
@@ -4086,6 +4105,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "label": "Profiles",
         "iconName": "GraduationCap",
         "children": [
+          {
+            "path": "/learners/profiles/create",
+            "label": "Create",
+            "iconName": "Plus",
+            "children": []
+          },
           {
             "path": "/learners/profiles/promotion",
             "label": "Promotion",

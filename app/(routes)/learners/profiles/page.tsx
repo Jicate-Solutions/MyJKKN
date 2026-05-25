@@ -206,6 +206,12 @@ export default async function ProfilesPage({ searchParams }: ProfilesPageProps) 
           {/* Action Buttons - Hidden for students */}
           {!isStudent && (
             <div className="flex flex-wrap gap-2">
+              <Button asChild>
+                <Link href="/learners/profiles/create">
+                  <Plus className="mr-2 h-4 w-4" />
+                  Create Learner
+                </Link>
+              </Button>
               <CreateMissingProfilesButton />
               <BulkUploadProfilesDialogEnhanced />
               <BulkUploadLearnerImages institutionId={params.institution_id as string | undefined} />

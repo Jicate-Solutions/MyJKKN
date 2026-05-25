@@ -968,14 +968,24 @@ export class ReservationService {
   ): Promise<void> {
     const supabase = createClientSupabaseClient();
 
-    const approvalRecords = approvers.map((approver) => ({
-      reservation_id: reservationId,
-      approver_user_id: approver.user_id,
-      approval_level: approver.level,
-      status: 'pending'
-    }));
+    const approvalRecords = approvers
+      .filter((a) => a.user_id)
+      .map((approver) => ({
+        reservation_id: reservationId,
+        approver_user_id: approver.user_id,
+        approval_level: approver.level ?? 1,
+        status: 'pending'
+      }));
 
-    await (supabase as any).from('resource_approvals').insert(approvalRecords);
+    if (approvalRecords.length === 0) return;
+
+    const { error } = await (supabase as any)
+      .from('resource_approvals')
+      .insert(approvalRecords);
+
+    if (error) {
+      console.error('Error seeding approval chain:', error);
+    }
   }
 
   /**

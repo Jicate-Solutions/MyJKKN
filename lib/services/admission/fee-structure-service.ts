@@ -323,34 +323,50 @@ export class FeeStructureService {
     community_category_id: string,
   ): Promise<AdmissionFeeStructureWithItems | null> {
     const supabase = createClientSupabaseClient();
+    const gender = d.gender?.toUpperCase() || null;
 
-    // 1. Resolve which active structures cover this community for these 7 dims.
-    //    The junction is keyed (structure, community) and we need to filter by
-    //    parent dimensions, so we query the junction with an inner join.
-    const { data: junctionRows, error: junctionErr } = await supabase
-      .from('admission_fee_structure_communities')
-      .select(
-        `fee_structure_id,
-         structure:admission_fee_structures!inner(id, status,
-           institution_id, degree_id, department_id, programme_id,
-           quota_id, accommodation_type_id, admission_year_id)`,
-      )
-      .eq('community_category_id', community_category_id)
-      .eq('structure.institution_id', d.institution_id)
-      .eq('structure.degree_id', d.degree_id)
-      .eq('structure.department_id', d.department_id)
-      .eq('structure.programme_id', d.programme_id)
-      .eq('structure.quota_id', d.quota_id)
-      .eq('structure.accommodation_type_id', d.accommodation_type_id)
-      .eq('structure.admission_year_id', d.admission_year_id)
-      .eq('structure.status', 'active')
-      .limit(1);
-    if (junctionErr) throw junctionErr;
-    const structureId = junctionRows?.[0]?.fee_structure_id;
+    // 1. Build base query for 7 dims + community + active status
+    const buildQuery = (genderFilter: 'exact' | 'any') =>
+      supabase
+        .from('admission_fee_structure_communities')
+        .select(
+          `fee_structure_id,
+           structure:admission_fee_structures!inner(id, status, gender,
+             institution_id, degree_id, department_id, programme_id,
+             quota_id, accommodation_type_id, admission_year_id)`,
+        )
+        .eq('community_category_id', community_category_id)
+        .eq('structure.institution_id', d.institution_id)
+        .eq('structure.degree_id', d.degree_id)
+        .eq('structure.department_id', d.department_id)
+        .eq('structure.programme_id', d.programme_id)
+        .eq('structure.quota_id', d.quota_id)
+        .eq('structure.accommodation_type_id', d.accommodation_type_id)
+        .eq('structure.admission_year_id', d.admission_year_id)
+        .eq('structure.status', 'active');
+
+    // 2. Prefer exact gender match, fall back to gender-NULL (wildcard)
+    let structureId: string | undefined;
+
+    if (gender) {
+      const { data: exactRows, error: exactErr } = await buildQuery('exact')
+        .eq('structure.gender', gender)
+        .limit(1);
+      if (exactErr) throw exactErr;
+      structureId = exactRows?.[0]?.fee_structure_id;
+    }
+
+    if (!structureId) {
+      const { data: anyRows, error: anyErr } = await buildQuery('any')
+        .is('structure.gender', null)
+        .limit(1);
+      if (anyErr) throw anyErr;
+      structureId = anyRows?.[0]?.fee_structure_id;
+    }
+
     if (!structureId) return null;
 
-    // 2. Hydrate the full structure (with items + all linked communities) so
-    //    the editor can render the existing community chips.
+    // 3. Hydrate the full structure (with items + all linked communities)
     return this.getWithItems(structureId);
   }
 
@@ -592,6 +608,7 @@ export class FeeStructureService {
       quota_id:              overrides?.quota_id              ?? source.quota_id,
       accommodation_type_id: overrides?.accommodation_type_id ?? source.accommodation_type_id,
       admission_year_id:     newAcademicYearId,
+      gender:                overrides?.gender                ?? source.gender ?? undefined,
     };
     return this.create({
       ...dims,
@@ -622,7 +639,7 @@ export class FeeStructureService {
       .from('admission_fee_structures')
       .select(`
         institution_id, degree_id, department_id, programme_id,
-        quota_id, accommodation_type_id, admission_year_id,
+        quota_id, accommodation_type_id, admission_year_id, gender,
         communities:admission_fee_structure_communities(community_category_id),
         items:admission_fee_structure_items(id)
       `)
@@ -648,6 +665,7 @@ export class FeeStructureService {
           community_category_id: c.community_category_id,
           accommodation_type_id: row.accommodation_type_id,
           admission_year_id: row.admission_year_id,
+          gender: (row as any).gender ?? null,
           has_structure: true,
           item_count: itemCount,
         });

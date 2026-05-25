@@ -36,6 +36,7 @@ import { UserIcon } from 'lucide-react';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useEnquiryReferralContext } from '@/hooks/admission/use-enquiry-referral';
 import { indianStates, getDistrictsByState, getTaluksByDistrict } from '@/lib/data/locations';
+import { formatTwelfthGroup } from '@/lib/utils/mappings/enquiry-excel-mappings';
 // Fee structure constants removed 2026-04-15 — replaced by dynamic fee_items flow.
 
 // Permanent-address columns store two formats in production:
@@ -629,7 +630,7 @@ export function EnquiryDetail({ enquiry }: EnquiryDetailProps) {
                           Group/Stream
                         </h4>
                         <p className='text-sm'>
-                          {enquiry.twelfth_marks.group || 'Not specified'}
+                          {formatTwelfthGroup(enquiry.twelfth_marks.group)}
                         </p>
                       </div>
                       <div className='grid grid-cols-2 md:grid-cols-3 gap-4'>

@@ -535,6 +535,7 @@ export default function AdminBugReportsPage() {
   return (
     <AdminPermissionGuard
       fallback={<div>You do not have permission to view this page.</div>}
+      adminRoles={['super_admin', 'administrator', 'ceo']}
     >
       <ContentLayout title='Bug Reports Analytics'>
         <div className='space-y-6'>
@@ -849,7 +850,7 @@ export default function AdminBugReportsPage() {
                     columns={columns}
                     data={reports}
                     permissions={{
-                      module: 'system',
+                      module: 'system.bugs',
                       actions: { view: true }
                     }}
                     onRefresh={refetch}

@@ -1,8 +1,8 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { ArrowLeft, Save, RefreshCw } from 'lucide-react';
+import { ArrowLeft, Save, RefreshCw, AlertTriangle, CheckCircle2 } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -16,6 +16,17 @@ import {
   SelectTrigger,
   SelectValue
 } from '@/components/ui/select';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import { Badge } from '@/components/ui/badge';
 import { usePermissions } from '@/hooks/use-permissions';
 import { PageBreadcrumb } from '@/components/navigation/Breadcrumbs';
 import { BeatLoader } from 'react-spinners';
@@ -65,8 +76,29 @@ export default function NewReceiptPage() {
     student_id: studentId || ''
   });
   const [studentRollNumber, setStudentRollNumber] = useState<string>('');
+  const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
 
   const createReceiptMutation = useCreateBillingReceipt();
+
+  const allocationPreview = useMemo(() => {
+    const paymentAmount = formData.payment_amount || 0;
+    if (selectedBills.length === 0 || paymentAmount <= 0) return [];
+
+    return selectedBills.map((bill) => {
+      const balance = bill.balance_amount > 0 ? bill.balance_amount : bill.final_amount;
+      const allocated = billPayAmounts[bill.id] || 0;
+      const remainingAfter = balance - allocated;
+      return {
+        id: bill.id,
+        description: bill.item_category?.category_name || bill.bill_description,
+        billAmount: bill.final_amount,
+        pendingAmount: balance,
+        allocated,
+        remainingAfter,
+        fullyPaid: allocated >= balance,
+      };
+    });
+  }, [selectedBills, billPayAmounts, formData.payment_amount]);
 
   // Function to format Bill No. into a unique format
   const formatBillNumber = (billId: string) => {
@@ -144,19 +176,14 @@ export default function NewReceiptPage() {
       const bills = await BillingReceiptService.getBillsByIds(billsToLoad);
       setSelectedBills(bills);
 
-      // Initialize pay amounts with pending amounts (balance_amount or final_amount)
+      // Initialize pay amounts to 0 — user enters manually per bill
       const initialPayAmounts: Record<string, number> = {};
       bills.forEach((bill) => {
-        initialPayAmounts[bill.id] =
-          bill.balance_amount > 0 ? bill.balance_amount : bill.final_amount;
+        initialPayAmounts[bill.id] = 0;
       });
       setBillPayAmounts(initialPayAmounts);
 
-      // Calculate total pay amount (sum of all pending amounts)
-      const totalPayAmount = Object.values(initialPayAmounts).reduce(
-        (sum, amount) => sum + amount,
-        0
-      );
+      const totalPayAmount = 0;
       const firstBill = bills[0];
 
       setFormData((prev) => ({
@@ -206,44 +233,63 @@ export default function NewReceiptPage() {
       [field]: value
     }));
 
-    // CRITICAL FIX: When payment_amount changes and there's only ONE bill selected,
-    // also update billPayAmounts to match the new payment amount
-    // This prevents the bug where receipt item gets full bill amount instead of partial payment
-    if (field === 'payment_amount' && selectedBills.length === 1) {
-      const singleBillId = selectedBills[0].id;
-      setBillPayAmounts({
-        [singleBillId]: value
-      });
+    // When payment_amount changes, redistribute across selected bills using
+    // waterfall allocation: pay each bill's balance in order until funds run out.
+    if (field === 'payment_amount' && selectedBills.length > 0) {
+      const paymentAmount = Number(value) || 0;
+      let remaining = paymentAmount;
+      const newPayAmounts: Record<string, number> = {};
+
+      for (const bill of selectedBills) {
+        const billBalance = bill.balance_amount > 0 ? bill.balance_amount : bill.final_amount;
+        const allocated = Math.min(remaining, billBalance);
+        newPayAmounts[bill.id] = allocated;
+        remaining -= allocated;
+        if (remaining <= 0) break;
+      }
+
+      // Zero out any bills that didn't get allocation
+      for (const bill of selectedBills) {
+        if (!(bill.id in newPayAmounts)) {
+          newPayAmounts[bill.id] = 0;
+        }
+      }
+
+      setBillPayAmounts(newPayAmounts);
     }
+  };
+
+  const validateForm = (): boolean => {
+    if (!formData.student_id) {
+      toast.error('Please select a student');
+      return false;
+    }
+    if (!studentRollNumber && selectedBills.length === 0) {
+      toast.error('Please enter student roll number');
+      return false;
+    }
+    if (!formData.institution_id) {
+      toast.error('Please select an institution');
+      return false;
+    }
+    if (!formData.payment_amount || formData.payment_amount <= 0) {
+      toast.error('Please enter a valid payment amount');
+      return false;
+    }
+    if (!formData.payer_name) {
+      toast.error('Please enter the payer name');
+      return false;
+    }
+    return true;
+  };
+
+  const handlePreSubmit = () => {
+    if (!validateForm()) return;
+    setConfirmDialogOpen(true);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-
-    if (!formData.student_id) {
-      toast.error('Please select a student');
-      return;
-    }
-
-    if (!studentRollNumber && selectedBills.length === 0) {
-      toast.error('Please enter student roll number');
-      return;
-    }
-
-    if (!formData.institution_id) {
-      toast.error('Please select an institution');
-      return;
-    }
-
-    if (!formData.payment_amount || formData.payment_amount <= 0) {
-      toast.error('Please enter a valid payment amount');
-      return;
-    }
-
-    if (!formData.payer_name) {
-      toast.error('Please enter the payer name');
-      return;
-    }
 
     try {
       // Prepare receipt items for multiple bills
@@ -262,6 +308,15 @@ export default function NewReceiptPage() {
             amount_paid: billPayAmounts[bill.id] || 0
           }))
           .filter((item) => item.amount_paid > 0); // Only include bills with payment amount > 0
+      }
+
+      // Validate allocation doesn't exceed payment amount
+      const totalAllocated = receiptItems.reduce((sum, item) => sum + item.amount_paid, 0);
+      if (totalAllocated > formData.payment_amount!) {
+        toast.error(
+          `Allocated amount (₹${totalAllocated.toLocaleString('en-IN')}) exceeds payment received (₹${formData.payment_amount!.toLocaleString('en-IN')}). Please adjust bill amounts.`
+        );
+        return;
       }
 
       // Validate that we have receipt items
@@ -334,131 +389,170 @@ export default function NewReceiptPage() {
             <CardTitle>Receipt Information</CardTitle>
           </CardHeader>
           <CardContent>
-            {/* Selected Bills Section */}
+            {/* Selected Bills Section with per-bill amount inputs */}
             {selectedBills.length > 0 && (
               <div className='mb-6'>
-                <h3 className='text-lg font-semibold mb-4'>Selected Bills</h3>
+                <h3 className='text-lg font-semibold mb-4'>Selected Bills — Enter Amount Per Bill</h3>
                 <div className='rounded-md border'>
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>Bill No.</TableHead>
                         <TableHead>Bill Item</TableHead>
-                        <TableHead className='text-right'>
-                          Bill Amount
-                        </TableHead>
-                        <TableHead className='text-right'>
-                          Pending Amount
-                        </TableHead>
+                        <TableHead className='text-right'>Bill Amount</TableHead>
+                        <TableHead className='text-right'>Pending</TableHead>
+                        <TableHead className='text-right w-[160px]'>Pay Amount</TableHead>
+                        <TableHead className='text-center'>Status</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {selectedBills.map((bill) => (
-                        <TableRow key={bill.id}>
-                          <TableCell className='font-medium'>
-                            <div className='space-y-1'>
-                              <div className='text-sm font-medium'>
+                      {selectedBills.map((bill) => {
+                        const balance = bill.balance_amount > 0 ? bill.balance_amount : bill.final_amount;
+                        const payAmount = billPayAmounts[bill.id] || 0;
+                        const isOverPay = payAmount > balance;
+                        return (
+                          <TableRow key={bill.id}>
+                            <TableCell>
+                              <div className='font-medium'>
+                                {bill.item_category?.category_name || bill.bill_description}
+                              </div>
+                              <div className='text-xs text-muted-foreground'>
                                 {formatBillNumber(bill.id)}
                               </div>
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            <div className='space-y-1'>
-                              <div className='font-medium'>
-                                {bill.item_category?.category_name ||
-                                  bill.bill_description}
-                              </div>
-                              {bill.item_category?.frequency && (
-                                <div className='text-xs text-muted-foreground capitalize'>
-                                  {bill.item_category.frequency}
-                                </div>
+                            </TableCell>
+                            <TableCell className='text-right text-sm'>
+                              ₹{bill.final_amount.toLocaleString()}
+                            </TableCell>
+                            <TableCell className='text-right text-sm text-orange-600'>
+                              ₹{balance.toLocaleString()}
+                            </TableCell>
+                            <TableCell className='text-right'>
+                              <Input
+                                type='number'
+                                step='0.01'
+                                min='0'
+                                max={balance}
+                                className={`w-[140px] ml-auto text-right ${isOverPay ? 'border-red-500 focus-visible:ring-red-500' : ''}`}
+                                value={payAmount || ''}
+                                placeholder='0'
+                                onChange={(e) => {
+                                  const val = Math.max(0, parseFloat(e.target.value) || 0);
+                                  const capped = Math.min(val, balance);
+                                  const newAmounts = { ...billPayAmounts, [bill.id]: capped };
+                                  setBillPayAmounts(newAmounts);
+                                  const newTotal = Object.values(newAmounts).reduce((s, a) => s + a, 0);
+                                  setFormData((prev) => ({ ...prev, payment_amount: newTotal }));
+                                }}
+                              />
+                              {isOverPay && (
+                                <p className='text-xs text-red-500 mt-1'>Exceeds pending</p>
                               )}
-                              {bill.quantity > 1 && (
-                                <div className='text-xs text-muted-foreground'>
-                                  Qty: {bill.quantity} × ₹
-                                  {bill.unit_amount?.toLocaleString()}
-                                </div>
+                            </TableCell>
+                            <TableCell className='text-center'>
+                              {payAmount === 0 ? (
+                                <Badge variant='outline' className='text-xs'>-</Badge>
+                              ) : payAmount >= balance ? (
+                                <Badge className='text-xs bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'>Full</Badge>
+                              ) : (
+                                <Badge className='text-xs bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200'>Partial</Badge>
                               )}
-                            </div>
-                          </TableCell>
-                          <TableCell className='text-right'>
-                            <div className='space-y-1'>
-                              <div className='font-medium'>
-                                ₹{bill.final_amount.toLocaleString()}
-                              </div>
-                              {bill.tax_amount > 0 && (
-                                <div className='text-xs text-muted-foreground'>
-                                  (incl. tax: ₹
-                                  {bill.tax_amount.toLocaleString()})
-                                </div>
-                              )}
-                            </div>
-                          </TableCell>
-                          <TableCell className='text-right'>
-                            <div className='font-medium text-orange-600'>
-                              ₹
-                              {(bill.balance_amount > 0
-                                ? bill.balance_amount
-                                : bill.final_amount
-                              ).toLocaleString()}
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                      ))}
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
                     </TableBody>
                     <tfoot className='bg-muted/50'>
                       <TableRow className='font-semibold'>
-                        <TableCell colSpan={2} className='text-right'>
-                          Totals:
-                        </TableCell>
+                        <TableCell className='text-right'>Totals:</TableCell>
                         <TableCell className='text-right'>
                           ₹{totalBillAmount.toLocaleString()}
                         </TableCell>
                         <TableCell className='text-right text-orange-600'>
                           ₹{totalPendingAmount.toLocaleString()}
                         </TableCell>
+                        <TableCell className='text-right text-green-600 text-lg'>
+                          ₹{totalPayAmount.toLocaleString()}
+                        </TableCell>
+                        <TableCell />
                       </TableRow>
                     </tfoot>
                   </Table>
                 </div>
 
+                {/* Quick-fill buttons */}
+                <div className='mt-3 flex flex-wrap gap-2'>
+                  <Button
+                    type='button'
+                    variant='outline'
+                    size='sm'
+                    onClick={() => {
+                      const newAmounts: Record<string, number> = {};
+                      selectedBills.forEach((bill) => {
+                        newAmounts[bill.id] = bill.balance_amount > 0 ? bill.balance_amount : bill.final_amount;
+                      });
+                      setBillPayAmounts(newAmounts);
+                      setFormData((prev) => ({
+                        ...prev,
+                        payment_amount: Object.values(newAmounts).reduce((s, a) => s + a, 0),
+                      }));
+                    }}
+                  >
+                    Fill Full Pending
+                  </Button>
+                  <Button
+                    type='button'
+                    variant='outline'
+                    size='sm'
+                    onClick={() => {
+                      const newAmounts: Record<string, number> = {};
+                      selectedBills.forEach((bill) => { newAmounts[bill.id] = 0; });
+                      setBillPayAmounts(newAmounts);
+                      setFormData((prev) => ({ ...prev, payment_amount: 0 }));
+                    }}
+                  >
+                    Clear All
+                  </Button>
+                </div>
+
                 {/* Payment Summary */}
-                <div className='mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg'>
+                <div className='mt-4 p-4 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-lg'>
                   <div className='grid grid-cols-2 md:grid-cols-3 gap-4 text-sm'>
                     <div>
-                      <span className='text-muted-foreground'>
-                        Total Bill Amount:
-                      </span>
-                      <div className='font-semibold'>
-                        ₹{totalBillAmount.toLocaleString()}
-                      </div>
+                      <span className='text-muted-foreground'>Total Bill Amount:</span>
+                      <div className='font-semibold'>₹{totalBillAmount.toLocaleString()}</div>
                     </div>
                     <div>
-                      <span className='text-muted-foreground'>
-                        Total Pending:
-                      </span>
-                      <div className='font-semibold text-orange-600'>
-                        ₹{totalPendingAmount.toLocaleString()}
-                      </div>
+                      <span className='text-muted-foreground'>Total Pending:</span>
+                      <div className='font-semibold text-orange-600'>₹{totalPendingAmount.toLocaleString()}</div>
                     </div>
                     <div>
-                      <span className='text-muted-foreground'>
-                        Received Amount:
-                      </span>
-                      <div className='font-semibold text-blue-600'>
-                        ₹{(formData.payment_amount || 0).toLocaleString()}
-                      </div>
+                      <span className='text-muted-foreground'>Total Paying:</span>
+                      <div className='font-semibold text-green-600 text-lg'>₹{totalPayAmount.toLocaleString()}</div>
                     </div>
                   </div>
                 </div>
+
+                {/* Partial payment note */}
+                {totalPayAmount > 0 && totalPayAmount < totalPendingAmount && (
+                  <div className='mt-3'>
+                    <p className='text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1'>
+                      <AlertTriangle className='h-3 w-3' />
+                      Partial payment — remaining balance will carry forward on unpaid bills.
+                    </p>
+                  </div>
+                )}
               </div>
             )}
 
             <form onSubmit={handleSubmit} className='space-y-6'>
               <div className='grid grid-cols-1 md:grid-cols-2 gap-6'>
-                {/* Received Amount */}
+                {/* Received Amount — editable for single bill, read-only summary for multi-bill */}
                 <div className='space-y-2'>
-                  <Label htmlFor='payment_amount'>Received Amount *</Label>
+                  <Label htmlFor='payment_amount'>
+                    Total Received Amount *
+                    {selectedBills.length > 1 && (
+                      <span className='text-xs text-muted-foreground ml-2'>(sum of per-bill amounts above)</span>
+                    )}
+                  </Label>
                   <Input
                     id='payment_amount'
                     type='number'
@@ -472,6 +566,8 @@ export default function NewReceiptPage() {
                         parseFloat(e.target.value)
                       )
                     }
+                    readOnly={selectedBills.length > 1}
+                    className={selectedBills.length > 1 ? 'bg-muted font-semibold text-green-600' : ''}
                     required
                   />
                 </div>
@@ -639,27 +735,108 @@ export default function NewReceiptPage() {
                   Cancel
                 </Button>
                 <Button
-                  type='submit'
+                  type='button'
                   disabled={createReceiptMutation.isPending}
                   className='min-w-[120px]'
+                  onClick={handlePreSubmit}
                 >
-                  {createReceiptMutation.isPending ? (
-                    <>
-                      <RefreshCw className='mr-2 h-4 w-4 animate-spin' />
-                      Generating...
-                    </>
-                  ) : (
-                    <>
-                      <Save className='mr-2 h-4 w-4' />
-                      Generate Receipt
-                    </>
-                  )}
+                  <Save className='mr-2 h-4 w-4' />
+                  Generate Receipt
                 </Button>
               </div>
             </form>
           </CardContent>
         </Card>
       </div>
+
+      {/* Confirmation Dialog */}
+      <AlertDialog open={confirmDialogOpen} onOpenChange={setConfirmDialogOpen}>
+        <AlertDialogContent className='max-w-lg'>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Confirm Receipt Generation</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className='space-y-4'>
+                <p>Please review the payment allocation before confirming:</p>
+
+                <div className='rounded-md border overflow-hidden'>
+                  <Table>
+                    <TableHeader>
+                      <TableRow className='bg-muted/50'>
+                        <TableHead className='text-xs'>Bill</TableHead>
+                        <TableHead className='text-right text-xs'>Pending</TableHead>
+                        <TableHead className='text-right text-xs'>Paying</TableHead>
+                        <TableHead className='text-center text-xs'>Status</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {allocationPreview.map((row) => (
+                        <TableRow key={row.id}>
+                          <TableCell className='text-sm'>{row.description}</TableCell>
+                          <TableCell className='text-right text-sm'>
+                            {row.pendingAmount.toLocaleString('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 })}
+                          </TableCell>
+                          <TableCell className='text-right text-sm font-semibold text-green-600'>
+                            {row.allocated > 0
+                              ? row.allocated.toLocaleString('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 })
+                              : '-'}
+                          </TableCell>
+                          <TableCell className='text-center'>
+                            {row.allocated === 0 ? (
+                              <Badge variant='outline' className='text-xs'>-</Badge>
+                            ) : row.fullyPaid ? (
+                              <Badge className='text-xs bg-green-100 text-green-800'>Paid</Badge>
+                            ) : (
+                              <Badge className='text-xs bg-yellow-100 text-yellow-800'>Partial</Badge>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                    <tfoot className='bg-muted/50'>
+                      <TableRow className='font-bold'>
+                        <TableCell>Total Received</TableCell>
+                        <TableCell />
+                        <TableCell className='text-right text-green-600'>
+                          {(formData.payment_amount || 0).toLocaleString('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 })}
+                        </TableCell>
+                        <TableCell />
+                      </TableRow>
+                    </tfoot>
+                  </Table>
+                </div>
+
+                <div className='text-sm text-muted-foreground flex items-center gap-2'>
+                  <span className='font-medium'>Mode:</span> {formData.payment_mode}
+                  {formData.payment_reference_number && (
+                    <> | <span className='font-medium'>Ref:</span> {formData.payment_reference_number}</>
+                  )}
+                </div>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={createReceiptMutation.isPending}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault();
+                setConfirmDialogOpen(false);
+                const syntheticEvent = { preventDefault: () => {} } as React.FormEvent;
+                handleSubmit(syntheticEvent);
+              }}
+              disabled={createReceiptMutation.isPending}
+            >
+              {createReceiptMutation.isPending ? (
+                <>
+                  <RefreshCw className='mr-2 h-4 w-4 animate-spin' />
+                  Generating...
+                </>
+              ) : (
+                'Confirm & Generate'
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </ContentLayout>
   );
 }

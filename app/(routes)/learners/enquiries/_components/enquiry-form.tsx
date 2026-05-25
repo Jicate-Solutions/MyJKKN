@@ -181,7 +181,8 @@ export const enquiryFormSchema = z.object({
   // Contact Details
   student_mobile: z.string().min(1, "Student's mobile number is required"),
   student_email: z.string().nullable().optional(),
-  permanent_address_street: z.string().min(1, 'Street address is required'),
+  permanent_address_street: z.string().min(1, 'Street address is required')
+    .refine((v) => !v.includes('@'), { message: 'Please enter a street address, not an email' }),
   permanent_address_taluk: z.string().min(1, 'Taluk is required'),
   permanent_address_district: z.string().min(1, 'District is required'),
   permanent_address_state: z.string().min(1, 'State is required'),
@@ -1735,6 +1736,7 @@ export function EnquiryForm({
           community_category_id: resolvedCommunityId,
           accommodation_type_id: resolvedAccommodationId,
           admission_year_id: values.admission_year_id ?? undefined,
+          gender: (values as { gender?: string }).gender?.toUpperCase() || undefined,
         };
         const allDimsPresent = !!(
           dims.institution_id &&

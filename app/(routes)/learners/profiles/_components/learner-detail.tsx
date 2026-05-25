@@ -35,6 +35,7 @@ import { cn } from '@/lib/utils';
 import { formatAdmissionYear } from '@/lib/utils/admission-year-format';
 import type { LearnerProfile } from '@/types/learner-profile';
 import { LifecycleStatusBadge } from '@/components/learners/lifecycle-status-badge';
+import { formatTwelfthGroup } from '@/lib/utils/mappings/enquiry-excel-mappings';
 // Fee structure constants removed 2026-04-15 — replaced by dynamic fee_items flow.
 
 interface LearnerDetailProps {
@@ -554,7 +555,7 @@ export function LearnerDetail({ learner }: LearnerDetailProps) {
                           Group/Stream
                         </h4>
                         <p className="text-sm">
-                          {(learner.twelfth_marks as any).group || 'Not specified'}
+                          {formatTwelfthGroup((learner.twelfth_marks as any).group)}
                         </p>
                       </div>
                       <div className="grid grid-cols-2 md:grid-cols-3 gap-4">

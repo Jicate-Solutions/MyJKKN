@@ -164,6 +164,7 @@ export function FeesStructureForm({ dims, onChanged }: Props) {
       quota_id:              dims.quota_id!,
       accommodation_type_id: dims.accommodation_type_id!,
       admission_year_id:     dims.admission_year_id!,
+      gender:                dims.gender,
     };
     FeeStructureService.findByDimensions(sevenDims, dims.community_category_id!)
       .then((s) => {
@@ -240,6 +241,7 @@ export function FeesStructureForm({ dims, onChanged }: Props) {
           quota_id:              dims.quota_id!,
           accommodation_type_id: dims.accommodation_type_id!,
           admission_year_id:     dims.admission_year_id!,
+          gender:                dims.gender,
         }}
         // Leaf hint is optional; absent on /new where the user hasn't drilled
         // into a community yet. The form treats it as a default selection.
@@ -680,6 +682,7 @@ function ExistingStructureEditor({
     quota_id: structure.quota_id,
     accommodation_type_id: structure.accommodation_type_id,
     admission_year_id: structure.admission_year_id,
+    gender: structure.gender ?? undefined,
   };
   const [editableDims, setEditableDims] =
     useState<Partial<FeeStructureMatrixDimensions>>(initialDims);
@@ -711,9 +714,10 @@ function ExistingStructureEditor({
       quota_id: structure.quota_id,
       accommodation_type_id: structure.accommodation_type_id,
       admission_year_id: structure.admission_year_id,
+      gender: structure.gender ?? undefined,
     });
     setEditableCommunityIds(structure.community_category_ids ?? []);
-  }, [structure.id, structure.items, structure.institution_id, structure.degree_id, structure.department_id, structure.programme_id, structure.quota_id, structure.accommodation_type_id, structure.admission_year_id, structure.community_category_ids]);
+  }, [structure.id, structure.items, structure.institution_id, structure.degree_id, structure.department_id, structure.programme_id, structure.quota_id, structure.accommodation_type_id, structure.admission_year_id, structure.gender, structure.community_category_ids]);
 
   const form = useForm<EditFormValues>({
     resolver: zodResolver(editSchema),
@@ -748,7 +752,7 @@ function ExistingStructureEditor({
   const dimsChanged = useMemo(() => {
     const k: Array<keyof FeeStructureMatrixDimensions> = [
       'institution_id', 'degree_id', 'department_id', 'programme_id',
-      'quota_id', 'accommodation_type_id', 'admission_year_id',
+      'quota_id', 'accommodation_type_id', 'admission_year_id', 'gender',
     ];
     return k.some((key) => editableDims[key] !== initialDims[key]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -869,6 +873,7 @@ function ExistingStructureEditor({
             quota_id: editableDims.quota_id!,
             accommodation_type_id: editableDims.accommodation_type_id!,
             admission_year_id: editableDims.admission_year_id!,
+            gender: editableDims.gender ?? null,
           } : {}),
           // Only send community list when it actually changed — a no-op diff
           // skips the read-back-and-replace round-trip on the junction.

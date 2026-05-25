@@ -184,6 +184,7 @@ export function FeesStructureCloneDialog({
       quota_id: selectedSource.quota_id,
       accommodation_type_id: selectedSource.accommodation_type_id,
       admission_year_id: selectedSource.admission_year_id,
+      gender: selectedSource.gender ?? undefined,
     });
     setOverrideName(`${selectedSource.name} (cloned)`);
   }, [selectedSource]);
@@ -443,6 +444,18 @@ export function FeesStructureCloneDialog({
                     setOverrides((prev) => ({ ...prev, admission_year_id: v }))
                   }
                   options={years.map((y) => ({ id: y.id, name: y.admission_year_name }))}
+                />
+                <DimensionSelect
+                  label="Gender (optional)"
+                  value={overrides.gender ?? '__any__'}
+                  onChange={(v) =>
+                    setOverrides((prev) => ({ ...prev, gender: v === '__any__' ? undefined : v }))
+                  }
+                  options={[
+                    { id: '__any__', name: 'Any Gender' },
+                    { id: 'MALE', name: 'Male' },
+                    { id: 'FEMALE', name: 'Female' },
+                  ]}
                 />
                 <div className="space-y-1">
                   <Label htmlFor="clone-name">Name</Label>

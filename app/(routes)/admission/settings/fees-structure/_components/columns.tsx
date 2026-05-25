@@ -81,7 +81,7 @@ export const columns: ColumnDef<FeeStructureRow>[] = [
         </Tooltip>
       </TooltipProvider>
     ),
-    size: 220,
+    size: 420,
   },
   {
     id: 'institution',
@@ -120,32 +120,13 @@ export const columns: ColumnDef<FeeStructureRow>[] = [
     size: 150,
   },
   {
-    accessorKey: 'item_count',
-    header: ({ column }) => <DataTableColumnHeader column={column} title="Items" />,
-    cell: ({ row }) => (
-      <span className="tabular-nums font-medium">{row.original.item_count}</span>
-    ),
-    size: 80,
+    id: 'gender',
+    header: ({ column }) => <DataTableColumnHeader column={column} title="Gender" />,
+    cell: ({ row }) => row.original.gender ?? 'Any',
+    size: 90,
   },
-  {
-    id: 'effective',
-    header: ({ column }) => <DataTableColumnHeader column={column} title="Effective" />,
-    cell: ({ row }) => {
-      const from = row.original.effective_from;
-      const to = row.original.effective_to;
-      if (!from && !to) {
-        return <span className="text-xs text-muted-foreground italic">Always</span>;
-      }
-      const fmt = (d: string | null) =>
-        d ? new Date(d).toLocaleDateString('en-IN', { month: 'short', day: 'numeric', year: 'numeric' }) : '∞';
-      return (
-        <span className="text-xs whitespace-nowrap">
-          {fmt(from)} – {fmt(to)}
-        </span>
-      );
-    },
-    size: 200,
-  },
+  
+  
   {
     accessorKey: 'status',
     header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,

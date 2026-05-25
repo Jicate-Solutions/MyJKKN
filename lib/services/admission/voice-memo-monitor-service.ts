@@ -10,6 +10,7 @@ import type {
   RecentCompletion,
   CostRollup,
   DirectorDigest,
+  PerCounselorBreakdown,
   MemoAnalyzeStatus,
 } from '@/types/voice-memo-monitor';
 
@@ -191,6 +192,91 @@ export class VoiceMemoMonitorService {
       }
     }
 
+    // -------------------------------------------------------------------
+    // Per-counsellor breakdown — group memos in window by counselor_id.
+    // Under English-only policy (locked 2026-05-21), the rejection_pct
+    // column tells the Director which counsellors are recording in
+    // Tamil/Hindi vs which are following the English instruction.
+    // -------------------------------------------------------------------
+    const { data: counsRaw } = await supabase
+      .from('admission_call_logs')
+      .select('counselor_id, memo_analyze_status')
+      .not('memo_audio_url', 'is', null)
+      .gte('updated_at', windowStart);
+
+    const counsRows = (counsRaw ?? []) as {
+      counselor_id: string | null;
+      memo_analyze_status: MemoAnalyzeStatus | null;
+    }[];
+
+    // Group in JS — ~219 rows per 24h window is well within memory.
+    const counsByCid = new Map<
+      string,
+      {
+        total: number;
+        completed: number;
+        rejected_non_english: number;
+        failed: number;
+        in_flight: number;
+      }
+    >();
+    for (const r of counsRows) {
+      const key = r.counselor_id ?? '__unassigned__';
+      const acc = counsByCid.get(key) ?? {
+        total: 0,
+        completed: 0,
+        rejected_non_english: 0,
+        failed: 0,
+        in_flight: 0,
+      };
+      acc.total++;
+      const s = r.memo_analyze_status ?? 'pending';
+      if (s === 'completed') acc.completed++;
+      else if (s === 'rejected_non_english') acc.rejected_non_english++;
+      else if (s === 'failed') acc.failed++;
+      else acc.in_flight++; // pending | transcribing | analyzing
+      counsByCid.set(key, acc);
+    }
+
+    // Resolve names for the counsellors we saw (skip __unassigned__).
+    const cidList = Array.from(counsByCid.keys()).filter(
+      (k) => k !== '__unassigned__',
+    );
+    const nameByCid = new Map<string, string>();
+    if (cidList.length > 0) {
+      const { data: names } = await supabase
+        .from('admission_counselors')
+        .select('id, name')
+        .in('id', cidList);
+      for (const row of (names ?? []) as { id: string; name: string | null }[]) {
+        if (row.name) nameByCid.set(row.id, row.name);
+      }
+    }
+
+    const per_counselor: PerCounselorBreakdown[] = Array.from(
+      counsByCid.entries(),
+    )
+      .map(([cid, acc]) => ({
+        counselor_id: cid === '__unassigned__' ? null : cid,
+        counselor_name:
+          cid === '__unassigned__' ? null : nameByCid.get(cid) ?? null,
+        total: acc.total,
+        completed: acc.completed,
+        rejected_non_english: acc.rejected_non_english,
+        failed: acc.failed,
+        in_flight: acc.in_flight,
+        rejection_pct:
+          acc.total === 0
+            ? 0
+            : Math.round((acc.rejected_non_english / acc.total) * 100),
+      }))
+      .sort((a, b) => {
+        // Worst offenders first — rejection_pct DESC, then total DESC.
+        if (b.rejection_pct !== a.rejection_pct)
+          return b.rejection_pct - a.rejection_pct;
+        return b.total - a.total;
+      });
+
     return {
       policy,
       counters,
@@ -199,6 +285,7 @@ export class VoiceMemoMonitorService {
       recent_completions: (completionsRaw ?? []) as RecentCompletion[],
       cost,
       digest,
+      per_counselor,
       generated_at: new Date().toISOString(),
     };
   }

@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback } from 'react';
+import toast from 'react-hot-toast';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -96,6 +97,10 @@ export function StepContactDetails({
     <form
       onSubmit={(e) => {
         e.preventDefault();
+        if (v.permanent_address_street && v.permanent_address_street.includes('@')) {
+          toast.error('Please enter your street address, not an email address');
+          return;
+        }
         onContinue(v);
       }}
       className="space-y-6"

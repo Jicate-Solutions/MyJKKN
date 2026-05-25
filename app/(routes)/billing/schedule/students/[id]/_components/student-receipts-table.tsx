@@ -269,14 +269,14 @@ export function StudentReceiptsTable({
                           <TooltipTrigger asChild>
                             <Button variant='ghost' size='sm' asChild>
                               <Link
-                                href={`/billing/receipts?receipt_id=${receipt.id}`}
+                                href={`/billing/receipts/${receipt.id}`}
                               >
                                 <Eye className='h-4 w-4' />
                               </Link>
                             </Button>
                           </TooltipTrigger>
                           <TooltipContent>
-                            <p>View Receipts</p>
+                            <p>View Receipt</p>
                           </TooltipContent>
                         </Tooltip>
                       </TooltipProvider>

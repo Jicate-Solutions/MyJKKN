@@ -82,9 +82,17 @@ export async function POST(
     return NextResponse.json(
       {
         success: true,
+        // Pass-through includes Razorpay fields when provider === 'razorpay'.
+        // External callers can branch on data.provider.
         data: {
           payment_url: result.payment_url,
           transaction_id: result.transaction_id,
+          provider: result.provider,
+          transaction_ref: result.transaction_ref,
+          razorpay_order_id: result.razorpay_order_id,
+          razorpay_key_id: result.razorpay_key_id,
+          amount_paise: result.amount_paise,
+          customer: result.customer,
         },
       },
       { status: 200 }

@@ -49,17 +49,17 @@ export interface Caste {
 export const COMMUNITIES: readonly Community[] = [
   {
     code: 'OC',
-    label: 'Open Category',
+    label: 'Open Category (OC)',
     description: 'Forward Castes — no specific caste classification',
     sortOrder: 1,
     noCasteList: true,
   },
-  { code: 'BC',   label: 'Backward Classes',                                 sortOrder: 2 },
-  { code: 'BC-M', label: 'Backward Classes (Muslims)',                       sortOrder: 3 },
-  { code: 'MBC',  label: 'Most Backward Classes (incl. Denotified)',          sortOrder: 4 },
-  { code: 'SC',   label: 'Scheduled Castes',                                 sortOrder: 5 },
-  { code: 'SC-A', label: 'Scheduled Castes (Arunthathiyars)',                sortOrder: 6 },
-  { code: 'ST',   label: 'Scheduled Tribes',                                 sortOrder: 7 },
+  { code: 'BC',   label: 'Backward Classes (BC)',                             sortOrder: 2 },
+  { code: 'BC-M', label: 'Backward Classes - Muslims (BC-M)',                sortOrder: 3 },
+  { code: 'MBC',  label: 'Most Backward Classes incl. Denotified (MBC)',     sortOrder: 4 },
+  { code: 'SC',   label: 'Scheduled Castes (SC)',                             sortOrder: 5 },
+  { code: 'SC-A', label: 'Scheduled Castes - Arunthathiyars (SC-A)',         sortOrder: 6 },
+  { code: 'ST',   label: 'Scheduled Tribes (ST)',                             sortOrder: 7 },
 ] as const;
 
 // ─── SCHEDULED TRIBES (items 1-37) ─────────────────────────────────────────
@@ -310,7 +310,8 @@ const MBC_CASTES: readonly Caste[] = [
 
 // ─── BACKWARD CLASSES (items 223-364) ──────────────────────────────────────
 const BC_CASTES: readonly Caste[] = [
-  { name: 'Agamudayar', aliases: ['agamudaiyar', 'agamudayar', 'thozhu vellala', 'thuluva vellala'], notes: 'Including Thozhu/Thuluva Vellala' },
+  { name: 'Agamudayar', aliases: ['agamudaiyar', 'agamudayar', 'thozhu vellala'], notes: 'Including Thozhu Vellala' },
+  { name: 'Thuluva Vellala', aliases: ['thuluva vellala', 'thuluva vellalar'] },
   { name: 'Agaram Vellan Chettiar' },
   { name: 'Alwar, Azhavar and Alavar', notes: 'In Kanyakumari and Shenkottah Taluk' },
   { name: 'Servai (BC)', notes: 'Except Tiruchirapalli, Karur, Perambalur and Pudukottai' },
