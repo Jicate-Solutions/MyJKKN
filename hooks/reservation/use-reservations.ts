@@ -218,36 +218,84 @@ export interface ApprovalChainEntry {
   } | null;
 }
 
+export interface MyApprovalData {
+  statusMap: Map<string, string>;
+  myPending: number;
+  myApprovedTotal: number;
+  myApprovedToday: number;
+  myRejectedTotal: number;
+  myRejectedToday: number;
+}
+
 /**
  * Hook to fetch the current user's own approval statuses across all
- * reservations. Returns a Map<reservationId, status> for quick lookup.
+ * reservations. Returns a status Map for action-button lookup plus
+ * personal approval stats for the dashboard cards.
  * Explicitly filters by userId to avoid picking up other approvers' rows
  * that the broadened RLS policy now exposes to requesters.
  */
 export function useMyApprovalStatuses(userId: string | undefined) {
   return useQuery({
     queryKey: ['my-approval-statuses', userId],
-    queryFn: async () => {
-      if (!userId) return new Map<string, string>();
+    queryFn: async (): Promise<MyApprovalData> => {
+      const empty: MyApprovalData = {
+        statusMap: new Map(),
+        myPending: 0,
+        myApprovedTotal: 0,
+        myApprovedToday: 0,
+        myRejectedTotal: 0,
+        myRejectedToday: 0
+      };
+      if (!userId) return empty;
+
       const supabase = (
         await import('@/lib/supabase/client')
       ).createClientSupabaseClient();
 
       const { data, error } = await (supabase as any)
         .from('resource_approvals')
-        .select('reservation_id, status')
+        .select('reservation_id, status, approved_at')
         .eq('approver_user_id', userId);
 
       if (error) {
         console.error('Error fetching my approval statuses:', error);
-        return new Map<string, string>();
+        return empty;
       }
 
-      const map = new Map<string, string>();
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      const statusMap = new Map<string, string>();
+      let myPending = 0;
+      let myApprovedTotal = 0;
+      let myApprovedToday = 0;
+      let myRejectedTotal = 0;
+      let myRejectedToday = 0;
+
       for (const row of data || []) {
-        map.set(row.reservation_id, row.status);
+        statusMap.set(row.reservation_id, row.status);
+        const actedToday =
+          row.approved_at && new Date(row.approved_at) >= today;
+
+        if (row.status === 'pending') myPending++;
+        if (row.status === 'approved') {
+          myApprovedTotal++;
+          if (actedToday) myApprovedToday++;
+        }
+        if (row.status === 'rejected') {
+          myRejectedTotal++;
+          if (actedToday) myRejectedToday++;
+        }
       }
-      return map;
+
+      return {
+        statusMap,
+        myPending,
+        myApprovedTotal,
+        myApprovedToday,
+        myRejectedTotal,
+        myRejectedToday
+      };
     },
     enabled: !!userId,
     staleTime: 15 * 1000,

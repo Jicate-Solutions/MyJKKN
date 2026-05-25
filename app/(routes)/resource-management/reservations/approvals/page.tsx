@@ -67,7 +67,8 @@ export default function ApprovalsPage() {
       : undefined
   );
   const { data: stats, isLoading: loadingStats } = useApprovalStats();
-  const { data: myApprovalStatuses } = useMyApprovalStatuses(user?.id);
+  const { data: myApprovalData } = useMyApprovalStatuses(user?.id);
+  const myApprovalStatuses = myApprovalData?.statusMap;
 
   const approveReservation = useApproveReservation();
   const rejectReservation = useRejectReservation();
@@ -79,6 +80,16 @@ export default function ApprovalsPage() {
     rejected_today: stats?.rejected_today || 0,
     overdue_approvals: stats?.overdue_approvals || 0
   };
+
+  const myStats = myApprovalData
+    ? {
+        my_pending: myApprovalData.myPending,
+        my_approved_total: myApprovalData.myApprovedTotal,
+        my_approved_today: myApprovalData.myApprovedToday,
+        my_rejected_total: myApprovalData.myRejectedTotal,
+        my_rejected_today: myApprovalData.myRejectedToday
+      }
+    : null;
 
   const handleClearFilters = useCallback(() => {
     setSearchQuery('');
@@ -406,6 +417,7 @@ export default function ApprovalsPage() {
       <div className='mb-6'>
         <ApprovalStatsCards
           stats={approvalStats || null}
+          myStats={myStats}
           isLoading={isLoading || loadingStats}
         />
       </div>
