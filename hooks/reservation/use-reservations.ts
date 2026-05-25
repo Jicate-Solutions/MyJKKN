@@ -219,21 +219,24 @@ export interface ApprovalChainEntry {
 }
 
 /**
- * Hook to fetch the current user's approval statuses across all pending
+ * Hook to fetch the current user's own approval statuses across all
  * reservations. Returns a Map<reservationId, status> for quick lookup.
+ * Explicitly filters by userId to avoid picking up other approvers' rows
+ * that the broadened RLS policy now exposes to requesters.
  */
-export function useMyApprovalStatuses() {
+export function useMyApprovalStatuses(userId: string | undefined) {
   return useQuery({
-    queryKey: ['my-approval-statuses'],
+    queryKey: ['my-approval-statuses', userId],
     queryFn: async () => {
+      if (!userId) return new Map<string, string>();
       const supabase = (
         await import('@/lib/supabase/client')
       ).createClientSupabaseClient();
 
       const { data, error } = await (supabase as any)
         .from('resource_approvals')
-        .select('reservation_id, status, approval_level')
-        .order('approval_level', { ascending: true });
+        .select('reservation_id, status')
+        .eq('approver_user_id', userId);
 
       if (error) {
         console.error('Error fetching my approval statuses:', error);
@@ -246,6 +249,7 @@ export function useMyApprovalStatuses() {
       }
       return map;
     },
+    enabled: !!userId,
     staleTime: 15 * 1000,
     refetchInterval: 30 * 1000,
     retry: 3

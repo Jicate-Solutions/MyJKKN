@@ -67,7 +67,7 @@ export default function ApprovalsPage() {
       : undefined
   );
   const { data: stats, isLoading: loadingStats } = useApprovalStats();
-  const { data: myApprovalStatuses } = useMyApprovalStatuses();
+  const { data: myApprovalStatuses } = useMyApprovalStatuses(user?.id);
 
   const approveReservation = useApproveReservation();
   const rejectReservation = useRejectReservation();
