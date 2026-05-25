@@ -77,6 +77,13 @@ import {
   TimesheetSummaryTab,
   ResourceUtilizationTab,
   CapacityPlanningTab,
+  ComplianceReadinessTab,
+  DiversityMetricsTab,
+  EngagementPulseTab,
+  RecruitmentAnalyticsTab,
+  BenchStrengthTab,
+  CrossInstitutionTab,
+  PredictiveModelsTab,
 } from '@/components/hr/intelligence';
 import type { OverallSignalStatus, SignalFilters } from '@/types/hr-recruitment-need';
 
@@ -89,13 +96,13 @@ const INTELLIGENCE_TABS = [
   { id: 'timesheet-summary', label: 'Timesheet Summary', icon: Clock, ready: true },
   { id: 'resource-utilization', label: 'Utilization', icon: TrendingUp, ready: true },
   { id: 'capacity-planning', label: 'Capacity Planning', icon: Briefcase, ready: true },
-  { id: 'compliance-readiness', label: 'Compliance', icon: FileSearch, ready: false },
-  { id: 'diversity-metrics', label: 'Diversity', icon: PieChart, ready: false },
-  { id: 'engagement-pulse', label: 'Engagement', icon: Zap, ready: false },
-  { id: 'recruitment-analytics', label: 'Recruitment Analytics', icon: ShieldAlert, ready: false },
-  { id: 'bench-strength', label: 'Bench Strength', icon: LineChart, ready: false },
-  { id: 'cross-institution', label: 'Cross-Institution', icon: Building, ready: false },
-  { id: 'predictive-models', label: 'Predictive Models', icon: Brain, ready: false },
+  { id: 'compliance-readiness', label: 'Compliance', icon: FileSearch, ready: true },
+  { id: 'diversity-metrics', label: 'Diversity', icon: PieChart, ready: true },
+  { id: 'engagement-pulse', label: 'Engagement', icon: Zap, ready: true },
+  { id: 'recruitment-analytics', label: 'Recruitment Analytics', icon: ShieldAlert, ready: true },
+  { id: 'bench-strength', label: 'Bench Strength', icon: LineChart, ready: true },
+  { id: 'cross-institution', label: 'Cross-Institution', icon: Building, ready: true },
+  { id: 'predictive-models', label: 'Predictive Models', icon: Brain, ready: true },
 ] as const;
 
 const STATUS_FILTER_OPTIONS: { value: string; label: string }[] = [
@@ -194,11 +201,33 @@ export default function HRIntelligencePage() {
             <CapacityPlanningTab />
           </TabsContent>
 
-          {INTELLIGENCE_TABS.filter((t) => !t.ready).map((tab) => (
-            <TabsContent key={tab.id} value={tab.id} className="mt-6">
-              <ComingSoonPlaceholder label={tab.label} icon={tab.icon} />
-            </TabsContent>
-          ))}
+          <TabsContent value="compliance-readiness" className="mt-6">
+            <ComplianceReadinessTab />
+          </TabsContent>
+
+          <TabsContent value="diversity-metrics" className="mt-6">
+            <DiversityMetricsTab />
+          </TabsContent>
+
+          <TabsContent value="engagement-pulse" className="mt-6">
+            <EngagementPulseTab />
+          </TabsContent>
+
+          <TabsContent value="recruitment-analytics" className="mt-6">
+            <RecruitmentAnalyticsTab />
+          </TabsContent>
+
+          <TabsContent value="bench-strength" className="mt-6">
+            <BenchStrengthTab />
+          </TabsContent>
+
+          <TabsContent value="cross-institution" className="mt-6">
+            <CrossInstitutionTab />
+          </TabsContent>
+
+          <TabsContent value="predictive-models" className="mt-6">
+            <PredictiveModelsTab />
+          </TabsContent>
         </Tabs>
       </div>
     </ContentLayout>
