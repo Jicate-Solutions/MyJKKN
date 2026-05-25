@@ -19,8 +19,9 @@ import {
 } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
 import { Skeleton } from '@/components/ui/skeleton';
-import { AlertCircle, Check, X, MessageSquare } from 'lucide-react';
+import { AlertCircle, Check, X, MessageSquare, Paperclip } from 'lucide-react';
 import { useEscalations, useUpdateEscalation } from '@/hooks/hr/recruitment-need/use-recruitment-signal';
+import { EscalationAttachmentUpload } from './escalation-attachment-upload';
 import { formatDateRelative } from './signal-helpers';
 import type { HRRecruitmentEscalation, EscalationStatus } from '@/types/hr-recruitment-need';
 
@@ -126,6 +127,11 @@ export function EscalationQueue({ institutionId, className }: EscalationQueuePro
                         </Badge>
                       )}
                     </p>
+                    <EscalationAttachmentUpload
+                      escalationId={esc.id}
+                      documents={esc.documents as any}
+                      className="mt-1.5"
+                    />
                   </div>
                   <div className="flex gap-1 shrink-0">
                     {esc.status === 'pending' && (

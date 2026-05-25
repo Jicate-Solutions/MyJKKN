@@ -14,7 +14,7 @@ import type {
   HRSpecialization,
   HRPeerBenchmark,
 } from '@/types/hr-recruitment-need';
-import type { WeightPolicy } from '@/lib/services/hr/recruitment-need/admin-service';
+import type { WeightPolicy, ThresholdPolicy } from '@/lib/services/hr/recruitment-need/admin-service';
 
 // ─── Fetch helper ──────────────────────────────────────────────────────────────
 
@@ -34,6 +34,7 @@ export const adminKeys = {
   specializations: (bodyId?: string) => [...adminKeys.all, 'specializations', bodyId ?? 'all'] as const,
   benchmarks: () => [...adminKeys.all, 'benchmarks'] as const,
   weights: () => [...adminKeys.all, 'weights'] as const,
+  thresholds: () => [...adminKeys.all, 'thresholds'] as const,
   counts: () => [...adminKeys.all, 'counts'] as const,
 };
 
@@ -235,5 +236,27 @@ export function useUpdateWeights() {
         body: JSON.stringify({ weights }),
       }),
     onSuccess: () => qc.invalidateQueries({ queryKey: adminKeys.weights() }),
+  });
+}
+
+// ─── Per-Input Thresholds ─────────────────────────────────────────────────────
+
+export function useThresholds() {
+  return useQuery({
+    queryKey: adminKeys.thresholds(),
+    queryFn: () => apiFetch<ThresholdPolicy[]>('/api/hr/recruitment-need/thresholds'),
+  });
+}
+
+export function useUpdateThresholds() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (thresholds: { key: string; value: string }[]) =>
+      apiFetch<void>('/api/hr/recruitment-need/thresholds', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ thresholds }),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: adminKeys.thresholds() }),
   });
 }

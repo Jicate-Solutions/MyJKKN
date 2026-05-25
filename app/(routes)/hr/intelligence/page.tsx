@@ -52,6 +52,7 @@ import {
   Building,
   RefreshCw,
   ArrowLeftRight,
+  History,
 } from 'lucide-react';
 import {
   useRecruitmentSignals,
@@ -65,6 +66,7 @@ import { SignalCardSkeleton } from '@/components/hr/recruitment-need/signal-card
 import { EscalationQueue } from '@/components/hr/recruitment-need/escalation-queue';
 import { ChangeTrackingBadge } from '@/components/hr/recruitment-need/change-tracking-badge';
 import { ComparisonView } from '@/components/hr/recruitment-need/comparison-view';
+import { YoYComparison } from '@/components/hr/recruitment-need/yoy-comparison';
 import { SetupWizard } from '@/components/hr/recruitment-need/setup-wizard';
 import { OVERALL_STATUS_COLORS } from '@/components/hr/recruitment-need/signal-helpers';
 import type { OverallSignalStatus, SignalFilters } from '@/types/hr-recruitment-need';
@@ -185,6 +187,9 @@ function RecruitmentNeedTab() {
   // Comparison mode
   const [compareIds, setCompareIds] = useState<string[]>([]);
   const showComparison = compareIds.length === 2;
+
+  // Year-over-Year mode
+  const [showYoY, setShowYoY] = useState(false);
 
   // Build query filters
   const queryFilters: SignalFilters = {};
@@ -308,6 +313,16 @@ function RecruitmentNeedTab() {
               </Button>
             )}
 
+            <Button
+              size="sm"
+              variant={showYoY ? 'default' : 'outline'}
+              className="h-8 text-xs gap-1.5"
+              onClick={() => setShowYoY((v) => !v)}
+            >
+              <History className="h-3 w-3" />
+              {showYoY ? 'Hide YoY' : 'Compare with Last AY'}
+            </Button>
+
             {compareIds.length > 0 && !showComparison && (
               <Badge variant="secondary" className="text-xs gap-1">
                 <ArrowLeftRight className="h-3 w-3" />
@@ -343,6 +358,10 @@ function RecruitmentNeedTab() {
           institutionNames={institutionNames}
           onClose={() => setCompareIds([])}
         />
+      )}
+
+      {showYoY && signals && signals.length > 0 && (
+        <YoYComparison signals={signals} />
       )}
 
       {isEmpty ? (

@@ -39,9 +39,16 @@ export interface WeightPolicy {
   label?: string;
 }
 
-// ─── Weight policy keys ────────────────────────────────────────────────────────
+// ─── Policy key prefixes ──────────────────────────────────────────────────────
 
 const WEIGHT_POLICY_PREFIX = 'hr_recruitment.weight_';
+const THRESHOLD_POLICY_PREFIX = 'hr_recruitment.threshold_';
+
+export interface ThresholdPolicy {
+  key: string;
+  value: string;
+  label?: string;
+}
 
 export class RecruitmentNeedAdminService {
   // ═══════════════════════════════════════════════════════════════════════════
@@ -269,6 +276,41 @@ export class RecruitmentNeedAdminService {
         .from('platform_policies')
         .update({ value: w.value })
         .eq('key', w.key);
+      if (error) throw error;
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Per-Input Threshold Policies
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  static async listThresholdPolicies(supabase: SupabaseClient): Promise<ThresholdPolicy[]> {
+    const { data, error } = await supabase
+      .from('platform_policies')
+      .select('key, value, description')
+      .like('key', `${THRESHOLD_POLICY_PREFIX}%`)
+      .order('key');
+    if (error) throw error;
+    return (data ?? []).map((r: { key: string; value: string; description?: string | null }) => ({
+      key: r.key,
+      value: r.value,
+      label: r.description ?? r.key.replace(THRESHOLD_POLICY_PREFIX, ''),
+    }));
+  }
+
+  static async updateThresholdPolicies(
+    supabase: SupabaseClient,
+    thresholds: { key: string; value: string }[]
+  ): Promise<void> {
+    for (const t of thresholds) {
+      const numVal = Number(t.value);
+      if (isNaN(numVal) || numVal < 0 || numVal > 100) {
+        throw new Error(`Threshold value for ${t.key} must be between 0 and 100`);
+      }
+      const { error } = await supabase
+        .from('platform_policies')
+        .update({ value: t.value })
+        .eq('key', t.key);
       if (error) throw error;
     }
   }

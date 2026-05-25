@@ -9,6 +9,7 @@ import {
   BookOpen,
   Building2,
   Camera,
+  Gauge,
   GraduationCap,
   BarChart3,
   SlidersHorizontal,
@@ -60,6 +61,13 @@ const CARDS: ActionCardProps[] = [
     title: 'Signal Weights',
     description:
       'Configure the 7 input weights that drive the composite recruitment need score (must sum to 100).',
+  },
+  {
+    href: '/admin/hr/recruitment-need/thresholds',
+    icon: Gauge,
+    title: 'Per-Input Thresholds',
+    description:
+      'Set amber (warning) and red (critical) thresholds for each of the 7 signal inputs.',
   },
   {
     href: '/admin/hr/recruitment-need/snapshots',
