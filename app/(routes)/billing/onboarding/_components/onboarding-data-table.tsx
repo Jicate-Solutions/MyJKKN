@@ -149,10 +149,14 @@ export function OnboardingDataTable() {
   const canGenerateBills =
     !permsLoading && (isSuperAdmin || canAccess('billing.schedule', 'create'));
 
-  // Filter selected to those that don't already have bills, so the count
-  // accurately reflects what would actually be created.
+  // Filter selected to those that don't already have bills AND are in 'account'
+  // status. Admitted/reserved learners are visible for tracking but must go
+  // through account transition before bills can be generated.
   const selectedLearners = learners.filter((l) => selectedIds.has(l.id));
-  const selectedWithoutBills = selectedLearners.filter((l) => l.bills.length === 0);
+  const selectedEligible = selectedLearners.filter(
+    (l) => l.bills.length === 0 && l.lifecycle_status === 'account'
+  );
+  const selectedWithoutBills = selectedEligible;
   const selectedAlreadyBilled = selectedLearners.length - selectedWithoutBills.length;
 
   const handleBulkGenerate = async () => {

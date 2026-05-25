@@ -45,6 +45,11 @@ export interface OnboardingLearner extends LearnerProfile {
 
 export type PaymentStatus = 'unpaid' | 'partially_paid' | 'fully_paid';
 export type BillStatus = 'generated' | 'not_generated';
+export type OnboardingLifecycleStatus = 'account' | 'admitted' | 'reserved';
+
+export const ONBOARDING_LIFECYCLE_STATUSES: OnboardingLifecycleStatus[] = [
+  'account', 'admitted', 'reserved',
+];
 
 export interface OnboardingFilters {
   search?: string;           // matches name, email, phone, application_id
@@ -52,6 +57,7 @@ export interface OnboardingFilters {
   degree_id?: string;
   department_id?: string;
   program_id?: string;
+  lifecycle_status?: OnboardingLifecycleStatus;
   // NOTE: semester/section filters intentionally absent — onboarding cohort is
   // by design first-semester-only (newly admitted learners), so filtering by
   // them is meaningless. If multi-semester onboarding is ever introduced,
@@ -142,6 +148,7 @@ export class OnboardingService {
       degree_id,
       department_id,
       program_id,
+      lifecycle_status,
       payment_status,
       bill_status,
       page = 1,
@@ -173,7 +180,10 @@ export class OnboardingService {
           `,
           { count: 'exact' }
         )
-        .eq('lifecycle_status', 'account');
+        .in('lifecycle_status', lifecycle_status
+          ? [lifecycle_status]
+          : ONBOARDING_LIFECYCLE_STATUSES
+        );
 
       // Academic filters (Institution → Degree → Department → Programme).
       // Onboarding cohort is first-semester-only, so semester/section omitted.

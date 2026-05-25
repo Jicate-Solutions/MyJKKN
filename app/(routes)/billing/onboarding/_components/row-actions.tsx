@@ -41,6 +41,7 @@ export function OnboardingRowActions({ learner }: OnboardingRowActionsProps) {
 
   const hasApprovePermission = !isLoading && (isSuperAdmin || canAccess('billing.onboarding', 'approve'));
   const isFullyPaid = learner.total_balance === 0 && learner.total_fees > 0;
+  const isAccountStatus = learner.lifecycle_status === 'account';
 
   return (
     <>
@@ -61,13 +62,13 @@ export function OnboardingRowActions({ learner }: OnboardingRowActionsProps) {
             <Receipt className="mr-2 h-4 w-4" />
             View Bills
           </DropdownMenuItem>
-          {hasApprovePermission && isFullyPaid && (
+          {hasApprovePermission && isAccountStatus && isFullyPaid && (
             <DropdownMenuItem onClick={() => setApproveDialogOpen(true)}>
               <CheckCircle className="mr-2 h-4 w-4" />
               Mark as Approved
             </DropdownMenuItem>
           )}
-          {hasApprovePermission && (
+          {hasApprovePermission && isAccountStatus && (
             <DropdownMenuItem
               onClick={() => setRevertDialogOpen(true)}
               className="text-orange-600"

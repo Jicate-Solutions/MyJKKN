@@ -71,7 +71,7 @@ export function getOnboardingColumns(opts: {
             {/* Name links to the learner detail page. Using next/link gives
                 prefetching + ctrl-click new-tab for free. */}
             <Link
-              href={`/learners/profiles/${learner.id}`}
+              href={`/billing/schedule/students/${learner.id}`}
               className="font-medium text-green-600 hover:underline dark:text-green-400"
             >
               {learner.first_name} {learner.last_name || ''}

@@ -14,7 +14,11 @@ import { DegreeService } from '@/lib/services/organization/degree-service';
 import { DepartmentService } from '@/lib/services/organization/department-service';
 import { ProgramService } from '@/lib/services/organization/program-service';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
-import type { OnboardingFilters as OnboardingFilterShape } from '@/lib/services/billing/onboarding/onboarding-service';
+import {
+  ONBOARDING_LIFECYCLE_STATUSES,
+  type OnboardingFilters as OnboardingFilterShape,
+  type OnboardingLifecycleStatus,
+} from '@/lib/services/billing/onboarding/onboarding-service';
 
 // Subset of OnboardingFilters that this component manages. The data table owns
 // search/payment_status/page/limit and merges these in.
@@ -25,7 +29,14 @@ export type OnboardingHierarchyFilters = Pick<
   | 'department_id'
   | 'program_id'
   | 'bill_status'
+  | 'lifecycle_status'
 >;
+
+const LIFECYCLE_LABELS: Record<OnboardingLifecycleStatus, string> = {
+  account: 'Account',
+  admitted: 'Admitted',
+  reserved: 'Reserved',
+};
 
 export type OnboardingFilterKey = keyof OnboardingHierarchyFilters;
 
@@ -160,7 +171,8 @@ export function OnboardingFilters({
     filters.degree_id ||
     filters.department_id ||
     filters.program_id ||
-    filters.bill_status
+    filters.bill_status ||
+    filters.lifecycle_status
   );
 
   return (
@@ -270,10 +282,30 @@ export function OnboardingFilters({
         )}
       </div>
 
-      {/* Row 2: Bill Status — orthogonal to the academic hierarchy.
-          Generated = at least one billing_student_bills row exists.
-          Not Generated = zero bill rows (learner sent to accounts but bills not yet created). */}
+      {/* Row 2: Lifecycle Status + Bill Status — orthogonal to the academic hierarchy. */}
       <div className='flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center'>
+        <Select
+          value={filters.lifecycle_status || 'all'}
+          onValueChange={(value) =>
+            onFilterChange(
+              'lifecycle_status',
+              value === 'all' ? undefined : (value as OnboardingLifecycleStatus)
+            )
+          }
+        >
+          <SelectTrigger className='w-full sm:w-[180px]'>
+            <SelectValue placeholder='Learner status' />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value='all'>All Statuses</SelectItem>
+            {ONBOARDING_LIFECYCLE_STATUSES.map((status) => (
+              <SelectItem key={status} value={status}>
+                {LIFECYCLE_LABELS[status]}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
         <Select
           value={filters.bill_status || 'all'}
           onValueChange={(value) =>
