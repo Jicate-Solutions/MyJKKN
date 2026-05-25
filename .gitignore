@@ -99,3 +99,6 @@ public/swe-worker-*.js.map
 .claude/scheduled_tasks.lock
 
 .screenshots/
+
+# CodeGraph index (local, per-machine)
+.codegraph/
