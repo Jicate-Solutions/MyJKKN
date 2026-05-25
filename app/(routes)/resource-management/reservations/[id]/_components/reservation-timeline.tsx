@@ -55,18 +55,47 @@ export function ReservationTimeline({
     variant: 'default'
   });
 
-  // Approved event
+  // Individual approver events from the approval chain
+  const actedApprovals = approvals
+    .filter((a) => a.status !== 'pending' && a.approved_at)
+    .sort(
+      (a, b) =>
+        new Date(a.approved_at!).getTime() - new Date(b.approved_at!).getTime()
+    );
+
+  for (const approval of actedApprovals) {
+    const isApproved = approval.status === 'approved';
+    events.push({
+      icon: isApproved ? (
+        <CheckCircle2 className='h-4 w-4' />
+      ) : (
+        <XCircle className='h-4 w-4' />
+      ),
+      title: `Level ${approval.approval_level} ${isApproved ? 'Approved' : 'Rejected'}`,
+      description: `By ${approval.approver?.full_name || 'Unknown'}${
+        approval.comments ? ` — "${approval.comments}"` : ''
+      }${
+        !isApproved && approval.rejection_reason
+          ? ` — ${approval.rejection_reason}`
+          : ''
+      }`,
+      timestamp: formatTimestamp(approval.approved_at!),
+      variant: isApproved ? 'success' : 'error'
+    });
+  }
+
+  // Final reservation approved event (chain complete)
   if (reservation.approved_at && reservation.status === 'approved') {
     events.push({
       icon: <CheckCircle2 className='h-4 w-4' />,
-      title: 'Reservation Approved',
-      description: `By ${reservation.approver?.full_name || 'Admin'}`,
+      title: 'Reservation Fully Approved',
+      description: `Final approval by ${reservation.approver?.full_name || 'Admin'}`,
       timestamp: formatTimestamp(reservation.approved_at),
       variant: 'success'
     });
   }
 
-  // Rejected event
+  // Final reservation rejected event
   if (reservation.status === 'rejected' && reservation.approved_at) {
     events.push({
       icon: <XCircle className='h-4 w-4' />,

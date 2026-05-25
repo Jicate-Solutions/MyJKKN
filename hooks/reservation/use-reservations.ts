@@ -219,6 +219,40 @@ export interface ApprovalChainEntry {
 }
 
 /**
+ * Hook to fetch the current user's approval statuses across all pending
+ * reservations. Returns a Map<reservationId, status> for quick lookup.
+ */
+export function useMyApprovalStatuses() {
+  return useQuery({
+    queryKey: ['my-approval-statuses'],
+    queryFn: async () => {
+      const supabase = (
+        await import('@/lib/supabase/client')
+      ).createClientSupabaseClient();
+
+      const { data, error } = await (supabase as any)
+        .from('resource_approvals')
+        .select('reservation_id, status, approval_level')
+        .order('approval_level', { ascending: true });
+
+      if (error) {
+        console.error('Error fetching my approval statuses:', error);
+        return new Map<string, string>();
+      }
+
+      const map = new Map<string, string>();
+      for (const row of data || []) {
+        map.set(row.reservation_id, row.status);
+      }
+      return map;
+    },
+    staleTime: 15 * 1000,
+    refetchInterval: 30 * 1000,
+    retry: 3
+  });
+}
+
+/**
  * Hook to fetch upcoming reservations
  */
 export function useUpcomingReservations(userId?: string) {

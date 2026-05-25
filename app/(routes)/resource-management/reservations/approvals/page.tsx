@@ -22,7 +22,8 @@ import { ApprovalActionsDialog } from './_components/approval-actions-dialog';
 import { ApprovalFilters } from './_components/approval-filters';
 import {
   usePendingApprovals,
-  useApprovalStats
+  useApprovalStats,
+  useMyApprovalStatuses
 } from '@/hooks/reservation/use-reservations';
 import {
   useApproveReservation,
@@ -66,6 +67,7 @@ export default function ApprovalsPage() {
       : undefined
   );
   const { data: stats, isLoading: loadingStats } = useApprovalStats();
+  const { data: myApprovalStatuses } = useMyApprovalStatuses();
 
   const approveReservation = useApproveReservation();
   const rejectReservation = useRejectReservation();
@@ -291,6 +293,8 @@ export default function ApprovalsPage() {
       cell: ({ row }: { row: any }) => {
         const reservation = row.original;
         const overdue = isOverdue(reservation.created_at);
+        const myStatus = myApprovalStatuses?.get(reservation.id);
+        const alreadyActed = myStatus === 'approved' || myStatus === 'rejected';
 
         return (
           <div className='flex items-center justify-end gap-2'>
@@ -305,24 +309,42 @@ export default function ApprovalsPage() {
               <Eye className='h-3 w-3' />
               View
             </Button>
-            <Button
-              size='sm'
-              variant='default'
-              className='gap-1'
-              onClick={() => handleApprove(reservation)}
-            >
-              <CheckCircle2 className='h-3 w-3' />
-              Approve
-            </Button>
-            <Button
-              size='sm'
-              variant='destructive'
-              className='gap-1'
-              onClick={() => handleReject(reservation)}
-            >
-              <XCircle className='h-3 w-3' />
-              Reject
-            </Button>
+            {alreadyActed ? (
+              <Badge
+                className={
+                  myStatus === 'approved'
+                    ? 'bg-green-100 text-green-700 border-green-200 hover:bg-green-100'
+                    : 'bg-red-100 text-red-700 border-red-200 hover:bg-red-100'
+                }
+              >
+                {myStatus === 'approved' ? (
+                  <><CheckCircle2 className='h-3 w-3 mr-1' />You Approved</>
+                ) : (
+                  <><XCircle className='h-3 w-3 mr-1' />You Rejected</>
+                )}
+              </Badge>
+            ) : (
+              <>
+                <Button
+                  size='sm'
+                  variant='default'
+                  className='gap-1'
+                  onClick={() => handleApprove(reservation)}
+                >
+                  <CheckCircle2 className='h-3 w-3' />
+                  Approve
+                </Button>
+                <Button
+                  size='sm'
+                  variant='destructive'
+                  className='gap-1'
+                  onClick={() => handleReject(reservation)}
+                >
+                  <XCircle className='h-3 w-3' />
+                  Reject
+                </Button>
+              </>
+            )}
             {overdue && (
               <Badge variant='destructive' className='text-xs'>
                 Overdue
