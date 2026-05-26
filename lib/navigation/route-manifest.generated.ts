@@ -694,9 +694,21 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
+            "path": "/admin/hostel/allocations",
+            "label": "Allocations",
+            "iconName": "Home",
+            "children": []
+          },
+          {
             "path": "/admin/hostel/curfew",
             "label": "Curfew",
             "iconName": "Building",
+            "children": []
+          },
+          {
+            "path": "/admin/hostel/rooms",
+            "label": "Rooms",
+            "iconName": "BedDouble",
             "children": []
           }
         ]
@@ -2360,6 +2372,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
     "label": "Billing",
     "iconName": "Wallet",
     "children": [
+      {
+        "path": "/billing/activities",
+        "label": "Activities",
+        "iconName": "Wallet",
+        "children": []
+      },
       {
         "path": "/billing/categories",
         "label": "Categories",
