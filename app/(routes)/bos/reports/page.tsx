@@ -321,7 +321,7 @@ function AttendanceCertificatesTab({ institutionsId }: { institutionsId: string 
 
   // Prefer actual date; fall back to scheduled date
   const meetingDateRaw = selectedMeeting?.actual_date || selectedMeeting?.scheduled_date;
-  const meetingDate = meetingDateRaw ? format(new Date(meetingDateRaw), 'dd MMMM yyyy') : '—';
+  const meetingDate = meetingDateRaw ? format(new Date(meetingDateRaw), 'dd-MMM-yyyy').toUpperCase() : '—';
 
   const ugPgLabel = inferBoardUgPg(boardType, boardCode, boardName);
 
