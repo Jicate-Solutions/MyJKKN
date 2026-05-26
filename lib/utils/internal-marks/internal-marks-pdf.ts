@@ -1044,139 +1044,35 @@ export function generateBosAttendanceCertificatePDF(
 			doc.line(x1, yPos + underlineOffset, x2, yPos + underlineOffset)
 		}
 
-		// Line 1: "This is to certify that" + member details (name, designation, institution, address)
-		doc.setFont('times', 'normal')
-		doc.setFontSize(fontSize)
-		const certPrefix = 'This is to certify that '
-		doc.text(certPrefix, contentX, y)
-		const prefixW = doc.getTextWidth(certPrefix)
-
-		// Build member details: name, designation, institution, address
-		const memberParts = [
-			cert.member_name,
-			cert.member_designation,
-			cert.member_institution?.replace(/^["']\s*|\s*["']$/g, '').trim(),
-			cert.member_address,
-		].filter(Boolean)
-		const memberDetailsStr = memberParts.join(', ')
-
-		// Render member details in bold with justified alignment
-		// First line: fit as much as possible after prefix
-		// Continuation lines: use full width from left margin
+		// Line 1: Name + Designation (bold, underlined)
 		doc.setFont('times', 'bold')
-		const firstLineAvailWidth = maxWidth - prefixW - 4
-		const firstLineWords = memberDetailsStr.split(' ')
-		let firstLineText = ''
-		let remainingText = memberDetailsStr
+		const nameDesig = [cert.member_name, cert.member_designation].filter(Boolean).join(', ')
+		doc.text(nameDesig, contentX, y)
+		const nameDesigW = doc.getTextWidth(nameDesig)
+		drawUnderline(y, contentX, contentX + nameDesigW + 4)
+		y += lineSpacing
 
-		for (let i = 0; i < firstLineWords.length; i++) {
-			const testStr = firstLineText ? firstLineText + ' ' + firstLineWords[i] : firstLineWords[i]
-			if (doc.getTextWidth(testStr) <= firstLineAvailWidth) {
-				firstLineText = testStr
-			} else {
-				remainingText = firstLineWords.slice(i).join(' ')
-				break
-			}
-		}
-
-		// Render first line after prefix
-		if (firstLineText) {
-			doc.text(firstLineText, contentX + prefixW, y, {
-				align: 'left',
-				maxWidth: firstLineAvailWidth
-			})
-		}
-
-		// Render continuation lines at full width
-		let currentY = y
-		let lastMemberDetailsY = y
-		let lastMemberDetailsWidth = 0
-		let lastMemberDetailsX = contentX + prefixW
-
-		if (remainingText) {
-			currentY += lineSpacing
-			const continuationLines = doc.splitTextToSize(remainingText, maxWidth)
-			continuationLines.forEach((line, idx) => {
-				const isLastLine = idx === continuationLines.length - 1
-				doc.text(line, contentX, currentY + idx * 4, {
-					align: isLastLine ? 'left' : 'justify',
-					maxWidth: maxWidth
-				})
-				// Track last line info
-				lastMemberDetailsY = currentY + idx * 4
-				lastMemberDetailsX = contentX
-				lastMemberDetailsWidth = doc.getTextWidth(line)
-			})
-		} else if (firstLineText) {
-			// No continuation lines, last line is the first line
-			lastMemberDetailsWidth = doc.getTextWidth(firstLineText)
-			lastMemberDetailsX = contentX + prefixW
-		}
-
-		// Calculate available space on last member details line
-		const lastLineEndX = lastMemberDetailsX + lastMemberDetailsWidth
-		const availableWidthOnLastLine = (contentX + maxWidth) - lastLineEndX - 2
-
-		// If there's horizontal space available, use it to start "has attended..." on same line
-		const hasAvailableSpace = availableWidthOnLastLine > 20 && (firstLineText || remainingText)
-
-		if (hasAvailableSpace) {
-			// Render on same line, allowing natural wrapping
-			doc.setFont('times', 'normal')
-			let xPos = lastLineEndX + 2
-
-			// Render first part: "has attended the "
-			doc.text('has attended the ', xPos, lastMemberDetailsY)
-			xPos += doc.getTextWidth('has attended the ')
-
-			// Render bold UG/PG label
-			doc.setFont('times', 'bold')
-			doc.text(ugPgLabel, xPos, lastMemberDetailsY)
-			xPos += doc.getTextWidth(ugPgLabel)
-
-			// Render remaining text with wrapping
-			doc.setFont('times', 'normal')
-			const remainingText = ' Board of Studies meeting in the Department of'
-			const availableWidth = (contentX + maxWidth) - xPos
-
-			// Split remaining text to handle wrapping
-			const wrappedLines = doc.splitTextToSize(remainingText, availableWidth)
-
-			if (wrappedLines.length > 0) {
-				// Render first wrapped line at current position
-				doc.text(wrappedLines[0], xPos, lastMemberDetailsY)
-
-				// Render additional wrapped lines at full width
-				let currentY = lastMemberDetailsY + 4
-				for (let i = 1; i < wrappedLines.length; i++) {
-					doc.text(wrappedLines[i], contentX, currentY, {
-						align: 'justify',
-						maxWidth: maxWidth
-					})
-					currentY += 4
-				}
-				y = currentY + lineSpacing
-			} else {
-				y = lastMemberDetailsY + lineSpacing
-			}
-		} else {
-			// Start "has attended..." on new line
-			y = lastMemberDetailsY + lineSpacing
-
-			doc.setFont('times', 'normal')
-			const partA = 'has attended the '
-			doc.text(partA, contentX, y)
-			let curX = contentX + doc.getTextWidth(partA)
-
-			doc.setFont('times', 'bold')
-			doc.text(ugPgLabel, curX, y)
-			curX += doc.getTextWidth(ugPgLabel)
-
-			doc.setFont('times', 'normal')
-			doc.text(' Board of Studies meeting in the Department of', curX, y)
-
+		// Line 2: Institution (bold, underlined)
+		if (cert.member_institution) {
+			doc.text(cert.member_institution, contentX, y)
+			const instW = doc.getTextWidth(cert.member_institution)
+			drawUnderline(y, contentX, contentX + instW + 4)
 			y += lineSpacing
 		}
+
+		// Line 3: "has attended the [UG/PG] Board of Studies meeting in the Department of"
+		doc.setFont('times', 'normal')
+		const partA = 'has attended the '
+		doc.text(partA, contentX, y)
+		let curX = contentX + doc.getTextWidth(partA)
+
+		doc.setFont('times', 'bold')
+		doc.text(ugPgLabel, curX, y)
+		curX += doc.getTextWidth(ugPgLabel)
+
+		doc.setFont('times', 'normal')
+		doc.text(' Board of Studies meeting in the Department of', curX, y)
+		y += lineSpacing
 
 		// Line: "<DEPT_NAME>"
 		doc.setFont('times', 'bold')
