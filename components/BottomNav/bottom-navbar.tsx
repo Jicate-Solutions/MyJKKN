@@ -26,7 +26,8 @@ import { cn } from '@/lib/utils';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useBottomNav, useBottomNavHydration } from '@/hooks/use-bottom-nav';
 import { useCommandPalette } from '@/components/CommandPalette/CommandPaletteProvider';
-import { GetRoleBasedPages, RolePermissionData } from '@/lib/sidebarMenuLink';
+import { GetRoleBasedPages, RolePermissionData, filterMenuByEntityType } from '@/lib/sidebarMenuLink';
+import { useAuth } from '@/providers/auth-provider';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useUserExpoTeamStatus } from '@/hooks/admission/use-expo-capture';
 import { usePageFavorites } from '@/hooks/use-page-favorites';
@@ -144,6 +145,8 @@ export function BottomNavbar() {
     userProfile
   } = usePermissions();
 
+  const { user } = useAuth();
+
   const { open: openSearch } = useCommandPalette();
   const { favorites } = usePageFavorites();
 
@@ -198,10 +201,17 @@ export function BottomNavbar() {
     };
   }, [userProfile, permissions, isSuperAdmin, isExpoTeamMember]);
 
-  // Get filtered pages based on merged permissions
+  // Get filtered pages based on merged permissions and institution type
   const filteredPages = useMemo(() => {
-    return GetRoleBasedPages(pathname, roleData);
-  }, [pathname, roleData]);
+    const pages = GetRoleBasedPages(pathname, roleData);
+
+    // Apply entity_type filter for schools (hide college-only pages)
+    const entityType = user?.institutions?.entity_type ?? 'institution';
+    return pages.map(group => ({
+      ...group,
+      menus: filterMenuByEntityType(group.menus, entityType)
+    })).filter(group => group.menus.length > 0);
+  }, [pathname, roleData, user?.institutions?.entity_type]);
 
   // Transform filtered pages into bottom nav groups.
   //
