@@ -71,6 +71,40 @@ export class HostelAllocationService {
     }
   }
 
+  // ── Active allocations for admin list (rooms-v2 PR 4b) ────────────
+  // Returns active allocations (check_out_date IS NULL) with all the
+  // joined labels the admin table needs in a single query: learner name,
+  // block name, room number, bed number. Super-admin friendly — no
+  // institution scope by default (RLS handles it).
+  static async getActiveAllocationsForAdmin() {
+    try {
+      const supabase = createClientSupabaseClient();
+      const { data, error } = await supabase
+        .from('hostel_allocations')
+        .select(
+          'id, learner_id, block_id, room_id, bed_id, check_in_date, monthly_fee_at_allocation_inr, fee_status, status, learner:profiles!hostel_allocations_learner_id_fkey(id, full_name, email), hostel_blocks(id, name, code), hostel_rooms(id, room_number, floor), hostel_beds(id, bed_number)',
+        )
+        .is('check_out_date', null)
+        .order('check_in_date', { ascending: false });
+
+      if (error) {
+        logger.error('campus-living/allocations', 'Failed to fetch active allocations for admin', error);
+        throw error;
+      }
+      return (data ?? []) as unknown as Array<
+        HostelAllocation & {
+          learner: { id: string; full_name: string | null; email: string | null } | null;
+          hostel_blocks: { id: string; name: string; code: string | null } | null;
+          hostel_rooms: { id: string; room_number: string; floor: number | null } | null;
+          hostel_beds: { id: string; bed_number: string | null } | null;
+        }
+      >;
+    } catch (error) {
+      logger.error('campus-living/allocations', 'Unexpected error in getActiveAllocationsForAdmin', error);
+      throw error;
+    }
+  }
+
   // ── Single allocation ─────────────────────────────────────────────
   static async getAllocation(id: string) {
     try {
@@ -209,6 +243,47 @@ export class HostelAllocationService {
       return data as HostelAllocation;
     } catch (error) {
       logger.error('campus-living/allocations', 'Unexpected error in transfer', error);
+      throw error;
+    }
+  }
+
+  // ── Check out (rooms-v2 PR 4b) ────────────────────────────────────
+  // Sets check_out_date + actual_vacate_date so the UNIQUE
+  // (room_id, bed_id) WHERE check_out_date IS NULL constraint frees up
+  // the bed for re-allocation. Status is flipped to 'vacated' so legacy
+  // queries (still filtering on status='active') continue to match
+  // reality. The optional notes are reused via the existing
+  // roommate_preference_notes column to avoid a schema change.
+  static async checkOut(
+    allocationId: string,
+    checkOutDate: string,
+    notes?: string
+  ) {
+    try {
+      const supabase = createClientSupabaseClient();
+      const payload: Record<string, unknown> = {
+        status: 'vacated',
+        check_out_date: checkOutDate,
+        actual_vacate_date: checkOutDate,
+      };
+      if (notes && notes.trim().length > 0) {
+        payload.roommate_preference_notes = notes.trim();
+      }
+
+      const { data, error } = await supabase
+        .from('hostel_allocations')
+        .update(payload)
+        .eq('id', allocationId)
+        .select()
+        .single();
+
+      if (error) {
+        logger.error('campus-living/allocations', 'Failed to check out allocation', error);
+        throw error;
+      }
+      return data as HostelAllocation;
+    } catch (error) {
+      logger.error('campus-living/allocations', 'Unexpected error in checkOut', error);
       throw error;
     }
   }
