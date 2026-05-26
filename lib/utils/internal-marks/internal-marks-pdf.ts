@@ -1118,55 +1118,46 @@ export function generateBosAttendanceCertificatePDF(
 		const availableWidthOnLastLine = (contentX + maxWidth) - lastLineEndX - 2
 
 		// If there's horizontal space available, use it to start "has attended..." on same line
-		// Allow text to wrap naturally if it extends beyond available space
 		const hasAvailableSpace = availableWidthOnLastLine > 20 && (firstLineText || remainingText)
 
 		if (hasAvailableSpace) {
-			// Fill available space with "has attended..." text, allowing it to wrap
+			// Render on same line, allowing natural wrapping
 			doc.setFont('times', 'normal')
 			let xPos = lastLineEndX + 2
 
-			// Build the full text that will be rendered
-			const fullText = 'has attended the ' + ugPgLabel + ' Board of Studies meeting in the Department of'
+			// Render first part: "has attended the "
+			doc.text('has attended the ', xPos, lastMemberDetailsY)
+			xPos += doc.getTextWidth('has attended the ')
 
-			// Render with available width constraint to allow natural wrapping
-			const wrappedLines = doc.splitTextToSize(fullText, (contentX + maxWidth) - xPos)
+			// Render bold UG/PG label
+			doc.setFont('times', 'bold')
+			doc.text(ugPgLabel, xPos, lastMemberDetailsY)
+			xPos += doc.getTextWidth(ugPgLabel)
+
+			// Render remaining text with wrapping
+			doc.setFont('times', 'normal')
+			const remainingText = ' Board of Studies meeting in the Department of'
+			const availableWidth = (contentX + maxWidth) - xPos
+
+			// Split remaining text to handle wrapping
+			const wrappedLines = doc.splitTextToSize(remainingText, availableWidth)
 
 			if (wrappedLines.length > 0) {
-				// First line: render starting from xPos on current line
-				const parts = fullText.split(ugPgLabel)
-				doc.setFont('times', 'normal')
-				doc.text('has attended the ', xPos, lastMemberDetailsY)
-				xPos += doc.getTextWidth('has attended the ')
+				// Render first wrapped line at current position
+				doc.text(wrappedLines[0], xPos, lastMemberDetailsY)
 
-				doc.setFont('times', 'bold')
-				doc.text(ugPgLabel, xPos, lastMemberDetailsY)
-				xPos += doc.getTextWidth(ugPgLabel)
-
-				doc.setFont('times', 'normal')
-				const remainingOnFirst = ' Board of Studies meeting in the Department of'
-				const firstLineRemainingWidth = (contentX + maxWidth) - xPos
-				const remainingWidth = doc.getTextWidth(remainingOnFirst)
-
-				if (remainingWidth <= firstLineRemainingWidth) {
-					// Fits on same line
-					doc.text(remainingOnFirst, xPos, lastMemberDetailsY)
-					y = lastMemberDetailsY + lineSpacing
-				} else {
-					// Wrap to next lines - split based on available width on first line
-					const wrappedRemaining = doc.splitTextToSize(remainingOnFirst, firstLineRemainingWidth)
-					doc.text(wrappedRemaining[0], xPos, lastMemberDetailsY)
-
-					let nextY = lastMemberDetailsY + 4
-					for (let i = 1; i < wrappedRemaining.length; i++) {
-						doc.text(wrappedRemaining[i], contentX, nextY, {
-							align: 'justify',
-							maxWidth: maxWidth
-						})
-						nextY += 4
-					}
-					y = nextY + lineSpacing
+				// Render additional wrapped lines at full width
+				let currentY = lastMemberDetailsY + 4
+				for (let i = 1; i < wrappedLines.length; i++) {
+					doc.text(wrappedLines[i], contentX, currentY, {
+						align: 'justify',
+						maxWidth: maxWidth
+					})
+					currentY += 4
 				}
+				y = currentY + lineSpacing
+			} else {
+				y = lastMemberDetailsY + lineSpacing
 			}
 		} else {
 			// Start "has attended..." on new line
