@@ -1044,48 +1044,32 @@ export function generateBosAttendanceCertificatePDF(
 			doc.line(x1, yPos + underlineOffset, x2, yPos + underlineOffset)
 		}
 
-		// Line 1: "This is to certify that <Name>"
+		// Line 1: "This is to certify that" + member details (name, designation, institution, address)
 		doc.setFont('times', 'normal')
 		doc.setFontSize(fontSize)
 		const certPrefix = 'This is to certify that '
 		doc.text(certPrefix, contentX, y)
 		const prefixW = doc.getTextWidth(certPrefix)
 
+		// Build member details: name, designation, institution, address
+		const memberParts = [
+			cert.member_name,
+			cert.member_designation,
+			cert.member_institution?.replace(/^["']\s*|\s*["']$/g, '').trim(),
+			cert.member_address,
+		].filter(Boolean)
+		const memberDetailsStr = memberParts.join(', ')
+
+		// Render member details in bold, wrapping if needed
 		doc.setFont('times', 'bold')
-		doc.text(cert.member_name, contentX + prefixW, y)
-		const nameW = doc.getTextWidth(cert.member_name)
-		drawUnderline(y, contentX + prefixW, contentX + prefixW + nameW + 4)
-		y += lineSpacing
+		const memberLines = doc.splitTextToSize(memberDetailsStr, maxWidth - prefixW - 4)
+		doc.text(memberLines, contentX + prefixW, y)
 
-		// Line 2: "<Designation>" (if present)
-		if (cert.member_designation) {
-			doc.setFont('times', 'bold')
-			doc.text(cert.member_designation, contentX, y)
-			const desigW = doc.getTextWidth(cert.member_designation)
-			drawUnderline(y, contentX, contentX + desigW + 4)
-			y += lineSpacing
-		}
-
-		// Line 3: "<Institution>" (if present)
-		const institutionText = cert.member_institution?.replace(/^["']\s*|\s*["']$/g, '').trim()
-		if (institutionText) {
-			doc.setFont('times', 'bold')
-			doc.text(institutionText, contentX, y)
-			const instW = doc.getTextWidth(institutionText)
-			drawUnderline(y, contentX, contentX + instW + 4)
-			y += lineSpacing
-		}
-
-		// Line 4: "<Address>" (if present)
-		if (cert.member_address) {
-			doc.setFont('times', 'bold')
-			doc.text(cert.member_address, contentX, y)
-			const addrW = doc.getTextWidth(cert.member_address)
-			drawUnderline(y, contentX, contentX + addrW + 4)
-			y += lineSpacing
-		}
-
-		y += 4
+		// Draw single underline beneath all member details
+		const memberBlockLines = memberLines.length
+		const memberUnderlineY = y + (memberBlockLines - 1) * 4 + underlineOffset
+		drawUnderline(memberUnderlineY)
+		y += memberBlockLines * 4 + 6
 
 		// Line: "has attended the PG Board of Studies meeting in the Department of"
 		doc.setFont('times', 'normal')
