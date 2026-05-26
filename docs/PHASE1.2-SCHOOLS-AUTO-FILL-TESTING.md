@@ -295,7 +295,47 @@ All create/delete actions are logged with:
 - Which school and resource
 - What changed (specific degree/department details)
 
-Logs available via `school_defaults_audit_logs` table (future: admin audit page)
+Logs available via `school_defaults_audit_logs` table and admin audit page at `/organizations/school-defaults/audit`
+
+### Edit Degree/Department Names (Phase 1.5)
+
+1. In Schools table, click "View" on any configured school
+2. In detail modal, click "Edit" button
+3. Edit form appears with current values:
+   - Degree Name (e.g., "K-12 Program")
+   - Degree Code (e.g., "K12")
+   - Department Name (e.g., "Academic")
+   - Department Code (e.g., "ACAD")
+4. Update any fields with validation
+5. Click "Save Changes" to persist
+6. Audit log records all changes with before/after values
+
+### Bulk Delete with Multi-Select (Phase 1.5)
+
+1. In Schools table, use checkboxes to select schools
+2. Header checkbox selects/deselects all visible schools
+3. Selected schools count appears in blue banner
+4. Click "Delete X School(s)" button
+5. Confirmation dialog shows all selected school names
+6. Confirms deletion of K-12 Program for each
+7. Audit logs created for each deleted school
+
+### Audit Log Viewer (Phase 1.5)
+
+1. Navigate to: `/organizations/school-defaults/audit`
+2. View all create, update, and delete actions
+3. Table columns:
+   - Timestamp (when action occurred)
+   - Action (Create/Update/Delete with color badges)
+   - School (school name)
+   - Resource (Degree or Department)
+   - User (who performed action - name or email)
+   - Details (collapsible JSON showing exact changes)
+4. Click "View Changes" to expand change details
+5. For updates: shows before/after values for each field
+6. For deletes: shows deleted record information
+7. Sorted by most recent first
+8. Click "Export as CSV" to download all logs
 
 ### Example Usage
 
@@ -444,6 +484,51 @@ WHERE institution_id IN (
 - `app/(routes)/organizations/school-defaults/_components/school-defaults-page.tsx` (add modal state + imports)
 - `app/(routes)/organizations/school-defaults/_components/school-defaults-table.tsx` (add onViewSchool callback)
 - `docs/PHASE1.2-SCHOOLS-AUTO-FILL-TESTING.md` (add Phase 1.4 edit/delete guide)
+
+## Phase 1.5: Admin UI Bulk Operations (Completed 2026-05-26)
+
+### Completed Tasks
+
+1. ✅ EditDefaultsModal component for editing degree/department names and codes
+   - Form validation with zod schema
+   - Update degree and department records simultaneously
+   - Audit trail for all update actions
+   - Cancel/Save workflow with loading states
+
+2. ✅ Multi-select checkboxes in school table
+   - Checkbox column with select-all header
+   - Bulk delete button appears when schools selected
+   - Confirmation dialog showing list of school names
+   - Audit logging for each deleted school
+   - Clear selection button
+
+3. ✅ Audit log viewer page at /organizations/school-defaults/audit
+   - View all create/update/delete actions chronologically
+   - Sorted by most recent first (newest at top)
+   - Show user who performed action, timestamp, school, resource, changes
+   - Collapsible JSON viewer for detailed change information
+   - Loads last 500 entries per session
+
+4. ✅ CSV export for audit logs
+   - Export utility using native browser APIs (no external dependencies)
+   - Export button in audit table
+   - Date-stamped filename (`school-defaults-audit-YYYY-MM-DD.csv`)
+   - Proper CSV escaping for quoted fields with special characters
+   - Importable into Excel, Google Sheets, or BI tools
+
+### Files Added/Modified (Phase 1.5)
+
+**New Files:**
+- `app/(routes)/organizations/school-defaults/_components/edit-defaults-modal.tsx` (167 lines)
+- `app/(routes)/organizations/school-defaults/audit/page.tsx` (20 lines)
+- `app/(routes)/organizations/school-defaults/audit/_components/audit-log-table.tsx` (178 lines)
+- `lib/utils/export-audit-logs.ts` (45 lines)
+
+**Modified Files:**
+- `app/(routes)/organizations/school-defaults/_components/school-details-modal.tsx` (add onEdit callback)
+- `app/(routes)/organizations/school-defaults/_components/school-defaults-page.tsx` (add edit/select state, bulk delete)
+- `app/(routes)/organizations/school-defaults/_components/school-defaults-table.tsx` (add checkbox column)
+- `docs/PHASE1.2-SCHOOLS-AUTO-FILL-TESTING.md` (add Phase 1.5 features, audit log guide)
 
 ## Rollback Plan
 
