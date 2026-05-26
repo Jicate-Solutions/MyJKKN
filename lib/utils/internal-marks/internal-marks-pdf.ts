@@ -1044,7 +1044,7 @@ export function generateBosAttendanceCertificatePDF(
 			doc.line(x1, yPos + underlineOffset, x2, yPos + underlineOffset)
 		}
 
-		// Justified paragraph with proper formatting
+		// Single justified paragraph with increased line spacing
 		doc.setFont('times', 'normal')
 		doc.setFontSize(fontSize)
 
@@ -1056,43 +1056,22 @@ export function generateBosAttendanceCertificatePDF(
 			cert.member_address,
 		].filter(Boolean).join(', ')
 
-		// Build paragraph (ends with "Department of" - department name rendered separately)
-		const plainText = `This is to certify that ${memberDetails} has attended the ${ugPgLabel} Board of Studies meeting in the Department of`
+		// Build complete single paragraph
+		const fullParagraph = `This is to certify that ${memberDetails} has attended the ${ugPgLabel} Board of Studies meeting in the Department of ${deptText} held in our college on ${cert.meeting_date}.`
 
 		// Split paragraph into lines for justified rendering
-		const paragraphLines = doc.splitTextToSize(plainText, maxWidth)
+		const paragraphLines = doc.splitTextToSize(fullParagraph, maxWidth)
 
-		// Render each line with justification (all except last are justified)
+		// Render each line with justification and increased spacing (all except last are justified)
+		const lineHeightIncrease = 6 // Increased from 4 for better readability
 		paragraphLines.forEach((line, idx) => {
 			const isLastLine = idx === paragraphLines.length - 1
 			doc.text(line, contentX, y, {
 				align: isLastLine ? 'left' : 'justify',
 				maxWidth: maxWidth
 			})
-			y += 4
+			y += lineHeightIncrease
 		})
-
-		y += 6 // spacing before department name
-
-		// Line: "<DEPT_NAME>"
-		doc.setFont('times', 'bold')
-		doc.text(deptText, contentX, y)
-		const deptW = doc.getTextWidth(deptText)
-		drawUnderline(y, contentX, contentX + deptW + 4)
-		y += lineSpacing
-
-		// Line: "held in our college on <DATE>"
-		doc.setFont('times', 'normal')
-		doc.text('held in our college on ', contentX, y)
-		const heldW = doc.getTextWidth('held in our college on ')
-
-		doc.setFont('times', 'bold')
-		const dateX = contentX + heldW
-		const dateWithPeriod = cert.meeting_date + '.'
-		doc.text(dateWithPeriod, dateX, y)
-		const dateW = doc.getTextWidth(dateWithPeriod)
-		drawUnderline(y, dateX, dateX + dateW + 4)
-		y += lineSpacing
 
 		y += 12
 
