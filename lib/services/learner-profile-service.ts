@@ -634,6 +634,14 @@ export class LearnerProfileService {
   /**
    * Update learner profile
    * Updated: 2025-01-21 - Calculate is_profile_complete before auto-activation check
+   * Updated: 2026-05-26 - Add school defaults enforcement to prevent override on edit
+   *
+   * Test scenarios:
+   * 1. Edit college learner: degree_id/department_id can be changed freely
+   * 2. Edit school learner: degree_id/department_id are reset to school defaults
+   * 3. Edit school learner (no degree_id in DTO): degree_id set to school default
+   * 4. Edit school learner changing institution to college: degree_id now required/editable
+   * 5. Edit college learner changing institution to school: degree_id reset to school default
    */
   static async updateLearnerProfile(
     id: string,

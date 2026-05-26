@@ -223,7 +223,7 @@ WHERE institution_id IN (
 
 ## Deferred Tasks (Phase 1.3+)
 
-1. Update LearnerProfileService.updateLearnerProfile to enforce defaults
+1. ✅ Update LearnerProfileService.updateLearnerProfile to enforce defaults (completed 2026-05-26)
 2. Add batch auto-fill for existing learners at schools (data migration)
 3. Add admin UI to view/manage virtual degree/department records
 4. Implement CAS-aware virtual record sharing (multiple schools → single set)
@@ -239,7 +239,8 @@ If issues occur:
 
 ## Notes
 
-- Service enforcement at createLearnerProfile prevents manual override
+- Service enforcement at createLearnerProfile prevents manual override on create
+- Service enforcement at updateLearnerProfile prevents manual override on edit (Phase 1.3)
 - Virtual records are created on-demand (first learner at each school triggers creation)
 - Idempotent design ensures no duplicate records
-- Form hiding + schema + service layer = triple defense against inconsistency
+- Form hiding + schema + service layer = triple defense against inconsistency across create and edit
