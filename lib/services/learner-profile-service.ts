@@ -2,6 +2,7 @@ import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { getErrorMessage } from '@/lib/utils';
 import { trackUsage } from '@/lib/utils/track-usage';
 import { logActivityClient, LearnerActivityTemplates } from '@/lib/utils/activity-logger-client';
+import { SchoolDefaultsService } from '@/lib/services/school-defaults-service';
 import type {
   LearnerProfile,
   CreateLearnerProfileDto,
@@ -555,6 +556,7 @@ export class LearnerProfileService {
 
   /**
    * Create new learner profile
+   * Updated: 2026-05-26 - Enforce school defaults for K-12 auto-fill
    */
   static async createLearnerProfile(dto: CreateLearnerProfileDto): Promise<LearnerProfile> {
     const supabase = createClientSupabaseClient();
@@ -563,16 +565,35 @@ export class LearnerProfileService {
     const { data: userData } = await supabase.auth.getUser();
     const currentUserId = userData.user?.id;
 
+    // Fetch institution to check entity_type and enforce school defaults
+    const { data: institution, error: instError } = await supabase
+      .from('institutions')
+      .select('id, entity_type')
+      .eq('id', dto.institution_id)
+      .single();
+
+    if (instError) {
+      console.warn('[learner-profile-service] Could not fetch institution entity_type for defaults enforcement:', instError);
+      // Continue without enforcement — institution may not exist yet or permission denied
+    }
+
+    // Enforce school defaults (auto-fill degree/department for schools)
+    const enforcedDto = await SchoolDefaultsService.enforceSchoolDefaults(
+      dto.institution_id,
+      institution?.entity_type,
+      dto as Record<string, any>
+    );
+
     // Calculate is_profile_complete from the actual data instead of relying on the DTO flag
-    const isComplete = this.calculateProfileCompleteness(dto);
+    const isComplete = this.calculateProfileCompleteness(enforcedDto);
 
     const insertQuery: any = supabase.from('learners_profiles');
     const { data, error } = await insertQuery
       .insert({
-        ...dto,
+        ...enforcedDto,
         // 2026-05-20: Default entry-point status is now 'enquiry' (was 'admitted').
         // 'admitted' now means post-fees-threshold; never assign it on initial INSERT.
-        lifecycle_status: (dto.lifecycle_status || 'enquiry') as LifecycleStatus,
+        lifecycle_status: (enforcedDto.lifecycle_status || 'enquiry') as LifecycleStatus,
         is_profile_complete: isComplete,
         migration_source: 'direct' as const, // Mark as directly created (not migrated)
         created_by: currentUserId,
