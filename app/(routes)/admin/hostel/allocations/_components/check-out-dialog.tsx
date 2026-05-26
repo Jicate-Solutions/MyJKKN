@@ -8,7 +8,7 @@
 // sets check_out_date + actual_vacate_date — the partial UNIQUE index
 // then frees the bed for re-allocation.
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Loader2, LogOut } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -47,12 +47,15 @@ export function CheckOutDialog({ allocation, open, onOpenChange }: Props) {
   const [checkOutDate, setCheckOutDate] = useState(today());
   const [notes, setNotes] = useState('');
 
-  useEffect(() => {
-    if (!open) {
+  // Reset transient state inside onOpenChange (per
+  // react-hooks/set-state-in-effect lint + radix-dialog-race-fix memory).
+  const handleOpenChange = (next: boolean) => {
+    if (!next) {
       setCheckOutDate(today());
       setNotes('');
     }
-  }, [open]);
+    onOpenChange(next);
+  };
 
   if (!allocation) return null;
 
@@ -75,7 +78,7 @@ export function CheckOutDialog({ allocation, open, onOpenChange }: Props) {
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">

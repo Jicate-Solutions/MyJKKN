@@ -18,7 +18,7 @@
 // Optional collapsible section: warden, vacate notes, expected vacate.
 // Submit calls useAllocateResident().
 
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Loader2, Plus } from 'lucide-react';
 
@@ -110,9 +110,12 @@ export function AllocateResidentDialog({ open, onOpenChange }: Props) {
   const [wardenId, setWardenId] = useState('');
   const [vacateNotes, setVacateNotes] = useState('');
 
-  // Reset when dialog closes
-  useEffect(() => {
-    if (!open) {
+  // Reset transient state when dialog closes. Done in the onOpenChange
+  // handler (below) rather than an effect — same pattern as the sibling
+  // RoomCollegeAccessDialog — to avoid the react-hooks/set-state-in-effect
+  // cascade-render lint.
+  const handleOpenChange = (next: boolean) => {
+    if (!next) {
       setInstitutionId('');
       setTierId('');
       setAcademicYearId('');
@@ -129,7 +132,8 @@ export function AllocateResidentDialog({ open, onOpenChange }: Props) {
       setWardenId('');
       setVacateNotes('');
     }
-  }, [open]);
+    onOpenChange(next);
+  };
 
   // ── Institutions ─────────────────────────────────────────────────
   const institutionsQuery = useQuery<InstitutionRow[]>({
@@ -164,12 +168,10 @@ export function AllocateResidentDialog({ open, onOpenChange }: Props) {
     enabled: open && Boolean(institutionId),
   });
 
-  // Auto-select first tier when institution changes
-  useEffect(() => {
-    if (tiersQuery.data && tiersQuery.data.length > 0 && !tierId) {
-      setTierId(tiersQuery.data[0].id);
-    }
-  }, [tiersQuery.data, tierId]);
+  // Auto-pick first tier: derive the effective value at render time
+  // (no setState-in-effect). The user can still override via the Select.
+  const effectiveTierId =
+    tierId || (tiersQuery.data && tiersQuery.data[0]?.id) || '';
 
   // ── Academic years for selected institution ───────────────────────
   const academicYearsQuery = useQuery<AcademicYearRow[]>({
@@ -187,13 +189,14 @@ export function AllocateResidentDialog({ open, onOpenChange }: Props) {
     enabled: open && Boolean(institutionId),
   });
 
-  // Auto-pick the active (or most recent) academic year
-  useEffect(() => {
-    if (academicYearsQuery.data && academicYearsQuery.data.length > 0 && !academicYearId) {
-      const active = academicYearsQuery.data.find((y) => y.is_active);
-      setAcademicYearId(active?.id ?? academicYearsQuery.data[0].id);
-    }
-  }, [academicYearsQuery.data, academicYearId]);
+  // Auto-pick active (or most-recent) academic year as the effective
+  // value, derived at render time. User-selected value wins.
+  const effectiveAcademicYearId =
+    academicYearId ||
+    (academicYearsQuery.data &&
+      (academicYearsQuery.data.find((y) => y.is_active)?.id ??
+        academicYearsQuery.data[0]?.id)) ||
+    '';
 
   // ── Learners for selected institution ─────────────────────────────
   const learnersQuery = useQuery<LearnerRow[]>({
@@ -284,27 +287,31 @@ export function AllocateResidentDialog({ open, onOpenChange }: Props) {
     enabled: open && Boolean(roomId),
   });
 
-  // Reset cascading dependents when a parent changes.
-  useEffect(() => {
+  // Cascading dependents are reset inside the Select onValueChange
+  // handlers below — no effects needed (and no cascade-render lint).
+  const handleInstitutionChange = (next: string) => {
+    setInstitutionId(next);
     setTierId('');
     setAcademicYearId('');
     setLearnerId('');
     setBlockId('');
     setRoomId('');
     setBedId('');
-  }, [institutionId]);
-  useEffect(() => {
+  };
+  const handleBlockChange = (next: string) => {
+    setBlockId(next);
     setRoomId('');
     setBedId('');
-  }, [blockId]);
-  useEffect(() => {
+  };
+  const handleRoomChange = (next: string) => {
+    setRoomId(next);
     setBedId('');
-  }, [roomId]);
+  };
 
   const canSubmit =
     Boolean(institutionId) &&
-    Boolean(tierId) &&
-    Boolean(academicYearId) &&
+    Boolean(effectiveTierId) &&
+    Boolean(effectiveAcademicYearId) &&
     Boolean(learnerId) &&
     Boolean(blockId) &&
     Boolean(roomId) &&
@@ -326,8 +333,8 @@ export function AllocateResidentDialog({ open, onOpenChange }: Props) {
         block_id: blockId,
         room_id: roomId,
         bed_id: bedId,
-        academic_year_id: academicYearId,
-        tier_id: tierId,
+        academic_year_id: effectiveAcademicYearId,
+        tier_id: effectiveTierId,
         allocation_type: 'regular',
         allocation_date: checkInDate,
         status: 'active',
@@ -346,7 +353,7 @@ export function AllocateResidentDialog({ open, onOpenChange }: Props) {
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
@@ -363,7 +370,7 @@ export function AllocateResidentDialog({ open, onOpenChange }: Props) {
           {/* Institution */}
           <div className="space-y-1.5">
             <Label htmlFor="institution">Institution *</Label>
-            <Select value={institutionId} onValueChange={setInstitutionId}>
+            <Select value={institutionId} onValueChange={handleInstitutionChange}>
               <SelectTrigger id="institution">
                 <SelectValue placeholder={institutionsQuery.isLoading ? 'Loading…' : 'Pick an institution'} />
               </SelectTrigger>
@@ -381,7 +388,7 @@ export function AllocateResidentDialog({ open, onOpenChange }: Props) {
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <div className="space-y-1.5">
               <Label htmlFor="tier">Stay tier *</Label>
-              <Select value={tierId} onValueChange={setTierId} disabled={!institutionId}>
+              <Select value={effectiveTierId} onValueChange={setTierId} disabled={!institutionId}>
                 <SelectTrigger id="tier">
                   <SelectValue placeholder={tiersQuery.isLoading ? 'Loading…' : 'Pick a tier'} />
                 </SelectTrigger>
@@ -396,7 +403,7 @@ export function AllocateResidentDialog({ open, onOpenChange }: Props) {
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="academic-year">Academic year *</Label>
-              <Select value={academicYearId} onValueChange={setAcademicYearId} disabled={!institutionId}>
+              <Select value={effectiveAcademicYearId} onValueChange={setAcademicYearId} disabled={!institutionId}>
                 <SelectTrigger id="academic-year">
                   <SelectValue placeholder={academicYearsQuery.isLoading ? 'Loading…' : 'Pick a year'} />
                 </SelectTrigger>
@@ -433,7 +440,7 @@ export function AllocateResidentDialog({ open, onOpenChange }: Props) {
           <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
             <div className="space-y-1.5">
               <Label htmlFor="block">Block *</Label>
-              <Select value={blockId} onValueChange={setBlockId} disabled={!institutionId}>
+              <Select value={blockId} onValueChange={handleBlockChange} disabled={!institutionId}>
                 <SelectTrigger id="block">
                   <SelectValue placeholder={accessibleRoomsQuery.isLoading ? 'Loading…' : 'Pick a block'} />
                 </SelectTrigger>
@@ -448,7 +455,7 @@ export function AllocateResidentDialog({ open, onOpenChange }: Props) {
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="room">Room *</Label>
-              <Select value={roomId} onValueChange={setRoomId} disabled={!blockId}>
+              <Select value={roomId} onValueChange={handleRoomChange} disabled={!blockId}>
                 <SelectTrigger id="room">
                   <SelectValue placeholder="Pick a room" />
                 </SelectTrigger>
