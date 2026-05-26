@@ -343,12 +343,14 @@ function AttendanceCertificatesTab({ institutionsId }: { institutionsId: string 
     const member = (attendee as any).member;
     // Clean institution field: remove department info (appears in meeting sentence instead)
     let cleanedInstitution = member?.display_institution ?? '';
+    // Remove all variations of department mentions (beginning, middle, or end)
     cleanedInstitution = cleanedInstitution
-      .replace(/^DEPARTMENT OF [^,]+,?\s*/gi, '')
-      .replace(/,?\s*DEPARTMENT OF [^,]+/gi, '')
-      .replace(/^Dept\.?\s+/gi, '')
-      .replace(/,?\s*Dept\.?\s+/gi, '')
-      .trim();
+      .replace(/^DEPARTMENT\s+OF\s+[^,]+\s*,?\s*/gi, '') // DEPARTMENT OF at start
+      .replace(/,?\s*DEPARTMENT\s+OF\s+[^,]+\s*,?\s*/gi, '') // DEPARTMENT OF in middle
+      .replace(/,?\s*DEPARTMENT\s+OF\s+[^,]+$/gi, '') // DEPARTMENT OF at end
+      .replace(/^Dept\.?\s*/gi, '')
+      .replace(/,?\s*Dept\.?\s*/gi, '')
+      .split(',').map(s => s.trim()).filter(Boolean).join(', '); // Clean up commas and spacing
 
     return {
       institution_name: header.institution_name,
