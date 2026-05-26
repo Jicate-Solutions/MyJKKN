@@ -42679,6 +42679,7 @@ export type Database = {
           email: string | null
           fssai_expiry_date: string | null
           fssai_license_number: string | null
+          gender_served: string | null
           gst_number: string | null
           id: string
           institution_id: string
@@ -42700,6 +42701,7 @@ export type Database = {
           email?: string | null
           fssai_expiry_date?: string | null
           fssai_license_number?: string | null
+          gender_served?: string | null
           gst_number?: string | null
           id?: string
           institution_id: string
@@ -42721,6 +42723,7 @@ export type Database = {
           email?: string | null
           fssai_expiry_date?: string | null
           fssai_license_number?: string | null
+          gender_served?: string | null
           gst_number?: string | null
           id?: string
           institution_id?: string
@@ -43141,10 +43144,13 @@ export type Database = {
           institution_id: string
           is_special_day: boolean | null
           items: string[]
+          items_english: string[] | null
+          items_tamil: string[] | null
           meal_type: Database["public"]["Enums"]["meal_type_enum"]
           special_day_name: string | null
           special_items: string[] | null
           status: Database["public"]["Enums"]["menu_status_enum"]
+          tier_key: string | null
           updated_at: string | null
           week_start_date: string
         }
@@ -43159,10 +43165,13 @@ export type Database = {
           institution_id: string
           is_special_day?: boolean | null
           items: string[]
+          items_english?: string[] | null
+          items_tamil?: string[] | null
           meal_type: Database["public"]["Enums"]["meal_type_enum"]
           special_day_name?: string | null
           special_items?: string[] | null
           status?: Database["public"]["Enums"]["menu_status_enum"]
+          tier_key?: string | null
           updated_at?: string | null
           week_start_date: string
         }
@@ -43177,10 +43186,13 @@ export type Database = {
           institution_id?: string
           is_special_day?: boolean | null
           items?: string[]
+          items_english?: string[] | null
+          items_tamil?: string[] | null
           meal_type?: Database["public"]["Enums"]["meal_type_enum"]
           special_day_name?: string | null
           special_items?: string[] | null
           status?: Database["public"]["Enums"]["menu_status_enum"]
+          tier_key?: string | null
           updated_at?: string | null
           week_start_date?: string
         }
@@ -78910,7 +78922,7 @@ export type Database = {
         | "closed"
         | "reopened"
       marking_method_enum: "manual" | "biometric" | "qr_scan" | "rfid"
-      meal_type_enum: "breakfast" | "lunch" | "snacks" | "dinner"
+      meal_type_enum: "breakfast" | "lunch" | "snacks" | "dinner" | "tea"
       meeting_location_enum: "gate" | "common_area" | "room" | "guest_room"
       menu_status_enum: "planned" | "confirmed" | "served" | "cancelled"
       mess_billing_status_enum: "open" | "closed" | "billed" | "paid"
@@ -80241,7 +80253,7 @@ export const Constants = {
         "reopened",
       ],
       marking_method_enum: ["manual", "biometric", "qr_scan", "rfid"],
-      meal_type_enum: ["breakfast", "lunch", "snacks", "dinner"],
+      meal_type_enum: ["breakfast", "lunch", "snacks", "dinner", "tea"],
       meeting_location_enum: ["gate", "common_area", "room", "guest_room"],
       menu_status_enum: ["planned", "confirmed", "served", "cancelled"],
       mess_billing_status_enum: ["open", "closed", "billed", "paid"],

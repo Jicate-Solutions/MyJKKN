@@ -30,6 +30,7 @@ export const TABLE_OVERRIDES: Record<string, string> = {
   daily_attendance: 'Academic',
   class_incharges: 'Academic',
   api_keys: 'System',
+  institution_program_approvals: 'Staff',
 };
 
 /** Prefix-to-module mapping checked in order; first match wins. */
@@ -59,6 +60,7 @@ export const MODULE_PREFIXES: [string, string][] = [
   ['health_', 'Health'],
   ['ims_', 'IMS'],
   ['marathon_', 'Marathon'],
+  ['hr_', 'Staff'],
   ['hostel_', 'Campus Living'],
   ['mess_', 'Campus Living'],
   ['pde_', 'PDE Learning'],
