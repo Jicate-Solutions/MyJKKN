@@ -1033,16 +1033,16 @@ export function generateBosAttendanceCertificatePDF(
 		const ugPg = cert.ug_pg ?? inferBoardUgPg(cert.board_type, cert.board_code, cert.board_name)
 		const ugPgLabel = ugPg ?? 'UG/PG'
 		const deptText = cert.board_name.toUpperCase()
-		const nameDesigParts = [cert.member_name, cert.member_designation].filter(Boolean)
-		const nameDesigStr = nameDesigParts.join(', ')
 
-		const drawUnderline = (yPos: number) => {
+		const drawUnderline = (yPos: number, xStart?: number, xEnd?: number) => {
 			doc.setDrawColor(0, 0, 0)
 			doc.setLineWidth(0.3)
-			doc.line(contentX, yPos + underlineOffset, contentX + maxWidth, yPos + underlineOffset)
+			const x1 = xStart ?? contentX
+			const x2 = xEnd ?? (contentX + maxWidth)
+			doc.line(x1, yPos + underlineOffset, x2, yPos + underlineOffset)
 		}
 
-		// Line 1: "This is to certify that <Name>, <Designation>"
+		// Line 1: "This is to certify that" + name (bold, underlined)
 		doc.setFont('times', 'normal')
 		doc.setFontSize(fontSize)
 		const certPrefix = 'This is to certify that '
@@ -1050,20 +1050,29 @@ export function generateBosAttendanceCertificatePDF(
 		const prefixW = doc.getTextWidth(certPrefix)
 
 		doc.setFont('times', 'bold')
-		doc.text(nameDesigStr, contentX + prefixW, y)
-		doc.setDrawColor(0, 0, 0)
-		doc.setLineWidth(0.3)
-		doc.line(contentX + prefixW, y + underlineOffset, contentX + maxWidth, y + underlineOffset)
+		doc.text(cert.member_name, contentX + prefixW, y)
+		const nameW = doc.getTextWidth(cert.member_name)
+		drawUnderline(y, contentX + prefixW, contentX + prefixW + nameW + 4)
 		y += lineSpacing
 
-		// Line 2: "<Member's Institution>" (if present)
+		// Line 2: "<Designation>" (if present) — indented, bold, underlined
+		if (cert.member_designation) {
+			doc.setFont('times', 'bold')
+			doc.text(cert.member_designation, contentX + 24, y)
+			const desigW = doc.getTextWidth(cert.member_designation)
+			drawUnderline(y, contentX + 24, contentX + 24 + desigW + 4)
+			y += lineSpacing
+		}
+
+		// Line 3: "<Member's Institution>" (if present) — indented, bold, underlined
 		// Strip surrounding quotes -- industry-expert institution names are
 		// wrapped in quotes upstream to preserve internal commas.
 		const institutionText = cert.member_institution?.replace(/^["']\s*|\s*["']$/g, '').trim()
 		if (institutionText) {
 			doc.setFont('times', 'bold')
-			doc.text(institutionText, contentX, y)
-			drawUnderline(y)
+			doc.text(institutionText, contentX + 24, y)
+			const instW = doc.getTextWidth(institutionText)
+			drawUnderline(y, contentX + 24, contentX + 24 + instW + 4)
 			y += lineSpacing
 		}
 
@@ -1081,26 +1090,28 @@ export function generateBosAttendanceCertificatePDF(
 		doc.text(' Board of Studies meeting in the Department of', curX, y)
 		y += lineSpacing
 
-		// Line 4: "<DEPT_NAME>  held in our college on  <DATE>"
+		// Line 4: "<DEPT_NAME>" (line 1)
+		//         "held in our college on  <DATE>" (line 2, kept together)
 		doc.setFont('times', 'bold')
 		doc.text(deptText, contentX, y)
 		const deptW = doc.getTextWidth(deptText)
 		doc.setDrawColor(0, 0, 0)
 		doc.setLineWidth(0.3)
 		doc.line(contentX, y + underlineOffset, contentX + deptW + 4, y + underlineOffset)
+		y += lineSpacing
 
+		// Next line: "held in our college on  <DATE>" — keep them together
 		doc.setFont('times', 'normal')
-		const heldPrefix = '   held in our college on '
-		doc.text(heldPrefix, contentX + deptW + 4, y)
-		const heldPrefixW = doc.getTextWidth(heldPrefix)
-		const dateX = contentX + deptW + 4 + heldPrefixW
-
+		doc.text('held in our college on  ', contentX, y)
+		const heldW = doc.getTextWidth('held in our college on  ')
 		doc.setFont('times', 'bold')
+		const dateX = contentX + heldW
 		doc.text(cert.meeting_date, dateX, y)
 		const dateW = doc.getTextWidth(cert.meeting_date)
 		doc.line(dateX, y + underlineOffset, dateX + dateW + 4, y + underlineOffset)
+		y += lineSpacing
 
-		y += 28
+		y += 12
 
 		// Principal signature (right-aligned, matches COE "Signature of the CoE")
 		doc.setFont('times', 'bold')
