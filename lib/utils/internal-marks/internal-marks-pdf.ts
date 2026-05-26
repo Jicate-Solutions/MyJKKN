@@ -1089,6 +1089,10 @@ export function generateBosAttendanceCertificatePDF(
 
 		// Render continuation lines at full width
 		let currentY = y
+		let lastMemberDetailsY = y
+		let lastMemberDetailsWidth = 0
+		let lastMemberDetailsX = contentX + prefixW
+
 		if (remainingText) {
 			currentY += lineSpacing
 			const continuationLines = doc.splitTextToSize(remainingText, maxWidth)
@@ -1098,26 +1102,62 @@ export function generateBosAttendanceCertificatePDF(
 					align: isLastLine ? 'left' : 'justify',
 					maxWidth: maxWidth
 				})
+				// Track last line info
+				lastMemberDetailsY = currentY + idx * 4
+				lastMemberDetailsX = contentX
+				lastMemberDetailsWidth = doc.getTextWidth(line)
 			})
+		} else if (firstLineText) {
+			// No continuation lines, last line is the first line
+			lastMemberDetailsWidth = doc.getTextWidth(firstLineText)
+			lastMemberDetailsX = contentX + prefixW
 		}
 
-		// Advance y past member details block
-		const totalMemberLines = (firstLineText ? 1 : 0) + (remainingText ? doc.splitTextToSize(remainingText, maxWidth).length : 0)
-		y = currentY + (totalMemberLines * 4) + 6
+		// Calculate available space on last member details line
+		const lastLineEndX = lastMemberDetailsX + lastMemberDetailsWidth
+		const availableWidthOnLastLine = (contentX + maxWidth) - lastLineEndX - 2
 
-		// Line: "has attended the PG Board of Studies meeting in the Department of"
-		doc.setFont('times', 'normal')
-		const partA = 'has attended the '
-		doc.text(partA, contentX, y)
-		let curX = contentX + doc.getTextWidth(partA)
+		// Check if "has attended the [UG/PG] Board of Studies meeting in the Department of " fits on same line
+		const hasAttendedText = 'has attended the ' + ugPgLabel + ' Board of Studies meeting in the Department of'
+		const hasAttendedWidth = doc.getTextWidth(hasAttendedText)
 
-		doc.setFont('times', 'bold')
-		doc.text(ugPgLabel, curX, y)
-		curX += doc.getTextWidth(ugPgLabel)
+		const canFitOnSameLine = hasAttendedWidth <= availableWidthOnLastLine
 
-		doc.setFont('times', 'normal')
-		doc.text(' Board of Studies meeting in the Department of', curX, y)
-		y += lineSpacing
+		if (canFitOnSameLine && (firstLineText || remainingText)) {
+			// Append "has attended..." to the last member details line
+			doc.setFont('times', 'normal')
+			let xPos = lastLineEndX + 2
+
+			doc.text('has attended the ', xPos, lastMemberDetailsY)
+			xPos += doc.getTextWidth('has attended the ')
+
+			doc.setFont('times', 'bold')
+			doc.text(ugPgLabel, xPos, lastMemberDetailsY)
+			xPos += doc.getTextWidth(ugPgLabel)
+
+			doc.setFont('times', 'normal')
+			doc.text(' Board of Studies meeting in the Department of', xPos, lastMemberDetailsY)
+
+			// Next content starts after this line
+			y = lastMemberDetailsY + lineSpacing
+		} else {
+			// Start "has attended..." on new line
+			y = lastMemberDetailsY + lineSpacing
+
+			doc.setFont('times', 'normal')
+			const partA = 'has attended the '
+			doc.text(partA, contentX, y)
+			let curX = contentX + doc.getTextWidth(partA)
+
+			doc.setFont('times', 'bold')
+			doc.text(ugPgLabel, curX, y)
+			curX += doc.getTextWidth(ugPgLabel)
+
+			doc.setFont('times', 'normal')
+			doc.text(' Board of Studies meeting in the Department of', curX, y)
+
+			y += lineSpacing
+		}
 
 		// Line: "<DEPT_NAME>"
 		doc.setFont('times', 'bold')
