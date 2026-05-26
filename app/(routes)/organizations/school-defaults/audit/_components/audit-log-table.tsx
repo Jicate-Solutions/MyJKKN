@@ -14,7 +14,11 @@ import { AlertBox } from '@/components/ui/alert-box';
 import { Loader2, Download } from 'lucide-react';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { Button } from '@/components/ui/button';
-import { exportAuditLogsToCSV } from '@/lib/utils/export-audit-logs';
+import {
+  exportAuditLogsToCSV,
+  exportAuditLogsToJSON,
+  exportAuditLogsToXLSX
+} from '@/lib/utils/export-audit-logs';
 import AuditLogFilters, { FilterState } from './audit-log-filters';
 
 interface AuditLog {
@@ -179,17 +183,45 @@ export default function AuditLogTable() {
           />
 
           <div className="flex justify-end gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                const timestamp = new Date().toISOString().split('T')[0];
-                exportAuditLogsToCSV(filteredLogs, `school-defaults-audit-${timestamp}.csv`);
-              }}
-            >
-              <Download className="h-4 w-4 mr-1" />
-              Export as CSV
-            </Button>
+            <div className="relative group">
+              <Button
+                variant="outline"
+                size="sm"
+                className="flex items-center"
+              >
+                <Download className="h-4 w-4 mr-1" />
+                Export
+              </Button>
+              <div className="absolute right-0 mt-1 w-40 bg-white border rounded shadow-lg opacity-0 group-hover:opacity-100 pointer-events-none group-hover:pointer-events-auto z-10">
+                <button
+                  onClick={() => {
+                    const timestamp = new Date().toISOString().split('T')[0];
+                    exportAuditLogsToCSV(filteredLogs, `audit-${timestamp}.csv`);
+                  }}
+                  className="block w-full text-left px-4 py-2 hover:bg-gray-100 text-sm"
+                >
+                  CSV
+                </button>
+                <button
+                  onClick={() => {
+                    const timestamp = new Date().toISOString().split('T')[0];
+                    exportAuditLogsToJSON(filteredLogs, `audit-${timestamp}.json`);
+                  }}
+                  className="block w-full text-left px-4 py-2 hover:bg-gray-100 text-sm"
+                >
+                  JSON
+                </button>
+                <button
+                  onClick={() => {
+                    const timestamp = new Date().toISOString().split('T')[0];
+                    exportAuditLogsToXLSX(filteredLogs, `audit-${timestamp}.xlsx`);
+                  }}
+                  className="block w-full text-left px-4 py-2 hover:bg-gray-100 text-sm border-t"
+                >
+                  Excel
+                </button>
+              </div>
+            </div>
           </div>
 
           <div className="flex items-center justify-between py-4">
