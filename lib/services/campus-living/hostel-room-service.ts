@@ -1,6 +1,11 @@
 // hostel-rooms-v2 PR 2 (2026-05-26): institution_id + status + current_occupancy
 // dropped from hostel_rooms. Occupancy now derives from v_hostel_room_occupancy.
 // College access flows through room_institution_access (RLS handles scope).
+//
+// hostel-rooms-v2 PR 3 (2026-05-26): added enriched read methods
+// (getRoomsByBlockWithOccupancy / getRoomWithOccupancy) that join the view's
+// derived occupancy alongside hostel_rooms — restores the status badges +
+// occupancy displays that PR 2 left as placeholders.
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { logger } from '@/lib/utils/enhanced-logger';
 import type {
@@ -9,6 +14,58 @@ import type {
   UpdateHostelRoomDTO,
   RoomFilters,
 } from '@/types/campus-living';
+
+// ─── Occupancy shape (mirrors v_hostel_room_occupancy) ─────────────────────
+export type RoomDerivedStatus = 'available' | 'partially_occupied' | 'full' | 'unknown';
+
+export interface RoomOccupancySnapshot {
+  active_residents: number;
+  beds_available: number;
+  derived_status: RoomDerivedStatus;
+}
+
+export type HostelRoomWithOccupancy = HostelRoom & RoomOccupancySnapshot;
+export type HostelRoomWithBedsAndOccupancy = HostelRoomWithOccupancy & {
+  hostel_beds: unknown[];
+};
+
+const EMPTY_OCCUPANCY: RoomOccupancySnapshot = {
+  active_residents: 0,
+  beds_available: 0,
+  derived_status: 'unknown',
+};
+
+/**
+ * Look up live occupancy for a set of room IDs via v_hostel_room_occupancy.
+ * Returns a Map keyed by room_id for cheap O(1) lookup at zip-merge time.
+ * Empty input short-circuits to an empty map.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function fetchOccupancyMap(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: any,
+  roomIds: string[],
+): Promise<Map<string, RoomOccupancySnapshot>> {
+  const map = new Map<string, RoomOccupancySnapshot>();
+  if (roomIds.length === 0) return map;
+  const { data, error } = await supabase
+    .from('v_hostel_room_occupancy')
+    .select('room_id, active_residents, beds_available, derived_status')
+    .in('room_id', roomIds);
+  if (error) {
+    logger.warn('campus-living/rooms', 'fetchOccupancyMap soft-failed; defaulting to unknown', error);
+    return map;
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const row of (data ?? []) as any[]) {
+    map.set(row.room_id, {
+      active_residents: Number(row.active_residents ?? 0),
+      beds_available: Number(row.beds_available ?? 0),
+      derived_status: (row.derived_status as RoomDerivedStatus) ?? 'unknown',
+    });
+  }
+  return map;
+}
 
 export class HostelRoomService {
   // ── List rooms with filters ───────────────────────────────────────
@@ -65,7 +122,9 @@ export class HostelRoomService {
     }
   }
 
-  // ── Rooms by block ────────────────────────────────────────────────
+  // ── Rooms by block (legacy, no occupancy) ─────────────────────────
+  // Kept for backward compatibility with any pre-PR-3 callers; prefer
+  // getRoomsByBlockWithOccupancy for new UI work.
   static async getRoomsByBlock(blockId: string) {
     try {
       const supabase = createClientSupabaseClient();
@@ -87,7 +146,39 @@ export class HostelRoomService {
     }
   }
 
-  // ── Single room with beds ─────────────────────────────────────────
+  // ── Rooms by block + live occupancy (PR 3) ────────────────────────
+  // Restores the per-row status badge + occupancy display that PR 2 left
+  // as placeholders. Pulls rooms + beds, then zip-merges with one read of
+  // v_hostel_room_occupancy. Falls back to derived_status='unknown' if the
+  // view query soft-fails (we never want the page to crash on the badge).
+  static async getRoomsByBlockWithOccupancy(blockId: string): Promise<HostelRoomWithBedsAndOccupancy[]> {
+    try {
+      const supabase = createClientSupabaseClient();
+      const { data, error } = await supabase
+        .from('hostel_rooms')
+        .select('*, hostel_beds(*)')
+        .eq('block_id', blockId)
+        .order('floor')
+        .order('room_number');
+
+      if (error) {
+        logger.error('campus-living/rooms', 'Failed to fetch rooms by block (with occupancy)', error);
+        throw error;
+      }
+      const rooms = (data ?? []) as (HostelRoom & { hostel_beds: unknown[] })[];
+      const ids = rooms.map((r) => r.id);
+      const occMap = await fetchOccupancyMap(supabase, ids);
+      return rooms.map((r) => ({
+        ...r,
+        ...(occMap.get(r.id) ?? EMPTY_OCCUPANCY),
+      }));
+    } catch (error) {
+      logger.error('campus-living/rooms', 'Unexpected error in getRoomsByBlockWithOccupancy', error);
+      throw error;
+    }
+  }
+
+  // ── Single room with beds (legacy, no occupancy) ───────────────────
   static async getRoom(id: string) {
     try {
       const supabase = createClientSupabaseClient();
@@ -104,6 +195,38 @@ export class HostelRoomService {
       return data as (HostelRoom & { hostel_beds: unknown[]; hostel_blocks: unknown }) | null;
     } catch (error) {
       logger.error('campus-living/rooms', 'Unexpected error in getRoom', error);
+      throw error;
+    }
+  }
+
+  // ── Single room with beds + live occupancy (PR 3) ──────────────────
+  // Used by /campus-living/blocks/[id]/rooms/[roomId] detail page to restore
+  // the status badge + "X/Y occupied" header that PR 2 placeholdered.
+  static async getRoomWithOccupancy(
+    id: string,
+  ): Promise<(HostelRoomWithOccupancy & { hostel_beds: unknown[]; hostel_blocks: unknown }) | null> {
+    try {
+      const supabase = createClientSupabaseClient();
+      const { data, error } = await supabase
+        .from('hostel_rooms')
+        .select('*, hostel_beds(*), hostel_blocks(name, code)')
+        .eq('id', id)
+        .maybeSingle();
+
+      if (error) {
+        logger.error('campus-living/rooms', 'Failed to fetch room (with occupancy)', error);
+        throw error;
+      }
+      if (!data) return null;
+
+      const room = data as HostelRoom & { hostel_beds: unknown[]; hostel_blocks: unknown };
+      const occMap = await fetchOccupancyMap(supabase, [room.id]);
+      return {
+        ...room,
+        ...(occMap.get(room.id) ?? EMPTY_OCCUPANCY),
+      };
+    } catch (error) {
+      logger.error('campus-living/rooms', 'Unexpected error in getRoomWithOccupancy', error);
       throw error;
     }
   }

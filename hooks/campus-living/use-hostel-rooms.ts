@@ -38,11 +38,33 @@ export function useRoomsByBlock(blockId: string) {
   });
 }
 
+// hostel-rooms-v2 PR 3 (2026-05-26): occupancy-enriched variants —
+// useRoomsByBlockWithOccupancy + useHostelRoomWithOccupancy zip-merge each
+// room with v_hostel_room_occupancy so status badges + occupancy displays
+// come alive again without rewriting the legacy hooks (callers pick).
+export function useRoomsByBlockWithOccupancy(blockId: string) {
+  return useQuery({
+    queryKey: [...hostelRoomKeys.byBlock(blockId), 'with-occupancy'] as const,
+    queryFn: () => HostelRoomService.getRoomsByBlockWithOccupancy(blockId),
+    enabled: !!blockId,
+    staleTime: 30_000,
+  });
+}
+
 export function useHostelRoom(id: string) {
   return useQuery({
     queryKey: hostelRoomKeys.detail(id),
     queryFn: () => HostelRoomService.getRoom(id),
     enabled: !!id,
+  });
+}
+
+export function useHostelRoomWithOccupancy(id: string) {
+  return useQuery({
+    queryKey: [...hostelRoomKeys.detail(id), 'with-occupancy'] as const,
+    queryFn: () => HostelRoomService.getRoomWithOccupancy(id),
+    enabled: !!id,
+    staleTime: 30_000,
   });
 }
 
