@@ -29,11 +29,13 @@ interface SchoolWithDefaults {
 interface SchoolDefaultsTableProps {
   data: SchoolWithDefaults[];
   onRefresh: () => Promise<void>;
+  onViewSchool: (school: SchoolWithDefaults) => void;
 }
 
 export default function SchoolDefaultsTable({
   data,
   onRefresh,
+  onViewSchool,
 }: SchoolDefaultsTableProps) {
   const hasDefaults = (school: SchoolWithDefaults) => !!school.degree_id;
 
@@ -118,10 +120,9 @@ export default function SchoolDefaultsTable({
                   <Button
                     variant="ghost"
                     size="sm"
-                    disabled={!school.degree_id}
-                    title={school.degree_id ? 'View details (future)' : 'Degree not assigned'}
+                    onClick={() => onViewSchool(school)}
                   >
-                    View
+                    {school.degree_id ? 'View' : 'Create'}
                   </Button>
                 </TableCell>
               </TableRow>

@@ -3,6 +3,8 @@
 import { useEffect, useState } from 'react';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import SchoolDefaultsTable from './school-defaults-table';
+import SchoolDetailsModal from './school-details-modal';
+import CreateDefaultsDialog from './create-defaults-dialog';
 import { PageHeader } from '@/components/page-header';
 import { AlertBox } from '@/components/ui/alert-box';
 import { Loader2 } from 'lucide-react';
@@ -24,6 +26,8 @@ export default function SchoolDefaultsPage() {
   const [schools, setSchools] = useState<SchoolWithDefaults[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [selectedSchool, setSelectedSchool] = useState<SchoolWithDefaults | null>(null);
+  const [modalOpen, setModalOpen] = useState(false);
 
   useEffect(() => {
     fetchSchoolDefaults();
@@ -102,7 +106,33 @@ export default function SchoolDefaultsPage() {
       {schools.length === 0 ? (
         <AlertBox type="info" message="No school institutions found in the system" />
       ) : (
-        <SchoolDefaultsTable data={schools} onRefresh={fetchSchoolDefaults} />
+        <>
+          <SchoolDefaultsTable
+            data={schools}
+            onRefresh={fetchSchoolDefaults}
+            onViewSchool={(school) => {
+              setSelectedSchool(school);
+              setModalOpen(true);
+            }}
+          />
+
+          {selectedSchool && selectedSchool.degree_id ? (
+            <SchoolDetailsModal
+              school={selectedSchool}
+              open={modalOpen}
+              onOpenChange={setModalOpen}
+              onRefresh={fetchSchoolDefaults}
+            />
+          ) : (
+            <CreateDefaultsDialog
+              schoolId={selectedSchool?.school_id || ''}
+              schoolName={selectedSchool?.school_name || ''}
+              open={modalOpen}
+              onOpenChange={setModalOpen}
+              onSuccess={fetchSchoolDefaults}
+            />
+          )}
+        </>
       )}
     </div>
   );
