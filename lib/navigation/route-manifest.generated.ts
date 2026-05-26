@@ -1298,6 +1298,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
+            "path": "/admin/mess/insights",
+            "label": "Mess Rating Insights",
+            "iconName": "BarChart3",
+            "children": []
+          },
+          {
             "path": "/admin/mess/library",
             "label": "Mess Menu Library",
             "iconName": "BookOpen",
