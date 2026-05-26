@@ -1,8 +1,11 @@
 'use client';
 
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
 import {
+  MESS_MENU_POLICY_KEYS,
   getMessMenuPolicySnapshot,
+  updateMessMenuPolicy,
   type MessMenuPolicySnapshot,
 } from '@/lib/services/campus-living/mess-menu-policy-service';
 
@@ -27,5 +30,26 @@ export function useMessMenuPolicies(institutionId?: string | null) {
     queryKey: messMenuPolicyKeys.snapshot(institutionId),
     queryFn: () => getMessMenuPolicySnapshot(institutionId ?? null),
     staleTime: ONE_HOUR_MS,
+  });
+}
+
+export type MessMenuPolicyKey = typeof MESS_MENU_POLICY_KEYS[keyof typeof MESS_MENU_POLICY_KEYS];
+
+/**
+ * Update a single mess.menu.* policy value at global scope. Invalidates the
+ * snapshot cache on success.
+ */
+export function useUpdateMessMenuPolicy() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ policyKey, value }: { policyKey: MessMenuPolicyKey; value: number | string | boolean }) =>
+      updateMessMenuPolicy(policyKey, value),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: messMenuPolicyKeys.all });
+      toast.success('Policy updated');
+    },
+    onError: (error: Error) => {
+      toast.error(`Failed to update policy: ${error.message}`);
+    },
   });
 }
