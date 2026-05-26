@@ -11,8 +11,10 @@ import {
 } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { AlertBox } from '@/components/ui/alert-box';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Download } from 'lucide-react';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { Button } from '@/components/ui/button';
+import { exportAuditLogsToCSV } from '@/lib/utils/export-audit-logs';
 
 interface AuditLog {
   id: string;
@@ -112,7 +114,22 @@ export default function AuditLogTable() {
       {logs.length === 0 ? (
         <AlertBox type="info" message="No audit logs found" />
       ) : (
-        <div className="border rounded-lg overflow-hidden">
+        <>
+          <div className="flex justify-end gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                const timestamp = new Date().toISOString().split('T')[0];
+                exportAuditLogsToCSV(logs, `school-defaults-audit-${timestamp}.csv`);
+              }}
+            >
+              <Download className="h-4 w-4 mr-1" />
+              Export as CSV
+            </Button>
+          </div>
+
+          <div className="border rounded-lg overflow-hidden">
           <Table>
             <TableHeader>
               <TableRow className="bg-muted/50">
@@ -155,6 +172,7 @@ export default function AuditLogTable() {
             </TableBody>
           </Table>
         </div>
+        </>
       )}
 
       <div className="text-xs text-muted-foreground">
