@@ -17,6 +17,9 @@ export const hostelAllocationKeys = {
   all: ['hostel-allocations'] as const,
   list: (filters: Record<string, unknown>) => ['hostel-allocations', 'list', filters] as const,
   active: (institutionId: string | undefined) => ['hostel-allocations', 'active', institutionId] as const,
+  // rooms-v2 PR 4b: separate key for the joined admin feed so it can be
+  // invalidated independently of legacy callers.
+  adminActive: () => ['hostel-allocations', 'admin', 'active'] as const,
   detail: (id: string) => ['hostel-allocations', 'detail', id] as const,
 };
 
@@ -37,6 +40,18 @@ export function useActiveAllocations(institutionId: string | undefined) {
     queryKey: hostelAllocationKeys.active(institutionId),
     queryFn: () => HostelAllocationService.getActiveAllocations(isSuperAdmin ? undefined : institutionId),
     enabled: isSuperAdmin || !!institutionId,
+  });
+}
+
+// rooms-v2 PR 4b — admin listing feed.
+// Returns active allocations with joined learner / block / room / bed
+// labels so the table doesn't need to fan out queries per row. 30s
+// staleTime matches the rooms-occupancy feed used elsewhere on the page.
+export function useActiveAllocationsForAdmin() {
+  return useQuery({
+    queryKey: hostelAllocationKeys.adminActive(),
+    queryFn: () => HostelAllocationService.getActiveAllocationsForAdmin(),
+    staleTime: 30_000,
   });
 }
 
@@ -107,6 +122,46 @@ export function useVacateAllocation() {
     },
     onError: (error: Error) => {
       toast.error(`Failed to vacate allocation: ${error.message}`);
+    },
+  });
+}
+
+// rooms-v2 PR 4b — explicit check-out mutation.
+// Distinct from useVacateAllocation (which only flips status + vacate_reason)
+// because the new schema also needs check_out_date populated for the
+// partial UNIQUE index to release the bed.
+export function useCheckOutResident() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, check_out_date, notes }: { id: string; check_out_date: string; notes?: string }) =>
+      HostelAllocationService.checkOut(id, check_out_date, notes),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: hostelAllocationKeys.all });
+      // Beds / rooms occupancy view changes too — nudge the rooms feed.
+      queryClient.invalidateQueries({ queryKey: ['hostel-rooms'] });
+      toast.success('Resident checked out');
+    },
+    onError: (error: Error) => {
+      toast.error(`Failed to check out resident: ${error.message}`);
+    },
+  });
+}
+
+// rooms-v2 PR 4b — convenience alias matching the PR 4b spec wording.
+// Same payload shape as useCreateHostelAllocation; thin wrapper so the
+// /admin/hostel/allocations page reads naturally.
+export function useAllocateResident() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: CreateHostelAllocationDTO) =>
+      HostelAllocationService.allocate(payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: hostelAllocationKeys.all });
+      queryClient.invalidateQueries({ queryKey: ['hostel-rooms'] });
+      toast.success('Resident allocated');
+    },
+    onError: (error: Error) => {
+      toast.error(`Failed to allocate resident: ${error.message}`);
     },
   });
 }
