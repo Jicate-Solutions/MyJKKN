@@ -1065,10 +1065,8 @@ export function generateBosAttendanceCertificatePDF(
 		const memberLines = doc.splitTextToSize(memberDetailsStr, maxWidth - prefixW - 4)
 		doc.text(memberLines, contentX + prefixW, y)
 
-		// Draw single underline beneath all member details
+		// Advance y past member details block (no underline)
 		const memberBlockLines = memberLines.length
-		const memberUnderlineY = y + (memberBlockLines - 1) * 4 + underlineOffset
-		drawUnderline(memberUnderlineY)
 		y += memberBlockLines * 4 + 6
 
 		// Line: "has attended the PG Board of Studies meeting in the Department of"

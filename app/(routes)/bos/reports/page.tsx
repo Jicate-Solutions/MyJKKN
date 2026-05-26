@@ -344,8 +344,10 @@ function AttendanceCertificatesTab({ institutionsId }: { institutionsId: string 
     // Clean institution field: remove department info (appears in meeting sentence instead)
     let cleanedInstitution = member?.display_institution ?? '';
     cleanedInstitution = cleanedInstitution
+      .replace(/^DEPARTMENT OF [^,]+,?\s*/gi, '')
       .replace(/,?\s*DEPARTMENT OF [^,]+/gi, '')
-      .replace(/,?\s*Dept[^\w]/gi, '')
+      .replace(/^Dept\.?\s+/gi, '')
+      .replace(/,?\s*Dept\.?\s+/gi, '')
       .trim();
 
     return {
