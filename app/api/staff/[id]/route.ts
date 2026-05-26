@@ -109,20 +109,16 @@ export async function PATCH(
       );
     }
 
-    // own_records: target row must belong to this user (profile_id link).
-    if (scope === 'own_records' && staffRecord.profile_id !== session.user.id) {
-      return NextResponse.json(
-        { error: 'Forbidden', code: 'STAFF_OWN_RECORD_VIOLATION' },
-        { status: 403 }
-      );
-    }
-
     // Self-edit branch: any user editing their own staff record (matched by
-    // institution_email) is allowed without staff.edit. Preserves the prior
-    // "faculty can update own profile" behaviour for any role, not just faculty.
+    // institution_email OR profile_id) is allowed without staff.edit.
+    // Preserves the prior "faculty can update own profile" behaviour for any
+    // role, not just faculty.  The institution_email check covers legacy staff
+    // rows whose profile_id was never back-filled.
     const isSelfEdit =
-      !!staffRecord.institution_email &&
-      staffRecord.institution_email === session.user.email;
+      (!!staffRecord.institution_email &&
+        staffRecord.institution_email === session.user.email) ||
+      (!!staffRecord.profile_id &&
+        staffRecord.profile_id === session.user.id);
 
     // Permission check via DB instead of hardcoded role list. Honours dynamic
     // Role Management grants for staff.edit.
@@ -133,6 +129,37 @@ export async function PATCH(
       });
       hasEditPermission = !!permResult;
     }
+
+    // Scope enforcement — runs AFTER permission + self-edit are resolved so
+    // self-edits by users with own_records scope whose staff.profile_id is
+    // NULL (legacy rows) are not wrongly blocked.
+    if (scope === 'own_records') {
+      const isOwnRecord =
+        isSelfEdit ||
+        (!!staffRecord.profile_id && staffRecord.profile_id === session.user.id);
+      if (!isOwnRecord) {
+        return NextResponse.json(
+          { error: 'Forbidden', code: 'STAFF_OWN_RECORD_VIOLATION' },
+          { status: 403 }
+        );
+      }
+    } else if (scope === 'own_institution') {
+      // own_institution: user must have institution access for the target staff
+      // member's institution.  Uses the same helper the RLS policies use.
+      if (!isSelfEdit && hasEditPermission && staffRecord.institution_id) {
+        const { data: hasAccess } = await supabase.rpc(
+          'role_has_institution_access',
+          { check_institution_id: staffRecord.institution_id }
+        );
+        if (!hasAccess) {
+          return NextResponse.json(
+            { error: 'Forbidden', code: 'STAFF_INSTITUTION_VIOLATION' },
+            { status: 403 }
+          );
+        }
+      }
+    }
+    // all_institutions: no row-level scope gate needed.
 
     if (!hasEditPermission && !isSelfEdit) {
       return NextResponse.json(
