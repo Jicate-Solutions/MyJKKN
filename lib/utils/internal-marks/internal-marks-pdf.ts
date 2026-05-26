@@ -1044,8 +1044,7 @@ export function generateBosAttendanceCertificatePDF(
 			doc.line(x1, yPos + underlineOffset, x2, yPos + underlineOffset)
 		}
 
-		// Single paragraph with inline bold formatting for key elements
-		doc.setFont('times', 'normal')
+		// Justified paragraph with inline bold formatting
 		doc.setFontSize(fontSize)
 
 		// Build member details
@@ -1069,33 +1068,69 @@ export function generateBosAttendanceCertificatePDF(
 			{ text: '.', bold: false },
 		]
 
-		// Render parts sequentially with line wrapping and proper spacing
-		const lineHeightIncrease = 9
-		let currentX = contentX
-		let currentY = y
+		// Build full text and word-to-bold mapping
+		let fullText = ''
+		const wordBoldMap: boolean[] = []
+		const wordList: string[] = []
 
 		paragraphParts.forEach(part => {
-			doc.setFont('times', part.bold ? 'bold' : 'normal')
-			const words = part.text.split(' ')
-
-			words.forEach((word, wordIdx) => {
-				const wordWithSpace = wordIdx < words.length - 1 ? word + ' ' : word
-				const wordWidth = doc.getTextWidth(wordWithSpace)
-
-				// Check if word fits on current line
-				if (currentX + wordWidth > contentX + maxWidth && currentX > contentX) {
-					// Move to next line
-					currentY += lineHeightIncrease
-					currentX = contentX
+			const words = part.text.split(/(\s+)/) // Split on whitespace but keep it
+			words.forEach(word => {
+				if (word.trim()) { // Only track non-whitespace
+					wordBoldMap.push(part.bold)
+					wordList.push(word)
 				}
-
-				// Render the word
-				doc.text(wordWithSpace, currentX, currentY)
-				currentX += wordWidth
 			})
+			fullText += part.text
 		})
 
-		y = currentY + lineHeightIncrease
+		// Group words into lines for justified rendering
+		const lineHeightIncrease = 9
+		let wordIdx = 0
+		let currentY = y
+
+		while (wordIdx < wordList.length) {
+			const lineWords: { word: string; bold: boolean }[] = []
+			let totalWordWidth = 0
+
+			// Fit as many words as possible on this line
+			while (wordIdx < wordList.length) {
+				const word = wordList[wordIdx]
+				const bold = wordBoldMap[wordIdx]
+				doc.setFont('times', bold ? 'bold' : 'normal')
+				const wordWidth = doc.getTextWidth(word)
+
+				if (totalWordWidth + wordWidth > maxWidth && lineWords.length > 0) {
+					break // Line full
+				}
+
+				lineWords.push({ word, bold })
+				totalWordWidth += wordWidth
+				wordIdx++
+			}
+
+			// Render line with justification
+			const isLastLine = wordIdx >= wordList.length
+			const numGaps = Math.max(lineWords.length - 1, 1)
+			const availableSpace = maxWidth - totalWordWidth
+			const spacePerGap = availableSpace / numGaps
+			let lineX = contentX
+
+			lineWords.forEach((item, idx) => {
+				doc.setFont('times', item.bold ? 'bold' : 'normal')
+				doc.text(item.word, lineX, currentY)
+
+				const wordWidth = doc.getTextWidth(item.word)
+				if (idx < lineWords.length - 1) {
+					// Add justified spacing between words
+					lineX += wordWidth + (isLastLine ? 1.5 : spacePerGap)
+				}
+			})
+
+			currentY += lineHeightIncrease
+		}
+
+		y = currentY
 		doc.setFont('times', 'normal')
 
 		y += 12
