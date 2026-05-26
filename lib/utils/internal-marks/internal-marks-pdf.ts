@@ -1084,54 +1084,49 @@ export function generateBosAttendanceCertificatePDF(
 			fullText += part.text
 		})
 
-		// Group words into lines for justified rendering with underlines for bold
+		// Render paragraph with bold and underlines (left-aligned, clean spacing)
 		const lineHeightIncrease = 9
 		let wordIdx = 0
 		let currentY = y
 
 		while (wordIdx < wordList.length) {
 			const lineWords: { word: string; bold: boolean }[] = []
-			let totalWordWidth = 0
+			let lineWidth = 0
 
 			// Fit as many words as possible on this line
 			while (wordIdx < wordList.length) {
 				const word = wordList[wordIdx]
 				const bold = wordBoldMap[wordIdx]
 				doc.setFont('times', bold ? 'bold' : 'normal')
-				const wordWidth = doc.getTextWidth(word)
+				const wordWithSpace = doc.getTextWidth(word + ' ')
 
-				if (totalWordWidth + wordWidth > maxWidth && lineWords.length > 0) {
+				if (lineWidth + wordWithSpace > maxWidth && lineWords.length > 0) {
 					break // Line full
 				}
 
 				lineWords.push({ word, bold })
-				totalWordWidth += wordWidth
+				lineWidth += wordWithSpace
 				wordIdx++
 			}
 
-			// Render line with justification
-			const isLastLine = wordIdx >= wordList.length
-			const numGaps = Math.max(lineWords.length - 1, 1)
-			const availableSpace = maxWidth - totalWordWidth
-			const spacePerGap = availableSpace / numGaps
+			// Render line with left alignment and underlines for bold words
 			let lineX = contentX
 
-			lineWords.forEach((item, idx) => {
+			lineWords.forEach((item) => {
 				doc.setFont('times', item.bold ? 'bold' : 'normal')
 				const wordStartX = lineX
-				doc.text(item.word, lineX, currentY)
-
 				const wordWidth = doc.getTextWidth(item.word)
+
+				// Render word
+				doc.text(item.word, lineX, currentY)
 
 				// Draw underline for bold words
 				if (item.bold) {
 					drawUnderline(currentY, wordStartX, wordStartX + wordWidth)
 				}
 
-				if (idx < lineWords.length - 1) {
-					// Add justified spacing between words
-					lineX += wordWidth + (isLastLine ? 1.5 : spacePerGap)
-				}
+				// Add space after word
+				lineX += doc.getTextWidth(item.word + ' ')
 			})
 
 			currentY += lineHeightIncrease
