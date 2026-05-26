@@ -341,6 +341,13 @@ function AttendanceCertificatesTab({ institutionsId }: { institutionsId: string 
     rightLogoImage?: string,
   ): BosAttendanceCertificateData {
     const member = (attendee as any).member;
+    // Clean institution field: remove department info (appears in meeting sentence instead)
+    let cleanedInstitution = member?.display_institution ?? '';
+    cleanedInstitution = cleanedInstitution
+      .replace(/,?\s*DEPARTMENT OF [^,]+/gi, '')
+      .replace(/,?\s*Dept[^\w]/gi, '')
+      .trim();
+
     return {
       institution_name: header.institution_name,
       institution_address: header.institution_address,
@@ -349,7 +356,7 @@ function AttendanceCertificatesTab({ institutionsId }: { institutionsId: string 
       rightLogoImage,
       member_name: member?.display_name ?? '—',
       member_designation: member?.display_designation,
-      member_institution: member?.display_institution,
+      member_institution: cleanedInstitution || member?.display_institution,
       member_address: member?.display_address,
       board_name: boardName,
       board_code: boardCode,
