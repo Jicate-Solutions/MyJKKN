@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useRef } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Receipt, X, Loader2 } from 'lucide-react';
 import {
   useOnboardingLearners,
@@ -33,14 +34,54 @@ const TABS: { value: TabValue; label: string }[] = [
   { value: 'fully_paid', label: 'Fully Paid' },
 ];
 
+const HIERARCHY_KEYS: OnboardingFilterKey[] = [
+  'institution_id',
+  'degree_id',
+  'department_id',
+  'program_id',
+  'bill_status',
+  'lifecycle_status',
+];
+
 export function OnboardingDataTable() {
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
-  const [search, setSearch] = useState('');
-  const [activeTab, setActiveTab] = useState<TabValue>('all');
-  const [hierarchyFilters, setHierarchyFilters] = useState<OnboardingHierarchyFilters>({});
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
+  // Derive state from URL search params so filters survive navigation
+  const page = parseInt(searchParams.get('page') || '1', 10);
+  const pageSize = parseInt(searchParams.get('pageSize') || String(DEFAULT_PAGE_SIZE), 10);
+  const search = searchParams.get('search') || '';
+  const activeTab = (searchParams.get('payment_status') || 'all') as TabValue;
+
+  const hierarchyFilters = useMemo<OnboardingHierarchyFilters>(() => {
+    const f: OnboardingHierarchyFilters = {};
+    for (const key of HIERARCHY_KEYS) {
+      const v = searchParams.get(key);
+      if (v) (f as any)[key] = v;
+    }
+    return f;
+  }, [searchParams]);
+
+  // Selection state is intentionally local — should not survive navigation
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const { canAccess, isSuperAdmin, isLoading: permsLoading } = usePermissions();
+
+  // Helper: update URL params (preserving unrelated ones)
+  const updateParams = useCallback(
+    (updates: Record<string, string | undefined>) => {
+      const params = new URLSearchParams(searchParams.toString());
+      for (const [key, value] of Object.entries(updates)) {
+        if (value === undefined || value === '') {
+          params.delete(key);
+        } else {
+          params.set(key, value);
+        }
+      }
+      const qs = params.toString();
+      router.replace(`/billing/onboarding${qs ? `?${qs}` : ''}`, { scroll: false });
+    },
+    [router, searchParams]
+  );
 
   const filters: OnboardingFilters = {
     page,
@@ -50,25 +91,18 @@ export function OnboardingDataTable() {
     ...hierarchyFilters,
   };
 
-  // Filter mutations always reset pagination — staying on page 7 of a list
-  // that just shrunk to 2 pages would show a confusing empty page.
   const handleFilterChange = useCallback(
     (key: OnboardingFilterKey, value: string | undefined) => {
-      setHierarchyFilters((prev) => {
-        const next = { ...prev };
-        if (value === undefined) delete next[key];
-        else (next as any)[key] = value;
-        return next;
-      });
-      setPage(1);
+      updateParams({ [key]: value, page: '1' });
     },
-    []
+    [updateParams]
   );
 
   const handleClearFilters = useCallback(() => {
-    setHierarchyFilters({});
-    setPage(1);
-  }, []);
+    const clear: Record<string, undefined> = { page: undefined };
+    for (const key of HIERARCHY_KEYS) clear[key] = undefined;
+    updateParams(clear);
+  }, [updateParams]);
 
   const { data: response, isLoading, isFetching } = useOnboardingLearners(filters);
   const bulkGenerate = useBulkGenerateBills();
@@ -116,33 +150,30 @@ export function OnboardingDataTable() {
     [selectedIds, toggleSelected, toggleAllOnPage, pageRowIds, generatingIds]
   );
 
-  // IMPORTANT: only reset page when the search term ACTUALLY changes.
-  // The DataTable's debounce fires onSearch(globalFilter) on mount even when
-  // globalFilter is unchanged — without this guard, that spurious mount-time
-  // call resets the user's page navigation back to 1.
+  // Ref to guard against the DataTable's spurious mount-time onSearch call
+  const searchRef = useRef(search);
+  searchRef.current = search;
+
   const handleSearch = useCallback((query: string) => {
-    setSearch((prev) => {
-      if (prev !== query) setPage(1);
-      return query;
-    });
-  }, []);
+    if (query !== searchRef.current) {
+      updateParams({ search: query || undefined, page: '1' });
+    }
+  }, [updateParams]);
 
   const handleTabChange = useCallback((value: string) => {
-    setActiveTab(value as TabValue);
-    setPage(1);
-  }, []);
+    updateParams({
+      payment_status: value === 'all' ? undefined : value,
+      page: '1',
+    });
+  }, [updateParams]);
 
   const handlePageChange = useCallback((newPage: number) => {
-    setPage(newPage);
-  }, []);
+    updateParams({ page: String(newPage) });
+  }, [updateParams]);
 
-  // Page size change resets to page 1 — staying on page 7 of a list that
-  // suddenly has 50% as many pages (because rows/page just doubled) would
-  // show a confusing empty page. Mirrors the filter/search reset behavior.
   const handlePageSizeChange = useCallback((newSize: number) => {
-    setPageSize(newSize);
-    setPage(1);
-  }, []);
+    updateParams({ pageSize: String(newSize), page: '1' });
+  }, [updateParams]);
 
   // Permission for the bulk-generate action — reuses billing.schedule.create
   // (the same permission needed to manually create a bill in /billing/schedule).
@@ -257,6 +288,7 @@ export function OnboardingDataTable() {
         data={learners}
         searchPlaceholder="Search by name, email, or phone..."
         onSearch={handleSearch}
+        initialSearch={search}
         serverSidePagination={
           metadata
             ? {
