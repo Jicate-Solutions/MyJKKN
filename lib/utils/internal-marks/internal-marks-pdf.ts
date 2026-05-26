@@ -1062,8 +1062,8 @@ export function generateBosAttendanceCertificatePDF(
 		// Split paragraph into lines for justified rendering
 		const paragraphLines = doc.splitTextToSize(fullParagraph, maxWidth)
 
-		// Render each line with justification and increased spacing (all except last are justified)
-		const lineHeightIncrease = 6 // Increased from 4 for better readability
+		// Render each line with justification and doubled spacing (all except last are justified)
+		const lineHeightIncrease = 12 // Doubled spacing for enhanced readability
 		paragraphLines.forEach((line, idx) => {
 			const isLastLine = idx === paragraphLines.length - 1
 			doc.text(line, contentX, y, {
