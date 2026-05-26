@@ -1049,23 +1049,37 @@ export function generateBosAttendanceCertificatePDF(
 		].filter(Boolean)
 		const memberDetailsStr = memberParts.join(', ')
 
-		// Render "This is to certify that " prefix in normal font
-		doc.text(certPrefix, contentX, y)
-		const prefixW = doc.getTextWidth(certPrefix)
+		// Combine prefix with member details for better word wrapping
+		const fullCertLine = certPrefix + memberDetailsStr
+		const certLines = doc.splitTextToSize(fullCertLine, maxWidth)
 
-		// Render member details in bold, wrapping across multiple lines if needed
-		doc.setFont('times', 'bold')
-		const memberLines = doc.splitTextToSize(memberDetailsStr, maxWidth - prefixW)
-		doc.text(memberLines, contentX + prefixW, y)
+		// Render first line: "This is to certify that " in normal, rest in bold
+		doc.setFont('times', 'normal')
+		doc.text(certPrefix, contentX, y)
+		let currentX = contentX + doc.getTextWidth(certPrefix)
+
+		// Split remaining text for proper font handling
+		if (certLines.length === 1) {
+			// All fits on one line
+			doc.setFont('times', 'bold')
+			doc.text(memberDetailsStr, currentX, y)
+		} else {
+			// Multiple lines - need to handle font switching
+			const remainingText = memberDetailsStr
+			const remainingLines = doc.splitTextToSize(remainingText, maxWidth - doc.getTextWidth(certPrefix))
+			doc.setFont('times', 'bold')
+			doc.text(remainingLines, contentX + doc.getTextWidth(certPrefix), y)
+		}
 
 		// Draw underline beneath all member detail lines
-		const underlineY = y + (memberLines.length - 1) * 4 + underlineOffset
+		const totalLines = certLines.length
+		const underlineY = y + (totalLines - 1) * 4 + underlineOffset
 		doc.setDrawColor(0, 0, 0)
 		doc.setLineWidth(0.3)
 		doc.line(contentX, underlineY, contentX + maxWidth, underlineY)
 
 		// Advance y past the member details block
-		y += memberLines.length * 4 + 6
+		y += totalLines * 4 + 6
 
 		// Line 3: "has attended the UG Board of Studies meeting in the Department of"
 		doc.setFont('times', 'normal')
