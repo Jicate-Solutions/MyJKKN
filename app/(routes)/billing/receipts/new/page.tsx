@@ -449,15 +449,16 @@ export default function NewReceiptPage() {
                             </TableCell>
                             <TableCell className='text-right'>
                               <Input
-                                type='number'
-                                step='0.01'
+                                type='text'
+                                inputMode='numeric'
+                                pattern='[0-9]*'
                                 min='0'
                                 max={balance}
                                 className={`w-[140px] ml-auto text-right ${isOverPay ? 'border-red-500 focus-visible:ring-red-500' : ''}`}
                                 value={payAmount || ''}
                                 placeholder='0'
                                 onChange={(e) => {
-                                  const val = Math.max(0, parseFloat(e.target.value) || 0);
+                                  const val = Math.max(0, Math.round(parseFloat(e.target.value) || 0));
                                   const capped = Math.min(val, balance);
                                   const newAmounts = { ...billPayAmounts, [bill.id]: capped };
                                   setBillPayAmounts(newAmounts);
@@ -577,14 +578,13 @@ export default function NewReceiptPage() {
                   </Label>
                   <Input
                     id='payment_amount'
-                    type='number'
-                    step='0.01'
-                    min='0'
-                    max={totalPendingAmount > 0 ? totalPendingAmount : undefined}
+                    type='text'
+                    inputMode='numeric'
+                    pattern='[0-9]*'
                     placeholder='Enter total amount received'
                     value={formData.payment_amount || ''}
                     onChange={(e) => {
-                      const val = parseFloat(e.target.value) || 0;
+                      const val = Math.round(parseFloat(e.target.value) || 0);
                       const capped = totalPendingAmount > 0 ? Math.min(val, totalPendingAmount) : val;
                       handleInputChange('payment_amount', capped);
                     }}
