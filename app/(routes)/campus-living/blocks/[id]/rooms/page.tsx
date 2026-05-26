@@ -52,9 +52,17 @@ export default function BlockRoomsPage({ params }: { params: Promise<{ id: strin
 
   const { data: rooms, isLoading } = useRoomsByBlock(id);
 
+  // hostel-rooms-v2 PR 2 (2026-05-26): hostel_rooms.status and
+  // .current_occupancy dropped. The status filter now operates on a derived
+  // best-effort label (always "available" in the absence of allocations);
+  // PR 3 wires v_hostel_room_occupancy through the service layer for a true
+  // derived status. Until then, the filter degrades to "show all".
   const filteredRooms = rooms?.filter((room) => {
     const matchesSearch = room.room_number.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesStatus = statusFilter === 'all' || room.status === statusFilter;
+    // Treat every room as 'available' for filter purposes — there are no
+    // active allocations post-PR-2 cleanup; PR 3 will replace this with the
+    // view-derived status.
+    const matchesStatus = statusFilter === 'all' || statusFilter === 'available';
     const matchesFloor = selectedFloor === null || room.floor === selectedFloor;
     return matchesSearch && matchesStatus && matchesFloor;
   }) ?? [];
@@ -174,7 +182,12 @@ export default function BlockRoomsPage({ params }: { params: Promise<{ id: strin
               </TableHeader>
               <TableBody>
                 {filteredRooms.map((room) => {
-                  const sCfg = statusConfig[room.status] ?? { label: room.status, variant: 'outline' as const };
+                  // hostel-rooms-v2 PR 2 (2026-05-26): status + current_occupancy
+                  // dropped; display "available" with 0 occupancy until PR 3
+                  // wires v_hostel_room_occupancy through the service layer.
+                  const derivedStatus = 'available' as const;
+                  const derivedOccupancy = 0;
+                  const sCfg = statusConfig[derivedStatus] ?? { label: derivedStatus, variant: 'outline' as const };
                   return (
                     <TableRow key={room.id}>
                       <TableCell className="font-medium">{room.room_number}</TableCell>
@@ -188,7 +201,7 @@ export default function BlockRoomsPage({ params }: { params: Promise<{ id: strin
                       <TableCell>
                         <div className="flex items-center gap-1.5">
                           <Users className="h-3.5 w-3.5 text-muted-foreground" />
-                          <span>{room.current_occupancy}/{room.capacity}</span>
+                          <span>{derivedOccupancy}/{room.capacity}</span>
                         </div>
                       </TableCell>
                       <TableCell>

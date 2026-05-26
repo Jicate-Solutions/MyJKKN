@@ -1,3 +1,9 @@
+// hostel-rooms-v2 PR 2 (2026-05-26): institution_id dropped from hostel_blocks.
+// College access flows through hostel_block_institutions junction.
+// `current_occupancy` / `total_capacity` / `total_rooms` remain on the row
+// as legacy aggregate counters — Director's lock 2026-05-26 keeps them for
+// block-level summary screens that don't need per-room precision; PR 3+
+// can swap in live derivation if needed.
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { logger } from '@/lib/utils/enhanced-logger';
 import type {
@@ -9,6 +15,7 @@ import type {
 
 export class HostelBlockService {
   // ── List blocks with filters ──────────────────────────────────────
+  // institutionId narrows via hostel_block_institutions junction.
   static async getBlocks(
     institutionId: string | undefined,
     filters?: BlockFilters,
@@ -21,7 +28,19 @@ export class HostelBlockService {
         .from('hostel_blocks')
         .select('*', { count: 'exact' });
 
-      if (institutionId) query = query.eq('institution_id', institutionId);
+      if (institutionId) {
+        const { data: blockIds, error: junctionErr } = await supabase
+          .from('hostel_block_institutions')
+          .select('block_id')
+          .eq('institution_id', institutionId);
+        if (junctionErr) {
+          logger.error('campus-living/blocks', 'Failed to filter blocks by institution', junctionErr);
+          throw junctionErr;
+        }
+        const ids = (blockIds ?? []).map((r) => r.block_id);
+        if (ids.length === 0) return { data: [] as HostelBlock[], count: 0 };
+        query = query.in('id', ids);
+      }
       if (filters?.status) query = query.eq('status', filters.status);
       if (filters?.hostel_type) query = query.eq('hostel_type', filters.hostel_type);
       if (filters?.search) {
@@ -36,7 +55,7 @@ export class HostelBlockService {
         logger.error('campus-living/blocks', 'Failed to fetch blocks', error);
         throw error;
       }
-      return { data: data as HostelBlock[], count: count ?? 0 };
+      return { data: (data ?? []) as HostelBlock[], count: count ?? 0 };
     } catch (error) {
       logger.error('campus-living/blocks', 'Unexpected error in getBlocks', error);
       throw error;
@@ -65,25 +84,26 @@ export class HostelBlockService {
   }
 
   // ── Create ────────────────────────────────────────────────────────
-  // The block is also written to `hostel_block_institutions` as the
-  // primary owner. The M2M is consulted by `role_has_hostel_block_scope()`
-  // which 4 RLS policies on hostel_blocks (and rooms/beds via cascade)
-  // depend on — without the junction row, non-super-admin readers cannot
-  // see the block. See migration 20260421000004_hostel_blocks_multi_college.
+  // hostel-rooms-v2 PR 2 (2026-05-26): the block insert no longer carries
+  // institution_id (column dropped). College access is conferred AFTER the
+  // block exists via hostel_block_institutions. Callers that want "create
+  // block + grant my institution" should chain two calls (or use the new
+  // /admin/hostel/rooms UI which composes them).
   //
-  // The two writes are NOT in a single transaction (PostgREST limitation).
-  // If the M2M insert fails after the block insert succeeds, the block
-  // exists but is RLS-invisible. Recovery: re-running this method is safe
-  // (the block insert would fail on whatever uniqueness constraint hit it,
-  // OR the M2M insert would no-op due to PRIMARY KEY conflict). For now
-  // we surface the M2M failure as an error — the orphan block can be
-  // backfilled by the platform_policies migration pattern if needed.
-  static async createBlock(payload: CreateHostelBlockDTO) {
+  // Optional `primaryInstitutionId` arg — if provided, the M2M junction row
+  // is auto-written with is_primary=true. Without it, the new block is
+  // RLS-invisible until something grants access — which is fine for the
+  // super-admin "create-then-grant" flow.
+  static async createBlock(
+    payload: CreateHostelBlockDTO,
+    primaryInstitutionId?: string,
+  ) {
     try {
       const supabase = createClientSupabaseClient();
       const { data, error } = await supabase
         .from('hostel_blocks')
-        .insert(payload)
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .insert(payload as any)
         .select()
         .single();
 
@@ -94,21 +114,18 @@ export class HostelBlockService {
 
       const block = data as HostelBlock;
 
-      // Mirror to M2M with is_primary=true. Skipped only if institution_id
-      // is null (rare — a shared block created before any college claims
-      // primary ownership; UI doesn't currently allow this path).
-      if (block.institution_id) {
+      if (primaryInstitutionId) {
         const { error: m2mError } = await supabase
           .from('hostel_block_institutions')
           .insert({
             block_id: block.id,
-            institution_id: block.institution_id,
+            institution_id: primaryInstitutionId,
             is_primary: true,
           });
         if (m2mError) {
           logger.error(
             'campus-living/blocks',
-            'Block created but M2M junction insert failed — block will be RLS-invisible to non-super-admins until backfilled',
+            'Block created but M2M junction insert failed — block will be RLS-invisible to non-super-admins until granted',
             { blockId: block.id, error: m2mError },
           );
           throw m2mError;
@@ -128,7 +145,8 @@ export class HostelBlockService {
       const supabase = createClientSupabaseClient();
       const { data, error } = await supabase
         .from('hostel_blocks')
-        .update(payload)
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .update(payload as any)
         .eq('id', id)
         .select()
         .single();
@@ -164,6 +182,10 @@ export class HostelBlockService {
   }
 
   // ── Occupancy summary for all blocks ──────────────────────────────
+  // Still reads the legacy hostel_blocks.current_occupancy counter — those
+  // columns remain on hostel_blocks (only hostel_rooms equivalents were
+  // dropped). PR 3+ can swap to a sum over v_hostel_room_occupancy if the
+  // counters drift.
   static async getOccupancySummary(institutionId: string | undefined) {
     try {
       const supabase = createClientSupabaseClient();
@@ -172,7 +194,16 @@ export class HostelBlockService {
         .select('id, name, code, hostel_type, total_rooms, total_capacity, current_occupancy, status')
         .eq('status', 'active')
         .order('name');
-      if (institutionId) q = q.eq('institution_id', institutionId);
+
+      if (institutionId) {
+        const { data: blockIds } = await supabase
+          .from('hostel_block_institutions')
+          .select('block_id')
+          .eq('institution_id', institutionId);
+        const ids = (blockIds ?? []).map((r) => r.block_id);
+        if (ids.length === 0) return [] as Array<HostelBlock & { available_capacity: number; occupancy_percentage: number }>;
+        q = q.in('id', ids);
+      }
       const { data, error } = await q;
 
       if (error) {
@@ -180,14 +211,15 @@ export class HostelBlockService {
         throw error;
       }
 
-      const summary = (data ?? []).map((block) => ({
-        ...block,
-        available_capacity: block.total_capacity - block.current_occupancy,
-        occupancy_percentage:
-          block.total_capacity > 0
-            ? Math.round((block.current_occupancy / block.total_capacity) * 100)
-            : 0,
-      }));
+      const summary = (data ?? []).map((block) => {
+        const cap = block.total_capacity ?? 0;
+        const occ = block.current_occupancy ?? 0;
+        return {
+          ...block,
+          available_capacity: cap - occ,
+          occupancy_percentage: cap > 0 ? Math.round((occ / cap) * 100) : 0,
+        };
+      });
 
       return summary;
     } catch (error) {
@@ -203,17 +235,27 @@ export class HostelBlockService {
       let q = supabase
         .from('hostel_blocks')
         .select('*')
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         .eq('hostel_type', hostelType as any)
         .eq('status', 'active')
         .order('name');
-      if (institutionId) q = q.eq('institution_id', institutionId);
+
+      if (institutionId) {
+        const { data: blockIds } = await supabase
+          .from('hostel_block_institutions')
+          .select('block_id')
+          .eq('institution_id', institutionId);
+        const ids = (blockIds ?? []).map((r) => r.block_id);
+        if (ids.length === 0) return [] as HostelBlock[];
+        q = q.in('id', ids);
+      }
       const { data, error } = await q;
 
       if (error) {
         logger.error('campus-living/blocks', 'Failed to fetch blocks by type', error);
         throw error;
       }
-      return data as HostelBlock[];
+      return (data ?? []) as HostelBlock[];
     } catch (error) {
       logger.error('campus-living/blocks', 'Unexpected error in getBlocksByType', error);
       throw error;

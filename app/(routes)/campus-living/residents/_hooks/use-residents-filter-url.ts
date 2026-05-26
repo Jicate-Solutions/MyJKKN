@@ -118,19 +118,23 @@ export function useResidentsFilterUrl() {
 }
 
 // Reconciliation helper: call from the consumer page once the block list is
-// available. If the current block_id belongs to an institution different from
-// the selected institution_id, auto-clear block_id (keep institution).
+// available. If the current block_id belongs to no institution overlapping
+// the selected institution, auto-clear block_id (keep institution).
+//
+// hostel-rooms-v2 PR 2 (2026-05-26): hostel_blocks.institution_id dropped;
+// blocks now relate to colleges N:M via hostel_block_institutions. blockMap
+// value carries the SET of granted institutions per block.
 export function useReconcileBlockInstitution(
   state: ResidentsFilterUrlState,
   setState: (next: Partial<ResidentsFilterUrlState>) => void,
-  blockMap: Map<string, { institution_id: string }> | null,
+  blockMap: Map<string, { institution_ids: string[] }> | null,
 ) {
   useEffect(() => {
     if (!blockMap) return;
     if (!state.block || state.block === UNASSIGNED_BLOCK) return;
     if (!state.institution) return;
     const block = blockMap.get(state.block);
-    if (block && block.institution_id !== state.institution) {
+    if (block && !block.institution_ids.includes(state.institution)) {
       setState({ block: null });
     }
   }, [state.block, state.institution, blockMap, setState]);

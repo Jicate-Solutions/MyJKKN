@@ -155,22 +155,61 @@ export class LearnerHosteliteService {
   // Returns blocks the user can see (per RLS on hostel_blocks). Used to
   // populate the Block filter dropdown — all blocks for accessible
   // institutions, plus the "Unassigned" sentinel handled in UI.
+  //
+  // hostel-rooms-v2 PR 2 (2026-05-26): hostel_blocks.institution_id dropped;
+  // blocks now relate to colleges N:M via hostel_block_institutions. The
+  // returned shape gains institution_ids (string[]) replacing institution_id
+  // (string) for the consumer reconciliation logic.
   static async listBlocksForFilter(
     institutionId?: string,
-  ): Promise<Array<{ id: string; name: string; code: string; institution_id: string }>> {
+  ): Promise<Array<{ id: string; name: string; code: string; institution_ids: string[] }>> {
     try {
       const supabase = createClientSupabaseClient();
+
+      // Narrow via junction when institutionId provided.
+      let blockIdFilter: string[] | null = null;
+      if (institutionId) {
+        const { data: ids } = await supabase
+          .from('hostel_block_institutions')
+          .select('block_id')
+          .eq('institution_id', institutionId);
+        blockIdFilter = (ids ?? []).map((r) => r.block_id);
+      }
+
       let query = supabase
         .from('hostel_blocks')
-        .select('id,name,code,institution_id')
+        .select('id,name,code')
         .order('name', { ascending: true });
-      if (institutionId) query = query.eq('institution_id', institutionId);
+      if (blockIdFilter !== null) {
+        if (blockIdFilter.length === 0) return [];
+        query = query.in('id', blockIdFilter);
+      }
       const { data, error } = await query;
       if (error) {
         logger.error('campus-living/learner-hostelite', 'listBlocksForFilter failed', error);
         throw error;
       }
-      return data ?? [];
+      const blocks = data ?? [];
+      if (blocks.length === 0) return [];
+
+      // Pull junction rows for all returned blocks in one query.
+      const { data: junction } = await supabase
+        .from('hostel_block_institutions')
+        .select('block_id,institution_id')
+        .in('block_id', blocks.map((b) => b.id));
+      const grantsByBlock = new Map<string, string[]>();
+      for (const row of junction ?? []) {
+        const existing = grantsByBlock.get(row.block_id) ?? [];
+        existing.push(row.institution_id);
+        grantsByBlock.set(row.block_id, existing);
+      }
+
+      return blocks.map((b) => ({
+        id: b.id,
+        name: b.name,
+        code: b.code,
+        institution_ids: grantsByBlock.get(b.id) ?? [],
+      }));
     } catch (error) {
       logger.error('campus-living/learner-hostelite', 'Unexpected error in listBlocksForFilter', error);
       throw error;

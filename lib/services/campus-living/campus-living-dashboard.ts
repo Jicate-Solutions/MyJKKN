@@ -9,12 +9,29 @@ export class CampusLivingDashboard {
       const today = new Date().toISOString().split('T')[0];
       const now = new Date().toISOString();
 
-      // Build queries with optional institution scope (super_admin: institutionId='' → no filter)
+      // hostel-rooms-v2 PR 2: hostel_blocks.institution_id dropped — narrow
+      // via hostel_block_institutions junction when institutionId is provided.
+      let blockIdFilter: string[] | null = null;
+      if (institutionId) {
+        const { data: blockIds } = await supabase
+          .from('hostel_block_institutions')
+          .select('block_id')
+          .eq('institution_id', institutionId);
+        blockIdFilter = (blockIds ?? []).map((r) => r.block_id);
+      }
+
       let blocksQ = supabase
         .from('hostel_blocks')
         .select('id, name, code, hostel_type, total_capacity, current_occupancy, status')
         .eq('status', 'active');
-      if (institutionId) blocksQ = blocksQ.eq('institution_id', institutionId);
+      if (blockIdFilter !== null) {
+        if (blockIdFilter.length === 0) {
+          // Caller's institution has no blocks — short-circuit.
+          blocksQ = blocksQ.in('id', ['00000000-0000-0000-0000-000000000000']);
+        } else {
+          blocksQ = blocksQ.in('id', blockIdFilter);
+        }
+      }
 
       let todayAttQ = supabase
         .from('hostel_attendance')
@@ -81,8 +98,8 @@ export class CampusLivingDashboard {
 
       // Process blocks
       const blocks = blocksResult.data ?? [];
-      const totalCapacity = blocks.reduce((s, b) => s + b.total_capacity, 0);
-      const totalOccupancy = blocks.reduce((s, b) => s + b.current_occupancy, 0);
+      const totalCapacity = blocks.reduce((s, b) => s + (b.total_capacity ?? 0), 0);
+      const totalOccupancy = blocks.reduce((s, b) => s + (b.current_occupancy ?? 0), 0);
 
       // Process attendance
       const attendance = todayAttendanceResult.data ?? [];
@@ -107,15 +124,19 @@ export class CampusLivingDashboard {
           total_occupancy: totalOccupancy,
           available: totalCapacity - totalOccupancy,
           percentage: totalCapacity > 0 ? Math.round((totalOccupancy / totalCapacity) * 100) : 0,
-          blocks: blocks.map((b) => ({
-            id: b.id,
-            name: b.name,
-            code: b.code,
-            type: b.hostel_type,
-            capacity: b.total_capacity,
-            occupancy: b.current_occupancy,
-            percentage: b.total_capacity > 0 ? Math.round((b.current_occupancy / b.total_capacity) * 100) : 0,
-          })),
+          blocks: blocks.map((b) => {
+            const cap = b.total_capacity ?? 0;
+            const occ = b.current_occupancy ?? 0;
+            return {
+              id: b.id,
+              name: b.name,
+              code: b.code,
+              type: b.hostel_type,
+              capacity: cap,
+              occupancy: occ,
+              percentage: cap > 0 ? Math.round((occ / cap) * 100) : 0,
+            };
+          }),
         },
         attendance_today: {
           total: attendance.length,
@@ -178,9 +199,12 @@ export class CampusLivingDashboard {
           .eq('id', blockId)
           .maybeSingle(),
 
-        supabase
-          .from('hostel_rooms')
-          .select('id, status, capacity, current_occupancy')
+        // hostel-rooms-v2 PR 2: status + current_occupancy dropped; query
+        // v_hostel_room_occupancy for the derived versions.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (supabase as any)
+          .from('v_hostel_room_occupancy')
+          .select('room_id, capacity, active_residents, derived_status')
           .eq('block_id', blockId),
 
         supabase
@@ -216,10 +240,16 @@ export class CampusLivingDashboard {
         block,
         rooms: {
           total: rooms.length,
-          available: rooms.filter((r) => r.status === 'available').length,
-          partially_occupied: rooms.filter((r) => r.status === 'partially_occupied').length,
-          full: rooms.filter((r) => r.status === 'full').length,
-          maintenance: rooms.filter((r) => r.status === 'maintenance').length,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          available: rooms.filter((r: any) => r.derived_status === 'available').length,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          partially_occupied: rooms.filter((r: any) => r.derived_status === 'partially_occupied').length,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          full: rooms.filter((r: any) => r.derived_status === 'full').length,
+          // No "maintenance" status post hostel-rooms-v2 PR 2 — kept key for
+          // dashboard payload shape compatibility but always 0 until a
+          // maintenance flag is reintroduced.
+          maintenance: 0,
         },
         attendance_today: {
           total: attendance.length,

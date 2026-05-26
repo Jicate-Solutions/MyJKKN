@@ -88,34 +88,81 @@ export interface PremiumAvailableRoom {
 export async function listAvailableRoomsForPremium(
   institutionId: string,
 ): Promise<PremiumAvailableRoom[]> {
+  // hostel-rooms-v2 PR 2 (2026-05-26): hostel_rooms.institution_id +
+  // .status + .current_occupancy all dropped. Narrow via the
+  // room_institution_access junction; read live occupancy from
+  // v_hostel_room_occupancy.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const supabase = createClientSupabaseClient() as any;
+
+  // 1) Find rooms granted to the caller's institution.
+  const { data: grants, error: grantsErr } = await supabase
+    .from('room_institution_access')
+    .select('room_id')
+    .eq('institution_id', institutionId)
+    .eq('is_active', true);
+  if (grantsErr) {
+    console.error('[premium-allocation] listAvailableRoomsForPremium grants error:', grantsErr);
+    throw new Error(grantsErr.message || 'Failed to list available premium rooms');
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const grantedRoomIds = ((grants ?? []) as any[]).map((g) => g.room_id);
+  if (grantedRoomIds.length === 0) return [];
+
+  // 2) Pull room details for premium-eligible rooms.
   const { data, error } = await supabase
     .from('hostel_rooms')
     .select(
-      'id, block_id, institution_id, room_number, floor, capacity, current_occupancy, ac_status, has_attached_bathroom, tier_access, hostel_blocks(name)',
+      'id, block_id, room_number, floor, capacity, ac_status, has_attached_bathroom, tier_access, hostel_blocks(name)',
     )
-    .eq('institution_id', institutionId)
-    .in('tier_access', ['premium_only', 'either'])
-    .eq('status', 'available');
-
+    .in('id', grantedRoomIds)
+    .in('tier_access', ['premium_only', 'either']);
   if (error) {
-    console.error('[premium-allocation] listAvailableRoomsForPremium error:', error);
+    console.error('[premium-allocation] listAvailableRoomsForPremium rooms error:', error);
     throw new Error(error.message || 'Failed to list available premium rooms');
   }
 
+  // 3) Pull derived occupancy for those rooms.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const roomIds = ((data ?? []) as any[]).map((r) => r.id);
+  if (roomIds.length === 0) return [];
+  const { data: occ } = await supabase
+    .from('v_hostel_room_occupancy')
+    .select('room_id, active_residents, derived_status, beds_available')
+    .in('room_id', roomIds);
+  const occMap = new Map<
+    string,
+    { activeResidents: number; derivedStatus: string; bedsAvailable: number }
+  >();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const o of (occ ?? []) as any[]) {
+    occMap.set(o.room_id, {
+      activeResidents: o.active_residents,
+      derivedStatus: o.derived_status,
+      bedsAvailable: o.beds_available,
+    });
+  }
+
+  // 4) Filter to rooms with beds available; assemble payload.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return ((data ?? []) as any[])
-    .filter((r) => Number(r.current_occupancy ?? 0) < Number(r.capacity ?? 0))
+    .filter((r) => {
+      const o = occMap.get(r.id);
+      return (
+        o !== undefined &&
+        (o.derivedStatus === 'available' || o.derivedStatus === 'partially_occupied') &&
+        o.bedsAvailable > 0
+      );
+    })
     .map((r) => ({
       room_id: r.id,
       block_id: r.block_id,
       block_name: r.hostel_blocks?.name ?? null,
-      institution_id: r.institution_id,
+      institution_id: institutionId, // caller's scope; the row itself no longer carries this
       room_number: r.room_number,
       floor: r.floor,
       capacity: r.capacity,
-      current_occupancy: r.current_occupancy ?? 0,
+      current_occupancy: occMap.get(r.id)?.activeResidents ?? 0,
       ac_status: r.ac_status,
       has_attached_bathroom: r.has_attached_bathroom ?? null,
       tier_access: r.tier_access,

@@ -17,6 +17,13 @@ export const GET = withAuth(async (request, auth) => {
   const supabase = auth.supabase as any;
   const today = new Date().toISOString().split('T')[0];
 
+  // hostel-rooms-v2 PR 2 (2026-05-26): hostel_blocks.institution_id dropped;
+  // scope via hostel_block_institutions junction first.
+  const { data: blockIds } = await supabase
+    .from('hostel_block_institutions').select('block_id')
+    .eq('institution_id', institutionId);
+  const blockIdList = ((blockIds ?? []) as Array<{ block_id: string }>).map((r) => r.block_id);
+
   // Run all summary queries in parallel
   const [
     blocksResult,
@@ -29,8 +36,10 @@ export const GET = withAuth(async (request, auth) => {
     cleaningResult,
     laundryResult,
   ] = await Promise.all([
-    supabase.from('hostel_blocks').select('id, total_capacity', { count: 'exact' })
-      .eq('institution_id', institutionId),
+    blockIdList.length === 0
+      ? Promise.resolve({ data: [] as Array<{ id: string; total_capacity: number | null }>, error: null, count: 0 })
+      : supabase.from('hostel_blocks').select('id, total_capacity', { count: 'exact' })
+          .in('id', blockIdList),
     supabase.from('hostel_allocations').select('*', { count: 'exact', head: true })
       .eq('institution_id', institutionId).eq('status', 'active'),
     supabase.from('hostel_leave_requests').select('*', { count: 'exact', head: true })
