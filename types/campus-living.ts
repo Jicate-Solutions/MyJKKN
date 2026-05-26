@@ -1703,3 +1703,37 @@ export interface CreateMessWasteLogDTO {
   cost_of_waste?: number | null;
   corrective_action?: string | null;
 }
+
+// ─── Mess Meal Ratings (Premium-Plus rating system) ────────────────────
+// Per-item rating (1-5 stars) submitted by Premium-Plus residents.
+// Distinct from MessFeedback (meal-level dimensions) — finer grain.
+
+export interface MessMealRating {
+  id: string;
+  institution_id: string;
+  profile_id: string;
+  menu_id: string;
+  item_text: string;
+  rating: number;
+  comment: string | null;
+  rated_at: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateMessMealRatingDTO {
+  institution_id: string;
+  profile_id: string;
+  menu_id: string;
+  item_text: string;
+  rating: number;
+  comment?: string | null;
+}
+
+/** Row shape returned by fn_get_popular_items RPC. */
+export interface PopularItem {
+  item_text: string;
+  avg_rating: number;
+  total_ratings: number;
+  category: string | null;
+}
