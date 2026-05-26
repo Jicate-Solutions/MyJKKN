@@ -960,9 +960,9 @@ export default function BulkUploadStaff() {
             marital_status: row.marital_status?.toLowerCase(),
             blood_group: row.blood_group,
             email: isViewOnly ? (row.email || undefined) : row.email,
-            institution_email: isViewOnly
-              ? (row.institution_email || undefined)
-              : (row.institution_email || row.email),
+            // Institution email is optional for ALL staff (BUG-003989).
+            // Don't fall back to personal email — it won't be @jkkn.ac.in.
+            institution_email: row.institution_email || undefined,
             phone: row.phone,
             staff_id: row.staff_id,
             profile_picture: row.profile_picture || '',
