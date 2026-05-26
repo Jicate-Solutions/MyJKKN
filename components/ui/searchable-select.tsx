@@ -91,8 +91,8 @@ export function SearchableSelect({
         </Button>
       </PopoverTrigger>
       <PopoverContent
-        className='p-0'
-        style={{ width: 'var(--radix-popover-trigger-width)' }}
+        className='p-0 w-full'
+        style={{ width: 'var(--radix-popover-trigger-width)', minWidth: '250px' }}
         align='start'
       >
         <Command
@@ -104,9 +104,9 @@ export function SearchableSelect({
           <CommandList>
             <CommandEmpty>{emptyMessage}</CommandEmpty>
             <CommandGroup>
-              {options.map((opt) => (
+              {options.map((opt, idx) => (
                 <CommandItem
-                  key={opt.value}
+                  key={opt.value || `empty-${idx}`}
                   // Include both label + value so search matches either
                   value={`${opt.label} ${opt.value}`}
                   onSelect={() => {

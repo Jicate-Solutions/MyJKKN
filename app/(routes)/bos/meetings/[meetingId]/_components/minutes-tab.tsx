@@ -445,10 +445,12 @@ export function MinutesTab({ meeting, canEdit }: MinutesTabProps) {
                     );
 
                     // Topic options: every chapter of the picked unit, label-cleaned.
-                    const topicOptions = (pickedUnit?.chapters ?? []).map((c) => {
-                      const v = cleanLabel(c.title);
-                      return { value: v, label: v };
-                    });
+                    const topicOptions = (pickedUnit?.chapters ?? [])
+                      .map((c) => {
+                        const v = cleanLabel(c.title);
+                        return { value: v, label: v };
+                      })
+                      .filter((o) => o.value.length > 0);
 
                     const selectedTopics = asTopicArray(row.topic);
 
@@ -547,6 +549,7 @@ export function MinutesTab({ meeting, canEdit }: MinutesTabProps) {
                             }
                             searchPlaceholder='Search unit…'
                             disabled={!canEdit || noSyllabus || noUnits}
+                            modal={true}
                             className='w-full'
                           />
                         </div>
@@ -580,6 +583,7 @@ export function MinutesTab({ meeting, canEdit }: MinutesTabProps) {
                               !row.unit ||
                               availableTopicOptions.length === 0
                             }
+                            modal={true}
                             className='w-full'
                           />
                           {selectedTopics.length > 0 && (
@@ -635,6 +639,7 @@ export function MinutesTab({ meeting, canEdit }: MinutesTabProps) {
                               selectedTopics.length === 0 ||
                               availableSubTopicOptions.length === 0
                             }
+                            modal={true}
                             className='w-full'
                           />
                           {selectedSubTopics.length > 0 && (

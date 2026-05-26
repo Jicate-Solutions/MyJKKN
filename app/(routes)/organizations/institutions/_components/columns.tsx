@@ -7,7 +7,7 @@ import { Institution } from '@/types/organizations';
 import { Badge } from '@/components/ui/badge';
 import Link from 'next/link';
 import { usePermissions } from '@/hooks/use-permissions';
-import { Building2, Building, Briefcase } from 'lucide-react';
+import { Building2, Building, Briefcase, School } from 'lucide-react';
 import { DataTableRowActions } from './row-actions';
 import type { EntityType } from '@/types/organizations';
 
@@ -15,6 +15,7 @@ const ENTITY_TYPE_CONFIG: Record<EntityType, { label: string; variant: 'default'
   institution: { label: 'Institution', variant: 'default', icon: Building2 },
   admin_office: { label: 'Admin Office', variant: 'secondary', icon: Building },
   company: { label: 'Company', variant: 'outline', icon: Briefcase },
+  school: { label: 'School', variant: 'outline', icon: School },
 };
 
 const CounsellingCodeCell = ({ row }: { row: Row<Institution> }) => {

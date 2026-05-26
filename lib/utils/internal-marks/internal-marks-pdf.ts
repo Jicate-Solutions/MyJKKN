@@ -1045,10 +1045,10 @@ export function generateBosAttendanceCertificatePDF(
 			doc.line(x1, yPos + underlineOffset, x2, yPos + underlineOffset)
 		}
 
-		// Multi-line certificate format with each element clearly separated
+		// Single paragraph with bold elements and proper spacing
 		doc.setFontSize(fontSize)
 
-		// Build member details
+		// Build member details (name, designation, department, institution, address)
 		const memberDetails = [
 			cert.member_name,
 			cert.member_designation,
@@ -1057,56 +1057,108 @@ export function generateBosAttendanceCertificatePDF(
 			cert.member_address,
 		].filter(Boolean).join(', ')
 
+		// Build paragraph as array of parts with formatting info
+		const paragraphParts = [
+			{ text: 'This is to certify that ', bold: false },
+			{ text: memberDetails, bold: true },
+			{ text: ' has attended the ', bold: false },
+			{ text: ugPgLabel, bold: true },
+			{ text: ' Board of Studies meeting in the Department of ', bold: false },
+			{ text: deptText, bold: true },
+			{ text: ' held in our college on ', bold: false },
+			{ text: cert.meeting_date, bold: true },
+			{ text: '.', bold: false },
+		]
+
+		// Build full text and word-to-bold mapping
+		let fullText = ''
+		const wordBoldMap: boolean[] = []
+		const wordList: string[] = []
+
+		paragraphParts.forEach(part => {
+			const words = part.text.split(/(\s+)/) // Split on whitespace but keep it
+			words.forEach(word => {
+				if (word.trim()) { // Only track non-whitespace
+					wordBoldMap.push(part.bold)
+					wordList.push(word)
+				}
+			})
+			fullText += part.text
+		})
+
+		// Render paragraph with bold and underlines (left-aligned, clean spacing)
 		const lineHeightIncrease = 9
+		let wordIdx = 0
 		let currentY = y
 
-		// Line 1: "This is to certify that"
-		doc.setFont('times', 'normal')
-		doc.text('This is to certify that', contentX, currentY)
-		currentY += lineHeightIncrease
+		while (wordIdx < wordList.length) {
+			const lineWords: { word: string; bold: boolean }[] = []
+			let lineWidth = 0
 
-		// Line 2: Member details (bold, underlined)
-		doc.setFont('times', 'bold')
-		doc.text(memberDetails, contentX, currentY)
-		const memberDetailsWidth = doc.getTextWidth(memberDetails)
-		drawUnderline(currentY, contentX, contentX + memberDetailsWidth)
-		currentY += lineHeightIncrease * 2
+			// Fit as many words as possible on this line
+			while (wordIdx < wordList.length) {
+				const word = wordList[wordIdx]
+				const bold = wordBoldMap[wordIdx]
+				doc.setFont('times', bold ? 'bold' : 'normal')
+				const wordWithSpace = doc.getTextWidth(word + ' ')
 
-		// Line 3: "has attended the"
-		doc.setFont('times', 'normal')
-		doc.text('has attended the', contentX, currentY)
-		currentY += lineHeightIncrease
+				if (lineWidth + wordWithSpace > maxWidth && lineWords.length > 0) {
+					break // Line full
+				}
 
-		// Line 4: UG/PG Label (bold, underlined)
-		doc.setFont('times', 'bold')
-		doc.text(ugPgLabel, contentX, currentY)
-		const ugPgWidth = doc.getTextWidth(ugPgLabel)
-		drawUnderline(currentY, contentX, contentX + ugPgWidth)
-		currentY += lineHeightIncrease * 2
+				lineWords.push({ word, bold })
+				lineWidth += wordWithSpace
+				wordIdx++
+			}
 
-		// Line 5: "Board of Studies meeting in the Department of"
-		doc.setFont('times', 'normal')
-		doc.text('Board of Studies meeting in the Department of', contentX, currentY)
-		currentY += lineHeightIncrease
+			// Render line with left alignment and continuous underlines for bold sections
+			let lineX = contentX
 
-		// Line 6: Department text (bold, underlined)
-		doc.setFont('times', 'bold')
-		doc.text(deptText, contentX, currentY)
-		const deptWidth = doc.getTextWidth(deptText)
-		drawUnderline(currentY, contentX, contentX + deptWidth)
-		currentY += lineHeightIncrease * 2
+			// First pass: render all words
+			const wordPositions: Array<{ word: string; bold: boolean; startX: number; endX: number }> = []
+			lineWords.forEach((item) => {
+				doc.setFont('times', item.bold ? 'bold' : 'normal')
+				const wordStartX = lineX
+				const wordWidth = doc.getTextWidth(item.word)
+				const wordEndX = wordStartX + wordWidth
 
-		// Line 7: "held in our college on"
-		doc.setFont('times', 'normal')
-		doc.text('held in our college on', contentX, currentY)
-		currentY += lineHeightIncrease
+				// Render word with space
+				doc.text(item.word + ' ', lineX, currentY)
 
-		// Line 8: Meeting date (bold, underlined)
-		doc.setFont('times', 'bold')
-		doc.text(cert.meeting_date + '.', contentX, currentY)
-		const dateWidth = doc.getTextWidth(cert.meeting_date + '.')
-		drawUnderline(currentY, contentX, contentX + dateWidth)
-		currentY += lineHeightIncrease
+				// Track position for underline pass
+				wordPositions.push({ word: item.word, bold: item.bold, startX: wordStartX, endX: wordEndX })
+
+				// Advance position to next word (word + space)
+				lineX += doc.getTextWidth(item.word + ' ')
+			})
+
+			// Second pass: draw continuous underlines for bold sections
+			let underlineStart: number | null = null
+			let underlineEnd: number | null = null
+
+			wordPositions.forEach((pos, idx) => {
+				if (pos.bold) {
+					if (underlineStart === null) {
+						underlineStart = pos.startX
+					}
+					underlineEnd = pos.endX
+				} else {
+					// End of bold section, draw if exists
+					if (underlineStart !== null && underlineEnd !== null) {
+						drawUnderline(currentY, underlineStart, underlineEnd)
+						underlineStart = null
+						underlineEnd = null
+					}
+				}
+			})
+
+			// Draw final underline if bold section ends at line end
+			if (underlineStart !== null && underlineEnd !== null) {
+				drawUnderline(currentY, underlineStart, underlineEnd)
+			}
+
+			currentY += lineHeightIncrease
+		}
 
 		y = currentY
 		doc.setFont('times', 'normal')

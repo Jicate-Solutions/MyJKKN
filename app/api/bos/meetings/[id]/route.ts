@@ -190,14 +190,18 @@ export async function PUT(
     // Look up the meeting (service-role) so RLS doesn't 404 a legit CAS row.
     const { data: meeting, error: fetchError } = await db
       .from('bos_meetings')
-      .select('institutions_id, composition_id')
+      .select('institutions_id, composition_id, status')
       .eq('id', id)
       .single();
 
     if (fetchError || !meeting) {
       return NextResponse.json({ error: 'Meeting not found' }, { status: 404 });
     }
-    const meetingRow = meeting as { institutions_id: string | null; composition_id: string | null };
+    const meetingRow = meeting as {
+      institutions_id: string | null
+      composition_id: string | null
+      status: string
+    };
 
     const scope = await resolveBosBoardScope(user.id);
 
@@ -225,18 +229,30 @@ export async function PUT(
       }
     }
 
+    // Only allow date/venue/time updates on draft meetings. Once scheduled or
+    // later, these are immutable (set manually by admin). Minutes and other
+    // content can still be updated.
+    const isDraft = meetingRow.status === 'draft';
     const payload = {
       ...body,
-      scheduled_date: body.scheduled_date ? body.scheduled_date : null,
-      scheduled_time: body.scheduled_time ? body.scheduled_time : null,
-      actual_date: body.actual_date ? body.actual_date : null,
-      actual_start_time: body.actual_start_time ? body.actual_start_time : null,
-      actual_end_time: body.actual_end_time ? body.actual_end_time : null,
-      ratified_date: body.ratified_date ? body.ratified_date : null,
-      venue: body.venue ? body.venue : null,
+      // Only update these fields if meeting is draft, otherwise preserve existing values
+      scheduled_date: isDraft ? (body.scheduled_date || null) : undefined,
+      scheduled_time: isDraft ? (body.scheduled_time || null) : undefined,
+      actual_date: isDraft ? (body.actual_date || null) : undefined,
+      actual_start_time: isDraft ? (body.actual_start_time || null) : undefined,
+      actual_end_time: isDraft ? (body.actual_end_time || null) : undefined,
+      ratified_date: isDraft ? (body.ratified_date || null) : undefined,
+      venue: isDraft ? (body.venue || null) : undefined,
       notes: body.notes ? body.notes : null,
       updated_at: new Date().toISOString(),
     };
+
+    // Remove undefined keys so they don't overwrite existing values
+    Object.keys(payload).forEach((key) => {
+      if (payload[key as keyof typeof payload] === undefined) {
+        delete payload[key as keyof typeof payload];
+      }
+    });
 
     const { data, error } = await db
       .from('bos_meetings')
