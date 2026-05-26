@@ -5,6 +5,7 @@ import { createClientSupabaseClient } from '@/lib/supabase/client';
 import SchoolDefaultsTable from './school-defaults-table';
 import SchoolDetailsModal from './school-details-modal';
 import CreateDefaultsDialog from './create-defaults-dialog';
+import EditDefaultsModal from './edit-defaults-modal';
 import { PageHeader } from '@/components/page-header';
 import { AlertBox } from '@/components/ui/alert-box';
 import { Loader2 } from 'lucide-react';
@@ -28,6 +29,8 @@ export default function SchoolDefaultsPage() {
   const [error, setError] = useState<string | null>(null);
   const [selectedSchool, setSelectedSchool] = useState<SchoolWithDefaults | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
+  const [editingSchool, setEditingSchool] = useState<SchoolWithDefaults | null>(null);
+  const [editModalOpen, setEditModalOpen] = useState(false);
 
   useEffect(() => {
     fetchSchoolDefaults();
@@ -122,6 +125,10 @@ export default function SchoolDefaultsPage() {
               open={modalOpen}
               onOpenChange={setModalOpen}
               onRefresh={fetchSchoolDefaults}
+              onEdit={(school) => {
+                setEditingSchool(school);
+                setEditModalOpen(true);
+              }}
             />
           ) : (
             <CreateDefaultsDialog
@@ -130,6 +137,15 @@ export default function SchoolDefaultsPage() {
               open={modalOpen}
               onOpenChange={setModalOpen}
               onSuccess={fetchSchoolDefaults}
+            />
+          )}
+
+          {editingSchool && (
+            <EditDefaultsModal
+              school={editingSchool}
+              open={editModalOpen}
+              onOpenChange={setEditModalOpen}
+              onRefresh={fetchSchoolDefaults}
             />
           )}
         </>

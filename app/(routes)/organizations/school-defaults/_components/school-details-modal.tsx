@@ -32,6 +32,7 @@ interface SchoolDetailsModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onRefresh: () => Promise<void>;
+  onEdit?: (school: SchoolWithDefaults) => void;
 }
 
 export default function SchoolDetailsModal({
@@ -39,6 +40,7 @@ export default function SchoolDetailsModal({
   open,
   onOpenChange,
   onRefresh,
+  onEdit,
 }: SchoolDetailsModalProps) {
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -148,9 +150,13 @@ export default function SchoolDetailsModal({
 
           {hasDefaults && (
             <>
-              <Button variant="outline" disabled size="sm">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => onEdit && onEdit(school)}
+              >
                 <Edit2 className="h-4 w-4 mr-1" />
-                Edit (Phase 1.5)
+                Edit
               </Button>
 
               <Button
