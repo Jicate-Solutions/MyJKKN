@@ -1060,10 +1060,16 @@ export function generateBosAttendanceCertificatePDF(
 		].filter(Boolean)
 		const memberDetailsStr = memberParts.join(', ')
 
-		// Render member details in bold, wrapping if needed
+		// Render member details in bold with justified alignment
 		doc.setFont('times', 'bold')
 		const memberLines = doc.splitTextToSize(memberDetailsStr, maxWidth - prefixW - 4)
-		doc.text(memberLines, contentX + prefixW, y)
+		memberLines.forEach((line, idx) => {
+			const isLastLine = idx === memberLines.length - 1
+			doc.text(line, contentX + prefixW, y + idx * 4, {
+				align: isLastLine ? 'left' : 'justify',
+				maxWidth: maxWidth - prefixW - 4
+			})
+		})
 
 		// Advance y past member details block (no underline)
 		const memberBlockLines = memberLines.length
