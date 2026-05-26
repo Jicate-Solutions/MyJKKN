@@ -1061,19 +1061,49 @@ export function generateBosAttendanceCertificatePDF(
 		const memberDetailsStr = memberParts.join(', ')
 
 		// Render member details in bold with justified alignment
+		// First line: fit as much as possible after prefix
+		// Continuation lines: use full width from left margin
 		doc.setFont('times', 'bold')
-		const memberLines = doc.splitTextToSize(memberDetailsStr, maxWidth - prefixW - 4)
-		memberLines.forEach((line, idx) => {
-			const isLastLine = idx === memberLines.length - 1
-			doc.text(line, contentX + prefixW, y + idx * 4, {
-				align: isLastLine ? 'left' : 'justify',
-				maxWidth: maxWidth - prefixW - 4
-			})
-		})
+		const firstLineAvailWidth = maxWidth - prefixW - 4
+		const firstLineWords = memberDetailsStr.split(' ')
+		let firstLineText = ''
+		let remainingText = memberDetailsStr
 
-		// Advance y past member details block (no underline)
-		const memberBlockLines = memberLines.length
-		y += memberBlockLines * 4 + 6
+		for (let i = 0; i < firstLineWords.length; i++) {
+			const testStr = firstLineText ? firstLineText + ' ' + firstLineWords[i] : firstLineWords[i]
+			if (doc.getTextWidth(testStr) <= firstLineAvailWidth) {
+				firstLineText = testStr
+			} else {
+				remainingText = firstLineWords.slice(i).join(' ')
+				break
+			}
+		}
+
+		// Render first line after prefix
+		if (firstLineText) {
+			doc.text(firstLineText, contentX + prefixW, y, {
+				align: 'left',
+				maxWidth: firstLineAvailWidth
+			})
+		}
+
+		// Render continuation lines at full width
+		let currentY = y
+		if (remainingText) {
+			currentY += lineSpacing
+			const continuationLines = doc.splitTextToSize(remainingText, maxWidth)
+			continuationLines.forEach((line, idx) => {
+				const isLastLine = idx === continuationLines.length - 1
+				doc.text(line, contentX, currentY + idx * 4, {
+					align: isLastLine ? 'left' : 'justify',
+					maxWidth: maxWidth
+				})
+			})
+		}
+
+		// Advance y past member details block
+		const totalMemberLines = (firstLineText ? 1 : 0) + (remainingText ? doc.splitTextToSize(remainingText, maxWidth).length : 0)
+		y = currentY + (totalMemberLines * 4) + 6
 
 		// Line: "has attended the PG Board of Studies meeting in the Department of"
 		doc.setFont('times', 'normal')
