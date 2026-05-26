@@ -13989,13 +13989,14 @@ AS $$
          'administrator',
          'ceo', 'coo', 'cbo', 'registrar',
          'admission_counselor', 'expo_counselor',
-         'learner_counselor',   'staff_counselor'
+         'learner_counselor',   'staff_counselor',
+         'seo'
        )
   );
 $$;
 
 COMMENT ON FUNCTION public._user_in_admission_lead_allowlist(uuid) IS
-  'Defense-in-depth allowlist for admission.leads.view. Returns TRUE iff user holds one of: admission, admission_staff, administrator, ceo, coo, cbo, registrar, or any of 4 counselor role_keys. Added 2026-05-11 so granting admission.leads.view to off-list roles (faculty, hod, principal, student, etc.) does not re-leak the leads list.';
+  'Defense-in-depth allowlist for admission.leads.view. Returns TRUE iff user holds one of: admission, admission_staff, administrator, ceo, coo, cbo, registrar, any of 4 counselor role_keys, or seo. Updated 2026-05-26 to include seo role.';
 
 GRANT EXECUTE ON FUNCTION public._user_in_admission_lead_allowlist(uuid) TO authenticated;
 
