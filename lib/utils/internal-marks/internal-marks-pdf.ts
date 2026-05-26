@@ -1044,34 +1044,33 @@ export function generateBosAttendanceCertificatePDF(
 			doc.line(x1, yPos + underlineOffset, x2, yPos + underlineOffset)
 		}
 
-		// Line 1: Name + Designation (bold, underlined)
-		doc.setFont('times', 'bold')
-		const nameDesig = [cert.member_name, cert.member_designation].filter(Boolean).join(', ')
-		doc.text(nameDesig, contentX, y)
-		const nameDesigW = doc.getTextWidth(nameDesig)
-		drawUnderline(y, contentX, contentX + nameDesigW + 4)
-		y += lineSpacing
-
-		// Line 2: Institution (bold, underlined)
-		if (cert.member_institution) {
-			doc.text(cert.member_institution, contentX, y)
-			const instW = doc.getTextWidth(cert.member_institution)
-			drawUnderline(y, contentX, contentX + instW + 4)
-			y += lineSpacing
-		}
-
-		// Line 3: "has attended the [UG/PG] Board of Studies meeting in the Department of"
+		// Single flowing paragraph with justified text alignment
 		doc.setFont('times', 'normal')
-		const partA = 'has attended the '
-		doc.text(partA, contentX, y)
-		let curX = contentX + doc.getTextWidth(partA)
+		doc.setFontSize(fontSize)
 
-		doc.setFont('times', 'bold')
-		doc.text(ugPgLabel, curX, y)
-		curX += doc.getTextWidth(ugPgLabel)
+		// Build complete paragraph text
+		const memberDetails = [
+			cert.member_name,
+			cert.member_designation,
+			cert.member_institution?.replace(/^["']\s*|\s*["']$/g, '').trim(),
+			cert.member_address,
+		].filter(Boolean).join(', ')
 
-		doc.setFont('times', 'normal')
-		doc.text(' Board of Studies meeting in the Department of', curX, y)
+		const fullParagraph = `This is to certify that ${memberDetails} has attended the ${ugPgLabel} Board of Studies meeting in the Department of ${deptText} held in our college on ${cert.meeting_date}.`
+
+		// Split text to handle line wrapping
+		const paragraphLines = doc.splitTextToSize(fullParagraph, maxWidth)
+
+		// Render paragraph with justified alignment
+		paragraphLines.forEach((line, idx) => {
+			const isLastLine = idx === paragraphLines.length - 1
+			doc.text(line, contentX, y, {
+				align: isLastLine ? 'left' : 'justify',
+				maxWidth: maxWidth
+			})
+			y += 4
+		})
+
 		y += lineSpacing
 
 		// Line: "<DEPT_NAME>"
