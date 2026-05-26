@@ -33,7 +33,8 @@
     "import:website-faculty": "tsx --env-file=.env.local scripts/import/website-faculty-to-staff.ts",
     "import:website-faculty:dry": "tsx --env-file=.env.local scripts/import/website-faculty-to-staff.ts --dry-run",
     "backfill:cdc-idp": "tsx --env-file=.env.local scripts/backfill-cdc-idp.ts",
-    "backfill:cdc-idp:dry": "tsx --env-file=.env.local scripts/backfill-cdc-idp.ts --dry-run"
+    "backfill:cdc-idp:dry": "tsx --env-file=.env.local scripts/backfill-cdc-idp.ts --dry-run",
+    "batch:autofill-schools": "tsx scripts/batch-autofill-school-learners.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.68.0",
