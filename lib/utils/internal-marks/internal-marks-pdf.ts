@@ -1044,7 +1044,7 @@ export function generateBosAttendanceCertificatePDF(
 			doc.line(x1, yPos + underlineOffset, x2, yPos + underlineOffset)
 		}
 
-		// Single justified paragraph with bold elements
+		// Single paragraph with inline bold formatting for key elements
 		doc.setFont('times', 'normal')
 		doc.setFontSize(fontSize)
 
@@ -1056,22 +1056,47 @@ export function generateBosAttendanceCertificatePDF(
 			cert.member_address,
 		].filter(Boolean).join(', ')
 
-		// Build complete single paragraph
-		const fullParagraph = `This is to certify that ${memberDetails} has attended the ${ugPgLabel} Board of Studies meeting in the Department of ${deptText} held in our college on ${cert.meeting_date}.`
+		// Build paragraph as array of parts with formatting info
+		const paragraphParts = [
+			{ text: 'This is to certify that ', bold: false },
+			{ text: memberDetails, bold: true },
+			{ text: ' has attended the ', bold: false },
+			{ text: ugPgLabel, bold: true },
+			{ text: ' Board of Studies meeting in the Department of ', bold: false },
+			{ text: deptText, bold: true },
+			{ text: ' held in our college on ', bold: false },
+			{ text: cert.meeting_date, bold: true },
+			{ text: '.', bold: false },
+		]
 
-		// Split paragraph into lines for justified rendering
-		const paragraphLines = doc.splitTextToSize(fullParagraph, maxWidth)
+		// Render parts sequentially with line wrapping and proper spacing
+		const lineHeightIncrease = 9
+		let currentX = contentX
+		let currentY = y
 
-		// Render each line with justification and 1.5x spacing (all except last are justified)
-		const lineHeightIncrease = 9 // 1.5x spacing for balanced readability
-		paragraphLines.forEach((line, idx) => {
-			const isLastLine = idx === paragraphLines.length - 1
-			doc.text(line, contentX, y, {
-				align: isLastLine ? 'left' : 'justify',
-				maxWidth: maxWidth
+		paragraphParts.forEach(part => {
+			doc.setFont('times', part.bold ? 'bold' : 'normal')
+			const words = part.text.split(' ')
+
+			words.forEach((word, wordIdx) => {
+				const wordWithSpace = wordIdx < words.length - 1 ? word + ' ' : word
+				const wordWidth = doc.getTextWidth(wordWithSpace)
+
+				// Check if word fits on current line
+				if (currentX + wordWidth > contentX + maxWidth && currentX > contentX) {
+					// Move to next line
+					currentY += lineHeightIncrease
+					currentX = contentX
+				}
+
+				// Render the word
+				doc.text(wordWithSpace, currentX, currentY)
+				currentX += wordWidth
 			})
-			y += lineHeightIncrease
 		})
+
+		y = currentY + lineHeightIncrease
+		doc.setFont('times', 'normal')
 
 		y += 12
 
