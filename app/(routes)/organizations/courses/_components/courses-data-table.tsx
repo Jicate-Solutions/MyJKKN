@@ -9,6 +9,7 @@ import { useRouter } from 'next/navigation';
 import { CourseService } from '@/lib/services/organization/course-service';
 import { Course } from '@/types/organizations';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useInstitutionTypeLabels } from '@/hooks/use-institution-type-labels';
 import { useState } from 'react';
 import {
   DropdownMenu,
@@ -37,6 +38,7 @@ interface CoursesDataTableProps {
 export function CoursesDataTable({ search }: CoursesDataTableProps) {
   const router = useRouter();
   const { canAccess, isSuperAdmin } = usePermissions();
+  const { label } = useInstitutionTypeLabels();
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [selectedForDelete, setSelectedForDelete] = useState<Course[]>([]);
   const [deleteResetFn, setDeleteResetFn] = useState<(() => void) | null>(null);
@@ -247,7 +249,7 @@ export function CoursesDataTable({ search }: CoursesDataTableProps) {
             className='h-8'
           >
             <Plus className='mr-2 h-4 w-4' />
-            Add Course
+            Add {label("course")}
           </Button>
 
           <Button
@@ -339,8 +341,8 @@ export function CoursesDataTable({ search }: CoursesDataTableProps) {
           <AlertDialogHeader>
             <AlertDialogTitle>
               {selectedForDelete.length > 1
-                ? `Delete ${selectedForDelete.length} Courses`
-                : `Delete Course: ${selectedForDelete[0]?.course_name}`}
+                ? `Delete ${selectedForDelete.length} ${label("course")}s`
+                : `Delete ${label("course")}: ${selectedForDelete[0]?.course_name}`}
             </AlertDialogTitle>
             <AlertDialogDescription>
               This action cannot be undone. This will permanently delete the
@@ -380,8 +382,8 @@ export function CoursesDataTable({ search }: CoursesDataTableProps) {
               ) : (
                 `Delete ${
                   selectedForDelete.length > 1
-                    ? `${selectedForDelete.length} Courses`
-                    : 'Course'
+                    ? `${selectedForDelete.length} ${label("course")}s`
+                    : label("course")
                 }`
               )}
             </AlertDialogAction>
