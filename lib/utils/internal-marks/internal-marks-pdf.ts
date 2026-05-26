@@ -1084,10 +1084,18 @@ export function generateBosAttendanceCertificatePDF(
 			fullText += part.text
 		})
 
-		// Group words into lines for justified rendering
+		// Group words into lines for justified rendering with underlines for bold
 		const lineHeightIncrease = 9
+		const underlineOffset = 1.2
 		let wordIdx = 0
 		let currentY = y
+
+		// Set up underline drawing helper
+		const drawUnderline = (xStart: number, xEnd: number, yPos: number) => {
+			doc.setDrawColor(0, 0, 0)
+			doc.setLineWidth(0.3)
+			doc.line(xStart, yPos + underlineOffset, xEnd, yPos + underlineOffset)
+		}
 
 		while (wordIdx < wordList.length) {
 			const lineWords: { word: string; bold: boolean }[] = []
@@ -1118,9 +1126,16 @@ export function generateBosAttendanceCertificatePDF(
 
 			lineWords.forEach((item, idx) => {
 				doc.setFont('times', item.bold ? 'bold' : 'normal')
+				const wordStartX = lineX
 				doc.text(item.word, lineX, currentY)
 
 				const wordWidth = doc.getTextWidth(item.word)
+
+				// Draw underline for bold words
+				if (item.bold) {
+					drawUnderline(wordStartX, wordStartX + wordWidth, currentY)
+				}
+
 				if (idx < lineWords.length - 1) {
 					// Add justified spacing between words
 					lineX += wordWidth + (isLastLine ? 1.5 : spacePerGap)
