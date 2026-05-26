@@ -10,6 +10,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { Course } from '@/types/organizations';
 import { CourseService } from '@/lib/services/organization/course-service';
 import { OrganizationService } from '@/lib/services/organization/organization-service';
+import { useInstitutionTypeLabels } from '@/hooks/use-institution-type-labels';
 import { Button } from '@/components/ui/button';
 import {
   Form,
@@ -52,6 +53,7 @@ interface CourseFormProps {
 export function CourseForm({ course, isEditing }: CourseFormProps) {
   const router = useRouter();
   const queryClient = useQueryClient();
+  const { label } = useInstitutionTypeLabels();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [institutions, setInstitutions] = useState<
     Array<{ id: string; name: string }>
@@ -143,7 +145,7 @@ export function CourseForm({ course, isEditing }: CourseFormProps) {
                 name='course_code'
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Course Code</FormLabel>
+                    <FormLabel>{label('course')} Code</FormLabel>
                     <FormControl>
                       <Input
                         placeholder='e.g., CSE101'
@@ -166,7 +168,7 @@ export function CourseForm({ course, isEditing }: CourseFormProps) {
                 name='course_name'
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Course Name</FormLabel>
+                    <FormLabel>{label('course')} Name</FormLabel>
                     <FormControl>
                       <Input
                         placeholder='e.g., Introduction to Computer Science'
