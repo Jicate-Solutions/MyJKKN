@@ -73,10 +73,9 @@ const CARDS: HubCard[] = [
     href: '/admin/hostel/allocations',
     title: 'Allocations',
     description:
-      'Allocate residents to specific rooms / beds, snapshot fee at allocation time, track active vs checked-out. (Building — separate PR.)',
+      'Allocate residents to specific rooms / beds, snapshot fee at allocation time, track active vs checked-out.',
     icon: Home,
     accent: 'text-emerald-600',
-    comingSoon: true,
   },
 ];
 
