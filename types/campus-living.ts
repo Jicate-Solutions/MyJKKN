@@ -1394,6 +1394,9 @@ export type BillingModel =
   | 'bdmr'
   | 'semester_advance';
 
+/** Which resident gender a caterer cooks for. Added by PR 1 ALTER COLUMN. */
+export type GenderServed = 'boys' | 'girls' | 'both';
+
 export interface MessCaterer {
   id: string;
   institution_id: string;
@@ -1412,6 +1415,8 @@ export interface MessCaterer {
   gst_number: string | null;
   metadata: Record<string, unknown> | null;
   performance_score: number | null;
+  /** Which resident gender this caterer serves. NULL on legacy rows. */
+  gender_served: GenderServed | null;
   created_at: string | null;
   updated_at: string | null;
 }
@@ -1433,6 +1438,7 @@ export interface CreateMessCatererDTO {
   gst_number?: string | null;
   metadata?: Record<string, unknown> | null;
   performance_score?: number | null;
+  gender_served?: GenderServed | null;
 }
 
 export type UpdateMessCatererDTO = Partial<CreateMessCatererDTO>;
@@ -1451,9 +1457,21 @@ export interface MessCatererBlock {
 // ─── Mess Menus ────────────────────────────────────────────────────────
 // Mirrors `mess_menus` table + supabase.ts enums.
 
-export type MealType = 'breakfast' | 'lunch' | 'snacks' | 'dinner';
+/**
+ * Meal slots. `'tea'` added by PR 1 ALTER TYPE (2026-05-25 chairperson
+ * decision). `'snacks'` retained for back-compat with pre-2026-05-25 rows.
+ */
+export type MealType = 'breakfast' | 'lunch' | 'snacks' | 'tea' | 'dinner';
 
 export type MenuStatus = 'planned' | 'confirmed' | 'served' | 'cancelled';
+
+/**
+ * Tier vocabulary. Single source of truth across hostel + mess (Director
+ * D2 lock, 2026-05-25): reuse the existing `hostel_tier_policy.tier_key`
+ * ladder instead of inventing a parallel CLASSIC/PREMIUM enum.
+ *   CLASSIC → 'standard', PREMIUM → 'premium', PREMIUM++ → 'premium_plus'
+ */
+export type TierKey = 'standard' | 'premium' | 'premium_plus';
 
 export interface MessMenu {
   id: string;
@@ -1462,7 +1480,17 @@ export interface MessMenu {
   block_id: string | null;
   day_of_week: number;
   meal_type: MealType;
+  /** Legacy locale-unspecified items. Kept in sync with items_tamil for back-compat. */
   items: string[];
+  /**
+   * Tamil-source items for this (week, day, meal, tier) cell. Source-of-truth
+   * when mess.menu.source_locale = 'ta' (default).
+   */
+  items_tamil: string[] | null;
+  /** English translation. NULL until Director fills via admin UI. */
+  items_english: string[] | null;
+  /** Tier this menu cell applies to. NULL = unspecified / global. */
+  tier_key: TierKey | null;
   week_start_date: string;
   dietary_tags: string[] | null;
   estimated_cost_per_plate: number | null;
@@ -1482,6 +1510,9 @@ export interface CreateMessMenuDTO {
   items: string[];
   week_start_date: string;
   block_id?: string | null;
+  items_tamil?: string[] | null;
+  items_english?: string[] | null;
+  tier_key?: TierKey | null;
   dietary_tags?: string[] | null;
   estimated_cost_per_plate?: number | null;
   is_special_day?: boolean | null;
