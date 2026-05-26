@@ -1044,7 +1044,8 @@ export function generateBosAttendanceCertificatePDF(
 			doc.line(x1, yPos + underlineOffset, x2, yPos + underlineOffset)
 		}
 
-		// Line 1: "This is to certify that <Name>, <Designation>, <Institution>, <Address>"
+		// Line 1: "This is to certify that" + member details (name, designation, institution, address)
+		// Member details wrap to next line(s) aligned to left margin
 		doc.setFont('times', 'normal')
 		doc.setFontSize(fontSize)
 		const certPrefix = 'This is to certify that '
@@ -1060,13 +1061,49 @@ export function generateBosAttendanceCertificatePDF(
 		].filter(Boolean)
 		const memberDetailsStr = memberParts.join(', ')
 
-		// Render member details in bold, wrapping if needed
+		// Split text to fit from after prefix on first line, then full width for wrap
+		const firstLineWidth = maxWidth - prefixW - 4
+		const allMemberText = memberDetailsStr
+		const firstLineWords = allMemberText.split(' ')
+
+		let firstLineStr = ''
+		let remainingStr = allMemberText
+		let currentWidth = 0
+
+		for (let i = 0; i < firstLineWords.length; i++) {
+			const word = firstLineWords[i]
+			const testStr = firstLineStr ? firstLineStr + ' ' + word : word
+			const testWidth = doc.getTextWidth(testStr)
+			if (testWidth <= firstLineWidth) {
+				firstLineStr = testStr
+			} else {
+				remainingStr = firstLineWords.slice(i).join(' ')
+				break
+			}
+		}
+
+		// Render first line member details
 		doc.setFont('times', 'bold')
-		const memberLines = doc.splitTextToSize(memberDetailsStr, maxWidth - prefixW - 4)
-		doc.text(memberLines, contentX + prefixW, y)
+		if (firstLineStr) {
+			doc.text(firstLineStr, contentX + prefixW, y)
+		}
+
+		// If there's remaining text, wrap it on next line(s) at full width
+		let memberBlockLines = 1
+		if (remainingStr && remainingStr !== allMemberText) {
+			y += lineSpacing
+			const wrappedLines = doc.splitTextToSize(remainingStr, maxWidth)
+			doc.text(wrappedLines, contentX, y)
+			memberBlockLines += wrappedLines.length
+		} else if (!firstLineStr) {
+			// If nothing fit on first line, wrap all at full width
+			y += 0 // stays on same line for now
+			const wrappedLines = doc.splitTextToSize(allMemberText, maxWidth)
+			doc.text(wrappedLines, contentX + prefixW, y)
+			memberBlockLines = wrappedLines.length
+		}
 
 		// Draw underline beneath member details (full width)
-		const memberBlockLines = memberLines.length
 		const memberUnderlineY = y + (memberBlockLines - 1) * 4 + underlineOffset
 		drawUnderline(memberUnderlineY)
 		y += memberBlockLines * 4 + 6
