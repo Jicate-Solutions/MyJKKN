@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import {
   Table,
   TableBody,
@@ -15,6 +15,7 @@ import { Loader2, Download } from 'lucide-react';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { Button } from '@/components/ui/button';
 import { exportAuditLogsToCSV } from '@/lib/utils/export-audit-logs';
+import AuditLogFilters, { FilterState } from './audit-log-filters';
 
 interface AuditLog {
   id: string;
@@ -35,6 +36,11 @@ export default function AuditLogTable() {
   const [logs, setLogs] = useState<AuditLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [filters, setFilters] = useState<FilterState>({
+    searchText: '',
+    actionType: 'all',
+    school: '',
+  });
 
   useEffect(() => {
     fetchAuditLogs();
@@ -99,6 +105,46 @@ export default function AuditLogTable() {
     return profile?.full_name || profile?.email || 'Unknown User';
   };
 
+  function applyFilters(logs: AuditLog[], filters: FilterState): AuditLog[] {
+    return logs.filter(log => {
+      // Search text
+      if (filters.searchText) {
+        const searchLower = filters.searchText.toLowerCase();
+        const matchesSearch =
+          log.school_name.toLowerCase().includes(searchLower) ||
+          getUserDisplay(log).toLowerCase().includes(searchLower);
+        if (!matchesSearch) return false;
+      }
+
+      // Action type
+      if (filters.actionType !== 'all' && log.action !== filters.actionType) {
+        return false;
+      }
+
+      // School
+      if (filters.school && log.school_id !== filters.school) {
+        return false;
+      }
+
+      return true;
+    });
+  }
+
+  const schoolOptions = useMemo(() => {
+    const schools = new Map<string, string>();
+    logs.forEach(log => {
+      if (!schools.has(log.school_id)) {
+        schools.set(log.school_id, log.school_name);
+      }
+    });
+    return Array.from(schools.entries()).map(([id, name]) => ({
+      value: id,
+      label: name,
+    }));
+  }, [logs]);
+
+  const filteredLogs = applyFilters(logs, filters);
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-96">
@@ -115,13 +161,19 @@ export default function AuditLogTable() {
         <AlertBox type="info" message="No audit logs found" />
       ) : (
         <>
+          <AuditLogFilters
+            filters={filters}
+            onFilterChange={setFilters}
+            schoolOptions={schoolOptions}
+          />
+
           <div className="flex justify-end gap-2">
             <Button
               variant="outline"
               size="sm"
               onClick={() => {
                 const timestamp = new Date().toISOString().split('T')[0];
-                exportAuditLogsToCSV(logs, `school-defaults-audit-${timestamp}.csv`);
+                exportAuditLogsToCSV(filteredLogs, `school-defaults-audit-${timestamp}.csv`);
               }}
             >
               <Download className="h-4 w-4 mr-1" />
@@ -142,7 +194,7 @@ export default function AuditLogTable() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {logs.map(log => (
+              {filteredLogs.map(log => (
                 <TableRow key={log.id}>
                   <TableCell className="text-sm">
                     {formatDate(log.created_at)}
@@ -176,7 +228,7 @@ export default function AuditLogTable() {
       )}
 
       <div className="text-xs text-muted-foreground">
-        Showing last 500 audit log entries. Total: {logs.length}
+        Showing {filteredLogs.length} of {logs.length} audit log entries
       </div>
     </div>
   );
