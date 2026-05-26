@@ -111,18 +111,13 @@ export function createColumns({
     },
   ];
 
-  // Institution column only for super_admin (cross-institution view)
-  if (isSuperAdmin) {
-    cols.splice(4, 0, {
-      accessorKey: 'institution_id',
-      header: 'Institution',
-      cell: ({ row }) => (
-        <span className='text-xs text-muted-foreground'>
-          {institutionMap.get(row.original.institution_id) ?? row.original.institution_id}
-        </span>
-      ),
-    });
-  }
+  // hostel-rooms-v2 PR 2 (2026-05-26): institution_id dropped from
+  // hostel_residents. Institution column hidden — residents are now
+  // administrative entities; their college affiliation flows through the
+  // active allocation. PR 3+ can re-introduce this column by joining via
+  // hostel_allocations → hostel_block_institutions if needed.
+  void isSuperAdmin;
+  void institutionMap;
 
   return cols;
 }

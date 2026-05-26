@@ -6,11 +6,29 @@ export class CampusLivingAnalytics {
   static async getOccupancyAnalytics(institutionId: string | undefined) {
     try {
       const supabase = createClientSupabaseClient();
+
+      // hostel-rooms-v2 PR 2: hostel_blocks.institution_id dropped — narrow
+      // via the hostel_block_institutions junction when institutionId given.
+      let blockIdFilter: string[] | null = null;
+      if (institutionId) {
+        const { data: blockIds } = await supabase
+          .from('hostel_block_institutions')
+          .select('block_id')
+          .eq('institution_id', institutionId);
+        blockIdFilter = (blockIds ?? []).map((r) => r.block_id);
+      }
+
       let blockQuery = supabase
         .from('hostel_blocks')
         .select('id, name, code, hostel_type, total_rooms, total_capacity, current_occupancy, status')
         .eq('status', 'active');
-      if (institutionId) blockQuery = blockQuery.eq('institution_id', institutionId);
+      if (blockIdFilter !== null) {
+        if (blockIdFilter.length === 0) {
+          blockQuery = blockQuery.in('id', ['00000000-0000-0000-0000-000000000000']);
+        } else {
+          blockQuery = blockQuery.in('id', blockIdFilter);
+        }
+      }
       const { data: blocks, error } = await blockQuery;
 
       if (error) {
@@ -19,15 +37,15 @@ export class CampusLivingAnalytics {
       }
 
       const blockData = blocks ?? [];
-      const totalCapacity = blockData.reduce((s, b) => s + b.total_capacity, 0);
-      const totalOccupancy = blockData.reduce((s, b) => s + b.current_occupancy, 0);
+      const totalCapacity = blockData.reduce((s, b) => s + (b.total_capacity ?? 0), 0);
+      const totalOccupancy = blockData.reduce((s, b) => s + (b.current_occupancy ?? 0), 0);
 
       // By hostel type
       const byType: Record<string, { capacity: number; occupancy: number; blocks: number }> = {};
       for (const b of blockData) {
         if (!byType[b.hostel_type]) byType[b.hostel_type] = { capacity: 0, occupancy: 0, blocks: 0 };
-        byType[b.hostel_type].capacity += b.total_capacity;
-        byType[b.hostel_type].occupancy += b.current_occupancy;
+        byType[b.hostel_type].capacity += (b.total_capacity ?? 0);
+        byType[b.hostel_type].occupancy += (b.current_occupancy ?? 0);
         byType[b.hostel_type].blocks++;
       }
 
@@ -42,16 +60,20 @@ export class CampusLivingAnalytics {
           ...data,
           percentage: data.capacity > 0 ? Math.round((data.occupancy / data.capacity) * 100) : 0,
         })),
-        by_block: blockData.map((b) => ({
-          id: b.id,
-          name: b.name,
-          code: b.code,
-          type: b.hostel_type,
-          capacity: b.total_capacity,
-          occupancy: b.current_occupancy,
-          available: b.total_capacity - b.current_occupancy,
-          percentage: b.total_capacity > 0 ? Math.round((b.current_occupancy / b.total_capacity) * 100) : 0,
-        })),
+        by_block: blockData.map((b) => {
+          const cap = b.total_capacity ?? 0;
+          const occ = b.current_occupancy ?? 0;
+          return {
+            id: b.id,
+            name: b.name,
+            code: b.code,
+            type: b.hostel_type,
+            capacity: cap,
+            occupancy: occ,
+            available: cap - occ,
+            percentage: cap > 0 ? Math.round((occ / cap) * 100) : 0,
+          };
+        }),
       };
     } catch (error) {
       logger.error('campus-living/analytics', 'Unexpected error in getOccupancyAnalytics', error);

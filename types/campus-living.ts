@@ -57,6 +57,12 @@ export interface HostelAllocation {
   metadata: Record<string, unknown> | null;
   created_at: string;
   updated_at: string;
+  // ─── New columns added in hostel-rooms-v2 PR 1 (2026-05-26) ───
+  monthly_fee_at_allocation_inr: number | null;
+  warden_id: string | null;
+  roommate_preference_notes: string | null;
+  check_in_date: string; // date NOT NULL DEFAULT CURRENT_DATE
+  check_out_date: string | null; // NULL = active allocation
 }
 
 export interface CreateHostelAllocationDTO {
@@ -79,6 +85,11 @@ export interface CreateHostelAllocationDTO {
   medical_conditions?: string | null;
   food_preference?: FoodPreference | null;
   metadata?: Record<string, unknown>;
+  // ─── New columns added in hostel-rooms-v2 PR 1 ───
+  monthly_fee_at_allocation_inr?: number | null;
+  warden_id?: string | null;
+  roommate_preference_notes?: string | null;
+  check_in_date?: string; // optional; DB default = CURRENT_DATE
 }
 
 export interface UpdateHostelAllocationDTO {
@@ -95,6 +106,12 @@ export interface UpdateHostelAllocationDTO {
   medical_conditions?: string | null;
   food_preference?: FoodPreference | null;
   metadata?: Record<string, unknown>;
+  // ─── New columns added in hostel-rooms-v2 PR 1 ───
+  monthly_fee_at_allocation_inr?: number | null;
+  warden_id?: string | null;
+  roommate_preference_notes?: string | null;
+  check_in_date?: string;
+  check_out_date?: string | null;
 }
 
 export interface AllocationFilters {
@@ -428,9 +445,13 @@ export type HostelType =
 
 export type BlockStatus = 'active' | 'under_maintenance' | 'closed';
 
+// hostel-rooms-v2 PR 2 (2026-05-26): institution_id dropped from hostel_blocks.
+// College access flows through hostel_block_institutions junction. The fields
+// current_occupancy, total_capacity, total_rooms are now derived from the
+// underlying rooms + active allocations (see v_hostel_room_occupancy for
+// per-room data; aggregations happen in app code or future view).
 export interface HostelBlock {
   id: string;
-  institution_id: string | null;
   name: string;
   code: string;
   hostel_type: HostelType;
@@ -454,7 +475,6 @@ export interface HostelBlock {
 }
 
 export interface CreateHostelBlockDTO {
-  institution_id: string;
   name: string;
   code: string;
   hostel_type: HostelType;
@@ -477,7 +497,6 @@ export interface CreateHostelBlockDTO {
 export type UpdateHostelBlockDTO = Partial<CreateHostelBlockDTO>;
 
 export interface BlockFilters {
-  institution_id?: string;
   hostel_type?: HostelType;
   status?: BlockStatus;
   search?: string;
@@ -490,24 +509,27 @@ export type AcStatus = 'ac' | 'non_ac' | 'cooler';
 
 export type RoomType = 'single' | 'double' | 'triple' | 'quad' | 'dormitory';
 
+// hostel-rooms-v2 PR 2 (2026-05-26): the RoomStatus enum is no longer stored
+// on hostel_rooms (column dropped). Use v_hostel_room_occupancy.derived_status
+// when you need a status badge. The string-union type is kept here as a UI
+// concept (some components badge "maintenance" / "closed" — those are
+// future planned values, not yet derived).
 export type RoomStatus =
   | 'available'
   | 'partially_occupied'
   | 'full'
-  | 'maintenance'
-  | 'reserved'
-  | 'closed';
+  | 'unknown';
 
+// hostel-rooms-v2 PR 2 (2026-05-26): institution_id dropped (junction now);
+// status + current_occupancy dropped (derive from v_hostel_room_occupancy).
 export interface HostelRoom {
   id: string;
-  institution_id: string;
   block_id: string;
   room_number: string;
   floor: number;
   room_type: RoomType;
   ac_status: AcStatus;
   capacity: number;
-  current_occupancy: number | null;
   annual_fee: number | null;
   furniture: Record<string, unknown> | null;
   has_attached_bathroom: boolean | null;
@@ -515,13 +537,12 @@ export interface HostelRoom {
   last_inspection_date: string | null;
   maintenance_notes: string | null;
   metadata: Record<string, unknown> | null;
-  status: RoomStatus;
+  tier_access: string | null;
   created_at: string | null;
   updated_at: string | null;
 }
 
 export interface CreateHostelRoomDTO {
-  institution_id: string;
   block_id: string;
   room_number: string;
   floor: number;
@@ -534,18 +555,16 @@ export interface CreateHostelRoomDTO {
   is_accessible?: boolean | null;
   maintenance_notes?: string | null;
   metadata?: Record<string, unknown> | null;
-  status?: RoomStatus;
+  tier_access?: string | null;
 }
 
 export type UpdateHostelRoomDTO = Partial<CreateHostelRoomDTO>;
 
 export interface RoomFilters {
-  institution_id?: string;
   block_id?: string;
   floor?: number;
   room_type?: RoomType;
   ac_status?: AcStatus;
-  status?: RoomStatus;
   search?: string;
 }
 

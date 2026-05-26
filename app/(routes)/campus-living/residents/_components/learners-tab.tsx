@@ -94,11 +94,23 @@ export function LearnersTab() {
   // Dynamic year chips — falls back to YEAR_OPTIONS_FALLBACK [1..4] while loading
   const { data: availableYears } = useAvailableYears(effectiveInstitutionId);
 
-  // Conflict reconciliation: if URL has block_id ∉ selected institution, clear it
+  // Conflict reconciliation: if URL has block_id ∉ selected institution, clear it.
+  // hostel-rooms-v2 PR 2 (2026-05-26): each block now relates to an
+  // institution SET via hostel_block_institutions; we read the map from the
+  // hook below.
   const blockMap = useMemo(() => {
     if (!blockList) return null;
-    const m = new Map<string, { institution_id: string }>();
-    blockList.forEach((b) => m.set(b.id, { institution_id: b.institution_id }));
+    const m = new Map<string, { institution_ids: string[] }>();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (blockList as any[]).forEach((b) => {
+      // Tolerate both new (b.institution_ids array) and legacy (b.institution_id string)
+      // shapes — useHostelBlocksForFilter may have either depending on whether it's
+      // been refactored yet.
+      const ids: string[] = Array.isArray(b.institution_ids)
+        ? b.institution_ids
+        : (b.institution_id ? [b.institution_id] : []);
+      m.set(b.id, { institution_ids: ids });
+    });
     return m;
   }, [blockList]);
   useReconcileBlockInstitution(state, setState, blockMap);
