@@ -1035,12 +1035,23 @@ export function generateBosAttendanceCertificatePDF(
 		const ugPgLabel = ugPg ?? 'UG/PG'
 		const deptText = cert.board_name.toUpperCase()
 
-		// Line 1: "This is to certify that" + member details (name, designation, institution, address)
+		// Helper: draw underline across content width
+		const drawUnderline = (yPos: number, xStart?: number, xEnd?: number) => {
+			doc.setDrawColor(0, 0, 0)
+			doc.setLineWidth(0.3)
+			const x1 = xStart ?? contentX
+			const x2 = xEnd ?? (contentX + maxWidth)
+			doc.line(x1, yPos + underlineOffset, x2, yPos + underlineOffset)
+		}
+
+		// Line 1: "This is to certify that <Name>, <Designation>, <Institution>, <Address>"
 		doc.setFont('times', 'normal')
 		doc.setFontSize(fontSize)
 		const certPrefix = 'This is to certify that '
+		doc.text(certPrefix, contentX, y)
+		const prefixW = doc.getTextWidth(certPrefix)
 
-		// Build member details string with comma separation
+		// Build member details: name, designation, institution, address
 		const memberParts = [
 			cert.member_name,
 			cert.member_designation,
@@ -1049,39 +1060,18 @@ export function generateBosAttendanceCertificatePDF(
 		].filter(Boolean)
 		const memberDetailsStr = memberParts.join(', ')
 
-		// Combine prefix with member details for better word wrapping
-		const fullCertLine = certPrefix + memberDetailsStr
-		const certLines = doc.splitTextToSize(fullCertLine, maxWidth)
+		// Render member details in bold, wrapping if needed
+		doc.setFont('times', 'bold')
+		const memberLines = doc.splitTextToSize(memberDetailsStr, maxWidth - prefixW - 4)
+		doc.text(memberLines, contentX + prefixW, y)
 
-		// Render first line: "This is to certify that " in normal, rest in bold
-		doc.setFont('times', 'normal')
-		doc.text(certPrefix, contentX, y)
-		let currentX = contentX + doc.getTextWidth(certPrefix)
+		// Draw underline beneath member details (full width)
+		const memberBlockLines = memberLines.length
+		const memberUnderlineY = y + (memberBlockLines - 1) * 4 + underlineOffset
+		drawUnderline(memberUnderlineY)
+		y += memberBlockLines * 4 + 6
 
-		// Split remaining text for proper font handling
-		if (certLines.length === 1) {
-			// All fits on one line
-			doc.setFont('times', 'bold')
-			doc.text(memberDetailsStr, currentX, y)
-		} else {
-			// Multiple lines - need to handle font switching
-			const remainingText = memberDetailsStr
-			const remainingLines = doc.splitTextToSize(remainingText, maxWidth - doc.getTextWidth(certPrefix))
-			doc.setFont('times', 'bold')
-			doc.text(remainingLines, contentX + doc.getTextWidth(certPrefix), y)
-		}
-
-		// Draw underline beneath all member detail lines
-		const totalLines = certLines.length
-		const underlineY = y + (totalLines - 1) * 4 + underlineOffset
-		doc.setDrawColor(0, 0, 0)
-		doc.setLineWidth(0.3)
-		doc.line(contentX, underlineY, contentX + maxWidth, underlineY)
-
-		// Advance y past the member details block
-		y += totalLines * 4 + 6
-
-		// Line 3: "has attended the UG Board of Studies meeting in the Department of"
+		// Line: "has attended the PG Board of Studies meeting in the Department of"
 		doc.setFont('times', 'normal')
 		const partA = 'has attended the '
 		doc.text(partA, contentX, y)
@@ -1095,25 +1085,23 @@ export function generateBosAttendanceCertificatePDF(
 		doc.text(' Board of Studies meeting in the Department of', curX, y)
 		y += lineSpacing
 
-		// Line 4: "<DEPT_NAME>" (line 1)
-		//         "held in our college on  <DATE>" (line 2, kept together)
+		// Line: "<DEPT_NAME>"
 		doc.setFont('times', 'bold')
 		doc.text(deptText, contentX, y)
 		const deptW = doc.getTextWidth(deptText)
-		doc.setDrawColor(0, 0, 0)
-		doc.setLineWidth(0.3)
-		doc.line(contentX, y + underlineOffset, contentX + deptW + 4, y + underlineOffset)
+		drawUnderline(y, contentX, contentX + deptW + 4)
 		y += lineSpacing
 
-		// Next line: "held in our college on  <DATE>" — keep them together
+		// Line: "held in our college on <DATE>"
 		doc.setFont('times', 'normal')
-		doc.text('held in our college on  ', contentX, y)
-		const heldW = doc.getTextWidth('held in our college on  ')
+		doc.text('held in our college on ', contentX, y)
+		const heldW = doc.getTextWidth('held in our college on ')
+
 		doc.setFont('times', 'bold')
 		const dateX = contentX + heldW
 		doc.text(cert.meeting_date, dateX, y)
 		const dateW = doc.getTextWidth(cert.meeting_date)
-		doc.line(dateX, y + underlineOffset, dateX + dateW + 4, y + underlineOffset)
+		drawUnderline(y, dateX, dateX + dateW + 4)
 		y += lineSpacing
 
 		y += 12
