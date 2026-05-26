@@ -161,8 +161,10 @@ export const enquiryFormSchema = z.object({
 
   // Course Selection
   institution_id: z.string().min(1, 'Institution is required'),
-  degree_id: z.string().min(1, 'Degree is required'),
-  department_id: z.string().min(1, 'Department is required'),
+  // 2026-05-26: degree_id and department_id are optional for schools
+  // (auto-filled by SchoolDefaultsService); required for colleges
+  degree_id: z.string().nullable().optional(),
+  department_id: z.string().nullable().optional(),
   program_id: z.string().min(1, 'Program is required'),
   // 2026-05-21: academic_year_id and section_id relaxed from required → optional
   // on the enquiry form. Most enquiries are captured before the student is

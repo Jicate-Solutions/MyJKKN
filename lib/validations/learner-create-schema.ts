@@ -56,8 +56,10 @@ export const createLearnerSchema = z
 
     // ---- Required: Course Selection / Academic FKs (7 fields)
     institution_id: z.string().uuid('Institution is required'),
-    degree_id: z.string().uuid('Degree is required'),
-    department_id: z.string().uuid('Department is required'),
+    // 2026-05-26: degree_id and department_id are optional for schools
+    // (auto-filled by SchoolDefaultsService); required for colleges
+    degree_id: z.string().uuid('Degree is required').nullable().optional(),
+    department_id: z.string().uuid('Department is required').nullable().optional(),
     program_id: z.string().uuid('Program is required'),
     semester_id: z.string().uuid('Semester is required'),
     section_id: z.string().uuid('Section is required'),
