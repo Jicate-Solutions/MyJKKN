@@ -19,6 +19,7 @@ import { useRouter } from 'next/navigation';
 import { SemesterService } from '@/lib/services/organization/semester-service';
 import { Semester } from '@/types/organizations';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useInstitutionTypeLabels } from '@/hooks/use-institution-type-labels';
 import { useState } from 'react';
 import {
   AlertDialog,
@@ -47,6 +48,7 @@ interface SemestersDataTableProps {
 export function SemestersDataTable({ search }: SemestersDataTableProps) {
   const router = useRouter();
   const { canAccess, isSuperAdmin } = usePermissions();
+  const { label } = useInstitutionTypeLabels();
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [selectedForDelete, setSelectedForDelete] = useState<Semester[]>([]);
   const [deleteResetFn, setDeleteResetFn] = useState<(() => void) | null>(null);
@@ -222,7 +224,7 @@ export function SemestersDataTable({ search }: SemestersDataTableProps) {
           className='h-8'
         >
           <Plus className='mr-2 h-4 w-4' />
-          Add Semester
+          Add {label("semester")}
         </Button>
       )}
 
@@ -313,8 +315,8 @@ export function SemestersDataTable({ search }: SemestersDataTableProps) {
           <AlertDialogHeader>
             <AlertDialogTitle>
               {selectedForDelete.length > 1
-                ? `Delete ${selectedForDelete.length} Semesters`
-                : `Delete Semester: ${selectedForDelete[0]?.semester_name}`}
+                ? `Delete ${selectedForDelete.length} ${label("semester")}s`
+                : `Delete ${label("semester")}: ${selectedForDelete[0]?.semester_name}`}
             </AlertDialogTitle>
             <AlertDialogDescription>
               This action cannot be undone. This will permanently delete the
@@ -355,8 +357,8 @@ export function SemestersDataTable({ search }: SemestersDataTableProps) {
               ) : (
                 `Delete ${
                   selectedForDelete.length > 1
-                    ? `${selectedForDelete.length} Semesters`
-                    : 'Semester'
+                    ? `${selectedForDelete.length} ${label("semester")}s`
+                    : label("semester")
                 }`
               )}
             </AlertDialogAction>
