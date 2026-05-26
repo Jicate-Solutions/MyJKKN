@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/button';
 import { AlertBox } from '@/components/ui/alert-box';
 import { Loader2, Trash2, Edit2 } from 'lucide-react';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { SchoolDefaultsAuditService } from '@/lib/services/school-defaults-audit-service';
 
 interface SchoolWithDefaults {
   school_id: string;
@@ -63,6 +64,19 @@ export default function SchoolDetailsModal({
           .eq('id', school.degree_id);
 
         if (deleteError) throw deleteError;
+
+        // Log audit trail
+        const { data: currentUser } = await supabase.auth.getUser();
+        if (currentUser.user?.id) {
+          await SchoolDefaultsAuditService.logAction(
+            'delete',
+            school.school_id,
+            school.school_name,
+            'degree',
+            { degree_id: school.degree_id, degree_name: school.degree_name },
+            currentUser.user.id
+          );
+        }
       }
 
       await onRefresh();

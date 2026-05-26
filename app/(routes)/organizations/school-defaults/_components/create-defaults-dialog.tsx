@@ -14,6 +14,7 @@ import { AlertBox } from '@/components/ui/alert-box';
 import { Loader2 } from 'lucide-react';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { SchoolDefaultsService } from '@/lib/services/school-defaults-service';
+import { SchoolDefaultsAuditService } from '@/lib/services/school-defaults-audit-service';
 
 interface CreateDefaultsDialogProps {
   schoolId: string;
@@ -38,8 +39,23 @@ export default function CreateDefaultsDialog({
       setCreating(true);
       setError(null);
 
+      const supabase = createClientSupabaseClient();
+
       // Use SchoolDefaultsService to ensure defaults exist
-      await SchoolDefaultsService.getSchoolDefaults(schoolId);
+      const defaults = await SchoolDefaultsService.getSchoolDefaults(schoolId);
+
+      // Log audit trail
+      const { data: currentUser } = await supabase.auth.getUser();
+      if (currentUser.user?.id && defaults) {
+        await SchoolDefaultsAuditService.logAction(
+          'create',
+          schoolId,
+          schoolName,
+          'degree',
+          { degree_id: defaults.degree_id, degree_name: defaults.degree_name },
+          currentUser.user.id
+        );
+      }
 
       await onSuccess();
       onOpenChange(false);
