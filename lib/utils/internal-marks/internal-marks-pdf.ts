@@ -1153,13 +1153,16 @@ export function generateBosAttendanceCertificatePDF(
 					doc.text(remainingOnFirst, xPos, lastMemberDetailsY)
 					y = lastMemberDetailsY + lineSpacing
 				} else {
-					// Wrap to next lines
-					const wrappedRemaining = doc.splitTextToSize(remainingOnFirst, maxWidth)
+					// Wrap to next lines - split based on available width on first line
+					const wrappedRemaining = doc.splitTextToSize(remainingOnFirst, firstLineRemainingWidth)
 					doc.text(wrappedRemaining[0], xPos, lastMemberDetailsY)
 
 					let nextY = lastMemberDetailsY + 4
 					for (let i = 1; i < wrappedRemaining.length; i++) {
-						doc.text(wrappedRemaining[i], contentX, nextY)
+						doc.text(wrappedRemaining[i], contentX, nextY, {
+							align: 'justify',
+							maxWidth: maxWidth
+						})
 						nextY += 4
 					}
 					y = nextY + lineSpacing
