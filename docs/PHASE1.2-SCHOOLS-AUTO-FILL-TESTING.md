@@ -208,6 +208,77 @@ WHERE degree_id = (SELECT id FROM degrees WHERE degree_code = 'K12' LIMIT 1)
   AND institution_id IN (SELECT id FROM institutions WHERE entity_type = 'school');
 ```
 
+## Admin UI: School Defaults Management (Phase 1.3)
+
+### Accessing the Admin Page
+
+Navigate to: `/organizations/school-defaults`
+
+**Requirements:** Institution admin or organization admin role
+
+### Dashboard Overview
+
+The School Defaults admin page provides:
+
+1. **Summary Cards**
+   - **Total Schools** – Count of all K-12 schools in system
+   - **With Defaults** – Schools with K-12 Program degree assigned (green)
+   - **Missing Defaults** – Schools without K-12 Program degree (amber)
+
+2. **Schools Table**
+   - School name
+   - Number of learners enrolled
+   - K-12 Program degree name/code (if assigned)
+   - Academic department name/code (if assigned)
+   - Status badge: "Configured" ✓ (green) or "Missing" ⚠ (amber)
+   - View button (future: detailed editing)
+
+3. **Warning Alert** (if applicable)
+   - Displays if any schools lack defaults
+   - Links to batch auto-fill command: `npm run batch:autofill-schools`
+
+### Using the Interface
+
+**Check School Status:**
+1. Navigate to `/organizations/school-defaults`
+2. Review summary cards for overall status
+3. Scan table for schools with "Missing" badge
+4. Check learner count per school
+
+**Fix Missing Defaults:**
+1. If "Missing Defaults" shows in summary or table
+2. Open terminal in project directory
+3. Run: `npm run batch:autofill-schools`
+4. Refresh page to see updated status (Configured)
+
+**View School Details (Future):**
+- Click "View" button on school row
+- See full degree/department details
+- (Phase 1.4: edit/delete capability)
+
+### Example Usage
+
+```
+Navigate to: /organizations/school-defaults
+
+Page shows:
+├─ Summary Cards
+│  ├─ Total Schools: 8
+│  ├─ With Defaults: 6 (green)
+│  └─ Missing Defaults: 2 (amber)
+│
+├─ Warning Alert
+│  └─ "2 school(s) are missing K-12 Program degree..."
+│
+└─ Schools Table
+   ├─ St. Joseph's School    | 45 learners | K-12 Program | Academic | ✓ Configured
+   ├─ Central High School    | 32 learners | K-12 Program | Academic | ✓ Configured
+   ├─ Good Hope Academy      | —          | —            | —        | ⚠ Missing
+   └─ (5 more schools...)
+```
+
+**Action:** Run batch auto-fill to fix missing schools
+
 ## Database Checks
 
 ### Verify virtual records created:
@@ -288,7 +359,7 @@ WHERE institution_id IN (
 
 1. ✅ Update LearnerProfileService.updateLearnerProfile to enforce defaults (completed 2026-05-26)
 2. ✅ Add batch auto-fill for existing learners at schools (data migration) (completed 2026-05-26)
-3. Add admin UI to view/manage virtual degree/department records
+3. ✅ Add admin UI to view/manage virtual degree/department records (completed 2026-05-26)
 4. Implement CAS-aware virtual record sharing (multiple schools → single set)
 
 ## Rollback Plan
