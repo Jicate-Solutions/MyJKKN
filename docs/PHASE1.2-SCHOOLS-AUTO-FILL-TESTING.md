@@ -251,10 +251,51 @@ The School Defaults admin page provides:
 3. Run: `npm run batch:autofill-schools`
 4. Refresh page to see updated status (Configured)
 
-**View School Details (Future):**
-- Click "View" button on school row
-- See full degree/department details
-- (Phase 1.4: edit/delete capability)
+**View School Details:**
+- Click "View" button on any school row
+- Opens modal showing degree/department information
+- See enrolled learner count
+- Delete button available if no learners assigned
+
+### Edit and Delete Operations (Phase 1.4)
+
+#### View School Details
+
+1. In Schools table, click "View" button for any school
+2. Modal opens showing:
+   - Enrolled learner count
+   - K-12 Program degree name and code
+   - Academic department name and code
+   - Delete button (if no learners assigned)
+
+#### Create Defaults (for Schools Without Degree)
+
+1. In Schools table, schools with "Missing" badge show "Create" instead of "View"
+2. Click "Create" button
+3. Confirmation dialog appears
+4. Click "Create Defaults" to generate K-12 Program + Academic department
+5. Learners at school can now be enrolled in this program
+
+#### Delete Defaults
+
+1. Click "View" on configured school
+2. If school has 0 learners:
+   - Delete button is enabled
+   - Click "Delete" to remove K-12 Program degree (also removes department)
+   - Confirmation required
+3. If school has learners assigned:
+   - Delete button is disabled with explanation
+   - Must reassign learners first, or use batch script to remove learners
+
+#### Audit Trail
+
+All create/delete actions are logged with:
+- Who performed the action (user)
+- When it happened (timestamp)
+- Which school and resource
+- What changed (specific degree/department details)
+
+Logs available via `school_defaults_audit_logs` table (future: admin audit page)
 
 ### Example Usage
 
@@ -361,6 +402,48 @@ WHERE institution_id IN (
 2. ✅ Add batch auto-fill for existing learners at schools (data migration) (completed 2026-05-26)
 3. ✅ Add admin UI to view/manage virtual degree/department records (completed 2026-05-26)
 4. Implement CAS-aware virtual record sharing (multiple schools → single set)
+
+## Phase 1.4: Admin UI Edit/Delete (Completed 2026-05-26)
+
+### Completed Tasks
+
+1. ✅ SchoolDetailsModal component with delete functionality
+   - View degree/dept info with names and codes
+   - Delete button (enabled only if no learners assigned)
+   - Learner count validation before delete
+   - Error handling and loading states
+
+2. ✅ CreateDefaultsDialog for schools without defaults
+   - One-click creation of K-12 Program + Academic department
+   - Uses SchoolDefaultsService.getSchoolDefaults (idempotent)
+   - Confirmation flow with info alert
+   - Error handling
+
+3. ✅ Modal integration into admin UI
+   - View button on table opens appropriate modal
+   - SchoolDetailsModal for configured schools
+   - CreateDefaultsDialog for schools without defaults
+   - Modal state managed in page component
+   - Callbacks for data refresh after actions
+
+4. ✅ Audit logging for all actions
+   - SchoolDefaultsAuditService for logging create/delete
+   - Tracks user, timestamp, school, resource type, changes
+   - Indexes on school_id and created_at for performance
+   - Logs recorded in school_defaults_audit_logs table
+
+### Files Added/Modified (Phase 1.4)
+
+**New Files:**
+- `app/(routes)/organizations/school-defaults/_components/school-details-modal.tsx` (195 lines)
+- `app/(routes)/organizations/school-defaults/_components/create-defaults-dialog.tsx` (83 lines)
+- `lib/services/school-defaults-audit-service.ts` (49 lines)
+- `supabase/migrations/20260526_create_school_defaults_audit_logs.sql` (Migration file)
+
+**Modified Files:**
+- `app/(routes)/organizations/school-defaults/_components/school-defaults-page.tsx` (add modal state + imports)
+- `app/(routes)/organizations/school-defaults/_components/school-defaults-table.tsx` (add onViewSchool callback)
+- `docs/PHASE1.2-SCHOOLS-AUTO-FILL-TESTING.md` (add Phase 1.4 edit/delete guide)
 
 ## Rollback Plan
 
