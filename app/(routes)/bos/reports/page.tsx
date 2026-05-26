@@ -366,6 +366,7 @@ function AttendanceCertificatesTab({ institutionsId }: { institutionsId: string 
       rightLogoImage,
       member_name: member?.display_name ?? '—',
       member_designation: member?.display_designation,
+      member_department: member?.display_department,
       member_institution: cleanedInstitution || member?.display_institution,
       member_address: member?.display_address,
       board_name: boardName,

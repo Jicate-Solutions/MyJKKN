@@ -958,6 +958,7 @@ export interface BosAttendanceCertificateData {
 
 	member_name: string
 	member_designation?: string
+	member_department?: string
 	member_institution?: string
 	member_address?: string
 
@@ -1047,10 +1048,11 @@ export function generateBosAttendanceCertificatePDF(
 		// Justified paragraph with inline bold formatting
 		doc.setFontSize(fontSize)
 
-		// Build member details
+		// Build member details (name, designation, department, institution, address)
 		const memberDetails = [
 			cert.member_name,
 			cert.member_designation,
+			cert.member_department,
 			cert.member_institution?.replace(/^["']\s*|\s*["']$/g, '').trim(),
 			cert.member_address,
 		].filter(Boolean).join(', ')
