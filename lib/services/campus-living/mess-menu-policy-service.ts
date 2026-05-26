@@ -142,6 +142,33 @@ export function getFeeModel(institutionId?: string | null): Promise<MessMenuFeeM
 }
 
 /**
+ * Update one of the 6 mess.menu.* policies at global scope.
+ * Writes directly to `platform_policies.value`. Simple direct-publish (no
+ * draft/publish workflow on these policies — Director D2 lock kept this
+ * lean; if it needs to grow, swap in `wave3-policy-editor-service` API).
+ *
+ * Returns the updated value (as raw JSON) so caller can hydrate the cache.
+ */
+export async function updateMessMenuPolicy(
+  policyKey: typeof MESS_MENU_POLICY_KEYS[keyof typeof MESS_MENU_POLICY_KEYS],
+  newValue: number | string | boolean,
+): Promise<void> {
+  const supabase = createClientSupabaseClient();
+  const { error } = await supabase
+    .from('platform_policies')
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    .update({ value: newValue as any, updated_at: new Date().toISOString() })
+    .eq('policy_key', policyKey)
+    .eq('scope_type', 'global')
+    .is('scope_id', null);
+
+  if (error) {
+    logger.error('campus-living/mess-policy', `Failed to update ${policyKey}`, error);
+    throw error;
+  }
+}
+
+/**
  * One-shot snapshot of all 6 policies — used by the admin policies page so
  * the UI can render every row in a single render pass.
  */
