@@ -492,9 +492,10 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
         date_of_birth: values.date_of_birth.toISOString(),
         date_of_joining: values.date_of_joining.toISOString(),
         email: isViewOnlyStaff ? (values.email || undefined) : values.email,
-        institution_email: isViewOnlyStaff
-          ? (values.institution_email || undefined)
-          : (values.institution_email || '')
+        // Institution email is optional for ALL staff (BUG-003989/3980/3962).
+        // Normalize blank to undefined so the service receives null instead
+        // of '' which would collide on the UNIQUE index.
+        institution_email: values.institution_email || undefined
       };
 
       if (isEditing && staff) {

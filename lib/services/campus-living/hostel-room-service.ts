@@ -178,6 +178,42 @@ export class HostelRoomService {
     }
   }
 
+  // ── All rooms with block + live occupancy (PR 4a) ─────────────────
+  // Powers /admin/hostel/rooms — Director-facing room catalog. Pulls every
+  // hostel_rooms row + a join into hostel_blocks for the block name, then
+  // zip-merges with v_hostel_room_occupancy for active_residents +
+  // beds_available + derived_status. No pagination (146 rows today; safe
+  // client-side). RLS handles institution scoping at the view level — for
+  // super_admin this surfaces the full catalog.
+  static async getAllRoomsWithOccupancy(): Promise<
+    (HostelRoomWithOccupancy & { hostel_blocks: { id: string; name: string; code: string | null } | null })[]
+  > {
+    try {
+      const supabase = createClientSupabaseClient();
+      const { data, error } = await supabase
+        .from('hostel_rooms')
+        .select('*, hostel_blocks(id, name, code)')
+        .order('room_number');
+
+      if (error) {
+        logger.error('campus-living/rooms', 'Failed to fetch all rooms (with occupancy)', error);
+        throw error;
+      }
+      const rooms = (data ?? []) as (HostelRoom & {
+        hostel_blocks: { id: string; name: string; code: string | null } | null;
+      })[];
+      const ids = rooms.map((r) => r.id);
+      const occMap = await fetchOccupancyMap(supabase, ids);
+      return rooms.map((r) => ({
+        ...r,
+        ...(occMap.get(r.id) ?? EMPTY_OCCUPANCY),
+      }));
+    } catch (error) {
+      logger.error('campus-living/rooms', 'Unexpected error in getAllRoomsWithOccupancy', error);
+      throw error;
+    }
+  }
+
   // ── Single room with beds (legacy, no occupancy) ───────────────────
   static async getRoom(id: string) {
     try {
