@@ -1086,16 +1086,8 @@ export function generateBosAttendanceCertificatePDF(
 
 		// Group words into lines for justified rendering with underlines for bold
 		const lineHeightIncrease = 9
-		const underlineOffset = 1.2
 		let wordIdx = 0
 		let currentY = y
-
-		// Set up underline drawing helper
-		const drawUnderline = (xStart: number, xEnd: number, yPos: number) => {
-			doc.setDrawColor(0, 0, 0)
-			doc.setLineWidth(0.3)
-			doc.line(xStart, yPos + underlineOffset, xEnd, yPos + underlineOffset)
-		}
 
 		while (wordIdx < wordList.length) {
 			const lineWords: { word: string; bold: boolean }[] = []
@@ -1133,7 +1125,7 @@ export function generateBosAttendanceCertificatePDF(
 
 				// Draw underline for bold words
 				if (item.bold) {
-					drawUnderline(wordStartX, wordStartX + wordWidth, currentY)
+					drawUnderline(currentY, wordStartX, wordStartX + wordWidth)
 				}
 
 				if (idx < lineWords.length - 1) {
