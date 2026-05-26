@@ -75,8 +75,11 @@ export default function NewBlockPage() {
     setIsSubmitting(true);
 
     try {
+      // hostel-rooms-v2 PR 2 (2026-05-26): hostel_blocks.institution_id
+      // dropped; createBlock auto-grants caller's institution via the
+      // hostel_block_institutions junction (see service layer).
       const created = await createBlock.mutateAsync({
-        institution_id: profile?.institution_id ?? '',
+        primaryInstitutionId: profile?.institution_id ?? undefined,
         name: formData.name,
         code: formData.code,
         hostel_type: formData.hostel_type as 'boys' | 'girls' | 'mixed',

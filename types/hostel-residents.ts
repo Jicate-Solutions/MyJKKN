@@ -19,9 +19,11 @@ export const HOSTEL_RESIDENT_TYPES: ReadonlyArray<HostelResidentType> = [
   'other',
 ] as const;
 
+// hostel-rooms-v2 PR 2 (2026-05-26): institution_id dropped from hostel_residents.
+// Residents are administrative entities; their college affiliation flows
+// through the active hostel_allocations row → block → hostel_block_institutions.
 export interface HostelResident {
   id: string;
-  institution_id: string;
   profile_id: string;
   resident_type: HostelResidentType;
   id_proof_type: string | null;
@@ -44,7 +46,6 @@ export interface HostelResidentWithProfile extends HostelResident {
 }
 
 export interface CreateHostelResidentDTO {
-  institution_id: string;
   profile_id: string;
   resident_type: HostelResidentType;
   id_proof_type?: string | null;

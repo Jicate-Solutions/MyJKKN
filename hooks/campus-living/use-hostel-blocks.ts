@@ -42,7 +42,16 @@ export function useHostelBlock(id: string) {
 export function useCreateHostelBlock() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (payload: CreateHostelBlockDTO) => HostelBlockService.createBlock(payload),
+    // hostel-rooms-v2 PR 2 (2026-05-26): accepts optional primaryInstitutionId
+    // so the service can auto-grant the new block to a college via the
+    // hostel_block_institutions junction. Callers can pass via the variables
+    // object: `mutateAsync({ ...payload, primaryInstitutionId: '...' })`.
+    mutationFn: (
+      vars: CreateHostelBlockDTO & { primaryInstitutionId?: string },
+    ) => {
+      const { primaryInstitutionId, ...payload } = vars;
+      return HostelBlockService.createBlock(payload, primaryInstitutionId);
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: hostelBlockKeys.all });
       toast.success('Hostel block created');
