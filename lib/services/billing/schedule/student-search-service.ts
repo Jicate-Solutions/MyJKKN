@@ -290,6 +290,7 @@ export class StudentSearchService {
         .select(
           `
           *,
+          creator:profiles!fk_billing_student_bills_created_by(id, full_name),
           item_category:billing_categories(
             id,
             category_name,
@@ -314,6 +315,7 @@ export class StudentSearchService {
         .select(
           `
           *,
+          creator:profiles!fk_billing_receipts_created_by(id, full_name),
           receipt_items:billing_receipt_items(
             *,
             bill:billing_student_bills(*)
@@ -337,6 +339,7 @@ export class StudentSearchService {
             .select(
               `
             *,
+            creator:profiles!fk_billing_discounts_created_by(id, full_name),
             bill:billing_student_bills(*)
           `
             )
@@ -356,6 +359,7 @@ export class StudentSearchService {
           .select(
             `
             *,
+            creator:profiles!fk_billing_refunds_created_by(id, full_name),
             receipt:billing_receipts(*)
           `
           )

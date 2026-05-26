@@ -63,6 +63,10 @@ export interface StudentBill {
   updated_at: string;
 
   // Related data
+  creator?: {
+    id: string;
+    full_name: string;
+  };
   student?: {
     id: string;
     first_name: string;
@@ -178,6 +182,10 @@ export interface BillingReceipt {
   updated_at: string;
 
   // Related data
+  creator?: {
+    id: string;
+    full_name: string;
+  };
   student?: {
     id: string;
     first_name: string;
@@ -282,6 +290,10 @@ export interface BillingDiscount {
   updated_at: string;
 
   // Related data
+  creator?: {
+    id: string;
+    full_name: string;
+  };
   bill?: StudentBill;
   authorizer?: {
     id: string;
@@ -353,6 +365,10 @@ export interface BillingRefund {
   updated_at: string;
 
   // Related data
+  creator?: {
+    id: string;
+    full_name: string;
+  };
   receipt?: BillingReceipt;
   authorizer?: {
     id: string;

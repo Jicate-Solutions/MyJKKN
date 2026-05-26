@@ -40,6 +40,7 @@ interface TransactionEvent {
   description: string;
   status: string;
   reference?: string;
+  createdBy?: string;
   details?: any;
 }
 
@@ -67,6 +68,7 @@ export function StudentTransactionHistory({
         amount: bill.final_amount,
         description: description,
         status: bill.status,
+        createdBy: bill.creator?.full_name,
         details: bill
       });
     });
@@ -76,11 +78,12 @@ export function StudentTransactionHistory({
       transactions.push({
         id: `receipt-${receipt.id}`,
         type: 'payment_received',
-        date: receipt.receipt_date,
+        date: receipt.created_at || receipt.receipt_date,
         amount: receipt.payment_amount,
         description: `Payment via ${receipt.payment_mode}`,
         status: 'completed',
         reference: receipt.receipt_number,
+        createdBy: receipt.creator?.full_name,
         details: receipt
       });
     });
@@ -94,6 +97,7 @@ export function StudentTransactionHistory({
         amount: discount.discount_amount,
         description: `${discount.discount_category} discount`,
         status: discount.approval_status,
+        createdBy: discount.creator?.full_name,
         details: discount
       });
     });
@@ -107,6 +111,7 @@ export function StudentTransactionHistory({
         amount: refund.net_refund_amount,
         description: `${refund.refund_category} refund`,
         status: refund.approval_status,
+        createdBy: refund.creator?.full_name,
         details: refund
       });
     });
@@ -339,8 +344,15 @@ export function StudentTransactionHistory({
                           </h4>
                           {getStatusIcon(transaction.status)}
                         </div>
-                        <div className='text-xs text-muted-foreground'>
-                          {formatDateTime(transaction.date)}
+                        <div className='flex items-center gap-2 flex-wrap'>
+                          <span className='text-xs text-muted-foreground'>
+                            {formatDateTime(transaction.date)}
+                          </span>
+                          {transaction.createdBy && (
+                            <span className='text-xs bg-muted px-1.5 py-0.5 rounded'>
+                              by {transaction.createdBy}
+                            </span>
+                          )}
                         </div>
                         {transaction.reference && (
                           <div className='text-xs font-mono text-muted-foreground'>

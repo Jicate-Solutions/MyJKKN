@@ -150,6 +150,9 @@ export class BillingReceiptService {
 
         if (itemsError) {
           logger.error('billing/receipts', 'Receipt items creation error', itemsError);
+          // Rollback: delete the orphaned receipt header to prevent ghost receipts
+          await client.from('billing_receipts').delete().eq('id', receipt.id);
+          logger.warn('billing/receipts', 'Rolled back receipt header after items failure', { receiptId: receipt.id });
           throw itemsError;
         }
 
