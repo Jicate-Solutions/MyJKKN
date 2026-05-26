@@ -1117,15 +1117,15 @@ export function generateBosAttendanceCertificatePDF(
 				const wordStartX = lineX
 				const wordWidth = doc.getTextWidth(item.word)
 
-				// Render word
-				doc.text(item.word, lineX, currentY)
+				// Render word with space
+				doc.text(item.word + ' ', lineX, currentY)
 
-				// Draw underline for bold words
+				// Draw underline for bold words (only under the word, not the space)
 				if (item.bold) {
 					drawUnderline(currentY, wordStartX, wordStartX + wordWidth)
 				}
 
-				// Add space after word
+				// Advance position to next word (word + space)
 				lineX += doc.getTextWidth(item.word + ' ')
 			})
 
