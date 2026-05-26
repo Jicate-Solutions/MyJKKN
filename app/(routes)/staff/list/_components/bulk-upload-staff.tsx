@@ -895,7 +895,17 @@ export default function BulkUploadStaff() {
       setPreviewData(validatedData);
     } catch (error) {
       console.error('Error processing file:', error);
-      toast.error('Error processing file. Please check the file format.');
+      // Surface the actual error so users (and support) know what went wrong.
+      const msg = error instanceof Error ? error.message : String(error);
+      if (msg.includes('auth') || msg.includes('Auth') || msg.includes('401')) {
+        toast.error('Authentication error — please refresh the page and try again.');
+      } else if (msg.includes('permission') || msg.includes('row-level security')) {
+        toast.error('Permission error — you may not have access to load reference data. Contact admin.');
+      } else if (msg.includes('fetch') || msg.includes('network') || msg.includes('Failed to fetch')) {
+        toast.error('Network error — check your connection and try again.');
+      } else {
+        toast.error(`Error processing file: ${msg.slice(0, 200)}`);
+      }
     }
   };
 
@@ -1073,13 +1083,13 @@ export default function BulkUploadStaff() {
         // The parent component will handle data refresh via React Query
         setIsOpen(false);
         clearFile();
-      } else {
-        setIsOpen(false);
-        clearFile();
       }
+      // When ALL rows fail, keep the dialog open so the user can see
+      // validation details and fix data before retrying (BUG-003890).
     } catch (error) {
       console.error('Error uploading staff:', error);
-      toast.error('Error uploading staff members');
+      const msg = error instanceof Error ? error.message : String(error);
+      toast.error(`Upload failed: ${msg.slice(0, 200)}`);
     } finally {
       setIsUploading(false);
     }
