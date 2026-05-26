@@ -714,11 +714,36 @@ export class LearnerProfileService {
       }
     }
 
-    // First update with provided DTO
+    // Fetch institution entity_type to determine if school defaults should be enforced
+    const institutionId = dto.institution_id || (await supabase
+      .from('learners_profiles')
+      .select('institution_id')
+      .eq('id', id)
+      .single()
+      .then(r => r.data?.institution_id));
+
+    let institution = null;
+    if (institutionId) {
+      const { data: inst } = await supabase
+        .from('institutions')
+        .select('id, entity_type')
+        .eq('id', institutionId)
+        .single();
+      institution = inst;
+    }
+
+    // Enforce school defaults (prevent manual override for schools)
+    const enforcedDto = await SchoolDefaultsService.enforceSchoolDefaults(
+      institutionId,
+      institution?.entity_type,
+      dto as Record<string, any>
+    );
+
+    // First update with provided DTO (using enforcedDto for schools)
     const updateQuery: any = supabase.from('learners_profiles');
     const { data: updatedData, error: updateError } = await updateQuery
       .update({
-        ...dto,
+        ...enforcedDto,
         updated_at: new Date().toISOString(),
         updated_by: currentUserId,
       })
