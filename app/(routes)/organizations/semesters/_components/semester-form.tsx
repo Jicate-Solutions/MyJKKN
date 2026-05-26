@@ -13,6 +13,7 @@ import { OrganizationService } from '@/lib/services/organization/organization-se
 import { DegreeService } from '@/lib/services/organization/degree-service';
 import { DepartmentService } from '@/lib/services/organization/department-service';
 import { ProgramService } from '@/lib/services/organization/program-service';
+import { useInstitutionTypeLabels } from '@/hooks/use-institution-type-labels';
 import { Button } from '@/components/ui/button';
 import {
   Form,
@@ -59,6 +60,7 @@ interface SemesterFormProps {
 export function SemesterForm({ semester, isEditing }: SemesterFormProps) {
   const router = useRouter();
   const queryClient = useQueryClient();
+  const { label } = useInstitutionTypeLabels();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [institutions, setInstitutions] = useState<
     Array<{ id: string; name: string }>
@@ -317,7 +319,7 @@ export function SemesterForm({ semester, isEditing }: SemesterFormProps) {
                 name='semester_code'
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Semester Code</FormLabel>
+                    <FormLabel>{label('semester')} Code</FormLabel>
                     <FormControl>
                       <Input
                         placeholder='Enter semester code'
@@ -341,7 +343,7 @@ export function SemesterForm({ semester, isEditing }: SemesterFormProps) {
                 name='semester_name'
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Semester Name</FormLabel>
+                    <FormLabel>{label('semester')} Name</FormLabel>
                     <FormControl>
                       <Input placeholder='Enter semester name' {...field} />
                     </FormControl>
