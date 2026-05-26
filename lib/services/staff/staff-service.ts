@@ -104,13 +104,18 @@ export class StaffService {
           data.institution_email = generateSyntheticEmail('institution', data.staff_id, data.phone);
         }
       } else {
-        // Login staff still require both emails (existing behaviour). The caller
-        // (form / bulk-upload) is responsible for validating they're non-empty.
+        // Login staff require personal email. Institution email is optional —
+        // many non-teaching staff (drivers, lab techs, admin assistants) don't
+        // have @jkkn.ac.in addresses. The DB trigger already handles
+        // institution_email IS NULL gracefully (skips profile-link).
+        // Fixes: BUG-003989, BUG-003980, BUG-003962.
         if (!data.email) {
           throw new Error('Email is required for login-enabled staff');
         }
-        if (!data.institution_email) {
-          throw new Error('Institution email is required for login-enabled staff');
+        // Normalize blank institution_email to null so Postgres UNIQUE index
+        // doesn't collide on ''.
+        if (!data.institution_email || data.institution_email.trim() === '') {
+          data.institution_email = null as any;
         }
       }
       // Persist the flag through to the DB (default true if undefined).
@@ -302,6 +307,9 @@ export class StaffService {
       // staff_staff_id_not_empty CHECK constraint doesn't reject blanks
       // (mirrors the same coercion in createStaff).
       if ((data as any).staff_id === '') (data as any).staff_id = null;
+      // Normalize blank institution_email to null (mirrors createStaff fix
+      // for BUG-003989 — institution email is optional for all staff).
+      if ((data as any).institution_email === '') (data as any).institution_email = null;
 
       // Get the current staff data before update
       let currentStaff: any = null;
