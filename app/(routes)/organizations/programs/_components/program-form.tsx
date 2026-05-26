@@ -9,6 +9,7 @@ import { toast } from 'react-hot-toast';
 import { useQueryClient } from '@tanstack/react-query';
 import { Program } from '@/types/organizations';
 import { ProgramService } from '@/lib/services/organization/program-service';
+import { useInstitutionTypeLabels } from '@/hooks/use-institution-type-labels';
 import { OrganizationService } from '@/lib/services/organization/organization-service';
 import { DegreeService } from '@/lib/services/organization/degree-service';
 import { DepartmentService } from '@/lib/services/organization/department-service';
@@ -75,6 +76,7 @@ interface Department {
 export function ProgramForm({ program, isEditing }: ProgramFormProps) {
   const router = useRouter();
   const queryClient = useQueryClient();
+  const { label } = useInstitutionTypeLabels();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [institutions, setInstitutions] = useState<Institution[]>([]);
   // Seed dropdowns with the program's own degree/department so saved
@@ -316,7 +318,7 @@ export function ProgramForm({ program, isEditing }: ProgramFormProps) {
                 name='program_id'
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Program ID</FormLabel>
+                    <FormLabel>{label('program')} ID</FormLabel>
                     <FormControl>
                       <Input
                         placeholder='Enter program ID'
@@ -328,7 +330,7 @@ export function ProgramForm({ program, isEditing }: ProgramFormProps) {
                       />
                     </FormControl>
                     <FormDescription>
-                      A unique identifier for the program (e.g., CSE_BE, IT_ME)
+                      A unique identifier for the {label('program').toLowerCase()} (e.g., CSE_BE, IT_ME)
                     </FormDescription>
                     <FormMessage />
                   </FormItem>
@@ -340,7 +342,7 @@ export function ProgramForm({ program, isEditing }: ProgramFormProps) {
                 name='program_name'
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Program Name</FormLabel>
+                    <FormLabel>{label('program')} Name</FormLabel>
                     <FormControl>
                       <Input placeholder='Enter program name' {...field} />
                     </FormControl>
