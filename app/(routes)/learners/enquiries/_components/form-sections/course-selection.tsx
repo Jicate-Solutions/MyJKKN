@@ -19,6 +19,7 @@ import { useEffect, useMemo } from 'react';
 import { UseFormReturn } from 'react-hook-form';
 import toast from 'react-hot-toast';
 import { Info } from 'lucide-react';
+import { useInstitutionTypeLabels } from '@/hooks/use-institution-type-labels';
 import {
   FormControl,
   FormDescription,
@@ -72,8 +73,13 @@ export function CourseSelectionSection({ form, showLearnerType = false }: Course
   // can react to entry-type changes (filter departments + clear stale pick).
   const watchedEntryType = form.watch('entry_type');
 
-  // Fetch organizations data with hierarchical filtering
+  // Get institution type (school vs college) for conditional UI
+  const { isSchool } = useInstitutionTypeLabels();
+
+  // Determine if currently selected institution is a school
   const { institutions } = useInstitutionsWithAccess();
+  const selectedInstitution = institutions?.find((inst) => inst.id === watchedInstitutionId);
+  const isSelectedInstitutionSchool = selectedInstitution?.entity_type === 'school';
 
   // Degrees - filtered by institution
   const { data: degreesData, isLoading: loadingDegrees } = useDegrees({
@@ -359,7 +365,21 @@ export function CourseSelectionSection({ form, showLearnerType = false }: Course
           )}
         />
 
-        {/* Degree */}
+        {/* School info banner — degree and department auto-populated */}
+        {isSelectedInstitutionSchool && watchedInstitutionId && (
+          <div className="flex items-start gap-2 rounded-md border border-green-200 bg-green-50 p-3 text-xs text-green-900 dark:border-green-800 dark:bg-green-950 dark:text-green-200">
+            <Info className="mt-0.5 h-4 w-4 shrink-0" />
+            <div className="leading-relaxed">
+              <p className="font-medium">School admission</p>
+              <p className="mt-0.5 text-green-800/90 dark:text-green-300/90">
+                Degree and department are automatically assigned for school students.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Degree — hidden for schools */}
+        {!isSelectedInstitutionSchool && (
         <FormField
           control={form.control}
           name="degree_id"
@@ -409,6 +429,7 @@ export function CourseSelectionSection({ form, showLearnerType = false }: Course
             </FormItem>
           )}
         />
+        )}
 
         {/* Engineering-first-year info banner — shown when the SH-dept rule
          *  is actively filtering the department list. */}
@@ -437,7 +458,8 @@ export function CourseSelectionSection({ form, showLearnerType = false }: Course
           </div>
         )}
 
-        {/* Department */}
+        {/* Department — hidden for schools */}
+        {!isSelectedInstitutionSchool && (
         <FormField
           control={form.control}
           name="department_id"
@@ -486,6 +508,7 @@ export function CourseSelectionSection({ form, showLearnerType = false }: Course
             </FormItem>
           )}
         />
+        )}
 
         {/* Entry Type */}
         <FormField
