@@ -73,6 +73,10 @@ export interface CreateHostelAllocationDTO {
   bed_id: string;
   academic_year_id: string;
   semester_id?: string | null;
+  // tier_id is NOT NULL at the DB level — required for any new allocation.
+  // Added 2026-05-26 (rooms-v2 PR 4b) so /admin/hostel/allocations can
+  // pass the resolved hostel_tier_policy.id directly.
+  tier_id: string;
   allocation_type: AllocationType;
   allocation_date: string;
   expected_vacate_date?: string | null;
