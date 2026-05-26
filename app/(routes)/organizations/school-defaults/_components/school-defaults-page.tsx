@@ -10,6 +10,7 @@ import { PageHeader } from '@/components/page-header';
 import { AlertBox } from '@/components/ui/alert-box';
 import { Loader2 } from 'lucide-react';
 import { SchoolDefaultsAuditService } from '@/lib/services/school-defaults-audit-service';
+import { SchoolDefaultsRestoreService } from '@/lib/services/school-defaults-restore-service';
 
 interface SchoolWithDefaults {
   school_id: string;
@@ -211,6 +212,22 @@ export default function SchoolDefaultsPage() {
     }
 
     await fetchSchoolDefaults();
+  }
+
+  async function handleRestoreDelete(auditLogId: string, degreeId: string, schoolName: string) {
+    try {
+      const supabase = createClientSupabaseClient();
+      const { data: user } = await supabase.auth.getUser();
+
+      if (user.user?.id) {
+        await SchoolDefaultsRestoreService.restoreDeletedDegree(degreeId);
+        await SchoolDefaultsRestoreService.logRestore(degreeId, schoolName, user.user.id);
+      }
+
+      await fetchSchoolDefaults();
+    } catch (err) {
+      alert(`Restore failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    }
   }
 
   if (loading) {

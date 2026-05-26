@@ -20,6 +20,7 @@ import {
   exportAuditLogsToXLSX
 } from '@/lib/utils/export-audit-logs';
 import AuditLogFilters, { FilterState } from './audit-log-filters';
+import { SchoolDefaultsRestoreService } from '@/lib/services/school-defaults-restore-service';
 
 interface AuditLog {
   id: string;
@@ -279,7 +280,7 @@ export default function AuditLogTable() {
                     {log.resource_type === 'degree' ? 'K-12 Program' : 'Department'}
                   </TableCell>
                   <TableCell className="text-sm">{getUserDisplay(log)}</TableCell>
-                  <TableCell className="text-xs text-muted-foreground">
+                  <TableCell className="text-xs text-muted-foreground space-y-2">
                     <details>
                       <summary className="cursor-pointer hover:underline">
                         View Changes
@@ -288,6 +289,30 @@ export default function AuditLogTable() {
                         {JSON.stringify(log.changes, null, 2)}
                       </pre>
                     </details>
+                    {log.action === 'delete' && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="text-xs"
+                        onClick={async () => {
+                          if (!window.confirm('Restore this deleted record?')) return;
+                          try {
+                            const supabase = createClientSupabaseClient();
+                            const { data: user } = await supabase.auth.getUser();
+                            if (user.user?.id) {
+                              await SchoolDefaultsRestoreService.restoreDeletedDegree(log.school_id);
+                              await SchoolDefaultsRestoreService.logRestore(log.school_id, log.school_name, user.user.id);
+                              // Refresh the logs
+                              await fetchAuditLogs();
+                            }
+                          } catch (err) {
+                            alert(`Restore failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
+                          }
+                        }}
+                      >
+                        Undo Delete
+                      </Button>
+                    )}
                   </TableCell>
                 </TableRow>
               ))}
