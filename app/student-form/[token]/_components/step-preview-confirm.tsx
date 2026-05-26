@@ -9,6 +9,7 @@ interface Props {
   lang: Language;
   data: Record<string, any>;
   token: string;
+  degreeType?: 'ug' | 'pg';
   onSubmit: () => void;
   onEditBasic: () => void;
   onEditAcademic: () => void;
@@ -93,6 +94,7 @@ const looksFilled = (v: unknown) => v !== undefined && v !== null && String(v).t
 export function StepPreviewConfirm({
   data,
   token,
+  degreeType,
   onSubmit,
   onEditBasic,
   onEditAcademic,
@@ -101,6 +103,7 @@ export function StepPreviewConfirm({
   onEditContact,
   submitting,
 }: Props) {
+  const isPG = degreeType === 'pg';
   const fullName = `${data.first_name ?? ''} ${data.last_name ?? ''}`.trim();
   const tenth = data.tenth_marks ?? {};
   const twelfth = data.twelfth_marks ?? {};
@@ -235,36 +238,49 @@ export function StepPreviewConfirm({
         titleTamil="கல்வி விவரங்கள்"
         onEdit={onEditAcademic}
       >
-        <SubGroup title="Previous Schooling">
-          <Row label="Last School / கடந்த பள்ளி" value={data.last_school} />
-          <Row
-            label="Board of Study / வாரியம்"
-            value={BOARD_LABELS[data.board_of_study] ?? data.board_of_study}
-          />
+        <SubGroup title={isPG ? 'Previous College' : 'Previous Schooling'}>
+          <Row label={isPG ? 'College Name & Place / கல்லூரி' : 'Last School / கடந்த பள்ளி'} value={data.last_school} />
+          {!isPG && (
+            <Row
+              label="Board of Study / வாரியம்"
+              value={BOARD_LABELS[data.board_of_study] ?? data.board_of_study}
+            />
+          )}
         </SubGroup>
 
-        <SubGroup title="10th Standard">
-          <MarksRow
-            max={tenth.max_marks}
-            obtained={tenth.obtained_marks}
-            percentage={tenth.percentage}
-          />
-        </SubGroup>
+        {isPG && (
+          <SubGroup title="Previous Qualification">
+            <Row label="Previous Course / முந்தைய பட்டம்" value={twelfth.course_name} />
+            <Row label="Percentage / சதவீதம்" value={twelfth.percentage} />
+          </SubGroup>
+        )}
 
-        <SubGroup title="12th Standard">
-          <Row
-            label="Group / பிரிவு"
-            value={GROUP_LABELS[twelfth.group] ?? twelfth.group}
-          />
-          <MarksRow
-            max={twelfth.max_marks}
-            obtained={twelfth.obtained_marks}
-            percentage={twelfth.percentage}
-          />
-          {hasSubjects && <SubjectChips subjects={subjects} />}
-        </SubGroup>
+        {!isPG && (
+          <SubGroup title="10th Standard">
+            <MarksRow
+              max={tenth.max_marks}
+              obtained={tenth.obtained_marks}
+              percentage={tenth.percentage}
+            />
+          </SubGroup>
+        )}
 
-        {hasCutoff && (
+        {!isPG && (
+          <SubGroup title="12th Standard">
+            <Row
+              label="Group / பிரிவு"
+              value={GROUP_LABELS[twelfth.group] ?? twelfth.group}
+            />
+            <MarksRow
+              max={twelfth.max_marks}
+              obtained={twelfth.obtained_marks}
+              percentage={twelfth.percentage}
+            />
+            {hasSubjects && <SubjectChips subjects={subjects} />}
+          </SubGroup>
+        )}
+
+        {!isPG && hasCutoff && (
           <SubGroup title="Cutoff Scores">
             <div className="grid grid-cols-2 gap-3 rounded-md border border-primary/30 bg-primary/5 p-3">
               <CutoffChip label="Engineering" value={data.engineering_cutoff_marks} />
@@ -273,14 +289,13 @@ export function StepPreviewConfirm({
           </SubGroup>
         )}
 
-        {hasNeet && (
+        {!isPG && hasNeet && (
           <SubGroup title="NEET">
             <Row label="Roll Number / எண்" value={data.neet_roll_number} />
             <Row label="Score / மதிப்பெண்" value={data.neet_score} />
           </SubGroup>
         )}
 
-        {/* Quota and Entry Type moved to the Course Selection section. */}
         <SubGroup title="Scholarship & Counseling">
           <Row label="Scholarship / உதவித்தொகை" value={data.scholarship_type} />
           <Row

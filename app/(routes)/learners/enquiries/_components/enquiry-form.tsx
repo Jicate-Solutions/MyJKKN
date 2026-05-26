@@ -1791,6 +1791,16 @@ export function EnquiryForm({
     await commitSubmit(values);
   };
 
+  // Resolve degree_type for the selected degree — drives PG-conditional
+  // field visibility in AcademicInformationSection.
+  const watchedDegreeId = form.watch('degree_id');
+  const { data: selectedDegree } = useQuery({
+    queryKey: ['degree-for-form', watchedDegreeId],
+    queryFn: () => DegreeService.getDegree(watchedDegreeId),
+    enabled: !!watchedDegreeId,
+  });
+  const selectedDegreeType: DegreeType | undefined = selectedDegree?.degree_type;
+
   // Calculate profile completion status
   const collegeEmail = form.watch('college_email');
   const academicYearId = form.watch('academic_year_id');
@@ -1921,30 +1931,6 @@ export function EnquiryForm({
             </Card>
           </TabsContent>
 
-          <TabsContent value="academic-information" className="space-y-4 mt-4">
-            {!isStudentView && learner?.id && (
-              <div className="flex items-center justify-between mb-1">
-                <div />
-                <StudentSectionStatusChip
-                  filled={sectionStatus.academic.filled}
-                  filledAt={sectionStatus.academic.filledAt}
-                  filledBy={sectionStatus.academic.filledBy}
-                  canOverride={canOverrideStudentSection && !sectionStatus.academic.filled}
-                  onOverrideClick={() => setOverrideDialog('academic')}
-                />
-              </div>
-            )}
-            <Card className="p-3 sm:p-4 md:p-6">
-              <AcademicInformationSection form={form} />
-            </Card>
-          </TabsContent>
-
-          <TabsContent value="course-selection" className="space-y-4 mt-4">
-            <Card className="p-3 sm:p-4 md:p-6">
-              <CourseSelectionSection form={form} showLearnerType={!!learner && !isStudentView} />
-            </Card>
-          </TabsContent>
-
           <TabsContent value="contact-details" className="space-y-4 mt-4">
             {!isStudentView && learner?.id && (
               <div className="flex items-center justify-between mb-1">
@@ -1960,6 +1946,30 @@ export function EnquiryForm({
             )}
             <Card className="p-3 sm:p-4 md:p-6">
               <ContactDetailsSection form={form} />
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="course-selection" className="space-y-4 mt-4">
+            <Card className="p-3 sm:p-4 md:p-6">
+              <CourseSelectionSection form={form} showLearnerType={!!learner && !isStudentView} />
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="academic-information" className="space-y-4 mt-4">
+            {!isStudentView && learner?.id && (
+              <div className="flex items-center justify-between mb-1">
+                <div />
+                <StudentSectionStatusChip
+                  filled={sectionStatus.academic.filled}
+                  filledAt={sectionStatus.academic.filledAt}
+                  filledBy={sectionStatus.academic.filledBy}
+                  canOverride={canOverrideStudentSection && !sectionStatus.academic.filled}
+                  onOverrideClick={() => setOverrideDialog('academic')}
+                />
+              </div>
+            )}
+            <Card className="p-3 sm:p-4 md:p-6">
+              <AcademicInformationSection form={form} degreeType={selectedDegreeType} />
             </Card>
           </TabsContent>
 

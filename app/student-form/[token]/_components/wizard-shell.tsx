@@ -4,6 +4,8 @@ import { useState, useEffect, Fragment } from 'react';
 import toast from 'react-hot-toast';
 import { Check } from 'lucide-react';
 import { LanguageToggle, type Language } from './language-toggle';
+import { useQuery } from '@tanstack/react-query';
+import { DegreeService } from '@/lib/services/organization/degree-service';
 import { StepBasicDetails } from './step-basic-details';
 import { StepAcademicInformation } from './step-academic-information';
 import { StepCourseSelection } from './step-course-selection';
@@ -31,10 +33,10 @@ interface Props {
 // section→step mapping used by the final-submit auto-jump.
 const STEPS: Array<{ id: Step; section: Section | null; name: string; tamil: string }> = [
   { id: 1, section: 'basic',         name: 'Basic',     tamil: 'அடிப்படை' },
-  { id: 2, section: 'academic',      name: 'Academic',  tamil: 'கல்வி' },
+  { id: 2, section: 'contact',       name: 'Contact',   tamil: 'தொடர்பு' },
   { id: 3, section: 'course',        name: 'Course',    tamil: 'பாடம்' },
-  { id: 4, section: 'accommodation', name: 'Stay',      tamil: 'தங்குமிடம்' },
-  { id: 5, section: 'contact',       name: 'Contact',   tamil: 'தொடர்பு' },
+  { id: 4, section: 'academic',      name: 'Academic',  tamil: 'கல்வி' },
+  { id: 5, section: 'accommodation', name: 'Stay',      tamil: 'தங்குமிடம்' },
   { id: 6, section: null,            name: 'Review',    tamil: 'சரிபார்' },
 ];
 
@@ -103,10 +105,10 @@ export function WizardShell({ token, learner, sectionProgress, expiresAt }: Prop
   const [data, setData] = useState<Record<string, any>>(learner);
   const [step, setStep] = useState<Step>(
     !sectionProgress.basic_done ? 1
-    : !sectionProgress.academic_done ? 2
+    : !sectionProgress.contact_done ? 2
     : !sectionProgress.course_done ? 3
-    : !sectionProgress.accommodation_done ? 4
-    : !sectionProgress.contact_done ? 5
+    : !sectionProgress.academic_done ? 4
+    : !sectionProgress.accommodation_done ? 5
     : 6
   );
   const [submitting, setSubmitting] = useState(false);
@@ -115,10 +117,10 @@ export function WizardShell({ token, learner, sectionProgress, expiresAt }: Prop
   const [completedSteps, setCompletedSteps] = useState<Set<Step>>(() => {
     const done = new Set<Step>();
     if (sectionProgress.basic_done) done.add(1);
-    if (sectionProgress.academic_done) done.add(2);
+    if (sectionProgress.contact_done) done.add(2);
     if (sectionProgress.course_done) done.add(3);
-    if (sectionProgress.accommodation_done) done.add(4);
-    if (sectionProgress.contact_done) done.add(5);
+    if (sectionProgress.academic_done) done.add(4);
+    if (sectionProgress.accommodation_done) done.add(5);
     return done;
   });
 
@@ -225,6 +227,15 @@ export function WizardShell({ token, learner, sectionProgress, expiresAt }: Prop
     }
   }
 
+  // Resolve degree_type for PG-conditional academic fields.
+  const degreeId = data.degree_id;
+  const { data: degreeInfo } = useQuery({
+    queryKey: ['degree-for-student-form', degreeId],
+    queryFn: () => DegreeService.getDegree(degreeId),
+    enabled: !!degreeId,
+  });
+  const degreeType = degreeInfo?.degree_type;
+
   const mm = Math.floor(secondsLeft / 60);
   const ss = String(secondsLeft % 60).padStart(2, '0');
   const currentStepMeta = STEPS.find((s) => s.id === step)!;
@@ -308,10 +319,10 @@ export function WizardShell({ token, learner, sectionProgress, expiresAt }: Prop
           />
         )}
         {step === 2 && (
-          <StepAcademicInformation
+          <StepContactDetails
             lang={lang}
             data={data}
-            onContinue={(fields) => handleStepContinue('academic', fields)}
+            onContinue={(fields) => handleStepContinue('contact', fields)}
             onBack={() => setStep(1)}
             submitting={submitting}
           />
@@ -327,19 +338,20 @@ export function WizardShell({ token, learner, sectionProgress, expiresAt }: Prop
           />
         )}
         {step === 4 && (
-          <StepAccommodation
+          <StepAcademicInformation
             lang={lang}
             data={data}
-            onContinue={(fields) => handleStepContinue('accommodation', fields)}
+            degreeType={degreeType}
+            onContinue={(fields) => handleStepContinue('academic', fields)}
             onBack={() => setStep(3)}
             submitting={submitting}
           />
         )}
         {step === 5 && (
-          <StepContactDetails
+          <StepAccommodation
             lang={lang}
             data={data}
-            onContinue={(fields) => handleStepContinue('contact', fields)}
+            onContinue={(fields) => handleStepContinue('accommodation', fields)}
             onBack={() => setStep(4)}
             submitting={submitting}
           />
@@ -349,12 +361,13 @@ export function WizardShell({ token, learner, sectionProgress, expiresAt }: Prop
             lang={lang}
             data={data}
             token={token}
+            degreeType={degreeType}
             onSubmit={handleFinalSubmit}
             onEditBasic={() => setStep(1)}
-            onEditAcademic={() => setStep(2)}
+            onEditAcademic={() => setStep(4)}
             onEditCourse={() => setStep(3)}
-            onEditAccommodation={() => setStep(4)}
-            onEditContact={() => setStep(5)}
+            onEditAccommodation={() => setStep(5)}
+            onEditContact={() => setStep(2)}
             submitting={submitting}
           />
         )}
