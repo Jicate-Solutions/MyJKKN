@@ -159,6 +159,60 @@ export default function SchoolDefaultsPage() {
     }
   }
 
+  async function handleUpdateDegree(schoolId: string, degreeId: string | null, newName: string) {
+    if (!degreeId) return;
+    const supabase = createClientSupabaseClient();
+    const { error } = await supabase
+      .from('degrees')
+      .update({ degree_name: newName })
+      .eq('id', degreeId);
+
+    if (error) throw error;
+
+    // Log audit trail
+    const { data: user } = await supabase.auth.getUser();
+    if (user.user?.id) {
+      const school = schools.find(s => s.school_id === schoolId);
+      await SchoolDefaultsAuditService.logAction(
+        'update',
+        schoolId,
+        school?.school_name || '',
+        'degree',
+        { degree_name: newName },
+        user.user.id
+      );
+    }
+
+    await fetchSchoolDefaults();
+  }
+
+  async function handleUpdateDepartment(schoolId: string, deptId: string | null, newName: string) {
+    if (!deptId) return;
+    const supabase = createClientSupabaseClient();
+    const { error } = await supabase
+      .from('departments')
+      .update({ department_name: newName })
+      .eq('id', deptId);
+
+    if (error) throw error;
+
+    // Similar audit logging
+    const { data: user } = await supabase.auth.getUser();
+    if (user.user?.id) {
+      const school = schools.find(s => s.school_id === schoolId);
+      await SchoolDefaultsAuditService.logAction(
+        'update',
+        schoolId,
+        school?.school_name || '',
+        'department',
+        { department_name: newName },
+        user.user.id
+      );
+    }
+
+    await fetchSchoolDefaults();
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-96">
@@ -210,6 +264,8 @@ export default function SchoolDefaultsPage() {
               setSelectedSchool(school);
               setModalOpen(true);
             }}
+            onUpdateDegree={handleUpdateDegree}
+            onUpdateDepartment={handleUpdateDepartment}
           />
 
           {selectedSchool && selectedSchool.degree_id ? (

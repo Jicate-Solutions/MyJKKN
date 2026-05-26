@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/button';
 import { AlertBox } from '@/components/ui/alert-box';
 import { Checkbox } from '@/components/ui/checkbox';
 import { CheckCircle2, AlertCircle } from 'lucide-react';
+import EditableCell from './editable-cell';
 
 interface SchoolWithDefaults {
   school_id: string;
@@ -34,6 +35,8 @@ interface SchoolDefaultsTableProps {
   onSelectSchool: (schoolId: string, checked: boolean) => void;
   onRefresh: () => Promise<void>;
   onViewSchool: (school: SchoolWithDefaults) => void;
+  onUpdateDegree?: (schoolId: string, degreeId: string | null, newName: string) => Promise<void>;
+  onUpdateDepartment?: (schoolId: string, deptId: string | null, newName: string) => Promise<void>;
 }
 
 export default function SchoolDefaultsTable({
@@ -43,6 +46,8 @@ export default function SchoolDefaultsTable({
   onSelectSchool,
   onRefresh,
   onViewSchool,
+  onUpdateDegree,
+  onUpdateDepartment,
 }: SchoolDefaultsTableProps) {
   const hasDefaults = (school: SchoolWithDefaults) => !!school.degree_id;
 
@@ -105,8 +110,16 @@ export default function SchoolDefaultsTable({
                 <TableCell>{school.learner_count}</TableCell>
                 <TableCell>
                   {school.degree_name ? (
-                    <div className="text-sm">
-                      <div>{school.degree_name}</div>
+                    <div className="space-y-1">
+                      <EditableCell
+                        value={school.degree_name}
+                        onSave={async (newValue) => {
+                          if (onUpdateDegree) {
+                            await onUpdateDegree(school.school_id, school.degree_id, newValue);
+                          }
+                        }}
+                        placeholder="Degree name"
+                      />
                       <div className="text-xs text-muted-foreground">{school.degree_code}</div>
                     </div>
                   ) : (
@@ -115,8 +128,16 @@ export default function SchoolDefaultsTable({
                 </TableCell>
                 <TableCell>
                   {school.department_name ? (
-                    <div className="text-sm">
-                      <div>{school.department_name}</div>
+                    <div className="space-y-1">
+                      <EditableCell
+                        value={school.department_name}
+                        onSave={async (newValue) => {
+                          if (onUpdateDepartment) {
+                            await onUpdateDepartment(school.school_id, school.department_id, newValue);
+                          }
+                        }}
+                        placeholder="Department name"
+                      />
                       <div className="text-xs text-muted-foreground">{school.department_code}</div>
                     </div>
                   ) : (
