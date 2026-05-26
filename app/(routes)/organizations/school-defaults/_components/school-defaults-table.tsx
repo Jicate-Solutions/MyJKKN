@@ -11,6 +11,7 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { AlertBox } from '@/components/ui/alert-box';
+import { Checkbox } from '@/components/ui/checkbox';
 import { CheckCircle2, AlertCircle } from 'lucide-react';
 
 interface SchoolWithDefaults {
@@ -28,12 +29,18 @@ interface SchoolWithDefaults {
 
 interface SchoolDefaultsTableProps {
   data: SchoolWithDefaults[];
+  selectedIds: Set<string>;
+  onSelectAll: (checked: boolean) => void;
+  onSelectSchool: (schoolId: string, checked: boolean) => void;
   onRefresh: () => Promise<void>;
   onViewSchool: (school: SchoolWithDefaults) => void;
 }
 
 export default function SchoolDefaultsTable({
   data,
+  selectedIds,
+  onSelectAll,
+  onSelectSchool,
   onRefresh,
   onViewSchool,
 }: SchoolDefaultsTableProps) {
@@ -70,6 +77,13 @@ export default function SchoolDefaultsTable({
         <Table>
           <TableHeader>
             <TableRow className="bg-muted/50">
+              <TableHead className="w-12">
+                <Checkbox
+                  checked={selectedIds.size === data.length && data.length > 0}
+                  indeterminate={selectedIds.size > 0 && selectedIds.size < data.length}
+                  onCheckedChange={onSelectAll}
+                />
+              </TableHead>
               <TableHead>School Name</TableHead>
               <TableHead>Learners</TableHead>
               <TableHead>K-12 Program Degree</TableHead>
@@ -81,6 +95,12 @@ export default function SchoolDefaultsTable({
           <TableBody>
             {data.map(school => (
               <TableRow key={school.school_id}>
+                <TableCell>
+                  <Checkbox
+                    checked={selectedIds.has(school.school_id)}
+                    onCheckedChange={(checked) => onSelectSchool(school.school_id, checked as boolean)}
+                  />
+                </TableCell>
                 <TableCell className="font-medium">{school.school_name}</TableCell>
                 <TableCell>{school.learner_count}</TableCell>
                 <TableCell>

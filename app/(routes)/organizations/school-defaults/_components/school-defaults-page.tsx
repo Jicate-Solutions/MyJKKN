@@ -9,6 +9,7 @@ import EditDefaultsModal from './edit-defaults-modal';
 import { PageHeader } from '@/components/page-header';
 import { AlertBox } from '@/components/ui/alert-box';
 import { Loader2 } from 'lucide-react';
+import { SchoolDefaultsAuditService } from '@/lib/services/school-defaults-audit-service';
 
 interface SchoolWithDefaults {
   school_id: string;
@@ -31,6 +32,7 @@ export default function SchoolDefaultsPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editingSchool, setEditingSchool] = useState<SchoolWithDefaults | null>(null);
   const [editModalOpen, setEditModalOpen] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     fetchSchoolDefaults();
@@ -89,6 +91,74 @@ export default function SchoolDefaultsPage() {
     }
   }
 
+  const handleSelectAll = (checked: boolean) => {
+    if (checked) {
+      setSelectedIds(new Set(schools.map(s => s.school_id)));
+    } else {
+      setSelectedIds(new Set());
+    }
+  };
+
+  const handleSelectSchool = (schoolId: string, checked: boolean) => {
+    const newSet = new Set(selectedIds);
+    if (checked) {
+      newSet.add(schoolId);
+    } else {
+      newSet.delete(schoolId);
+    }
+    setSelectedIds(newSet);
+  };
+
+  async function handleBulkDelete() {
+    const schoolNames = schools
+      .filter(s => selectedIds.has(s.school_id))
+      .map(s => s.school_name)
+      .join(', ');
+
+    if (!window.confirm(
+      `Delete K-12 Program defaults for ${selectedIds.size} school(s)?\n\n${schoolNames}`
+    )) {
+      return;
+    }
+
+    try {
+      const supabase = createClientSupabaseClient();
+      const { data: currentUser } = await supabase.auth.getUser();
+      const degreeIds = schools
+        .filter(s => selectedIds.has(s.school_id) && s.degree_id)
+        .map(s => s.degree_id) as string[];
+
+      if (degreeIds.length > 0) {
+        const { error: deleteError } = await supabase
+          .from('degrees')
+          .delete()
+          .in('id', degreeIds);
+
+        if (deleteError) throw deleteError;
+
+        // Audit log for each school
+        for (const schoolId of selectedIds) {
+          const school = schools.find(s => s.school_id === schoolId);
+          if (school && currentUser.user?.id) {
+            await SchoolDefaultsAuditService.logAction(
+              'delete',
+              schoolId,
+              school.school_name,
+              'degree',
+              { degree_id: school.degree_id },
+              currentUser.user.id
+            );
+          }
+        }
+      }
+
+      setSelectedIds(new Set());
+      await fetchSchoolDefaults();
+    } catch (err) {
+      alert(`Failed to delete: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-96">
@@ -110,8 +180,31 @@ export default function SchoolDefaultsPage() {
         <AlertBox type="info" message="No school institutions found in the system" />
       ) : (
         <>
+          {selectedIds.size > 0 && (
+            <div className="flex gap-2 items-center bg-blue-50 p-3 rounded-lg border border-blue-200">
+              <span className="text-sm font-medium">
+                {selectedIds.size} school(s) selected
+              </span>
+              <button
+                className="px-3 py-1 text-sm font-medium bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50"
+                onClick={handleBulkDelete}
+              >
+                Delete {selectedIds.size} School(s)
+              </button>
+              <button
+                className="px-3 py-1 text-sm font-medium bg-white border border-gray-300 rounded hover:bg-gray-50"
+                onClick={() => setSelectedIds(new Set())}
+              >
+                Clear Selection
+              </button>
+            </div>
+          )}
+
           <SchoolDefaultsTable
             data={schools}
+            selectedIds={selectedIds}
+            onSelectAll={handleSelectAll}
+            onSelectSchool={handleSelectSchool}
             onRefresh={fetchSchoolDefaults}
             onViewSchool={(school) => {
               setSelectedSchool(school);
