@@ -683,6 +683,25 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "children": []
       },
       {
+        "path": "/admin/hostel",
+        "label": "Hostel",
+        "iconName": "Home",
+        "children": [
+          {
+            "path": "/admin/hostel/allocation-rules",
+            "label": "Allocation Rules",
+            "iconName": "Settings2",
+            "children": []
+          },
+          {
+            "path": "/admin/hostel/curfew",
+            "label": "Curfew",
+            "iconName": "Building",
+            "children": []
+          }
+        ]
+      },
+      {
         "path": "/admin/hr",
         "label": "Hr",
         "iconName": "FileText",
@@ -1088,6 +1107,67 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
+            "path": "/admin/hr/recruitment-need",
+            "label": "Recruitment Need",
+            "iconName": "UserSearch",
+            "children": [
+              {
+                "path": "/admin/hr/recruitment-need/allocations",
+                "label": "Allocations",
+                "iconName": "UserSearch",
+                "children": []
+              },
+              {
+                "path": "/admin/hr/recruitment-need/approvals",
+                "label": "Approvals",
+                "iconName": "UserSearch",
+                "children": []
+              },
+              {
+                "path": "/admin/hr/recruitment-need/bodies",
+                "label": "Bodies",
+                "iconName": "UserSearch",
+                "children": []
+              },
+              {
+                "path": "/admin/hr/recruitment-need/norms",
+                "label": "Norms",
+                "iconName": "UserSearch",
+                "children": []
+              },
+              {
+                "path": "/admin/hr/recruitment-need/peer-benchmarks",
+                "label": "Peer Benchmarks",
+                "iconName": "UserSearch",
+                "children": []
+              },
+              {
+                "path": "/admin/hr/recruitment-need/snapshots",
+                "label": "Snapshots",
+                "iconName": "UserSearch",
+                "children": []
+              },
+              {
+                "path": "/admin/hr/recruitment-need/specializations",
+                "label": "Specializations",
+                "iconName": "UserSearch",
+                "children": []
+              },
+              {
+                "path": "/admin/hr/recruitment-need/thresholds",
+                "label": "Thresholds",
+                "iconName": "UserSearch",
+                "children": []
+              },
+              {
+                "path": "/admin/hr/recruitment-need/weights",
+                "label": "Weights",
+                "iconName": "UserSearch",
+                "children": []
+              }
+            ]
+          },
+          {
             "path": "/admin/hr/required-documents",
             "label": "Required Documents",
             "iconName": "FileText",
@@ -1202,6 +1282,31 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "path": "/admin/lti/launches",
             "label": "Launches",
             "iconName": "PlugZap",
+            "children": []
+          }
+        ]
+      },
+      {
+        "path": "/admin/mess",
+        "label": "Mess Menu",
+        "iconName": "Utensils",
+        "children": [
+          {
+            "path": "/admin/mess/caterers",
+            "label": "Mess Caterers",
+            "iconName": "ChefHat",
+            "children": []
+          },
+          {
+            "path": "/admin/mess/library",
+            "label": "Mess Menu Library",
+            "iconName": "BookOpen",
+            "children": []
+          },
+          {
+            "path": "/admin/mess/policies",
+            "label": "Mess Policies",
+            "iconName": "Settings",
             "children": []
           }
         ]
@@ -3527,6 +3632,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         ]
       },
       {
+        "path": "/hr/intelligence",
+        "label": "Intelligence",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
         "path": "/hr/leave",
         "label": "Leave",
         "iconName": "CalendarOff",
@@ -3689,9 +3800,27 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         ]
       },
       {
+        "path": "/hr/staff-specializations",
+        "label": "Staff Specializations",
+        "iconName": "Users",
+        "children": []
+      },
+      {
+        "path": "/hr/templates",
+        "label": "Templates",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
         "path": "/hr/training",
         "label": "Training",
         "iconName": "Dumbbell",
+        "children": []
+      },
+      {
+        "path": "/hr/workload",
+        "label": "Workload",
+        "iconName": "FileText",
         "children": []
       }
     ]
@@ -4030,6 +4159,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
     "label": "Learners",
     "iconName": "GraduationCap",
     "children": [
+      {
+        "path": "/learners/advisor-caseload",
+        "label": "Advisor Caseload",
+        "iconName": "GraduationCap",
+        "children": []
+      },
       {
         "path": "/learners/alumni",
         "label": "Alumni",
@@ -4659,6 +4794,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "path": "/resource-management/reservations/approvals",
             "label": "Approvals",
             "iconName": "Boxes",
+            "children": []
+          },
+          {
+            "path": "/resource-management/reservations/calendar",
+            "label": "Calendar",
+            "iconName": "Calendar",
             "children": []
           },
           {
