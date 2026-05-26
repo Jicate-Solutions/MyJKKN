@@ -959,6 +959,7 @@ export interface BosAttendanceCertificateData {
 	member_name: string
 	member_designation?: string
 	member_institution?: string
+	member_address?: string
 
 	board_name: string
 	board_code?: string
@@ -1034,47 +1035,37 @@ export function generateBosAttendanceCertificatePDF(
 		const ugPgLabel = ugPg ?? 'UG/PG'
 		const deptText = cert.board_name.toUpperCase()
 
-		const drawUnderline = (yPos: number, xStart?: number, xEnd?: number) => {
-			doc.setDrawColor(0, 0, 0)
-			doc.setLineWidth(0.3)
-			const x1 = xStart ?? contentX
-			const x2 = xEnd ?? (contentX + maxWidth)
-			doc.line(x1, yPos + underlineOffset, x2, yPos + underlineOffset)
-		}
-
-		// Line 1: "This is to certify that" + name (bold, underlined)
+		// Line 1: "This is to certify that" + member details (name, designation, institution, address)
 		doc.setFont('times', 'normal')
 		doc.setFontSize(fontSize)
 		const certPrefix = 'This is to certify that '
+
+		// Build member details string with comma separation
+		const memberParts = [
+			cert.member_name,
+			cert.member_designation,
+			cert.member_institution?.replace(/^["']\s*|\s*["']$/g, '').trim(),
+			cert.member_address,
+		].filter(Boolean)
+		const memberDetailsStr = memberParts.join(', ')
+
+		// Render "This is to certify that " prefix in normal font
 		doc.text(certPrefix, contentX, y)
 		const prefixW = doc.getTextWidth(certPrefix)
 
+		// Render member details in bold, wrapping across multiple lines if needed
 		doc.setFont('times', 'bold')
-		doc.text(cert.member_name, contentX + prefixW, y)
-		const nameW = doc.getTextWidth(cert.member_name)
-		drawUnderline(y, contentX + prefixW, contentX + prefixW + nameW + 4)
-		y += lineSpacing
+		const memberLines = doc.splitTextToSize(memberDetailsStr, maxWidth - prefixW)
+		doc.text(memberLines, contentX + prefixW, y)
 
-		// Line 2: "<Designation>" (if present) — indented, bold, underlined
-		if (cert.member_designation) {
-			doc.setFont('times', 'bold')
-			doc.text(cert.member_designation, contentX + 24, y)
-			const desigW = doc.getTextWidth(cert.member_designation)
-			drawUnderline(y, contentX + 24, contentX + 24 + desigW + 4)
-			y += lineSpacing
-		}
+		// Draw underline beneath all member detail lines
+		const underlineY = y + (memberLines.length - 1) * 4 + underlineOffset
+		doc.setDrawColor(0, 0, 0)
+		doc.setLineWidth(0.3)
+		doc.line(contentX, underlineY, contentX + maxWidth, underlineY)
 
-		// Line 3: "<Member's Institution>" (if present) — indented, bold, underlined
-		// Strip surrounding quotes -- industry-expert institution names are
-		// wrapped in quotes upstream to preserve internal commas.
-		const institutionText = cert.member_institution?.replace(/^["']\s*|\s*["']$/g, '').trim()
-		if (institutionText) {
-			doc.setFont('times', 'bold')
-			doc.text(institutionText, contentX + 24, y)
-			const instW = doc.getTextWidth(institutionText)
-			drawUnderline(y, contentX + 24, contentX + 24 + instW + 4)
-			y += lineSpacing
-		}
+		// Advance y past the member details block
+		y += memberLines.length * 4 + 6
 
 		// Line 3: "has attended the UG Board of Studies meeting in the Department of"
 		doc.setFont('times', 'normal')
