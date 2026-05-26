@@ -321,6 +321,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/billing/invoices/[id]/edit': 'billing.invoices.edit',
   '/billing/reports': 'billing.reports.view',
   '/billing/onboarding': 'billing.onboarding.view',
+  '/billing/activities': 'billing.activities.view',
 
   // Resource Management
   '/resource-management': 'resources.categories.view',
@@ -1484,6 +1485,13 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'Reports',
           active: pathname.startsWith('/billing/reports'),
           icon: BarChart,
+          submenus: []
+        },
+        {
+          href: '/billing/activities',
+          label: 'Activities',
+          active: pathname.startsWith('/billing/activities'),
+          icon: Activity,
           submenus: []
         }
       ]

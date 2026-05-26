@@ -523,7 +523,8 @@ export const PERMISSION_CATEGORIES = [
       { key: 'billing.payment.view', label: 'View Payments' },
       { key: 'billing.payment.create', label: 'Record Payments' },
       { key: 'billing.payment.edit', label: 'Edit Payments' },
-      { key: 'billing.payment.delete', label: 'Delete Payments' }
+      { key: 'billing.payment.delete', label: 'Delete Payments' },
+      { key: 'billing.activities.view', label: 'View Billing Activities' }
     ]
   },
   {

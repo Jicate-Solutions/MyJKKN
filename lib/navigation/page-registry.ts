@@ -316,6 +316,10 @@ const PAGE_ENRICHMENTS: Record<string, { keywords: string[]; description: string
     keywords: ['billing report', 'fee report', 'collection report', 'financial report'],
     description: 'Generate billing and financial reports'
   },
+  '/billing/activities': {
+    keywords: ['billing activity', 'audit trail', 'billing log', 'transaction history', 'billing audit', 'who did what'],
+    description: 'View audit trail of all billing operations'
+  },
   // Resource Management
   '/resource-management/analytics-dashboard': {
     keywords: ['resource stats', 'asset dashboard', 'utilization'],
