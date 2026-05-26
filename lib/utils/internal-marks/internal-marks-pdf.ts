@@ -1044,11 +1044,11 @@ export function generateBosAttendanceCertificatePDF(
 			doc.line(x1, yPos + underlineOffset, x2, yPos + underlineOffset)
 		}
 
-		// Single flowing paragraph with justified text alignment
+		// Justified paragraph with proper formatting
 		doc.setFont('times', 'normal')
 		doc.setFontSize(fontSize)
 
-		// Build complete paragraph text
+		// Build member details
 		const memberDetails = [
 			cert.member_name,
 			cert.member_designation,
@@ -1056,12 +1056,13 @@ export function generateBosAttendanceCertificatePDF(
 			cert.member_address,
 		].filter(Boolean).join(', ')
 
-		const fullParagraph = `This is to certify that ${memberDetails} has attended the ${ugPgLabel} Board of Studies meeting in the Department of ${deptText} held in our college on ${cert.meeting_date}.`
+		// Build paragraph (ends with "Department of" - department name rendered separately)
+		const plainText = `This is to certify that ${memberDetails} has attended the ${ugPgLabel} Board of Studies meeting in the Department of`
 
-		// Split text to handle line wrapping
-		const paragraphLines = doc.splitTextToSize(fullParagraph, maxWidth)
+		// Split paragraph into lines for justified rendering
+		const paragraphLines = doc.splitTextToSize(plainText, maxWidth)
 
-		// Render paragraph with justified alignment
+		// Render each line with justification (all except last are justified)
 		paragraphLines.forEach((line, idx) => {
 			const isLastLine = idx === paragraphLines.length - 1
 			doc.text(line, contentX, y, {
@@ -1071,7 +1072,7 @@ export function generateBosAttendanceCertificatePDF(
 			y += 4
 		})
 
-		y += lineSpacing
+		y += 6 // spacing before department name
 
 		// Line: "<DEPT_NAME>"
 		doc.setFont('times', 'bold')
