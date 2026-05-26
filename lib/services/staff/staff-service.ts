@@ -356,7 +356,13 @@ export class StaffService {
           error = null;
         } catch (apiError) {
           console.error('[staff-service] API route update also failed:', apiError);
-          // Re-throw the original error if API also fails
+          // Surface the API error instead of the generic PGRST116 so the user
+          // sees a meaningful message (e.g. "Forbidden" or "Insufficient
+          // permissions") rather than "JSON object requested, multiple (or no)
+          // rows returned".
+          if (apiError instanceof Error) {
+            throw apiError;
+          }
         }
       }
 
