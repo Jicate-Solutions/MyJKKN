@@ -368,7 +368,7 @@ function AttendanceCertificatesTab({ institutionsId }: { institutionsId: string 
       member_designation: member?.display_designation,
       member_department: member?.display_department,
       member_institution: cleanedInstitution || member?.display_institution,
-      member_address: member?.display_address,
+      member_address: member?.address,
       board_name: boardName,
       board_code: boardCode,
       board_type: boardType,
