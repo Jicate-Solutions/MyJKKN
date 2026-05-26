@@ -105,7 +105,7 @@ export async function GET(
       .select(`
         *,
         member:bos_members (
-          id, display_name, display_designation, display_institution,
+          id, display_name, display_designation, display_department, display_institution,
           address, member_type, is_active, sort_order, expert_id
         )
       `)
@@ -173,7 +173,7 @@ export async function POST(
       .select(`
         *,
         member:bos_members (
-          id, display_name, display_designation, display_institution,
+          id, display_name, display_designation, display_department, display_institution,
           address, member_type, is_active, sort_order, expert_id
         )
       `);
