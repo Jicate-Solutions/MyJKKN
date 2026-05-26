@@ -188,6 +188,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // Organization Management
   '/organizations/dashboard': 'organizations.dashboard.view',
   '/organizations/institutions': 'organizations.institutions.view',
+  '/organizations/school-defaults': 'organizations.school-defaults.view',
   '/organizations/degrees': 'organizations.degrees.view',
   '/organizations/departments': 'organizations.departments.view',
   '/organizations/programs': 'organizations.programs.view',
@@ -702,6 +703,13 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'Institutions',
           active: pathname.startsWith('/organizations/institutions'),
           icon: Building,
+          submenus: []
+        },
+        {
+          href: '/organizations/school-defaults',
+          label: 'School Defaults',
+          active: pathname.startsWith('/organizations/school-defaults'),
+          icon: GraduationCap,
           submenus: []
         },
         {
