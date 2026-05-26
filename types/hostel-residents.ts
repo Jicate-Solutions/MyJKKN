@@ -45,6 +45,19 @@ export interface HostelResidentWithProfile extends HostelResident {
   } | null;
 }
 
+// hostel-rooms-v2 PR 3 (2026-05-26): institution_id was dropped from
+// hostel_residents; the residents admin UI's Institution column needs to
+// fall back to the active allocation's block → hostel_block_institutions.
+// This shape carries that derived list.
+export interface HostelResidentWithInstitutions extends HostelResidentWithProfile {
+  /**
+   * Institutions the resident is currently allocated against (via active
+   * hostel_allocations → hostel_block_institutions). Empty array = no
+   * active allocation; render as "Not allocated" in the admin UI.
+   */
+  derived_institution_ids: string[];
+}
+
 export interface CreateHostelResidentDTO {
   profile_id: string;
   resident_type: HostelResidentType;

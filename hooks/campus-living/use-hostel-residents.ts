@@ -30,6 +30,23 @@ export function useHostelResidents(institutionId: string, filters?: ResidentFilt
   });
 }
 
+// hostel-rooms-v2 PR 3 (2026-05-26): enriched variant — each resident
+// arrives with derived_institution_ids: string[] populated from the active
+// allocation → block → hostel_block_institutions chain. Used by the
+// /campus-living/residents admin table's Institution column.
+export function useHostelResidentsWithInstitutions(
+  institutionId: string,
+  filters?: ResidentFilters,
+) {
+  const { isSuperAdmin } = usePermissions();
+  return useQuery({
+    queryKey: [...hostelResidentKeys.list({ institutionId, ...filters }), 'with-institutions'] as const,
+    queryFn: () => HostelResidentService.getResidentsWithInstitutions(institutionId, filters),
+    enabled: isSuperAdmin || !!institutionId,
+    staleTime: 30_000,
+  });
+}
+
 export function useHostelResident(id: string) {
   return useQuery({
     queryKey: hostelResidentKeys.detail(id),

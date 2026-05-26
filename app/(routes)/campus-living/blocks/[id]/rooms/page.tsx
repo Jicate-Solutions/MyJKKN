@@ -18,7 +18,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { useAuth } from '@/hooks/use-auth';
-import { useRoomsByBlock } from '@/hooks/campus-living/use-hostel-rooms';
+import { useRoomsByBlockWithOccupancy } from '@/hooks/campus-living/use-hostel-rooms';
 import {
   ArrowLeft,
   Search,
@@ -50,19 +50,14 @@ export default function BlockRoomsPage({ params }: { params: Promise<{ id: strin
     floorParam !== null ? parseInt(floorParam) : null
   );
 
-  const { data: rooms, isLoading } = useRoomsByBlock(id);
+  const { data: rooms, isLoading } = useRoomsByBlockWithOccupancy(id);
 
-  // hostel-rooms-v2 PR 2 (2026-05-26): hostel_rooms.status and
-  // .current_occupancy dropped. The status filter now operates on a derived
-  // best-effort label (always "available" in the absence of allocations);
-  // PR 3 wires v_hostel_room_occupancy through the service layer for a true
-  // derived status. Until then, the filter degrades to "show all".
+  // hostel-rooms-v2 PR 3 (2026-05-26): rooms now arrive enriched with
+  // derived_status + active_residents from v_hostel_room_occupancy. The
+  // status filter and the per-row badge both work against derived_status.
   const filteredRooms = rooms?.filter((room) => {
     const matchesSearch = room.room_number.toLowerCase().includes(searchQuery.toLowerCase());
-    // Treat every room as 'available' for filter purposes — there are no
-    // active allocations post-PR-2 cleanup; PR 3 will replace this with the
-    // view-derived status.
-    const matchesStatus = statusFilter === 'all' || statusFilter === 'available';
+    const matchesStatus = statusFilter === 'all' || room.derived_status === statusFilter;
     const matchesFloor = selectedFloor === null || room.floor === selectedFloor;
     return matchesSearch && matchesStatus && matchesFloor;
   }) ?? [];
@@ -182,12 +177,13 @@ export default function BlockRoomsPage({ params }: { params: Promise<{ id: strin
               </TableHeader>
               <TableBody>
                 {filteredRooms.map((room) => {
-                  // hostel-rooms-v2 PR 2 (2026-05-26): status + current_occupancy
-                  // dropped; display "available" with 0 occupancy until PR 3
-                  // wires v_hostel_room_occupancy through the service layer.
-                  const derivedStatus = 'available' as const;
-                  const derivedOccupancy = 0;
-                  const sCfg = statusConfig[derivedStatus] ?? { label: derivedStatus, variant: 'outline' as const };
+                  // hostel-rooms-v2 PR 3 (2026-05-26): derived_status +
+                  // active_residents arrive from v_hostel_room_occupancy via
+                  // the enriched service method.
+                  const sCfg = statusConfig[room.derived_status] ?? {
+                    label: room.derived_status,
+                    variant: 'outline' as const,
+                  };
                   return (
                     <TableRow key={room.id}>
                       <TableCell className="font-medium">{room.room_number}</TableCell>
@@ -201,7 +197,7 @@ export default function BlockRoomsPage({ params }: { params: Promise<{ id: strin
                       <TableCell>
                         <div className="flex items-center gap-1.5">
                           <Users className="h-3.5 w-3.5 text-muted-foreground" />
-                          <span>{derivedOccupancy}/{room.capacity}</span>
+                          <span>{room.active_residents}/{room.capacity}</span>
                         </div>
                       </TableCell>
                       <TableCell>
