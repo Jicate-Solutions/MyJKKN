@@ -145,6 +145,69 @@ const enforcedDto = await SchoolDefaultsService.enforceSchoolDefaults(
 **Step 4:** Save and close
 **Expected:** No changes to degree_id/department_id
 
+## Data Migration: Batch Auto-Fill (Phase 1.3)
+
+If you have existing learners at school institutions created before Phase 1.3, you can retroactively assign school defaults using the batch auto-fill script.
+
+### Running the Migration
+
+```bash
+npm run batch:autofill-schools
+```
+
+### What it does:
+1. Finds all school institutions (entity_type='school')
+2. Ensures K-12 Program degree exists per school (creates if missing)
+3. Ensures Academic department exists per degree (creates if missing)
+4. Finds all learners at schools without K-12 Program degree
+5. Batch updates learners in chunks (500 at a time)
+6. Logs summary: schools processed, learners updated, any errors
+
+**Output Example:**
+```
+[Batch Auto-Fill] Starting...
+[Batch Auto-Fill] Found 3 school institution(s)
+
+[St. Joseph's School] Processing...
+  ├─ Finding learners without K-12 Program degree...
+  ├─ Updating 45 learner(s)...
+  │  ├─ Batch 1/1 (45 learners)...
+  └─ ✓ Successfully updated 45/45 learner(s)
+
+[Batch Auto-Fill] SUMMARY:
+  ✓ St. Joseph's School: 45 checked, 45 updated
+  ✓ Central High School: 0 checked, 0 updated
+  ✓ Good Hope Academy: 12 checked, 12 updated
+
+Total: 57 learner(s) checked, 57 updated, 3 school(s) succeeded
+
+[Batch Auto-Fill] Complete in 8s ✓
+```
+
+### Idempotency:
+- Safe to run multiple times
+- Will not create duplicate virtual records
+- Will not re-update learners already assigned to K-12 Program
+- Existing learner data preserved, only degree_id/department_id updated
+
+### Rollback (if needed):
+
+If you need to undo the batch update:
+
+```sql
+-- Check which learners were updated
+SELECT COUNT(*) as school_learners_with_k12
+FROM learners_profiles lp
+WHERE institution_id IN (SELECT id FROM institutions WHERE entity_type = 'school')
+  AND degree_id = (SELECT id FROM degrees WHERE degree_code = 'K12' LIMIT 1);
+
+-- Manually revert if needed (set back to NULL)
+UPDATE learners_profiles
+SET degree_id = NULL, department_id = NULL
+WHERE degree_id = (SELECT id FROM degrees WHERE degree_code = 'K12' LIMIT 1)
+  AND institution_id IN (SELECT id FROM institutions WHERE entity_type = 'school');
+```
+
 ## Database Checks
 
 ### Verify virtual records created:
@@ -224,7 +287,7 @@ WHERE institution_id IN (
 ## Deferred Tasks (Phase 1.3+)
 
 1. ✅ Update LearnerProfileService.updateLearnerProfile to enforce defaults (completed 2026-05-26)
-2. Add batch auto-fill for existing learners at schools (data migration)
+2. ✅ Add batch auto-fill for existing learners at schools (data migration) (completed 2026-05-26)
 3. Add admin UI to view/manage virtual degree/department records
 4. Implement CAS-aware virtual record sharing (multiple schools → single set)
 
