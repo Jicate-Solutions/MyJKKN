@@ -19,6 +19,7 @@
 
 import Link from 'next/link';
 import {
+  BarChart3,
   BookOpen,
   CalendarRange,
   ChefHat,
@@ -79,6 +80,14 @@ const CARDS: HubCard[] = [
       'Tune the 6 runtime knobs (edit cutoff, fee model, source locale, tier-crossing, image source, seed size).',
     icon: Settings,
     accent: 'text-purple-600',
+  },
+  {
+    href: '/admin/mess/insights',
+    title: 'Rating Insights',
+    description:
+      'Per-item ratings submitted by Premium-Plus residents. Top 20 most-loved + least-loved items, activity over time. Input for menu decisions, not binding voting.',
+    icon: BarChart3,
+    accent: 'text-pink-600',
   },
 ];
 
