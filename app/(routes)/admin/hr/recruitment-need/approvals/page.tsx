@@ -41,7 +41,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Plus, Pencil, Trash2, ShieldCheck, Loader2, AlertTriangle } from 'lucide-react';
+import { Plus, Pencil, Trash2, ShieldCheck, Loader2, AlertTriangle, FileUp } from 'lucide-react';
+import { BulkImportDialog } from '@/components/hr/recruitment-need/bulk-import-dialog';
 import {
   useApprovals,
   useCreateApproval,
@@ -107,6 +108,7 @@ export default function ApprovalsAdminPage() {
   const deleteMut = useDeleteApproval();
 
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [importDialogOpen, setImportDialogOpen] = useState(false);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [editing, setEditing] = useState<ApprovalWithJoins | null>(null);
   const [form, setForm] = useState<ApprovalFormData>(EMPTY_FORM);
@@ -173,9 +175,14 @@ export default function ApprovalsAdminPage() {
               <ShieldCheck className="h-5 w-5 text-primary" />
               <h1 className="text-xl font-semibold">Institution Program Approvals</h1>
             </div>
-            <Button onClick={openCreate} size="sm">
-              <Plus className="mr-1 h-4 w-4" /> Add Approval
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button variant="outline" size="sm" onClick={() => setImportDialogOpen(true)}>
+                <FileUp className="mr-1 h-4 w-4" /> Import from Excel
+              </Button>
+              <Button onClick={openCreate} size="sm">
+                <Plus className="mr-1 h-4 w-4" /> Add Approval
+              </Button>
+            </div>
           </div>
 
           {/* Filters */}
@@ -408,6 +415,17 @@ export default function ApprovalsAdminPage() {
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
+
+        <BulkImportDialog
+          open={importDialogOpen}
+          onOpenChange={setImportDialogOpen}
+          title="Import Approvals from Excel"
+          description="Upload a .xlsx file with institution program approval data. Download the template for proper formatting."
+          templateUrl="/api/hr/recruitment-need/approvals/template"
+          uploadUrl="/api/hr/recruitment-need/approvals/import"
+          columns={['Institution Name', 'Program Name', 'Body Abbreviation', 'Sanctioned Faculty Count', 'Approved Intake', 'Approval Date', 'Renewal Due Date', 'Approval Reference']}
+          templateFilename="approvals-template"
+        />
       </ContentLayout>
     </AdminPermissionGuard>
   );

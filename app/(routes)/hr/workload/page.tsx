@@ -2,7 +2,7 @@
 
 import { useState, useMemo } from 'react';
 import Link from 'next/link';
-import { Briefcase, CheckCircle2, Clock, Filter, Pencil, Plus, Trash2 } from 'lucide-react';
+import { Briefcase, CheckCircle2, Clock, Filter, FileUp, Pencil, Plus, Trash2 } from 'lucide-react';
 
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from '@/components/ui/breadcrumb';
@@ -17,6 +17,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 
 import { useWorkloads, useCreateWorkload, useUpdateWorkload, useDeleteWorkload, useVerifyWorkload } from '@/hooks/hr/recruitment-need/use-workload';
+import { BulkImportDialog } from '@/components/hr/recruitment-need/bulk-import-dialog';
 import type { HRFacultyWorkload, WorkloadSource } from '@/types/hr-recruitment-need';
 import type { WorkloadInsert, WorkloadUpdate } from '@/lib/services/hr/recruitment-need/workload-service';
 
@@ -51,6 +52,7 @@ export default function WorkloadPage() {
   const [filterSemester, setFilterSemester] = useState('');
   const [filterVerified, setFilterVerified] = useState('');
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [importDialogOpen, setImportDialogOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
 
@@ -132,7 +134,10 @@ export default function WorkloadPage() {
             </h1>
             <p className="text-sm text-muted-foreground mt-1">Track weekly contact, admin, and research hours per faculty member.</p>
           </div>
-          <Button onClick={handleAdd}><Plus className="h-4 w-4 mr-2" />Add Workload</Button>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" onClick={() => setImportDialogOpen(true)}><FileUp className="h-4 w-4 mr-2" />Import from Excel</Button>
+            <Button onClick={handleAdd}><Plus className="h-4 w-4 mr-2" />Add Workload</Button>
+          </div>
         </div>
 
         <div className="grid gap-4 sm:grid-cols-3">
@@ -282,6 +287,17 @@ export default function WorkloadPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <BulkImportDialog
+        open={importDialogOpen}
+        onOpenChange={setImportDialogOpen}
+        title="Import Workload from Excel"
+        description="Upload a .xlsx file with faculty workload data. Download the template for proper formatting."
+        templateUrl="/api/hr/workload/template"
+        uploadUrl="/api/hr/workload/import"
+        columns={['Staff Email', 'Academic Year', 'Semester', 'Weekly Contact Hours', 'Weekly Admin Hours', 'Weekly Research Hours', 'Notes']}
+        templateFilename="workload-template"
+      />
     </ContentLayout>
   );
 }
