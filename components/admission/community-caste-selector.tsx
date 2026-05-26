@@ -18,7 +18,7 @@
 // Caste picker uses a Popover + cmdk Command for type-to-filter search.
 // With 142 BC entries and 115 MBC entries, a plain Select scroll is painful.
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Popover,
   PopoverContent,
@@ -51,6 +51,7 @@ import {
   findCasteInCommunity,
   type CommunityCode,
 } from '@/lib/constants/community-caste-list';
+import { LookupService } from '@/lib/services/admission/lookup-service';
 
 const OTHER_SENTINEL = '__OTHER__';
 
@@ -59,7 +60,7 @@ function Req() {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// CommunityField — plain Select with 7 canonical communities
+// CommunityField — plain Select backed by community_categories DB table
 // ════════════════════════════════════════════════════════════════════════════
 
 interface CommunityFieldProps {
@@ -79,8 +80,19 @@ export function CommunityField({
   bilingual = false,
   onCascadeReset,
 }: CommunityFieldProps) {
-  const matched = findCommunity(value);
-  const selectValue = matched?.code ?? '';
+  const [options, setOptions] = useState<Array<{ code: string; name: string }>>([]);
+
+  useEffect(() => {
+    LookupService.listCommunityCategories(true).then((rows) =>
+      setOptions(rows.map((r) => ({ code: r.code, name: r.name }))),
+    ).catch(() => {
+      // Fallback to static list if DB fetch fails
+      setOptions(COMMUNITIES.map((c) => ({ code: c.code, name: c.label })));
+    });
+  }, []);
+
+  const norm = (value ?? '').trim().toUpperCase();
+  const selectValue = options.find((o) => o.code.toUpperCase() === norm)?.code ?? '';
 
   return (
     <div className="space-y-1.5">
@@ -106,9 +118,9 @@ export function CommunityField({
           />
         </SelectTrigger>
         <SelectContent>
-          {COMMUNITIES.map((c) => (
+          {options.map((c) => (
             <SelectItem key={c.code} value={c.code}>
-              {c.label}
+              {c.name}
             </SelectItem>
           ))}
         </SelectContent>

@@ -51,6 +51,9 @@ import { FinanceDetailsSection } from './form-sections/finance-details';
 // FEE_STRUCTURE_CONFIG removed 2026-04-15 — replaced by dynamic fee_items flow.
 import { uploadProfileImage } from './profile-image-upload';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useQuery } from '@tanstack/react-query';
+import { DegreeService } from '@/lib/services/organization/degree-service';
+import type { DegreeType } from '@/types/organizations';
 
 // Plan 6 / Task 5 — pre-submit confirmation dialog wiring
 import { PreSubmitConfirmationDialog } from './pre-submit-confirmation-dialog';
@@ -249,9 +252,9 @@ interface EnquiryFormProps {
 
   const ALL_TABS = [
     { id: 'basic-details', label: 'Basic Details' },
-    { id: 'academic-information', label: 'Academic Information' },
-    { id: 'course-selection', label: 'Course Selection' },
     { id: 'contact-details', label: 'Contact Details' },
+    { id: 'course-selection', label: 'Course Selection' },
+    { id: 'academic-information', label: 'Academic Information' },
     { id: 'accommodation-preferences', label: 'Accommodation' },
     { id: 'finance-details', label: 'Finance Details' },
   ];
@@ -527,9 +530,9 @@ const FIELD_LABELS: Record<string, string> = {
 // in the error-grouping helpers without closing over component state).
 const TAB_LABELS: Record<string, string> = {
   'basic-details':            'Basic Details',
-  'academic-information':     'Academic Information',
-  'course-selection':         'Course Selection',
   'contact-details':          'Contact Details',
+  'course-selection':         'Course Selection',
+  'academic-information':     'Academic Information',
   'accommodation-preferences':'Accommodation',
   'finance-details':          'Finance Details',
 };

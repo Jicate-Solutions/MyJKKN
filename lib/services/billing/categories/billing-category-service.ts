@@ -1,4 +1,5 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { logActivityForCurrentUser, BillingActivityTemplates } from '@/lib/utils/activity-logger-client';
 import type {
   BillingCategory,
   CreateBillingCategoryDto,
@@ -73,6 +74,14 @@ export class BillingCategoryService {
         throw error;
       }
 
+      const template = BillingActivityTemplates.categoryCreated(data.category_name);
+      logActivityForCurrentUser({
+        ...template,
+        resourceId: (category as BillingCategory).id,
+        resourceName: data.category_name,
+        metadata: { sub_type: template.sub_type, amount: data.amount, frequency: data.frequency },
+      });
+
       return category as BillingCategory;
     } catch (error) {
       console.error('[billing/categories] Error creating category:', error);
@@ -119,6 +128,18 @@ export class BillingCategoryService {
 
       if (error) throw error;
 
+      const changedFields = Object.keys(data).filter(k => k !== 'updated_at' && k !== 'id');
+      const template = BillingActivityTemplates.categoryUpdated(
+        (category as BillingCategory).category_name,
+        changedFields
+      );
+      logActivityForCurrentUser({
+        ...template,
+        resourceId: id,
+        resourceName: (category as BillingCategory).category_name,
+        metadata: { sub_type: template.sub_type, changed_fields: changedFields },
+      });
+
       return category as BillingCategory;
     } catch (error) {
       console.error('[billing/categories] Error updating category:', error);
@@ -145,12 +166,26 @@ export class BillingCategoryService {
         );
       }
 
+      const { data: cat } = await this.supabase
+        .from('billing_categories')
+        .select('category_name')
+        .eq('id', id)
+        .single();
+
       const { error } = await this.supabase
         .from('billing_categories')
         .delete()
         .eq('id', id);
 
       if (error) throw error;
+
+      const template = BillingActivityTemplates.categoryDeleted(cat?.category_name || id);
+      logActivityForCurrentUser({
+        ...template,
+        resourceId: id,
+        resourceName: cat?.category_name || id,
+        metadata: { sub_type: template.sub_type },
+      });
     } catch (error) {
       console.error('[billing/categories] Error deleting category:', error);
       throw error;
@@ -174,6 +209,14 @@ export class BillingCategoryService {
           error: error instanceof Error ? error.message : 'Unknown error'
         });
       }
+    }
+
+    if (success.length > 0) {
+      const template = BillingActivityTemplates.categoriesBulkDeleted(success.length);
+      logActivityForCurrentUser({
+        ...template,
+        metadata: { sub_type: template.sub_type, deleted_ids: success, failed_count: failed.length },
+      });
     }
 
     return { success, failed };

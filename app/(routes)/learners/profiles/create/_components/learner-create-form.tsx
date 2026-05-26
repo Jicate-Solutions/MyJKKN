@@ -24,12 +24,12 @@ import {
 import { getErrorMessage } from '@/lib/utils';
 import type { CreateLearnerProfileDto } from '@/types/learner-profile';
 
-// EnquiryForm tab IDs — exact strings from ALL_TABS (verified in Task 1.3).
+// EnquiryForm tab IDs — order must match ALL_TABS in enquiry-form.tsx.
 const VISIBLE_TABS = [
   'basic-details',
-  'academic-information',
-  'course-selection',
   'contact-details',
+  'course-selection',
+  'academic-information',
   'accommodation-preferences',
 ] as const;
 

@@ -47,19 +47,6 @@ export function BasicDetailsSection({ form, onImageFileChange, isStudentView = f
     { value: 'OTHERS', label: 'Others' }
   ];
 
-  // Community options
-  const communityOptions = [
-    { value: 'OC', label: 'OC' },
-    { value: 'BC', label: 'BC' },
-    { value: 'BCM', label: 'BCM' },
-    { value: 'MBC', label: 'MBC' },
-    { value: 'DNC', label: 'DNC' },
-    { value: 'BC-CC', label: 'BC-CC' },
-    { value: 'SC', label: 'SC' },
-    { value: 'ST', label: 'ST' },
-    { value: 'SC (A)', label: 'SC (A)' }
-  ];
-
   // Blood group options
   const bloodGroupOptions = [
     { value: 'A+', label: 'A+' },

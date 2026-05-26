@@ -10,6 +10,7 @@ import type {
 } from '@/types/billing-schedule';
 import { logger } from '@/lib/utils/enhanced-logger';
 import { trackUsage } from '@/lib/utils/track-usage';
+import { logActivityForCurrentUser, BillingActivityTemplates } from '@/lib/utils/activity-logger-client';
 
 export class BillingReceiptService {
   private static supabase = createClientSupabaseClient();
@@ -164,6 +165,27 @@ export class BillingReceiptService {
       }
 
       trackUsage({ module: 'billing/receipts', feature: 'create_receipt', eventType: 'create' });
+
+      const studentNameReceipt = `${receipt.student?.first_name || ''} ${receipt.student?.last_name || ''}`.trim() || 'Unknown';
+      const templateReceipt = BillingActivityTemplates.receiptCreated(
+        receiptNumber,
+        studentNameReceipt,
+        receiptData.payment_amount
+      );
+      logActivityForCurrentUser({
+        ...templateReceipt,
+        resourceId: receipt.id,
+        resourceName: receiptNumber,
+        institutionId: receiptData.institution_id,
+        metadata: {
+          sub_type: templateReceipt.sub_type,
+          student_id: receiptData.student_id,
+          payment_mode: receiptData.payment_mode,
+          payment_amount: receiptData.payment_amount,
+          bill_count: receiptData.receipt_items?.length || 0,
+        },
+      });
+
       return receipt;
     } catch (error) {
       logger.error('billing/receipts', 'Error creating receipt', error);
@@ -202,6 +224,15 @@ export class BillingReceiptService {
         .single();
 
       if (error) throw error;
+
+      const templateUpdate = BillingActivityTemplates.receiptUpdated((data as any)?.receipt_number || id);
+      logActivityForCurrentUser({
+        ...templateUpdate,
+        resourceId: id,
+        resourceName: (data as any)?.receipt_number,
+        metadata: { sub_type: templateUpdate.sub_type, updated_fields: Object.keys(receiptData) },
+      });
+
       return data;
     } catch (error) {
       console.error('Error updating receipt:', error);
@@ -219,6 +250,13 @@ export class BillingReceiptService {
         .eq('id', id);
 
       if (error) throw error;
+
+      const templateDelete = BillingActivityTemplates.receiptDeleted(id);
+      logActivityForCurrentUser({
+        ...templateDelete,
+        resourceId: id,
+        metadata: { sub_type: templateDelete.sub_type },
+      });
     } catch (error) {
       console.error('Error deleting receipt:', error);
       throw new Error(

@@ -38,6 +38,8 @@ import type {
 } from '@/types/campus-living';
 import { Loader2, Search, User } from 'lucide-react';
 
+const WARDEN_ELIGIBLE_ROLE_KEYS = ['warden', 'chief_warden'] as const;
+
 type FoundStaff = {
   id: string;
   first_name: string | null;
@@ -46,6 +48,7 @@ type FoundStaff = {
   phone: string | null;
   profile_id: string | null;
   designation: string | null;
+  role_key: string | null;
 };
 
 interface WardenFormDialogProps {
@@ -107,7 +110,8 @@ export function WardenFormDialog({
         const supabase = createClientSupabaseClient();
         let q = supabase
           .from('staff')
-          .select('id, first_name, last_name, email, phone, profile_id, designation')
+          .select('id, first_name, last_name, email, phone, profile_id, designation, role_key')
+          .in('role_key', [...WARDEN_ELIGIBLE_ROLE_KEYS])
           .or(
             `first_name.ilike.%${searchTerm}%,last_name.ilike.%${searchTerm}%,email.ilike.%${searchTerm}%`
           )
@@ -258,7 +262,7 @@ export function WardenFormDialog({
                         id='staff-search'
                         value={searchTerm}
                         onChange={(e) => setSearchTerm(e.target.value)}
-                        placeholder='Search staff by name or email (min 2 chars)'
+                        placeholder='Search warden-role staff by name or email…'
                         className='pl-9'
                       />
                     </div>
@@ -296,6 +300,11 @@ export function WardenFormDialog({
                               </div>
                               <div className='text-xs text-muted-foreground'>
                                 {s.email ?? '—'}
+                                {s.role_key && (
+                                  <span className='ml-1 inline-flex items-center rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary'>
+                                    {s.role_key === 'chief_warden' ? 'Chief Warden' : 'Warden'}
+                                  </span>
+                                )}
                                 {s.designation && <span> · {s.designation}</span>}
                               </div>
                               {noProfile && (

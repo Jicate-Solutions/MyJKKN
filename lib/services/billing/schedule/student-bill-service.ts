@@ -1,4 +1,5 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { logActivityForCurrentUser, BillingActivityTemplates } from '@/lib/utils/activity-logger-client';
 import type {
   StudentBill,
   CreateStudentBillDto,
@@ -71,6 +72,25 @@ export class StudentBillService {
       ) {
         await this.createRecurringBills(data, billData);
       }
+
+      const studentNameBill = `${(data as any)?.student?.first_name || ''} ${(data as any)?.student?.last_name || ''}`.trim() || 'Unknown';
+      const templateBill = BillingActivityTemplates.billCreated(
+        billData.bill_description || 'Student bill',
+        studentNameBill
+      );
+      logActivityForCurrentUser({
+        ...templateBill,
+        resourceId: (data as any).id,
+        institutionId: billData.institution_id,
+        metadata: {
+          sub_type: templateBill.sub_type,
+          student_id: billData.student_id,
+          total_amount: billData.total_amount,
+          final_amount: finalAmount,
+          category_id: billData.item_category_id,
+          is_recurring: billData.is_recurring,
+        },
+      });
 
       return data;
     } catch (error) {
@@ -196,6 +216,24 @@ export class StudentBillService {
         .single();
 
       if (error) throw error;
+
+      const studentNameUpdate = `${(data as any)?.student?.first_name || ''} ${(data as any)?.student?.last_name || ''}`.trim() || 'Unknown';
+      const templateBillUpdate = BillingActivityTemplates.billUpdated(
+        (data as any)?.bill_description || 'Student bill',
+        studentNameUpdate
+      );
+      logActivityForCurrentUser({
+        ...templateBillUpdate,
+        resourceId: id,
+        institutionId: (data as any)?.institution_id,
+        metadata: {
+          sub_type: templateBillUpdate.sub_type,
+          updated_fields: Object.keys(billData),
+          final_amount: finalAmount,
+          balance_amount: balanceAmount,
+        },
+      });
+
       return data;
     } catch (error) {
       console.error('Error updating student bill:', error);
@@ -211,6 +249,13 @@ export class StudentBillService {
         .eq('id', id);
 
       if (error) throw error;
+
+      const templateBillDelete = BillingActivityTemplates.billDeleted(id);
+      logActivityForCurrentUser({
+        ...templateBillDelete,
+        resourceId: id,
+        metadata: { sub_type: templateBillDelete.sub_type },
+      });
     } catch (error) {
       console.error('Error deleting student bill:', error);
       throw error;
@@ -235,6 +280,14 @@ export class StudentBillService {
           error: error instanceof Error ? error.message : 'Unknown error'
         });
       }
+    }
+
+    if (results.success.length > 0) {
+      const templateBulkDelete = BillingActivityTemplates.billsBulkDeleted(results.success.length, ids.length);
+      logActivityForCurrentUser({
+        ...templateBulkDelete,
+        metadata: { sub_type: templateBulkDelete.sub_type, deleted_ids: results.success, failed_count: results.failed.length },
+      });
     }
 
     return results;
@@ -702,6 +755,23 @@ export class StudentBillService {
           onProgress?.(done, total);
         }
       }
+    }
+
+    if (results.success.length > 0) {
+      const templateBulkCreate = BillingActivityTemplates.billsBulkCreated(
+        results.success.length,
+        bulkData.student_ids.length
+      );
+      logActivityForCurrentUser({
+        ...templateBulkCreate,
+        metadata: {
+          sub_type: templateBulkCreate.sub_type,
+          student_count: bulkData.student_ids.length,
+          bill_count_per_student: bulkData.bills.length,
+          total_created: results.success.length,
+          failed_count: results.failed.length,
+        },
+      });
     }
 
     return results;

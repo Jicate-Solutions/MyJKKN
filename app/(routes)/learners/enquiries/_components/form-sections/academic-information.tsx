@@ -35,9 +35,11 @@ import {
 
 interface AcademicInformationProps {
   form: UseFormReturn<any>;
+  degreeType?: 'ug' | 'pg';
 }
 
-export function AcademicInformationSection({ form }: AcademicInformationProps) {
+export function AcademicInformationSection({ form, degreeType }: AcademicInformationProps) {
+  const isPG = degreeType === 'pg';
   // ============================================
   // AUTO-CALCULATION: 10th Marks Percentage
   // ============================================
