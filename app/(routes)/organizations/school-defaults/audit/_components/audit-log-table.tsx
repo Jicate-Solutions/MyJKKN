@@ -41,6 +41,8 @@ export default function AuditLogTable() {
     actionType: 'all',
     school: '',
   });
+  const [page, setPage] = useState(0);
+  const itemsPerPage = 100;
 
   useEffect(() => {
     fetchAuditLogs();
@@ -144,6 +146,15 @@ export default function AuditLogTable() {
   }, [logs]);
 
   const filteredLogs = applyFilters(logs, filters);
+  const startIndex = page * itemsPerPage;
+  const endIndex = startIndex + itemsPerPage;
+  const paginatedLogs = filteredLogs.slice(startIndex, endIndex);
+  const totalPages = Math.ceil(filteredLogs.length / itemsPerPage);
+
+  // Reset page when filters change
+  useEffect(() => {
+    setPage(0);
+  }, [filters]);
 
   if (loading) {
     return (
@@ -181,6 +192,33 @@ export default function AuditLogTable() {
             </Button>
           </div>
 
+          <div className="flex items-center justify-between py-4">
+            <div className="text-sm text-muted-foreground">
+              Showing {startIndex + 1} to {Math.min(endIndex, filteredLogs.length)} of {filteredLogs.length} logs
+            </div>
+            <div className="flex gap-2 items-center">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setPage(Math.max(0, page - 1))}
+                disabled={page === 0}
+              >
+                Previous
+              </Button>
+              <span className="text-sm flex items-center px-2">
+                Page {page + 1} of {Math.max(1, totalPages)}
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setPage(Math.min(totalPages - 1, page + 1))}
+                disabled={page >= totalPages - 1}
+              >
+                Next
+              </Button>
+            </div>
+          </div>
+
           <div className="border rounded-lg overflow-hidden">
           <Table>
             <TableHeader>
@@ -194,7 +232,7 @@ export default function AuditLogTable() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filteredLogs.map(log => (
+              {paginatedLogs.map(log => (
                 <TableRow key={log.id}>
                   <TableCell className="text-sm">
                     {formatDate(log.created_at)}
