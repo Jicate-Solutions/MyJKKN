@@ -1,6 +1,6 @@
 import { Metadata } from 'next';
 import SchoolDefaultsPage from './_components/school-defaults-page';
-import { getCurrentUserProfile } from '@/lib/auth/auth-service';
+import { createServerClient } from '@/lib/supabase/server';
 import { redirect } from 'next/navigation';
 
 export const metadata: Metadata = {
@@ -9,8 +9,10 @@ export const metadata: Metadata = {
 };
 
 export default async function Page() {
-  const profile = await getCurrentUserProfile();
-  if (!profile) {
+  const supabase = createServerClient();
+  const { data: { user }, error: authError } = await supabase.auth.getUser();
+
+  if (authError || !user) {
     redirect('/auth/login');
   }
 
