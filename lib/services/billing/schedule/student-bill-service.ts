@@ -293,6 +293,112 @@ export class StudentBillService {
     return results;
   }
 
+  private static readonly CANCELLABLE_STATUSES = ['unpaid', 'partially_paid', 'overdue'];
+
+  static async cancelStudentBill(
+    id: string,
+    reason?: string
+  ): Promise<StudentBill> {
+    try {
+      const bill = await this.getStudentBill(id);
+
+      if (!this.CANCELLABLE_STATUSES.includes(bill.status)) {
+        throw new Error(
+          `Cannot cancel bill with status "${bill.status}". Only unpaid, partially paid, or overdue bills can be cancelled.`
+        );
+      }
+
+      const updateQuery: any = this.supabase.from('billing_student_bills');
+      const { data, error } = await updateQuery
+        .update({
+          status: 'cancelled',
+          balance_amount: 0,
+          remarks: reason
+            ? `${bill.remarks ? bill.remarks + ' | ' : ''}Cancelled: ${reason}`
+            : bill.remarks
+        })
+        .eq('id', id)
+        .select(
+          `
+          *,
+          student:learners_profiles(
+            id, first_name, last_name, roll_number
+          ),
+          institution:institutions(id, name),
+          item_category:billing_categories(id, category_name)
+        `
+        )
+        .single();
+
+      if (error) throw error;
+
+      const studentName = `${data.student?.first_name || ''} ${data.student?.last_name || ''}`.trim() || 'Unknown';
+      const template = BillingActivityTemplates.billCancelled(
+        bill.bill_description || 'Student bill',
+        studentName,
+        reason
+      );
+      logActivityForCurrentUser({
+        ...template,
+        resourceId: id,
+        institutionId: bill.institution_id,
+        metadata: {
+          sub_type: template.sub_type,
+          student_id: bill.student_id,
+          original_amount: bill.final_amount,
+          balance_at_cancel: bill.balance_amount,
+          reason,
+        },
+      });
+
+      return data;
+    } catch (error) {
+      console.error('Error cancelling student bill:', error);
+      throw error;
+    }
+  }
+
+  static async bulkCancelStudentBills(
+    ids: string[],
+    reason?: string
+  ): Promise<BulkOperationResult> {
+    const results: BulkOperationResult = {
+      success: [],
+      failed: []
+    };
+
+    for (const id of ids) {
+      try {
+        await this.cancelStudentBill(id, reason);
+        results.success.push(id);
+      } catch (error) {
+        results.failed.push({
+          id,
+          error: error instanceof Error ? error.message : 'Unknown error'
+        });
+      }
+    }
+
+    if (results.success.length > 0) {
+      const template = BillingActivityTemplates.billsBulkCancelled(
+        results.success.length,
+        ids.length,
+        reason
+      );
+      logActivityForCurrentUser({
+        ...template,
+        metadata: {
+          sub_type: template.sub_type,
+          cancelled_ids: results.success,
+          failed_count: results.failed.length,
+          reason,
+        },
+      });
+    }
+
+    return results;
+  }
+
   static async getStudentBills(
     filters: StudentBillFilters = {}
   ): Promise<StudentBillListResponse> {

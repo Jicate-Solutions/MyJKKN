@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { Row } from '@tanstack/react-table';
-import { MoreHorizontal, Eye, Edit, Trash2, Receipt } from 'lucide-react';
+import { MoreHorizontal, Eye, Edit, Trash2, Receipt, Ban } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -24,9 +24,13 @@ import {
 } from '@/components/ui/alert-dialog';
 import { StudentBill } from '@/types/billing-schedule';
 import { usePermissions } from '@/hooks/use-permissions';
-import { useDeleteStudentBill } from '@/hooks/billing/use-student-bills';
-import { useRouter } from 'next/navigation';
+import {
+  useDeleteStudentBill,
+  useCancelStudentBill
+} from '@/hooks/billing/use-student-bills';
 import Link from 'next/link';
+
+const CANCELLABLE_STATUSES = ['unpaid', 'partially_paid', 'overdue'];
 
 interface DataTableRowActionsProps<TData> {
   row: Row<TData>;
@@ -36,23 +40,33 @@ export function DataTableRowActions<TData>({
   row
 }: DataTableRowActionsProps<TData>) {
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
-  const router = useRouter();
+  const [showCancelDialog, setShowCancelDialog] = useState(false);
 
   const bill = row.original as StudentBill;
   const { canAccess, isSuperAdmin } = usePermissions();
   const deleteStudentBill = useDeleteStudentBill();
+  const cancelStudentBill = useCancelStudentBill();
 
   const canEditBills = isSuperAdmin || canAccess('billing.schedule', 'update');
-  const canDeleteBills =
-    isSuperAdmin || canAccess('billing.schedule', 'delete');
+  const canCancelBills = isSuperAdmin || canAccess('billing.schedule', 'update');
+  const isCancellable = CANCELLABLE_STATUSES.includes(bill.status);
 
   const handleDelete = async () => {
     try {
       await deleteStudentBill.mutateAsync(bill.id);
       setShowDeleteDialog(false);
-      // The data table will automatically refetch
     } catch (error) {
       console.error('Error deleting bill:', error);
+    }
+  };
+
+  const handleCancel = async () => {
+    if (cancelStudentBill.isPending) return;
+    try {
+      await cancelStudentBill.mutateAsync({ id: bill.id });
+      setShowCancelDialog(false);
+    } catch (error) {
+      console.error('Error cancelling bill:', error);
     }
   };
 
@@ -91,7 +105,16 @@ export function DataTableRowActions<TData>({
               </Link>
             </DropdownMenuItem>
           )}
-          {canDeleteBills && (
+          {canCancelBills && isCancellable && (
+            <DropdownMenuItem
+              className='text-amber-700 focus:text-amber-800 focus:bg-amber-50'
+              onClick={() => setShowCancelDialog(true)}
+            >
+              <Ban className='mr-2 h-4 w-4' />
+              Cancel Bill
+            </DropdownMenuItem>
+          )}
+          {isSuperAdmin && (
             <>
               <DropdownMenuSeparator />
               <DropdownMenuItem
@@ -106,6 +129,35 @@ export function DataTableRowActions<TData>({
         </DropdownMenuContent>
       </DropdownMenu>
 
+      {/* Cancel Dialog */}
+      <AlertDialog open={showCancelDialog} onOpenChange={setShowCancelDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Cancel Student Bill</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to cancel the bill &quot;
+              {bill.bill_description}&quot; for{' '}
+              {`${bill.student?.first_name || ''} ${
+                bill.student?.last_name || ''
+              }`.trim()}
+              ? The outstanding balance will be set to zero. Existing
+              payment records will not be affected.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep Bill</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleCancel}
+              className='bg-amber-600 hover:bg-amber-700 text-white'
+              disabled={cancelStudentBill.isPending}
+            >
+              {cancelStudentBill.isPending ? 'Cancelling...' : 'Cancel Bill'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Delete Dialog — super admin only */}
       <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -116,7 +168,8 @@ export function DataTableRowActions<TData>({
               {`${bill.student?.first_name || ''} ${
                 bill.student?.last_name || ''
               }`.trim()}
-              ? This action cannot be undone.
+              ? This action cannot be undone. All related payments, receipts,
+              discounts, and refunds will also be permanently removed.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

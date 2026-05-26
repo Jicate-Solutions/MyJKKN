@@ -709,6 +709,18 @@ export const BillingActivityTemplates = {
     description: `Bulk deleted ${successCount}/${totalCount} student bills`,
     sub_type: 'student_bill_bulk_delete' as const,
   }),
+  billCancelled: (billDescription: string, studentName: string, reason?: string) => ({
+    actionType: ACTIVITY_TYPES.UPDATE,
+    resourceType: RESOURCE_TYPES.BILL,
+    description: `Cancelled bill "${billDescription}" for ${studentName}${reason ? ` — ${reason}` : ''}`,
+    sub_type: 'bill_cancel' as const,
+  }),
+  billsBulkCancelled: (successCount: number, totalCount: number, reason?: string) => ({
+    actionType: ACTIVITY_TYPES.UPDATE,
+    resourceType: RESOURCE_TYPES.BILL,
+    description: `Bulk cancelled ${successCount}/${totalCount} student bills${reason ? ` — ${reason}` : ''}`,
+    sub_type: 'student_bill_bulk_cancel' as const,
+  }),
   billStatusUpdated: (billId: string, newStatus: string) => ({
     actionType: ACTIVITY_TYPES.UPDATE,
     resourceType: RESOURCE_TYPES.BILL,
