@@ -1044,8 +1044,7 @@ export function generateBosAttendanceCertificatePDF(
 			doc.line(x1, yPos + underlineOffset, x2, yPos + underlineOffset)
 		}
 
-		// Single justified paragraph with increased line spacing
-		doc.setFont('times', 'normal')
+		// Single paragraph with formatted parts (bold for key elements)
 		doc.setFontSize(fontSize)
 
 		// Build member details
@@ -1056,22 +1055,45 @@ export function generateBosAttendanceCertificatePDF(
 			cert.member_address,
 		].filter(Boolean).join(', ')
 
-		// Build complete single paragraph
-		const fullParagraph = `This is to certify that ${memberDetails} has attended the ${ugPgLabel} Board of Studies meeting in the Department of ${deptText} held in our college on ${cert.meeting_date}.`
+		// Define paragraph parts with formatting (bold for memberDetails, ugPgLabel, deptText, meeting_date)
+		const paragraphParts = [
+			{ text: 'This is to certify that ', bold: false },
+			{ text: memberDetails, bold: true },
+			{ text: ' has attended the ', bold: false },
+			{ text: ugPgLabel, bold: true },
+			{ text: ' Board of Studies meeting in the Department of ', bold: false },
+			{ text: deptText, bold: true },
+			{ text: ' held in our college on ', bold: false },
+			{ text: cert.meeting_date, bold: true },
+			{ text: '.', bold: false },
+		]
 
-		// Split paragraph into lines for justified rendering
-		const paragraphLines = doc.splitTextToSize(fullParagraph, maxWidth)
-
-		// Render each line with justification and 1.5x spacing (all except last are justified)
+		// Render parts sequentially with proper formatting
 		const lineHeightIncrease = 9 // 1.5x spacing for balanced readability
-		paragraphLines.forEach((line, idx) => {
-			const isLastLine = idx === paragraphLines.length - 1
-			doc.text(line, contentX, y, {
-				align: isLastLine ? 'left' : 'justify',
-				maxWidth: maxWidth
-			})
-			y += lineHeightIncrease
+		let currentX = contentX
+		let currentY = y
+		let lineWidth = 0
+
+		paragraphParts.forEach(part => {
+			doc.setFont('times', part.bold ? 'bold' : 'normal')
+			const textWidth = doc.getTextWidth(part.text)
+
+			// Check if part fits on current line
+			if (currentX + textWidth > contentX + maxWidth && lineWidth > 0) {
+				// Move to next line
+				currentY += lineHeightIncrease
+				currentX = contentX
+				lineWidth = 0
+			}
+
+			// Render the part
+			doc.text(part.text, currentX, currentY)
+			currentX += textWidth
+			lineWidth += textWidth
 		})
+
+		y = currentY + lineHeightIncrease
+		doc.setFont('times', 'normal')
 
 		y += 12
 
