@@ -687,4 +687,25 @@ export class FeeStructureService {
     }
     return rows;
   }
+
+  static async getStats(): Promise<{
+    total: number;
+    active: number;
+    draft: number;
+    archived: number;
+    institutions_covered: number;
+    total_fee_amount: number;
+    avg_fee_per_structure: number;
+    min_fee: number;
+    max_fee: number;
+    avg_items_per_structure: number;
+    total_optional_items: number;
+    total_mandatory_items: number;
+    structures_without_items: number;
+  }> {
+    const supabase = createClientSupabaseClient();
+    const { data, error } = await supabase.rpc('get_fee_structure_stats');
+    if (error) throw error;
+    return data as any;
+  }
 }

@@ -20,6 +20,7 @@ import {
 import { AdmissionErrorBoundary } from '@/components/admission';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import { FeeStructuresListView } from './_components/fee-structures-list-view';
+import { FeeStructureStats } from './_components/fee-structure-stats';
 
 function FeesStructurePageContent() {
   return (
@@ -58,6 +59,8 @@ function FeesStructurePageContent() {
               Manage matrix-keyed fee structures. Click any row to view or edit.
             </p>
           </div>
+
+          <FeeStructureStats />
 
           <FeeStructuresListView />
         </div>
