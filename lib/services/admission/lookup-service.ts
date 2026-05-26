@@ -195,4 +195,16 @@ export class LookupService {
       .eq('id', id);
     if (error) throw error;
   }
+
+  static async listAllActiveAccommodationTypes(): Promise<AdmissionFeeAccommodationType[]> {
+    const supabase = createClientSupabaseClient();
+    const { data, error } = await supabase
+      .from('accommodation_types')
+      .select('*')
+      .eq('is_active', true)
+      .order('sort_order', { ascending: true })
+      .order('name', { ascending: true });
+    if (error) throw error;
+    return data ?? [];
+  }
 }

@@ -55,8 +55,7 @@ function FeesStructurePageContent() {
           <div>
             <h1 className="text-2xl font-bold py-1">Fee Structures</h1>
             <p className="text-sm sm:text-base text-muted-foreground">
-              Manage matrix-keyed fee structures (institution × degree × department × programme
-              × admission year × quota × community × accommodation). Click any row to view or edit.
+              Manage matrix-keyed fee structures. Click any row to view or edit.
             </p>
           </div>
 

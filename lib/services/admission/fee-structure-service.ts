@@ -55,9 +55,11 @@ export class FeeStructureService {
     department_id?: string;
     programme_id?: string;
     admission_year_id?: string;
+    admission_year_ids?: string[];
     quota_id?: string;
     community_category_id?: string;
     accommodation_type_id?: string;
+    accommodation_type_ids?: string[];
     status?: 'draft' | 'active' | 'archived';
   }): Promise<{
     data: Array<
@@ -136,9 +138,21 @@ export class FeeStructureService {
     if (params.degree_id) query = query.eq('degree_id', params.degree_id);
     if (params.department_id) query = query.eq('department_id', params.department_id);
     if (params.programme_id) query = query.eq('programme_id', params.programme_id);
-    if (params.admission_year_id) query = query.eq('admission_year_id', params.admission_year_id);
+    if (params.admission_year_ids?.length) {
+      query = params.admission_year_ids.length === 1
+        ? query.eq('admission_year_id', params.admission_year_ids[0])
+        : query.in('admission_year_id', params.admission_year_ids);
+    } else if (params.admission_year_id) {
+      query = query.eq('admission_year_id', params.admission_year_id);
+    }
     if (params.quota_id) query = query.eq('quota_id', params.quota_id);
-    if (params.accommodation_type_id) query = query.eq('accommodation_type_id', params.accommodation_type_id);
+    if (params.accommodation_type_ids?.length) {
+      query = params.accommodation_type_ids.length === 1
+        ? query.eq('accommodation_type_id', params.accommodation_type_ids[0])
+        : query.in('accommodation_type_id', params.accommodation_type_ids);
+    } else if (params.accommodation_type_id) {
+      query = query.eq('accommodation_type_id', params.accommodation_type_id);
+    }
     if (communityScopedIds) query = query.in('id', communityScopedIds);
     if (params.status) query = query.eq('status', params.status);
     if (params.search && params.search.trim()) query = query.ilike('name', `%${params.search.trim()}%`);

@@ -83,12 +83,18 @@ export function CommunityField({
   const [options, setOptions] = useState<Array<{ code: string; name: string }>>([]);
 
   useEffect(() => {
-    LookupService.listCommunityCategories(true).then((rows) =>
-      setOptions(rows.map((r) => ({ code: r.code, name: r.name }))),
-    ).catch(() => {
-      // Fallback to static list if DB fetch fails
-      setOptions(COMMUNITIES.map((c) => ({ code: c.code, name: c.label })));
-    });
+    LookupService.listCommunityCategories(true)
+      .then((rows) => {
+        if (rows.length > 0) {
+          setOptions(rows.map((r) => ({ code: r.code, name: r.name })));
+        } else {
+          // RLS returns empty (not error) for anon/public pages like the QR student form
+          setOptions(COMMUNITIES.map((c) => ({ code: c.code, name: c.label })));
+        }
+      })
+      .catch(() => {
+        setOptions(COMMUNITIES.map((c) => ({ code: c.code, name: c.label })));
+      });
   }, []);
 
   const norm = (value ?? '').trim().toUpperCase();
