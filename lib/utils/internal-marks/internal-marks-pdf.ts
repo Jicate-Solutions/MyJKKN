@@ -1117,29 +1117,54 @@ export function generateBosAttendanceCertificatePDF(
 		const lastLineEndX = lastMemberDetailsX + lastMemberDetailsWidth
 		const availableWidthOnLastLine = (contentX + maxWidth) - lastLineEndX - 2
 
-		// Check if "has attended the [UG/PG] Board of Studies meeting in the Department of " fits on same line
-		const hasAttendedText = 'has attended the ' + ugPgLabel + ' Board of Studies meeting in the Department of'
-		const hasAttendedWidth = doc.getTextWidth(hasAttendedText)
+		// If there's horizontal space available, use it to start "has attended..." on same line
+		// Allow text to wrap naturally if it extends beyond available space
+		const hasAvailableSpace = availableWidthOnLastLine > 20 && (firstLineText || remainingText)
 
-		const canFitOnSameLine = hasAttendedWidth <= availableWidthOnLastLine
-
-		if (canFitOnSameLine && (firstLineText || remainingText)) {
-			// Append "has attended..." to the last member details line
+		if (hasAvailableSpace) {
+			// Fill available space with "has attended..." text, allowing it to wrap
 			doc.setFont('times', 'normal')
 			let xPos = lastLineEndX + 2
 
-			doc.text('has attended the ', xPos, lastMemberDetailsY)
-			xPos += doc.getTextWidth('has attended the ')
+			// Build the full text that will be rendered
+			const fullText = 'has attended the ' + ugPgLabel + ' Board of Studies meeting in the Department of'
 
-			doc.setFont('times', 'bold')
-			doc.text(ugPgLabel, xPos, lastMemberDetailsY)
-			xPos += doc.getTextWidth(ugPgLabel)
+			// Render with available width constraint to allow natural wrapping
+			const wrappedLines = doc.splitTextToSize(fullText, (contentX + maxWidth) - xPos)
 
-			doc.setFont('times', 'normal')
-			doc.text(' Board of Studies meeting in the Department of', xPos, lastMemberDetailsY)
+			if (wrappedLines.length > 0) {
+				// First line: render starting from xPos on current line
+				const parts = fullText.split(ugPgLabel)
+				doc.setFont('times', 'normal')
+				doc.text('has attended the ', xPos, lastMemberDetailsY)
+				xPos += doc.getTextWidth('has attended the ')
 
-			// Next content starts after this line
-			y = lastMemberDetailsY + lineSpacing
+				doc.setFont('times', 'bold')
+				doc.text(ugPgLabel, xPos, lastMemberDetailsY)
+				xPos += doc.getTextWidth(ugPgLabel)
+
+				doc.setFont('times', 'normal')
+				const remainingOnFirst = ' Board of Studies meeting in the Department of'
+				const firstLineRemainingWidth = (contentX + maxWidth) - xPos
+				const remainingWidth = doc.getTextWidth(remainingOnFirst)
+
+				if (remainingWidth <= firstLineRemainingWidth) {
+					// Fits on same line
+					doc.text(remainingOnFirst, xPos, lastMemberDetailsY)
+					y = lastMemberDetailsY + lineSpacing
+				} else {
+					// Wrap to next lines
+					const wrappedRemaining = doc.splitTextToSize(remainingOnFirst, maxWidth)
+					doc.text(wrappedRemaining[0], xPos, lastMemberDetailsY)
+
+					let nextY = lastMemberDetailsY + 4
+					for (let i = 1; i < wrappedRemaining.length; i++) {
+						doc.text(wrappedRemaining[i], contentX, nextY)
+						nextY += 4
+					}
+					y = nextY + lineSpacing
+				}
+			}
 		} else {
 			// Start "has attended..." on new line
 			y = lastMemberDetailsY + lineSpacing
