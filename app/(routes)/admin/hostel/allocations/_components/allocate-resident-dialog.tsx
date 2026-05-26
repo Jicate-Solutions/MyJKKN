@@ -335,7 +335,7 @@ export function AllocateResidentDialog({ open, onOpenChange }: Props) {
         bed_id: bedId,
         academic_year_id: effectiveAcademicYearId,
         tier_id: effectiveTierId,
-        allocation_type: 'regular',
+        allocation_type: 'fresh',
         allocation_date: checkInDate,
         status: 'active',
         emergency_contact_name: emergencyName.trim(),
