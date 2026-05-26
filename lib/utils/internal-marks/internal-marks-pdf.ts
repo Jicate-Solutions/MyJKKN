@@ -1133,8 +1133,9 @@ export function generateBosAttendanceCertificatePDF(
 
 		doc.setFont('times', 'bold')
 		const dateX = contentX + heldW
-		doc.text(cert.meeting_date, dateX, y)
-		const dateW = doc.getTextWidth(cert.meeting_date)
+		const dateWithPeriod = cert.meeting_date + '.'
+		doc.text(dateWithPeriod, dateX, y)
+		const dateW = doc.getTextWidth(dateWithPeriod)
 		drawUnderline(y, dateX, dateX + dateW + 4)
 		y += lineSpacing
 
