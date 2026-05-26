@@ -2376,3 +2376,46 @@ export function GetRoleBasedPages(
     }); // Remove empty groups
 }
 
+/**
+ * Filter menu items based on institution entity_type
+ * Schools hide college-only pages (degrees, departments, programs, semesters, courses)
+ * since they use virtual academic structure records
+ *
+ * @param menus Array of menu items to filter
+ * @param entityType Institution entity type ('school', 'institution', 'admin_office', 'company')
+ * @returns Filtered menu array
+ */
+export function filterMenuByEntityType(menus: MenuItem[], entityType?: string | null): MenuItem[] {
+  // Only filter for schools
+  if (entityType !== 'school') {
+    return menus;
+  }
+
+  // Define college-only menu paths that should be hidden for schools
+  const COLLEGE_ONLY_PATHS = [
+    '/organizations/degrees',
+    '/organizations/departments',
+    '/organizations/programs',
+    '/organizations/semesters',
+    '/organizations/courses',
+    '/organizations/regulations',
+    '/organizations/batches',
+  ];
+
+  return menus.filter(menu => {
+    // Hide the menu if it's in the college-only list
+    if (COLLEGE_ONLY_PATHS.includes(menu.href)) {
+      return false;
+    }
+
+    // Filter submenus too
+    if (menu.submenus?.length > 0) {
+      menu.submenus = menu.submenus.filter(submenu =>
+        !COLLEGE_ONLY_PATHS.some(path => submenu.href.startsWith(path))
+      );
+    }
+
+    return true;
+  });
+}
+
