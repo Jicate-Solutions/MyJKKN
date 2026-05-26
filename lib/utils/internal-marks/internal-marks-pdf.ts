@@ -1044,69 +1044,48 @@ export function generateBosAttendanceCertificatePDF(
 			doc.line(x1, yPos + underlineOffset, x2, yPos + underlineOffset)
 		}
 
-		// Line 1: "This is to certify that" + member details (name, designation, institution, address)
-		// Member details wrap to next line(s) aligned to left margin
+		// Line 1: "This is to certify that <Name>"
 		doc.setFont('times', 'normal')
 		doc.setFontSize(fontSize)
 		const certPrefix = 'This is to certify that '
 		doc.text(certPrefix, contentX, y)
 		const prefixW = doc.getTextWidth(certPrefix)
 
-		// Build member details: name, designation, institution, address
-		const memberParts = [
-			cert.member_name,
-			cert.member_designation,
-			cert.member_institution?.replace(/^["']\s*|\s*["']$/g, '').trim(),
-			cert.member_address,
-		].filter(Boolean)
-		const memberDetailsStr = memberParts.join(', ')
-
-		// Split text to fit from after prefix on first line, then full width for wrap
-		const firstLineWidth = maxWidth - prefixW - 4
-		const allMemberText = memberDetailsStr
-		const firstLineWords = allMemberText.split(' ')
-
-		let firstLineStr = ''
-		let remainingStr = allMemberText
-		let currentWidth = 0
-
-		for (let i = 0; i < firstLineWords.length; i++) {
-			const word = firstLineWords[i]
-			const testStr = firstLineStr ? firstLineStr + ' ' + word : word
-			const testWidth = doc.getTextWidth(testStr)
-			if (testWidth <= firstLineWidth) {
-				firstLineStr = testStr
-			} else {
-				remainingStr = firstLineWords.slice(i).join(' ')
-				break
-			}
-		}
-
-		// Render first line member details
 		doc.setFont('times', 'bold')
-		if (firstLineStr) {
-			doc.text(firstLineStr, contentX + prefixW, y)
-		}
+		doc.text(cert.member_name, contentX + prefixW, y)
+		const nameW = doc.getTextWidth(cert.member_name)
+		drawUnderline(y, contentX + prefixW, contentX + prefixW + nameW + 4)
+		y += lineSpacing
 
-		// If there's remaining text, wrap it on next line(s) at full width
-		let memberBlockLines = 1
-		if (remainingStr && remainingStr !== allMemberText) {
+		// Line 2: "<Designation>" (if present)
+		if (cert.member_designation) {
+			doc.setFont('times', 'bold')
+			doc.text(cert.member_designation, contentX, y)
+			const desigW = doc.getTextWidth(cert.member_designation)
+			drawUnderline(y, contentX, contentX + desigW + 4)
 			y += lineSpacing
-			const wrappedLines = doc.splitTextToSize(remainingStr, maxWidth)
-			doc.text(wrappedLines, contentX, y)
-			memberBlockLines += wrappedLines.length
-		} else if (!firstLineStr) {
-			// If nothing fit on first line, wrap all at full width
-			y += 0 // stays on same line for now
-			const wrappedLines = doc.splitTextToSize(allMemberText, maxWidth)
-			doc.text(wrappedLines, contentX + prefixW, y)
-			memberBlockLines = wrappedLines.length
 		}
 
-		// Draw underline beneath member details (full width)
-		const memberUnderlineY = y + (memberBlockLines - 1) * 4 + underlineOffset
-		drawUnderline(memberUnderlineY)
-		y += memberBlockLines * 4 + 6
+		// Line 3: "<Institution>" (if present)
+		const institutionText = cert.member_institution?.replace(/^["']\s*|\s*["']$/g, '').trim()
+		if (institutionText) {
+			doc.setFont('times', 'bold')
+			doc.text(institutionText, contentX, y)
+			const instW = doc.getTextWidth(institutionText)
+			drawUnderline(y, contentX, contentX + instW + 4)
+			y += lineSpacing
+		}
+
+		// Line 4: "<Address>" (if present)
+		if (cert.member_address) {
+			doc.setFont('times', 'bold')
+			doc.text(cert.member_address, contentX, y)
+			const addrW = doc.getTextWidth(cert.member_address)
+			drawUnderline(y, contentX, contentX + addrW + 4)
+			y += lineSpacing
+		}
+
+		y += 4
 
 		// Line: "has attended the PG Board of Studies meeting in the Department of"
 		doc.setFont('times', 'normal')
