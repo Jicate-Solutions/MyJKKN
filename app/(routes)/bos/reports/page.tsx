@@ -350,7 +350,13 @@ function AttendanceCertificatesTab({ institutionsId }: { institutionsId: string 
       .replace(/,?\s*DEPARTMENT\s+OF\s+[^,]+$/gi, '') // DEPARTMENT OF at end
       .replace(/^Dept\.?\s*/gi, '')
       .replace(/,?\s*Dept\.?\s*/gi, '')
-      .split(',').map(s => s.trim()).filter(Boolean).join(', '); // Clean up commas and spacing
+      .split(',').map(s => s.trim()).filter(Boolean);
+
+    // Remove standalone department names (common academic departments)
+    const departmentNames = ['COMMERCE', 'SCIENCE', 'ARTS', 'ENGINEERING', 'MANAGEMENT', 'EDUCATION', 'LAW'];
+    cleanedInstitution = cleanedInstitution
+      .filter(part => !departmentNames.includes(part.toUpperCase()))
+      .join(', ');
 
     return {
       institution_name: header.institution_name,
