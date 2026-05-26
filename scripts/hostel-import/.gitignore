@@ -1,0 +1,7 @@
+# Generated artifacts — regenerable from Excel + Supabase queries.
+parsed.json
+matches.json
+learner_to_profile.json
+matched_learner_ids.txt
+__pycache__/
+*.pyc
