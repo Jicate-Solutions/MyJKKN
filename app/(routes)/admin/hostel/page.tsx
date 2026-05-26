@@ -65,10 +65,9 @@ const CARDS: HubCard[] = [
     href: '/admin/hostel/rooms',
     title: 'Rooms',
     description:
-      'Room catalog with capacity, block / floor, AC and tier metadata. College-access junction is managed per room. (Building — separate PR.)',
+      'Room catalog with capacity, block / floor, AC and tier metadata. College-access junction is managed per room.',
     icon: BedDouble,
     accent: 'text-blue-600',
-    comingSoon: true,
   },
   {
     href: '/admin/hostel/allocations',
