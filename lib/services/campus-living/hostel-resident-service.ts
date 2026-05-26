@@ -6,6 +6,7 @@ import { logger } from '@/lib/utils/enhanced-logger';
 import type {
   HostelResident,
   HostelResidentWithProfile,
+  HostelResidentWithInstitutions,
   CreateHostelResidentDTO,
   UpdateHostelResidentDTO,
   ResidentFilters,
@@ -86,6 +87,86 @@ export class HostelResidentService {
       logger.error('campus-living/residents', 'Unexpected error in getResidents', error);
       throw error;
     }
+  }
+
+  // ── List residents enriched with derived institution_ids (PR 3) ───
+  // Joins each resident with their active hostel_allocations → block →
+  // hostel_block_institutions to surface the "which college(s) does this
+  // resident belong to?" admin-UI column that PR 2 deleted along with the
+  // dropped hostel_residents.institution_id column.
+  //
+  // Empty derived_institution_ids = no active allocation; UI renders the
+  // "Not allocated" badge.
+  static async getResidentsWithInstitutions(
+    institutionId: string | undefined,
+    filters?: ResidentFilters,
+    page = 1,
+    pageSize = 50
+  ) {
+    const result = await this.getResidents(institutionId, filters, page, pageSize);
+    if (result.data.length === 0) {
+      return { data: [] as HostelResidentWithInstitutions[], count: result.count };
+    }
+
+    const supabase = createClientSupabaseClient();
+
+    // 1. Fetch active allocations for these residents.
+    const residentIds = result.data.map((r) => r.id);
+    const { data: allocations, error: allocError } = await supabase
+      .from('hostel_allocations')
+      .select('resident_id, block_id')
+      .in('resident_id', residentIds)
+      .is('check_out_date', null);
+
+    if (allocError) {
+      logger.warn(
+        'campus-living/residents',
+        'Failed to enrich residents with institutions (allocation lookup); falling back to empty derived list',
+        allocError,
+      );
+      return {
+        data: result.data.map((r) => ({ ...r, derived_institution_ids: [] })) as HostelResidentWithInstitutions[],
+        count: result.count,
+      };
+    }
+
+    const blockIdSet = Array.from(
+      new Set(((allocations ?? []) as Array<{ resident_id: string | null; block_id: string }>)
+        .map((a) => a.block_id)
+        .filter(Boolean)),
+    );
+
+    // 2. Map block → institution_ids via hostel_block_institutions.
+    const blockInstMap = new Map<string, string[]>();
+    if (blockIdSet.length > 0) {
+      const { data: junction } = await supabase
+        .from('hostel_block_institutions')
+        .select('block_id, institution_id')
+        .in('block_id', blockIdSet);
+      for (const row of junction ?? []) {
+        const list = blockInstMap.get(row.block_id) ?? [];
+        list.push(row.institution_id);
+        blockInstMap.set(row.block_id, list);
+      }
+    }
+
+    // 3. Map resident → unique institution_ids (across all active allocations).
+    const residentInstMap = new Map<string, Set<string>>();
+    for (const a of (allocations ?? []) as Array<{ resident_id: string | null; block_id: string }>) {
+      if (!a.resident_id) continue;
+      const insts = blockInstMap.get(a.block_id) ?? [];
+      const existing = residentInstMap.get(a.resident_id) ?? new Set<string>();
+      for (const i of insts) existing.add(i);
+      residentInstMap.set(a.resident_id, existing);
+    }
+
+    return {
+      data: result.data.map((r) => ({
+        ...r,
+        derived_institution_ids: Array.from(residentInstMap.get(r.id) ?? []),
+      })) as HostelResidentWithInstitutions[],
+      count: result.count,
+    };
   }
 
   // ── Single resident ───────────────────────────────────────────────

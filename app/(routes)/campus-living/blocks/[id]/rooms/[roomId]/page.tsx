@@ -9,7 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/hooks/use-auth';
-import { useHostelRoom } from '@/hooks/campus-living/use-hostel-rooms';
+import { useHostelRoomWithOccupancy } from '@/hooks/campus-living/use-hostel-rooms';
 import {
   ArrowLeft,
   BedDouble,
@@ -43,8 +43,14 @@ export default function RoomDetailPage({
 }) {
   const { id, roomId } = use(params);
   const { profile } = useAuth();
-  const { data: roomData, isLoading } = useHostelRoom(roomId);
+  // hostel-rooms-v2 PR 3 (2026-05-26): use the occupancy-enriched hook so
+  // derived_status + active_residents arrive zipped with the room row.
+  const { data: roomData, isLoading } = useHostelRoomWithOccupancy(roomId);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const room = roomData as any;
+  // Block name lives on the joined hostel_blocks relation per the service
+  // select. Convenience alias keeps the JSX terse below.
+  const blockName: string | undefined = room?.hostel_blocks?.name ?? undefined;
 
   if (isLoading || !room) {
     return (
@@ -63,7 +69,7 @@ export default function RoomDetailPage({
           { label: 'Home', href: '/' },
           { label: 'Campus Living', href: '/campus-living' },
           { label: 'Blocks', href: '/campus-living/blocks' },
-          { label: room.block_name, href: `/campus-living/blocks/${id}` },
+          { label: blockName ?? 'Block', href: `/campus-living/blocks/${id}` },
           { label: 'Rooms', href: `/campus-living/blocks/${id}/rooms` },
           { label: room.room_number },
         ]}
@@ -83,17 +89,17 @@ export default function RoomDetailPage({
                 <h1 className="text-2xl font-bold">Room {room.room_number}</h1>
                 <Badge variant="outline" className="capitalize">{room.room_type}</Badge>
                 <Badge variant="outline" className="capitalize">{room.ac_status.replace('_', ' ')}</Badge>
-                <Badge variant={room.status === 'full' ? 'secondary' : room.status === 'available' ? 'success' : 'default'}>
-                  {room.status.replace('_', ' ')}
+                <Badge variant={room.derived_status === 'full' ? 'secondary' : room.derived_status === 'available' ? 'success' : 'default'}>
+                  {String(room.derived_status ?? 'unknown').replace('_', ' ')}
                 </Badge>
               </div>
               <p className="text-sm text-muted-foreground mt-1">
-                {room.block_name} &middot; Ground Floor &middot; {room.current_occupancy}/{room.capacity} occupied
+                {blockName ?? 'Block'} &middot; Floor {room.floor} &middot; {room.active_residents}/{room.capacity} occupied
               </p>
             </div>
           </div>
           <div className="flex gap-2">
-            {room.current_occupancy < room.capacity && (
+            {room.active_residents < room.capacity && (
               <Button asChild>
                 <Link href={`/campus-living/allocations/new?block=${id}&room=${roomId}`}>
                   <UserPlus className="mr-2 h-4 w-4" />
@@ -125,7 +131,7 @@ export default function RoomDetailPage({
           </Card>
           <Card>
             <CardContent className="p-4 text-center">
-              <p className="text-2xl font-bold">{room.current_occupancy}</p>
+              <p className="text-2xl font-bold">{room.active_residents}</p>
               <p className="text-xs text-muted-foreground">Occupied</p>
             </CardContent>
           </Card>
