@@ -2053,8 +2053,8 @@ export function EnquiryForm({
               >
                 {isSavingDraft && <Loader2 className="mr-1 sm:mr-2 h-4 w-4 animate-spin" />}
                 {!isSavingDraft && <Save className="mr-1 sm:mr-2 h-4 w-4" />}
-                <span className="hidden xs:inline">Save Draft</span>
-                <span className="xs:hidden">Draft</span>
+                <span className="hidden xs:inline">{learner ? 'Update' : 'Save Draft'}</span>
+                <span className="xs:hidden">{learner ? 'Update' : 'Draft'}</span>
               </Button>
             )}
 
