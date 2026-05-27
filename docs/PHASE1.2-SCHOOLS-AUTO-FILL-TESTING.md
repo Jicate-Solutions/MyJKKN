@@ -530,6 +530,94 @@ WHERE institution_id IN (
 - `app/(routes)/organizations/school-defaults/_components/school-defaults-table.tsx` (add checkbox column)
 - `docs/PHASE1.2-SCHOOLS-AUTO-FILL-TESTING.md` (add Phase 1.5 features, audit log guide)
 
+## Phase 1.6: Advanced Features (Completed 2026-05-26)
+
+### Features Implemented
+
+1. ✅ **Inline Editing**
+   - Click degree/department name in table to edit inline
+   - Character counter (max 100 chars)
+   - Press Enter to save, Esc to cancel
+   - Audit logging captures all edits with before/after values
+   - EditableCell component with blur/Enter handlers
+
+2. ✅ **Audit Log Filtering**
+   - Search by school name or user email/full name
+   - Filter by action type (Create/Update/Delete)
+   - Filter by specific school
+   - Combine multiple filters for precise results
+   - Clear Filters button resets all
+   - Filter status indicator shows active filters
+
+3. ✅ **Pagination**
+   - 100 entries per page
+   - Previous/Next navigation buttons
+   - Current page indicator (e.g., "Page 2 of 5")
+   - Automatic reset to page 1 when filters change
+   - Entry count display showing filtered vs total
+
+4. ✅ **Multi-Format Export**
+   - CSV export (existing, improved)
+   - JSON export (structured data for BI tools)
+   - Excel/XLSX export (for spreadsheet import)
+   - Export dropdown with all three options
+   - Date-stamped filenames (`audit-YYYY-MM-DD.csv|json|xlsx`)
+   - All formats include full audit details
+
+5. ✅ **Undo/Rollback**
+   - Restore deleted school defaults via soft delete pattern
+   - Undo button on delete audit entries
+   - Confirmation dialog before restoring ("Restore this deleted record?")
+   - Restore actions logged in audit trail as new 'restore' action
+   - No permanent data loss possible (deleted_at timestamp tracks soft delete)
+
+### Files Added/Modified (Phase 1.6)
+
+**New Files:**
+- `app/(routes)/organizations/school-defaults/_components/editable-cell.tsx` (111 lines)
+- `app/(routes)/organizations/school-defaults/audit/_components/audit-log-filters.tsx` (108 lines)
+- `lib/services/school-defaults-restore-service.ts` (30 lines)
+- `supabase/migrations/20260526_add_deleted_at_to_degrees.sql` (10 lines)
+- `components/ui/alert-box.tsx` (57 lines) [utility component for consistent alerts]
+
+**Modified Files:**
+- `app/(routes)/organizations/school-defaults/_components/school-defaults-table.tsx` (add inline edit cells)
+- `app/(routes)/organizations/school-defaults/_components/school-defaults-page.tsx` (add update handlers)
+- `app/(routes)/organizations/school-defaults/audit/_components/audit-log-table.tsx` (add filters, pagination, export dropdown, restore button)
+- `lib/utils/export-audit-logs.ts` (add JSON and XLSX export functions)
+- `package.json` (add xlsx dependency)
+- `docs/PHASE1.2-SCHOOLS-AUTO-FILL-TESTING.md` (add Phase 1.6 features)
+
+### Key Implementation Details
+
+**EditableCell Pattern:**
+- Uses local state for editing + tempValue management
+- Blur/Enter triggers save, Esc cancels
+- No modal dialogs (lighter UX for quick edits)
+- Automatic audit logging via parent handlers
+
+**Filtering Architecture:**
+- Client-side filtering for instant responsiveness
+- Filter state managed in AuditLogTable component
+- Real-time filtering as user types or selects
+- Unique school list generated from loaded logs
+
+**Pagination:**
+- Offset-based (100 items per page)
+- Resets to page 1 when filters change
+- Works seamlessly with filtering and export
+
+**Export Formats:**
+- CSV: Native browser Blob API, proper escaping for special chars
+- JSON: Full audit log structure, easily parseable
+- XLSX: Uses xlsx library, auto-formatted with headers
+
+**Soft Delete Restoration:**
+- deleted_at column tracks soft delete timestamp
+- Restore clears deleted_at (no hard delete recovery needed)
+- Restore logged as new audit action (full trail preserved)
+- Migration updates constraint to allow 'restore' action type
+
 ## Rollback Plan
 
 If issues occur:
