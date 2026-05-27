@@ -19,10 +19,8 @@ interface SchoolWithDefaults {
   entity_type: string;
   degree_id: string | null;
   degree_name: string | null;
-  degree_code: string | null;
   department_id: string | null;
   department_name: string | null;
-  department_code: string | null;
   learner_count: number;
 }
 
@@ -78,10 +76,8 @@ export default function SchoolDefaultsPage() {
           entity_type: school.entity_type,
           degree_id: k12Degree?.id || null,
           degree_name: k12Degree?.degree_name || null,
-          degree_code: k12Degree?.degree_id || null,
           department_id: null,
           department_name: null,
-          department_code: null,
           learner_count: school.learners_profiles?.length || 0,
         };
       });
@@ -118,7 +114,7 @@ export default function SchoolDefaultsPage() {
         school_id: item.school_id.id,
         school_name: item.school_id.name,
         degree_name: item.degree_name,
-        degree_code: item.degree_id,
+        degree_id: item.degree_id,
       }));
 
       setDeletedDegrees(transformed);
