@@ -6,6 +6,7 @@ import SchoolDefaultsTable from './school-defaults-table';
 import SchoolDetailsModal from './school-details-modal';
 import CreateDefaultsDialog from './create-defaults-dialog';
 import EditDefaultsModal from './edit-defaults-modal';
+import BulkRestoreDialog from './bulk-restore-dialog';
 import { PageHeader } from '@/components/page-header';
 import { AlertBox } from '@/components/ui/alert-box';
 import { Loader2 } from 'lucide-react';
@@ -34,9 +35,12 @@ export default function SchoolDefaultsPage() {
   const [editingSchool, setEditingSchool] = useState<SchoolWithDefaults | null>(null);
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [restoreDialogOpen, setRestoreDialogOpen] = useState(false);
+  const [deletedDegrees, setDeletedDegrees] = useState<any[]>([]);
 
   useEffect(() => {
     fetchSchoolDefaults();
+    fetchDeletedDegrees();
   }, []);
 
   async function fetchSchoolDefaults() {
@@ -89,6 +93,37 @@ export default function SchoolDefaultsPage() {
       console.error('Error fetching school defaults:', err);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function fetchDeletedDegrees() {
+    try {
+      const supabase = createClientSupabaseClient();
+      const { data, error: queryError } = await supabase
+        .from('degrees')
+        .select(`
+          id,
+          school_id:institutions!inner(id, institution_name),
+          degree_name,
+          degree_code,
+          deleted_at
+        `)
+        .not('deleted_at', 'is', null)
+        .order('deleted_at', { ascending: false });
+
+      if (queryError) throw queryError;
+
+      const transformed = (data || []).map((item: any) => ({
+        id: item.id,
+        school_id: item.school_id.id,
+        school_name: item.school_id.institution_name,
+        degree_name: item.degree_name,
+        degree_code: item.degree_code,
+      }));
+
+      setDeletedDegrees(transformed);
+    } catch (err) {
+      console.error('Error fetching deleted degrees:', err);
     }
   }
 
@@ -248,7 +283,17 @@ export default function SchoolDefaultsPage() {
       {error && <AlertBox type="error" message={error} />}
 
       {schools.length === 0 ? (
-        <AlertBox type="info" message="No school institutions found in the system" />
+        <div className="space-y-4">
+          <AlertBox
+            type="info"
+            message="No school institutions found in the system. Create a school institution first in the Institutions module."
+          />
+          <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
+            <p className="text-sm text-blue-900">
+              <strong>To get started:</strong> Go to <a href="/organizations/institutions" className="font-semibold underline hover:text-blue-700">Institutions</a> and create a new institution with <strong>Entity Type: School</strong>.
+            </p>
+          </div>
+        </div>
       ) : (
         <>
           {selectedIds.size > 0 && (
@@ -267,6 +312,20 @@ export default function SchoolDefaultsPage() {
                 onClick={() => setSelectedIds(new Set())}
               >
                 Clear Selection
+              </button>
+            </div>
+          )}
+
+          {deletedDegrees.length > 0 && (
+            <div className="flex gap-2 items-center bg-amber-50 p-3 rounded-lg border border-amber-200">
+              <span className="text-sm text-amber-800">
+                {deletedDegrees.length} deleted degree(s) available to restore
+              </span>
+              <button
+                className="px-3 py-1 text-sm font-medium bg-amber-600 text-white rounded hover:bg-amber-700"
+                onClick={() => setRestoreDialogOpen(true)}
+              >
+                Restore Deleted Degrees
               </button>
             </div>
           )}
@@ -314,6 +373,16 @@ export default function SchoolDefaultsPage() {
               onRefresh={fetchSchoolDefaults}
             />
           )}
+
+          <BulkRestoreDialog
+            open={restoreDialogOpen}
+            onOpenChange={setRestoreDialogOpen}
+            onRestoreComplete={() => {
+              fetchSchoolDefaults();
+              fetchDeletedDegrees();
+            }}
+            deletedDegrees={deletedDegrees}
+          />
         </>
       )}
     </div>
