@@ -12,6 +12,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 import { useAuth } from '@/hooks/use-auth';
 import { useCreateHostelBlock } from '@/hooks/campus-living/use-hostel-blocks';
+import { useActiveHostelCategories } from '@/hooks/campus-living/use-hostel-categories';
 import {
   Building2,
   ArrowLeft,
@@ -33,12 +34,14 @@ export default function NewBlockPage() {
   const router = useRouter();
   const { profile } = useAuth();
   const createBlock = useCreateHostelBlock();
+  const { hostelCategories: categories, loading: categoriesLoading } = useActiveHostelCategories();
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const [formData, setFormData] = useState({
     name: '',
     code: '',
     hostel_type: 'boys',
+    category_id: '',
     total_floors: '',
     address: '',
     contact_phone: '',
@@ -78,11 +81,13 @@ export default function NewBlockPage() {
       // hostel-rooms-v2 PR 2 (2026-05-26): hostel_blocks.institution_id
       // dropped; createBlock auto-grants caller's institution via the
       // hostel_block_institutions junction (see service layer).
+      const selectedCategory = categories.find(c => c.id === formData.category_id);
       const created = await createBlock.mutateAsync({
         primaryInstitutionId: profile?.institution_id ?? undefined,
         name: formData.name,
         code: formData.code,
-        hostel_type: formData.hostel_type as 'boys' | 'girls' | 'mixed',
+        hostel_type: (selectedCategory?.type ?? formData.hostel_type) as 'boys' | 'girls' | 'mixed',
+        category_id: formData.category_id || null,
         total_floors: parseInt(formData.total_floors) || 0,
         address: formData.address || null,
         contact_phone: formData.contact_phone || null,
@@ -173,17 +178,27 @@ export default function NewBlockPage() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="hostel_type">Hostel Type *</Label>
+                <Label htmlFor="category_id">Hostel Category *</Label>
                 <select
-                  id="hostel_type"
+                  id="category_id"
                   className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                  value={formData.hostel_type}
-                  onChange={(e) => handleInputChange('hostel_type', e.target.value)}
+                  value={formData.category_id}
+                  onChange={(e) => {
+                    const catId = e.target.value;
+                    const cat = categories.find(c => c.id === catId);
+                    setFormData(prev => ({
+                      ...prev,
+                      category_id: catId,
+                      hostel_type: cat?.type ?? prev.hostel_type,
+                    }));
+                  }}
                   required
+                  disabled={categoriesLoading}
                 >
-                  <option value="boys">Boys</option>
-                  <option value="girls">Girls</option>
-                  <option value="mixed">Mixed</option>
+                  <option value="">Select Category</option>
+                  {categories.map((cat) => (
+                    <option key={cat.id} value={cat.id}>{cat.name}</option>
+                  ))}
                 </select>
               </div>
 

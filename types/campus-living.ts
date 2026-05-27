@@ -459,6 +459,7 @@ export interface HostelBlock {
   name: string;
   code: string;
   hostel_type: HostelType;
+  category_id: string | null;
   address: string | null;
   amenities: Record<string, unknown> | null;
   contact_phone: string | null;
@@ -482,6 +483,7 @@ export interface CreateHostelBlockDTO {
   name: string;
   code: string;
   hostel_type: HostelType;
+  category_id?: string | null;
   total_floors: number;
   address?: string | null;
   amenities?: Record<string, unknown> | null;

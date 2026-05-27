@@ -3,11 +3,12 @@
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Card, CardContent } from '@/components/ui/card';
-import { Settings, IndianRupee, CalendarDays, Wrench, Bell, GitBranch, ArrowRight } from 'lucide-react';
+import { Settings, IndianRupee, CalendarDays, Wrench, Bell, GitBranch, ArrowRight, LayoutGrid } from 'lucide-react';
 
 export default function SettingsPage() {
   const settingsPages = [
     { title: 'General Settings', desc: 'Basic campus living configuration, academic year, hostel names', href: '/campus-living/settings/general', icon: Settings },
+    { title: 'Hostel Categories', desc: 'Manage hostel categories — Boys, Girls, Mixed hostels', href: '/campus-living/settings/categories', icon: LayoutGrid },
     { title: 'Fee Configuration', desc: 'Room-type fees, AC charges, deposit amounts, payment modes', href: '/campus-living/settings/fee-config', icon: IndianRupee },
     { title: 'Leave Types', desc: 'Configure leave types, max days, parent consent requirements', href: '/campus-living/settings/leave-types', icon: CalendarDays },
     { title: 'Maintenance SLA', desc: 'Set SLA targets by category and priority level', href: '/campus-living/settings/maintenance-sla', icon: Wrench },
