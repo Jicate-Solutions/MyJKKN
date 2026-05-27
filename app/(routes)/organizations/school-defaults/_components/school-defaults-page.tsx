@@ -53,7 +53,7 @@ export default function SchoolDefaultsPage() {
         .select(
           `
           id,
-          institution_name,
+          name as institution_name,
           entity_type,
           degrees!left (
             id,
@@ -66,7 +66,7 @@ export default function SchoolDefaultsPage() {
         `
         )
         .eq('entity_type', 'school')
-        .order('institution_name');
+        .order('name');
 
       if (queryError) throw queryError;
 
