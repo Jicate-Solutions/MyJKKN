@@ -85,7 +85,7 @@ export default function SchoolDefaultsTable({
               <TableHead className="w-12">
                 <Checkbox
                   checked={selectedIds.size === data.length && data.length > 0}
-                  indeterminate={selectedIds.size > 0 && selectedIds.size < data.length}
+                  indeterminate={selectedIds.size > 0 && selectedIds.size < data.length ? true : undefined}
                   onCheckedChange={onSelectAll}
                 />
               </TableHead>
