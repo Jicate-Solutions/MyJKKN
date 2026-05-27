@@ -8,6 +8,7 @@ import CreateDefaultsDialog from './create-defaults-dialog';
 import EditDefaultsModal from './edit-defaults-modal';
 import BulkRestoreDialog from './bulk-restore-dialog';
 import RestoreConfirmationDialog from './restore-confirmation-dialog';
+import { SchoolDefaultsFilters } from './school-defaults-filters';
 import { PageHeader } from '@/components/page-header';
 import { AlertBox } from '@/components/ui/alert-box';
 import { Loader2 } from 'lucide-react';
@@ -27,6 +28,7 @@ interface SchoolWithDefaults {
 
 export default function SchoolDefaultsPage() {
   const [schools, setSchools] = useState<SchoolWithDefaults[]>([]);
+  const [filteredSchools, setFilteredSchools] = useState<SchoolWithDefaults[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedSchool, setSelectedSchool] = useState<SchoolWithDefaults | null>(null);
@@ -36,14 +38,53 @@ export default function SchoolDefaultsPage() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [restoreDialogOpen, setRestoreDialogOpen] = useState(false);
   const [deletedDegrees, setDeletedDegrees] = useState<any[]>([]);
+  const [resourceType, setResourceType] = useState<'degree' | 'department'>('degree');
   const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
   const [confirmDialogRecords, setConfirmDialogRecords] = useState<any[]>([]);
   const [confirmResourceType, setConfirmResourceType] = useState<'degree' | 'department'>('degree');
+  const [searchText, setSearchText] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [sortBy, setSortBy] = useState<'name' | 'learners'>('name');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
 
   useEffect(() => {
     fetchSchoolDefaults();
-    fetchDeletedDegrees();
   }, []);
+
+  useEffect(() => {
+    fetchDeletedRecords(resourceType);
+  }, [resourceType]);
+
+  useEffect(() => {
+    let filtered = schools;
+
+    // Filter by search text (school name)
+    if (searchText) {
+      filtered = filtered.filter(school =>
+        school.school_name.toLowerCase().includes(searchText.toLowerCase())
+      );
+    }
+
+    // Filter by status
+    if (statusFilter === 'configured') {
+      filtered = filtered.filter(school => !!school.degree_id);
+    } else if (statusFilter === 'missing') {
+      filtered = filtered.filter(school => !school.degree_id);
+    }
+
+    // Apply sorting
+    const sorted = [...filtered].sort((a, b) => {
+      let compareValue = 0;
+      if (sortBy === 'name') {
+        compareValue = a.school_name.localeCompare(b.school_name);
+      } else if (sortBy === 'learners') {
+        compareValue = a.learner_count - b.learner_count;
+      }
+      return sortOrder === 'asc' ? compareValue : -compareValue;
+    });
+
+    setFilteredSchools(sorted);
+  }, [schools, searchText, statusFilter, sortBy, sortOrder]);
 
   async function fetchSchoolDefaults() {
     try {
@@ -60,7 +101,11 @@ export default function SchoolDefaultsPage() {
           degrees (
             id,
             degree_name,
-            degree_id
+            degree_id,
+            departments (
+              id,
+              department_name
+            )
           ),
           learners_profiles (
             id
@@ -77,14 +122,15 @@ export default function SchoolDefaultsPage() {
 
       const transformed: SchoolWithDefaults[] = (data || []).map((school: any) => {
         const k12Degree = school.degrees?.find((d: any) => d.degree_name === 'K-12 Program');
+        const academicDept = k12Degree?.departments?.find((dept: any) => dept.department_name === 'Academic');
         return {
           school_id: school.id,
           school_name: school.name,
           entity_type: school.entity_type,
           degree_id: k12Degree?.id || null,
           degree_name: k12Degree?.degree_name || null,
-          department_id: null,
-          department_name: null,
+          department_id: academicDept?.id || null,
+          department_name: academicDept?.department_name || null,
           learner_count: school.learners_profiles?.length || 0,
         };
       });
@@ -100,23 +146,27 @@ export default function SchoolDefaultsPage() {
     }
   }
 
-  async function fetchDeletedDegrees() {
+  async function fetchDeletedRecords(type: 'degree' | 'department') {
     try {
       const supabase = createClientSupabaseClient();
+      const tableName = type === 'degree' ? 'degrees' : 'departments';
+      const nameField = type === 'degree' ? 'degree_name' : 'department_name';
+      const idField = type === 'degree' ? 'degree_id' : 'department_id';
+
       const { data, error: queryError } = await supabase
-        .from('degrees')
+        .from(tableName)
         .select(`
           id,
           school_id:institutions(id, name),
-          degree_name,
-          degree_id,
+          ${nameField},
+          ${idField},
           deleted_at
         `)
         .not('deleted_at', 'is', null)
         .order('deleted_at', { ascending: false });
 
       if (queryError) {
-        console.error('Supabase query error (deleted degrees):', queryError);
+        console.error(`Supabase query error (deleted ${type}s):`, queryError);
         throw new Error(queryError.message || JSON.stringify(queryError));
       }
 
@@ -124,13 +174,13 @@ export default function SchoolDefaultsPage() {
         id: item.id,
         school_id: item.school_id.id,
         school_name: item.school_id.name,
-        degree_name: item.degree_name,
-        degree_id: item.degree_id,
+        name: item[nameField],
+        code: item[idField],
       }));
 
       setDeletedDegrees(transformed);
     } catch (err) {
-      console.error('Error fetching deleted degrees:', err);
+      console.error(`Error fetching deleted ${type}s:`, err);
     }
   }
 
@@ -281,7 +331,7 @@ export default function SchoolDefaultsPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 px-6">
       <PageHeader
         title="School Defaults"
         description="Manage virtual K-12 Program and Academic department assignments for school institutions"
@@ -323,22 +373,45 @@ export default function SchoolDefaultsPage() {
             </div>
           )}
 
+          <div className="flex gap-2 mb-4">
+            <button
+              onClick={() => setResourceType('degree')}
+              className={`px-4 py-2 font-medium rounded-lg transition-colors ${
+                resourceType === 'degree'
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+              }`}
+            >
+              K-12 Programs
+            </button>
+            <button
+              onClick={() => setResourceType('department')}
+              className={`px-4 py-2 font-medium rounded-lg transition-colors ${
+                resourceType === 'department'
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+              }`}
+            >
+              Departments
+            </button>
+          </div>
+
           {deletedDegrees.length > 0 && (
             <div className="flex gap-2 items-center bg-amber-50 p-3 rounded-lg border border-amber-200">
               <span className="text-sm text-amber-800">
-                {deletedDegrees.length} deleted degree(s) available to restore
+                {deletedDegrees.length} deleted {resourceType === 'degree' ? 'degree' : 'department'}(s) available to restore
               </span>
               <button
                 className="px-3 py-1 text-sm font-medium bg-amber-600 text-white rounded hover:bg-amber-700"
                 onClick={() => setRestoreDialogOpen(true)}
               >
-                Restore Deleted Degrees
+                Restore Deleted {resourceType === 'degree' ? 'Degrees' : 'Departments'}
               </button>
             </div>
           )}
 
           <SchoolDefaultsTable
-            data={schools}
+            data={filteredSchools}
             selectedIds={selectedIds}
             onSelectAll={handleSelectAll}
             onSelectSchool={handleSelectSchool}
@@ -349,6 +422,16 @@ export default function SchoolDefaultsPage() {
             }}
             onUpdateDegree={handleUpdateDegree}
             onUpdateDepartment={handleUpdateDepartment}
+            searchText={searchText}
+            statusFilter={statusFilter}
+            onSearchChange={setSearchText}
+            onStatusChange={setStatusFilter}
+            sortBy={sortBy}
+            sortOrder={sortOrder}
+            onSort={(field, order) => {
+              setSortBy(field);
+              setSortOrder(order);
+            }}
           />
 
           {selectedSchool && selectedSchool.degree_id ? (
@@ -386,9 +469,10 @@ export default function SchoolDefaultsPage() {
             onOpenChange={setRestoreDialogOpen}
             onRestoreComplete={() => {
               fetchSchoolDefaults();
-              fetchDeletedDegrees();
+              fetchDeletedRecords(resourceType);
             }}
             deletedDegrees={deletedDegrees}
+            resourceType={resourceType}
           />
 
           <RestoreConfirmationDialog

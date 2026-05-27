@@ -11,6 +11,13 @@ import {
 } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Loader2, RefreshCw } from 'lucide-react';
 import {
   RestoreQueueDashboardService,
@@ -54,8 +61,15 @@ export default function RestoreQueueTable() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [resourceTypeFilter, setResourceTypeFilter] = useState<'all' | 'degree' | 'department'>('all');
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+
+  // Filter items by resource type
+  const filteredItems = items.filter(item => {
+    if (resourceTypeFilter === 'all') return true;
+    return item.resourceType === resourceTypeFilter;
+  });
 
   const fetchItems = useCallback(
     async (currentPage: number, isRefresh = false) => {
@@ -118,10 +132,22 @@ export default function RestoreQueueTable() {
   return (
     <div className="space-y-4">
       {/* Toolbar */}
-      <div className="flex items-center justify-between">
-        <span className="text-sm text-muted-foreground">
-          {total} item{total !== 1 ? 's' : ''} total
-        </span>
+      <div className="flex items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <span className="text-sm text-muted-foreground">
+            {total} item{total !== 1 ? 's' : ''} total
+          </span>
+          <Select value={resourceTypeFilter} onValueChange={(v) => setResourceTypeFilter(v as 'all' | 'degree' | 'department')}>
+            <SelectTrigger className="w-40">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Types</SelectItem>
+              <SelectItem value="degree">K-12 Programs</SelectItem>
+              <SelectItem value="department">Departments</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
         <Button
           variant="outline"
           size="sm"
@@ -153,17 +179,17 @@ export default function RestoreQueueTable() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {items.length === 0 ? (
+            {filteredItems.length === 0 ? (
               <TableRow>
                 <TableCell
                   colSpan={7}
                   className="h-24 text-center text-muted-foreground"
                 >
-                  No restore jobs in the queue.
+                  {items.length === 0 ? 'No restore jobs in the queue.' : `No ${resourceTypeFilter === 'degree' ? 'K-12 Programs' : resourceTypeFilter === 'department' ? 'Departments' : ''} restore jobs found.`}
                 </TableCell>
               </TableRow>
             ) : (
-              items.map((item) => (
+              filteredItems.map((item) => (
                 <TableRow key={item.id}>
                   <TableCell>
                     <Badge

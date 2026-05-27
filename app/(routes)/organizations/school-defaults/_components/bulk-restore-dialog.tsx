@@ -31,6 +31,7 @@ interface BulkRestoreDialogProps {
   onOpenChange: (open: boolean) => void;
   onRestoreComplete: () => void;
   deletedDegrees: DeletedDegree[];
+  resourceType?: 'degree' | 'department';
 }
 
 export default function BulkRestoreDialog({
@@ -38,6 +39,7 @@ export default function BulkRestoreDialog({
   onOpenChange,
   onRestoreComplete,
   deletedDegrees,
+  resourceType = 'degree',
 }: BulkRestoreDialogProps) {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [restoring, setRestoring] = useState(false);
@@ -71,7 +73,7 @@ export default function BulkRestoreDialog({
   async function loadRecordsPage(page: number) {
     try {
       const result = await SchoolDefaultsRestoreService.getDeletedRecordsPaginated(
-        'degree',
+        resourceType,
         page,
         itemsPerPage
       );
@@ -138,7 +140,7 @@ export default function BulkRestoreDialog({
       try {
         results = await SchoolDefaultsRestoreService.bulkRestoreDeletedRecordsBatched(
           degreeIds,
-          'degree',
+          resourceType,
           batchSize,
           (current, total) => {
             if (!isAborted) {
@@ -163,7 +165,7 @@ export default function BulkRestoreDialog({
           const schoolName = displayedRecords.find(d => selectedIds.has(d.id))?.school_name || 'Unknown';
           await SchoolDefaultsRestoreService.bulkLogRestoreByType(
             successIds,
-            'degree',
+            resourceType,
             schoolName,
             user.user.id
           );
@@ -209,9 +211,11 @@ export default function BulkRestoreDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>Restore Deleted Degrees</DialogTitle>
+          <DialogTitle>
+            Restore Deleted {resourceType === 'degree' ? 'Degrees' : 'Departments'}
+          </DialogTitle>
           <DialogDescription>
-            Select the degrees you want to restore from the trash
+            Select the {resourceType === 'degree' ? 'degrees' : 'departments'} you want to restore from the trash
           </DialogDescription>
         </DialogHeader>
 
@@ -226,7 +230,7 @@ export default function BulkRestoreDialog({
           )}
 
           {totalRecords === 0 ? (
-            <AlertBox type="info" message="No deleted degrees to restore" />
+            <AlertBox type="info" message={`No deleted ${resourceType === 'degree' ? 'degrees' : 'departments'} to restore`} />
           ) : (
             <>
               <div className="flex items-center justify-between py-2">
@@ -340,7 +344,7 @@ export default function BulkRestoreDialog({
         open={scheduleDialogOpen}
         onOpenChange={setScheduleDialogOpen}
         selectedRecords={Array.from(selectedIds)}
-        resourceType="degree"
+        resourceType={resourceType}
         onScheduled={(result) => {
           setScheduleSuccess(result);
           setScheduleDialogOpen(false);
