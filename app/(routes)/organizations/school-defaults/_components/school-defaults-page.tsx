@@ -51,7 +51,7 @@ export default function SchoolDefaultsPage() {
         .select(
           `
           id,
-          name as institution_name,
+          name,
           entity_type,
           degrees (
             id,
@@ -75,7 +75,7 @@ export default function SchoolDefaultsPage() {
         const k12Degree = school.degrees?.find((d: any) => d.degree_name === 'K-12 Program');
         return {
           school_id: school.id,
-          school_name: school.institution_name,
+          school_name: school.name,
           entity_type: school.entity_type,
           degree_id: k12Degree?.id || null,
           degree_name: k12Degree?.degree_name || null,
