@@ -47,9 +47,9 @@ async function batchAutofillSchoolLearners(): Promise<void> {
     console.log('[Batch Auto-Fill] Fetching school institutions...');
     const { data: schools, error: schoolsError } = await supabase
       .from('institutions')
-      .select('id, institution_name')
+      .select('id, name')
       .eq('entity_type', 'school')
-      .order('institution_name');
+      .order('name');
 
     if (schoolsError) {
       throw new Error(`Failed to fetch schools: ${schoolsError.message}`);
@@ -65,7 +65,7 @@ async function batchAutofillSchoolLearners(): Promise<void> {
     // 2. Process each school
     for (const school of schools) {
       const result: BatchResult = {
-        schoolName: school.institution_name,
+        schoolName: school.name,
         schoolId: school.id,
         learnersProcessed: 0,
         learnersUpdated: 0,
