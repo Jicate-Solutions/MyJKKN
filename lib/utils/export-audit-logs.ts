@@ -1,8 +1,9 @@
 import * as XLSX from 'xlsx';
+import type { FilterState } from '@/app/(routes)/organizations/school-defaults/audit/_components/audit-log-filters';
 
 interface AuditLog {
   id: string;
-  action: 'create' | 'update' | 'delete';
+  action: 'create' | 'update' | 'delete' | 'restore';
   school_id: string;
   school_name: string;
   resource_type: 'degree' | 'department';
@@ -15,15 +16,38 @@ interface AuditLog {
   };
 }
 
-export function exportAuditLogsToCSV(logs: AuditLog[], filename: string = 'audit-logs.csv') {
-  if (!logs.length) {
+function applyFiltersBeforeExport(logs: AuditLog[], filters: FilterState): AuditLog[] {
+  return logs.filter((log) => {
+    if (filters.actionType !== 'all' && log.action !== filters.actionType) return false;
+    if (filters.resourceType && filters.resourceType !== 'all' && log.resource_type !== filters.resourceType) return false;
+    if (filters.school && log.school_id !== filters.school) return false;
+    if (filters.searchText) {
+      const searchLower = filters.searchText.toLowerCase();
+      const matchesSearch =
+        log.school_name.toLowerCase().includes(searchLower) ||
+        log.user_id.toLowerCase().includes(searchLower);
+      if (!matchesSearch) return false;
+    }
+    if (filters.dateRange?.from || filters.dateRange?.to) {
+      const logDate = new Date(log.created_at);
+      if (filters.dateRange.from && logDate < filters.dateRange.from) return false;
+      if (filters.dateRange.to && logDate > filters.dateRange.to) return false;
+    }
+    return true;
+  });
+}
+
+export function exportAuditLogsToCSV(logs: AuditLog[], filename: string = 'audit-logs.csv', filters?: FilterState) {
+  const logsToExport = filters ? applyFiltersBeforeExport(logs, filters) : logs;
+
+  if (!logsToExport.length) {
     alert('No audit logs to export');
     return;
   }
 
   const headers = ['Timestamp', 'Action', 'School', 'Resource Type', 'User', 'Changes'];
 
-  const rows = logs.map(log => {
+  const rows = logsToExport.map(log => {
     const profile = log.profile as any;
     const user = profile?.full_name || profile?.email || 'Unknown';
     return [
@@ -60,13 +84,15 @@ export function exportAuditLogsToCSV(logs: AuditLog[], filename: string = 'audit
   document.body.removeChild(link);
 }
 
-export function exportAuditLogsToJSON(logs: AuditLog[], filename: string = 'audit-logs.json') {
-  if (!logs.length) {
+export function exportAuditLogsToJSON(logs: AuditLog[], filename: string = 'audit-logs.json', filters?: FilterState) {
+  const logsToExport = filters ? applyFiltersBeforeExport(logs, filters) : logs;
+
+  if (!logsToExport.length) {
     alert('No audit logs to export');
     return;
   }
 
-  const jsonContent = JSON.stringify(logs, null, 2);
+  const jsonContent = JSON.stringify(logsToExport, null, 2);
   const blob = new Blob([jsonContent], { type: 'application/json;charset=utf-8;' });
   const link = document.createElement('a');
   const url = URL.createObjectURL(blob);
@@ -80,8 +106,10 @@ export function exportAuditLogsToJSON(logs: AuditLog[], filename: string = 'audi
   document.body.removeChild(link);
 }
 
-export function exportAuditLogsToXLSX(logs: AuditLog[], filename: string = 'audit-logs.xlsx') {
-  if (!logs.length) {
+export function exportAuditLogsToXLSX(logs: AuditLog[], filename: string = 'audit-logs.xlsx', filters?: FilterState) {
+  const logsToExport = filters ? applyFiltersBeforeExport(logs, filters) : logs;
+
+  if (!logsToExport.length) {
     alert('No audit logs to export');
     return;
   }
@@ -89,7 +117,7 @@ export function exportAuditLogsToXLSX(logs: AuditLog[], filename: string = 'audi
   // Create worksheet data
   const data = [
     ['Timestamp', 'Action', 'School', 'Resource Type', 'User', 'Changes'],
-    ...logs.map(log => {
+    ...logsToExport.map(log => {
       const profile = log.profile as any;
       const user = profile?.full_name || profile?.email || 'Unknown';
       return [
