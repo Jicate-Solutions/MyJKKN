@@ -1,11 +1,42 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { SchoolDefaultsAuditService } from './school-defaults-audit-service';
 
+async function getDeletedRecords(
+  supabase: ReturnType<typeof createClientSupabaseClient>,
+  resourceType: 'degree' | 'department'
+): Promise<Array<{ id: string; school_id: string; school_name: string; name: string; code: string; deleted_at: string }>> {
+  const tableName = resourceType === 'degree' ? 'degrees' : 'departments';
+  const nameField = resourceType === 'degree' ? 'degree_name' : 'department_name';
+  const codeField = resourceType === 'degree' ? 'degree_code' : 'department_code';
+
+  const { data, error } = await supabase
+    .from(tableName)
+    .select(`
+      id,
+      school_id:institutions!inner(id, institution_name),
+      ${nameField},
+      ${codeField},
+      deleted_at
+    `)
+    .not('deleted_at', 'is', null)
+    .order('deleted_at', { ascending: false });
+
+  if (error) throw error;
+
+  return (data || []).map((item: any) => ({
+    id: item.id,
+    school_id: item.school_id.id,
+    school_name: item.school_id.institution_name,
+    name: item[nameField],
+    code: item[codeField],
+    deleted_at: item.deleted_at,
+  }));
+}
+
 export class SchoolDefaultsRestoreService {
   static async restoreDeletedDegree(degreeId: string): Promise<void> {
     const supabase = createClientSupabaseClient();
 
-    // Clear deleted_at to restore
     const { error } = await supabase
       .from('degrees')
       .update({ deleted_at: null })
@@ -21,7 +52,6 @@ export class SchoolDefaultsRestoreService {
   ): Promise<void> {
     const supabase = createClientSupabaseClient();
 
-    // Log restore action as audit
     await supabase.from('school_defaults_audit_logs').insert({
       action: 'restore',
       school_id: degreeId,
@@ -36,33 +66,7 @@ export class SchoolDefaultsRestoreService {
     degreeIds: string[],
     onProgress?: (current: number, total: number) => void
   ): Promise<{ success: number; failed: number; errors: Record<string, string> }> {
-    const supabase = createClientSupabaseClient();
-    let successCount = 0;
-    let failedCount = 0;
-    const errors: Record<string, string> = {};
-
-    for (let i = 0; i < degreeIds.length; i++) {
-      const degreeId = degreeIds[i];
-      try {
-        const { error } = await supabase
-          .from('degrees')
-          .update({ deleted_at: null })
-          .eq('id', degreeId);
-
-        if (error) throw error;
-        successCount++;
-      } catch (err) {
-        failedCount++;
-        errors[degreeId] = err instanceof Error ? err.message : 'Unknown error';
-      }
-
-      // Report progress
-      if (onProgress) {
-        onProgress(i + 1, degreeIds.length);
-      }
-    }
-
-    return { success: successCount, failed: failedCount, errors };
+    return this.bulkRestoreDeletedRecords(degreeIds, 'degree', onProgress);
   }
 
   static async bulkLogRestore(
@@ -70,14 +74,86 @@ export class SchoolDefaultsRestoreService {
     schoolName: string,
     userId: string
   ): Promise<void> {
+    return this.bulkLogRestoreByType(degreeIds, 'degree', schoolName, userId);
+  }
+
+  static async bulkRestoreDeletedRecords(
+    recordIds: string[],
+    resourceType: 'degree' | 'department',
+    onProgress?: (current: number, total: number) => void
+  ): Promise<{ success: number; failed: number; errors: Record<string, string> }> {
+    const supabase = createClientSupabaseClient();
+    const tableName = resourceType === 'degree' ? 'degrees' : 'departments';
+    let successCount = 0;
+    let failedCount = 0;
+    const errors: Record<string, string> = {};
+
+    for (let i = 0; i < recordIds.length; i++) {
+      const recordId = recordIds[i];
+      try {
+        const { error } = await supabase
+          .from(tableName)
+          .update({ deleted_at: null })
+          .eq('id', recordId);
+
+        if (error) throw error;
+        successCount++;
+      } catch (err) {
+        failedCount++;
+        errors[recordId] = err instanceof Error ? err.message : 'Unknown error';
+      }
+
+      if (onProgress) {
+        onProgress(i + 1, recordIds.length);
+      }
+    }
+
+    return { success: successCount, failed: failedCount, errors };
+  }
+
+  static async bulkRestoreDeletedRecordsBatched(
+    recordIds: string[],
+    resourceType: 'degree' | 'department',
+    batchSize: number = 100,
+    onProgress?: (current: number, total: number) => void
+  ): Promise<{ success: number; failed: number; errors: Record<string, string> }> {
+    let totalSuccess = 0;
+    let totalFailed = 0;
+    const allErrors: Record<string, string> = {};
+
+    for (let i = 0; i < recordIds.length; i += batchSize) {
+      const batch = recordIds.slice(i, i + batchSize);
+      const results = await this.bulkRestoreDeletedRecords(
+        batch,
+        resourceType,
+        (current, total) => {
+          const overallCurrent = i + current;
+          onProgress?.(overallCurrent, recordIds.length);
+        }
+      );
+
+      totalSuccess += results.success;
+      totalFailed += results.failed;
+      Object.assign(allErrors, results.errors);
+    }
+
+    return { success: totalSuccess, failed: totalFailed, errors: allErrors };
+  }
+
+  static async bulkLogRestoreByType(
+    recordIds: string[],
+    resourceType: 'degree' | 'department',
+    schoolName: string,
+    userId: string
+  ): Promise<void> {
     const supabase = createClientSupabaseClient();
 
-    const logs = degreeIds.map(degreeId => ({
+    const logs = recordIds.map(recordId => ({
       action: 'restore',
-      school_id: degreeId,
+      school_id: undefined,
       school_name: schoolName,
-      resource_type: 'degree',
-      changes: { action: 'bulk_restore' },
+      resource_type: resourceType,
+      changes: { action: 'bulk_restore', resource_type: resourceType },
       user_id: userId,
     }));
 
