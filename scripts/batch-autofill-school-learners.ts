@@ -73,13 +73,13 @@ async function batchAutofillSchoolLearners(): Promise<void> {
       };
 
       try {
-        console.log(`[${school.institution_name}] Processing...`);
+        console.log(`[${school.name}] Processing...`);
 
         // Ensure K-12 Program degree exists
         const { data: existingDegree, error: degreeCheckError } = await supabase
           .from('degrees')
           .select('id')
-          .eq('degree_code', 'K12')
+          .eq('degree_id', 'K-12')
           .eq('institution_id', school.id)
           .maybeSingle();
 
@@ -95,7 +95,7 @@ async function batchAutofillSchoolLearners(): Promise<void> {
               {
                 institution_id: school.id,
                 degree_name: 'K-12 Program',
-                degree_code: 'K12',
+                degree_id: 'K-12',
               },
             ])
             .select('id')
@@ -112,7 +112,7 @@ async function batchAutofillSchoolLearners(): Promise<void> {
         const { data: existingDept, error: deptCheckError } = await supabase
           .from('departments')
           .select('id')
-          .eq('department_code', 'ACAD')
+          .eq('department_name', 'Academic')
           .eq('degree_id', degreeId)
           .maybeSingle();
 
