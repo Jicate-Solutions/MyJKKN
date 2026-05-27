@@ -53,12 +53,12 @@ export default function SchoolDefaultsPage() {
           id,
           name as institution_name,
           entity_type,
-          degrees!left (
+          degrees (
             id,
             degree_name,
             degree_id
           ),
-          learners_profiles!left (
+          learners_profiles (
             id
           )
         `
@@ -66,7 +66,10 @@ export default function SchoolDefaultsPage() {
         .eq('entity_type', 'school')
         .order('name');
 
-      if (queryError) throw queryError;
+      if (queryError) {
+        console.error('Supabase query error:', queryError);
+        throw new Error(queryError.message || JSON.stringify(queryError));
+      }
 
       const transformed: SchoolWithDefaults[] = (data || []).map((school: any) => {
         const k12Degree = school.degrees?.find((d: any) => d.degree_name === 'K-12 Program');
@@ -85,7 +88,8 @@ export default function SchoolDefaultsPage() {
       setSchools(transformed);
       setError(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load school defaults');
+      const errorMsg = err instanceof Error ? err.message : JSON.stringify(err);
+      setError(errorMsg || 'Failed to load school defaults');
       console.error('Error fetching school defaults:', err);
     } finally {
       setLoading(false);
@@ -99,7 +103,7 @@ export default function SchoolDefaultsPage() {
         .from('degrees')
         .select(`
           id,
-          school_id:institutions!inner(id, name),
+          school_id:institutions(id, name),
           degree_name,
           degree_id,
           deleted_at
@@ -107,7 +111,10 @@ export default function SchoolDefaultsPage() {
         .not('deleted_at', 'is', null)
         .order('deleted_at', { ascending: false });
 
-      if (queryError) throw queryError;
+      if (queryError) {
+        console.error('Supabase query error (deleted degrees):', queryError);
+        throw new Error(queryError.message || JSON.stringify(queryError));
+      }
 
       const transformed = (data || []).map((item: any) => ({
         id: item.id,
