@@ -103,7 +103,7 @@ export default function SchoolDefaultsPage() {
         .from('degrees')
         .select(`
           id,
-          school_id:institutions!inner(id, institution_name),
+          school_id:institutions!inner(id, name),
           degree_name,
           degree_code,
           deleted_at
@@ -116,7 +116,7 @@ export default function SchoolDefaultsPage() {
       const transformed = (data || []).map((item: any) => ({
         id: item.id,
         school_id: item.school_id.id,
-        school_name: item.school_id.institution_name,
+        school_name: item.school_id.name,
         degree_name: item.degree_name,
         degree_code: item.degree_code,
       }));
