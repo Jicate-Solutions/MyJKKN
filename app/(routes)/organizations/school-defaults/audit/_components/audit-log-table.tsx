@@ -49,7 +49,7 @@ export default function AuditLogTable() {
   });
   const [page, setPage] = useState(0);
   const itemsPerPage = 100;
-  const { isConnected } = useAuditLogSubscription();
+  const { isConnected, status } = useAuditLogSubscription();
 
   useEffect(() => {
     fetchAuditLogs();
@@ -188,15 +188,25 @@ export default function AuditLogTable() {
               schoolOptions={schoolOptions}
             />
             <div className="flex items-center gap-2 text-sm">
-              {isConnected ? (
+              {status === 'connected' ? (
                 <>
                   <Wifi className="h-4 w-4 text-green-600" />
                   <span className="text-green-700 font-medium">Live updates enabled</span>
                 </>
+              ) : status === 'connecting' ? (
+                <>
+                  <Loader2 className="h-4 w-4 text-blue-600 animate-spin" />
+                  <span className="text-blue-600">Connecting...</span>
+                </>
+              ) : status === 'error' ? (
+                <>
+                  <WifiOff className="h-4 w-4 text-red-600" />
+                  <span className="text-red-600">Connection error - retrying</span>
+                </>
               ) : (
                 <>
                   <WifiOff className="h-4 w-4 text-gray-400" />
-                  <span className="text-gray-500">Connecting...</span>
+                  <span className="text-gray-500">Disconnected</span>
                 </>
               )}
             </div>

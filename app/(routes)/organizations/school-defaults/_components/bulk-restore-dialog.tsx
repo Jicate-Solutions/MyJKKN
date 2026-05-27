@@ -76,52 +76,88 @@ export default function BulkRestoreDialog({
       return;
     }
 
+    let isAborted = false;
+
     try {
       setRestoring(true);
       setError(null);
       setSuccess(null);
+      setProgress(0);
 
       const supabase = createClientSupabaseClient();
-      const { data: user } = await supabase.auth.getUser();
+      const { data: user, error: authError } = await supabase.auth.getUser();
 
-      if (!user.user?.id) {
-        throw new Error('User not authenticated');
+      if (authError || !user.user?.id) {
+        throw new Error('User not authenticated - please log in again');
       }
 
       const degreeIds = Array.from(selectedIds);
-      const results = await SchoolDefaultsRestoreService.bulkRestoreDeletedDegrees(
-        degreeIds,
-        (current, total) => {
-          setProgress(Math.round((current / total) * 100));
-        }
-      );
 
-      // Log all restores
-      if (results.success > 0) {
-        const schoolName = deletedDegrees.find(d => selectedIds.has(d.id))?.school_name || 'Unknown';
-        await SchoolDefaultsRestoreService.bulkLogRestore(
-          degreeIds.filter(id => !results.errors[id]),
-          schoolName,
-          user.user.id
+      // Restore with progress tracking and error handling
+      let results;
+      try {
+        results = await SchoolDefaultsRestoreService.bulkRestoreDeletedDegrees(
+          degreeIds,
+          (current, total) => {
+            if (!isAborted) {
+              setProgress(Math.round((current / total) * 100));
+            }
+          }
         );
+      } catch (restoreError) {
+        throw new Error(
+          `Failed to restore records: ${restoreError instanceof Error ? restoreError.message : 'Unknown error'}`
+        );
+      }
+
+      if (isAborted) return;
+
+      // Log successful restores
+      const successIds = degreeIds.filter(id => !results.errors[id]);
+      if (successIds.length > 0) {
+        try {
+          const schoolName = deletedDegrees.find(d => selectedIds.has(d.id))?.school_name || 'Unknown';
+          await SchoolDefaultsRestoreService.bulkLogRestore(
+            successIds,
+            schoolName,
+            user.user.id
+          );
+        } catch (logError) {
+          console.error('Failed to log restore action:', logError);
+          // Don't fail the operation if logging fails
+        }
       }
 
       if (results.failed === 0) {
+        setProgress(100);
         setSuccess(`Successfully restored ${results.success} record(s)`);
         setTimeout(() => {
-          onRestoreComplete();
-          onOpenChange(false);
+          if (!isAborted) {
+            onRestoreComplete();
+            onOpenChange(false);
+          }
         }, 2000);
       } else {
+        const failureDetails = Object.entries(results.errors)
+          .map(([id, msg]) => `${id}: ${msg}`)
+          .join('; ');
         setError(
-          `Restored ${results.success}, but ${results.failed} failed. Errors: ${JSON.stringify(results.errors)}`
+          `Restored ${results.success}, but ${results.failed} failed. Details: ${failureDetails}`
         );
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to restore records');
+      if (!isAborted) {
+        const errorMsg = err instanceof Error ? err.message : 'An unexpected error occurred';
+        setError(errorMsg);
+      }
     } finally {
       setRestoring(false);
     }
+
+    // Cleanup flag on unmount
+    return () => {
+      isAborted = true;
+    };
   }
 
   return (
