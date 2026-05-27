@@ -11,7 +11,7 @@ import {
 } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { AlertBox } from '@/components/ui/alert-box';
-import { Loader2, Download } from 'lucide-react';
+import { Loader2, Download, Wifi, WifiOff } from 'lucide-react';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { Button } from '@/components/ui/button';
 import {
@@ -21,10 +21,11 @@ import {
 } from '@/lib/utils/export-audit-logs';
 import AuditLogFilters, { FilterState } from './audit-log-filters';
 import { SchoolDefaultsRestoreService } from '@/lib/services/school-defaults-restore-service';
+import { useAuditLogSubscription } from '@/hooks/use-audit-log-subscription';
 
 interface AuditLog {
   id: string;
-  action: 'create' | 'update' | 'delete';
+  action: 'create' | 'update' | 'delete' | 'restore';
   school_id: string;
   school_name: string;
   resource_type: 'degree' | 'department';
@@ -48,6 +49,7 @@ export default function AuditLogTable() {
   });
   const [page, setPage] = useState(0);
   const itemsPerPage = 100;
+  const { isConnected } = useAuditLogSubscription();
 
   useEffect(() => {
     fetchAuditLogs();
@@ -98,6 +100,8 @@ export default function AuditLogTable() {
         return 'bg-blue-50 border-blue-300';
       case 'delete':
         return 'bg-red-50 border-red-300';
+      case 'restore':
+        return 'bg-orange-50 border-orange-300';
       default:
         return 'bg-gray-50 border-gray-300';
     }
@@ -177,11 +181,26 @@ export default function AuditLogTable() {
         <AlertBox type="info" message="No audit logs found" />
       ) : (
         <>
-          <AuditLogFilters
-            filters={filters}
-            onFilterChange={setFilters}
-            schoolOptions={schoolOptions}
-          />
+          <div className="flex items-center justify-between">
+            <AuditLogFilters
+              filters={filters}
+              onFilterChange={setFilters}
+              schoolOptions={schoolOptions}
+            />
+            <div className="flex items-center gap-2 text-sm">
+              {isConnected ? (
+                <>
+                  <Wifi className="h-4 w-4 text-green-600" />
+                  <span className="text-green-700 font-medium">Live updates enabled</span>
+                </>
+              ) : (
+                <>
+                  <WifiOff className="h-4 w-4 text-gray-400" />
+                  <span className="text-gray-500">Connecting...</span>
+                </>
+              )}
+            </div>
+          </div>
 
           <div className="flex justify-end gap-2">
             <div className="relative group">
