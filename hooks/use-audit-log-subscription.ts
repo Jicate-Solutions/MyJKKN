@@ -15,22 +15,82 @@ interface AuditLogEntry {
 
 type ConnectionStatus = 'connecting' | 'connected' | 'disconnected' | 'error';
 
+interface SubscriptionState {
+  status: ConnectionStatus;
+  lastHeartbeat: number;
+  missedHeartbeats: number;
+}
+
 const MAX_RETRIES = 5;
-const INITIAL_RETRY_DELAY = 1000; // 1 second
+const INITIAL_RETRY_DELAY = 1000;
+const HEARTBEAT_INTERVAL = 30000;
+const HEARTBEAT_TIMEOUT = 10000;
 
 export function useAuditLogSubscription() {
   const queryClient = useQueryClient();
   const subscriptionRef = useRef<any>(null);
   const retryCountRef = useRef(0);
   const retryTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const heartbeatIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const heartbeatTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isMountedRef = useRef(true);
-  const [status, setStatus] = useState<ConnectionStatus>('connecting');
+  const [subscriptionState, setSubscriptionState] = useState<SubscriptionState>({
+    status: 'connecting',
+    lastHeartbeat: Date.now(),
+    missedHeartbeats: 0,
+  });
 
   const getRetryDelay = useCallback((retryCount: number) => {
     return INITIAL_RETRY_DELAY * Math.pow(2, retryCount);
   }, []);
 
+  const stopHeartbeat = useCallback(() => {
+    if (heartbeatIntervalRef.current) {
+      clearInterval(heartbeatIntervalRef.current);
+      heartbeatIntervalRef.current = null;
+    }
+    if (heartbeatTimeoutRef.current) {
+      clearTimeout(heartbeatTimeoutRef.current);
+      heartbeatTimeoutRef.current = null;
+    }
+  }, []);
+
+  const sendHeartbeat = useCallback(() => {
+    if (!isMountedRef.current || subscriptionRef.current === null) return;
+
+    try {
+      subscriptionRef.current.send({
+        type: 'heartbeat',
+        timestamp: Date.now(),
+      });
+
+      heartbeatTimeoutRef.current = setTimeout(() => {
+        if (!isMountedRef.current) return;
+
+        setSubscriptionState(prev => ({
+          ...prev,
+          missedHeartbeats: prev.missedHeartbeats + 1,
+        }));
+
+        if (subscriptionState.missedHeartbeats > 2) {
+          scheduleReconnect();
+        }
+      }, HEARTBEAT_TIMEOUT);
+    } catch (err) {
+      console.error('Heartbeat send failed:', err);
+    }
+  }, [subscriptionState.missedHeartbeats]);
+
+  const startHeartbeat = useCallback(() => {
+    if (heartbeatIntervalRef.current) clearInterval(heartbeatIntervalRef.current);
+
+    heartbeatIntervalRef.current = setInterval(() => {
+      sendHeartbeat();
+    }, HEARTBEAT_INTERVAL);
+  }, [sendHeartbeat]);
+
   const unsubscribe = useCallback(() => {
+    stopHeartbeat();
     if (subscriptionRef.current) {
       subscriptionRef.current.unsubscribe();
       subscriptionRef.current = null;
@@ -39,14 +99,17 @@ export function useAuditLogSubscription() {
       clearTimeout(retryTimeoutRef.current);
       retryTimeoutRef.current = null;
     }
-  }, []);
+  }, [stopHeartbeat]);
 
   const subscribe = useCallback(() => {
     if (subscriptionRef.current) return;
     if (!isMountedRef.current) return;
 
     try {
-      setStatus('connecting');
+      setSubscriptionState(prev => ({
+        ...prev,
+        status: 'connecting',
+      }));
       const supabase = createClientSupabaseClient();
 
       const channel = supabase
@@ -71,13 +134,27 @@ export function useAuditLogSubscription() {
           if (!isMountedRef.current) return;
 
           if (status === 'SUBSCRIBED') {
-            setStatus('connected');
+            setSubscriptionState(prev => ({
+              ...prev,
+              status: 'connected',
+              lastHeartbeat: Date.now(),
+              missedHeartbeats: 0,
+            }));
             retryCountRef.current = 0;
+            startHeartbeat();
           } else if (status === 'CHANNEL_ERROR') {
-            setStatus('error');
+            setSubscriptionState(prev => ({
+              ...prev,
+              status: 'error',
+            }));
+            stopHeartbeat();
             handleSubscriptionError(err);
           } else if (status === 'CLOSED') {
-            setStatus('disconnected');
+            setSubscriptionState(prev => ({
+              ...prev,
+              status: 'disconnected',
+            }));
+            stopHeartbeat();
             scheduleReconnect();
           }
         });
@@ -85,11 +162,14 @@ export function useAuditLogSubscription() {
       subscriptionRef.current = channel;
     } catch (err) {
       if (isMountedRef.current) {
-        setStatus('error');
+        setSubscriptionState(prev => ({
+          ...prev,
+          status: 'error',
+        }));
         handleSubscriptionError(err);
       }
     }
-  }, [queryClient]);
+  }, [queryClient, startHeartbeat, stopHeartbeat]);
 
   const handleSubscriptionError = useCallback((error: any) => {
     console.error('Audit log subscription error:', error);
@@ -100,7 +180,10 @@ export function useAuditLogSubscription() {
     if (!isMountedRef.current) return;
 
     if (retryCountRef.current >= MAX_RETRIES) {
-      setStatus('error');
+      setSubscriptionState(prev => ({
+        ...prev,
+        status: 'error',
+      }));
       return;
     }
 
@@ -125,13 +208,16 @@ export function useAuditLogSubscription() {
 
     return () => {
       isMountedRef.current = false;
+      stopHeartbeat();
       unsubscribe();
     };
-  }, [subscribe, unsubscribe]);
+  }, [subscribe, unsubscribe, stopHeartbeat]);
 
   return {
-    isConnected: status === 'connected',
-    status,
+    isConnected: subscriptionState.status === 'connected',
+    status: subscriptionState.status,
+    lastHeartbeat: subscriptionState.lastHeartbeat,
+    missedHeartbeats: subscriptionState.missedHeartbeats,
     subscribe,
     unsubscribe,
   };
