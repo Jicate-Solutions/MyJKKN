@@ -7,6 +7,7 @@ import SchoolDetailsModal from './school-details-modal';
 import CreateDefaultsDialog from './create-defaults-dialog';
 import EditDefaultsModal from './edit-defaults-modal';
 import BulkRestoreDialog from './bulk-restore-dialog';
+import RestoreConfirmationDialog from './restore-confirmation-dialog';
 import { PageHeader } from '@/components/page-header';
 import { AlertBox } from '@/components/ui/alert-box';
 import { Loader2 } from 'lucide-react';
@@ -35,6 +36,9 @@ export default function SchoolDefaultsPage() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [restoreDialogOpen, setRestoreDialogOpen] = useState(false);
   const [deletedDegrees, setDeletedDegrees] = useState<any[]>([]);
+  const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
+  const [confirmDialogRecords, setConfirmDialogRecords] = useState<any[]>([]);
+  const [confirmResourceType, setConfirmResourceType] = useState<'degree' | 'department'>('degree');
 
   useEffect(() => {
     fetchSchoolDefaults();
@@ -385,6 +389,25 @@ export default function SchoolDefaultsPage() {
               fetchDeletedDegrees();
             }}
             deletedDegrees={deletedDegrees}
+          />
+
+          <RestoreConfirmationDialog
+            open={confirmDialogOpen}
+            onOpenChange={setConfirmDialogOpen}
+            records={confirmDialogRecords}
+            resourceType={confirmResourceType}
+            onConfirm={async (recordIds) => {
+              const { data: user } = await createClientSupabaseClient().auth.getUser();
+              if (user.user?.id) {
+                await SchoolDefaultsRestoreService.bulkRestoreDeletedRecordsBatched(
+                  recordIds,
+                  confirmResourceType,
+                  100
+                );
+                await fetchSchoolDefaults();
+                await fetchDeletedDegrees();
+              }
+            }}
           />
         </>
       )}
