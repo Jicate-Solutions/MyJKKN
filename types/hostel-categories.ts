@@ -3,6 +3,7 @@ export type HostelCategoryType = 'boys' | 'girls' | 'mixed';
 export interface HostelCategory {
   id: string;
   name: string;
+  description: string | null;
   type: HostelCategoryType;
   is_active: boolean;
   sort_order: number;
@@ -12,6 +13,7 @@ export interface HostelCategory {
 
 export interface CreateHostelCategoryDto {
   name: string;
+  description?: string | null;
   type: HostelCategoryType;
   is_active?: boolean;
   sort_order?: number;
@@ -19,6 +21,7 @@ export interface CreateHostelCategoryDto {
 
 export interface UpdateHostelCategoryDto {
   name?: string;
+  description?: string | null;
   type?: HostelCategoryType;
   is_active?: boolean;
   sort_order?: number;

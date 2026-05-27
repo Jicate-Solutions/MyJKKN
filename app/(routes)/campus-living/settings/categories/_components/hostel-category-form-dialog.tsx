@@ -27,6 +27,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Loader2 } from 'lucide-react';
@@ -40,6 +41,7 @@ const formSchema = z.object({
     .string()
     .min(2, 'Name must be at least 2 characters')
     .max(100, 'Name must be at most 100 characters'),
+  description: z.string().max(500, 'Description must be at most 500 characters').optional().or(z.literal('')),
   type: z.enum(['boys', 'girls', 'mixed'], {
     required_error: 'Please select a type',
   }),
@@ -69,6 +71,7 @@ export function HostelCategoryFormDialog({
     resolver: zodResolver(formSchema),
     defaultValues: {
       name: '',
+      description: '',
       type: 'boys',
       sort_order: 0,
       is_active: true,
@@ -80,6 +83,7 @@ export function HostelCategoryFormDialog({
     if (mode === 'edit' && category) {
       form.reset({
         name: category.name,
+        description: category.description ?? '',
         type: category.type as 'boys' | 'girls' | 'mixed',
         sort_order: category.sort_order,
         is_active: category.is_active,
@@ -87,6 +91,7 @@ export function HostelCategoryFormDialog({
     } else {
       form.reset({
         name: '',
+        description: '',
         type: 'boys',
         sort_order: 0,
         is_active: true,
@@ -97,11 +102,12 @@ export function HostelCategoryFormDialog({
   const onSubmit = async (data: FormValues) => {
     try {
       setSubmitting(true);
+      const payload = { ...data, description: data.description?.trim() || null };
       if (mode === 'create') {
-        await createHostelCategory(data);
+        await createHostelCategory(payload);
         toast.success('Hostel category created');
       } else if (category) {
-        await updateHostelCategory(category.id, data);
+        await updateHostelCategory(category.id, payload);
         toast.success('Hostel category updated');
       }
       onOpenChange(false);
@@ -138,6 +144,24 @@ export function HostelCategoryFormDialog({
                   <FormLabel>Category Name</FormLabel>
                   <FormControl>
                     <Input placeholder='e.g., Boys Hostel' {...field} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name='description'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Description <span className='text-muted-foreground font-normal'>(Optional)</span></FormLabel>
+                  <FormControl>
+                    <Textarea
+                      placeholder='Brief description of this hostel category'
+                      className='min-h-[80px] resize-none'
+                      {...field}
+                    />
                   </FormControl>
                   <FormMessage />
                 </FormItem>

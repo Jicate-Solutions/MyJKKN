@@ -49,6 +49,15 @@ export const createColumns = (): ColumnDef<HostelCategory>[] => [
     ),
   },
   {
+    accessorKey: 'description',
+    header: 'Description',
+    cell: ({ row }) => (
+      <span className='text-muted-foreground text-sm line-clamp-1'>
+        {row.original.description || '—'}
+      </span>
+    ),
+  },
+  {
     accessorKey: 'type',
     header: 'Type',
     cell: ({ row }) => (

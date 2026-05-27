@@ -82,7 +82,28 @@ function getFileName(url: string): string {
   }
 }
 
+function isSafeStorageUrl(u: string): boolean {
+  try {
+    const parsed = new URL(u);
+    return (
+      (parsed.protocol === 'https:' || parsed.protocol === 'http:') &&
+      parsed.pathname.includes('/storage/v1/object/')
+    );
+  } catch {
+    return false;
+  }
+}
+
 function FileFieldDisplay({ url, label }: { url: string; label: string }) {
+  if (!isSafeStorageUrl(url)) {
+    return (
+      <div className="space-y-0.5">
+        <p className="text-xs text-muted-foreground">{label}</p>
+        <p className="text-sm font-medium break-words text-muted-foreground">Invalid file URL</p>
+      </div>
+    );
+  }
+
   const IconComponent = getFileIcon(url);
   const fileName = getFileName(url);
   const isImage = /\.(jpg|jpeg|png|gif|webp|svg|bmp)/i.test(url);
