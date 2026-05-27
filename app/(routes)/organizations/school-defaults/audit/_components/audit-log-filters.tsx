@@ -13,8 +13,13 @@ import { X } from 'lucide-react';
 
 export interface FilterState {
   searchText: string;
-  actionType: 'all' | 'create' | 'update' | 'delete';
+  actionType: 'all' | 'create' | 'update' | 'delete' | 'restore';
   school: string;
+  resourceType: 'all' | 'degree' | 'department';
+  dateRange?: {
+    from: Date;
+    to: Date;
+  };
 }
 
 interface AuditLogFiltersProps {
@@ -33,6 +38,8 @@ export default function AuditLogFilters({
       searchText: '',
       actionType: 'all',
       school: '',
+      resourceType: 'all',
+      dateRange: undefined,
     });
   }
 
@@ -40,6 +47,8 @@ export default function AuditLogFilters({
     filters.searchText && 'search',
     filters.actionType !== 'all' && filters.actionType,
     filters.school && 'school',
+    filters.resourceType && filters.resourceType !== 'all' && `resource: ${filters.resourceType}`,
+    filters.dateRange && 'date range',
   ].filter(Boolean);
 
   return (
@@ -69,6 +78,7 @@ export default function AuditLogFilters({
               <SelectItem value="create">Create</SelectItem>
               <SelectItem value="update">Update</SelectItem>
               <SelectItem value="delete">Delete</SelectItem>
+              <SelectItem value="restore">Restore</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -90,6 +100,56 @@ export default function AuditLogFilters({
               ))}
             </SelectContent>
           </Select>
+        </div>
+
+        <div>
+          <label className="text-sm font-medium mb-1 block">Resource Type</label>
+          <Select value={filters.resourceType} onValueChange={(v: any) =>
+            onFilterChange({ ...filters, resourceType: v })
+          }>
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Resources</SelectItem>
+              <SelectItem value="degree">K-12 Programs Only</SelectItem>
+              <SelectItem value="department">Departments Only</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div>
+          <label className="text-sm font-medium mb-1 block">From Date</label>
+          <Input
+            type="date"
+            value={filters.dateRange?.from?.toISOString().split('T')[0] || ''}
+            onChange={(e) =>
+              onFilterChange({
+                ...filters,
+                dateRange: {
+                  from: new Date(e.target.value),
+                  to: filters.dateRange?.to || new Date(),
+                },
+              })
+            }
+          />
+        </div>
+
+        <div>
+          <label className="text-sm font-medium mb-1 block">To Date</label>
+          <Input
+            type="date"
+            value={filters.dateRange?.to?.toISOString().split('T')[0] || ''}
+            onChange={(e) =>
+              onFilterChange({
+                ...filters,
+                dateRange: {
+                  from: filters.dateRange?.from || new Date(),
+                  to: new Date(e.target.value),
+                },
+              })
+            }
+          />
         </div>
       </div>
 

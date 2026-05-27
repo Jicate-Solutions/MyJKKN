@@ -46,6 +46,7 @@ export default function AuditLogTable() {
     searchText: '',
     actionType: 'all',
     school: '',
+    resourceType: 'all',
   });
   const [page, setPage] = useState(0);
   const itemsPerPage = 100;
@@ -135,6 +136,18 @@ export default function AuditLogTable() {
       // School
       if (filters.school && log.school_id !== filters.school) {
         return false;
+      }
+
+      // Resource type
+      if (filters.resourceType && filters.resourceType !== 'all' && log.resource_type !== filters.resourceType) {
+        return false;
+      }
+
+      // Date range
+      if (filters.dateRange?.from || filters.dateRange?.to) {
+        const logDate = new Date(log.created_at);
+        if (filters.dateRange.from && logDate < filters.dateRange.from) return false;
+        if (filters.dateRange.to && logDate > filters.dateRange.to) return false;
       }
 
       return true;
