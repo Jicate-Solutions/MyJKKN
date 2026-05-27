@@ -96,6 +96,7 @@ async function batchAutofillSchoolLearners(): Promise<void> {
                 institution_id: school.id,
                 degree_name: 'K-12 Program',
                 degree_id: 'K-12',
+                degree_type: 'ug',
               },
             ])
             .select('id')
