@@ -261,7 +261,8 @@
       "Bash(\"/c/Program Files/Git/bin/git.exe\" log -1 --format=\"%H %s\")",
       "Read(//tmp/**)",
       "Bash(:)",
-      "Bash(break)"
+      "Bash(break)",
+      "mcp__plugin_claude-mem_mcp-search__smart_outline"
     ],
     "deny": [],
     "ask": []

@@ -498,6 +498,7 @@ export interface UpdateLearnerProfileDto {
   semester_id?: string | null;
   section_id?: string | null;
   academic_year_id?: string | null;
+  admission_year_id?: string | null;
   regulation_id?: string | null;
   batch_id?: string | null;
 

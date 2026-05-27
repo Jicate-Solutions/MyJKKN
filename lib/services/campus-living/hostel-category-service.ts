@@ -129,6 +129,17 @@ export class HostelCategoryService {
   }
 
   static async deleteCategory(id: string): Promise<void> {
+    const { count } = await this.supabase
+      .from('hostel_blocks')
+      .select('id', { count: 'exact', head: true })
+      .eq('category_id', id);
+
+    if (count && count > 0) {
+      throw new Error(
+        `Cannot delete: ${count} hostel block${count > 1 ? 's' : ''} still use this category. Reassign them first.`
+      );
+    }
+
     const { error } = await this.supabase
       .from('hostel_categories')
       .delete()

@@ -16,6 +16,11 @@ import {
   Circle,
   AlertCircle,
   Mail,
+  Download,
+  ExternalLink,
+  File,
+  FileImage,
+  FileSpreadsheet,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type {
@@ -49,6 +54,81 @@ function buildFieldLabelMap(request: ServiceRequest): Record<string, string> {
   return map;
 }
 
+/** Maps field_key → field_type so we can render file fields differently */
+function buildFieldTypeMap(request: ServiceRequest): Record<string, string> {
+  const map: Record<string, string> = {};
+  if (request.service_type?.fields) {
+    for (const field of request.service_type.fields) {
+      map[field.field_key] = field.field_type;
+    }
+  }
+  return map;
+}
+
+function getFileIcon(url: string) {
+  const lower = url.toLowerCase();
+  if (/\.(jpg|jpeg|png|gif|webp|svg|bmp)/.test(lower)) return FileImage;
+  if (/\.(xls|xlsx|csv)/.test(lower)) return FileSpreadsheet;
+  return File;
+}
+
+function getFileName(url: string): string {
+  try {
+    const parts = url.split('/');
+    const raw = decodeURIComponent(parts[parts.length - 1] || 'document');
+    return raw.replace(/^\d+_/, '');
+  } catch {
+    return 'document';
+  }
+}
+
+function FileFieldDisplay({ url, label }: { url: string; label: string }) {
+  const IconComponent = getFileIcon(url);
+  const fileName = getFileName(url);
+  const isImage = /\.(jpg|jpeg|png|gif|webp|svg|bmp)/i.test(url);
+
+  return (
+    <div className="space-y-2">
+      <p className="text-xs text-muted-foreground">{label}</p>
+      <div className="flex items-center gap-3 p-3 rounded-lg border bg-muted/20 hover:bg-muted/40 transition-colors">
+        <div className="h-9 w-9 rounded-md bg-primary/10 flex items-center justify-center shrink-0">
+          <IconComponent className="h-5 w-5 text-primary" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-medium truncate">{fileName}</p>
+        </div>
+        <div className="flex items-center gap-1.5 shrink-0">
+          <a
+            href={url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:underline px-2.5 py-1.5 rounded-md hover:bg-primary/10 transition-colors"
+          >
+            <ExternalLink className="h-3.5 w-3.5" />
+            View
+          </a>
+          <a
+            href={url}
+            download={fileName}
+            className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-primary px-2.5 py-1.5 rounded-md hover:bg-muted transition-colors"
+          >
+            <Download className="h-3.5 w-3.5" />
+          </a>
+        </div>
+      </div>
+      {isImage && (
+        <a href={url} target="_blank" rel="noopener noreferrer" className="block">
+          <img
+            src={url}
+            alt={fileName}
+            className="max-h-48 rounded-lg border object-contain cursor-pointer hover:opacity-90 transition-opacity"
+          />
+        </a>
+      )}
+    </div>
+  );
+}
+
 function InfoItem({
   icon: Icon,
   label,
@@ -80,6 +160,7 @@ export function RequestDetailView({
   isProcessing,
 }: RequestDetailViewProps) {
   const fieldLabelMap = buildFieldLabelMap(request);
+  const fieldTypeMap = buildFieldTypeMap(request);
   const approvalSteps = [...(request.service_type?.approval_steps || [])].sort(
     (a, b) => a.step_order - b.step_order
   );
@@ -331,34 +412,72 @@ export function RequestDetailView({
         )}
 
         {/* Form Data — uses real field labels from service type definition */}
-        {request.form_data && Object.keys(request.form_data).length > 0 && (
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
-                <FileText className="h-3.5 w-3.5" />
-                Request Details
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-4">
-                {Object.entries(request.form_data).map(([key, value]) => (
-                  <div key={key} className="space-y-0.5">
-                    <p className="text-xs text-muted-foreground">
-                      {fieldLabelMap[key] || key.replace(/_/g, ' ')}
-                    </p>
-                    <p className="text-sm font-medium break-words">
-                      {typeof value === 'boolean'
-                        ? value
-                          ? 'Yes'
-                          : 'No'
-                        : String(value || '—')}
-                    </p>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        )}
+        {request.form_data && Object.keys(request.form_data).length > 0 && (() => {
+          const fileEntries = Object.entries(request.form_data).filter(
+            ([key, value]) =>
+              (fieldTypeMap[key] === 'file' ||
+                (typeof value === 'string' && value.includes('/storage/v1/object/'))) &&
+              value
+          );
+          const nonFileEntries = Object.entries(request.form_data).filter(
+            ([key, value]) =>
+              !(fieldTypeMap[key] === 'file' ||
+                (typeof value === 'string' && value.includes('/storage/v1/object/')))
+          );
+
+          return (
+            <>
+              {nonFileEntries.length > 0 && (
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
+                      <FileText className="h-3.5 w-3.5" />
+                      Request Details
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-4">
+                      {nonFileEntries.map(([key, value]) => (
+                        <div key={key} className="space-y-0.5">
+                          <p className="text-xs text-muted-foreground">
+                            {fieldLabelMap[key] || key.replace(/_/g, ' ')}
+                          </p>
+                          <p className="text-sm font-medium break-words">
+                            {typeof value === 'boolean'
+                              ? value
+                                ? 'Yes'
+                                : 'No'
+                              : String(value || '—')}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {fileEntries.length > 0 && (
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
+                      <File className="h-3.5 w-3.5" />
+                      Linked Files
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    {fileEntries.map(([key, value]) => (
+                      <FileFieldDisplay
+                        key={key}
+                        url={String(value)}
+                        label={fieldLabelMap[key] || key.replace(/_/g, ' ')}
+                      />
+                    ))}
+                  </CardContent>
+                </Card>
+              )}
+            </>
+          );
+        })()}
 
         {/* Attachments */}
         {request.attachments && request.attachments.length > 0 && (

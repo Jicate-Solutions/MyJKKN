@@ -1009,9 +1009,11 @@ export function EnquiryForm({
 
   // Format form data with default values for required fields
   const formatFormDataForAPI = (values: EnquiryFormValues) => {
-    // Helper to handle UUID fields - return undefined if empty string
-    const formatUUID = (value: string | undefined) => {
-      if (!value || value.trim() === '') return undefined;
+    // Helper to handle UUID fields - return null if empty string so the DB
+    // column is explicitly cleared. Returning undefined would cause
+    // JSON.stringify to strip the key, leaving the old stale value in place.
+    const formatUUID = (value: string | undefined): string | null => {
+      if (!value || value.trim() === '') return null;
       return value;
     };
 
