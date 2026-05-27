@@ -14,6 +14,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { AlertBox } from '@/components/ui/alert-box';
 import { Clock, Loader2 } from 'lucide-react';
 import ScheduleRestoreDialog from './schedule-restore-dialog';
+import BatchSizeSelector from './batch-size-selector';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { SchoolDefaultsRestoreService } from '@/lib/services/school-defaults-restore-service';
 
@@ -46,6 +47,7 @@ export default function BulkRestoreDialog({
   const [success, setSuccess] = useState<string | null>(null);
   const [scheduleDialogOpen, setScheduleDialogOpen] = useState(false);
   const [scheduleSuccess, setScheduleSuccess] = useState<{ restoreId: string; scheduledFor: Date } | null>(null);
+  const [batchSize, setBatchSize] = useState(50);
   const [currentPage, setCurrentPage] = useState(0);
   const [totalRecords, setTotalRecords] = useState(0);
   const itemsPerPage = 50;
@@ -137,7 +139,7 @@ export default function BulkRestoreDialog({
         results = await SchoolDefaultsRestoreService.bulkRestoreDeletedRecordsBatched(
           degreeIds,
           'degree',
-          50, // Smaller batch size for more frequent progress updates
+          batchSize,
           (current, total) => {
             if (!isAborted) {
               const percent = Math.round((current / total) * 100);
@@ -261,6 +263,8 @@ export default function BulkRestoreDialog({
                   </div>
                 ))}
               </div>
+
+              <BatchSizeSelector value={batchSize} onChange={setBatchSize} disabled={restoring} />
 
               {/* Pagination Controls */}
               {totalPages > 1 && (
