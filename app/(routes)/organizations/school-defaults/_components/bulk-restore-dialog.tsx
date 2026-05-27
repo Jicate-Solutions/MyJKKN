@@ -12,7 +12,8 @@ import {
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { AlertBox } from '@/components/ui/alert-box';
-import { Loader2 } from 'lucide-react';
+import { Clock, Loader2 } from 'lucide-react';
+import ScheduleRestoreDialog from './schedule-restore-dialog';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { SchoolDefaultsRestoreService } from '@/lib/services/school-defaults-restore-service';
 
@@ -40,21 +41,58 @@ export default function BulkRestoreDialog({
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [restoring, setRestoring] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [progressMessage, setProgressMessage] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [scheduleDialogOpen, setScheduleDialogOpen] = useState(false);
+  const [scheduleSuccess, setScheduleSuccess] = useState<{ restoreId: string; scheduledFor: Date } | null>(null);
+  const [currentPage, setCurrentPage] = useState(0);
+  const [totalRecords, setTotalRecords] = useState(0);
+  const itemsPerPage = 50;
+  const totalPages = Math.ceil(totalRecords / itemsPerPage);
+  const [displayedRecords, setDisplayedRecords] = useState<DeletedDegree[]>([]);
 
   useEffect(() => {
     if (!open) {
       setSelectedIds(new Set());
       setProgress(0);
+      setProgressMessage('');
       setError(null);
       setSuccess(null);
+      setCurrentPage(0);
+    } else {
+      // Load initial records
+      loadRecordsPage(0);
     }
   }, [open]);
 
+  async function loadRecordsPage(page: number) {
+    try {
+      const result = await SchoolDefaultsRestoreService.getDeletedRecordsPaginated(
+        'degree',
+        page,
+        itemsPerPage
+      );
+
+      const formattedRecords = result.records.map(r => ({
+        id: r.id,
+        school_id: r.school_id,
+        school_name: r.school_name,
+        degree_name: r.name,
+        degree_code: r.code,
+      }));
+
+      setDisplayedRecords(formattedRecords);
+      setTotalRecords(result.total);
+      setCurrentPage(page);
+    } catch (err) {
+      console.error('Error loading records:', err);
+    }
+  }
+
   const handleSelectAll = (checked: boolean) => {
     if (checked) {
-      setSelectedIds(new Set(deletedDegrees.map(d => d.id)));
+      setSelectedIds(new Set(displayedRecords.map(d => d.id)));
     } else {
       setSelectedIds(new Set());
     }
@@ -96,11 +134,15 @@ export default function BulkRestoreDialog({
       // Restore with progress tracking and error handling
       let results;
       try {
-        results = await SchoolDefaultsRestoreService.bulkRestoreDeletedDegrees(
+        results = await SchoolDefaultsRestoreService.bulkRestoreDeletedRecordsBatched(
           degreeIds,
+          'degree',
+          50, // Smaller batch size for more frequent progress updates
           (current, total) => {
             if (!isAborted) {
-              setProgress(Math.round((current / total) * 100));
+              const percent = Math.round((current / total) * 100);
+              setProgress(percent);
+              setProgressMessage(`Restoring... ${current} of ${total}`);
             }
           }
         );
@@ -116,9 +158,10 @@ export default function BulkRestoreDialog({
       const successIds = degreeIds.filter(id => !results.errors[id]);
       if (successIds.length > 0) {
         try {
-          const schoolName = deletedDegrees.find(d => selectedIds.has(d.id))?.school_name || 'Unknown';
-          await SchoolDefaultsRestoreService.bulkLogRestore(
+          const schoolName = displayedRecords.find(d => selectedIds.has(d.id))?.school_name || 'Unknown';
+          await SchoolDefaultsRestoreService.bulkLogRestoreByType(
             successIds,
+            'degree',
             schoolName,
             user.user.id
           );
@@ -173,25 +216,36 @@ export default function BulkRestoreDialog({
         <div className="space-y-4">
           {error && <AlertBox type="error" message={error} />}
           {success && <AlertBox type="success" message={success} />}
+          {scheduleSuccess && (
+            <AlertBox
+              type="success"
+              message={`Scheduled restore for ${scheduleSuccess.scheduledFor.toLocaleString()}`}
+            />
+          )}
 
-          {deletedDegrees.length === 0 ? (
+          {totalRecords === 0 ? (
             <AlertBox type="info" message="No deleted degrees to restore" />
           ) : (
             <>
-              <div className="flex items-center gap-2 py-2">
-                <Checkbox
-                  checked={selectedIds.size === deletedDegrees.length && deletedDegrees.length > 0}
-                  indeterminate={selectedIds.size > 0 && selectedIds.size < deletedDegrees.length}
-                  onCheckedChange={handleSelectAll}
-                  disabled={restoring}
-                />
-                <label className="text-sm font-medium cursor-pointer">
-                  Select All ({selectedIds.size} of {deletedDegrees.length})
-                </label>
+              <div className="flex items-center justify-between py-2">
+                <div className="flex items-center gap-2">
+                  <Checkbox
+                    checked={selectedIds.size === displayedRecords.length && displayedRecords.length > 0}
+                    indeterminate={selectedIds.size > 0 && selectedIds.size < displayedRecords.length}
+                    onCheckedChange={handleSelectAll}
+                    disabled={restoring}
+                  />
+                  <label className="text-sm font-medium cursor-pointer">
+                    Select All ({selectedIds.size} of {totalRecords})
+                  </label>
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  Page {currentPage + 1} of {Math.max(1, totalPages)}
+                </div>
               </div>
 
               <div className="border rounded-lg p-3 max-h-64 overflow-y-auto space-y-2">
-                {deletedDegrees.map(degree => (
+                {displayedRecords.map(degree => (
                   <div key={degree.id} className="flex items-center gap-3 p-2 hover:bg-gray-50 rounded">
                     <Checkbox
                       checked={selectedIds.has(degree.id)}
@@ -208,10 +262,35 @@ export default function BulkRestoreDialog({
                 ))}
               </div>
 
+              {/* Pagination Controls */}
+              {totalPages > 1 && (
+                <div className="flex justify-between items-center">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => loadRecordsPage(currentPage - 1)}
+                    disabled={currentPage === 0 || restoring}
+                  >
+                    Previous
+                  </Button>
+                  <span className="text-xs text-muted-foreground">
+                    {currentPage + 1} of {totalPages}
+                  </span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => loadRecordsPage(currentPage + 1)}
+                    disabled={currentPage >= totalPages - 1 || restoring}
+                  >
+                    Next
+                  </Button>
+                </div>
+              )}
+
               {restoring && progress > 0 && (
                 <div className="space-y-2">
                   <div className="flex justify-between text-sm">
-                    <span>Restoring...</span>
+                    <span>{progressMessage || 'Restoring...'}</span>
                     <span className="font-medium">{progress}%</span>
                   </div>
                   <div className="w-full bg-gray-200 rounded-full h-2">
@@ -235,6 +314,15 @@ export default function BulkRestoreDialog({
             Cancel
           </Button>
           <Button
+            variant="outline"
+            onClick={() => setScheduleDialogOpen(true)}
+            disabled={selectedIds.size === 0 || restoring}
+            className="gap-2"
+          >
+            <Clock className="h-4 w-4" />
+            Schedule for Later
+          </Button>
+          <Button
             onClick={handleRestore}
             disabled={selectedIds.size === 0 || restoring || deletedDegrees.length === 0}
             className="gap-2"
@@ -244,6 +332,17 @@ export default function BulkRestoreDialog({
           </Button>
         </DialogFooter>
       </DialogContent>
+      <ScheduleRestoreDialog
+        open={scheduleDialogOpen}
+        onOpenChange={setScheduleDialogOpen}
+        selectedRecords={Array.from(selectedIds)}
+        resourceType="degree"
+        onScheduled={(result) => {
+          setScheduleSuccess(result);
+          setScheduleDialogOpen(false);
+          setTimeout(() => onRestoreComplete(), 2000);
+        }}
+      />
     </Dialog>
   );
 }
