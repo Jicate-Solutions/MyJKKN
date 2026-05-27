@@ -974,33 +974,20 @@ export default function BulkCreateBillsPage() {
                         </FormLabel>
                         <FormControl>
                           <Input
-                            type='number'
-                            min='1'
-                            step='1'
+                            type='text'
                             inputMode='numeric'
+                            pattern='[0-9]*'
                             placeholder='0'
                             {...field}
                             value={field.value?.toString() ?? ''}
                             onChange={(e) => {
-                              // Empty input → undefined so zod fires its
-                              // required_error path. parseInt(..., 10) drops
-                              // any decimal a user pastes (e.g. "100.99" → 100)
-                              // so the displayed value matches what gets saved.
-                              const raw = e.target.value;
+                              const raw = e.target.value.replace(/[^0-9]/g, '');
                               if (raw === '') {
                                 field.onChange(undefined);
                                 return;
                               }
                               const parsed = parseInt(raw, 10);
                               field.onChange(Number.isNaN(parsed) ? undefined : parsed);
-                            }}
-                            onKeyDown={(e) => {
-                              // Block the user from typing a decimal point /
-                              // exponent in the first place — keeps the UI in
-                              // sync with the integer-only schema.
-                              if (['.', 'e', 'E', '+', '-'].includes(e.key)) {
-                                e.preventDefault();
-                              }
                             }}
                           />
                         </FormControl>

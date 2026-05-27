@@ -30,6 +30,7 @@ import { cn } from '@/lib/utils';
 interface AdvancedBillingScheduleFiltersProps {
   searchParams: BillingScheduleSearchParams;
   onFilterChange: (key: string, value: string | undefined) => void;
+  onBatchFilterChange: (changes: Record<string, string | undefined>) => void;
   onClearFilters: () => void;
 }
 
@@ -63,9 +64,18 @@ interface FilterValidation {
   suggestions: string[];
 }
 
+const CASCADE_CLEAR_MAP: Record<string, string[]> = {
+  institution_id: ['degree_id', 'department_id', 'program_id', 'semester_id', 'section_id', 'academic_year_id'],
+  degree_id: ['department_id', 'program_id', 'semester_id', 'section_id'],
+  department_id: ['program_id', 'semester_id', 'section_id'],
+  program_id: ['semester_id', 'section_id'],
+  semester_id: ['section_id']
+};
+
 export function AdvancedBillingScheduleFilters({
   searchParams,
   onFilterChange,
+  onBatchFilterChange,
   onClearFilters
 }: AdvancedBillingScheduleFiltersProps) {
   const [filterState, setFilterState] = useState<FilterState>({
@@ -153,45 +163,37 @@ export function AdvancedBillingScheduleFilters({
     };
   }, [searchParams, filterState]);
 
-  // Optimized filter change handler that only clears invalid dependent filters
   const handleSmartFilterChange = useCallback(
     (key: string, value: string | undefined) => {
-      // Always apply the current filter change
-      onFilterChange(key, value);
+      const toClear = CASCADE_CLEAR_MAP[key];
 
-      // Smart cascade logic: only clear filters that become invalid
-      if (!value) {
-        // If clearing a filter, clear its dependents
-        const clearMap: Record<string, string[]> = {
-          institution_id: ['degree_id', 'department_id', 'program_id', 'semester_id', 'section_id', 'academic_year_id'],
-          degree_id: ['department_id', 'program_id', 'semester_id', 'section_id'],
-          department_id: ['program_id', 'semester_id', 'section_id'],
-          program_id: ['semester_id', 'section_id'],
-          semester_id: ['section_id']
-        };
-
-        const toClear = clearMap[key] || [];
-        toClear.forEach(filterKey => {
-          onFilterChange(filterKey, undefined);
-        });
+      if (toClear) {
+        const changes: Record<string, string | undefined> = { [key]: value };
+        for (const filterKey of toClear) {
+          changes[filterKey] = undefined;
+        }
+        onBatchFilterChange(changes);
+      } else {
+        onFilterChange(key, value);
       }
     },
-    [onFilterChange]
+    [onFilterChange, onBatchFilterChange]
   );
 
   // Auto-fix invalid filters on page load
   useEffect(() => {
     const validation = validateFilters();
     if (!validation.isValid) {
-      // Auto-clear invalid filters after a brief delay to allow data to load
       const timer = setTimeout(() => {
-        validation.invalidFilters.forEach(filterKey => {
-          onFilterChange(filterKey, undefined);
-        });
+        const changes: Record<string, string | undefined> = {};
+        for (const filterKey of validation.invalidFilters) {
+          changes[filterKey] = undefined;
+        }
+        onBatchFilterChange(changes);
       }, 1000);
       return () => clearTimeout(timer);
     }
-  }, [validateFilters, onFilterChange]);
+  }, [validateFilters, onBatchFilterChange]);
 
   // Enhanced data loading with error handling and caching
   const loadFilterData = useCallback(async (

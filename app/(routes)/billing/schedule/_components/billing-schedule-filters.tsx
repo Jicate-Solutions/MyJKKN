@@ -28,12 +28,14 @@ import { DateRange } from 'react-day-picker';
 interface BillingScheduleFiltersProps {
   searchParams: BillingScheduleSearchParams;
   onFilterChange: (key: string, value: string | undefined) => void;
+  onBatchFilterChange: (changes: Record<string, string | undefined>) => void;
   onClearFilters: () => void;
 }
 
 export function BillingScheduleFilters({
   searchParams,
   onFilterChange,
+  onBatchFilterChange,
   onClearFilters
 }: BillingScheduleFiltersProps) {
   const {
@@ -235,17 +237,15 @@ export function BillingScheduleFilters({
               value={searchParams.institution_id || 'all'}
               onValueChange={(value) => {
                 const newValue = value === 'all' ? undefined : value;
-                onFilterChange('institution_id', newValue);
-                // Clear dependent filters
-                if (!newValue) {
-                  onFilterChange('degree_id', undefined);
-                  onFilterChange('department_id', undefined);
-                  onFilterChange('program_id', undefined);
-                  onFilterChange('semester_id', undefined);
-                  onFilterChange('section_id', undefined);
-                  onFilterChange('academic_year_id', undefined);
-                  onFilterChange('item_category_id', undefined);
-                }
+                onBatchFilterChange({
+                  institution_id: newValue,
+                  degree_id: undefined,
+                  department_id: undefined,
+                  program_id: undefined,
+                  semester_id: undefined,
+                  section_id: undefined,
+                  academic_year_id: undefined,
+                });
               }}
             >
               <SelectTrigger className='w-full sm:w-[200px]'>
@@ -266,14 +266,13 @@ export function BillingScheduleFilters({
             value={searchParams.degree_id || 'all'}
             onValueChange={(value) => {
               const newValue = value === 'all' ? undefined : value;
-              onFilterChange('degree_id', newValue);
-              // Clear dependent filters
-              if (!newValue) {
-                onFilterChange('department_id', undefined);
-                onFilterChange('program_id', undefined);
-                onFilterChange('semester_id', undefined);
-                onFilterChange('section_id', undefined);
-              }
+              onBatchFilterChange({
+                degree_id: newValue,
+                department_id: undefined,
+                program_id: undefined,
+                semester_id: undefined,
+                section_id: undefined,
+              });
             }}
             disabled={!searchParams.institution_id}
           >
@@ -294,13 +293,12 @@ export function BillingScheduleFilters({
             value={searchParams.department_id || 'all'}
             onValueChange={(value) => {
               const newValue = value === 'all' ? undefined : value;
-              onFilterChange('department_id', newValue);
-              // Clear dependent filters
-              if (!newValue) {
-                onFilterChange('program_id', undefined);
-                onFilterChange('semester_id', undefined);
-                onFilterChange('section_id', undefined);
-              }
+              onBatchFilterChange({
+                department_id: newValue,
+                program_id: undefined,
+                semester_id: undefined,
+                section_id: undefined,
+              });
             }}
             disabled={!searchParams.degree_id}
           >
@@ -321,12 +319,11 @@ export function BillingScheduleFilters({
             value={searchParams.program_id || 'all'}
             onValueChange={(value) => {
               const newValue = value === 'all' ? undefined : value;
-              onFilterChange('program_id', newValue);
-              // Clear dependent filters
-              if (!newValue) {
-                onFilterChange('semester_id', undefined);
-                onFilterChange('section_id', undefined);
-              }
+              onBatchFilterChange({
+                program_id: newValue,
+                semester_id: undefined,
+                section_id: undefined,
+              });
             }}
             disabled={!searchParams.department_id}
           >
@@ -356,11 +353,10 @@ export function BillingScheduleFilters({
           value={searchParams.semester_id || 'all'}
           onValueChange={(value) => {
             const newValue = value === 'all' ? undefined : value;
-            onFilterChange('semester_id', newValue);
-            // Clear dependent filters
-            if (!newValue) {
-              onFilterChange('section_id', undefined);
-            }
+            onBatchFilterChange({
+              semester_id: newValue,
+              section_id: undefined,
+            });
           }}
           disabled={!searchParams.program_id}
         >

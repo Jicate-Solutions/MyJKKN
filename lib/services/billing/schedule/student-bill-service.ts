@@ -416,7 +416,10 @@ export class StudentBillService {
       let query;
 
       if (hasAcademicFilters) {
-        // Use the billing_student_bills table with joins when academic filters are needed
+        // !inner turns the student embed into an INNER JOIN so that
+        // .eq('student.column', value) filters actually exclude parent
+        // rows where the student doesn't match (without !inner, PostgREST
+        // returns the bill with student: null instead of excluding it).
         query = (this.supabase as any).from('billing_student_bills').select(
           `
             id,
@@ -440,7 +443,7 @@ export class StudentBillService {
             created_by,
             created_at,
             updated_at,
-            student:learners_profiles(
+            student:learners_profiles!inner(
               first_name,
               last_name,
               roll_number,
@@ -759,14 +762,14 @@ export class StudentBillService {
           ),
           discounts:billing_discounts(
             *,
-            authorizer:profiles(id, full_name)
+            authorizer:profiles!fk_billing_discounts_authorizer(id, full_name)
           ),
           receipt_items:billing_receipt_items(
             *,
             receipt:billing_receipts(
               *,
               student:learners_profiles(id, first_name, last_name, college_email),
-              accountant:profiles(id, full_name),
+              accountant:profiles!fk_billing_receipts_accountant(id, full_name),
               refunds:billing_refunds(
                 *,
                 authorizer:profiles!fk_billing_refunds_authorizer(id, full_name),
