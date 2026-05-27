@@ -159,4 +159,14 @@ export class SchoolDefaultsRestoreService {
 
     await supabase.from('school_defaults_audit_logs').insert(logs);
   }
+
+  static async scheduleRestore(
+    recordIds: string[],
+    resourceType: 'degree' | 'department',
+    scheduledFor: Date,
+    userId: string
+  ): Promise<string> {
+    const { ScheduledRestoreQueue } = await import('./scheduled-restore-queue');
+    return ScheduledRestoreQueue.scheduleRestore(recordIds, resourceType, scheduledFor, userId);
+  }
 }
