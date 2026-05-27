@@ -58,7 +58,7 @@ export default function SchoolDefaultsPage() {
           degrees!left (
             id,
             degree_name,
-            degree_code
+            degree_id
           ),
           learners_profiles!left (
             id
@@ -71,14 +71,14 @@ export default function SchoolDefaultsPage() {
       if (queryError) throw queryError;
 
       const transformed: SchoolWithDefaults[] = (data || []).map((school: any) => {
-        const k12Degree = school.degrees?.find((d: any) => d.degree_code === 'K12');
+        const k12Degree = school.degrees?.find((d: any) => d.degree_name === 'K-12 Program');
         return {
           school_id: school.id,
           school_name: school.institution_name,
           entity_type: school.entity_type,
           degree_id: k12Degree?.id || null,
           degree_name: k12Degree?.degree_name || null,
-          degree_code: k12Degree?.degree_code || null,
+          degree_code: k12Degree?.degree_id || null,
           department_id: null,
           department_name: null,
           department_code: null,
@@ -105,7 +105,7 @@ export default function SchoolDefaultsPage() {
           id,
           school_id:institutions!inner(id, name),
           degree_name,
-          degree_code,
+          degree_id,
           deleted_at
         `)
         .not('deleted_at', 'is', null)
@@ -118,7 +118,7 @@ export default function SchoolDefaultsPage() {
         school_id: item.school_id.id,
         school_name: item.school_id.name,
         degree_name: item.degree_name,
-        degree_code: item.degree_code,
+        degree_code: item.degree_id,
       }));
 
       setDeletedDegrees(transformed);
