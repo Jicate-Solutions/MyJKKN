@@ -35,11 +35,11 @@ Project: `hhprjbgknupaplivtoib` · 10 rows · 29 columns (pre-migration)
 | `pin_code` | varchar | YES | — |
 | `timetable_type` | varchar | YES | `'week_order'` |
 
-**+1 NEW column after migration:**
+**Column for school classification:**
 
 | Column | Type | Nullable | Default | Check |
 |---|---|---|---|---|
-| **`institution_kind`** | **varchar(20)** | **NO** | **`'college'`** | **IN ('college', 'school')** |
+| **`entity_type`** | **varchar(20)** | **NO** | **`'institution'`** | **IN ('institution', 'school', 'admin_office', 'company')** |
 
 ---
 
@@ -62,86 +62,90 @@ FROM institutions GROUP BY institution_type, category;
 
 ---
 
-## ⚠ Naming warning
+## Column reference
 
-The table ALREADY has `institution_type`. Do not confuse it with `institution_kind`:
+The `entity_type` column classifies institutions:
 
-| Column | Meaning | Values | Introduced |
+| Column | Meaning | Values | Purpose |
 |---|---|---|---|
-| `institution_type` | Accreditation | `autonomous`, `self`, `aided` | Pre-existing |
-| `institution_kind` | Education level | `college`, `school` | **This migration** |
+| `entity_type` | Institutional classification | `institution`, `school`, `admin_office`, `company` | Determines UI labels and data hierarchy |
+| `institution_type` | Accreditation status | `autonomous`, `self`, `aided` | Regulatory classification (pre-existing) |
 
-Both columns are queried independently in the UI. Do NOT rename, merge, or overload.
+These are orthogonal and both are queried independently.
 
 ---
 
-## The migration SQL
+## The entity_type column
 
-Path: `supabase/migrations/20260411_add_institution_kind.sql`
+Path: `supabase/migrations/` (already applied to schema)
+
+The `entity_type` column is already present in the institutions table:
 
 ```sql
--- 1. Add the column
-ALTER TABLE public.institutions
-  ADD COLUMN IF NOT EXISTS institution_kind VARCHAR(20) NOT NULL DEFAULT 'college';
+-- Column definition
+entity_type character varying(20) not null default 'institution'::character varying,
 
--- 2. Enforce valid values
-DO $$ BEGIN
-  ALTER TABLE public.institutions
-    ADD CONSTRAINT institutions_kind_check
-    CHECK (institution_kind IN ('college', 'school'));
-EXCEPTION
-  WHEN duplicate_object THEN null;
-END $$;
+-- Check constraint
+constraint chk_entity_type check (
+  (entity_type)::text = any (
+    array['institution'::text, 'admin_office'::text, 'company'::text, 'school'::text]
+  )
+);
 
--- 3. Index for fast filtering (sidebar, reports, dashboards)
-CREATE INDEX IF NOT EXISTS idx_institutions_kind
-  ON public.institutions(institution_kind);
-
--- 4. Document the column
-COMMENT ON COLUMN public.institutions.institution_kind IS
-  'Education level: college (higher ed) or school (K-12). Determines UI labels (Program→Class, Semester→Term, Course→Subject) and which sidebar items are visible. Does NOT affect the underlying data model — schools use the same tables as colleges via virtual K-12 hierarchy rows. See docs/SPEC-jkkn-schools.md.';
+-- Index for filtering
+create index idx_institutions_entity_type on public.institutions using btree (entity_type);
 ```
 
-### Why each line
+### Usage for schools
 
-- `IF NOT EXISTS` — idempotent re-run safety
-- `NOT NULL DEFAULT 'college'` — existing rows auto-fill to the safe pre-existing behavior
-- `DO $$ ... EXCEPTION WHEN duplicate_object` — re-run safe (doesn't error if constraint already exists from a partial prior run)
-- `CHECK` — prevents typos like `'School'` or `'k-12'`
-- Index — sidebar filter + any future `WHERE institution_kind='school'` reports
-- `COMMENT` — self-documenting for future devs via `\d+ institutions`
+To identify a school institution, query:
+```sql
+SELECT * FROM institutions WHERE entity_type = 'school';
+```
+
+To flag an institution as a school:
+```sql
+UPDATE institutions SET entity_type = 'school' WHERE id = :school_id;
+```
+
+### Values
+
+- `'institution'` — default for colleges and higher-ed institutions
+- `'school'` — K-12 schools (uses virtual K-12 hierarchy)
+- `'admin_office'` — administrative divisions
+- `'company'` — partner organizations
 
 ---
 
-## Post-migration verification (run these manually)
+## Verification (run these manually)
 
 ```sql
 -- 1. Column exists with correct type
 SELECT column_name, data_type, column_default, is_nullable
 FROM information_schema.columns
-WHERE table_schema='public' AND table_name='institutions' AND column_name='institution_kind';
--- Expected: varchar(20), NOT NULL, default 'college'
+WHERE table_schema='public' AND table_name='institutions' AND column_name='entity_type';
+-- Expected: varchar(20), NOT NULL, default 'institution'
 
 -- 2. Check constraint exists
 SELECT conname, pg_get_constraintdef(oid)
 FROM pg_constraint
-WHERE conname = 'institutions_kind_check';
--- Expected: CHECK ((institution_kind = ANY (ARRAY['college'::text, 'school'::text])))
+WHERE conname = 'chk_entity_type';
+-- Expected: entity_type IN ('institution', 'school', 'admin_office', 'company')
 
 -- 3. Index exists
 SELECT indexname FROM pg_indexes
-WHERE tablename='institutions' AND indexname='idx_institutions_kind';
+WHERE tablename='institutions' AND indexname='idx_institutions_entity_type';
 -- Expected: 1 row
 
--- 4. All existing rows defaulted to 'college'
-SELECT institution_kind, COUNT(*)
-FROM institutions GROUP BY institution_kind;
--- Expected (staging): college=10
+-- 4. All existing rows default to 'institution'
+SELECT entity_type, COUNT(*)
+FROM institutions GROUP BY entity_type;
+-- Expected: most rows show 'institution'
 
 -- 5. Invalid value rejected
 -- This must ERROR:
-UPDATE institutions SET institution_kind = 'junior' WHERE id = (SELECT id FROM institutions LIMIT 1);
--- Expected: new row for relation "institutions" violates check constraint "institutions_kind_check"
+UPDATE institutions SET entity_type = 'other' WHERE id = (SELECT id FROM institutions LIMIT 1);
+-- Expected: new row for relation "institutions" violates check constraint "chk_entity_type"
 ```
 
 ---
@@ -150,14 +154,14 @@ UPDATE institutions SET institution_kind = 'junior' WHERE id = (SELECT id FROM i
 
 ```sql
 -- Only if something goes catastrophically wrong on production.
--- Safe because no code path requires the column (the hook has a fallback to 'college').
+-- Safe because no code path requires the column (the hook has a fallback to 'institution').
 
-DROP INDEX IF EXISTS idx_institutions_kind;
-ALTER TABLE public.institutions DROP CONSTRAINT IF EXISTS institutions_kind_check;
-ALTER TABLE public.institutions DROP COLUMN IF EXISTS institution_kind;
+DROP INDEX IF EXISTS idx_institutions_entity_type;
+ALTER TABLE public.institutions DROP CONSTRAINT IF EXISTS chk_entity_type;
+-- Note: entity_type column is core to the schema; do not drop without careful planning
 ```
 
-The `useInstitutionKind` hook will log an error and fall back to `'college'` if the column is missing — so a rolled-back DB with deployed code is functional (all institutions look like colleges), just unhappy.
+The `useInstitutionType` hook will log an error and fall back to `'institution'` if the column is missing — so a rolled-back DB with deployed code is functional (all institutions look like colleges), just unhappy.
 
 ---
 
@@ -175,7 +179,7 @@ For each JKKN school, create:
 
 ```sql
 -- Flag the institution as a school
-UPDATE institutions SET institution_kind = 'school' WHERE id = :school_id;
+UPDATE institutions SET entity_type = 'school' WHERE id = :school_id;
 
 -- Create virtual degree (one per school — needed because student.degree_id is NOT NULL)
 INSERT INTO degrees (id, degree_name, degree_type, institution_id)
@@ -189,4 +193,4 @@ VALUES (gen_random_uuid(), 'SCHOOL', 'Academic', :school_id);
 -- Omit loop here — will ship as a seed script in Phase 1.5
 ```
 
-Omm will provide the exact school names when seeding.
+The exact school names will be provided when seeding.

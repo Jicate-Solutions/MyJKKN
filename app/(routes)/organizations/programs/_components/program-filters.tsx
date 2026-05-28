@@ -14,6 +14,7 @@ import { DegreeService } from '@/lib/services/organization/degree-service';
 import { DepartmentService } from '@/lib/services/organization/department-service';
 import { ProgramsSearchParams } from './data-table-schema';
 import { OrganizationService } from '@/lib/services/organization/organization-service';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 
 interface ProgramFiltersProps {
   searchParams: ProgramsSearchParams;
@@ -26,6 +27,7 @@ export function ProgramFilters({
   onFilterChange,
   onClearFilters
 }: ProgramFiltersProps) {
+  const adapt = useAdaptiveLabels();
   const [institutions, setInstitutions] = useState<
     Array<{ id: string; name: string }>
   >([]);
@@ -206,10 +208,10 @@ export function ProgramFilters({
               disabled={!searchParams.institution_id || loading}
             >
               <SelectTrigger className='w-full'>
-                <SelectValue placeholder='All Degrees' />
+                <SelectValue placeholder={adapt('All Degrees')} />
               </SelectTrigger>
               <SelectContent className='max-h-60 overflow-y-auto'>
-                <SelectItem value='all'>All Degrees</SelectItem>
+                <SelectItem value='all'>{adapt('All Degrees')}</SelectItem>
                 {degrees.map((degree) => (
                   <SelectItem key={degree.id} value={degree.id}>
                     {degree.degree_name}
@@ -229,10 +231,10 @@ export function ProgramFilters({
               disabled={!searchParams.degree_id || loading}
             >
               <SelectTrigger className='w-full'>
-                <SelectValue placeholder='All Departments' />
+                <SelectValue placeholder={adapt('All Departments')} />
               </SelectTrigger>
               <SelectContent className='max-h-60 overflow-y-auto'>
-                <SelectItem value='all'>All Departments</SelectItem>
+                <SelectItem value='all'>{adapt('All Departments')}</SelectItem>
                 {departments.map((dept) => (
                   <SelectItem key={dept.id} value={dept.id}>
                     {dept.department_name}

@@ -4,7 +4,7 @@ import { SchoolDefaultsAuditService } from './school-defaults-audit-service';
 async function getDeletedRecords(
   supabase: ReturnType<typeof createClientSupabaseClient>,
   resourceType: 'degree' | 'department'
-): Promise<Array<{ id: string; school_id: string; school_name: string; name: string; code: string; deleted_at: string }>> {
+): Promise<Array<{ id: string; school_id: string; school_name: string; entity_type: string; name: string; code: string; deleted_at: string }>> {
   const tableName = resourceType === 'degree' ? 'degrees' : 'departments';
   const nameField = resourceType === 'degree' ? 'degree_name' : 'department_name';
   const codeField = resourceType === 'degree' ? 'degree_code' : 'department_code';
@@ -13,7 +13,7 @@ async function getDeletedRecords(
     .from(tableName)
     .select(`
       id,
-      school_id:institutions!inner(id, institution_name),
+      school_id:institutions!inner(id, name, entity_type),
       ${nameField},
       ${codeField},
       deleted_at
@@ -26,7 +26,8 @@ async function getDeletedRecords(
   return (data || []).map((item: any) => ({
     id: item.id,
     school_id: item.school_id.id,
-    school_name: item.school_id.institution_name,
+    school_name: item.school_id.name,
+    entity_type: item.school_id.entity_type,
     name: item[nameField],
     code: item[codeField],
     deleted_at: item.deleted_at,
@@ -168,5 +169,49 @@ export class SchoolDefaultsRestoreService {
   ): Promise<string> {
     const { ScheduledRestoreQueue } = await import('./scheduled-restore-queue');
     return ScheduledRestoreQueue.scheduleRestore(recordIds, resourceType, scheduledFor, userId);
+  }
+
+  static async getDeletedRecordsPaginated(
+    resourceType: 'degree' | 'department',
+    page: number = 0,
+    pageSize: number = 100
+  ): Promise<{ records: any[]; total: number; hasMore: boolean }> {
+    const supabase = createClientSupabaseClient();
+    const tableName = resourceType === 'degree' ? 'degrees' : 'departments';
+    const nameField = resourceType === 'degree' ? 'degree_name' : 'department_name';
+    const codeField = resourceType === 'degree' ? 'degree_code' : 'department_code';
+
+    // Get total count
+    const { count } = await supabase
+      .from(tableName)
+      .select('id', { count: 'exact', head: true })
+      .not('deleted_at', 'is', null);
+
+    // Get paginated records
+    const { data } = await supabase
+      .from(tableName)
+      .select(`
+        id,
+        school_id:institutions!inner(id, name, entity_type),
+        ${nameField},
+        ${codeField},
+        deleted_at
+      `)
+      .not('deleted_at', 'is', null)
+      .order('deleted_at', { ascending: false })
+      .range(page * pageSize, (page + 1) * pageSize - 1);
+
+    return {
+      records: (data || []).map((item: any) => ({
+        id: item.id,
+        school_id: item.school_id.id,
+        school_name: item.school_id.name,
+        entity_type: item.school_id.entity_type,
+        name: item[nameField],
+        code: item[codeField],
+      })),
+      total: count || 0,
+      hasMore: (page + 1) * pageSize < (count || 0),
+    };
   }
 }

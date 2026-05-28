@@ -9,7 +9,7 @@
 
 **Data model, services, APIs, types, migrations, logs, tests, route paths, schemas** → always use **college vocabulary**.
 
-**React components rendering user-visible strings** → translate via `useInstitutionKind()` → **school vocabulary** at render time.
+**React components rendering user-visible strings** → translate via `useInstitutionType()` → **school vocabulary** at render time.
 
 The translation boundary is exactly: `.tsx` files that render user-visible strings. **Nowhere else.**
 
@@ -28,7 +28,7 @@ The translation boundary is exactly: `.tsx` files that render user-visible strin
 | `section` | "Section" (unchanged) | "Section" |
 | `student` | "Student" (unchanged) | "Student" |
 
-All translations are sourced from `lib/constants/institution-kind-labels.ts`. Do not hardcode these strings anywhere in `.tsx` files — always read from `labels` via `useInstitutionKind()`.
+All translations are sourced from `lib/constants/institution-type-labels.ts`. Do not hardcode these strings anywhere in `.tsx` files — always read from `labels` via `useInstitutionType()`.
 
 ---
 
@@ -37,10 +37,10 @@ All translations are sourced from `lib/constants/institution-kind-labels.ts`. Do
 ```tsx
 // ✅ CORRECT — translation at the render boundary
 'use client';
-import { useInstitutionKind } from '@/hooks/use-institution-kind';
+import { useInstitutionType } from '@/hooks/use-institution-type';
 
 export default function ProgramsPage() {
-  const { labels, isSchool } = useInstitutionKind();
+  const { labels, isSchool } = useInstitutionType();
 
   return (
     <div>
@@ -171,8 +171,8 @@ const { data } = await supabase.from('classes').select('*');  // ERROR: table "c
 ```ts
 const { data } = await supabase
   .from('programs')
-  .select('*, institution:institutions(institution_kind)')
-  .eq('institution.institution_kind', 'school');
+  .select('*, institution:institutions(entity_type)')
+  .eq('institution.entity_type', 'school');
 ```
 
 ### 4. The mixed-language component
@@ -200,7 +200,7 @@ School user sees a broken UI: "Classes" header, "Program Name" column.
 
 ❌ **Bad AI:** User says "add a school module". AI creates `app/(routes)/schools/` duplicating `app/(routes)/organizations/`.
 
-✅ **Good AI:** Knows there is exactly ONE `organizations` module. `institution_kind` flips the UI labels and hides a couple of sidebar items. No duplication.
+✅ **Good AI:** Knows there is exactly ONE `organizations` module. `entity_type` flips the UI labels and hides a couple of sidebar items. No duplication.
 
 ### 6. The SQL query with a fake column
 
@@ -213,10 +213,10 @@ SELECT * FROM programs WHERE kind = 'class';  -- no such column
 ```sql
 SELECT p.* FROM programs p
 JOIN institutions i ON p.institution_id = i.id
-WHERE i.institution_kind = 'school' AND p.name ILIKE '%class 6%';
+WHERE i.entity_type = 'school' AND p.name ILIKE '%class 6%';
 ```
 
-`institution_kind` lives on `institutions`, not on `programs`.
+`entity_type` lives on `institutions`, not on `programs`.
 
 ---
 
@@ -225,7 +225,7 @@ WHERE i.institution_kind = 'school' AND p.name ILIKE '%class 6%';
 Before touching any file that might involve organization terminology, ask:
 
 1. **"Am I editing a `.tsx` file that renders user-visible strings?"**
-   → Use `useInstitutionKind()` + `labels.*` for every user-visible word.
+   → Use `useInstitutionType()` + `labels.*` for every user-visible word.
 2. **"Am I editing a service, API route, type definition, migration, test, or logger call?"**
    → Use college vocabulary (`program`, `semester`, `course`). Do NOT translate.
 3. **"Am I grepping for a user-reported term like 'class' or 'subject'?"**
@@ -235,7 +235,7 @@ Before touching any file that might involve organization terminology, ask:
 5. **"Am I about to rename something 'for clarity' now that we support schools?"**
    → **STOP.** Re-read this file. The rule is: data model never changes, only the UI translates.
 6. **"Am I writing a SQL query that filters by 'class' or 'subject'?"**
-   → Use `institution_kind` on `institutions` + stable column names on the data tables.
+   → Use `entity_type` on `institutions` + stable column names on the data tables.
 
 ---
 
@@ -268,7 +268,7 @@ Copy this into your working memory when starting any MyJKKN task:
 │  DATA MODEL  →  always college vocabulary                        │
 │    programs, semesters, courses, degrees, departments, faculty   │
 │                                                                   │
-│  UI COMPONENTS  →  translate via useInstitutionKind()            │
+│  UI COMPONENTS  →  translate via useInstitutionType()            │
 │    labels.program, labels.semester, labels.course, ...           │
 │                                                                   │
 │  USER SAYS  →  TRANSLATE BEFORE GREPPING                         │

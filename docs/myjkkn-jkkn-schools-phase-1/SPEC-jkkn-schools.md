@@ -33,8 +33,8 @@ The only thing that differs is *presentation* — the labels and forms users see
 ## 3. Scope
 
 ### In-scope (Phase 1 — this spec)
-1. Add `institution_kind` enum column to `institutions` (`'college' | 'school'`, default `'college'`)
-2. Create label-mapping hook (`useInstitutionKind`) that returns the kind and a label dictionary
+1. Add `entity_type` enum column to `institutions` (`'school' | 'institution'`, default `'institution'`)
+2. Create label-mapping hook (`useInstitutionType`) that returns the kind and a label dictionary
 3. Conditionally relabel "Program → Class", "Semester → Term", "Course → Subject" in the Organization module UI
 4. Conditionally hide fields that don't apply to schools (degree selector, department selector — auto-fill behind the scenes with the virtual K-12 values)
 5. Seed script for the 2 JKKN schools with virtual degree/department/program(classes)/semester(terms)
@@ -54,15 +54,10 @@ Phase 2 will be scoped as a separate spec once Phase 1 is live and schools are u
 ### 4.1 Schema Migration
 
 ```sql
--- Add institution_kind column
-ALTER TABLE public.institutions
-  ADD COLUMN IF NOT EXISTS institution_kind VARCHAR(20) NOT NULL DEFAULT 'college'
-  CHECK (institution_kind IN ('college', 'school'));
-
-CREATE INDEX IF NOT EXISTS idx_institutions_kind ON public.institutions(institution_kind);
-
-COMMENT ON COLUMN public.institutions.institution_kind IS
-  'Education level: college (higher ed) or school (K-12). Determines UI labels and hidden fields. Does NOT affect data model — both use the same tables.';
+-- The entity_type column already exists on institutions table
+-- Values: 'institution' (colleges, default), 'school' (K-12), 'admin_office', 'company'
+-- Index: idx_institutions_entity_type
+-- Constraint: chk_entity_type
 ```
 
 ### 4.2 Seed Data (per school)
@@ -81,9 +76,9 @@ The seed script is idempotent — re-runnable without creating duplicates.
 ### 5.1 Label Map
 
 ```ts
-// lib/constants/institution-kind-labels.ts
-export const INSTITUTION_KIND_LABELS = {
-  college: {
+// lib/constants/institution-type-labels.ts
+export const INSTITUTION_TYPE_LABELS = {
+  institution: {
     degree: 'Degree',
     department: 'Department',
     program: 'Program',
@@ -109,24 +104,24 @@ export const INSTITUTION_KIND_LABELS = {
 ### 5.2 Hook
 
 ```ts
-// lib/hooks/use-institution-kind.ts
-export function useInstitutionKind() {
+// lib/hooks/use-institution-type.ts
+export function useInstitutionType() {
   const { profile } = usePermissions();
   const { data: institution } = useInstitution(profile?.institution_id);
 
-  const kind = institution?.institution_kind ?? 'college';
-  const labels = INSTITUTION_KIND_LABELS[kind];
-  const isSchool = kind === 'school';
-  const isCollege = kind === 'college';
+  const entityType = institution?.entity_type ?? 'institution';
+  const labels = INSTITUTION_TYPE_LABELS[entityType];
+  const isSchool = entityType === 'school';
+  const isCollege = entityType === 'institution';
 
-  return { kind, labels, isSchool, isCollege };
+  return { entityType, labels, isSchool, isCollege };
 }
 ```
 
 ### 5.3 Conditional rendering pattern
 
 ```tsx
-const { labels, isSchool } = useInstitutionKind();
+const { labels, isSchool } = useInstitutionType();
 
 <Label>{labels.program}</Label>  {/* "Program" or "Class" */}
 {!isSchool && <DegreeSelector />}  {/* hidden for schools */}
@@ -134,16 +129,16 @@ const { labels, isSchool } = useInstitutionKind();
 
 ### 5.4 Sidebar filter
 
-The production sidebar is defined in `lib/sidebarMenuLink.ts` (2131 lines) which exports a pure function `GetRoleBasedPages(userRole)` consumed by `components/Navbar/menu.tsx` and `components/BottomNav/bottom-navbar.tsx`. It is NOT a React hook and cannot call `useInstitutionKind()` directly.
+The production sidebar is defined in `lib/sidebarMenuLink.ts` (2131 lines) which exports a pure function `GetRoleBasedPages(userRole)` consumed by `components/Navbar/menu.tsx` and `components/BottomNav/bottom-navbar.tsx`. It is NOT a React hook and cannot call `useInstitutionType()` directly.
 
 **Approach**: Export a second pure function from `sidebarMenuLink.ts`:
 
 ```ts
-export function filterMenuByInstitutionKind(
+export function filterMenuByEntityType(
   groups: MenuGroup[],
-  kind: InstitutionKind
+  entityType: string
 ): MenuGroup[] {
-  const hidden = HIDDEN_SIDEBAR_HREFS[kind];
+  const hidden = HIDDEN_SIDEBAR_HREFS[entityType];
   if (hidden.length === 0) return groups;
   return groups
     .map(g => ({

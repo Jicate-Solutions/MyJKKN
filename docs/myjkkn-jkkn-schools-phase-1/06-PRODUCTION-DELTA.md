@@ -66,7 +66,7 @@ d206c72f3 fix(marathon): restrict admin pages to authorized roles only
 5ccc2ea18 fix(saml): persist SP-initiated AuthnRequest across OAuth round-trip
 ```
 
-**None of these touch the "Organization Management" menu group** (lines 600-670 in the current file). They all added items to other groups (Events/Marathon, Internal Marks, Admission). So your `filterMenuByInstitutionKind` helper at the bottom of the file will apply cleanly — no merge conflict risk.
+**None of these touch the "Organization Management" menu group** (lines 600-670 in the current file). They all added items to other groups (Events/Marathon, Internal Marks, Admission). So your `filterMenuByEntityType` helper at the bottom of the file will apply cleanly — no merge conflict risk.
 
 ### `components/Navbar/menu.tsx` and `components/BottomNav/bottom-navbar.tsx`
 
@@ -74,7 +74,7 @@ No recent production commits. Low-churn files. Safe to edit.
 
 ### `supabase/migrations/`
 
-Latest production migration: `20260411_fix_expo_rls_admission_profile_role.sql`. Our new migration `20260411_add_institution_kind.sql` lives at the same date prefix but a different name — migrations are name-keyed, not content-keyed, so there's no conflict. Both apply in alphabetical order.
+Latest production migration: `20260411_fix_expo_rls_admission_profile_role.sql`. Our new migration `20260411_add_entity_type.sql` lives at the same date prefix but a different name — migrations are name-keyed, not content-keyed, so there's no conflict. Both apply in alphabetical order.
 
 ### `institutions` table
 
@@ -107,7 +107,7 @@ This is the "translator pattern" from Omm's memory: rebuild features on producti
 1. git fetch jicate
 2. git checkout -b feat/jkkn-schools-phase-1 jicate/main
 3. Copy or recreate the 4 pre-written files (SPEC, migration, labels, hook)
-4. Add filterMenuByInstitutionKind to sidebarMenuLink.ts
+4. Add filterMenuByEntityType to sidebarMenuLink.ts
 5. Wire menu.tsx + bottom-navbar.tsx
 6. Type-check, build, browser-test per 05-TESTING-CHECKLIST.md
 7. git push <your-remote> feat/jkkn-schools-phase-1
@@ -149,9 +149,9 @@ git log --oneline -5
 # Confirm no stray files from Omm's dev branch
 git diff --stat jicate/main..HEAD -- ':!specs/jkkn-schools/' ':!docs/SPEC-jkkn-schools.md'
 # Should ONLY show:
-#   supabase/migrations/20260411_add_institution_kind.sql
-#   lib/constants/institution-kind-labels.ts
-#   hooks/use-institution-kind.ts
+#   supabase/migrations/20260411_add_entity_type.sql
+#   lib/constants/institution-type-labels.ts
+#   hooks/use-institution-type.ts
 #   lib/sidebarMenuLink.ts (modified)
 #   components/Navbar/menu.tsx (modified)
 #   components/BottomNav/bottom-navbar.tsx (modified)

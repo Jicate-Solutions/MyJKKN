@@ -23,7 +23,7 @@ A K-12 school is not a new entity — it is a **degenerate case of the college h
 - **Zero new tables.** The admission CRM, billing, attendance, staff, transport, hostel, library, notifications, and bug reporter all work on schools for free.
 - **Zero RLS changes.** All existing policies already scope by `institution_id`. A school's data is naturally isolated from a college's data.
 - **Zero backend migrations beyond one column.** No triggers to rewrite, no views to refactor, no service methods to overload.
-- **A single switch point in the UI.** One hook (`useInstitutionKind`) reads the column once per session and returns the right label dictionary. Everything else is presentation.
+- **A single switch point in the UI.** One hook (`useInstitutionType`) reads the `entity_type` column once per session and returns the right label dictionary. Everything else is presentation.
 
 ## What changes
 
@@ -44,19 +44,19 @@ A K-12 school is not a new entity — it is a **degenerate case of the college h
 
 ## Why this is safe
 
-1. The new column has a default of `'college'` and a CHECK constraint. Every existing row stays exactly where it was. Every existing code path that doesn't know about `institution_kind` keeps working because the default is the pre-existing behavior.
-2. The hook has a safe fallback: if the column doesn't exist yet (e.g., during the window between code deploy and migration apply), it reads `null`, coerces to `'college'`, and returns college labels. There is no crash path.
-3. The sidebar filter is an identity function for `kind === 'college'` — zero performance or behavioral impact on colleges.
+1. The `entity_type` column has a default of `'institution'` and a CHECK constraint limiting values to `{'institution', 'school', 'admin_office', 'company'}`. Every existing row stays as `'institution'` (default). Every existing code path that doesn't know about schools keeps working because the default is the pre-existing behavior.
+2. The hook has a safe fallback: if the column doesn't exist yet (e.g., during the window between code deploy and migration apply), it reads `null`, coerces to `'institution'`, and returns college labels. There is no crash path.
+3. The sidebar filter is an identity function for `entity_type === 'institution'` — zero performance or behavioral impact on colleges.
 
 ## The one thing that could go wrong
 
 A cross-institution report or aggregation query that groups by `program_id` without filtering by `institution_id` would mix "Class 6" rows with "B.Tech CSE" rows in the same bucket. **This does not exist today** (all existing reports scope by institution), but if someone writes such a report in Phase 2, they'll need an `institution_kind` filter. Documented in the spec's Risks section.
 
-## Why `institution_kind` and not `institution_type`
+## Why `entity_type` drives school vs college labeling
 
-Both columns now exist on the `institutions` table. They mean different things:
+The `institutions` table uses `entity_type` to indicate the institutional classification. For schools vs colleges:
 
-- `institution_type` (existing): accreditation classification — values `autonomous`, `self`, `aided`
-- `institution_kind` (new): education level — values `college`, `school`
+- `entity_type = 'school'` — K-12 schools use virtual hierarchy (Class 1-12 as programs, Terms as semesters)
+- `entity_type = 'institution'` (default) — Colleges use standard hierarchy (B.Tech/M.Tech as degrees, Semesters)
 
-Do not merge, alias, or rename these. They are orthogonal dimensions and both will be queried independently.
+The `institution_type` column (autonomous/self/aided) handles accreditation status and is orthogonal to this logic.

@@ -11,6 +11,7 @@ import { toast } from 'react-hot-toast';
 import { useQueryClient } from '@tanstack/react-query';
 import { Degree } from '@/types/organizations';
 import { DegreeService } from '@/lib/services/organization/degree-service';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 import { Button } from '@/components/ui/button';
 import {
   Form,
@@ -63,6 +64,7 @@ export function DegreeForm({ degree, isEditing }: DegreeFormProps) {
   const router = useRouter();
   const queryClient = useQueryClient();
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const adapt = useAdaptiveLabels();
   const { institutions, loading: institutionsLoading } =
     useInstitutionsWithAccess();
 
@@ -141,10 +143,10 @@ export function DegreeForm({ degree, isEditing }: DegreeFormProps) {
                 name='degree_id'
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Degree ID</FormLabel>
+                    <FormLabel>{adapt('Degree ID')}</FormLabel>
                     <FormControl>
                       <Input
-                        placeholder='Enter degree ID'
+                        placeholder={`Enter ${adapt('degree')} ID`}
                         {...field}
                         value={field.value.toUpperCase()}
                         onChange={(e) =>
@@ -153,7 +155,7 @@ export function DegreeForm({ degree, isEditing }: DegreeFormProps) {
                       />
                     </FormControl>
                     <FormDescription>
-                      A unique identifier for the degree (e.g., BTECH, MCA)
+                      A unique identifier for the {adapt('degree')} (e.g., BTECH, MCA)
                     </FormDescription>
                     <FormMessage />
                   </FormItem>
@@ -165,12 +167,12 @@ export function DegreeForm({ degree, isEditing }: DegreeFormProps) {
                 name='degree_name'
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Degree Name</FormLabel>
+                    <FormLabel>{adapt('Degree Name')}</FormLabel>
                     <FormControl>
-                      <Input placeholder='Enter degree name' {...field} />
+                      <Input placeholder={`Enter ${adapt('degree')} name`} {...field} />
                     </FormControl>
                     <FormDescription>
-                      The full name of the degree
+                      The full name of the {adapt('degree')}
                     </FormDescription>
                     <FormMessage />
                   </FormItem>
@@ -182,7 +184,7 @@ export function DegreeForm({ degree, isEditing }: DegreeFormProps) {
                 name='degree_type'
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Degree Type</FormLabel>
+                    <FormLabel>{adapt('Degree Type')}</FormLabel>
                     <Select onValueChange={field.onChange} value={field.value}>
                       <FormControl>
                         <SelectTrigger>

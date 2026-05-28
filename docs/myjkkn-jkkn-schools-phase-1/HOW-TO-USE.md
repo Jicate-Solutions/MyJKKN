@@ -70,9 +70,9 @@ If it takes longer than 2 days, something's off — ask them what's blocking.
    - A school view with "Class", "Term", "Subject" labels (new)
 2. Database query (you can run this in Supabase dashboard):
    ```sql
-   SELECT id, name, institution_kind FROM institutions ORDER BY institution_kind, name;
+   SELECT id, name, entity_type FROM institutions ORDER BY entity_type, name;
    ```
-   Shows all existing institutions with `institution_kind = 'college'`, and your 2 schools with `institution_kind = 'school'`.
+   Shows all existing institutions with `entity_type = 'institution'`, and your 2 schools with `entity_type = 'school'`.
 3. Existing colleges still log in and see everything exactly as before — zero regression.
 
 ---
@@ -82,9 +82,9 @@ If it takes longer than 2 days, something's off — ask them what's blocking.
 | File | Who writes it | When |
 |---|---|---|
 | `docs/SPEC-jkkn-schools.md` | Claude (already done) | Before this handoff |
-| `supabase/migrations/20260411_add_institution_kind.sql` | Claude (already done) | Before this handoff |
-| `lib/constants/institution-kind-labels.ts` | Claude (already done) | Before this handoff |
-| `hooks/use-institution-kind.ts` | Claude (already done) | Before this handoff |
+| `supabase/migrations/20260411_add_entity_type.sql` | Claude (already done) | Before this handoff |
+| `lib/constants/institution-type-labels.ts` | Claude (already done) | Before this handoff |
+| `hooks/use-institution-type.ts` | Claude (already done) | Before this handoff |
 | Sidebar filter integration | **Developer** | During Phase 1 |
 | `menu.tsx` + `bottom-navbar.tsx` wiring | **Developer** | During Phase 1 |
 | Seed script for 2 schools | **You + Developer** | After merge (you provide school names) |

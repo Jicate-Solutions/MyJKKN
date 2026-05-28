@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -23,6 +24,13 @@ export const navMeta = {
 
 
 export default function NewCourseMappingPage() {
+  const adapt = useAdaptiveLabels();
+  const coursesLabel = adapt('Courses');
+  const degreeLabel = adapt('degree');
+  const departmentLabel = adapt('department');
+  const programLabel = adapt('program');
+  const semesterLabel = adapt('semester');
+
   return (
     <ContentLayout title='New Course Mapping'>
       <Breadcrumb>
@@ -41,7 +49,7 @@ export default function NewCourseMappingPage() {
           <BreadcrumbSeparator />
           <BreadcrumbItem>
             <BreadcrumbLink asChild>
-              <Link href='/organizations/courses'>Courses</Link>
+              <Link href='/organizations/courses'>{coursesLabel}</Link>
             </BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator />
@@ -63,8 +71,8 @@ export default function NewCourseMappingPage() {
         <div>
           <h1 className='text-2xl font-bold'>Create Course Mapping</h1>
           <p className='text-muted-foreground mt-1'>
-            Associate a course with an institution, degree, department, program,
-            and semester
+            Associate a course with an institution, {degreeLabel}, {departmentLabel}, {programLabel},
+            and {semesterLabel}
           </p>
         </div>
 

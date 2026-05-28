@@ -1,7 +1,8 @@
 'use client';
 
 import { DataTable } from '@/components/data-table/data-table';
-import { columns } from './columns';
+import { getColumns } from './columns';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 import type { DegreesSearchParams } from './data-table-schema';
 import { Button } from '@/components/ui/button';
 import { Plus, TrashIcon, Loader2, Upload, Download, ChevronDown, FileSpreadsheet, FileText, FileJson } from 'lucide-react';
@@ -9,6 +10,7 @@ import { useRouter } from 'next/navigation';
 import { DegreeService } from '@/lib/services/organization/degree-service';
 import { Degree } from '@/types/organizations';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useAuth } from '@/hooks/use-auth';
 import { useState } from 'react';
 import {
   DropdownMenu,
@@ -37,6 +39,8 @@ interface DegreesDataTableProps {
 export function DegreesDataTable({ search }: DegreesDataTableProps) {
   const router = useRouter();
   const { canAccess, isSuperAdmin } = usePermissions();
+  const { profile } = useAuth();
+  const adaptLabel = useAdaptiveLabels();
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [selectedForDelete, setSelectedForDelete] = useState<Degree[]>([]);
   const [deleteResetFn, setDeleteResetFn] = useState<(() => void) | null>(null);
@@ -308,10 +312,13 @@ export function DegreesDataTable({ search }: DegreesDataTableProps) {
       <DataTable
         key={refreshTrigger}
         fetchDataFn={fetchData}
-        getColumns={() => columns as any}
+        getColumns={() => getColumns(adaptLabel)}
         exportConfig={{
-          entityName: 'degrees',
-          columnMapping: {},
+          entityName: adaptLabel('degrees'),
+          columnMapping: {
+            'degree_id': adaptLabel('Degree ID'),
+            'degree_name': adaptLabel('Degree Name')
+          },
           columnWidths: [],
           headers: []
         }}

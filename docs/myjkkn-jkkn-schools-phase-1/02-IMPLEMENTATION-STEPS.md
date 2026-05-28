@@ -34,17 +34,17 @@ Files to create on your branch:
 | Path | Purpose |
 |---|---|
 | `docs/SPEC-jkkn-schools.md` | The approved spec (reference) |
-| `supabase/migrations/20260411_add_institution_kind.sql` | The DB migration |
-| `lib/constants/institution-kind-labels.ts` | Label dictionaries + hidden sidebar hrefs |
-| `hooks/use-institution-kind.ts` | The React hook |
+| `supabase/migrations/20260411_add_entity_type.sql` | The DB migration |
+| `lib/constants/institution-type-labels.ts` | Label dictionaries + hidden sidebar hrefs |
+| `hooks/use-institution-type.ts` | The React hook |
 
 Run:
 ```bash
 git status
 # Should show 4 new files
-git add docs/SPEC-jkkn-schools.md supabase/migrations/20260411_add_institution_kind.sql \
-        lib/constants/institution-kind-labels.ts hooks/use-institution-kind.ts
-git commit -m "feat(schools): add spec, migration, labels, and hook for institution_kind"
+git add docs/SPEC-jkkn-schools.md supabase/migrations/20260411_add_entity_type.sql \
+        lib/constants/institution-type-labels.ts hooks/use-institution-type.ts
+git commit -m "feat(schools): add spec, migration, labels, and hook for entity_type"
 ```
 
 ---
@@ -58,25 +58,25 @@ git commit -m "feat(schools): add spec, migration, labels, and hook for institut
 ~/bin/supabase db push
 ```
 
-Or via the Supabase dashboard SQL editor, paste the contents of `20260411_add_institution_kind.sql`.
+Or via the Supabase dashboard SQL editor, paste the contents of `20260411_add_entity_type.sql`.
 
 **Verify the migration applied cleanly:**
 
 ```sql
 SELECT column_name, data_type, column_default
 FROM information_schema.columns
-WHERE table_schema = 'public' AND table_name = 'institutions' AND column_name = 'institution_kind';
+WHERE table_schema = 'public' AND table_name = 'institutions' AND column_name = 'entity_type';
 ```
 
-Expected: 1 row, `varchar`, default `'college'`.
+Expected: 1 row, `varchar`, default `'institution'`.
 
 **Verify existing rows defaulted correctly:**
 
 ```sql
-SELECT COUNT(*) AS total, institution_kind FROM institutions GROUP BY institution_kind;
+SELECT COUNT(*) AS total, entity_type FROM institutions GROUP BY entity_type;
 ```
 
-Expected: all 10 existing staging rows show `institution_kind = 'college'`.
+Expected: all existing rows show `entity_type = 'institution'` (unless schools have been seeded).
 
 ---
 
@@ -86,17 +86,17 @@ Expected: all 10 existing staging rows show `institution_kind = 'college'`.
 ~/bin/supabase gen types typescript --project-id hhprjbgknupaplivtoib > types/supabase.ts
 ```
 
-This adds `institution_kind` to the generated type for the `institutions` row. Without this, the `useInstitutionKind` hook falls back to `as { institution_kind?: string }` — functional but unclean. Do the regen so the final typing is tight.
+This adds `entity_type` to the generated type for the `institutions` row. Without this, the `useInstitutionType` hook falls back to `as { entity_type?: string }` — functional but unclean. Do the regen so the final typing is tight.
 
 ---
 
-## Step 4 — Export `filterMenuByInstitutionKind` from `sidebarMenuLink.ts`
+## Step 4 — Export `filterMenuByEntityType` from `sidebarMenuLink.ts`
 
 **File:** `lib/sidebarMenuLink.ts`
 **Where:** Add to the bottom of the file (after `GetRoleBasedPages`, before EOF)
 
 ```ts
-import { HIDDEN_SIDEBAR_HREFS, type InstitutionKind } from '@/lib/constants/institution-kind-labels';
+import { HIDDEN_SIDEBAR_HREFS, type InstitutionType } from '@/lib/constants/institution-type-labels';
 
 /**
  * Filter the sidebar menu tree to hide items that don't apply to

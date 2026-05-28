@@ -20,14 +20,14 @@ Where in the existing 2131-line `sidebarMenuLink.ts` file (and its consumers) yo
                               menu.tsx / bottom-navbar.tsx render
 ```
 
-**Why a second pass instead of modifying `GetRoleBasedPages`:** That function is 1500+ lines of permission logic. Adding an institution_kind param would require threading it through every callsite and every sub-branch. A second-stage filter is non-invasive and can be tested independently.
+**Why a second pass instead of modifying `GetRoleBasedPages`:** That function is 1500+ lines of permission logic. Adding an entity_type param would require threading it through every callsite and every sub-branch. A second-stage filter is non-invasive and can be tested independently.
 
 ---
 
 ## Integration point #1: `lib/sidebarMenuLink.ts`
 
 **What to add:** one new export at the bottom of the file.
-**Lines changed:** +20, -0. Nothing existing is modified.
+**Lines changed:** +25, -0. Nothing existing is modified.
 
 ### Current state (top of file, line 94-109)
 
@@ -82,7 +82,7 @@ This is the group the filter will strip items from:
 ### What to add (end of file, after `GetRoleBasedPages` closes)
 
 ```ts
-import { HIDDEN_SIDEBAR_HREFS, type InstitutionKind } from '@/lib/constants/institution-kind-labels';
+import { HIDDEN_SIDEBAR_HREFS, type InstitutionType } from '@/lib/constants/institution-type-labels';
 
 /**
  * Filter the sidebar menu tree to hide items that don't apply to the
@@ -97,7 +97,7 @@ export function filterMenuByInstitutionKind(
   groups: MenuGroup[],
   kind: InstitutionKind
 ): MenuGroup[] {
-  const hidden = HIDDEN_SIDEBAR_HREFS[kind];
+  const hidden = HIDDEN_SIDEBAR_HREFS[entityType];
   if (hidden.length === 0) return groups;
 
   return groups
@@ -139,22 +139,22 @@ Change to:
 ```ts
 import {
   GetRoleBasedPages,
-  filterMenuByInstitutionKind,
+  filterMenuByEntityType,
   RolePermissionData,
 } from '@/lib/sidebarMenuLink';
-import { useInstitutionKind } from '@/hooks/use-institution-kind';
+import { useInstitutionType } from '@/hooks/use-institution-type';
 // ...
-const { kind } = useInstitutionKind();
+const { entityType } = useInstitutionType();
 const menuList = useMemo(
-  () => filterMenuByInstitutionKind(
+  () => filterMenuByEntityType(
     GetRoleBasedPages(pathname, userRoleData),
-    kind
+    entityType
   ),
-  [pathname, userRoleData, kind]
+  [pathname, userRoleData, entityType]
 );
 ```
 
-**Why include `kind` in the memo deps:** When the user's institution kind changes (unlikely mid-session but possible after the `useInstitutionKind` query resolves from its initial `null` state), the filter must re-run.
+**Why include `entityType` in the memo deps:** When the user's institution type changes (unlikely mid-session but possible after the `useInstitutionType` query resolves from its initial `null` state), the filter must re-run.
 
 ---
 
@@ -168,12 +168,12 @@ Same pattern as `menu.tsx`. This component renders the mobile bottom navigation 
 
 ### College user (default — 90%+ of existing users)
 
-`kind === 'college'` → `HIDDEN_SIDEBAR_HREFS.college === []` → early return.
+`entityType === 'institution'` → `HIDDEN_SIDEBAR_HREFS.institution === []` → early return.
 **Zero change to the menu tree.** Pure identity function. No re-allocation overhead (the function returns the same array reference).
 
 ### School user
 
-`kind === 'school'` → `HIDDEN_SIDEBAR_HREFS.school === ['/organizations/degrees', '/organizations/courses/mappings']`:
+`entityType === 'school'` → `HIDDEN_SIDEBAR_HREFS.school === ['/organizations/degrees', '/organizations/courses/mappings']`:
 
 1. "Organization Management" group loses the "Degrees" menu item (stripped at the `.filter(menu => !hidden.includes(menu.href))` step)
 2. "Organization Management" → "Courses" keeps its parent menu, but the "Course Mappings" submenu is removed (stripped at the inner `.filter(sub => !hidden.includes(sub.href))`)
@@ -182,7 +182,7 @@ Same pattern as `menu.tsx`. This component renders the mobile bottom navigation 
 
 ---
 
-## Label rendering — where to use `useInstitutionKind()`
+## Label rendering — where to use `useInstitutionType()`
 
 Phase 1 ships the hook, the constants, the sidebar filter. Phase 1.5 (can be the same PR or a follow-up) wires the label dictionary into the Organization module pages:
 
@@ -198,10 +198,10 @@ The pattern in each:
 
 ```tsx
 'use client';
-import { useInstitutionKind } from '@/hooks/use-institution-kind';
+import { useInstitutionType } from '@/hooks/use-institution-type';
 
 export default function ProgramsPage() {
-  const { labels, isSchool, isLoading } = useInstitutionKind();
+  const { labels, isSchool, isLoading } = useInstitutionType();
 
   if (isLoading) return <Spinner />;  // optional
 
@@ -225,6 +225,6 @@ export default function ProgramsPage() {
 - Any RLS policy — no edits
 - Any service file (`lib/services/organizations/*`) — no edits
 - Any API route (`app/api/organizations/*`) — no edits
-- The `institution_type` column — do not rename, do not reuse
+- The `institution_type` column (accreditation status) — do not confuse with `entity_type` (institutional classification)
 
 If you find yourself editing any of these, stop and re-read `01-ARCHITECTURE.md`. The whole point of this design is that only the UI layer changes.

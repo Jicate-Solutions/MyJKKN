@@ -9,7 +9,7 @@
 
 ## TL;DR
 
-Add a single column `institutions.institution_kind ∈ {'college', 'school'}` that drives UI labelling. Schools use the same data model as colleges — only labels and a handful of sidebar items change. Zero new tables, zero shadow schemas, zero RLS changes.
+Add a single column `institutions.entity_type ∈ {'college', 'school'}` that drives UI labelling. Schools use the same data model as colleges — only labels and a handful of sidebar items change. Zero new tables, zero shadow schemas, zero RLS changes.
 
 ---
 
@@ -35,9 +35,9 @@ Add a single column `institutions.institution_kind ∈ {'college', 'school'}` th
 All 4 of these live on Omm's dev branch. Cherry-pick or copy them into your fresh branch off `jicate/main`:
 
 1. `docs/SPEC-jkkn-schools.md` — the approved spec
-2. `supabase/migrations/20260411_add_institution_kind.sql` — the migration
-3. `lib/constants/institution-kind-labels.ts` — college/school label maps + hidden hrefs list
-4. `hooks/use-institution-kind.ts` — the React hook that reads `institution_kind` and returns labels
+2. `supabase/migrations/20260411_add_entity_type.sql` — the migration
+3. `lib/constants/institution-type-labels.ts` — college/school label maps + hidden hrefs list
+4. `hooks/use-institution-type.ts` — the React hook that reads `entity_type` and returns labels
 
 ## Files you will edit
 
@@ -62,14 +62,9 @@ That's it. No services to refactor, no RLS policies to update, no API routes to 
 
 ---
 
-## The naming gotcha (read this)
+## The naming note
 
-The `institutions` table already has a column called `institution_type` with values like `autonomous`, `self`, `aided`. **That is NOT what we're touching.**
-
-- `institution_type` = accreditation status (existing, leave alone)
-- `institution_kind` = education level (NEW — what this spec adds)
-
-Do not rename, reuse, or overload `institution_type`. It's in active use for reporting and existing RLS logic.
+The `institutions` table uses `entity_type` to indicate the education level (college, school). This column drives UI labelling and determines which sidebar items are visible. Other columns like `institution_type` handle accreditation status and should not be confused with this field.
 
 ---
 

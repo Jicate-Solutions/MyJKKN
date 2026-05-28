@@ -1,7 +1,8 @@
 'use client';
 
 import { DataTable } from '@/components/data-table/data-table';
-import { columns } from './columns';
+import { getColumns } from './columns';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 import type { ProgramsSearchParams } from './data-table-schema';
 import { Button } from '@/components/ui/button';
 import { Plus, TrashIcon, Loader2, Upload, Download, ChevronDown, FileSpreadsheet, FileText, FileJson } from 'lucide-react';
@@ -37,6 +38,7 @@ interface ProgramsDataTableProps {
 export function ProgramsDataTable({ search }: ProgramsDataTableProps) {
   const router = useRouter();
   const { canAccess, isSuperAdmin } = usePermissions();
+  const adaptLabel = useAdaptiveLabels();
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [selectedForDelete, setSelectedForDelete] = useState<Program[]>([]);
   const [deleteResetFn, setDeleteResetFn] = useState<(() => void) | null>(null);
@@ -310,10 +312,13 @@ export function ProgramsDataTable({ search }: ProgramsDataTableProps) {
       <DataTable
         key={refreshTrigger}
         fetchDataFn={fetchData}
-        getColumns={() => columns as any}
+        getColumns={() => getColumns(adaptLabel)}
         exportConfig={{
-          entityName: 'programs',
-          columnMapping: {},
+          entityName: adaptLabel('programs'),
+          columnMapping: {
+            'program_id': adaptLabel('Program ID'),
+            'program_name': adaptLabel('Program Name')
+          },
           columnWidths: [],
           headers: []
         }}

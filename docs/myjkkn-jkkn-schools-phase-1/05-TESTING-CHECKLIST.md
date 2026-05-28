@@ -8,11 +8,11 @@
 
 Run these against staging (`hhprjbgknupaplivtoib`) after Step 2 of `02-IMPLEMENTATION-STEPS.md`.
 
-- [ ] Column exists: `institution_kind VARCHAR(20) NOT NULL DEFAULT 'college'`
-- [ ] Check constraint rejects invalid values (test: `UPDATE institutions SET institution_kind='k12'` must error)
-- [ ] Index `idx_institutions_kind` exists
-- [ ] All 10 existing rows have `institution_kind = 'college'`
-- [ ] Flipping one row to `'school'` works (`UPDATE institutions SET institution_kind='school' WHERE id=<test-uuid>`)
+- [ ] Column exists: `entity_type VARCHAR(20) NOT NULL DEFAULT 'institution'`
+- [ ] Check constraint rejects invalid values (test: `UPDATE institutions SET entity_type='k12'` must error)
+- [ ] Index `idx_institutions_entity_type` exists
+- [ ] All existing rows have `entity_type = 'institution'` (unless schools were seeded)
+- [ ] Flipping one row to `'school'` works (`UPDATE institutions SET entity_type='school' WHERE id=<test-uuid>`)
 
 All 5 SQL queries are in `03-DATABASE-CHANGES.md` — paste them into the Supabase SQL editor.
 
@@ -26,8 +26,8 @@ pnpm build
 ```
 
 - [ ] No new TS errors (18 pre-existing test-file errors are acceptable — see `CLAUDE.md`)
-- [ ] Build output includes `hooks/use-institution-kind.ts` and `lib/constants/institution-kind-labels.ts`
-- [ ] No warnings about missing `institution_kind` in generated Supabase types (regenerated in Step 3)
+- [ ] Build output includes `hooks/use-institution-type.ts` and `lib/constants/institution-type-labels.ts`
+- [ ] No warnings about missing `entity_type` in generated Supabase types (regenerated in Step 3)
 
 ---
 
@@ -40,7 +40,7 @@ pnpm build
 - [ ] Programs page header reads "Programs" (assuming you shipped Phase 1.5 labels)
 - [ ] Semesters page header reads "Semesters"
 - [ ] Courses page header reads "Courses"
-- [ ] Console is clean (no errors about missing `institution_kind`)
+- [ ] Console is clean (no errors about missing `entity_type`)
 - [ ] Screenshot the sidebar and the Programs page — attach to PR
 
 **Login 2 — School user** (create one for the test):
@@ -48,9 +48,9 @@ pnpm build
 1. Flip an existing staging institution to school:
    ```sql
    UPDATE institutions
-   SET institution_kind = 'school'
+   SET entity_type = 'school'
    WHERE name ILIKE '%College of Arts and Science%'  -- or whichever you want to test
-   RETURNING id, name, institution_kind;
+   RETURNING id, name, entity_type;
    ```
 2. Log in as a user scoped to that institution (or create a test super-admin and impersonate)
 3. Verify:
@@ -66,7 +66,7 @@ pnpm build
 **Login 3 — Restore the test institution to college:**
 
 ```sql
-UPDATE institutions SET institution_kind = 'college' WHERE id = <test-id>;
+UPDATE institutions SET entity_type = 'institution' WHERE id = <test-id>;
 ```
 
 - [ ] After refresh, the same user (now on a college-flagged institution) sees the full sidebar again
@@ -92,7 +92,7 @@ Run through the normal MyJKKN workflows with the login user from Test 1 (college
 ## Layer 5: Network tab check
 
 - [ ] Open DevTools → Network → filter by "institutions"
-- [ ] On a fresh login, exactly ONE request to `institutions` with a `.select('institution_kind').eq('id', ...)` query pattern fires
+- [ ] On a fresh login, exactly ONE request to `institutions` with a `.select('entity_type').eq('id', ...)` query pattern fires
 - [ ] The request is cached for subsequent renders (React Query `staleTime: 5min` kicks in)
 - [ ] No repeated fires on tab switch or route change
 
@@ -102,9 +102,9 @@ This proves the hook isn't accidentally re-fetching on every render.
 
 ## Layer 6: Edge cases
 
-- [ ] Hook called while auth is loading → returns `kind='college'` safely, no flash-of-wrong-content
-- [ ] Hook called when `institutionId` is `null` (super admin with no active institution) → returns `kind='college'` safely
-- [ ] Hook called when DB returns an unexpected value (e.g., `'School'` capitalized) → defaults to `'college'` (the coercion in `use-institution-kind.ts` handles this)
+- [ ] Hook called while auth is loading → returns `entityType='institution'` safely, no flash-of-wrong-content
+- [ ] Hook called when `institutionId` is `null` (super admin with no active institution) → returns `entityType='institution'` safely
+- [ ] Hook called when DB returns an unexpected value (e.g., `'School'` capitalized) → defaults to `'institution'` (the coercion in `use-institution-type.ts` handles this)
 - [ ] RLS test: a college user trying to SELECT a school's rows via the API gets the same 403/empty result as before the migration (no new access path was introduced)
 
 ---
@@ -113,7 +113,7 @@ This proves the hook isn't accidentally re-fetching on every render.
 
 Your PR to `jicate/main` must include:
 
-1. **Title**: `feat(schools): Phase 1 — institution_kind + conditional labels + sidebar filter`
+1. **Title**: `feat(schools): Phase 1 — entity_type + conditional labels + sidebar filter`
 2. **Body sections**:
    - `## What` — one paragraph, cite the spec
    - `## Why` — the insight (labels change, data model doesn't)

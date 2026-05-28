@@ -4567,6 +4567,19 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         ]
       },
       {
+        "path": "/organizations/school-defaults",
+        "label": "School Defaults",
+        "iconName": "Building2",
+        "children": [
+          {
+            "path": "/organizations/school-defaults/audit",
+            "label": "Audit",
+            "iconName": "Building2",
+            "children": []
+          }
+        ]
+      },
+      {
         "path": "/organizations/sections",
         "label": "Sections",
         "iconName": "LayoutGrid",

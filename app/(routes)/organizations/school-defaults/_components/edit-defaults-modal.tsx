@@ -29,9 +29,7 @@ import { SchoolDefaultsAuditService } from '@/lib/services/school-defaults-audit
 
 const editSchema = z.object({
   degree_name: z.string().min(1, 'Degree name is required').max(100),
-  degree_code: z.string().min(1, 'Degree code is required').max(20),
   department_name: z.string().min(1, 'Department name is required').max(100),
-  department_code: z.string().min(1, 'Department code is required').max(20),
 });
 
 type EditFormData = z.infer<typeof editSchema>;
@@ -41,10 +39,8 @@ interface SchoolWithDefaults {
   school_name: string;
   degree_id: string | null;
   degree_name: string | null;
-  degree_code: string | null;
   department_id: string | null;
   department_name: string | null;
-  department_code: string | null;
   learner_count: number;
 }
 
@@ -68,9 +64,7 @@ export default function EditDefaultsModal({
     resolver: zodResolver(editSchema),
     defaultValues: {
       degree_name: school?.degree_name || '',
-      degree_code: school?.degree_code || '',
       department_name: school?.department_name || '',
-      department_code: school?.department_code || '',
     },
   });
 
@@ -88,7 +82,6 @@ export default function EditDefaultsModal({
           .from('degrees')
           .update({
             degree_name: data.degree_name,
-            degree_code: data.degree_code,
           })
           .eq('id', school.degree_id);
 
@@ -101,7 +94,6 @@ export default function EditDefaultsModal({
           .from('departments')
           .update({
             department_name: data.department_name,
-            department_code: data.department_code,
           })
           .eq('id', school.department_id);
 
@@ -119,9 +111,7 @@ export default function EditDefaultsModal({
           {
             changes: {
               degree_name: { from: school.degree_name, to: data.degree_name },
-              degree_code: { from: school.degree_code, to: data.degree_code },
               department_name: { from: school.department_name, to: data.department_name },
-              department_code: { from: school.department_code, to: data.department_code },
             },
           },
           currentUser.user.id
@@ -143,7 +133,7 @@ export default function EditDefaultsModal({
         <DialogHeader>
           <DialogTitle>Edit {school.school_name}</DialogTitle>
           <DialogDescription>
-            Update K-12 Program degree and Academic department names and codes
+            Update K-12 Program degree and Academic department names
           </DialogDescription>
         </DialogHeader>
 
@@ -167,40 +157,12 @@ export default function EditDefaultsModal({
 
             <FormField
               control={form.control}
-              name="degree_code"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Degree Code</FormLabel>
-                  <FormControl>
-                    <Input placeholder="K12" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
               name="department_name"
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>Department Name</FormLabel>
                   <FormControl>
                     <Input placeholder="Academic" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name="department_code"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Department Code</FormLabel>
-                  <FormControl>
-                    <Input placeholder="ACAD" {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>

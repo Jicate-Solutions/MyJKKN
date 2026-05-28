@@ -52,18 +52,17 @@ export default function EditableCell({
 
   if (!editing) {
     return (
-      <div
+      <button
         onClick={() => setEditing(true)}
-        className="cursor-text p-2 hover:bg-blue-50 rounded transition-colors"
+        className="text-left cursor-text py-2 px-1 hover:bg-blue-50 rounded transition-colors text-sm"
       >
         {value}
-      </div>
+      </button>
     );
   }
 
   return (
-    <div className="space-y-2">
-      {error && <AlertBox type="error" message={error} />}
+    <div className="space-y-1 py-1">
       <input
         autoFocus
         type="text"
@@ -76,9 +75,7 @@ export default function EditableCell({
         disabled={saving}
         className="w-full px-2 py-1 border rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
       />
-      <div className="text-xs text-muted-foreground">
-        {tempValue.length}/{maxLength} · Press Enter to save, Esc to cancel
-      </div>
+      {error && <AlertBox type="error" message={error} />}
     </div>
   );
 }

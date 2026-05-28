@@ -36,6 +36,7 @@ import { resolveTiers, type Chip } from '@/lib/navigation/tier-rendering';
 import { cn } from '@/lib/utils';
 import { usePermissions } from '@/hooks/use-permissions';
 import { MENU_PERMISSIONS, normalizeRoute } from '@/lib/sidebarMenuLink';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 
 interface AutoTabNavProps {
   maxDepth?: number;
@@ -48,7 +49,12 @@ function getIcon(iconName: string): LucideIcon {
   return icon ?? Icons.FileText;
 }
 
-function TabBar({ chips }: { chips: Chip[] }) {
+interface TabBarProps {
+  chips: Chip[];
+  adapt: (label: string) => string;
+}
+
+function TabBar({ chips, adapt }: TabBarProps) {
   if (chips.length < 2) return null;
   const containerRef = useRef<HTMLDivElement>(null);
   const activeHref = chips.find((c) => c.isActive)?.href ?? null;
@@ -98,7 +104,7 @@ function TabBar({ chips }: { chips: Chip[] }) {
             )}
           >
             <Icon className='h-3.5 w-3.5' />
-            {c.label}
+            {adapt(c.label)}
           </Link>
         );
       })}
@@ -113,6 +119,8 @@ export function AutoTabNav({
   className,
 }: AutoTabNavProps) {
   const pathname = usePathname();
+  const adaptFn = useAdaptiveLabels();
+  const adapt = typeof adaptFn === 'function' ? adaptFn : (label: string) => label;
   const { permissions, isSuperAdmin, isLoading } = usePermissions();
 
   if (!pathname) return null;
@@ -156,7 +164,7 @@ export function AutoTabNav({
   return (
     <div className={cn('flex flex-col gap-2', className)}>
       {visible.map((chips, i) => (
-        <TabBar key={i} chips={chips} />
+        <TabBar key={i} chips={chips} adapt={adapt} />
       ))}
     </div>
   );

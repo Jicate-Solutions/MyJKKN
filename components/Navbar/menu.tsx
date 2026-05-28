@@ -20,6 +20,8 @@ import { filterByPermissions } from '@/lib/navigation/permission-filter';
 import { AuthService } from '@/lib/auth/auth-service';
 import { useEffect, useMemo } from 'react';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useInstitutionType } from '@/hooks/use-institution-type';
+import { adaptMenuLabels } from '@/lib/utils/sidebar-label-adapter';
 import {
   useExpandedSidebarModule,
   useExpandedSidebarModuleHydration,
@@ -46,6 +48,7 @@ export function Menu({ isOpen }: MenuProps) {
     isLoading: permissionsLoading,
     userProfile
   } = usePermissions();
+  const { institutionType } = useInstitutionType();
   const { isInstalled, canInstall, installApp } = usePWA();
   const { open: openCommandPalette } = useCommandPalette();
   // Wave 2b PR-S2: persist per-section collapsed state to localStorage
@@ -148,10 +151,17 @@ export function Menu({ isOpen }: MenuProps) {
   // bottom-navbar.tsx. Sections with zero accessible menus (after permission
   // filtering) are dropped, exactly as before.
   const pagesRaw = GetRoleBasedPages(pathname, roleData);
+
+  // Adapt menu labels based on institution type (school → classes/terms, college → programs/semesters)
+  const pagesAdapted = useMemo(
+    () => adaptMenuLabels(pagesRaw, institutionType),
+    [pagesRaw, institutionType]
+  );
+
   const pages = useMemo(() => {
     // Index permission-filtered groups by groupLabel for O(1) lookup
-    const byLabel = new Map<string, (typeof pagesRaw)[number]>();
-    for (const g of pagesRaw) {
+    const byLabel = new Map<string, (typeof pagesAdapted)[number]>();
+    for (const g of pagesAdapted) {
       if (g.groupLabel) byLabel.set(g.groupLabel, g);
     }
 
@@ -170,7 +180,7 @@ export function Menu({ isOpen }: MenuProps) {
     // set but are NOT yet in MODULES (forward-compat: a new section can ship
     // in sidebarMenuLink before being added to MODULES, and shouldn't vanish).
     // These trail at the end. Drop is impossible — surfacing the gap visibly.
-    for (const g of pagesRaw) {
+    for (const g of pagesAdapted) {
       if (g.groupLabel && !matchedLabels.has(g.groupLabel)) {
         ordered.push(g);
       } else if (!g.groupLabel) {
@@ -181,7 +191,7 @@ export function Menu({ isOpen }: MenuProps) {
     }
 
     return ordered;
-  }, [pagesRaw]);
+  }, [pagesAdapted]);
 
   // DEV-only: warn if any group exceeds the flat-item thresholds set by the
   // validator (prevents regression back to cluttered flat lists on new modules).
