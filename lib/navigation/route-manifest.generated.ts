@@ -3164,6 +3164,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
+            "path": "/campus-living/settings/hostel-years",
+            "label": "Hostel Years",
+            "iconName": "Building",
+            "children": []
+          },
+          {
             "path": "/campus-living/settings/leave-types",
             "label": "Leave Types",
             "iconName": "CalendarOff",
