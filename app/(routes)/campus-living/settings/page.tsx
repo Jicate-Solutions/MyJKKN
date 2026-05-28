@@ -3,11 +3,7 @@
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Card, CardContent } from '@/components/ui/card';
-<<<<<<< HEAD
-import { Settings, IndianRupee, CalendarDays, Wrench, Bell, GitBranch, ArrowRight, LayoutGrid, Sparkles, CalendarRange } from 'lucide-react';
-=======
-import { Settings, IndianRupee, CalendarDays, Wrench, Bell, GitBranch, ArrowRight, LayoutGrid, Sparkles, Wifi, Wind } from 'lucide-react';
->>>>>>> ce263a366 (feat(campus-living/amenities): PR 2 — amenities + billable amenities CRUD UI (mirrors amenities-categories pattern))
+import { Settings, IndianRupee, CalendarDays, Wrench, Bell, GitBranch, ArrowRight, LayoutGrid, Sparkles, CalendarRange, Wifi, Wind } from 'lucide-react';
 
 export default function SettingsPage() {
   const settingsPages = [
