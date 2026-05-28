@@ -4,7 +4,14 @@ import { ColumnDef } from '@tanstack/react-table';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
 import type { MessCategory } from '@/types/mess-categories';
+import { MESS_CATEGORY_TYPE_LABELS } from '@/types/mess-categories';
 import { MessCategoryRowActions } from './row-actions';
+
+const TYPE_VARIANT: Record<string, 'default' | 'secondary' | 'outline'> = {
+  boys: 'default',
+  girls: 'secondary',
+  mixed: 'outline',
+};
 
 export const createColumns = (): ColumnDef<MessCategory>[] => [
   {
@@ -48,6 +55,15 @@ export const createColumns = (): ColumnDef<MessCategory>[] => [
       <span className='text-muted-foreground text-sm line-clamp-1'>
         {row.original.description || '—'}
       </span>
+    ),
+  },
+  {
+    accessorKey: 'type',
+    header: 'Type',
+    cell: ({ row }) => (
+      <Badge variant={TYPE_VARIANT[row.original.type] ?? 'outline'}>
+        {MESS_CATEGORY_TYPE_LABELS[row.original.type] ?? row.original.type}
+      </Badge>
     ),
   },
   {

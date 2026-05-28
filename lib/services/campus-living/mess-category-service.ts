@@ -32,7 +32,12 @@ export class MessCategoryService {
       query = query.eq('is_active', filters.is_active);
     }
     if (filters.search) {
-      query = query.ilike('name', `%${filters.search}%`);
+      // Strip PostgREST filter metacharacters and wildcards before building
+      // the .or() string — prevents filter injection via raw user input.
+      const safe = filters.search.replace(/[,()*\\%_]/g, '').trim();
+      if (safe) {
+        query = query.or(`name.ilike.%${safe}%,type.ilike.%${safe}%`);
+      }
     }
 
     const { data, error, count } = await query;

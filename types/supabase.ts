@@ -30856,6 +30856,45 @@ export type Database = {
           },
         ]
       }
+      hostel_category_fees: {
+        Row: {
+          amenities_category_id: string | null
+          amount: number
+          created_at: string
+          frequency: string
+          hostel_category_id: string | null
+          hostel_year_id: string
+          id: string
+          is_active: boolean
+          mess_category_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          amenities_category_id?: string | null
+          amount: number
+          created_at?: string
+          frequency?: string
+          hostel_category_id?: string | null
+          hostel_year_id: string
+          id?: string
+          is_active?: boolean
+          mess_category_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          amenities_category_id?: string | null
+          amount?: number
+          created_at?: string
+          frequency?: string
+          hostel_category_id?: string | null
+          hostel_year_id?: string
+          id?: string
+          is_active?: boolean
+          mess_category_id?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       hostel_cleaning_schedules: {
         Row: {
           assigned_staff: string | null
@@ -60783,6 +60822,7 @@ export type Database = {
           is_active: boolean
           name: string
           sort_order: number
+          type: string
           updated_at: string
         }
         Insert: {
@@ -60792,6 +60832,7 @@ export type Database = {
           is_active?: boolean
           name: string
           sort_order?: number
+          type: string
           updated_at?: string
         }
         Update: {
@@ -60801,6 +60842,7 @@ export type Database = {
           is_active?: boolean
           name?: string
           sort_order?: number
+          type?: string
           updated_at?: string
         }
         Relationships: []

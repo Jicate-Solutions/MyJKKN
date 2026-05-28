@@ -3,7 +3,9 @@
 import { useMessCategories } from '@/hooks/campus-living/use-mess-categories';
 import { CrudRowActions } from '@/components/shared/crud-master/crud-row-actions';
 import { MessCategoryFormDialog } from './mess-category-form-dialog';
+import { Badge } from '@/components/ui/badge';
 import type { MessCategory } from '@/types/mess-categories';
+import { MESS_CATEGORY_TYPE_LABELS } from '@/types/mess-categories';
 
 interface MessCategoryRowActionsProps {
   category: MessCategory;
@@ -38,6 +40,13 @@ function MessCategoryDetails({ entity }: { entity: MessCategory }) {
 
       <div className='text-muted-foreground'>Description:</div>
       <div>{entity.description || '—'}</div>
+
+      <div className='text-muted-foreground'>Type:</div>
+      <div>
+        <Badge variant='outline'>
+          {MESS_CATEGORY_TYPE_LABELS[entity.type] ?? entity.type}
+        </Badge>
+      </div>
 
       <div className='text-muted-foreground'>Sort Order:</div>
       <div>{entity.sort_order}</div>

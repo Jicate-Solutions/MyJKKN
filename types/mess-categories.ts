@@ -1,7 +1,10 @@
+export type MessCategoryType = 'boys' | 'girls' | 'mixed';
+
 export interface MessCategory {
   id: string;
   name: string;
   description: string | null;
+  type: MessCategoryType;
   is_active: boolean;
   sort_order: number;
   created_at: string;
@@ -11,6 +14,7 @@ export interface MessCategory {
 export interface CreateMessCategoryDto {
   name: string;
   description?: string | null;
+  type: MessCategoryType;
   is_active?: boolean;
   sort_order?: number;
 }
@@ -18,6 +22,7 @@ export interface CreateMessCategoryDto {
 export interface UpdateMessCategoryDto {
   name?: string;
   description?: string | null;
+  type?: MessCategoryType;
   is_active?: boolean;
   sort_order?: number;
 }
@@ -38,3 +43,9 @@ export interface MessCategoryListResponse {
     totalPages: number;
   };
 }
+
+export const MESS_CATEGORY_TYPE_LABELS: Record<MessCategoryType, string> = {
+  boys: 'Boys',
+  girls: 'Girls',
+  mixed: 'Mixed',
+};

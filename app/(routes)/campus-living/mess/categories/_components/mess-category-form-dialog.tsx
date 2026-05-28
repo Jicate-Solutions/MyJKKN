@@ -23,10 +23,18 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Loader2 } from 'lucide-react';
 import { useMessCategories } from '@/hooks/campus-living/use-mess-categories';
 import { toast } from 'react-hot-toast';
 import type { MessCategory } from '@/types/mess-categories';
+import { MESS_CATEGORY_TYPE_LABELS } from '@/types/mess-categories';
 
 const formSchema = z.object({
   name: z
@@ -38,6 +46,9 @@ const formSchema = z.object({
     .max(500, 'Description must be at most 500 characters')
     .optional()
     .or(z.literal('')),
+  type: z.enum(['boys', 'girls', 'mixed'], {
+    required_error: 'Please select a type',
+  }),
   sort_order: z.coerce.number().int().min(0, 'Must be 0 or greater'),
   is_active: z.boolean(),
 });
@@ -65,6 +76,7 @@ export function MessCategoryFormDialog({
     defaultValues: {
       name: '',
       description: '',
+      type: 'boys',
       sort_order: 0,
       is_active: true,
     },
@@ -76,6 +88,7 @@ export function MessCategoryFormDialog({
       form.reset({
         name: category.name,
         description: category.description ?? '',
+        type: category.type,
         sort_order: category.sort_order,
         is_active: category.is_active,
       });
@@ -83,6 +96,7 @@ export function MessCategoryFormDialog({
       form.reset({
         name: '',
         description: '',
+        type: 'boys',
         sort_order: 0,
         is_active: true,
       });
@@ -158,6 +172,33 @@ export function MessCategoryFormDialog({
                       {...field}
                     />
                   </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name='type'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Type</FormLabel>
+                  <Select value={field.value} onValueChange={field.onChange}>
+                    <FormControl>
+                      <SelectTrigger>
+                        <SelectValue placeholder='Select type' />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      {Object.entries(MESS_CATEGORY_TYPE_LABELS).map(
+                        ([value, label]) => (
+                          <SelectItem key={value} value={value}>
+                            {label}
+                          </SelectItem>
+                        )
+                      )}
+                    </SelectContent>
+                  </Select>
                   <FormMessage />
                 </FormItem>
               )}
