@@ -459,7 +459,6 @@ export interface HostelBlock {
   name: string;
   code: string;
   hostel_type: HostelType;
-  category_id: string | null;
   address: string | null;
   amenities: Record<string, unknown> | null;
   contact_phone: string | null;
@@ -483,7 +482,6 @@ export interface CreateHostelBlockDTO {
   name: string;
   code: string;
   hostel_type: HostelType;
-  category_id?: string | null;
   total_floors: number;
   address?: string | null;
   amenities?: Record<string, unknown> | null;
@@ -536,6 +534,7 @@ export interface HostelRoom {
   room_type: RoomType;
   ac_status: AcStatus;
   capacity: number;
+  category_id: string | null;
   annual_fee: number | null;
   furniture: Record<string, unknown> | null;
   has_attached_bathroom: boolean | null;
@@ -555,6 +554,7 @@ export interface CreateHostelRoomDTO {
   room_type: RoomType;
   ac_status: AcStatus;
   capacity: number;
+  category_id?: string | null;
   annual_fee?: number | null;
   furniture?: Record<string, unknown> | null;
   has_attached_bathroom?: boolean | null;

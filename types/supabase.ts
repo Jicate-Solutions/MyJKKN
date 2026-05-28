@@ -35522,6 +35522,7 @@ export type Database = {
           annual_fee: number | null
           block_id: string
           capacity: number
+          category_id: string | null
           created_at: string | null
           floor: number
           furniture: Json | null
@@ -35541,6 +35542,7 @@ export type Database = {
           annual_fee?: number | null
           block_id: string
           capacity: number
+          category_id?: string | null
           created_at?: string | null
           floor: number
           furniture?: Json | null
@@ -35560,6 +35562,7 @@ export type Database = {
           annual_fee?: number | null
           block_id?: string
           capacity?: number
+          category_id?: string | null
           created_at?: string | null
           floor?: number
           furniture?: Json | null

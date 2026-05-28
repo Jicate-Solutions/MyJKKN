@@ -62,6 +62,14 @@ export default function RoomDetailPage({
     );
   }
 
+  // getRoomWithOccupancy returns the beds relation as `hostel_beds` and a
+  // nullable `furniture` jsonb; maintenance history isn't joined to a table
+  // yet. Guard each so a freshly-created room (0 beds, null furniture) renders
+  // instead of throwing on `.length` / `Object.entries`.
+  const beds = room.hostel_beds ?? [];
+  const furniture = room.furniture ?? {};
+  const maintenanceHistory = room.maintenance_history ?? [];
+
   return (
     <ContentLayout title={`Room ${room.room_number}`}>
       <PageBreadcrumb
@@ -138,7 +146,7 @@ export default function RoomDetailPage({
           <Card>
             <CardContent className="p-4 text-center">
               <p className="text-2xl font-bold">
-                {new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(room.annual_fee)}
+                {new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(room.annual_fee ?? 0)}
               </p>
               <p className="text-xs text-muted-foreground">Annual Fee</p>
             </CardContent>
@@ -156,10 +164,15 @@ export default function RoomDetailPage({
           <Card>
             <CardHeader>
               <CardTitle className="text-base">Beds</CardTitle>
-              <CardDescription>{room.beds.length} beds in this room</CardDescription>
+              <CardDescription>{beds.length} beds in this room</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              {room.beds.map((bed) => {
+              {beds.length === 0 && (
+                <p className="text-sm text-muted-foreground">
+                  No beds configured yet. Beds are created when students are allocated to this room.
+                </p>
+              )}
+              {beds.map((bed) => {
                 const bCfg = bedStatusConfig[bed.status] ?? { label: bed.status, variant: 'outline' as const };
                 return (
                   <div key={bed.id} className="p-4 border rounded-lg">
@@ -213,14 +226,18 @@ export default function RoomDetailPage({
                 <CardTitle className="text-base">Furniture Inventory</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                  {Object.entries(room.furniture).map(([item, count]) => (
-                    <div key={item} className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
-                      <span className="text-sm capitalize">{item}</span>
-                      <span className="font-medium">{count as number}</span>
-                    </div>
-                  ))}
-                </div>
+                {Object.keys(furniture).length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No furniture recorded.</p>
+                ) : (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                    {Object.entries(furniture).map(([item, count]) => (
+                      <div key={item} className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
+                        <span className="text-sm capitalize">{item}</span>
+                        <span className="font-medium">{count as number}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
                 {room.is_accessible && (
                   <Badge variant="outline" className="mt-3">Wheelchair Accessible</Badge>
                 )}
@@ -236,11 +253,14 @@ export default function RoomDetailPage({
             <Card>
               <CardHeader>
                 <CardTitle className="text-base">Maintenance History</CardTitle>
-                <CardDescription>{room.maintenance_history.length} past requests</CardDescription>
+                <CardDescription>{maintenanceHistory.length} past requests</CardDescription>
               </CardHeader>
               <CardContent>
+                {maintenanceHistory.length === 0 && (
+                  <p className="text-sm text-muted-foreground">No maintenance requests recorded.</p>
+                )}
                 <div className="space-y-3">
-                  {room.maintenance_history.map((req) => {
+                  {maintenanceHistory.map((req) => {
                     const pCfg = maintenancePriorityConfig[req.priority] ?? { label: req.priority, color: '' };
                     return (
                       <div key={req.id} className="flex items-center justify-between p-3 border rounded-lg">

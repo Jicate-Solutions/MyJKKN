@@ -13,7 +13,6 @@ import {
   useHostelBlock,
   useUpdateHostelBlock,
 } from '@/hooks/campus-living/use-hostel-blocks';
-import { useActiveHostelCategories } from '@/hooks/campus-living/use-hostel-categories';
 import { ArrowLeft, Save, Loader2 } from 'lucide-react';
 
 /**
@@ -41,7 +40,6 @@ export default function EditBlockPage({ params }: { params: Promise<{ id: string
   const router = useRouter();
   const { data: blockData, isLoading } = useHostelBlock(id);
   const updateBlock = useUpdateHostelBlock();
-  const { hostelCategories: categories, loading: categoriesLoading } = useActiveHostelCategories();
   const block = blockData as any;
 
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -49,7 +47,6 @@ export default function EditBlockPage({ params }: { params: Promise<{ id: string
     name: '',
     code: '',
     hostel_type: 'boys',
-    category_id: '',
     total_floors: '',
     address: '',
     contact_phone: '',
@@ -68,7 +65,6 @@ export default function EditBlockPage({ params }: { params: Promise<{ id: string
       name: block.name ?? '',
       code: block.code ?? '',
       hostel_type: block.hostel_type ?? 'boys',
-      category_id: block.category_id ?? '',
       total_floors: block.total_floors != null ? String(block.total_floors) : '',
       address: block.address ?? '',
       contact_phone: block.contact_phone ?? '',
@@ -103,14 +99,12 @@ export default function EditBlockPage({ params }: { params: Promise<{ id: string
     setIsSubmitting(true);
 
     try {
-      const selectedCategory = categories.find(c => c.id === formData.category_id);
       await updateBlock.mutateAsync({
         id,
         payload: {
           name: formData.name,
           code: formData.code,
-          hostel_type: (selectedCategory?.type ?? formData.hostel_type) as 'boys' | 'girls' | 'mixed',
-          category_id: formData.category_id || null,
+          hostel_type: formData.hostel_type as 'boys' | 'girls' | 'mixed',
           total_floors: parseInt(formData.total_floors) || 0,
           address: formData.address || null,
           contact_phone: formData.contact_phone || null,
@@ -199,27 +193,17 @@ export default function EditBlockPage({ params }: { params: Promise<{ id: string
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="category_id">Hostel Category *</Label>
+                <Label htmlFor="hostel_type">Type *</Label>
                 <select
-                  id="category_id"
+                  id="hostel_type"
                   className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                  value={formData.category_id}
-                  onChange={(e) => {
-                    const catId = e.target.value;
-                    const cat = categories.find(c => c.id === catId);
-                    setFormData(prev => ({
-                      ...prev,
-                      category_id: catId,
-                      hostel_type: cat?.type ?? prev.hostel_type,
-                    }));
-                  }}
+                  value={formData.hostel_type}
+                  onChange={(e) => handleInputChange('hostel_type', e.target.value)}
                   required
-                  disabled={categoriesLoading}
                 >
-                  <option value="">Select Category</option>
-                  {categories.map((cat) => (
-                    <option key={cat.id} value={cat.id}>{cat.name}</option>
-                  ))}
+                  <option value="boys">Boys</option>
+                  <option value="girls">Girls</option>
+                  <option value="mixed">Mixed</option>
                 </select>
               </div>
 

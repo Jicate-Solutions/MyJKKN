@@ -168,6 +168,7 @@ export default function BlockRoomsPage({ params }: { params: Promise<{ id: strin
                   <TableHead>Floor</TableHead>
                   <TableHead>Type</TableHead>
                   <TableHead>AC</TableHead>
+                  <TableHead>Category</TableHead>
                   <TableHead>Occupancy</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Bathroom</TableHead>
@@ -195,6 +196,11 @@ export default function BlockRoomsPage({ params }: { params: Promise<{ id: strin
                         </Badge>
                       </TableCell>
                       <TableCell>
+                        {room.hostel_categories?.name ?? (
+                          <span className="text-muted-foreground">&mdash;</span>
+                        )}
+                      </TableCell>
+                      <TableCell>
                         <div className="flex items-center gap-1.5">
                           <Users className="h-3.5 w-3.5 text-muted-foreground" />
                           <span>{room.active_residents}/{room.capacity}</span>
@@ -205,7 +211,7 @@ export default function BlockRoomsPage({ params }: { params: Promise<{ id: strin
                       </TableCell>
                       <TableCell>{room.has_attached_bathroom ? 'Yes' : 'No'}</TableCell>
                       <TableCell className="text-right">
-                        {new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(room.annual_fee)}
+                        {new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(room.annual_fee ?? 0)}
                       </TableCell>
                       <TableCell>
                         <Button variant="ghost" size="sm" asChild>
@@ -219,7 +225,7 @@ export default function BlockRoomsPage({ params }: { params: Promise<{ id: strin
                 })}
                 {filteredRooms.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
+                    <TableCell colSpan={10} className="text-center py-8 text-muted-foreground">
                       No rooms found matching your filters
                     </TableCell>
                   </TableRow>

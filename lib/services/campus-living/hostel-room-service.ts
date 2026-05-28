@@ -27,6 +27,7 @@ export interface RoomOccupancySnapshot {
 export type HostelRoomWithOccupancy = HostelRoom & RoomOccupancySnapshot;
 export type HostelRoomWithBedsAndOccupancy = HostelRoomWithOccupancy & {
   hostel_beds: unknown[];
+  hostel_categories: { name: string } | null;
 };
 
 const EMPTY_OCCUPANCY: RoomOccupancySnapshot = {
@@ -34,6 +35,11 @@ const EMPTY_OCCUPANCY: RoomOccupancySnapshot = {
   beds_available: 0,
   derived_status: 'unknown',
 };
+
+// Guard against non-UUID ids reaching a uuid-typed .eq() filter (Postgres
+// 22P02). Routing edge cases like /rooms/new used to pass "new" here.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const isUuid = (v: string): boolean => UUID_RE.test(v);
 
 /**
  * Look up live occupancy for a set of room IDs via v_hostel_room_occupancy.
@@ -156,7 +162,7 @@ export class HostelRoomService {
       const supabase = createClientSupabaseClient();
       const { data, error } = await supabase
         .from('hostel_rooms')
-        .select('*, hostel_beds(*)')
+        .select('*, hostel_beds(*), hostel_categories(name)')
         .eq('block_id', blockId)
         .order('floor')
         .order('room_number');
@@ -165,7 +171,10 @@ export class HostelRoomService {
         logger.error('campus-living/rooms', 'Failed to fetch rooms by block (with occupancy)', error);
         throw error;
       }
-      const rooms = (data ?? []) as (HostelRoom & { hostel_beds: unknown[] })[];
+      const rooms = (data ?? []) as (HostelRoom & {
+        hostel_beds: unknown[];
+        hostel_categories: { name: string } | null;
+      })[];
       const ids = rooms.map((r) => r.id);
       const occMap = await fetchOccupancyMap(supabase, ids);
       return rooms.map((r) => ({
@@ -242,6 +251,8 @@ export class HostelRoomService {
     id: string,
   ): Promise<(HostelRoomWithOccupancy & { hostel_beds: unknown[]; hostel_blocks: unknown }) | null> {
     try {
+      // Non-UUID id (e.g. the "/rooms/new" routing edge case) → no row.
+      if (!isUuid(id)) return null;
       const supabase = createClientSupabaseClient();
       const { data, error } = await supabase
         .from('hostel_rooms')

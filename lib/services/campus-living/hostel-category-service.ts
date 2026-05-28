@@ -130,13 +130,13 @@ export class HostelCategoryService {
 
   static async deleteCategory(id: string): Promise<void> {
     const { count } = await this.supabase
-      .from('hostel_blocks')
+      .from('hostel_rooms')
       .select('id', { count: 'exact', head: true })
       .eq('category_id', id);
 
     if (count && count > 0) {
       throw new Error(
-        `Cannot delete: ${count} hostel block${count > 1 ? 's' : ''} still use this category. Reassign them first.`
+        `Cannot delete: ${count} room${count > 1 ? 's' : ''} still use this category. Reassign them first.`
       );
     }
 
