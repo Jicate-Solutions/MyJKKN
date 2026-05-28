@@ -76,7 +76,43 @@ export class HostelBlockService {
         logger.error('campus-living/blocks', 'Failed to fetch block', error);
         throw error;
       }
-      return data as (HostelBlock & { hostel_rooms: unknown[]; hostel_wardens: unknown[] }) | null;
+      if (!data) return null;
+
+      // Derive the Room Status Summary for the detail-page Overview tab.
+      // hostel_rooms has no status column, so occupancy comes from the
+      // v_hostel_room_occupancy view (available / partially_occupied / full /
+      // unknown→available). Non-student rooms (warden/office/sick_room/…) are
+      // counted as "reserved". Maintenance has no source today → stays 0.
+      const { data: occ, error: occErr } = await supabase
+        .from('v_hostel_room_occupancy')
+        .select('room_id, derived_status')
+        .eq('block_id', id);
+      if (occErr) {
+        logger.error('campus-living/blocks', 'Failed to fetch room occupancy for summary', occErr);
+      }
+      const statusByRoom = new Map<string, string>();
+      for (const row of occ ?? []) {
+        if (row.room_id) statusByRoom.set(row.room_id, row.derived_status ?? 'available');
+      }
+
+      const rooms = (data.hostel_rooms ?? []) as Array<{ id: string; room_purpose?: string | null }>;
+      const rooms_summary = { available: 0, partially_occupied: 0, full: 0, maintenance: 0, reserved: 0 };
+      for (const room of rooms) {
+        if (room.room_purpose && room.room_purpose !== 'student') {
+          rooms_summary.reserved += 1;
+          continue;
+        }
+        const st = statusByRoom.get(room.id);
+        if (st === 'full') rooms_summary.full += 1;
+        else if (st === 'partially_occupied') rooms_summary.partially_occupied += 1;
+        else rooms_summary.available += 1;
+      }
+
+      return { ...data, rooms_summary } as HostelBlock & {
+        hostel_rooms: unknown[];
+        hostel_wardens: unknown[];
+        rooms_summary: typeof rooms_summary;
+      };
     } catch (error) {
       logger.error('campus-living/blocks', 'Unexpected error in getBlock', error);
       throw error;
