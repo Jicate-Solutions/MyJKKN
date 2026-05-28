@@ -13,14 +13,14 @@ import {
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Plus } from 'lucide-react';
-import { HostelCategoriesDataTable } from './_components/hostel-categories-data-table';
-import { HostelCategoryFormDialog } from './_components/hostel-category-form-dialog';
+import { AmenitiesCategoriesDataTable } from './_components/amenities-categories-data-table';
+import { AmenitiesCategoryFormDialog } from './_components/amenities-category-form-dialog';
 
-export default function HostelCategoriesPage() {
+export default function AmenitiesCategoriesPage() {
   const [showCreateDialog, setShowCreateDialog] = useState(false);
 
   return (
-    <ContentLayout title='Hostel Rooms Categories'>
+    <ContentLayout title='Amenities Categories'>
       <div className='space-y-6'>
         <Breadcrumb>
           <BreadcrumbList>
@@ -37,7 +37,7 @@ export default function HostelCategoriesPage() {
             </BreadcrumbItem>
             <BreadcrumbSeparator />
             <BreadcrumbItem>
-              <BreadcrumbPage>Hostel Rooms Categories</BreadcrumbPage>
+              <BreadcrumbPage>Amenities Categories</BreadcrumbPage>
             </BreadcrumbItem>
           </BreadcrumbList>
         </Breadcrumb>
@@ -47,9 +47,9 @@ export default function HostelCategoriesPage() {
             <div className='space-y-6'>
               <div className='flex items-center justify-between'>
                 <div>
-                  <h2 className='text-lg font-semibold'>Hostel Rooms Categories</h2>
+                  <h2 className='text-lg font-semibold'>Amenities Categories</h2>
                   <p className='text-sm text-muted-foreground'>
-                    Manage hostel rooms categories such as Boys Hostel, Girls Hostel, and Mixed Hostel.
+                    Manage amenity categories used to group campus living amenities.
                     Categories are shared across all institutions.
                   </p>
                 </div>
@@ -59,12 +59,12 @@ export default function HostelCategoriesPage() {
                 </Button>
               </div>
 
-              <HostelCategoriesDataTable />
+              <AmenitiesCategoriesDataTable />
             </div>
           </CardContent>
         </Card>
 
-        <HostelCategoryFormDialog
+        <AmenitiesCategoryFormDialog
           open={showCreateDialog}
           onOpenChange={setShowCreateDialog}
           mode='create'
