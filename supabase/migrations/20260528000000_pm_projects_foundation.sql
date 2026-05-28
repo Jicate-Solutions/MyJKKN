@@ -1012,7 +1012,8 @@ VALUES
   ('pm.capacity_overload_threshold_pct', 'global', '100'::jsonb,
    'Percent allocation above which a person is flagged overloaded (F5.1)',
    'number', 'major', 'published', false, true, 'number', 'projects')
-ON CONFLICT (policy_key) DO NOTHING;
+ON CONFLICT (policy_key, scope_type, COALESCE(scope_id, '00000000-0000-0000-0000-000000000000'::uuid))
+  DO NOTHING;
 
 -- ============================================================================
 -- SECTION Q — Storage buckets (private)
