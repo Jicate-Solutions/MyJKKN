@@ -2927,6 +2927,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
+            "path": "/campus-living/mess/categories",
+            "label": "Categories",
+            "iconName": "Utensils",
+            "children": []
+          },
+          {
             "path": "/campus-living/mess/caterers",
             "label": "Caterers",
             "iconName": "Utensils",
@@ -3116,9 +3122,33 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "iconName": "Settings",
         "children": [
           {
+            "path": "/campus-living/settings/amenities",
+            "label": "Amenities",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/campus-living/settings/amenities-categories",
+            "label": "Amenities Categories",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
             "path": "/campus-living/settings/approval-chains",
             "label": "Approval Chains",
             "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/campus-living/settings/billable-amenities",
+            "label": "Billable Amenities",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/campus-living/settings/categories",
+            "label": "Categories",
+            "iconName": "Tags",
             "children": []
           },
           {
