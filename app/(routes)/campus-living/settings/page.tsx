@@ -10,12 +10,9 @@ export default function SettingsPage() {
     { title: 'General Settings', desc: 'Basic campus living configuration, academic year, hostel names', href: '/campus-living/settings/general', icon: Settings },
     { title: 'Hostel Rooms Categories', desc: 'Manage hostel rooms categories — Boys, Girls, Mixed hostels', href: '/campus-living/settings/categories', icon: LayoutGrid },
     { title: 'Amenities Categories', desc: 'Manage amenity categories — Recreation, Fitness, Connectivity', href: '/campus-living/settings/amenities-categories', icon: Sparkles },
-<<<<<<< HEAD
-    { title: 'Hostel Years', desc: 'Define hostel calendar years — name, start & end dates (scopes fee config)', href: '/campus-living/settings/hostel-years', icon: CalendarRange },
-=======
     { title: 'Amenities', desc: 'Catalog of informational amenities (Wi-Fi, Balcony, Attached Bath) assignable to rooms and blocks', href: '/campus-living/settings/amenities', icon: Wifi },
     { title: 'Billable Amenities', desc: 'Amenities that carry a monthly fee (AC, premium services) with fee models and commitment terms', href: '/campus-living/settings/billable-amenities', icon: Wind },
->>>>>>> ce263a366 (feat(campus-living/amenities): PR 2 — amenities + billable amenities CRUD UI (mirrors amenities-categories pattern))
+    { title: 'Hostel Years', desc: 'Define hostel calendar years — name, start & end dates (scopes fee config)', href: '/campus-living/settings/hostel-years', icon: CalendarRange },
     { title: 'Fee Configuration', desc: 'Room-type fees, AC charges, deposit amounts, payment modes', href: '/campus-living/settings/fee-config', icon: IndianRupee },
     { title: 'Leave Types', desc: 'Configure leave types, max days, parent consent requirements', href: '/campus-living/settings/leave-types', icon: CalendarDays },
     { title: 'Maintenance SLA', desc: 'Set SLA targets by category and priority level', href: '/campus-living/settings/maintenance-sla', icon: Wrench },
