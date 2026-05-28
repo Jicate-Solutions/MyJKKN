@@ -201,6 +201,12 @@ const config: ModuleNavConfig = {
           matchPaths: ['/campus-living/mess'],
         },
         {
+          label: 'Mess Categories',
+          icon: 'Tags',
+          href: '/campus-living/mess/categories',
+          matchPaths: ['/campus-living/mess/categories'],
+        },
+        {
           label: 'Menu',
           icon: 'BookOpen',
           href: '/campus-living/mess/menu',
