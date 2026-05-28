@@ -50,7 +50,7 @@ function humanizeFeeStructureCreateError(err: unknown): string {
       '',
       'To create a NEW one alongside it, change at least ONE of these dimensions:',
       '• Institution · Degree · Department · Programme',
-      '• Quota · Accommodation · Admission Year',
+      '• Quota · Admission Year',
       '',
       'Or archive the existing structure first, then re-save.',
     ].join('\n');
@@ -162,7 +162,6 @@ export function FeesStructureForm({ dims, onChanged }: Props) {
       department_id:         dims.department_id!,
       programme_id:          dims.programme_id!,
       quota_id:              dims.quota_id!,
-      accommodation_type_id: dims.accommodation_type_id!,
       admission_year_id:     dims.admission_year_id!,
       gender:                dims.gender,
     };
@@ -217,7 +216,7 @@ export function FeesStructureForm({ dims, onChanged }: Props) {
     return (
       <div className="text-sm text-muted-foreground py-12 text-center">
         <p>
-          Pick all 7 matrix dimensions to view, edit, or create a fee structure.
+          Pick all 6 matrix dimensions to view, edit, or create a fee structure.
         </p>
       </div>
     );
@@ -239,7 +238,6 @@ export function FeesStructureForm({ dims, onChanged }: Props) {
           department_id:         dims.department_id!,
           programme_id:          dims.programme_id!,
           quota_id:              dims.quota_id!,
-          accommodation_type_id: dims.accommodation_type_id!,
           admission_year_id:     dims.admission_year_id!,
           gender:                dims.gender,
         }}
@@ -274,7 +272,6 @@ function hasSevenDims(d: DimsWithLeafCommunity): boolean {
     d.department_id &&
     d.programme_id &&
     d.quota_id &&
-    d.accommodation_type_id &&
     d.admission_year_id
   );
 }
@@ -680,7 +677,6 @@ function ExistingStructureEditor({
     department_id: structure.department_id,
     programme_id: structure.programme_id,
     quota_id: structure.quota_id,
-    accommodation_type_id: structure.accommodation_type_id,
     admission_year_id: structure.admission_year_id,
     gender: structure.gender ?? undefined,
   };
@@ -712,12 +708,11 @@ function ExistingStructureEditor({
       department_id: structure.department_id,
       programme_id: structure.programme_id,
       quota_id: structure.quota_id,
-      accommodation_type_id: structure.accommodation_type_id,
       admission_year_id: structure.admission_year_id,
       gender: structure.gender ?? undefined,
     });
     setEditableCommunityIds(structure.community_category_ids ?? []);
-  }, [structure.id, structure.items, structure.institution_id, structure.degree_id, structure.department_id, structure.programme_id, structure.quota_id, structure.accommodation_type_id, structure.admission_year_id, structure.gender, structure.community_category_ids]);
+  }, [structure.id, structure.items, structure.institution_id, structure.degree_id, structure.department_id, structure.programme_id, structure.quota_id, structure.admission_year_id, structure.gender, structure.community_category_ids]);
 
   const form = useForm<EditFormValues>({
     resolver: zodResolver(editSchema),
@@ -752,7 +747,7 @@ function ExistingStructureEditor({
   const dimsChanged = useMemo(() => {
     const k: Array<keyof FeeStructureMatrixDimensions> = [
       'institution_id', 'degree_id', 'department_id', 'programme_id',
-      'quota_id', 'accommodation_type_id', 'admission_year_id', 'gender',
+      'quota_id', 'admission_year_id', 'gender',
     ];
     return k.some((key) => editableDims[key] !== initialDims[key]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -828,11 +823,11 @@ function ExistingStructureEditor({
     // Block save if dims are partially filled — all 7 must remain set.
     const dimKeys: Array<keyof FeeStructureMatrixDimensions> = [
       'institution_id', 'degree_id', 'department_id', 'programme_id',
-      'quota_id', 'accommodation_type_id', 'admission_year_id',
+      'quota_id', 'admission_year_id',
     ];
     const missingDim = dimKeys.find((k) => !editableDims[k]);
     if (missingDim) {
-      toast.error(`All 8 matrix dimensions are required (missing: ${missingDim.replace(/_id$/, '')})`);
+      toast.error(`All matrix dimensions are required (missing: ${missingDim.replace(/_id$/, '')})`);
       return;
     }
 
@@ -871,7 +866,6 @@ function ExistingStructureEditor({
             department_id: editableDims.department_id!,
             programme_id: editableDims.programme_id!,
             quota_id: editableDims.quota_id!,
-            accommodation_type_id: editableDims.accommodation_type_id!,
             admission_year_id: editableDims.admission_year_id!,
             gender: editableDims.gender ?? null,
           } : {}),
@@ -1104,7 +1098,7 @@ function ExistingStructureEditor({
         <div className="space-y-2 border-t pt-4">
           <label className="text-sm font-medium block">Matrix Dimensions</label>
           <p className="text-xs text-muted-foreground">
-            7 dimensions plus the community list below form the unique key of
+            6 dimensions plus the community list below form the unique key of
             this fee structure. Changing a dimension moves it to a different
             matrix slot.
           </p>

@@ -13345,7 +13345,6 @@ BEGIN
        AND afs.department_id         = v_lead.department_id
        AND afs.programme_id          = v_lead.program_id
        AND afs.quota_id              = v_lead.quota_id
-       AND afs.accommodation_type_id = v_lead.accommodation_type_id
        AND afs.admission_year_id     = v_lead.admission_year_id
        AND afs.status = 'active'
        AND EXISTS (

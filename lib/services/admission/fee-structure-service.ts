@@ -355,7 +355,6 @@ export class FeeStructureService {
         .eq('structure.department_id', d.department_id)
         .eq('structure.programme_id', d.programme_id)
         .eq('structure.quota_id', d.quota_id)
-        .eq('structure.accommodation_type_id', d.accommodation_type_id)
         .eq('structure.admission_year_id', d.admission_year_id)
         .eq('structure.status', 'active');
 
@@ -620,7 +619,6 @@ export class FeeStructureService {
       department_id:         overrides?.department_id         ?? source.department_id,
       programme_id:          overrides?.programme_id          ?? source.programme_id,
       quota_id:              overrides?.quota_id              ?? source.quota_id,
-      accommodation_type_id: overrides?.accommodation_type_id ?? source.accommodation_type_id,
       admission_year_id:     newAcademicYearId,
       gender:                overrides?.gender                ?? source.gender ?? undefined,
     };

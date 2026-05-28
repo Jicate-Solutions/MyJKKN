@@ -42,7 +42,6 @@ function isFullDims(d: Partial<FeeStructureMatrixDimensions>): boolean {
     d.programme_id &&
     d.quota_id &&
     d.community_category_id &&
-    d.accommodation_type_id &&
     d.admission_year_id
   );
 }
@@ -115,7 +114,6 @@ export function FeeStructureReadonlyPanel({ dims, onMatchChange, refreshTick = 0
     if (!dims.programme_id) missing.push('Programme (Course Selection)');
     if (!dims.quota_id) missing.push('Quota (Course Selection)');
     if (!dims.community_category_id) missing.push('Community (Basic Details)');
-    if (!dims.accommodation_type_id) missing.push('Accommodation (Accommodation Preferences)');
     if (!dims.admission_year_id) missing.push('Admission Year (Course Selection)');
 
     return (

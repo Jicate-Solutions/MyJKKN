@@ -114,12 +114,6 @@ export const columns: ColumnDef<FeeStructureRow>[] = [
     size: 130,
   },
   {
-    id: 'accommodation',
-    header: ({ column }) => <DataTableColumnHeader column={column} title="Accommodation" />,
-    cell: ({ row }) => row.original.accommodation_name ?? '—',
-    size: 150,
-  },
-  {
     id: 'gender',
     header: ({ column }) => <DataTableColumnHeader column={column} title="Gender" />,
     cell: ({ row }) => row.original.gender ?? 'Any',
