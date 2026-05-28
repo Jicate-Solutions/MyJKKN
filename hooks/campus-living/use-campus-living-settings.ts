@@ -14,7 +14,7 @@ import type {
 // Query key factory
 export const campusLivingSettingsKeys = {
   all: ['campus-living-settings'] as const,
-  feeConfig: (institutionId: string | undefined, academicYearId?: string) => ['campus-living-settings', 'fee-config', institutionId, academicYearId] as const,
+  feeConfig: (institutionId: string | undefined, hostelYearId?: string) => ['campus-living-settings', 'fee-config', institutionId, hostelYearId] as const,
   leaveConfig: (institutionId: string | undefined) => ['campus-living-settings', 'leave-config', institutionId] as const,
   slaConfig: (institutionId: string | undefined) => ['campus-living-settings', 'sla-config', institutionId] as const,
   curfewExceptions: (institutionId: string | undefined, activeOnly?: boolean) => ['campus-living-settings', 'curfew-exceptions', institutionId, activeOnly] as const,
@@ -26,11 +26,11 @@ export const campusLivingSettingsKeys = {
 
 // --- Fee Config hooks ---
 
-export function useHostelFeeConfigs(institutionId: string | undefined, academicYearId?: string) {
+export function useHostelFeeConfigs(institutionId: string | undefined, hostelYearId?: string) {
   const { isSuperAdmin } = usePermissions();
   return useQuery({
-    queryKey: campusLivingSettingsKeys.feeConfig(institutionId, academicYearId),
-    queryFn: () => CampusLivingSettings.getFeeConfigs(isSuperAdmin ? undefined : institutionId, academicYearId),
+    queryKey: campusLivingSettingsKeys.feeConfig(institutionId, hostelYearId),
+    queryFn: () => CampusLivingSettings.getFeeConfigs(isSuperAdmin ? undefined : institutionId, hostelYearId),
     enabled: isSuperAdmin || !!institutionId,
   });
 }

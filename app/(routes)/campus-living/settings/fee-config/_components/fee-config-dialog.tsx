@@ -3,9 +3,9 @@
 /**
  * Create / edit dialog for a single hostel_fee_config row.
  *
- * Wired 2026-04-24 (Agent D — settings real-save). Replaces the previous
- * no-op Add/Edit buttons on /campus-living/settings/fee-config which only
- * showed a warning toast.
+ * Scoped by hostel_year_id (was academic_year_id). The Tier selector is
+ * required — hostel_fee_config.tier_id is NOT NULL; without it the insert
+ * fails. Tiers come from hostel_tier_policy via useHostelTiers.
  */
 
 import { useEffect, useState } from 'react';
@@ -32,6 +32,7 @@ import {
   useCreateHostelFeeConfig,
   useUpdateHostelFeeConfig,
 } from '@/hooks/campus-living/use-hostel-fee-config';
+import { useHostelTiers } from '@/hooks/campus-living/use-hostel-tier-policy';
 
 type RoomTypeEnum = 'single' | 'double' | 'triple' | 'quad' | 'dormitory';
 type AcStatusEnum = 'ac' | 'non_ac' | 'cooler';
@@ -39,7 +40,8 @@ type AcStatusEnum = 'ac' | 'non_ac' | 'cooler';
 export interface FeeConfigRow {
   id?: string;
   institution_id: string;
-  academic_year_id: string;
+  hostel_year_id: string;
+  tier_id: string;
   room_type: RoomTypeEnum;
   ac_status: AcStatusEnum;
   annual_fee: number;
@@ -55,7 +57,7 @@ interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   institutionId: string;
-  academicYearId: string;
+  hostelYearId: string;
   initialValue?: FeeConfigRow | null;
 }
 
@@ -63,16 +65,22 @@ export function FeeConfigDialog({
   open,
   onOpenChange,
   institutionId,
-  academicYearId,
+  hostelYearId,
   initialValue,
 }: Props) {
   const isEdit = !!initialValue?.id;
   const createMut = useCreateHostelFeeConfig();
   const updateMut = useUpdateHostelFeeConfig();
+  const { data: tiers } = useHostelTiers(institutionId);
 
-  const [form, setForm] = useState<FeeConfigRow>({
+  const tierOptions = (tiers ?? [])
+    .filter((t) => t.is_active)
+    .sort((a, b) => a.sort_order - b.sort_order);
+
+  const emptyForm = (): FeeConfigRow => ({
     institution_id: institutionId,
-    academic_year_id: academicYearId,
+    hostel_year_id: hostelYearId,
+    tier_id: '',
     room_type: 'single',
     ac_status: 'non_ac',
     annual_fee: 0,
@@ -84,31 +92,23 @@ export function FeeConfigDialog({
     is_active: true,
   });
 
+  const [form, setForm] = useState<FeeConfigRow>(emptyForm());
+
   useEffect(() => {
     if (initialValue) {
       setForm({ ...initialValue });
     } else if (open) {
-      setForm({
-        institution_id: institutionId,
-        academic_year_id: academicYearId,
-        room_type: 'single',
-        ac_status: 'non_ac',
-        annual_fee: 0,
-        semester_fee: null,
-        monthly_fee: null,
-        deposit_amount: 0,
-        mess_fee_monthly: null,
-        mess_fee_semester: null,
-        is_active: true,
-      });
+      setForm(emptyForm());
     }
-  }, [initialValue, open, institutionId, academicYearId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialValue, open, institutionId, hostelYearId]);
 
   const isSaving = createMut.isPending || updateMut.isPending;
 
   const canSave =
     !!form.institution_id &&
-    !!form.academic_year_id &&
+    !!form.hostel_year_id &&
+    !!form.tier_id &&
     !!form.room_type &&
     !!form.ac_status &&
     Number.isFinite(form.annual_fee) &&
@@ -122,6 +122,7 @@ export function FeeConfigDialog({
         await updateMut.mutateAsync({
           id: initialValue.id,
           payload: {
+            tier_id: form.tier_id,
             room_type: form.room_type,
             ac_status: form.ac_status,
             annual_fee: form.annual_fee,
@@ -136,7 +137,8 @@ export function FeeConfigDialog({
       } else {
         await createMut.mutateAsync({
           institution_id: form.institution_id,
-          academic_year_id: form.academic_year_id,
+          hostel_year_id: form.hostel_year_id,
+          tier_id: form.tier_id,
           room_type: form.room_type,
           ac_status: form.ac_status,
           annual_fee: form.annual_fee,
@@ -145,8 +147,10 @@ export function FeeConfigDialog({
           deposit_amount: form.deposit_amount,
           mess_fee_monthly: form.mess_fee_monthly ?? null,
           mess_fee_semester: form.mess_fee_semester ?? null,
+          electricity_charges: null,
+          electricity_fixed_amount: null,
           is_active: form.is_active ?? true,
-        } as FeeConfigRow);
+        });
       }
       onOpenChange(false);
     } catch {
@@ -160,7 +164,8 @@ export function FeeConfigDialog({
         <DialogHeader>
           <DialogTitle>{isEdit ? 'Edit Fee Configuration' : 'Add Fee Configuration'}</DialogTitle>
           <DialogDescription>
-            Fees persist to <code>hostel_fee_config</code> and take effect on the next billing run.
+            Fees persist to <code>hostel_fee_config</code> for the selected hostel year and take
+            effect on the next billing run.
           </DialogDescription>
         </DialogHeader>
 
@@ -197,6 +202,25 @@ export function FeeConfigDialog({
                 <SelectItem value="ac">AC</SelectItem>
                 <SelectItem value="non_ac">Non-AC</SelectItem>
                 <SelectItem value="cooler">Cooler</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-2">
+            <Label>Tier</Label>
+            <Select
+              value={form.tier_id}
+              onValueChange={(v) => setForm((f) => ({ ...f, tier_id: v }))}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Select tier" />
+              </SelectTrigger>
+              <SelectContent>
+                {tierOptions.map((t) => (
+                  <SelectItem key={t.id} value={t.id}>
+                    {t.tier_display_name}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>

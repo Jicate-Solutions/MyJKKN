@@ -1303,7 +1303,8 @@ export interface HostelLeaveTypeConfig {
 export interface HostelFeeConfig {
   id: string;
   institution_id: string;
-  academic_year_id: string;
+  hostel_year_id: string;
+  tier_id: string;
   ac_status: AcStatus;
   room_type: RoomType;
   annual_fee: number;

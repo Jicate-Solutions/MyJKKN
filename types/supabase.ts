@@ -31767,10 +31767,10 @@ export type Database = {
       hostel_fee_config: {
         Row: {
           ac_status: Database["public"]["Enums"]["ac_status_enum"]
-          academic_year_id: string
           annual_fee: number
           created_at: string | null
           deposit_amount: number
+          hostel_year_id: string
           electricity_charges:
             | Database["public"]["Enums"]["electricity_charges_enum"]
             | null
@@ -31787,10 +31787,10 @@ export type Database = {
         }
         Insert: {
           ac_status: Database["public"]["Enums"]["ac_status_enum"]
-          academic_year_id: string
           annual_fee: number
           created_at?: string | null
           deposit_amount: number
+          hostel_year_id: string
           electricity_charges?:
             | Database["public"]["Enums"]["electricity_charges_enum"]
             | null
@@ -31807,10 +31807,10 @@ export type Database = {
         }
         Update: {
           ac_status?: Database["public"]["Enums"]["ac_status_enum"]
-          academic_year_id?: string
           annual_fee?: number
           created_at?: string | null
           deposit_amount?: number
+          hostel_year_id?: string
           electricity_charges?:
             | Database["public"]["Enums"]["electricity_charges_enum"]
             | null
@@ -36464,6 +36464,42 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      hostel_years: {
+        Row: {
+          created_at: string
+          description: string | null
+          end_date: string
+          id: string
+          is_active: boolean
+          is_current: boolean
+          name: string
+          start_date: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          end_date: string
+          id?: string
+          is_active?: boolean
+          is_current?: boolean
+          name: string
+          start_date: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          end_date?: string
+          id?: string
+          is_active?: boolean
+          is_current?: boolean
+          name?: string
+          start_date?: string
+          updated_at?: string
+        }
+        Relationships: []
       }
       hr_additional_role_types: {
         Row: {

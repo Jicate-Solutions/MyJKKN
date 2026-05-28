@@ -545,6 +545,12 @@ const config: ModuleNavConfig = {
           matchPaths: ['/campus-living/settings/amenities-categories'],
         },
         {
+          label: 'Hostel Years',
+          icon: 'CalendarRange',
+          href: '/campus-living/settings/hostel-years',
+          matchPaths: ['/campus-living/settings/hostel-years'],
+        },
+        {
           label: 'Fee Config',
           icon: 'Coins',
           href: '/campus-living/settings/fee-config',

@@ -37,7 +37,11 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Plus, Edit, IndianRupee, Trash2, Loader2, Info } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import { usePermissions } from '@/hooks/use-permissions';
-import { useAcademicYears } from '@/hooks/use-academic-years';
+import {
+  useActiveHostelYears,
+  useCurrentHostelYear,
+} from '@/hooks/campus-living/use-hostel-years';
+import { useHostelTiers } from '@/hooks/campus-living/use-hostel-tier-policy';
 import {
   useHostelFeeConfigs,
   useDeleteHostelFeeConfig,
@@ -80,12 +84,19 @@ export default function FeeConfigPage() {
   const canEdit =
     isSuperAdmin || permissions?.['campus_living.settings.edit'] === true;
 
-  const { data: academicYears, isLoading: loadingYears } = useAcademicYears(
-    isSuperAdmin ? undefined : institutionId,
-  );
+  const { hostelYears, loading: loadingYears } = useActiveHostelYears();
+  const { currentYear } = useCurrentHostelYear();
+  const { data: tiers } = useHostelTiers(institutionId);
 
   const [selectedYearId, setSelectedYearId] = useState<string | undefined>(undefined);
-  const effectiveYearId = selectedYearId ?? academicYears?.data?.[0]?.id ?? undefined;
+  const effectiveYearId =
+    selectedYearId ?? currentYear?.id ?? hostelYears?.[0]?.id ?? undefined;
+
+  const tierNameById = useMemo(() => {
+    const map = new Map<string, string>();
+    (tiers ?? []).forEach((t) => map.set(t.id, t.tier_display_name));
+    return map;
+  }, [tiers]);
 
   const {
     data: feeConfigs,
@@ -126,24 +137,24 @@ export default function FeeConfigPage() {
           <div>
             <h1 className="text-2xl font-bold">Fee Configuration</h1>
             <p className="text-muted-foreground">
-              Hostel fees by room type / AC status for the selected academic year
+              Hostel fees by room type / AC status / tier for the selected hostel year
             </p>
           </div>
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-2">
-              <Label className="text-sm whitespace-nowrap">Academic Year</Label>
+              <Label className="text-sm whitespace-nowrap">Hostel Year</Label>
               <Select
                 value={effectiveYearId ?? ''}
                 onValueChange={(v) => setSelectedYearId(v)}
-                disabled={loadingYears || !academicYears?.data?.length}
+                disabled={loadingYears || !hostelYears?.length}
               >
                 <SelectTrigger className="w-48">
                   <SelectValue placeholder="Select year" />
                 </SelectTrigger>
                 <SelectContent>
-                  {academicYears?.data?.map((y: { id: string; academic_year_name?: string; year?: string }) => (
+                  {hostelYears?.map((y) => (
                     <SelectItem key={y.id} value={y.id}>
-                      {y.academic_year_name ?? y.year ?? y.id.slice(0, 8)}
+                      {y.name}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -172,9 +183,13 @@ export default function FeeConfigPage() {
         {!effectiveYearId && !loadingYears ? (
           <Alert>
             <Info className="h-4 w-4" />
-            <AlertTitle>No academic year</AlertTitle>
+            <AlertTitle>No hostel year</AlertTitle>
             <AlertDescription>
-              No active academic years found. Create one under Organizations before configuring hostel fees.
+              No active hostel years found. Create one under{' '}
+              <a className="underline" href="/campus-living/settings/hostel-years">
+                Settings → Hostel Years
+              </a>{' '}
+              before configuring hostel fees.
             </AlertDescription>
           </Alert>
         ) : null}
@@ -199,7 +214,7 @@ export default function FeeConfigPage() {
               </Alert>
             ) : rows.length === 0 ? (
               <div className="text-center py-10 text-muted-foreground">
-                No fee configurations for this academic year yet.
+                No fee configurations for this hostel year yet.
                 {canEdit && effectiveYearId ? ' Click "Add Fee Config" to create the first one.' : ''}
               </div>
             ) : (
@@ -208,6 +223,7 @@ export default function FeeConfigPage() {
                   <TableRow>
                     <TableHead>Room Type</TableHead>
                     <TableHead>AC</TableHead>
+                    <TableHead>Tier</TableHead>
                     <TableHead>Annual Fee</TableHead>
                     <TableHead>Semester Fee</TableHead>
                     <TableHead>Monthly Fee</TableHead>
@@ -222,6 +238,7 @@ export default function FeeConfigPage() {
                     <TableRow key={row.id}>
                       <TableCell className="font-medium">{roomTypeLabel(row.room_type)}</TableCell>
                       <TableCell>{acStatusLabel(row.ac_status)}</TableCell>
+                      <TableCell>{tierNameById.get(row.tier_id) ?? '—'}</TableCell>
                       <TableCell>{formatCurrency(row.annual_fee)}</TableCell>
                       <TableCell>{formatCurrency(row.semester_fee)}</TableCell>
                       <TableCell>{formatCurrency(row.monthly_fee)}</TableCell>
@@ -277,7 +294,7 @@ export default function FeeConfigPage() {
           open={dialogOpen}
           onOpenChange={setDialogOpen}
           institutionId={institutionId}
-          academicYearId={effectiveYearId}
+          hostelYearId={effectiveYearId}
           initialValue={editingRow}
         />
       ) : null}
