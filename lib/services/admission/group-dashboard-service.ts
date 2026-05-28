@@ -253,6 +253,7 @@ export class GroupDashboardService {
       ...r,
       intake: Number(r.intake),
       filled: Number(r.filled),
+      reserved: Number(r.reserved),
       balance: Number(r.balance),
       fill_percentage: Number(r.fill_percentage),
       daily_counts: (r.daily_counts ?? {}) as Record<string, number>,

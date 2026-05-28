@@ -8105,6 +8105,9 @@ GRANT EXECUTE ON FUNCTION public.transfer_learner_enquiry(
 --   filter is bypassed so historical (now-inactive) cohorts remain queryable.
 DROP FUNCTION IF EXISTS public.get_seat_analytics(uuid);
 DROP FUNCTION IF EXISTS public.get_seat_analytics(uuid, uuid);
+-- 2026-05-28: return shape changed (added reserved_seats) — drop the prior
+-- (uuid, integer) signature so this file stays re-runnable on an existing DB.
+DROP FUNCTION IF EXISTS public.get_seat_analytics(uuid, integer);
 
 CREATE OR REPLACE FUNCTION public.get_seat_analytics(
   p_institution_id     uuid    DEFAULT NULL,
@@ -8125,6 +8128,7 @@ RETURNS TABLE (
   program_end_year    integer,
   total_seats         integer,
   filled_seats        bigint,
+  reserved_seats      bigint,
   balance_seats       integer,
   fill_percentage     numeric,
   last_filled_at      timestamptz
@@ -8134,6 +8138,11 @@ STABLE
 SECURITY DEFINER
 SET search_path = public
 AS $$
+  -- 2026-05-28: "Filled" = admitted-or-beyond ('admitted','active','graduated',
+  -- 'account'); "Reserved" surfaced as its own count (tentative hold, does NOT
+  -- reduce Balance). Set defined locally rather than via
+  -- admission_statuses.is_seat_filled, which means "fee-paid/active" and is
+  -- shared by fn_geography_analytics + fn_group_dashboard_overview.
   SELECT
     i.id,
     i.name,
@@ -8147,15 +8156,30 @@ AS $$
     ay.admission_year_name,
     ay.program_start_year,
     ay.program_end_year,
-    ay.sanctioned_intake::integer                               AS total_seats,
-    COUNT(lp.id)                                                AS filled_seats,
-    GREATEST(0, ay.sanctioned_intake - COUNT(lp.id)::integer)   AS balance_seats,
+    ay.sanctioned_intake::integer AS total_seats,
+    COUNT(lp.id) FILTER (
+      WHERE lp.lifecycle_status::text IN ('admitted','active','graduated','account')
+    )                                                           AS filled_seats,
+    COUNT(lp.id) FILTER (
+      WHERE lp.lifecycle_status::text = 'reserved'
+    )                                                           AS reserved_seats,
+    GREATEST(
+      0,
+      ay.sanctioned_intake - (COUNT(lp.id) FILTER (
+        WHERE lp.lifecycle_status::text IN ('admitted','active','graduated','account')
+      ))::integer
+    )                                                           AS balance_seats,
     CASE
       WHEN ay.sanctioned_intake > 0
-        THEN ROUND(COUNT(lp.id)::numeric / ay.sanctioned_intake * 100, 1)
+        THEN ROUND(
+          (COUNT(lp.id) FILTER (
+            WHERE lp.lifecycle_status::text IN ('admitted','active','graduated','account')
+          ))::numeric / ay.sanctioned_intake * 100, 1)
       ELSE 0
     END                                                         AS fill_percentage,
-    MAX(lp.activated_at)                                        AS last_filled_at
+    MAX(lp.activated_at) FILTER (
+      WHERE lp.lifecycle_status::text IN ('admitted','active','graduated','account')
+    )                                                           AS last_filled_at
   FROM admission_years ay
   JOIN programs p       ON p.id    = ay.program_id
   JOIN departments dept ON dept.id = p.department_id
@@ -8163,7 +8187,7 @@ AS $$
   JOIN institutions i   ON i.id    = ay.institution_id
   LEFT JOIN learners_profiles lp
     ON  lp.admission_year_id = ay.id
-    AND lp.lifecycle_status IN ('admitted', 'active', 'graduated', 'account')
+    AND lp.lifecycle_status::text IN ('admitted','active','graduated','account','reserved')
   WHERE
     (
       (p_program_start_year IS NULL     AND ay.is_active = true)
@@ -12362,6 +12386,7 @@ RETURNS TABLE (
   group_sort_key    text,
   intake            integer,
   filled            integer,
+  reserved          integer,
   balance           integer,
   fill_percentage   numeric,
   daily_counts      jsonb
@@ -12418,10 +12443,24 @@ AS $$
       AND lp.lifecycle_status::text IN ('admitted','active','graduated','account')
       AND COALESCE(p.is_active, true) = true
   ),
+  -- 2026-05-28: programs with reserved learners but no filled rows must still
+  -- appear so their Reserved count is visible.
+  reserved_anchor AS (
+    SELECT DISTINCT lp.institution_id, pr.resolved_id AS program_id
+    FROM learners_profiles lp
+    JOIN programs p           ON p.id = lp.program_id
+    JOIN program_resolution pr ON pr.original_id = lp.program_id
+    WHERE lp.institution_id IN (SELECT id FROM eligible_institutions)
+      AND lp.admission_year_id IN (SELECT id FROM target_ays)
+      AND lp.lifecycle_status::text = 'reserved'
+      AND COALESCE(p.is_active, true) = true
+  ),
   anchor AS (
     SELECT institution_id, program_id FROM ay_anchor
     UNION
     SELECT institution_id, program_id FROM lp_anchor
+    UNION
+    SELECT institution_id, program_id FROM reserved_anchor
   ),
   intake_per_program AS (
     SELECT
@@ -12436,6 +12475,20 @@ AS $$
     JOIN programs p           ON p.id = ay.program_id
     JOIN program_resolution pr ON pr.original_id = ay.program_id
     GROUP BY ay.institution_id, pr.resolved_id
+  ),
+  -- 2026-05-28: point-in-time count of reserved learners per resolved program.
+  reserved_per_program AS (
+    SELECT
+      lp.institution_id,
+      pr.resolved_id AS program_id,
+      COUNT(*)::int AS reserved_total
+    FROM learners_profiles lp
+    JOIN program_resolution pr ON pr.original_id = lp.program_id
+    WHERE lp.institution_id IN (SELECT id FROM eligible_institutions)
+      AND lp.admission_year_id IN (SELECT id FROM target_ays)
+      AND lp.lifecycle_status::text = 'reserved'
+      AND (NOT p_exclude_bulk_migrated OR lp.migrated_at IS NULL)
+    GROUP BY lp.institution_id, pr.resolved_id
   ),
   filled_per_day AS (
     SELECT
@@ -12465,12 +12518,14 @@ AS $$
       COALESCE(ipp.has_lateral_row, false) AS has_lateral_row,
       COALESCE(ipp.intake_total, 0)         AS intake_total,
       COALESCE(SUM(fpd.cnt), 0)::int        AS filled,
+      COALESCE(rpp.reserved_total, 0)       AS reserved,
       jsonb_object_agg(fpd.admit_date::text, fpd.cnt)
         FILTER (WHERE fpd.admit_date IS NOT NULL) AS daily_counts
     FROM anchor a
     JOIN institutions i        ON i.id    = a.institution_id
     JOIN programs p            ON p.id    = a.program_id
     LEFT JOIN intake_per_program ipp ON ipp.institution_id = a.institution_id AND ipp.program_id = a.program_id
+    LEFT JOIN reserved_per_program rpp ON rpp.institution_id = a.institution_id AND rpp.program_id = a.program_id
     LEFT JOIN degrees d        ON d.id    = p.degree_id
     LEFT JOIN departments dept ON dept.id = p.department_id
     LEFT JOIN filled_per_day fpd
@@ -12478,7 +12533,7 @@ AS $$
     GROUP BY
       a.institution_id, i.name, i.counselling_code,
       a.program_id, p.program_id, p.program_name, d.degree_type, dept.department_code,
-      ipp.has_lateral_row, ipp.intake_total
+      ipp.has_lateral_row, ipp.intake_total, rpp.reserved_total
   )
   SELECT
     pp.institution_id,
@@ -12506,6 +12561,7 @@ AS $$
       || CASE WHEN pp.has_lateral_row THEN '1' ELSE '0' END   AS group_sort_key,
     pp.intake_total                                           AS intake,
     pp.filled,
+    pp.reserved,
     GREATEST(pp.intake_total - pp.filled, 0)                  AS balance,
     CASE WHEN pp.intake_total = 0 THEN 0::numeric
          ELSE ROUND(pp.filled::numeric / pp.intake_total * 100, 2)
@@ -12516,7 +12572,7 @@ AS $$
 $$;
 
 COMMENT ON FUNCTION public.fn_seat_analytics_daily_pivot(uuid[], integer, boolean) IS
-  'Daily admission pivot for Seat Analytics tab. -SH programs merged into base. Date: COALESCE(activated_at, created_at) AT TIME ZONE IST. SECURITY DEFINER + role_has_institution_access.';
+  'Daily admission pivot for Seat Analytics tab. Filled = admitted/active/graduated/account; Reserved surfaced separately. -SH programs merged into base. Date: COALESCE(activated_at, created_at) AT TIME ZONE IST. SECURITY DEFINER + role_has_institution_access.';
 
 GRANT EXECUTE ON FUNCTION public.fn_seat_analytics_daily_pivot(uuid[], integer, boolean) TO authenticated, service_role;
 

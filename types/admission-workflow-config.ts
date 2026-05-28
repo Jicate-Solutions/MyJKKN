@@ -77,7 +77,8 @@ export interface SeatPivotRow {
   group_label: string;          // e.g. "UG ENGINEERING - I YEAR"
   group_sort_key: string;
   intake: number;
-  filled: number;
+  filled: number;               // admitted-or-beyond (admitted/active/graduated/account)
+  reserved: number;             // point-in-time count of reserved learners
   balance: number;
   fill_percentage: number;
   daily_counts: Record<string, number>; // { "2026-03-25": 2, "2026-03-28": 1, ... }
@@ -183,7 +184,8 @@ export interface SeatAnalyticsRow {
   program_start_year: number;
   program_end_year: number;
   total_seats: number;
-  filled_seats: number;
+  filled_seats: number;          // admitted-or-beyond (admitted/active/graduated/account)
+  reserved_seats: number;        // point-in-time count of reserved learners
   balance_seats: number;
   fill_percentage: number;
   last_filled_at: string | null;
