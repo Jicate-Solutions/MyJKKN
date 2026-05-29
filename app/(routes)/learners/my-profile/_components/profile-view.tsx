@@ -9,6 +9,8 @@ import { Separator } from '@/components/ui/separator';
 import { InfoField } from './info-field';
 import { formatDate } from '@/lib/utils';
 import { formatAdmissionYear } from '@/lib/utils/admission-year-format';
+import { useActiveHostelCategories } from '@/hooks/campus-living/use-hostel-categories';
+import { useActiveMessCategories } from '@/hooks/campus-living/use-mess-categories';
 import {
   Pencil,
   User,
@@ -39,6 +41,17 @@ interface ProfileViewProps {
 
 export function ProfileView({ learner, canEdit, onEdit }: ProfileViewProps) {
   const router = useRouter();
+
+  // Resolve the stored hostel/mess category FKs to display names.
+  const { hostelCategories: allHostelCategories } = useActiveHostelCategories();
+  const { messCategories: allMessCategories } = useActiveMessCategories();
+  const hostelCategoryName = allHostelCategories.find(
+    (c) => c.id === (learner as any).hostel_category_id
+  )?.name;
+  const messCategoryName = allMessCategories.find(
+    (c) => c.id === (learner as any).mess_category_id
+  )?.name;
+
   // Helper to mask Aadhar number (show only last 4 digits)
   const maskAadhar = (aadhar?: string | null) => {
     if (!aadhar) return 'Not provided';
@@ -453,8 +466,12 @@ export function ProfileView({ learner, canEdit, onEdit }: ProfileViewProps) {
                 value={learner.accommodation_type}
                 icon={Home}
               />
-              <InfoField label="Hostel Type" value={(learner as any).hostel_type} icon={Bed} />
-              <InfoField label="Food Type" value={(learner as any).food_type} icon={FileText} />
+              {learner.accommodation_type === 'HOSTEL' && (
+                <>
+                  <InfoField label="Hostel Room Category" value={hostelCategoryName} icon={Bed} />
+                  <InfoField label="Mess Category" value={messCategoryName} icon={FileText} />
+                </>
+              )}
             </div>
           </CardContent>
         </Card>

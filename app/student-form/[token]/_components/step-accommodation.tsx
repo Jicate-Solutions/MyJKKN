@@ -14,10 +14,6 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Loader2, Home, Bus } from 'lucide-react';
 import type { Language } from './language-toggle';
 import {
-  HOSTEL_TYPE_OPTIONS,
-  FOOD_TYPE_OPTIONS,
-} from '@/lib/constants/learner-dropdown-values';
-import {
   useHostelCategoriesForGender,
   useMessCategoriesForGender,
 } from '@/hooks/campus-living/use-gender-categories';
@@ -86,8 +82,6 @@ export function StepAccommodation({
   // Falling back to '' covers the legacy-import edge case.
   const [v, setV] = useState({
     accommodation_type: data.accommodation_type ?? '',
-    hostel_type: data.hostel_type ?? '',
-    food_type: data.food_type ?? '',
     hostel_category_id: data.hostel_category_id ?? '',
     mess_category_id: data.mess_category_id ?? '',
   });
@@ -107,11 +101,9 @@ export function StepAccommodation({
   // switching to DAY SCHOLAR so the saved data matches the choice.
   useEffect(() => {
     if (v.accommodation_type !== 'HOSTEL') {
-      if (v.hostel_type || v.food_type || v.hostel_category_id || v.mess_category_id) {
+      if (v.hostel_category_id || v.mess_category_id) {
         setV((p) => ({
           ...p,
-          hostel_type: '',
-          food_type: '',
           hostel_category_id: '',
           mess_category_id: '',
         }));
@@ -212,48 +204,6 @@ export function StepAccommodation({
 
       {isHostel && (
         <Section title={{ en: 'Hostel Details', ta: 'விடுதி விவரங்கள்' }}>
-          <Field
-            label="Hostel Type / விடுதி வகை"
-            helper="Choose your preferred hostel category. Final allocation depends on availability."
-          >
-            <Select
-              value={v.hostel_type}
-              onValueChange={(s) => set('hostel_type', s)}
-            >
-              <SelectTrigger className="h-12">
-                <SelectValue placeholder="Select hostel type / விடுதி வகை தேர்வு செய்க" />
-              </SelectTrigger>
-              <SelectContent>
-                {HOSTEL_TYPE_OPTIONS.map((o) => (
-                  <SelectItem key={o.value} value={o.value}>
-                    {o.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </Field>
-
-          <Field
-            label="Food Type / உணவு வகை"
-            helper="Dietary preference for hostel meals."
-          >
-            <Select
-              value={v.food_type}
-              onValueChange={(s) => set('food_type', s)}
-            >
-              <SelectTrigger className="h-12">
-                <SelectValue placeholder="Select food type / உணவு வகை தேர்வு செய்க" />
-              </SelectTrigger>
-              <SelectContent>
-                {FOOD_TYPE_OPTIONS.map((o) => (
-                  <SelectItem key={o.value} value={o.value}>
-                    {o.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </Field>
-
           <Field
             label="Hostel Room Category / விடுதி அறை வகை"
             helper="Room category for your stay (varies by gender)."

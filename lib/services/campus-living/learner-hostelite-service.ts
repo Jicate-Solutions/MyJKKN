@@ -14,7 +14,6 @@ import {
   UNASSIGNED_BLOCK,
   type LearnerHostelite,
   type LearnerHostelitesFilters,
-  type LearnerHostelType,
   type LearnerDetailBundle,
   type LearnerHostelProfile,
   type LearnerCurrentAllocation,
@@ -35,7 +34,6 @@ const VIEW_SELECT = [
   'father_name',
   'mother_name',
   'accommodation_type',
-  'hostel_type',
   'hostel_fee',
   'dayscholar_fee',
   'institution_id',
@@ -70,7 +68,6 @@ const LEARNER_TABLE_SELECT = [
   'father_name',
   'mother_name',
   'accommodation_type',
-  'hostel_type',
   'hostel_fee',
   'dayscholar_fee',
   'institution_id',
@@ -110,9 +107,6 @@ export class LearnerHosteliteService {
       } else if (filters?.institution_id) {
         query = query.eq('institution_id', filters.institution_id);
       }
-
-      if (filters?.hostel_type)
-        query = query.eq('hostel_type', filters.hostel_type);
 
       if (filters?.year_of_study !== undefined && filters.year_of_study !== null)
         query = query.eq('year_of_study', filters.year_of_study);
@@ -402,19 +396,12 @@ export class LearnerHosteliteService {
   }
 
   // ── Add a learner to hostel ───────────────────────────────────────────
-  static async addToHostel(
-    learnerId: string,
-    hostelType: LearnerHostelType = null,
-  ): Promise<void> {
+  static async addToHostel(learnerId: string): Promise<void> {
     try {
       const supabase = createClientSupabaseClient();
-      const payload: { accommodation_type: 'HOSTEL'; hostel_type?: LearnerHostelType } = {
-        accommodation_type: 'HOSTEL',
-      };
-      if (hostelType) payload.hostel_type = hostelType;
       const { error } = await supabase
         .from('learners_profiles')
-        .update(payload)
+        .update({ accommodation_type: 'HOSTEL' })
         .eq('id', learnerId);
       if (error) {
         logger.error('campus-living/learner-hostelite', 'addToHostel failed', error);

@@ -17,8 +17,6 @@ import {
   BLOOD_GROUP_VALUES,
   ENTRY_TYPE_VALUES,
   ACCOMMODATION_VALUES,
-  HOSTEL_TYPE_VALUES,
-  FOOD_TYPE_VALUES,
   QUOTA_VALUES,
   SCHOLARSHIP_TYPE_VALUES,
 } from '@/lib/constants/learner-dropdown-values';
@@ -99,8 +97,6 @@ export const createLearnerSchema = z
     batch_id: z.string().uuid().optional().or(z.literal('')),
     admission_year_id: z.string().uuid().optional().or(z.literal('')),
     student_email: z.string().email().optional().or(z.literal('')),
-    hostel_type: z.enum(asTuple(HOSTEL_TYPE_VALUES)).optional().or(z.literal('')),
-    food_type: z.enum(asTuple(FOOD_TYPE_VALUES)).optional().or(z.literal('')),
     // Gender-scoped campus-living category FKs (optional). Accept uuid, ''
     // (unset dropdown), or null (normalized payload). Without these here the
     // strict z.object would strip them before the insert.
@@ -128,25 +124,6 @@ export const createLearnerSchema = z
     roll_number: z.string().optional(),
     register_number: z.string().optional(),
     student_photo_url: z.string().optional(),
-  })
-  .superRefine((data, ctx) => {
-    // Conditional: HOSTEL accommodation requires hostel_type + food_type
-    if (data.accommodation_type === 'HOSTEL') {
-      if (!data.hostel_type) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['hostel_type'],
-          message: 'Hostel type is required when accommodation is HOSTEL',
-        });
-      }
-      if (!data.food_type) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['food_type'],
-          message: 'Food type is required when accommodation is HOSTEL',
-        });
-      }
-    }
   });
 
 export type CreateLearnerInput = z.infer<typeof createLearnerSchema>;

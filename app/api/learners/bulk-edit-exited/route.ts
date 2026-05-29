@@ -104,8 +104,6 @@ const COLUMN_MAPPING: Record<string, string[]> = {
 
   // SECTION 9: Accommodation Details
   'accommodation_type': ['Accommodation Type', 'accommodation_type'],
-  'hostel_type': ['Hostel Type', 'hostel_type'],
-  'food_type': ['Food Type', 'food_type'],
   // SECTION 10: Reference Information
   'reference_type': ['Reference Type', 'reference_type'],
   'reference_name': ['Reference Name', 'reference_name'],
@@ -582,12 +580,6 @@ export async function POST(request: NextRequest) {
       // SECTION 9: Accommodation Details
       if (mappedData.accommodation_type) {
         sanitizedData.accommodation_type = sanitizeValue(mappedData.accommodation_type, 'text');
-      }
-      if (mappedData.hostel_type) {
-        sanitizedData.hostel_type = sanitizeValue(mappedData.hostel_type, 'text');
-      }
-      if (mappedData.food_type) {
-        sanitizedData.food_type = sanitizeValue(mappedData.food_type, 'text');
       }
       // SECTION 10: Reference Information
       if (mappedData.reference_type) {

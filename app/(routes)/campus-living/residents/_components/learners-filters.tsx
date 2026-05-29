@@ -27,7 +27,7 @@ import { UNASSIGNED_BLOCK } from '@/types/campus-living';
 const FILTER_KEYS = [
   'institution_id', 'degree_id', 'department_id', 'program_id',
   'semester_id', 'section_id', 'academic_year_id', 'gender',
-  'hostel_type', 'block_id', 'year_of_study',
+  'block_id', 'year_of_study',
 ] as const;
 
 type LocalFilters = Partial<Record<(typeof FILTER_KEYS)[number], string>>;
@@ -219,15 +219,6 @@ export function LearnersFilters() {
               <SelectItem value='Male'>Male</SelectItem>
               <SelectItem value='Female'>Female</SelectItem>
               <SelectItem value='Other'>Other</SelectItem>
-            </SelectContent>
-          </Select>
-          {/* Hostel type */}
-          <Select value={local.hostel_type || ''} onValueChange={(v) => set({ hostel_type: v === 'all' ? undefined : v })}>
-            <SelectTrigger><SelectValue placeholder='Hostel Type' /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value='all'>All Hostel Types</SelectItem>
-              <SelectItem value='AC HOSTEL'>AC</SelectItem>
-              <SelectItem value='NON-AC HOSTEL'>Non-AC</SelectItem>
             </SelectContent>
           </Select>
           {/* Block */}

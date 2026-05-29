@@ -122,8 +122,6 @@ const FIELD_LABELS: Record<string, string> = {
   quota: 'Quota',
   student_photo_url: 'Photo URL',
   accommodation_type: 'Accommodation Type',
-  hostel_type: 'Hostel Type',
-  food_type: 'Food Type',
   reference_type: 'Reference Type',
   reference_name: 'Reference Name',
   reference_contact: 'Reference Contact',

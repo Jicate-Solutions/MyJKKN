@@ -825,22 +825,6 @@ export function EnquiryDetail({ enquiry }: EnquiryDetailProps) {
                   </div>
                   <div className='space-y-1'>
                     <h3 className='text-sm font-medium text-muted-foreground'>
-                      Hostel Type
-                    </h3>
-                    <p className='text-sm'>
-                      {enquiry.hostel_type || 'Not applicable'}
-                    </p>
-                  </div>
-                  <div className='space-y-1'>
-                    <h3 className='text-sm font-medium text-muted-foreground'>
-                      Food Type
-                    </h3>
-                    <p className='text-sm'>
-                      {enquiry.food_type || 'Not applicable'}
-                    </p>
-                  </div>
-                  <div className='space-y-1'>
-                    <h3 className='text-sm font-medium text-muted-foreground'>
                       Hostel Room Category
                     </h3>
                     <p className='text-sm'>

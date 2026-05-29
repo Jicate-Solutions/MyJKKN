@@ -267,10 +267,6 @@ export function BulkUploadProfilesDialogEnhanced({ onSuccess }: { onSuccess?: ()
         // Contact (Optional)
         'Personal Email': 'john@gmail.com',
 
-        // Accommodation (Optional)
-        'Hostel Type': 'AC HOSTEL',
-        'Food Type': 'VEG',
-
         // Previous Education (Optional)
         'Last School': 'St. Mary\'s High School',
         'Board of Study': 'CBSE',
@@ -329,8 +325,6 @@ export function BulkUploadProfilesDialogEnhanced({ onSuccess }: { onSuccess?: ()
         { '* Scholarship Type (Required)': 'FIRST GRADUATE  |  PMS SCHOLARSHIP  |  7.5% SCHOLARSHIP  |  NOT APPLICABLE' },
         { '': '' },
         { 'Blood Group (Optional)': 'A+  |  A-  |  B+  |  B-  |  AB+  |  AB-  |  O+  |  O-  |  A1+  |  A1B' },
-        { 'Hostel Type (Optional)': 'AC HOSTEL  |  NON-AC HOSTEL' },
-        { 'Food Type (Optional)': 'VEG  |  NON-VEG  |  VEGAN' },
         { 'Quota (Optional)': 'GOVERNMENT  |  MANAGEMENT' },
         { 'Counseling Applied (Optional)': 'TRUE  |  FALSE  |  YES  |  NO  |  1  |  0' },
         { '': '' },
@@ -349,7 +343,6 @@ export function BulkUploadProfilesDialogEnhanced({ onSuccess }: { onSuccess?: ()
         { 'Wrong': 'Correct' },
         { 'Entry Type: "FIRST YEAR"': 'Use: REGULAR' },
         { 'Gender: "M" or "F"': 'Use: MALE or FEMALE' },
-        { 'Hostel Type: "Boys Hostel"': 'Use: AC HOSTEL or NON-AC HOSTEL' },
         { 'Religion: "Hindu"': 'Use: HINDU (all uppercase)' },
         { 'Email: john@gmail.com': 'Use: john.doe@jkkn.ac.in' },
         { 'Mobile: 98765-43210': 'Use: 9876543210 (no dashes)' },
@@ -512,8 +505,6 @@ export function BulkUploadProfilesDialogEnhanced({ onSuccess }: { onSuccess?: ()
 
               // SECTION 7: Accommodation
               accommodation_type: sanitizeValue(mappedData.accommodation_type, 'text', 'accommodation_type'),
-              hostel_type: sanitizeValue(mappedData.hostel_type, 'text', 'hostel_type'),
-              food_type: sanitizeValue(mappedData.food_type, 'text', 'food_type'),
 
               // SECTION 8: Previous Education
               last_school: sanitizeValue(mappedData.last_school, 'text'),

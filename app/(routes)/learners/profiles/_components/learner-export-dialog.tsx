@@ -118,8 +118,6 @@ const EXPORT_COLUMN_GROUPS: ExportColumnGroup[] = [
     label: 'Accommodation',
     columns: [
       { key: 'accommodation_type', header: 'Accommodation Type' },
-      { key: 'hostel_type', header: 'Hostel Type' },
-      { key: 'food_type', header: 'Food Type' },
     ],
   },
   {
@@ -197,8 +195,6 @@ function transformLearnerForExport(learner: any): Record<string, any> {
     scholarship_type: learner.scholarship_type || '',
     // Accommodation
     accommodation_type: learner.accommodation_type || '',
-    hostel_type: learner.hostel_type || '',
-    food_type: learner.food_type || '',
     // System
     roll_number: learner.roll_number || '',
     register_number: learner.register_number || '',

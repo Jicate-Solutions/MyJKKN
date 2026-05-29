@@ -193,8 +193,6 @@ export const enquiryFormSchema = z.object({
 
   // Accommodation Preferences
   accommodation_type: z.string().min(1, 'Accommodation type is required'),
-  hostel_type: z.string().nullable().optional(),
-  food_type: z.string().nullable().optional(),
   hostel_category_id: z.string().nullable().optional(),
   mess_category_id: z.string().nullable().optional(),
   reference_type: z.string().nullable().optional(),
@@ -477,8 +475,6 @@ const fieldToTabMap: Record<string, string> = {
 
   // Accommodation Preferences
   accommodation_type: 'accommodation-preferences',
-  hostel_type: 'accommodation-preferences',
-  food_type: 'accommodation-preferences',
   hostel_category_id: 'accommodation-preferences',
   mess_category_id: 'accommodation-preferences',
   reference_type: 'accommodation-preferences',
@@ -849,8 +845,6 @@ export function EnquiryForm({
 
           // Accommodation
           accommodation_type: learner.accommodation_type || '',
-          hostel_type: learner.hostel_type || '',
-          food_type: learner.food_type || '',
           hostel_category_id: learner.hostel_category_id || undefined,
           mess_category_id: learner.mess_category_id || undefined,
           reference_type: normalizeReferenceType(learner.reference_type),
@@ -965,8 +959,6 @@ export function EnquiryForm({
 
           // Accommodation
           accommodation_type: '',
-          hostel_type: '',
-          food_type: '',
           hostel_category_id: undefined,
           mess_category_id: undefined,
           reference_type: '',
@@ -1158,8 +1150,6 @@ export function EnquiryForm({
 
       // Accommodation Preferences (NOT NULL for accommodation_type)
       accommodation_type: values.accommodation_type || '',
-      hostel_type: values.hostel_type || undefined,
-      food_type: values.food_type || undefined,
       // Nullable UUID FKs — normalize '' → null so an unset dropdown doesn't
       // send the empty string as a uuid param (Postgres 22P02).
       hostel_category_id: values.hostel_category_id || null,

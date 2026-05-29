@@ -12,13 +12,6 @@ function fullName(l: LearnerHostelite): string {
   return parts.join(' ') || '(unnamed)';
 }
 
-function hostelBadge(type: LearnerHostelite['hostel_type']) {
-  if (!type) return <Badge variant='outline'>Not set</Badge>;
-  const label = type === 'AC HOSTEL' ? 'AC' : 'Non-AC';
-  const variant = type === 'AC HOSTEL' ? 'default' : 'secondary';
-  return <Badge variant={variant}>{label}</Badge>;
-}
-
 export interface LearnerColumnHandlers {
   canEdit: boolean;
   isSuperAdmin: boolean;
@@ -65,13 +58,6 @@ export function getLearnerColumns(
       ),
       enableSorting: false,
       size: 240,
-    },
-    {
-      accessorKey: 'hostel_type',
-      header: ({ column }) => <DataTableColumnHeader column={column} title='Hostel' />,
-      cell: ({ row }) => hostelBadge(row.original.hostel_type),
-      enableSorting: false,
-      size: 110,
     },
     {
       accessorKey: 'program_name',

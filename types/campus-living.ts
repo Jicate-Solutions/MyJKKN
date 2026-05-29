@@ -134,7 +134,6 @@ export interface AllocationFilters {
 // prod today: 718 flagged but 0 allocations).
 
 export type LearnerAccommodationType = 'HOSTEL' | 'DAY SCHOLAR' | '' | null;
-export type LearnerHostelType = 'AC HOSTEL' | 'NON-AC HOSTEL' | '' | null;
 
 export interface LearnerHostelite {
   id: string;
@@ -147,7 +146,6 @@ export interface LearnerHostelite {
   father_name: string | null;
   mother_name: string | null;
   accommodation_type: LearnerAccommodationType;
-  hostel_type: LearnerHostelType;
   hostel_fee: number | null;
   dayscholar_fee: number | null;
   institution_id: string;
@@ -180,7 +178,6 @@ export type BlockFilterValue = string | typeof UNASSIGNED_BLOCK;
 
 export interface LearnerHostelitesFilters {
   institution_id?: string;
-  hostel_type?: LearnerHostelType;
   search?: string;  // matches roll_number OR first_name OR last_name OR email
   // BUG-003325: year + gender + block filters via v_learner_hostelites view
   year_of_study?: number;

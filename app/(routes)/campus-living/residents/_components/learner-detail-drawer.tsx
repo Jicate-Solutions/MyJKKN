@@ -151,11 +151,6 @@ export function LearnerDetailDrawer({ learnerId, onClose, onEdit, canEdit }: Pro
           <div className='mt-6 space-y-6'>
             {/* Status chips */}
             <div className='flex flex-wrap gap-2'>
-              {data.learner.hostel_type && (
-                <Badge variant={data.learner.hostel_type === 'AC HOSTEL' ? 'default' : 'secondary'}>
-                  {data.learner.hostel_type === 'AC HOSTEL' ? 'AC Hostel' : 'Non-AC Hostel'}
-                </Badge>
-              )}
               {data.learner.year_of_study !== null && data.learner.year_of_study !== undefined && (
                 <Badge variant='outline'>Year {data.learner.year_of_study}</Badge>
               )}

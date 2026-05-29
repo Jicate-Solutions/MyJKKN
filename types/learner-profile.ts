@@ -170,8 +170,6 @@ export interface LearnerProfile {
 
   // Campus Life
   accommodation_type: string;
-  hostel_type?: string;
-  food_type?: string;
   hostel_category_id?: string | null;
   mess_category_id?: string | null;
   // Reference Information (legacy — person who vouches for the student)
@@ -352,8 +350,6 @@ export const learnerProfileSchema = z.object({
 
   // Campus Life
   accommodation_type: z.string().min(1, 'Accommodation type is required'),
-  hostel_type: z.string().optional(),
-  food_type: z.string().optional(),
   hostel_category_id: z.string().nullable().optional(),
   mess_category_id: z.string().nullable().optional(),
   // Reference
@@ -472,8 +468,6 @@ export interface UpdateLearnerProfileDto {
 
   // Campus Life
   accommodation_type?: string;
-  hostel_type?: string | null;
-  food_type?: string | null;
   hostel_category_id?: string | null;
   mess_category_id?: string | null;
   // Reference Information

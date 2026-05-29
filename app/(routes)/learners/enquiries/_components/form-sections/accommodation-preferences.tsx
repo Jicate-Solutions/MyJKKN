@@ -65,17 +65,8 @@ export function AccommodationPreferencesSection({
 
   // Reset dependent fields when selection changes
   useEffect(() => {
-    if (accommodationType === 'HOSTEL') {
-      // Hostel selected - no resets needed
-    } else if (accommodationType === 'DAY SCHOLAR') {
-      form.setValue('hostel_type', undefined);
-      form.setValue('food_type', undefined); // Reset food type when not hostel
-      form.setValue('hostel_category_id', undefined);
-      form.setValue('mess_category_id', undefined);
-    } else {
-      // Reset all accommodation-specific fields when no type selected
-      form.setValue('hostel_type', undefined);
-      form.setValue('food_type', undefined);
+    if (accommodationType !== 'HOSTEL') {
+      // Reset hostel-specific category fields when accommodation isn't a hostel
       form.setValue('hostel_category_id', undefined);
       form.setValue('mess_category_id', undefined);
     }
@@ -99,12 +90,6 @@ export function AccommodationPreferencesSection({
       form.setValue('mess_category_id', undefined);
     }
   }, [gender, messCategories, loadingMessCategories, form]);
-
-  // Hostel type options (values match database format - uppercase)
-  const hostelTypeOptions = [
-    { value: 'AC HOSTEL', label: 'AC Hostel' },
-    { value: 'NON-AC HOSTEL', label: 'Non-AC Hostel' }
-  ];
 
   return (
     <div className='space-y-8'>
@@ -147,65 +132,6 @@ export function AccommodationPreferencesSection({
 
         {accommodationType === 'HOSTEL' && (
           <>
-            <FormField
-              control={form.control}
-              name='hostel_type'
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Hostel Type</FormLabel>
-                  <Select
-                    onValueChange={field.onChange}
-                    value={field.value || ''}
-                  >
-                    <FormControl>
-                      <SelectTrigger>
-                        <SelectValue placeholder='Select hostel type' />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent className='max-h-60 overflow-y-auto'>
-                      {hostelTypeOptions.map((option) => (
-                        <SelectItem key={option.value} value={option.value}>
-                          {option.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <FormDescription>
-                    Select your preferred type of hostel accommodation
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name='food_type'
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Food Type</FormLabel>
-                  <Select
-                    onValueChange={field.onChange}
-                    value={field.value || ''}
-                  >
-                    <FormControl>
-                      <SelectTrigger>
-                        <SelectValue placeholder='Select food type' />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      <SelectItem value='VEG'>Vegetarian</SelectItem>
-                      <SelectItem value='NON-VEG'>Non-Vegetarian</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <FormDescription>
-                    Select your dietary preference for hostel meals
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
             {/* Hostel Room Category — sourced from campus-living
                 hostel_categories, filtered to the learner's gender (+ mixed). */}
             <FormField

@@ -18,7 +18,6 @@ import { LearnerHosteliteService } from '@/lib/services/campus-living/learner-ho
 import type {
   LearnerHostelite,
   LearnerHostelitesFilters,
-  LearnerHostelType,
   BlockFilterValue,
 } from '@/types/campus-living';
 import { getLearnerColumns } from './learners-columns';
@@ -68,7 +67,6 @@ export function LearnersTab() {
     if (g('section_id')) f.section_id = g('section_id');
     if (g('academic_year_id')) f.academic_year_id = g('academic_year_id');
     if (g('gender')) f.gender = g('gender') as 'Male' | 'Female' | 'Other';
-    if (g('hostel_type')) f.hostel_type = g('hostel_type') as LearnerHostelType;
     if (g('block_id')) f.block_id = g('block_id') as BlockFilterValue;
     const y = g('year_of_study');
     if (y) f.year_of_study = Number(y);

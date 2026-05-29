@@ -327,8 +327,6 @@ export const AI_QUERY_TOOLS_REGISTRY: AIQueryToolConfig[] = [
       { name: 'community', type: 'string', description: 'Filter by community (BC, MBC, SC, ST, OC, OBC, BCM, SCA, DNC, etc.)' },
       { name: 'caste', type: 'string', description: 'Filter by caste' },
       { name: 'accommodation_type', type: 'string', description: 'Accommodation type (hostel, dayscholar)' },
-      { name: 'hostel_type', type: 'string', description: 'Hostel type (AC HOSTEL, etc.)' },
-      { name: 'food_type', type: 'string', description: 'Food preference (veg/non-veg)' },
       { name: 'institution_id', type: 'string', description: 'Filter by institution UUID' },
       { name: 'department_id', type: 'string', description: 'Filter by department UUID' },
       { name: 'program_id', type: 'string', description: 'Filter by program UUID' },

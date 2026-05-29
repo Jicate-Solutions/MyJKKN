@@ -12,8 +12,6 @@
  * - Scholarship Type: First Graduate, PMS Scholarship, etc.
  * - Accommodation Type: Hostel, Day Scholar, Home
  * - Blood Group: A+, A-, B+, etc. (optional)
- * - Hostel Type: AC Hostel, Non-AC Hostel (optional)
- * - Food Type: Veg, Non-Veg, Vegan (optional)
  * - Quota: Government, Management (optional)
  */
 
@@ -24,8 +22,6 @@ import {
   BLOOD_GROUP_VALUES,
   ENTRY_TYPE_VALUES,
   ACCOMMODATION_VALUES,
-  HOSTEL_TYPE_VALUES,
-  FOOD_TYPE_VALUES,
   QUOTA_VALUES,
   SCHOLARSHIP_TYPE_VALUES
 } from '@/lib/constants/learner-dropdown-values';
@@ -49,10 +45,6 @@ export const EXCEL_COMMUNITY = ['OC', 'BC', 'BCM', 'MBC', 'DNC', 'BC-CC', 'SC', 
 export const EXCEL_BLOOD_GROUP = [...BLOOD_GROUP_VALUES]; // 10 values
 export const EXCEL_ENTRY_TYPE = [...ENTRY_TYPE_VALUES]; // 4 values
 export const EXCEL_ACCOMMODATION = [...ACCOMMODATION_VALUES]; // HOSTEL, DAY SCHOLAR, HOME (3 values)
-export const EXCEL_HOSTEL_TYPE = [...HOSTEL_TYPE_VALUES]; // AC HOSTEL, NON-AC HOSTEL (2 values)
-
-// Food Type: Form only has 2 values (not 3 from constants - no VEGAN)
-export const EXCEL_FOOD_TYPE = ['VEG', 'NON-VEG'];
 
 export const EXCEL_QUOTA = [...QUOTA_VALUES]; // GOVERNMENT, GOVERNMENT 7.5%, MANAGEMENT (3 values)
 export const EXCEL_SCHOLARSHIP_TYPE = [...SCHOLARSHIP_TYPE_VALUES]; // 4 values
@@ -355,7 +347,7 @@ export const EXCEL_BOOLEAN = ['Yes', 'No'];
 export function mapLabelToValue(
   label: string | undefined | null,
   type: 'gender' | 'religion' | 'community' | 'bloodGroup' | 'entryType' |
-        'accommodation' | 'hostelType' | 'foodType' | 'quota' | 'scholarshipType' |
+        'accommodation' | 'quota' | 'scholarshipType' |
         'boardOfStudy' | 'twelfthGroup' | 'referenceType' | 'boolean'
 ): string | boolean | null {
   if (!label) return null;
@@ -380,12 +372,6 @@ export function mapLabelToValue(
 
     case 'accommodation':
       return EXCEL_ACCOMMODATION.includes(normalized as any) ? normalized : null;
-
-    case 'hostelType':
-      return EXCEL_HOSTEL_TYPE.includes(normalized as any) ? normalized : null;
-
-    case 'foodType':
-      return EXCEL_FOOD_TYPE.includes(normalized as any) ? normalized : null;
 
     case 'quota':
       return EXCEL_QUOTA.includes(normalized as any) ? normalized : null;
@@ -423,7 +409,7 @@ export function mapLabelToValue(
 export function isValidLabel(
   label: string,
   type: 'gender' | 'religion' | 'community' | 'bloodGroup' | 'entryType' |
-        'accommodation' | 'hostelType' | 'foodType' | 'quota' | 'scholarshipType' |
+        'accommodation' | 'quota' | 'scholarshipType' |
         'boardOfStudy' | 'twelfthGroup' | 'referenceType' | 'boolean'
 ): boolean {
   return mapLabelToValue(label, type) !== null;
@@ -437,7 +423,7 @@ export function isValidLabel(
  */
 export function getValidLabels(
   type: 'gender' | 'religion' | 'community' | 'bloodGroup' | 'entryType' |
-        'accommodation' | 'hostelType' | 'foodType' | 'quota' | 'scholarshipType' |
+        'accommodation' | 'quota' | 'scholarshipType' |
         'boardOfStudy' | 'twelfthGroup' | 'referenceType' | 'boolean'
 ): string[] {
   switch (type) {
@@ -453,10 +439,6 @@ export function getValidLabels(
       return [...EXCEL_ENTRY_TYPE];
     case 'accommodation':
       return [...EXCEL_ACCOMMODATION];
-    case 'hostelType':
-      return [...EXCEL_HOSTEL_TYPE];
-    case 'foodType':
-      return [...EXCEL_FOOD_TYPE];
     case 'quota':
       return [...EXCEL_QUOTA];
     case 'scholarshipType':

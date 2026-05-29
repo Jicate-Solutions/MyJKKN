@@ -10,11 +10,10 @@
 
 import { useCallback, useEffect, useMemo } from 'react';
 import { useRouter, useSearchParams, usePathname } from 'next/navigation';
-import { UNASSIGNED_BLOCK, type LearnerHostelType, type BlockFilterValue } from '@/types/campus-living';
+import { UNASSIGNED_BLOCK, type BlockFilterValue } from '@/types/campus-living';
 
 export interface ResidentsFilterUrlState {
   q: string;
-  hostel: LearnerHostelType | null;
   institution: string | null;
   year: number | null;
   gender: 'Male' | 'Female' | 'Other' | null;
@@ -24,7 +23,6 @@ export interface ResidentsFilterUrlState {
 
 const EMPTY: ResidentsFilterUrlState = {
   q: '',
-  hostel: null,
   institution: null,
   year: null,
   gender: null,
@@ -40,11 +38,6 @@ function parseYear(v: string | null): number | null {
 
 function parseGender(v: string | null): ResidentsFilterUrlState['gender'] {
   if (v === 'Male' || v === 'Female' || v === 'Other') return v;
-  return null;
-}
-
-function parseHostel(v: string | null): LearnerHostelType | null {
-  if (v === 'AC HOSTEL' || v === 'NON-AC HOSTEL') return v;
   return null;
 }
 
@@ -64,7 +57,6 @@ export function useResidentsFilterUrl() {
   const state: ResidentsFilterUrlState = useMemo(
     () => ({
       q: params.get('q') ?? '',
-      hostel: parseHostel(params.get('hostel')),
       institution: params.get('institution') || null,
       year: parseYear(params.get('year')),
       gender: parseGender(params.get('gender')),
@@ -79,7 +71,6 @@ export function useResidentsFilterUrl() {
       const merged: ResidentsFilterUrlState = { ...state, ...next };
       const sp = new URLSearchParams();
       if (merged.q) sp.set('q', merged.q);
-      if (merged.hostel) sp.set('hostel', merged.hostel);
       if (merged.institution) sp.set('institution', merged.institution);
       if (merged.year !== null) sp.set('year', String(merged.year));
       if (merged.gender) sp.set('gender', merged.gender);
@@ -94,7 +85,6 @@ export function useResidentsFilterUrl() {
   const clearAllFilters = useCallback(() => {
     writeUrl({
       q: '',
-      hostel: null,
       institution: null,
       year: null,
       gender: null,
@@ -106,7 +96,6 @@ export function useResidentsFilterUrl() {
   // own visual state, detail is a drawer concern).
   const activeFilterCount = useMemo(() => {
     let n = 0;
-    if (state.hostel) n++;
     if (state.institution) n++;
     if (state.year !== null) n++;
     if (state.gender) n++;

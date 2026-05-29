@@ -24,7 +24,6 @@ SELECT
   lp.gender,
   lp.institution_id,
   lp.accommodation_type,
-  lp.hostel_type,
   lp.hostel_fee,
   lp.dayscholar_fee,
   lp.father_name,

@@ -78,17 +78,6 @@ const ACCOMMODATION_LABELS: Record<string, string> = {
   HOME: 'Home',
 };
 
-const HOSTEL_TYPE_LABELS: Record<string, string> = {
-  'AC HOSTEL': 'AC Hostel',
-  'NON-AC HOSTEL': 'Non-AC Hostel',
-};
-
-const FOOD_TYPE_LABELS: Record<string, string> = {
-  VEG: 'Vegetarian',
-  'NON-VEG': 'Non-Vegetarian',
-  VEGAN: 'Vegan',
-};
-
 const looksFilled = (v: unknown) => v !== undefined && v !== null && String(v).trim().length > 0;
 
 export function StepPreviewConfirm({
@@ -363,18 +352,6 @@ export function StepPreviewConfirm({
             label="Accommodation Type / தங்குமிட வகை"
             value={ACCOMMODATION_LABELS[data.accommodation_type] ?? data.accommodation_type}
           />
-          {data.accommodation_type === 'HOSTEL' && (
-            <>
-              <Row
-                label="Hostel Type / விடுதி வகை"
-                value={HOSTEL_TYPE_LABELS[data.hostel_type] ?? data.hostel_type}
-              />
-              <Row
-                label="Food Type / உணவு வகை"
-                value={FOOD_TYPE_LABELS[data.food_type] ?? data.food_type}
-              />
-            </>
-          )}
         </SubGroup>
       </Section>
 

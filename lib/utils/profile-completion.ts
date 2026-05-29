@@ -72,18 +72,18 @@ const FIELD_METADATA: FieldMetadata[] = [
   // Accommodation Preferences Tab
   { field: 'accommodation_type', label: 'Accommodation Type', section: 'Accommodation Preferences' },
   {
-    field: 'hostel_type',
-    label: 'Hostel Type',
+    field: 'hostel_category_id',
+    label: 'Hostel Room Category',
     section: 'Accommodation Preferences',
     isConditional: true,
-    condition: (learner) => learner.accommodation_type === 'Hostel',
+    condition: (learner) => learner.accommodation_type === 'HOSTEL',
   },
   {
-    field: 'food_type',
-    label: 'Food Type',
+    field: 'mess_category_id',
+    label: 'Mess Category',
     section: 'Accommodation Preferences',
     isConditional: true,
-    condition: (learner) => learner.accommodation_type === 'Hostel',
+    condition: (learner) => learner.accommodation_type === 'HOSTEL',
   },
 ];
 

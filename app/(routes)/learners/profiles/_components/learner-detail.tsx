@@ -794,22 +794,6 @@ export function LearnerDetail({ learner }: LearnerDetailProps) {
                     <>
                       <div className="space-y-1">
                         <h4 className="text-sm font-medium text-muted-foreground">
-                          Hostel Type
-                        </h4>
-                        <p className="text-sm capitalize">
-                          {learner.hostel_type || 'Not specified'}
-                        </p>
-                      </div>
-                      <div className="space-y-1">
-                        <h4 className="text-sm font-medium text-muted-foreground">
-                          Food Type
-                        </h4>
-                        <p className="text-sm capitalize">
-                          {learner.food_type || 'Not specified'}
-                        </p>
-                      </div>
-                      <div className="space-y-1">
-                        <h4 className="text-sm font-medium text-muted-foreground">
                           Hostel Room Category
                         </h4>
                         <p className="text-sm">

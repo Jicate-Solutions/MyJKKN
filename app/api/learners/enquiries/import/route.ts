@@ -142,30 +142,30 @@ function parseExcelRow(row: any[], rowNumber: number): {
   const scholarshipTypeLabel = getCellValue(row[33]);
 
   const accommodationTypeLabel = getCellValue(row[34]);
-  const hostelTypeLabel = getCellValue(row[35]);
-  const foodTypeLabel = getCellValue(row[36]);
+  // hostel_type / food_type columns removed 2026-05-29 — every positional index
+  // below accommodation shifted up by 2 to match the new template layout.
 
-  const lastSchool = getCellValue(row[37]);
-  const boardOfStudyLabel = getCellValue(row[38]);
-  const tenthMaxMarks = getCellValue(row[39]);
-  const tenthObtainedMarks = getCellValue(row[40]);
-  const tenthPercentage = getCellValue(row[41]);
-  const twelfthGroupLabel = getCellValue(row[42]);
-  const twelfthMaxMarks = getCellValue(row[43]);
-  const twelfthObtainedMarks = getCellValue(row[44]);
-  const twelfthPercentage = getCellValue(row[45]);
+  const lastSchool = getCellValue(row[35]);
+  const boardOfStudyLabel = getCellValue(row[36]);
+  const tenthMaxMarks = getCellValue(row[37]);
+  const tenthObtainedMarks = getCellValue(row[38]);
+  const tenthPercentage = getCellValue(row[39]);
+  const twelfthGroupLabel = getCellValue(row[40]);
+  const twelfthMaxMarks = getCellValue(row[41]);
+  const twelfthObtainedMarks = getCellValue(row[42]);
+  const twelfthPercentage = getCellValue(row[43]);
 
-  const medicalCutoff = getCellValue(row[46]);
-  const engineeringCutoff = getCellValue(row[47]);
-  const neetRollNumber = getCellValue(row[48]);
-  const neetScore = getCellValue(row[49]);
+  const medicalCutoff = getCellValue(row[44]);
+  const engineeringCutoff = getCellValue(row[45]);
+  const neetRollNumber = getCellValue(row[46]);
+  const neetScore = getCellValue(row[47]);
 
-  const counselingAppliedLabel = getCellValue(row[50]);
-  const quotaLabel = getCellValue(row[51]);
+  const counselingAppliedLabel = getCellValue(row[48]);
+  const quotaLabel = getCellValue(row[49]);
 
-  const referenceType = getCellValue(row[53]);
-  const referenceName = getCellValue(row[54]);
-  const referenceContact = getCellValue(row[55]);
+  const referenceType = getCellValue(row[51]);
+  const referenceName = getCellValue(row[52]);
+  const referenceContact = getCellValue(row[53]);
 
   // Skip completely empty rows
   if (!firstName && !lastName && !studentMobile && !studentEmail) {
@@ -323,24 +323,6 @@ function parseExcelRow(row: any[], rowNumber: number): {
     errors.push({ row: rowNumber, field: 'accommodation_type', message: `Invalid Accommodation Type: "${accommodationTypeLabel}". Valid: ${getValidLabels('accommodation').join(', ')}` });
   }
 
-  // Optional hostel type
-  let hostelType: string | undefined;
-  if (hostelTypeLabel) {
-    hostelType = mapLabelToValue(hostelTypeLabel, 'hostelType') as string | undefined;
-    if (!hostelType) {
-      errors.push({ row: rowNumber, field: 'hostel_type', message: `Invalid Hostel Type: "${hostelTypeLabel}"` });
-    }
-  }
-
-  // Optional food type
-  let foodType: string | undefined;
-  if (foodTypeLabel) {
-    foodType = mapLabelToValue(foodTypeLabel, 'foodType') as string | undefined;
-    if (!foodType) {
-      errors.push({ row: rowNumber, field: 'food_type', message: `Invalid Food Type: "${foodTypeLabel}"` });
-    }
-  }
-
   // Previous education
   if (!lastSchool) {
     errors.push({ row: rowNumber, field: 'last_school', message: 'Last School is required' });
@@ -466,8 +448,6 @@ function parseExcelRow(row: any[], rowNumber: number): {
 
       // Accommodation
       accommodation_type: accommodationType as string,
-      hostel_type: hostelType || null,
-      food_type: foodType || null,
 
       // Education
       last_school: lastSchool,
@@ -920,8 +900,6 @@ export async function POST(request: NextRequest): Promise<NextResponse<ImportRes
 
       // Accommodation
       accommodation_type: data.accommodation_type,
-      hostel_type: data.hostel_type,
-      food_type: data.food_type,
 
       // Education
       last_school: data.last_school,
