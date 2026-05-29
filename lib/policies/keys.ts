@@ -269,6 +269,16 @@ export const POLICY_KEYS = {
   PDE_RUBRICS_EMBODIED_NURSING: 'pde.rubrics.embodied.nursing',
   PDE_RUBRICS_EMBODIED_DENTAL: 'pde.rubrics.embodied.dental',
   PDE_RUBRICS_EMBODIED_ENGINEERING: 'pde.rubrics.embodied.engineering',
+
+  // Campus Living — Fractional Occupancy (PR ζ / θ, 2026-05-28) -------------
+  // An unfilled Premium upgrade-vacancy's differential price auto-drops by
+  // FRACTIONAL_OCCUPANCY_EMPTY_VACANCY_DROP_PCT every
+  // FRACTIONAL_OCCUPANCY_EMPTY_VACANCY_DROP_INTERVAL_DAYS days until taken or
+  // the hostel year ends (decision 8). Seeded global rows: 20 / 60.
+  // Consumed by lib/services/campus-living/vacancy-price-drop-service.ts
+  // (server-only — runs in the vacancy-price-drops cron, never client).
+  FRACTIONAL_OCCUPANCY_EMPTY_VACANCY_DROP_PCT: 'fractional_occupancy.empty_vacancy_drop_pct',
+  FRACTIONAL_OCCUPANCY_EMPTY_VACANCY_DROP_INTERVAL_DAYS: 'fractional_occupancy.empty_vacancy_drop_interval_days',
 } as const;
 
 export type PolicyKey = typeof POLICY_KEYS[keyof typeof POLICY_KEYS];

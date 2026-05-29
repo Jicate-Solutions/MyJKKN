@@ -74,6 +74,10 @@
       "schedule": "17 */6 * * *"
     },
     {
+      "path": "/api/cron/campus-living/vacancy-price-drops?secret=${CRON_SECRET}",
+      "schedule": "0 2 * * *"
+    },
+    {
       "path": "/api/cron/grievance-sla-breach-check?secret=${CRON_SECRET}",
       "schedule": "23 * * * *"
     },
