@@ -55,7 +55,7 @@ export function InstitutionComparisonTable({
                  top KPI strip on the page header. */}
             <TableHead className="text-right">Enquiry</TableHead>
             <TableHead className="text-right">Enquiry Submitted</TableHead>
-            <TableHead className="text-right">Account</TableHead>
+            <TableHead className="text-right">Fees Pending</TableHead>
             <TableHead className="text-right">Reserved</TableHead>
             <TableHead className="text-right">Admitted</TableHead>
             <TableHead className="text-right">Seats</TableHead>

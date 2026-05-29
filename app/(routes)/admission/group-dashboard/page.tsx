@@ -133,7 +133,7 @@ const TOP_CARDS: ReadonlyArray<{
   { label: 'Total Leads',       metric: 'total_leads',         icon: Users,          tone: 'indigo'  },
   { label: 'Enquiry',           metric: 'enquiry',             icon: HelpCircle,     tone: 'slate'   },
   { label: 'Enquiry Submitted', metric: 'enquiry_submitted',   icon: Send,           tone: 'sky'     },
-  { label: 'Account',           metric: 'account',             icon: Landmark,       tone: 'amber'   },
+  { label: 'Fees Pending',      metric: 'account',             icon: Landmark,       tone: 'amber'   },
   { label: 'Reserved',          metric: 'reserved',            icon: BookmarkCheck,  tone: 'purple'  },
   { label: 'Admitted',          metric: 'admitted_active',     icon: GraduationCap,  tone: 'emerald', tooltip: 'Includes Active learners (admitted → active is sequential)' },
   { label: 'Rejected',          metric: 'rejected_lifecycle',  icon: XCircle,        tone: 'rose'    },

@@ -12581,8 +12581,22 @@ GRANT EXECUTE ON FUNCTION public.fn_seat_analytics_daily_pivot(uuid[], integer, 
 -- Added: 2026-04-28 (migration 20260428_fn_source_analytics)
 -- =============================================================================
 -- Replaces get_source_analytics(uuid, uuid). Takes p_admission_year integer
--- (cohort year) instead of academic_year_id UUID. enrolled_count is limited
--- by the sparse al.learner_profile_id FK (~1.5% coverage today).
+-- (cohort year) instead of academic_year_id UUID.
+--
+-- Updated 2026-05-20: enrolled/admitted lifecycle set narrowed to
+-- ('admitted','active') and an admitted_count column added (workflow rename
+-- enrolled→admitted).
+--
+-- Updated 2026-05-29: FIX Admitted Matrix undercount. Cohort membership now
+-- uses COALESCE(profile.admission_year_id, lead.admission_year_id) instead of
+-- the lead's AY alone. The lead's admission_year_id is NULL/stale on ~94% of
+-- leads; the cohort truth lives on the profile (stamped at admission, not
+-- back-propagated). Old logic dropped admitted learners whose lead AY didn't
+-- match — AY 2026 showed 4 admitted vs 9 source-attributable in reality. The
+-- old scoped_leads + per_lead_status CTEs are merged into one since the AY
+-- decision now needs the profile join. (Leads with no profile and no lead AY
+-- correctly fall out of a cohort; direct admits with no lead row have no
+-- source and are absent by design.)
 -- =============================================================================
 CREATE OR REPLACE FUNCTION public.fn_source_analytics(
   p_institution_ids uuid[],
@@ -12595,6 +12609,7 @@ RETURNS TABLE (
   referral_type     text,
   lead_count        integer,
   enrolled_count    integer,
+  admitted_count    integer,
   conversion_rate   numeric,
   last_enrolled_at  timestamptz
 )
@@ -12603,10 +12618,6 @@ STABLE
 SECURITY DEFINER
 SET search_path = public
 AS $$
-  -- Updated 2026-05-02 (Phase C-7): drop OR-fallback on lp.admission_year
-  -- integer and on EXTRACT(year FROM al.created_at). Phase A backfilled the
-  -- FK on both admission_leads and learners_profiles. Drop is_active=true
-  -- from cohort_ay_ids so historical cohorts are queryable.
   WITH eligible_institutions AS (
     SELECT id FROM institutions
     WHERE id = ANY(p_institution_ids) AND role_has_institution_access(id)
@@ -12616,44 +12627,38 @@ AS $$
     WHERE p_admission_year IS NOT NULL
       AND program_start_year = p_admission_year
   ),
-  scoped_leads AS (
+  per_lead_status AS (
     SELECT
       al.id,
       al.institution_id,
       al.source::text                                  AS source,
       COALESCE(NULLIF(TRIM(al.referral_type), ''), '') AS referral_type,
-      al.learner_profile_id
-    FROM admission_leads al
-    WHERE al.institution_id IN (SELECT id FROM eligible_institutions)
-      AND (p_admission_year IS NULL OR al.admission_year_id IN (SELECT id FROM cohort_ay_ids))
-  ),
-  per_lead_status AS (
-    SELECT
-      sl.id, sl.institution_id, sl.source, sl.referral_type,
-      lp.lifecycle_status::text AS lp_status,
+      lp.lifecycle_status::text                        AS lp_status,
       lp.activated_at
-    FROM scoped_leads sl
-    LEFT JOIN learners_profiles lp ON lp.id = sl.learner_profile_id
-    WHERE sl.learner_profile_id IS NULL
-       OR p_admission_year IS NULL
-       OR lp.admission_year_id IN (SELECT id FROM cohort_ay_ids)
-       OR lp.admission_year_id IS NULL
+    FROM admission_leads al
+    LEFT JOIN learners_profiles lp ON lp.id = al.learner_profile_id
+    WHERE al.institution_id IN (SELECT id FROM eligible_institutions)
+      AND (
+        p_admission_year IS NULL
+        -- Cohort membership: profile AY wins (truth once admitted), lead AY is
+        -- the fallback for leads not yet linked to a profile.
+        OR COALESCE(lp.admission_year_id, al.admission_year_id) IN (SELECT id FROM cohort_ay_ids)
+      )
   )
-  -- Updated 2026-05-02 (Phase C-10): 'account' added to enrolled lifecycle
-  -- set so Source tab agrees with dashboard-wide Filled definition.
   SELECT
     pls.institution_id,
     i.name::text                                                    AS institution_name,
     pls.source,
     pls.referral_type,
     COUNT(*)::int                                                   AS lead_count,
-    COUNT(*) FILTER (WHERE pls.lp_status IN ('admitted','active','graduated','account'))::int AS enrolled_count,
+    COUNT(*) FILTER (WHERE pls.lp_status IN ('admitted','active'))::int AS enrolled_count,
+    COUNT(*) FILTER (WHERE pls.lp_status IN ('admitted','active'))::int AS admitted_count,
     CASE WHEN COUNT(*) = 0 THEN 0::numeric
          ELSE ROUND(
-           COUNT(*) FILTER (WHERE pls.lp_status IN ('admitted','active','graduated','account'))::numeric
+           COUNT(*) FILTER (WHERE pls.lp_status IN ('admitted','active'))::numeric
              / COUNT(*)::numeric * 100, 2)
     END                                                             AS conversion_rate,
-    MAX(pls.activated_at) FILTER (WHERE pls.lp_status IN ('admitted','active','graduated','account'))
+    MAX(pls.activated_at) FILTER (WHERE pls.lp_status IN ('admitted','active'))
                                                                     AS last_enrolled_at
   FROM per_lead_status pls
   JOIN institutions i ON i.id = pls.institution_id
@@ -12667,9 +12672,16 @@ GRANT EXECUTE ON FUNCTION public.fn_source_analytics(uuid[], integer) TO authent
 -- fn_geography_analytics — AY-scoped geographic distribution
 -- Added: 2026-04-28 (migration 20260428_fn_geography_analytics)
 -- =============================================================================
--- Replaces get_geography_analytics(uuid, uuid). Normalizes state/district/taluk
--- (case + whitespace), DISTINCT learners only, lifecycle_status broadened to
--- match the Seat Analytics gold standard.
+-- Replaces get_geography_analytics(uuid, uuid). Normalizes state/district/city
+-- (case + whitespace), DISTINCT leads only.
+--
+-- Updated 2026-05-29 (migration 20260529000003): switched from learners_profiles
+-- (filled-stage learners, ~464 for AY 2026) to admission_leads (prospect
+-- catchment, ~16.7k have a district). The Geography tab now reflects where the
+-- LEADS come from. Cohort scope respects the selected year via
+-- COALESCE(profile.admission_year_id, lead.admission_year_id). Column shape is
+-- unchanged for frontend stability: `taluk` carries the lead CITY (leads have no
+-- taluk), `active_learners` carries the LEAD COUNT. UI relabels accordingly.
 -- =============================================================================
 CREATE OR REPLACE FUNCTION public.fn_geography_analytics(
   p_institution_ids uuid[],
@@ -12680,17 +12692,14 @@ RETURNS TABLE (
   institution_name  text,
   state             text,
   district          text,
-  taluk             text,
-  active_learners   bigint
+  taluk             text,    -- carries lead CITY (leads have no taluk)
+  active_learners   bigint   -- carries LEAD COUNT (name retained for frontend stability)
 )
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
 SET search_path = public
 AS $$
-  -- Updated 2026-05-02 (Phase C-7): switched lp.admission_year integer match
-  -- to admission_year_id FK; allows historical cohorts (Phase A is_active=false)
-  -- to be queried by explicit year.
   WITH eligible_institutions AS (
     SELECT id FROM institutions
     WHERE id = ANY(p_institution_ids) AND role_has_institution_access(id)
@@ -12701,33 +12710,34 @@ AS $$
   ),
   normalized AS (
     SELECT
-      lp.id                                                                AS learner_id,
-      lp.institution_id,
-      INITCAP(NULLIF(TRIM(REGEXP_REPLACE(COALESCE(lp.permanent_address_state,    ''), '\s+', ' ', 'g')), '')) AS state_norm,
-      INITCAP(NULLIF(TRIM(REGEXP_REPLACE(COALESCE(lp.permanent_address_district, ''), '\s+', ' ', 'g')), '')) AS district_norm,
-      INITCAP(NULLIF(TRIM(REGEXP_REPLACE(COALESCE(lp.permanent_address_taluk,    ''), '\s+', ' ', 'g')), '')) AS taluk_norm
-    FROM learners_profiles lp
-    WHERE lp.institution_id IS NOT NULL
-      AND lp.institution_id IN (SELECT id FROM eligible_institutions)
-      AND lp.lifecycle_status::text IN ('admitted','active','graduated','account')
-      AND lp.permanent_address_district IS NOT NULL
-      AND TRIM(lp.permanent_address_district) <> ''
-      AND (p_admission_year IS NULL OR lp.admission_year_id IN (SELECT id FROM cohort_ay_ids))
+      al.id                                                                AS lead_id,
+      al.institution_id,
+      INITCAP(NULLIF(TRIM(REGEXP_REPLACE(COALESCE(al.state,    ''), '\s+', ' ', 'g')), '')) AS state_norm,
+      INITCAP(NULLIF(TRIM(REGEXP_REPLACE(COALESCE(al.district, ''), '\s+', ' ', 'g')), '')) AS district_norm,
+      INITCAP(NULLIF(TRIM(REGEXP_REPLACE(COALESCE(al.city,     ''), '\s+', ' ', 'g')), '')) AS city_norm
+    FROM admission_leads al
+    LEFT JOIN learners_profiles lp ON lp.id = al.learner_profile_id
+    WHERE al.institution_id IS NOT NULL
+      AND al.institution_id IN (SELECT id FROM eligible_institutions)
+      AND al.district IS NOT NULL
+      AND TRIM(al.district) <> ''
+      AND (
+        p_admission_year IS NULL
+        OR COALESCE(lp.admission_year_id, al.admission_year_id) IN (SELECT id FROM cohort_ay_ids)
+      )
   )
-  -- Updated 2026-05-02 (Phase C-10): added 'account' to the lifecycle set so
-  -- the Geography tab's count matches dashboard-wide Filled = 183 for 2026.
   SELECT
     n.institution_id,
     i.name::text                       AS institution_name,
     n.state_norm                       AS state,
     n.district_norm                    AS district,
-    n.taluk_norm                       AS taluk,
-    COUNT(DISTINCT n.learner_id)::bigint AS active_learners
+    n.city_norm                        AS taluk,
+    COUNT(DISTINCT n.lead_id)::bigint   AS active_learners
   FROM normalized n
   JOIN institutions i ON i.id = n.institution_id
-  GROUP BY n.institution_id, i.name, n.state_norm, n.district_norm, n.taluk_norm
-  HAVING COUNT(DISTINCT n.learner_id) > 0
-  ORDER BY i.name, n.state_norm, n.district_norm, n.taluk_norm;
+  GROUP BY n.institution_id, i.name, n.state_norm, n.district_norm, n.city_norm
+  HAVING COUNT(DISTINCT n.lead_id) > 0
+  ORDER BY i.name, n.state_norm, n.district_norm, n.city_norm;
 $$;
 
 GRANT EXECUTE ON FUNCTION public.fn_geography_analytics(uuid[], integer) TO authenticated, service_role;
