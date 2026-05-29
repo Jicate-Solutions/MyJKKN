@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Card, CardContent } from '@/components/ui/card';
-import { Settings, IndianRupee, CalendarDays, Wrench, Bell, GitBranch, ArrowRight, LayoutGrid, Sparkles, CalendarRange, Wifi, Wind } from 'lucide-react';
+import { Settings, IndianRupee, CalendarDays, Wrench, Bell, GitBranch, ArrowRight, LayoutGrid, Sparkles, CalendarRange, Wifi, Wind, ListChecks } from 'lucide-react';
 
 export default function SettingsPage() {
   const settingsPages = [
