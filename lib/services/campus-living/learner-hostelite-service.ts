@@ -45,6 +45,16 @@ const VIEW_SELECT = [
   'current_room_id',
   'current_bed_id',
   'current_allocation_id',
+  // Advanced-table additions
+  'degree_id',
+  'department_id',
+  'program_id',
+  'semester_id',
+  'section_id',
+  'academic_year_id',
+  'program_name',
+  'current_block_name',
+  'current_block_code',
 ].join(',');
 
 // learners_profiles columns NOT exposed on the view (used by mutations and the
@@ -125,6 +135,14 @@ export class LearnerHosteliteService {
         }
       }
 
+      // Academic cascade filters (parity with Learners Profiles).
+      if (filters?.degree_id) query = query.eq('degree_id', filters.degree_id);
+      if (filters?.department_id) query = query.eq('department_id', filters.department_id);
+      if (filters?.program_id) query = query.eq('program_id', filters.program_id);
+      if (filters?.semester_id) query = query.eq('semester_id', filters.semester_id);
+      if (filters?.section_id) query = query.eq('section_id', filters.section_id);
+      if (filters?.academic_year_id) query = query.eq('academic_year_id', filters.academic_year_id);
+
       if (filters?.search) {
         const s = filters.search.trim();
         if (s) {
@@ -134,9 +152,22 @@ export class LearnerHosteliteService {
         }
       }
 
+      const SORTABLE = new Set([
+        'roll_number',
+        'first_name',
+        'last_name',
+        'program_name',
+        'current_block_name',
+        'gender',
+      ]);
+      const sortColumn = filters?.sortBy && SORTABLE.has(filters.sortBy)
+        ? filters.sortBy
+        : 'roll_number';
+      const ascending = (filters?.sortOrder ?? 'asc') === 'asc';
+
       const from = (page - 1) * pageSize;
       query = query
-        .order('roll_number', { ascending: true })
+        .order(sortColumn, { ascending })
         .range(from, from + pageSize - 1);
 
       const { data, error, count } = await query;
