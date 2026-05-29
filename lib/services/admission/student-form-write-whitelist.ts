@@ -53,6 +53,9 @@ export const STUDENT_WRITABLE_COLUMNS = {
     // accommodation choice; the reference channel is admin-tracked metadata
     // captured during lead intake, not by the student.
     'accommodation_type', 'hostel_type', 'food_type',
+    // Gender-scoped campus-living category FKs (added 2026-05-29). Options are
+    // filtered by the gender the student picked on the Basic Details step.
+    'hostel_category_id', 'mess_category_id',
   ],
   contact: [
     'student_mobile', 'student_email',

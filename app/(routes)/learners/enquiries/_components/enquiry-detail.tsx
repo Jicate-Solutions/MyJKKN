@@ -1,6 +1,8 @@
 'use client';
 
 import { useState } from 'react';
+import { useActiveHostelCategories } from '@/hooks/campus-living/use-hostel-categories';
+import { useActiveMessCategories } from '@/hooks/campus-living/use-mess-categories';
 import { format } from 'date-fns';
 import Link from 'next/link';
 import {
@@ -125,6 +127,16 @@ interface EnquiryDetailProps {
 export function EnquiryDetail({ enquiry }: EnquiryDetailProps) {
   const [activeSection, setActiveSection] = useState('personal');
   const { canAccess, isSuperAdmin, isAdmissionGlobalUser } = usePermissions();
+
+  // Resolve the stored hostel/mess category FKs to display names.
+  const { hostelCategories: allHostelCategories } = useActiveHostelCategories();
+  const { messCategories: allMessCategories } = useActiveMessCategories();
+  const hostelCategoryName = allHostelCategories.find(
+    (c) => c.id === (enquiry as any).hostel_category_id
+  )?.name;
+  const messCategoryName = allMessCategories.find(
+    (c) => c.id === (enquiry as any).mess_category_id
+  )?.name;
   const canViewFinance = isSuperAdmin || isAdmissionGlobalUser || canAccess('learners', 'finance.view');
 
   const sections = [
@@ -825,6 +837,22 @@ export function EnquiryDetail({ enquiry }: EnquiryDetailProps) {
                     </h3>
                     <p className='text-sm'>
                       {enquiry.food_type || 'Not applicable'}
+                    </p>
+                  </div>
+                  <div className='space-y-1'>
+                    <h3 className='text-sm font-medium text-muted-foreground'>
+                      Hostel Room Category
+                    </h3>
+                    <p className='text-sm'>
+                      {hostelCategoryName || 'Not applicable'}
+                    </p>
+                  </div>
+                  <div className='space-y-1'>
+                    <h3 className='text-sm font-medium text-muted-foreground'>
+                      Mess Category
+                    </h3>
+                    <p className='text-sm'>
+                      {messCategoryName || 'Not applicable'}
                     </p>
                   </div>
                 </div>

@@ -101,6 +101,11 @@ export const createLearnerSchema = z
     student_email: z.string().email().optional().or(z.literal('')),
     hostel_type: z.enum(asTuple(HOSTEL_TYPE_VALUES)).optional().or(z.literal('')),
     food_type: z.enum(asTuple(FOOD_TYPE_VALUES)).optional().or(z.literal('')),
+    // Gender-scoped campus-living category FKs (optional). Accept uuid, ''
+    // (unset dropdown), or null (normalized payload). Without these here the
+    // strict z.object would strip them before the insert.
+    hostel_category_id: z.string().uuid().nullable().optional().or(z.literal('')),
+    mess_category_id: z.string().uuid().nullable().optional().or(z.literal('')),
     last_school: z.string().optional(),
     board_of_study: z.string().optional(),
     tenth_max_marks: z.union([z.string(), z.number()]).optional(),
@@ -158,5 +163,8 @@ export function createLearnerWithDefaults(
     ...parsed,
     last_school: parsed.last_school ?? '',
     board_of_study: parsed.board_of_study ?? '',
+    // Blank uuid → null so the insert never sends '' for an FK (Postgres 22P02).
+    hostel_category_id: parsed.hostel_category_id || null,
+    mess_category_id: parsed.mess_category_id || null,
   };
 }

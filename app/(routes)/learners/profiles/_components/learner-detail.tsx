@@ -9,6 +9,8 @@
 
 import { useState } from 'react';
 import { format } from 'date-fns';
+import { useActiveHostelCategories } from '@/hooks/campus-living/use-hostel-categories';
+import { useActiveMessCategories } from '@/hooks/campus-living/use-mess-categories';
 import {
   UserCheck,
   GraduationCap,
@@ -52,6 +54,16 @@ export function LearnerDetail({ learner }: LearnerDetailProps) {
     isAdmissionGlobalUser,
     isLoading: permissionsLoading,
   } = usePermissions();
+
+  // Resolve the stored hostel/mess category FKs to display names.
+  const { hostelCategories: allHostelCategories } = useActiveHostelCategories();
+  const { messCategories: allMessCategories } = useActiveMessCategories();
+  const hostelCategoryName = allHostelCategories.find(
+    (c) => c.id === (learner as any).hostel_category_id
+  )?.name;
+  const messCategoryName = allMessCategories.find(
+    (c) => c.id === (learner as any).mess_category_id
+  )?.name;
 
   const isProfileComplete =
     !!learner.roll_number &&
@@ -778,6 +790,42 @@ export function LearnerDetail({ learner }: LearnerDetailProps) {
                       {learner.accommodation_type || 'Not specified'}
                     </p>
                   </div>
+                  {learner.accommodation_type === 'HOSTEL' && (
+                    <>
+                      <div className="space-y-1">
+                        <h4 className="text-sm font-medium text-muted-foreground">
+                          Hostel Type
+                        </h4>
+                        <p className="text-sm capitalize">
+                          {learner.hostel_type || 'Not specified'}
+                        </p>
+                      </div>
+                      <div className="space-y-1">
+                        <h4 className="text-sm font-medium text-muted-foreground">
+                          Food Type
+                        </h4>
+                        <p className="text-sm capitalize">
+                          {learner.food_type || 'Not specified'}
+                        </p>
+                      </div>
+                      <div className="space-y-1">
+                        <h4 className="text-sm font-medium text-muted-foreground">
+                          Hostel Room Category
+                        </h4>
+                        <p className="text-sm">
+                          {hostelCategoryName || 'Not specified'}
+                        </p>
+                      </div>
+                      <div className="space-y-1">
+                        <h4 className="text-sm font-medium text-muted-foreground">
+                          Mess Category
+                        </h4>
+                        <p className="text-sm">
+                          {messCategoryName || 'Not specified'}
+                        </p>
+                      </div>
+                    </>
+                  )}
                 </div>
               </CardContent>
             </>
