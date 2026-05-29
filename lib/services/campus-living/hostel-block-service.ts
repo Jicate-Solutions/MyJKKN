@@ -85,17 +85,25 @@ export class HostelBlockService {
       // counted as "reserved". Maintenance has no source today → stays 0.
       const { data: occ, error: occErr } = await supabase
         .from('v_hostel_room_occupancy')
-        .select('room_id, derived_status')
+        .select('room_id, derived_status, active_residents')
         .eq('block_id', id);
       if (occErr) {
         logger.error('campus-living/blocks', 'Failed to fetch room occupancy for summary', occErr);
       }
       const statusByRoom = new Map<string, string>();
+      const occupiedByRoom = new Map<string, number>();
       for (const row of occ ?? []) {
-        if (row.room_id) statusByRoom.set(row.room_id, row.derived_status ?? 'available');
+        if (!row.room_id) continue;
+        statusByRoom.set(row.room_id, row.derived_status ?? 'available');
+        occupiedByRoom.set(row.room_id, row.active_residents ?? 0);
       }
 
-      const rooms = (data.hostel_rooms ?? []) as Array<{ id: string; room_purpose?: string | null }>;
+      const rooms = (data.hostel_rooms ?? []) as Array<{
+        id: string;
+        floor?: number | null;
+        capacity?: number | null;
+        room_purpose?: string | null;
+      }>;
       const rooms_summary = { available: 0, partially_occupied: 0, full: 0, maintenance: 0, reserved: 0 };
       for (const room of rooms) {
         if (room.room_purpose && room.room_purpose !== 'student') {
@@ -108,10 +116,38 @@ export class HostelBlockService {
         else rooms_summary.available += 1;
       }
 
-      return { ...data, rooms_summary } as HostelBlock & {
+      // Derive the per-floor breakdown for the detail-page Floors & Rooms tab.
+      // The page reads `block.floor_summary` (FloorSummaryRow[]); without this
+      // it always fell back to [] and showed "No floor data available yet."
+      // even though hostel_rooms holds the floors. Totals reconcile to the
+      // header counters: every room contributes its capacity, occupancy comes
+      // from v_hostel_room_occupancy.active_residents.
+      const floorMap = new Map<number, { floor: number; rooms: number; capacity: number; occupied: number }>();
+      for (const room of rooms) {
+        const floor = Number(room.floor ?? 0);
+        const group = floorMap.get(floor) ?? { floor, rooms: 0, capacity: 0, occupied: 0 };
+        group.rooms += 1;
+        group.capacity += Number(room.capacity ?? 0);
+        group.occupied += occupiedByRoom.get(room.id) ?? 0;
+        floorMap.set(floor, group);
+      }
+      const floorLabel = (floor: number) => {
+        if (floor === 0) return 'Ground Floor';
+        const suffix = floor % 10 === 1 && floor % 100 !== 11 ? 'st'
+          : floor % 10 === 2 && floor % 100 !== 12 ? 'nd'
+          : floor % 10 === 3 && floor % 100 !== 13 ? 'rd'
+          : 'th';
+        return `${floor}${suffix} Floor`;
+      };
+      const floor_summary = Array.from(floorMap.values())
+        .sort((a, b) => a.floor - b.floor)
+        .map((g) => ({ ...g, label: floorLabel(g.floor) }));
+
+      return { ...data, rooms_summary, floor_summary } as HostelBlock & {
         hostel_rooms: unknown[];
         hostel_wardens: unknown[];
         rooms_summary: typeof rooms_summary;
+        floor_summary: typeof floor_summary;
       };
     } catch (error) {
       logger.error('campus-living/blocks', 'Unexpected error in getBlock', error);

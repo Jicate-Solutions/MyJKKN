@@ -56462,9 +56462,11 @@ export type Database = {
           food_type: string | null
           gender: string
           hospital_training_fee: number | null
+          hostel_category_id: string | null
           hostel_fee: number | null
           hostel_type: string | null
           id: string
+          mess_category_id: string | null
           industry_readiness_score: number | null
           institution_id: string | null
           is_profile_complete: boolean
@@ -56567,9 +56569,11 @@ export type Database = {
           food_type?: string | null
           gender: string
           hospital_training_fee?: number | null
+          hostel_category_id?: string | null
           hostel_fee?: number | null
           hostel_type?: string | null
           id?: string
+          mess_category_id?: string | null
           industry_readiness_score?: number | null
           institution_id?: string | null
           is_profile_complete?: boolean
@@ -56672,9 +56676,11 @@ export type Database = {
           food_type?: string | null
           gender?: string
           hospital_training_fee?: number | null
+          hostel_category_id?: string | null
           hostel_fee?: number | null
           hostel_type?: string | null
           id?: string
+          mess_category_id?: string | null
           industry_readiness_score?: number | null
           institution_id?: string | null
           is_profile_complete?: boolean

@@ -2415,6 +2415,26 @@ CREATE POLICY "lead_scores_delete" ON admission_lead_scores FOR DELETE USING (
 );
 
 -- ============================================================================
+-- ADMISSION STATUSES (funnel-stage / lifecycle reference catalog)
+-- Global lookup data, no institution_id. SELECT is open to any authenticated
+-- user (consumed by the lead "Move to:" dropdown + LifecycleStatusBadge across
+-- learners/billing); writes stay gated on the settings-admin permission.
+-- See migration 20260529000002_admission_statuses_select_open_to_authenticated.
+-- ============================================================================
+CREATE POLICY admission_statuses_select ON admission_statuses FOR SELECT
+  USING (auth.uid() IS NOT NULL);
+
+CREATE POLICY admission_statuses_insert ON admission_statuses FOR INSERT
+  WITH CHECK (is_super_admin() OR is_admin() OR user_has_permission('admission.settings.statuses.manage'));
+
+CREATE POLICY admission_statuses_update ON admission_statuses FOR UPDATE
+  USING (is_super_admin() OR is_admin() OR user_has_permission('admission.settings.statuses.manage'))
+  WITH CHECK (is_super_admin() OR is_admin() OR user_has_permission('admission.settings.statuses.manage'));
+
+CREATE POLICY admission_statuses_delete ON admission_statuses FOR DELETE
+  USING (is_super_admin() OR is_admin());
+
+-- ============================================================================
 -- 2. ADMISSION TASKS
 -- institution_id: direct column
 -- ============================================================================
