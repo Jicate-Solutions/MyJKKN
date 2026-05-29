@@ -254,6 +254,20 @@ export class ProgramEligibilityService {
   }
 
   // ─── Dropdown option loaders ───────────────────────────────────────────
+  // Read the LOCAL institutions table (the FK target), not the JKKN API —
+  // institution_id in the eligibility tables references institutions(id).
+  static async getInstitutions(): Promise<InstitutionOption[]> {
+    const { data, error } = await this.supabase
+      .from('institutions')
+      .select('id, name')
+      .order('name', { ascending: true });
+    if (error) {
+      logger.error(LOG, 'Database error loading institutions', error);
+      throw new Error(error.message || 'Failed to load institutions');
+    }
+    return (data ?? []) as InstitutionOption[];
+  }
+
   static async getProgramsForInstitution(
     institutionId: string
   ): Promise<ProgramOption[]> {
