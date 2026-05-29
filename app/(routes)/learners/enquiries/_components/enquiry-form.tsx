@@ -195,6 +195,9 @@ export const enquiryFormSchema = z.object({
   accommodation_type: z.string().min(1, 'Accommodation type is required'),
   hostel_category_id: z.string().nullable().optional(),
   mess_category_id: z.string().nullable().optional(),
+  bus_required: z.boolean().nullable().optional(),
+  transport_route_id: z.string().nullable().optional(),
+  transport_stop_id: z.string().nullable().optional(),
   reference_type: z.string().nullable().optional(),
   reference_name: z.string().nullable().optional(),
   reference_contact: z.string().nullable().optional(),
@@ -477,6 +480,9 @@ const fieldToTabMap: Record<string, string> = {
   accommodation_type: 'accommodation-preferences',
   hostel_category_id: 'accommodation-preferences',
   mess_category_id: 'accommodation-preferences',
+  bus_required: 'accommodation-preferences',
+  transport_route_id: 'accommodation-preferences',
+  transport_stop_id: 'accommodation-preferences',
   reference_type: 'accommodation-preferences',
   reference_name: 'accommodation-preferences',
   reference_contact: 'accommodation-preferences',
@@ -526,6 +532,9 @@ const FIELD_LABELS: Record<string, string> = {
   accommodation_type:         'Accommodation Type',
   hostel_category_id:         'Hostel Room Category',
   mess_category_id:           'Mess Category',
+  bus_required:               'Bus Required',
+  transport_route_id:         'Route',
+  transport_stop_id:          'Boarding Point',
 };
 
 // Tab labels keyed by tab id (mirrors ALL_TABS but module-level for use
@@ -847,6 +856,9 @@ export function EnquiryForm({
           accommodation_type: learner.accommodation_type || '',
           hostel_category_id: learner.hostel_category_id || undefined,
           mess_category_id: learner.mess_category_id || undefined,
+          bus_required: learner.bus_required ?? undefined,
+          transport_route_id: learner.transport_route_id || undefined,
+          transport_stop_id: learner.transport_stop_id || undefined,
           reference_type: normalizeReferenceType(learner.reference_type),
           reference_name: learner.reference_name || '',
           reference_contact: learner.reference_contact || '',
@@ -961,6 +973,9 @@ export function EnquiryForm({
           accommodation_type: '',
           hostel_category_id: undefined,
           mess_category_id: undefined,
+          bus_required: undefined,
+          transport_route_id: undefined,
+          transport_stop_id: undefined,
           reference_type: '',
           reference_name: '',
           reference_contact: '',
@@ -1154,6 +1169,11 @@ export function EnquiryForm({
       // send the empty string as a uuid param (Postgres 22P02).
       hostel_category_id: values.hostel_category_id || null,
       mess_category_id: values.mess_category_id || null,
+      // Transport (Day Scholar). bus_required is a real boolean; the FK UUIDs
+      // normalize '' → null so an unset dropdown doesn't send '' (Postgres 22P02).
+      bus_required: values.bus_required ?? null,
+      transport_route_id: values.transport_route_id || null,
+      transport_stop_id: values.transport_stop_id || null,
       reference_type: values.reference_type || undefined,
       reference_name: toUpperCaseField(values.reference_name),
       reference_contact: values.reference_contact || undefined,

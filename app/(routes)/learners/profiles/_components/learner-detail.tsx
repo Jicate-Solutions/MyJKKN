@@ -11,6 +11,7 @@ import { useState } from 'react';
 import { format } from 'date-fns';
 import { useActiveHostelCategories } from '@/hooks/campus-living/use-hostel-categories';
 import { useActiveMessCategories } from '@/hooks/campus-living/use-mess-categories';
+import { useActiveRoutes, useRouteStops } from '@/hooks/tms/use-route-lookup';
 import {
   UserCheck,
   GraduationCap,
@@ -64,6 +65,18 @@ export function LearnerDetail({ learner }: LearnerDetailProps) {
   const messCategoryName = allMessCategories.find(
     (c) => c.id === (learner as any).mess_category_id
   )?.name;
+
+  // Resolve the Day-Scholar transport route + boarding-point names.
+  const transportRouteId = (learner as any).transport_route_id as string | undefined;
+  const { routes: allRoutes } = useActiveRoutes();
+  const { stops: routeStops } = useRouteStops(transportRouteId);
+  const routeObj = allRoutes.find((r) => r.id === transportRouteId);
+  const routeName = routeObj
+    ? `${routeObj.route_number} - ${routeObj.route_name}`
+    : undefined;
+  const stopName = routeStops.find(
+    (s) => s.id === (learner as any).transport_stop_id
+  )?.stop_name;
 
   const isProfileComplete =
     !!learner.roll_number &&
@@ -808,6 +821,38 @@ export function LearnerDetail({ learner }: LearnerDetailProps) {
                           {messCategoryName || 'Not specified'}
                         </p>
                       </div>
+                    </>
+                  )}
+                  {learner.accommodation_type === 'DAY SCHOLAR' && (
+                    <>
+                      <div className="space-y-1">
+                        <h4 className="text-sm font-medium text-muted-foreground">
+                          Bus Required
+                        </h4>
+                        <p className="text-sm">
+                          {(learner as any).bus_required === true
+                            ? 'Yes'
+                            : (learner as any).bus_required === false
+                            ? 'No'
+                            : 'Not specified'}
+                        </p>
+                      </div>
+                      {(learner as any).bus_required === true && (
+                        <>
+                          <div className="space-y-1">
+                            <h4 className="text-sm font-medium text-muted-foreground">
+                              Route
+                            </h4>
+                            <p className="text-sm">{routeName || 'Not specified'}</p>
+                          </div>
+                          <div className="space-y-1">
+                            <h4 className="text-sm font-medium text-muted-foreground">
+                              Boarding Point
+                            </h4>
+                            <p className="text-sm">{stopName || 'Not specified'}</p>
+                          </div>
+                        </>
+                      )}
                     </>
                   )}
                 </div>

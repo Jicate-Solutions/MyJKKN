@@ -267,6 +267,9 @@ export function BulkUploadProfilesDialogEnhanced({ onSuccess }: { onSuccess?: ()
         // Contact (Optional)
         'Personal Email': 'john@gmail.com',
 
+        // Accommodation (Optional) — bus is only relevant for Day Scholars
+        'Bus Required': 'No',
+
         // Previous Education (Optional)
         'Last School': 'St. Mary\'s High School',
         'Board of Study': 'CBSE',
@@ -326,6 +329,7 @@ export function BulkUploadProfilesDialogEnhanced({ onSuccess }: { onSuccess?: ()
         { '': '' },
         { 'Blood Group (Optional)': 'A+  |  A-  |  B+  |  B-  |  AB+  |  AB-  |  O+  |  O-  |  A1+  |  A1B' },
         { 'Quota (Optional)': 'GOVERNMENT  |  MANAGEMENT' },
+        { 'Bus Required (Optional)': 'YES  |  NO  (Day Scholars only)' },
         { 'Counseling Applied (Optional)': 'TRUE  |  FALSE  |  YES  |  NO  |  1  |  0' },
         { '': '' },
 
@@ -505,6 +509,7 @@ export function BulkUploadProfilesDialogEnhanced({ onSuccess }: { onSuccess?: ()
 
               // SECTION 7: Accommodation
               accommodation_type: sanitizeValue(mappedData.accommodation_type, 'text', 'accommodation_type'),
+              bus_required: sanitizeValue(mappedData.bus_required, 'text', 'bus_required'),
 
               // SECTION 8: Previous Education
               last_school: sanitizeValue(mappedData.last_school, 'text'),

@@ -12,7 +12,8 @@
 //   /api/admission/bridge/convert. The DB columns + form-schema entries are
 //   kept (2,066 historical rows in production + 9 API integration files
 //   reference them, including B2A endpoints), so this is a UI-only removal.
-// Purpose: Hostel + food preferences only
+// Purpose: Hostel room/mess category (HOSTEL) + Day-Scholar bus transport
+//   (bus required → TMS route → boarding-point stop).
 // ============================================
 
 
@@ -39,6 +40,7 @@ import {
   useHostelCategoriesForGender,
   useMessCategoriesForGender
 } from '@/hooks/campus-living/use-gender-categories';
+import { useActiveRoutes, useRouteStops } from '@/hooks/tms/use-route-lookup';
 
 interface AccommodationPreferencesProps {
   form: UseFormReturn<any>;
@@ -63,6 +65,17 @@ export function AccommodationPreferencesSection({
   const { categories: messCategories, loading: loadingMessCategories } =
     useMessCategoriesForGender(gender);
 
+  // Day-Scholar bus transport: bus required → route → boarding-point stop.
+  const busRequired = useWatch({ control: form.control, name: 'bus_required' });
+  const transportRouteId = useWatch({
+    control: form.control,
+    name: 'transport_route_id'
+  });
+  const { routes, loading: loadingRoutes } = useActiveRoutes();
+  const { stops, loading: loadingStops } = useRouteStops(
+    busRequired === true ? transportRouteId : undefined
+  );
+
   // Reset dependent fields when selection changes
   useEffect(() => {
     if (accommodationType !== 'HOSTEL') {
@@ -70,7 +83,34 @@ export function AccommodationPreferencesSection({
       form.setValue('hostel_category_id', undefined);
       form.setValue('mess_category_id', undefined);
     }
+    if (accommodationType !== 'DAY SCHOLAR') {
+      // Reset bus/transport fields when not a day scholar
+      form.setValue('bus_required', undefined);
+      form.setValue('transport_route_id', undefined);
+      form.setValue('transport_stop_id', undefined);
+    }
   }, [accommodationType, form]);
+
+  // Clear route + stop when the learner says no bus is needed.
+  useEffect(() => {
+    if (busRequired !== true) {
+      if (form.getValues('transport_route_id'))
+        form.setValue('transport_route_id', undefined);
+      if (form.getValues('transport_stop_id'))
+        form.setValue('transport_stop_id', undefined);
+    }
+  }, [busRequired, form]);
+
+  // Clear a chosen stop that's no longer valid for the current route (e.g. the
+  // route was changed after picking). Guarded on load + membership so a valid
+  // prefilled stop on edit is preserved.
+  useEffect(() => {
+    if (loadingStops) return;
+    const cur = form.getValues('transport_stop_id');
+    if (cur && !stops.some((s) => s.id === cur)) {
+      form.setValue('transport_stop_id', undefined);
+    }
+  }, [transportRouteId, stops, loadingStops, form]);
 
   // Clear a previously-chosen category if it's no longer valid for the current
   // gender (e.g. operator changed gender after picking). Guarded on load + on
@@ -215,6 +255,135 @@ export function AccommodationPreferencesSection({
                 </FormItem>
               )}
             />
+          </>
+        )}
+
+        {accommodationType === 'DAY SCHOLAR' && (
+          <>
+            {/* Bus Required? — drives the route + boarding-point selectors. */}
+            <FormField
+              control={form.control}
+              name='bus_required'
+              render={({ field }) => (
+                <FormItem className='space-y-3'>
+                  <FormLabel>Bus Required?</FormLabel>
+                  <FormControl>
+                    <RadioGroup
+                      onValueChange={(v) => field.onChange(v === 'yes')}
+                      value={
+                        field.value === true
+                          ? 'yes'
+                          : field.value === false
+                          ? 'no'
+                          : ''
+                      }
+                      className='flex flex-col space-y-1'
+                    >
+                      <div className='flex items-center space-x-2'>
+                        <RadioGroupItem value='yes' id='bus_yes' />
+                        <Label htmlFor='bus_yes'>Yes</Label>
+                      </div>
+                      <div className='flex items-center space-x-2'>
+                        <RadioGroupItem value='no' id='bus_no' />
+                        <Label htmlFor='bus_no'>No</Label>
+                      </div>
+                    </RadioGroup>
+                  </FormControl>
+                  <FormDescription>
+                    Do you need the college bus?
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            {busRequired === true && (
+              <>
+                {/* Route — active TMS routes. */}
+                <FormField
+                  control={form.control}
+                  name='transport_route_id'
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Route</FormLabel>
+                      <Select
+                        onValueChange={field.onChange}
+                        value={field.value || ''}
+                        disabled={loadingRoutes || routes.length === 0}
+                      >
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue
+                              placeholder={
+                                loadingRoutes
+                                  ? 'Loading...'
+                                  : routes.length === 0
+                                  ? 'No routes available'
+                                  : 'Select route'
+                              }
+                            />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent className='max-h-60 overflow-y-auto'>
+                          {routes.map((route) => (
+                            <SelectItem key={route.id} value={route.id}>
+                              {route.route_number} - {route.route_name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormDescription>
+                        Bus route you will travel on
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                {/* Boarding Point — stops on the chosen route. */}
+                {transportRouteId && (
+                  <FormField
+                    control={form.control}
+                    name='transport_stop_id'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Boarding Point</FormLabel>
+                        <Select
+                          onValueChange={field.onChange}
+                          value={field.value || ''}
+                          disabled={loadingStops || stops.length === 0}
+                        >
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue
+                                placeholder={
+                                  loadingStops
+                                    ? 'Loading...'
+                                    : stops.length === 0
+                                    ? 'No stops available'
+                                    : 'Select boarding point'
+                                }
+                              />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent className='max-h-60 overflow-y-auto'>
+                            {stops.map((stop) => (
+                              <SelectItem key={stop.id} value={stop.id}>
+                                {stop.stop_name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <FormDescription>
+                          Where you will board the bus
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                )}
+              </>
+            )}
           </>
         )}
 

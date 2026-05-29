@@ -91,6 +91,7 @@ const COLUMN_MAPPING: Record<string, string[]> = {
 
   // SECTION 9: Accommodation Details
   'accommodation_type': ['Accommodation Type', 'accommodation_type'],
+  'bus_required': ['Bus Required', 'bus_required', 'Bus'],
   // SECTION 10: Reference Information
   'reference_type': ['Reference Type', 'reference_type'],
   'reference_name': ['Reference Name', 'reference_name'],

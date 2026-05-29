@@ -172,6 +172,9 @@ export interface LearnerProfile {
   accommodation_type: string;
   hostel_category_id?: string | null;
   mess_category_id?: string | null;
+  bus_required?: boolean | null;
+  transport_route_id?: string | null;
+  transport_stop_id?: string | null;
   // Reference Information (legacy — person who vouches for the student)
   reference_type?: string;
   reference_name?: string;
@@ -352,6 +355,9 @@ export const learnerProfileSchema = z.object({
   accommodation_type: z.string().min(1, 'Accommodation type is required'),
   hostel_category_id: z.string().nullable().optional(),
   mess_category_id: z.string().nullable().optional(),
+  bus_required: z.boolean().nullable().optional(),
+  transport_route_id: z.string().nullable().optional(),
+  transport_stop_id: z.string().nullable().optional(),
   // Reference
   reference_type: z.string().optional(),
   reference_name: z.string().optional(),
@@ -470,6 +476,9 @@ export interface UpdateLearnerProfileDto {
   accommodation_type?: string;
   hostel_category_id?: string | null;
   mess_category_id?: string | null;
+  bus_required?: boolean | null;
+  transport_route_id?: string | null;
+  transport_stop_id?: string | null;
   // Reference Information
   reference_type?: string | null;
   reference_name?: string | null;

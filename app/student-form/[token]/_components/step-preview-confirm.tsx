@@ -25,6 +25,8 @@ interface CourseNames {
   department?: string;
   program?: string;
   semester?: string;
+  route?: string;
+  stop?: string;
 }
 
 const EMPTY = '—';
@@ -113,6 +115,8 @@ export function StepPreviewConfirm({
       department_id: data.department_id,
       program_id: data.program_id,
       semester_id: data.semester_id,
+      route_id: data.transport_route_id,
+      stop_id: data.transport_stop_id,
     };
     if (!Object.values(ids).some(Boolean)) return;
     let alive = true;
@@ -133,7 +137,7 @@ export function StepPreviewConfirm({
     return () => {
       alive = false;
     };
-  }, [token, data.institution_id, data.degree_id, data.department_id, data.program_id, data.semester_id]);
+  }, [token, data.institution_id, data.degree_id, data.department_id, data.program_id, data.semester_id, data.transport_route_id, data.transport_stop_id]);
 
   const hasCourse =
     looksFilled(data.institution_id) ||
@@ -352,6 +356,30 @@ export function StepPreviewConfirm({
             label="Accommodation Type / தங்குமிட வகை"
             value={ACCOMMODATION_LABELS[data.accommodation_type] ?? data.accommodation_type}
           />
+          {data.accommodation_type === 'DAY SCHOLAR' && (
+            <Row
+              label="Bus Required? / பேருந்து தேவையா?"
+              value={
+                data.bus_required === true
+                  ? 'Yes'
+                  : data.bus_required === false
+                  ? 'No'
+                  : undefined
+              }
+            />
+          )}
+          {data.accommodation_type === 'DAY SCHOLAR' && data.bus_required === true && (
+            <>
+              <Row
+                label="Route / வழித்தடம்"
+                value={courseNames.route ?? (coursesLoading && data.transport_route_id ? 'Loading…' : undefined)}
+              />
+              <Row
+                label="Boarding Point / ஏறும் இடம்"
+                value={courseNames.stop ?? (coursesLoading && data.transport_stop_id ? 'Loading…' : undefined)}
+              />
+            </>
+          )}
         </SubGroup>
       </Section>
 

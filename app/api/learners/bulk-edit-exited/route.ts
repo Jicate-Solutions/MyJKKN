@@ -104,6 +104,7 @@ const COLUMN_MAPPING: Record<string, string[]> = {
 
   // SECTION 9: Accommodation Details
   'accommodation_type': ['Accommodation Type', 'accommodation_type'],
+  'bus_required': ['Bus Required', 'bus_required', 'Bus'],
   // SECTION 10: Reference Information
   'reference_type': ['Reference Type', 'reference_type'],
   'reference_name': ['Reference Name', 'reference_name'],
@@ -580,6 +581,11 @@ export async function POST(request: NextRequest) {
       // SECTION 9: Accommodation Details
       if (mappedData.accommodation_type) {
         sanitizedData.accommodation_type = sanitizeValue(mappedData.accommodation_type, 'text');
+      }
+      if (mappedData.bus_required !== undefined && mappedData.bus_required !== '') {
+        const b = String(mappedData.bus_required).trim().toLowerCase();
+        if (['yes', 'y', 'true', '1'].includes(b)) sanitizedData.bus_required = true;
+        else if (['no', 'n', 'false', '0'].includes(b)) sanitizedData.bus_required = false;
       }
       // SECTION 10: Reference Information
       if (mappedData.reference_type) {

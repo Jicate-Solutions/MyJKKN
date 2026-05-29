@@ -21,10 +21,14 @@ import {
 interface Props {
   lang: Language;
   data: Record<string, any>;
+  token: string;
   onContinue: (fields: Record<string, any>) => void;
   onBack: () => void;
   submitting: boolean;
 }
+
+interface RouteOption { id: string; route_number: string; route_name: string }
+interface StopOption { id: string; stop_name: string }
 
 function Req() {
   return <span className="text-red-500 ml-0.5">*</span>;
@@ -73,6 +77,7 @@ function Field({
 
 export function StepAccommodation({
   data,
+  token,
   onContinue,
   onBack,
   submitting,
@@ -84,9 +89,36 @@ export function StepAccommodation({
     accommodation_type: data.accommodation_type ?? '',
     hostel_category_id: data.hostel_category_id ?? '',
     mess_category_id: data.mess_category_id ?? '',
+    bus_required: (data.bus_required ?? null) as boolean | null,
+    transport_route_id: data.transport_route_id ?? '',
+    transport_stop_id: data.transport_stop_id ?? '',
   });
   const set = <K extends keyof typeof v>(k: K, val: typeof v[K]) =>
     setV((p) => ({ ...p, [k]: val }));
+
+  // Day-Scholar bus transport. Routes/stops come from the token-gated
+  // course-options API (service-role) because anon has no direct read on the
+  // tms_route / tms_route_stop tables.
+  const [routes, setRoutes] = useState<RouteOption[]>([]);
+  const [stops, setStops] = useState<StopOption[]>([]);
+  const [loadingRoutes, setLoadingRoutes] = useState(false);
+  const [loadingStops, setLoadingStops] = useState(false);
+
+  const fetchOptions = async (kind: string, filters?: Record<string, string>) => {
+    const res = await fetch(
+      `/api/student-form/${encodeURIComponent(token)}/course-options`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ kind, filters }),
+      },
+    );
+    if (!res.ok) throw new Error('options_failed');
+    const json = await res.json();
+    return (json.data ?? []) as any[];
+  };
+
+  const isDayScholar = v.accommodation_type === 'DAY SCHOLAR';
 
   // Gender (picked on the Basic Details step) decides which hostel room / mess
   // categories are offered — boys vs girls (+ mixed).
@@ -109,8 +141,59 @@ export function StepAccommodation({
         }));
       }
     }
+    if (v.accommodation_type !== 'DAY SCHOLAR') {
+      if (v.bus_required !== null || v.transport_route_id || v.transport_stop_id) {
+        setV((p) => ({
+          ...p,
+          bus_required: null,
+          transport_route_id: '',
+          transport_stop_id: '',
+        }));
+      }
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [v.accommodation_type]);
+
+  // Load routes once the learner says a bus is needed.
+  useEffect(() => {
+    if (!isDayScholar || v.bus_required !== true) return;
+    let cancelled = false;
+    setLoadingRoutes(true);
+    fetchOptions('routes')
+      .then((rows) => { if (!cancelled) setRoutes(rows as RouteOption[]); })
+      .catch(() => { if (!cancelled) setRoutes([]); })
+      .finally(() => { if (!cancelled) setLoadingRoutes(false); });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isDayScholar, v.bus_required]);
+
+  // Clear route + stop when no bus is needed.
+  useEffect(() => {
+    if (v.bus_required !== true && (v.transport_route_id || v.transport_stop_id)) {
+      setV((p) => ({ ...p, transport_route_id: '', transport_stop_id: '' }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [v.bus_required]);
+
+  // Load stops for the chosen route; clear a stop no longer on the route.
+  useEffect(() => {
+    if (!v.transport_route_id) { setStops([]); return; }
+    let cancelled = false;
+    setLoadingStops(true);
+    fetchOptions('route_stops', { route_id: v.transport_route_id })
+      .then((rows) => {
+        if (cancelled) return;
+        const list = rows as StopOption[];
+        setStops(list);
+        if (v.transport_stop_id && !list.some((s) => s.id === v.transport_stop_id)) {
+          setV((p) => ({ ...p, transport_stop_id: '' }));
+        }
+      })
+      .catch(() => { if (!cancelled) setStops([]); })
+      .finally(() => { if (!cancelled) setLoadingStops(false); });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [v.transport_route_id]);
 
   // Clear a chosen category that's no longer valid for the current gender.
   useEffect(() => {
@@ -135,7 +218,14 @@ export function StepAccommodation({
     <form
       onSubmit={(e) => {
         e.preventDefault();
-        onContinue(v);
+        onContinue({
+          ...v,
+          // Normalize FK UUIDs: '' → null so the server never gets '' for a
+          // uuid column (Postgres 22P02).
+          bus_required: isDayScholar ? v.bus_required : null,
+          transport_route_id: v.transport_route_id || null,
+          transport_stop_id: v.transport_stop_id || null,
+        });
       }}
       className="space-y-6"
     >
@@ -263,6 +353,109 @@ export function StepAccommodation({
               </SelectContent>
             </Select>
           </Field>
+        </Section>
+      )}
+
+      {isDayScholar && (
+        <Section title={{ en: 'Transport', ta: 'போக்குவரத்து' }}>
+          <Field label="Bus Required? / பேருந்து தேவையா?">
+            <RadioGroup
+              value={
+                v.bus_required === true ? 'yes' : v.bus_required === false ? 'no' : ''
+              }
+              onValueChange={(s) => set('bus_required', s === 'yes')}
+              className="grid grid-cols-2 gap-3"
+            >
+              <label
+                htmlFor="bus-yes"
+                className={`flex items-center gap-2 rounded-lg border p-3 cursor-pointer transition-colors ${
+                  v.bus_required === true
+                    ? 'border-primary bg-primary/5 ring-2 ring-primary/20'
+                    : 'border-border hover:bg-muted/30'
+                }`}
+              >
+                <RadioGroupItem value="yes" id="bus-yes" />
+                <span className="font-medium">Yes / ஆம்</span>
+              </label>
+              <label
+                htmlFor="bus-no"
+                className={`flex items-center gap-2 rounded-lg border p-3 cursor-pointer transition-colors ${
+                  v.bus_required === false
+                    ? 'border-primary bg-primary/5 ring-2 ring-primary/20'
+                    : 'border-border hover:bg-muted/30'
+                }`}
+              >
+                <RadioGroupItem value="no" id="bus-no" />
+                <span className="font-medium">No / இல்லை</span>
+              </label>
+            </RadioGroup>
+          </Field>
+
+          {v.bus_required === true && (
+            <>
+              <Field
+                label="Route / வழித்தடம்"
+                helper="Choose your bus route."
+              >
+                <Select
+                  value={v.transport_route_id}
+                  onValueChange={(s) => set('transport_route_id', s)}
+                  disabled={loadingRoutes || routes.length === 0}
+                >
+                  <SelectTrigger className="h-12">
+                    <SelectValue
+                      placeholder={
+                        loadingRoutes
+                          ? 'Loading...'
+                          : routes.length === 0
+                          ? 'No routes available'
+                          : 'Select route / வழித்தடம் தேர்வு செய்க'
+                      }
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {routes.map((r) => (
+                      <SelectItem key={r.id} value={r.id}>
+                        {r.route_number} - {r.route_name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </Field>
+
+              {v.transport_route_id && (
+                <Field
+                  label="Boarding Point / ஏறும் இடம்"
+                  helper="Where you will board the bus."
+                >
+                  <Select
+                    value={v.transport_stop_id}
+                    onValueChange={(s) => set('transport_stop_id', s)}
+                    disabled={loadingStops || stops.length === 0}
+                  >
+                    <SelectTrigger className="h-12">
+                      <SelectValue
+                        placeholder={
+                          loadingStops
+                            ? 'Loading...'
+                            : stops.length === 0
+                            ? 'No stops available'
+                            : 'Select boarding point / ஏறும் இடம் தேர்வு செய்க'
+                        }
+                      />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {stops.map((s) => (
+                        <SelectItem key={s.id} value={s.id}>
+                          {s.stop_name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </Field>
+              )}
+            </>
+          )}
         </Section>
       )}
 

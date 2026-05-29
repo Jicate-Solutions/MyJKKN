@@ -102,6 +102,10 @@ export const createLearnerSchema = z
     // strict z.object would strip them before the insert.
     hostel_category_id: z.string().uuid().nullable().optional().or(z.literal('')),
     mess_category_id: z.string().uuid().nullable().optional().or(z.literal('')),
+    // Day-Scholar bus transport. bus_required gates the route + stop FKs.
+    bus_required: z.boolean().nullable().optional(),
+    transport_route_id: z.string().uuid().nullable().optional().or(z.literal('')),
+    transport_stop_id: z.string().uuid().nullable().optional().or(z.literal('')),
     last_school: z.string().optional(),
     board_of_study: z.string().optional(),
     tenth_max_marks: z.union([z.string(), z.number()]).optional(),
@@ -143,5 +147,7 @@ export function createLearnerWithDefaults(
     // Blank uuid → null so the insert never sends '' for an FK (Postgres 22P02).
     hostel_category_id: parsed.hostel_category_id || null,
     mess_category_id: parsed.mess_category_id || null,
+    transport_route_id: parsed.transport_route_id || null,
+    transport_stop_id: parsed.transport_stop_id || null,
   };
 }

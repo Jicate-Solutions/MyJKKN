@@ -56513,7 +56513,10 @@ export type Database = {
           student_mobile: string
           student_photo_url: string | null
           tenth_marks: Json
+          bus_required: boolean | null
           transport_fee: number | null
+          transport_route_id: string | null
+          transport_stop_id: string | null
           tuition_fee: number | null
           twelfth_marks: Json
           uniform_fee: number | null
@@ -56618,7 +56621,10 @@ export type Database = {
           student_mobile: string
           student_photo_url?: string | null
           tenth_marks: Json
+          bus_required?: boolean | null
           transport_fee?: number | null
+          transport_route_id?: string | null
+          transport_stop_id?: string | null
           tuition_fee?: number | null
           twelfth_marks: Json
           uniform_fee?: number | null
@@ -56723,7 +56729,10 @@ export type Database = {
           student_mobile?: string
           student_photo_url?: string | null
           tenth_marks?: Json
+          bus_required?: boolean | null
           transport_fee?: number | null
+          transport_route_id?: string | null
+          transport_stop_id?: string | null
           tuition_fee?: number | null
           twelfth_marks?: Json
           uniform_fee?: number | null

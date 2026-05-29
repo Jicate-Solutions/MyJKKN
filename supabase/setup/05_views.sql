@@ -986,7 +986,10 @@ SELECT
     WHEN lp.batch_id IS NOT NULL AND b.start_date IS NOT NULL THEN 'batch'::text
     WHEN lp.enquiry_date IS NOT NULL THEN 'enquiry'::text
     ELSE NULL::text
-  END AS year_source
+  END AS year_source,
+  -- NEW (2026-05-29): display names for the Degree + Semester columns
+  dg.degree_name,
+  sm.semester_name
 FROM learners_profiles lp
   LEFT JOIN admission_years ay ON ay.id = lp.admission_year_id
   LEFT JOIN batches b ON b.id = lp.batch_id
@@ -994,6 +997,8 @@ FROM learners_profiles lp
   LEFT JOIN hostel_allocations ha ON ha.learner_id = lp.id
     AND ha.status = 'active'::allocation_status_enum
   LEFT JOIN hostel_blocks hb ON hb.id = ha.block_id
+  LEFT JOIN degrees dg ON dg.id = lp.degree_id
+  LEFT JOIN semesters sm ON sm.id = lp.semester_id
 WHERE lp.accommodation_type = 'HOSTEL'::text;
 
 GRANT SELECT ON public.v_learner_hostelites TO anon, authenticated, service_role;

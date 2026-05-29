@@ -118,6 +118,7 @@ const EXPORT_COLUMN_GROUPS: ExportColumnGroup[] = [
     label: 'Accommodation',
     columns: [
       { key: 'accommodation_type', header: 'Accommodation Type' },
+      { key: 'bus_required', header: 'Bus Required' },
     ],
   },
   {
@@ -195,6 +196,7 @@ function transformLearnerForExport(learner: any): Record<string, any> {
     scholarship_type: learner.scholarship_type || '',
     // Accommodation
     accommodation_type: learner.accommodation_type || '',
+    bus_required: learner.bus_required === true ? 'Yes' : learner.bus_required === false ? 'No' : '',
     // System
     roll_number: learner.roll_number || '',
     register_number: learner.register_number || '',

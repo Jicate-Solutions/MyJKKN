@@ -56,6 +56,9 @@ export const STUDENT_WRITABLE_COLUMNS = {
     // Gender-scoped campus-living category FKs (added 2026-05-29). Options are
     // filtered by the gender the student picked on the Basic Details step.
     'hostel_category_id', 'mess_category_id',
+    // Day-Scholar bus transport (added 2026-05-29). bus_required gates the
+    // route + boarding-point selection; routes/stops come from the TMS tables.
+    'bus_required', 'transport_route_id', 'transport_stop_id',
   ],
   contact: [
     'student_mobile', 'student_email',

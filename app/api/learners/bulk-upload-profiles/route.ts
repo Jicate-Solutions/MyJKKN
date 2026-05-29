@@ -123,6 +123,7 @@ const COLUMN_MAPPING: Record<string, string[]> = {
 
   // SECTION 9: Accommodation Details
   'accommodation_type': ['Accommodation Type', '* Accommodation Type', 'accommodation_type'],
+  'bus_required': ['Bus Required', 'bus_required', 'Bus'],
   // SECTION 10: Reference Information
   'reference_type': ['Reference Type', 'reference_type'],
   'reference_name': ['Reference Name', 'reference_name'],
@@ -355,6 +356,12 @@ export async function POST(request: NextRequest) {
 
         // Accommodation Details
         accommodation_type: normalizeDropdownValue(mappedData.accommodation_type, ACCOMMODATION_VALUES),
+        bus_required:
+          mappedData.bus_required === 'TRUE' || mappedData.bus_required === true
+            ? true
+            : mappedData.bus_required === 'FALSE' || mappedData.bus_required === false
+            ? false
+            : null,
         // Reference Information
         reference_type: sanitizeValue(mappedData.reference_type, 'text'),
         reference_name: sanitizeValue(mappedData.reference_name, 'text'),

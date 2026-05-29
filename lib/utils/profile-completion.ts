@@ -85,6 +85,24 @@ const FIELD_METADATA: FieldMetadata[] = [
     isConditional: true,
     condition: (learner) => learner.accommodation_type === 'HOSTEL',
   },
+  {
+    field: 'transport_route_id',
+    label: 'Route',
+    section: 'Accommodation Preferences',
+    isConditional: true,
+    condition: (learner) =>
+      learner.accommodation_type === 'DAY SCHOLAR' &&
+      (learner as { bus_required?: boolean | null }).bus_required === true,
+  },
+  {
+    field: 'transport_stop_id',
+    label: 'Boarding Point',
+    section: 'Accommodation Preferences',
+    isConditional: true,
+    condition: (learner) =>
+      learner.accommodation_type === 'DAY SCHOLAR' &&
+      (learner as { bus_required?: boolean | null }).bus_required === true,
+  },
 ];
 
 /**

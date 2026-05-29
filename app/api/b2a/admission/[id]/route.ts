@@ -93,6 +93,9 @@ export async function GET(
     permanent_address_pin_code: string | null;
     permanent_address_state: string | null;
     accommodation_type: string | null;
+    bus_required: boolean | null;
+    transport_route_id: string | null;
+    transport_stop_id: string | null;
     reference_type: string | null;
     reference_name: string | null;
     reference_contact: string | null;
@@ -123,7 +126,7 @@ export async function GET(
         'last_school, board_of_study, quota, entry_type, ' +
         'permanent_address_street, permanent_address_taluk, permanent_address_district, ' +
         'permanent_address_pin_code, permanent_address_state, ' +
-        'accommodation_type, reference_type, reference_name, reference_contact, ' +
+        'accommodation_type, bus_required, transport_route_id, transport_stop_id, reference_type, reference_name, reference_contact, ' +
         'counseling_applied, counseling_number, first_graduate, ' +
         'degree_id, department_id, program_id, institution_id, ' +
         'created_at, updated_at'

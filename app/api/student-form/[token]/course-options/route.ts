@@ -30,6 +30,8 @@ type Filters = {
   department_id?: string;
   program_id?: string;
   semester_id?: string;
+  route_id?: string;
+  stop_id?: string;
 };
 
 type Kind =
@@ -39,6 +41,8 @@ type Kind =
   | 'semesters'
   | 'department'
   | 'admission_year'
+  | 'routes'
+  | 'route_stops'
   | 'names';
 
 export async function POST(
@@ -196,6 +200,31 @@ export async function POST(
         return NextResponse.json({ data: data ?? null });
       }
 
+      case 'routes': {
+        // Active TMS routes for the Day-Scholar "bus required" flow.
+        const { data, error } = await (svc as any)
+          .from('tms_route')
+          .select('id, route_number, route_name, fare')
+          .eq('status', 'active')
+          .order('route_number', { ascending: true });
+        if (error) throw error;
+        return NextResponse.json({ data: data ?? [] });
+      }
+
+      case 'route_stops': {
+        // Boarding-point stops for the chosen route, ordered along the route.
+        if (!filters.route_id) {
+          return NextResponse.json({ data: [] });
+        }
+        const { data, error } = await (svc as any)
+          .from('tms_route_stop')
+          .select('id, stop_name, sequence_order')
+          .eq('route_id', filters.route_id)
+          .order('sequence_order', { ascending: true });
+        if (error) throw error;
+        return NextResponse.json({ data: data ?? [] });
+      }
+
       case 'names': {
         // Batch resolve display names for the IDs the learner has saved.
         // Used by the preview step to render Institution / Degree / Department
@@ -206,6 +235,8 @@ export async function POST(
           department?: string;
           program?: string;
           semester?: string;
+          route?: string;
+          stop?: string;
         } = {};
         const ops: Array<Promise<unknown>> = [];
 
@@ -266,6 +297,30 @@ export async function POST(
               .maybeSingle()
               .then(({ data }: any) => {
                 if (data?.semester_name) out.semester = data.semester_name;
+              }),
+          );
+        }
+        if (filters.route_id) {
+          ops.push(
+            (svc as any)
+              .from('tms_route')
+              .select('route_number, route_name')
+              .eq('id', filters.route_id)
+              .maybeSingle()
+              .then(({ data }: any) => {
+                if (data) out.route = `${data.route_number} - ${data.route_name}`;
+              }),
+          );
+        }
+        if (filters.stop_id) {
+          ops.push(
+            (svc as any)
+              .from('tms_route_stop')
+              .select('stop_name')
+              .eq('id', filters.stop_id)
+              .maybeSingle()
+              .then(({ data }: any) => {
+                if (data?.stop_name) out.stop = data.stop_name;
               }),
           );
         }
