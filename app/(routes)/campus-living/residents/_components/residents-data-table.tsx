@@ -52,7 +52,9 @@ export function HostelResidentsDataTable({ filters }: HostelResidentsDataTablePr
       items={residents}
       loading={isLoading}
       error={errorMessage}
-      onRefresh={refetch}
+      onRefresh={async () => {
+        await refetch();
+      }}
       onBulkDelete={async (ids) => {
         const res = await HostelResidentService.bulkDeleteResidents(ids);
         await refetch();
