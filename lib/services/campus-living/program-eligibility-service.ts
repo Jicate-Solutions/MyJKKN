@@ -22,6 +22,10 @@ export interface CategoryOption {
   id: string;
   name: string;
 }
+export interface InstitutionOption {
+  id: string;
+  name: string;
+}
 
 export class ProgramEligibilityService {
   private static get supabase() {
