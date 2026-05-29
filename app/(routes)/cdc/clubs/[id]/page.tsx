@@ -9,7 +9,7 @@ import {
   BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator
 } from '@/components/ui/breadcrumb';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import { SearchableSelect } from '@/components/ui/searchable-select';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
@@ -18,6 +18,7 @@ import {
   AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger
 } from '@/components/ui/alert-dialog';
 import { useClubById, useClubMembers, useAddMember, useRemoveMember, useUpdateClub } from '@/hooks/cdc/use-cdc-clubs';
+import { useLearnersForPicker } from '@/hooks/cdc/use-cdc-pickers';
 import { BeatLoader } from 'react-spinners';
 import { Users, Plus, Trash2, ArrowLeft, UserCheck } from 'lucide-react';
 
@@ -42,6 +43,7 @@ function ClubDetailContent({ params }: PageProps) {
   const addMember = useAddMember(id);
   const removeMember = useRemoveMember(id);
   const updateClub = useUpdateClub(id);
+  const { data: learnerOptions, isLoading: learnersLoading } = useLearnersForPicker();
 
   const [newLearnerId, setNewLearnerId] = useState('');
 
@@ -141,10 +143,13 @@ function ClubDetailContent({ params }: PageProps) {
           <CardContent className="space-y-4">
             {/* Add member */}
             <div className="flex gap-2">
-              <Input
+              <SearchableSelect
                 value={newLearnerId}
-                onChange={e => setNewLearnerId(e.target.value)}
-                placeholder="Enter learner ID to add..."
+                onValueChange={setNewLearnerId}
+                options={learnerOptions ?? []}
+                loading={learnersLoading}
+                placeholder="Search learner by name or register number…"
+                className="w-full"
               />
               <Button
                 type="button"
