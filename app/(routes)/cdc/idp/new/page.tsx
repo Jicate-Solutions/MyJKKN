@@ -12,14 +12,17 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { SearchableSelect } from '@/components/ui/searchable-select';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { useCreateIdp } from '@/hooks/cdc/use-cdc-idp';
+import { useLearnersForPicker } from '@/hooks/cdc/use-cdc-pickers';
 import { X, Plus } from 'lucide-react';
 
 export default function NewIdpPage() {
   const router = useRouter();
   const createIdp = useCreateIdp();
+  const { data: learnerOptions = [], isLoading: learnersLoading } = useLearnersForPicker();
 
   const [learnerId, setLearnerId] = useState('');
   const [academicYear, setAcademicYear] = useState('');
@@ -91,13 +94,16 @@ export default function NewIdpPage() {
             <CardHeader><CardTitle className="text-base">Learner</CardTitle></CardHeader>
             <CardContent className="space-y-4">
               <div className="space-y-1">
-                <Label htmlFor="learner_id">Learner ID <span className="text-red-500">*</span></Label>
-                <Input
-                  id="learner_id"
+                <Label htmlFor="learner_id">Learner <span className="text-red-500">*</span></Label>
+                <SearchableSelect
                   value={learnerId}
-                  onChange={e => setLearnerId(e.target.value)}
-                  placeholder="UUID of the learner"
-                  required
+                  onValueChange={setLearnerId}
+                  options={learnerOptions}
+                  placeholder="Search by name or register number…"
+                  searchPlaceholder="Type to search learners…"
+                  emptyMessage="No matching learners"
+                  loading={learnersLoading}
+                  className="w-full"
                 />
               </div>
               <div className="space-y-1">

@@ -9,15 +9,17 @@ import {
   BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator
 } from '@/components/ui/breadcrumb';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { SearchableSelect } from '@/components/ui/searchable-select';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useCreateMentorPairing } from '@/hooks/cdc/use-cdc-mentors';
+import { useLearnersForPicker } from '@/hooks/cdc/use-cdc-pickers';
 
 export default function NewMentorPairingPage() {
   const router = useRouter();
   const createPairing = useCreateMentorPairing();
+  const { data: learnerOptions = [], isLoading: learnersLoading } = useLearnersForPicker();
 
   const [mentorId, setMentorId] = useState('');
   const [menteeId, setMenteeId] = useState('');
@@ -62,25 +64,31 @@ export default function NewMentorPairingPage() {
             <CardHeader><CardTitle className="text-base">Pairing Details</CardTitle></CardHeader>
             <CardContent className="space-y-4">
               <div className="space-y-1">
-                <Label htmlFor="mentor_id">Mentor Learner ID <span className="text-red-500">*</span></Label>
-                <Input
-                  id="mentor_id"
+                <Label htmlFor="mentor_id">Mentor (senior learner) <span className="text-red-500">*</span></Label>
+                <SearchableSelect
                   value={mentorId}
-                  onChange={e => setMentorId(e.target.value)}
-                  placeholder="UUID of the senior learner (mentor)"
-                  required
+                  onValueChange={setMentorId}
+                  options={learnerOptions}
+                  placeholder="Search the senior learner…"
+                  searchPlaceholder="Type to search learners…"
+                  emptyMessage="No matching learners"
+                  loading={learnersLoading}
+                  className="w-full"
                 />
                 <p className="text-xs text-gray-400">This is the senior learner who will guide the mentee.</p>
               </div>
 
               <div className="space-y-1">
-                <Label htmlFor="mentee_id">Mentee Learner ID <span className="text-red-500">*</span></Label>
-                <Input
-                  id="mentee_id"
+                <Label htmlFor="mentee_id">Mentee (fresher learner) <span className="text-red-500">*</span></Label>
+                <SearchableSelect
                   value={menteeId}
-                  onChange={e => setMenteeId(e.target.value)}
-                  placeholder="UUID of the fresher learner (mentee)"
-                  required
+                  onValueChange={setMenteeId}
+                  options={learnerOptions}
+                  placeholder="Search the fresher learner…"
+                  searchPlaceholder="Type to search learners…"
+                  emptyMessage="No matching learners"
+                  loading={learnersLoading}
+                  className="w-full"
                 />
                 <p className="text-xs text-gray-400">This is the fresher learner receiving guidance.</p>
               </div>
