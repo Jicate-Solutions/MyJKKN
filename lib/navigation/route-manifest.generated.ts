@@ -3194,6 +3194,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
+            "path": "/campus-living/settings/packages",
+            "label": "Packages",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
             "path": "/campus-living/settings/program-eligibility",
             "label": "Program Eligibility",
             "iconName": "FileText",

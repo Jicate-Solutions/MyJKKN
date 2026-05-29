@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Card, CardContent } from '@/components/ui/card';
-import { Settings, IndianRupee, CalendarDays, Wrench, Bell, GitBranch, ArrowRight, LayoutGrid, Sparkles, CalendarRange, Wifi, Wind, ListChecks } from 'lucide-react';
+import { Settings, IndianRupee, CalendarDays, Wrench, Bell, GitBranch, ArrowRight, LayoutGrid, Sparkles, CalendarRange, Wifi, Wind, ListChecks, Package } from 'lucide-react';
 
 export default function SettingsPage() {
   const settingsPages = [
@@ -14,6 +14,7 @@ export default function SettingsPage() {
     { title: 'Amenities', desc: 'Catalog of informational amenities (Wi-Fi, Balcony, Attached Bath) assignable to rooms and blocks', href: '/campus-living/settings/amenities', icon: Wifi },
     { title: 'Billable Amenities', desc: 'Amenities that carry a monthly fee (AC, premium services) with fee models and commitment terms', href: '/campus-living/settings/billable-amenities', icon: Wind },
     { title: 'Hostel Years', desc: 'Define hostel calendar years — name, start & end dates (scopes fee config)', href: '/campus-living/settings/hostel-years', icon: CalendarRange },
+    { title: 'Admission Packages', desc: 'Bundle a Classic room for a flat price; learners pick mess separately and can opt-in to Premium upgrades', href: '/campus-living/settings/packages', icon: Package },
     { title: 'Fee Configuration', desc: 'Room-type fees, AC charges, deposit amounts, payment modes', href: '/campus-living/settings/fee-config', icon: IndianRupee },
     { title: 'Leave Types', desc: 'Configure leave types, max days, parent consent requirements', href: '/campus-living/settings/leave-types', icon: CalendarDays },
     { title: 'Maintenance SLA', desc: 'Set SLA targets by category and priority level', href: '/campus-living/settings/maintenance-sla', icon: Wrench },
