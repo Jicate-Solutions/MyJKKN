@@ -545,6 +545,18 @@ const config: ModuleNavConfig = {
           matchPaths: ['/campus-living/settings/amenities-categories'],
         },
         {
+          label: 'Amenities',
+          icon: 'Wifi',
+          href: '/campus-living/settings/amenities',
+          matchPaths: ['/campus-living/settings/amenities'],
+        },
+        {
+          label: 'Billable Amenities',
+          icon: 'Wind',
+          href: '/campus-living/settings/billable-amenities',
+          matchPaths: ['/campus-living/settings/billable-amenities'],
+        },
+        {
           label: 'Hostel Years',
           icon: 'CalendarRange',
           href: '/campus-living/settings/hostel-years',

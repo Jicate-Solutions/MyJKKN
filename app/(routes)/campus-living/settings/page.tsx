@@ -3,13 +3,15 @@
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Card, CardContent } from '@/components/ui/card';
-import { Settings, IndianRupee, CalendarDays, Wrench, Bell, GitBranch, ArrowRight, LayoutGrid, Sparkles, CalendarRange } from 'lucide-react';
+import { Settings, IndianRupee, CalendarDays, Wrench, Bell, GitBranch, ArrowRight, LayoutGrid, Sparkles, CalendarRange, Wifi, Wind } from 'lucide-react';
 
 export default function SettingsPage() {
   const settingsPages = [
     { title: 'General Settings', desc: 'Basic campus living configuration, academic year, hostel names', href: '/campus-living/settings/general', icon: Settings },
     { title: 'Hostel Rooms Categories', desc: 'Manage hostel rooms categories — Boys, Girls, Mixed hostels', href: '/campus-living/settings/categories', icon: LayoutGrid },
     { title: 'Amenities Categories', desc: 'Manage amenity categories — Recreation, Fitness, Connectivity', href: '/campus-living/settings/amenities-categories', icon: Sparkles },
+    { title: 'Amenities', desc: 'Catalog of informational amenities (Wi-Fi, Balcony, Attached Bath) assignable to rooms and blocks', href: '/campus-living/settings/amenities', icon: Wifi },
+    { title: 'Billable Amenities', desc: 'Amenities that carry a monthly fee (AC, premium services) with fee models and commitment terms', href: '/campus-living/settings/billable-amenities', icon: Wind },
     { title: 'Hostel Years', desc: 'Define hostel calendar years — name, start & end dates (scopes fee config)', href: '/campus-living/settings/hostel-years', icon: CalendarRange },
     { title: 'Fee Configuration', desc: 'Room-type fees, AC charges, deposit amounts, payment modes', href: '/campus-living/settings/fee-config', icon: IndianRupee },
     { title: 'Leave Types', desc: 'Configure leave types, max days, parent consent requirements', href: '/campus-living/settings/leave-types', icon: CalendarDays },
