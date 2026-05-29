@@ -3122,6 +3122,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "iconName": "Settings",
         "children": [
           {
+            "path": "/campus-living/settings/ac-amenity-audit",
+            "label": "Ac Amenity Audit",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
             "path": "/campus-living/settings/amenities",
             "label": "Amenities",
             "iconName": "FileText",
