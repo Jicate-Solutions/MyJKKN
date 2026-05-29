@@ -313,7 +313,11 @@ export async function notifyUpgradePool(vacancyId: string): Promise<NotifyResult
       'A Premium room in your hostel is now available for upgrade. ' +
       'Your current fees stay the same. Contact your warden to claim it.',
     channels: [NotificationChannel.IN_APP],
-    metadata: { vacancy_id: vacancyId, cluster_key: (vacancy as PremiumVacancy).cluster_key ?? '' },
+    metadata: {
+      reference_id: vacancyId,
+      reference_type: 'hostel_premium_vacancy',
+      custom_data: { cluster_key: (vacancy as PremiumVacancy).cluster_key ?? '' },
+    },
   });
 
   logger.info(LOG, 'Notified upgrade pool', {
