@@ -9,6 +9,7 @@ export default function SettingsPage() {
   const settingsPages = [
     { title: 'General Settings', desc: 'Basic campus living configuration, academic year, hostel names', href: '/campus-living/settings/general', icon: Settings },
     { title: 'Hostel Rooms Categories', desc: 'Manage hostel rooms categories — Boys, Girls, Mixed hostels', href: '/campus-living/settings/categories', icon: LayoutGrid },
+    { title: 'Program Eligibility', desc: 'Set allowed room & mess categories per program — institution default plus per-program overrides', href: '/campus-living/settings/program-eligibility', icon: ListChecks },
     { title: 'Amenities Categories', desc: 'Manage amenity categories — Recreation, Fitness, Connectivity', href: '/campus-living/settings/amenities-categories', icon: Sparkles },
     { title: 'Amenities', desc: 'Catalog of informational amenities (Wi-Fi, Balcony, Attached Bath) assignable to rooms and blocks', href: '/campus-living/settings/amenities', icon: Wifi },
     { title: 'Billable Amenities', desc: 'Amenities that carry a monthly fee (AC, premium services) with fee models and commitment terms', href: '/campus-living/settings/billable-amenities', icon: Wind },
