@@ -569,6 +569,12 @@ const config: ModuleNavConfig = {
           matchPaths: ['/campus-living/settings/hostel-years'],
         },
         {
+          label: 'Admission Packages',
+          icon: 'Package',
+          href: '/campus-living/settings/packages',
+          matchPaths: ['/campus-living/settings/packages'],
+        },
+        {
           label: 'Fee Config',
           icon: 'Coins',
           href: '/campus-living/settings/fee-config',
