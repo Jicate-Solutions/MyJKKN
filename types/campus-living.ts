@@ -158,6 +158,8 @@ export interface LearnerHostelite {
   academic_year_id?: string | null;
   // Display names surfaced from v_learner_hostelites.
   program_name?: string | null;
+  degree_name?: string | null;
+  semester_name?: string | null;
   current_block_name?: string | null;
   current_block_code?: string | null;
   // Surfaced from v_learner_hostelites (PR pending — bugs BUG-003325 + BUG-003326).

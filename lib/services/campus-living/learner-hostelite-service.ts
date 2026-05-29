@@ -53,6 +53,8 @@ const VIEW_SELECT = [
   'program_name',
   'current_block_name',
   'current_block_code',
+  'degree_name',
+  'semester_name',
 ].join(',');
 
 // learners_profiles columns NOT exposed on the view (used by mutations and the
