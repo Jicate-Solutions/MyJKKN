@@ -28,17 +28,19 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { SearchableSelect } from '@/components/ui/searchable-select';
 import { useCdcInternshipCreate } from '@/hooks/cdc/use-cdc-internships';
 import { CdcInternshipService } from '@/lib/services/cdc/internship-service';
-import { useAuth } from '@/hooks/use-auth';
+import { useLearnersForPicker, useStaffForPicker } from '@/hooks/cdc/use-cdc-pickers';
 
 interface Cycle { id: string; cycle_name: string; start_date: string; end_date: string; }
 interface Site  { id: string; site_name: string; city: string | null; state: string | null; }
 
 export default function NewCdcInternshipPage() {
   const router = useRouter();
-  const { user } = useAuth();
   const { createInternship, loading } = useCdcInternshipCreate();
+  const { data: learnerOptions = [], isLoading: learnersLoading } = useLearnersForPicker();
+  const { data: staffOptions = [], isLoading: staffLoading } = useStaffForPicker();
 
   const [cycles, setCycles] = useState<Cycle[]>([]);
   const [sites, setSites] = useState<Site[]>([]);
@@ -158,13 +160,10 @@ export default function NewCdcInternshipPage() {
                     </SelectContent>
                   </Select>
                 ) : (
-                  <Input
-                    id="cycle_id"
-                    placeholder="Cycle UUID"
-                    value={formData.cycle_id}
-                    onChange={e => set('cycle_id')(e.target.value)}
-                    required
-                  />
+                  <div className="px-3 py-2 rounded-md border bg-gray-50 text-sm text-gray-500">
+                    No internship cycles configured for this institution yet. Add one in the
+                    internship cycle setup before assigning.
+                  </div>
                 )}
               </div>
 
@@ -185,43 +184,40 @@ export default function NewCdcInternshipPage() {
                     </SelectContent>
                   </Select>
                 ) : (
-                  <Input
-                    id="site_id"
-                    placeholder="Site UUID"
-                    value={formData.site_id}
-                    onChange={e => set('site_id')(e.target.value)}
-                    required
-                  />
-                )}
-                {sites.length === 0 && (
-                  <p className="text-xs text-gray-400">
-                    No corporate sites found for this institution.{' '}
-                    Add one in the internship sites setup before assigning.
-                  </p>
+                  <div className="px-3 py-2 rounded-md border bg-gray-50 text-sm text-gray-500">
+                    No corporate sites found for this institution. Add one in the internship
+                    sites setup before assigning.
+                  </div>
                 )}
               </div>
 
-              {/* Learner ID */}
+              {/* Learner */}
               <div className="grid gap-1">
-                <Label htmlFor="learner_id">Learner ID <span className="text-red-500">*</span></Label>
-                <Input
-                  id="learner_id"
-                  placeholder="Learner UUID"
+                <Label htmlFor="learner_id">Learner <span className="text-red-500">*</span></Label>
+                <SearchableSelect
                   value={formData.learner_id}
-                  onChange={e => set('learner_id')(e.target.value)}
-                  required
+                  onValueChange={set('learner_id')}
+                  options={learnerOptions}
+                  placeholder="Search by name or register number…"
+                  searchPlaceholder="Type to search learners…"
+                  emptyMessage="No matching learners"
+                  loading={learnersLoading}
+                  className="w-full"
                 />
               </div>
 
-              {/* Facilitator ID */}
+              {/* Facilitator */}
               <div className="grid gap-1">
-                <Label htmlFor="facilitator_id">Facilitator / coordinator ID <span className="text-red-500">*</span></Label>
-                <Input
-                  id="facilitator_id"
-                  placeholder="Staff UUID"
+                <Label htmlFor="facilitator_id">Facilitator / coordinator <span className="text-red-500">*</span></Label>
+                <SearchableSelect
                   value={formData.facilitator_id}
-                  onChange={e => set('facilitator_id')(e.target.value)}
-                  required
+                  onValueChange={set('facilitator_id')}
+                  options={staffOptions}
+                  placeholder="Search staff by name or staff ID…"
+                  searchPlaceholder="Type to search staff…"
+                  emptyMessage="No matching staff"
+                  loading={staffLoading}
+                  className="w-full"
                 />
               </div>
 
