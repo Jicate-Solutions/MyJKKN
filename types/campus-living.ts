@@ -153,6 +153,15 @@ export interface LearnerHostelite {
   institution_id: string;
   department_id: string | null;
   program_id: string | null;
+  // Cascade FKs surfaced from v_learner_hostelites (advanced filters).
+  degree_id?: string | null;
+  semester_id?: string | null;
+  section_id?: string | null;
+  academic_year_id?: string | null;
+  // Display names surfaced from v_learner_hostelites.
+  program_name?: string | null;
+  current_block_name?: string | null;
+  current_block_code?: string | null;
   // Surfaced from v_learner_hostelites (PR pending — bugs BUG-003325 + BUG-003326).
   // Optional so callers reading via legacy paths still type-check.
   year_of_study?: number | null;
@@ -173,10 +182,20 @@ export interface LearnerHostelitesFilters {
   institution_id?: string;
   hostel_type?: LearnerHostelType;
   search?: string;  // matches roll_number OR first_name OR last_name OR email
-  // NEW (BUG-003325): institution + year + gender + block filters via v_learner_hostelites view
+  // BUG-003325: year + gender + block filters via v_learner_hostelites view
   year_of_study?: number;
   gender?: 'Male' | 'Female' | 'Other';
   block_id?: BlockFilterValue;
+  // Academic cascade filters (parity with Learners Profiles).
+  degree_id?: string;
+  department_id?: string;
+  program_id?: string;
+  semester_id?: string;
+  section_id?: string;
+  academic_year_id?: string;
+  // Sort (driven by the advanced DataTable column headers).
+  sortBy?: string;
+  sortOrder?: 'asc' | 'desc';
 }
 
 // ─── Detail drawer bundle (BUG-003326) ────────────────────────────────
