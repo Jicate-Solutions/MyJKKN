@@ -35,6 +35,13 @@ import {
   type HostelCategoryFee,
 } from '@/types/hostel-category-fees';
 
+type GenderType = 'boys' | 'girls';
+
+const GENDER_OPTIONS: { value: GenderType; label: string }[] = [
+  { value: 'boys', label: 'Boys' },
+  { value: 'girls', label: 'Girls' },
+];
+
 interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -53,9 +60,13 @@ export function CategoryFeeDialog({ open, onOpenChange, mode, hostelYearId, fee 
 
   const [kind, setKind] = useState<CategoryKind>('hostel_room');
   const [categoryId, setCategoryId] = useState<string>('');
+  const [genderType, setGenderType] = useState<GenderType>('boys');
   const [amount, setAmount] = useState<number>(0);
   const [frequency, setFrequency] = useState<FeeFrequency>('annual');
   const [submitting, setSubmitting] = useState(false);
+
+  // Hostel-room and mess categories carry a boys/girls `type`; amenities do not.
+  const kindHasGender = kind === 'hostel_room' || kind === 'mess';
 
   useEffect(() => {
     if (!open) return;
@@ -67,17 +78,31 @@ export function CategoryFeeDialog({ open, onOpenChange, mode, hostelYearId, fee 
     } else {
       setKind('hostel_room');
       setCategoryId('');
+      setGenderType('boys');
       setAmount(0);
       setFrequency('annual');
     }
   }, [open, isEdit, fee]);
 
+  const genderList: { id: string; name: string; type: string }[] =
+    kind === 'hostel_room' ? hostelCategories : kind === 'mess' ? messCategories : [];
+
+  // In edit mode the category is locked, so the gender selector just reflects
+  // the saved category's type. In create mode it's user-driven and filters the
+  // category list. 'mixed' categories apply to both and always show.
+  const lockedGender: GenderType = isEdit
+    ? genderList.find((c) => c.id === categoryId)?.type === 'girls'
+      ? 'girls'
+      : 'boys'
+    : genderType;
+
   const categoryOptions =
-    kind === 'hostel_room'
-      ? hostelCategories.map((c) => ({ id: c.id, name: c.name }))
-      : kind === 'mess'
-      ? messCategories.map((c) => ({ id: c.id, name: c.name }))
-      : amenitiesCategories.map((c) => ({ id: c.id, name: c.name }));
+    kind === 'amenity'
+      ? amenitiesCategories.map((c) => ({ id: c.id, name: c.name }))
+      : (isEdit
+          ? genderList
+          : genderList.filter((c) => c.type === genderType || c.type === 'mixed')
+        ).map((c) => ({ id: c.id, name: c.name }));
 
   const canSave = !!categoryId && Number.isFinite(amount) && amount >= 0;
 
@@ -144,7 +169,32 @@ export function CategoryFeeDialog({ open, onOpenChange, mode, hostelYearId, fee 
             </Select>
           </div>
 
-          <div className="space-y-2">
+          {kindHasGender ? (
+            <div className="space-y-2">
+              <Label>For</Label>
+              <Select
+                value={lockedGender}
+                onValueChange={(v) => {
+                  setGenderType(v as GenderType);
+                  setCategoryId('');
+                }}
+                disabled={isEdit}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {GENDER_OPTIONS.map((g) => (
+                    <SelectItem key={g.value} value={g.value}>
+                      {g.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          ) : null}
+
+          <div className="space-y-2 sm:col-span-2">
             <Label>Category</Label>
             <Select
               value={categoryId}
@@ -154,7 +204,11 @@ export function CategoryFeeDialog({ open, onOpenChange, mode, hostelYearId, fee 
               <SelectTrigger>
                 <SelectValue
                   placeholder={
-                    categoryOptions.length === 0 ? 'No active categories' : 'Select category'
+                    categoryOptions.length === 0
+                      ? kindHasGender
+                        ? `No active ${lockedGender} categories`
+                        : 'No active categories'
+                      : 'Select category'
                   }
                 />
               </SelectTrigger>

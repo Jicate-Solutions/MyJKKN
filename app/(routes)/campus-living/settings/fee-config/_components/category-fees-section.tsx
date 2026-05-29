@@ -12,6 +12,16 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Plus, Edit, Trash2, Loader2 } from 'lucide-react';
 import { useHostelCategoryFees } from '@/hooks/campus-living/use-hostel-category-fees';
 import { useActiveHostelCategories } from '@/hooks/campus-living/use-hostel-categories';
@@ -47,6 +57,7 @@ export function CategoryFeesSection({ hostelYearId, canEdit }: Props) {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<HostelCategoryFee | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<HostelCategoryFee | null>(null);
 
   const nameFor = (fee: HostelCategoryFee) => {
     const kind = getCategoryKind(fee);
@@ -68,11 +79,13 @@ export function CategoryFeesSection({ hostelYearId, canEdit }: Props) {
     setEditing(fee);
     setDialogOpen(true);
   };
-  const handleDelete = async (id: string) => {
-    if (!window.confirm('Delete this category fee? This cannot be undone.')) return;
+  const confirmDelete = async () => {
+    if (!pendingDelete || deletingId) return;
+    const id = pendingDelete.id;
     setDeletingId(id);
     try {
       await deleteFee(id);
+      setPendingDelete(null);
     } catch {
       // error toast handled upstream
     } finally {
@@ -145,7 +158,7 @@ export function CategoryFeesSection({ hostelYearId, canEdit }: Props) {
                       <Button
                         variant="ghost"
                         size="sm"
-                        onClick={() => handleDelete(fee.id)}
+                        onClick={() => setPendingDelete(fee)}
                         disabled={deletingId === fee.id}
                       >
                         <Trash2 className="h-4 w-4" />
@@ -166,6 +179,52 @@ export function CategoryFeesSection({ hostelYearId, canEdit }: Props) {
         hostelYearId={hostelYearId}
         fee={editing}
       />
+
+      <AlertDialog
+        open={!!pendingDelete}
+        onOpenChange={(open) => {
+          if (!open && !deletingId) setPendingDelete(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete category fee?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {pendingDelete ? (
+                <>
+                  This will permanently remove the{' '}
+                  <span className="font-medium text-foreground">{nameFor(pendingDelete)}</span>{' '}
+                  fee of{' '}
+                  <span className="font-medium text-foreground">
+                    {formatCurrency(pendingDelete.amount)}
+                  </span>
+                  . This action cannot be undone.
+                </>
+              ) : null}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={!!deletingId}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault();
+                confirmDelete();
+              }}
+              disabled={!!deletingId}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deletingId ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Deleting...
+                </>
+              ) : (
+                'Delete'
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
