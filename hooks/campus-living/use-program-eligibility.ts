@@ -117,6 +117,14 @@ export function useMessEligibility(institutionId: string | null) {
 }
 
 // ─── Dropdown option loaders ───────────────────────────────────────────────
+export function useEligibilityInstitutions() {
+  const query = useQuery({
+    queryKey: [...ELIG_KEY, 'institutions'],
+    queryFn: () => ProgramEligibilityService.getInstitutions(),
+  });
+  return { institutions: query.data ?? [], loading: query.isLoading };
+}
+
 export function useProgramsForInstitution(institutionId: string | null) {
   const query = useQuery({
     queryKey: [...ELIG_KEY, 'programs', institutionId],
