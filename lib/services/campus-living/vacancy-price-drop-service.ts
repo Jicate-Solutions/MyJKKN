@@ -211,7 +211,10 @@ export async function runVacancyPriceDrops(): Promise<VacancyPriceDropSummary> {
 
     // ── Step 3: fresh notify round (reuse ζ — do NOT reimplement dispatch) ──
     try {
-      const result = await notifyUpgradePool(v.id);
+      // Inject the service-role client: this cron runs with NO user session,
+      // and the notifications INSERT requires `authenticated` under RLS. Without
+      // a privileged client the re-notify round is silently denied by RLS.
+      const result = await notifyUpgradePool(v.id, { client: supabase });
       if (result.notified > 0) summary.renotified += 1;
     } catch (err) {
       logger.error(LOG, 're-notify round failed', { vacancyId: v.id, err });

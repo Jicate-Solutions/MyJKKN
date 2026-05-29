@@ -27,6 +27,7 @@
 //   email/SMS/push are TODO stubs there. We reuse it; recorded channel = in_app.
 // ============================================================================
 
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { logger } from '@/lib/utils/enhanced-logger';
 import { sendNotification } from '@/lib/services/notification/notification-service';
@@ -251,10 +252,20 @@ export interface NotifyResult {
  *
  * Idempotent: re-running for an already-notified learner neither double-inserts
  * nor double-dispatches.
+ *
+ * Context: the INSERT into hostel_premium_vacancy_notifications requires the
+ * `authenticated` role under RLS. Call sites with a user session (e.g.
+ * vacate-finalize) can rely on the default anon/browser client. Server/cron
+ * call sites (no session) MUST pass a privileged client via `opts.client`
+ * (the price-drop cron passes its service-role client) — otherwise the anon
+ * client is silently denied by RLS and the notify round no-ops.
  */
-export async function notifyUpgradePool(vacancyId: string): Promise<NotifyResult> {
+export async function notifyUpgradePool(
+  vacancyId: string,
+  opts?: { client?: SupabaseClient },
+): Promise<NotifyResult> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const supabase = createClientSupabaseClient() as any;
+  const supabase = (opts?.client ?? createClientSupabaseClient()) as any;
 
   const { data: vacancy, error: vErr } = await supabase
     .from('hostel_premium_vacancies')
