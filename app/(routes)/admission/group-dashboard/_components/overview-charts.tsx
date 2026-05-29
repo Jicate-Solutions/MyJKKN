@@ -51,7 +51,7 @@ export function GroupFunnelChart({ data }: { data: GroupDashboardData }) {
     { stage: 'Leads',             count: data.totals.total_leads,             fill: COLOR_LEADS },
     { stage: 'Enquiry',           count: data.totals.total_enquiry,           fill: COLOR_ENQUIRY },
     { stage: 'Enquiry Submitted', count: data.totals.total_enquiry_submitted, fill: COLOR_ENQUIRY_SUBMITTED },
-    { stage: 'Account',           count: data.totals.total_account,           fill: COLOR_ACCOUNT },
+    { stage: 'Fees Pending',      count: data.totals.total_account,           fill: COLOR_ACCOUNT },
     { stage: 'Reserved',          count: data.totals.total_reserved,          fill: COLOR_RESERVED },
     { stage: 'Admitted',          count: data.totals.total_admitted,          fill: COLOR_ADMITTED },
   ];
