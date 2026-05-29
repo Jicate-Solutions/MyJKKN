@@ -50,24 +50,30 @@ function CdcPlacementDetailContent({
   const [declineReason, setDeclineReason] = useState('');
   const [rescindReason, setRescindReason] = useState('');
   const [pendingAction, setPendingAction] = useState<CdcPlacementStatus | null>(null);
+  const [transitionError, setTransitionError] = useState<string | null>(null);
 
   const placement = data?.placement;
   const otherOffers = data?.other_offers ?? [];
 
   async function handleTransition(to: CdcPlacementStatus) {
     if (!placement) return;
-    await updateStatus.mutateAsync({
-      id: placement.id,
-      update: {
-        status: to,
-        decline_reason: to === 'declined' ? declineReason || null : null,
-        rescind_reason: to === 'rescinded' ? rescindReason || null : null,
-      },
-    });
-    setPendingAction(null);
-    setDeclineReason('');
-    setRescindReason('');
-    router.refresh();
+    setTransitionError(null);
+    try {
+      await updateStatus.mutateAsync({
+        id: placement.id,
+        update: {
+          status: to,
+          decline_reason: to === 'declined' ? declineReason || null : null,
+          rescind_reason: to === 'rescinded' ? rescindReason || null : null,
+        },
+      });
+      setPendingAction(null);
+      setDeclineReason('');
+      setRescindReason('');
+      router.refresh();
+    } catch (err) {
+      setTransitionError(err instanceof Error ? err.message : 'Failed to update status. Please try again.');
+    }
   }
 
   if (isLoading) {
@@ -231,6 +237,17 @@ function CdcPlacementDetailContent({
               <CardTitle className="text-base">Update Status</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
+              {/* Transition error (server rejection: RLS denial, invalid transition, cascade conflict) */}
+              {transitionError && (
+                <div
+                  role="alert"
+                  className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+                >
+                  <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
+                  <span>{transitionError}</span>
+                </div>
+              )}
+
               {/* Accept */}
               {canTransitionPlacement(placement.status, 'accepted') && (
                 <div className="flex items-center gap-3">
