@@ -1,5 +1,5 @@
 // lib/services/cdc/idp-service.ts
-import { createClientSupabaseClient } from '@/lib/supabase/client';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import type {
   CdcIdpResponse,
   CdcIdpResponseWithLearner,
@@ -10,15 +10,11 @@ import type {
 } from '@/types/cdc/idp';
 
 export class IdpService {
-  private static get supabase() {
-    return createClientSupabaseClient();
-  }
-
-  static async list(filters: IdpFilters = {}): Promise<IdpListResponse> {
+  static async list(supabase: SupabaseClient, filters: IdpFilters = {}): Promise<IdpListResponse> {
     const { page = 1, limit = 20, institution_id, academic_year_label, learner_id, source } = filters;
     const offset = (page - 1) * limit;
 
-    let query = this.supabase
+    let query = supabase
       .from('cdc_idp_responses')
       .select(
         `*, learner:learner_id(id, name, roll_number, institution_id)`,
