@@ -54,8 +54,8 @@ export class ClubService {
     return { data: enriched, total: count ?? 0, page, limit };
   }
 
-  static async getById(id: string): Promise<CdcClubWithMemberCount> {
-    const { data, error } = await this.supabase
+  static async getById(supabase: SupabaseClient, id: string): Promise<CdcClubWithMemberCount> {
+    const { data, error } = await supabase
       .from('cdc_clubs')
       .select('*')
       .eq('id', id)
@@ -63,7 +63,7 @@ export class ClubService {
 
     if (error) throw new Error(error.message);
 
-    const { count } = await this.supabase
+    const { count } = await supabase
       .from('cdc_club_memberships')
       .select('*', { count: 'exact', head: true })
       .eq('club_id', id)
