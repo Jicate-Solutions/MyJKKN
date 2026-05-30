@@ -103,15 +103,17 @@ export default function MessengerInboxPage() {
   );
 
   const messagesQuery = useQuery({
-    queryKey: ['messenger-messages', selectedId],
+    queryKey: ['messenger-messages', effectiveSelectedId],
     queryFn: async () => {
-      if (!selectedId) return [];
-      const res = await fetch(`/api/social/messenger/conversations/${selectedId}/messages`);
+      if (!effectiveSelectedId) return [];
+      const res = await fetch(
+        `/api/social/messenger/conversations/${effectiveSelectedId}/messages`
+      );
       const body = await res.json();
       if (!body.success) throw new Error(body.error || 'Failed to load messages');
       return body.data as MessageRow[];
     },
-    enabled: !!selectedId,
+    enabled: !!effectiveSelectedId,
     refetchInterval: 15_000,
   });
 
