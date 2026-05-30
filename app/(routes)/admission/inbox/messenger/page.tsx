@@ -135,8 +135,12 @@ export default function MessengerInboxPage() {
     },
     onSuccess: () => {
       setDraft('');
-      queryClient.invalidateQueries({ queryKey: ['messenger-messages', selectedId] });
-      queryClient.invalidateQueries({ queryKey: ['messenger-conversations', 'open'] });
+      queryClient.invalidateQueries({
+        queryKey: ['messenger-messages', effectiveSelectedId],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ['messenger-conversations', 'open'],
+      });
     },
   });
 
