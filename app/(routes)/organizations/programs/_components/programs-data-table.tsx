@@ -312,12 +312,12 @@ export function ProgramsDataTable({ search }: ProgramsDataTableProps) {
       <DataTable
         key={refreshTrigger}
         fetchDataFn={fetchData}
-        getColumns={() => getColumns(adaptLabel)}
+        getColumns={() => getColumns(adapt)}
         exportConfig={{
-          entityName: adaptLabel('programs'),
+          entityName: adapt('programs'),
           columnMapping: {
-            'program_id': adaptLabel('Program ID'),
-            'program_name': adaptLabel('Program Name')
+            'program_id': adapt('Program ID'),
+            'program_name': adapt('Program Name')
           },
           columnWidths: [],
           headers: []
