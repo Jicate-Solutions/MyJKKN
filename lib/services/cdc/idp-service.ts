@@ -88,7 +88,7 @@ export class IdpService {
     return data as CdcIdpResponse;
   }
 
-  static async update(id: string, dto: UpdateIdpResponseDto): Promise<CdcIdpResponse> {
+  static async update(supabase: SupabaseClient, id: string, dto: UpdateIdpResponseDto): Promise<CdcIdpResponse> {
     const payload: Record<string, unknown> = { updated_at: new Date().toISOString() };
     if (dto.interests !== undefined) payload.interests = dto.interests;
     if (dto.aspirations !== undefined) payload.aspirations = dto.aspirations;
