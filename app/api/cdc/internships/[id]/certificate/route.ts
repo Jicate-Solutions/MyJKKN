@@ -78,6 +78,27 @@ export async function POST(
       }, { status: 400 });
     }
 
+    // Enforce minimum-attendance policy before issuing (NAAC/AICTE compliance).
+    // Mirrors the fn_cdc_coordinator_overdue_check read idiom: read the canonical
+    // global platform_policies row, coalesce to a sane default if absent.
+    const { data: policyRow } = await (supabase as any)
+      .from('platform_policies')
+      .select('value')
+      .eq('policy_key', 'cdc.min_attendance_pct_for_internship_certificate')
+      .eq('scope_type', 'global')
+      .eq('is_active', true)
+      .limit(1)
+      .maybeSingle();
+
+    const parsedMin = Number(policyRow?.value);
+    const policyMin = Number.isFinite(parsedMin) ? parsedMin : 75;
+
+    if (body.attendance_percentage < policyMin) {
+      return NextResponse.json({
+        error: `Attendance ${body.attendance_percentage}% is below the required minimum ${policyMin}% for a certificate`
+      }, { status: 422 });
+    }
+
     // Generate certificate number
     const certNum = `CDC-${new Date().getFullYear()}-${Math.floor(100000 + Math.random() * 900000)}`;
     const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://app.jkkn.ai';
