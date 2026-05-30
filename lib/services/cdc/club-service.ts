@@ -132,8 +132,8 @@ export class ClubService {
     return (data ?? []) as CdcClubMembershipWithLearner[];
   }
 
-  static async addMember(clubId: string, dto: AddMemberDto): Promise<void> {
-    const { error } = await this.supabase
+  static async addMember(supabase: SupabaseClient, clubId: string, dto: AddMemberDto): Promise<void> {
+    const { error } = await supabase
       .from('cdc_club_memberships')
       .insert({
         club_id: clubId,
