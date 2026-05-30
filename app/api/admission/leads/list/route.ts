@@ -177,215 +177,248 @@ export async function GET(request: NextRequest) {
   const staleMinDays = staleMinDaysRaw ? Math.max(1, Math.min(365, parseInt(staleMinDaysRaw, 10))) : undefined;
 
   try {
-    // 4. Build the query with service role (no RLS overhead)
-    let query = supabase
-      .from('admission_leads')
-      .select(`
-        id,
-        institution_id,
-        full_name,
-        first_name,
-        last_name,
-        email,
-        phone,
-        funnel_stage,
-        stage,
-        source,
-        is_hot_lead,
-        is_priority,
-        score,
-        score_category,
-        date_of_birth,
-        gender,
-        address_line1,
-        city,
-        state,
-        parent_name,
-        parent_phone,
-        program_id,
-        alternative_programs,
-        interested_programs,
-        preferred_channel,
-        counselor_id,
-        assigned_counselor_id,
-        expo_event_id,
-        created_at,
-        updated_at,
-        counselor:admission_counselors(id, name, email),
-        institution:institutions(id, name)
-      `, { count: 'exact' });
-
-    // 5. Compute counselor scope FIRST so its strict-counselor decision
-    //    can override the role-level institution_scope='all' flag.
-    //    The role-level "all institutions" was originally for admission
-    //    OFFICE staff. Strict counselors (counselor role with no
-    //    admin/admission override) must NEVER inherit cross-institution
-    //    visibility — they must see only their directly-assigned leads.
+    // 4. Compute counselor scope + empty-result guards ONCE, before building
+    //    the query, so the buildQuery() factory below contains no awaits or
+    //    early returns and can be safely re-issued for the page clamp.
+    //
+    //    Compute counselor scope FIRST so its strict-counselor decision can
+    //    override the role-level institution_scope='all' flag. That flag was
+    //    originally for admission OFFICE staff; strict counselors (counselor
+    //    role with no admin/admission override) must NEVER inherit
+    //    cross-institution visibility — only their directly-assigned leads.
     const scope = await getCounselorScope(supabase, user.id);
 
-    // 5a. Institution scoping.
-    //
-    // Two flavours:
-    //   - EXPLICIT (user picked an institution from the College dropdown):
-    //     always honored, regardless of strict-counselor status. The user
-    //     wants to narrow further to that one institution.
-    //   - IMPLICIT (no UI selection): only applied for non-strict-counselor
-    //     non-global users — clamps them to their own profile.institution_id.
-    //     Strict counselors' visibility is governed entirely by the OR clause
-    //     in 5b (counselor_id / assigned_counselor_id), since they may
-    //     legitimately own leads across institutions if assigned that way.
-    //
-    // 2026-05-11: previously the EXPLICIT branch was nested inside
-    // `if (!scope.isStrictCounselor)`, so a counselor's College dropdown
-    // selection was silently dropped — they saw their full cross-institution
-    // scope despite picking one institution. Moved out so user intent wins.
-    if (institutionId) {
-      query = query.eq('institution_id', institutionId);
-    } else if (!scope.isStrictCounselor && !isAdmissionGlobalUser) {
-      if (!profile.institution_id) {
-        // User has no institution assigned — return empty result
-        return NextResponse.json({
-          data: [],
-          metadata: { total: 0, page, limit, totalPages: 0 },
-        });
+    // Strict-counselor OR clause + the two empty-result short-circuits, hoisted
+    // out of the (formerly inline) query-building flow.
+    const strictOrClause = scope.isStrictCounselor
+      ? buildLeadVisibilityOr(scope, user.id)
+      : null;
+    if (scope.isStrictCounselor && !strictOrClause) {
+      // Counselor has no admission_counselors row — strict-mode: nothing visible.
+      return NextResponse.json({
+        data: [],
+        metadata: { total: 0, page, limit, totalPages: 0 },
+      });
+    }
+    if (
+      !institutionId &&
+      !scope.isStrictCounselor &&
+      !isAdmissionGlobalUser &&
+      !profile.institution_id
+    ) {
+      // Non-strict, non-global user with no institution assigned.
+      return NextResponse.json({
+        data: [],
+        metadata: { total: 0, page, limit, totalPages: 0 },
+      });
+    }
+
+    // Query factory — produces a fresh, identically-filtered query each call so
+    // it can be re-issued for the out-of-range page clamp (PostgREST 416, see
+    // the pagination section). supabase-js builders are single-use once awaited.
+    const buildQuery = () => {
+      let query = supabase
+        .from('admission_leads')
+        .select(`
+          id,
+          institution_id,
+          full_name,
+          first_name,
+          last_name,
+          email,
+          phone,
+          funnel_stage,
+          stage,
+          source,
+          is_hot_lead,
+          is_priority,
+          score,
+          score_category,
+          date_of_birth,
+          gender,
+          address_line1,
+          city,
+          state,
+          parent_name,
+          parent_phone,
+          program_id,
+          alternative_programs,
+          interested_programs,
+          preferred_channel,
+          counselor_id,
+          assigned_counselor_id,
+          expo_event_id,
+          created_at,
+          updated_at,
+          counselor:admission_counselors(id, name, email),
+          institution:institutions(id, name)
+        `, { count: 'exact' });
+
+      // 5a. Institution scoping.
+      //
+      // Two flavours:
+      //   - EXPLICIT (user picked an institution from the College dropdown):
+      //     always honored, regardless of strict-counselor status. The user
+      //     wants to narrow further to that one institution.
+      //   - IMPLICIT (no UI selection): only applied for non-strict-counselor
+      //     non-global users — clamps them to their own profile.institution_id.
+      //     Strict counselors' visibility is governed entirely by the OR clause
+      //     in 5b (counselor_id / assigned_counselor_id), since they may
+      //     legitimately own leads across institutions if assigned that way.
+      //
+      // 2026-05-11: previously the EXPLICIT branch was nested inside
+      // `if (!scope.isStrictCounselor)`, so a counselor's College dropdown
+      // selection was silently dropped — they saw their full cross-institution
+      // scope despite picking one institution. Moved out so user intent wins.
+      if (institutionId) {
+        query = query.eq('institution_id', institutionId);
+      } else if (!scope.isStrictCounselor && !isAdmissionGlobalUser) {
+        query = query.eq('institution_id', profile.institution_id);
       }
-      query = query.eq('institution_id', profile.institution_id);
-    }
 
-    // 5b. Counselor visibility — mirrors the RLS in
-    // supabase/migrations/20260510210000_admission_leads_strict_counselor_visibility.sql
-    // and 20260510220000_admission_leads_exclude_referral_for_counselors.sql.
-    // For users who hold one of the 4 counselor role_keys without a broader
-    // admission/admin role, restrict visibility to:
-    //   - leads where counselor_id = user's admission_counselors.id, OR
-    //   - leads where assigned_counselor_id = user.id
-    // AND
-    //   - source <> 'referral' (referrals belong to consultants, not counselors)
-    //
-    // CRITICAL: this branch is taken regardless of isAdmissionGlobalUser
-    // because admission_counselor role is configured institution_scope='all'
-    // in custom_roles — that flag is for admission OFFICE staff to see all
-    // institutions, NOT for counselors to bypass strict-visibility.
-    if (scope.isStrictCounselor) {
-      const orClause = buildLeadVisibilityOr(scope, user.id);
-      if (!orClause) {
-        // Counselor has no admission_counselors row.
-        // Strict-mode: nothing visible.
-        return NextResponse.json({
-          data: [],
-          metadata: { total: 0, page, limit, totalPages: 0 },
-        });
+      // 5b. Counselor visibility — mirrors the RLS in
+      // supabase/migrations/20260510210000_admission_leads_strict_counselor_visibility.sql
+      // and 20260510220000_admission_leads_exclude_referral_for_counselors.sql.
+      // For users who hold one of the 4 counselor role_keys without a broader
+      // admission/admin role, restrict visibility to:
+      //   - leads where counselor_id = user's admission_counselors.id, OR
+      //   - leads where assigned_counselor_id = user.id
+      // AND
+      //   - source <> 'referral' (referrals belong to consultants, not counselors)
+      //
+      // CRITICAL: this branch is taken regardless of isAdmissionGlobalUser
+      // because admission_counselor role is configured institution_scope='all'
+      // in custom_roles — that flag is for admission OFFICE staff to see all
+      // institutions, NOT for counselors to bypass strict-visibility.
+      if (scope.isStrictCounselor && strictOrClause) {
+        // Apply OR (assigned_counselor_id OR counselor_id matches) AND
+        // source <> 'referral'. PostgREST's chained .or().neq() builds
+        // exactly that conjunction.
+        query = query.or(strictOrClause).neq('source', 'referral');
       }
-      // Apply OR (assigned_counselor_id OR counselor_id matches) AND
-      // source <> 'referral'. PostgREST's chained .or().neq() builds
-      // exactly that conjunction.
-      query = query.or(orClause).neq('source', 'referral');
-    }
 
-    // 6. Apply filters
-    if (funnelStage) {
-      const safe = funnelStage.replace(/[^a-z_]/g, '');
-      if (safe) {
-        query = query.or(`stage.eq.${safe},funnel_stage.eq.${safe}`);
+      // 6. Apply filters
+      if (funnelStage) {
+        const safe = funnelStage.replace(/[^a-z_]/g, '');
+        if (safe) {
+          query = query.or(`stage.eq.${safe},funnel_stage.eq.${safe}`);
+        }
       }
-    }
 
-    if (priority) {
-      if (priority === 'hot') {
-        query = query.eq('is_hot_lead', true);
-      } else if (priority === 'warm') {
-        query = query.eq('is_priority', true).eq('is_hot_lead', false);
-      } else if (priority === 'cold') {
-        query = query.eq('is_hot_lead', false).eq('is_priority', false);
+      if (priority) {
+        if (priority === 'hot') {
+          query = query.eq('is_hot_lead', true);
+        } else if (priority === 'warm') {
+          query = query.eq('is_priority', true).eq('is_hot_lead', false);
+        } else if (priority === 'cold') {
+          query = query.eq('is_hot_lead', false).eq('is_priority', false);
+        }
       }
-    }
 
-    if (source) {
-      query = query.eq('source', source);
-    }
+      if (source) {
+        query = query.eq('source', source);
+      }
 
-    if (counselorId) {
-      query = query.eq('counselor_id', counselorId);
-    }
+      if (counselorId) {
+        query = query.eq('counselor_id', counselorId);
+      }
 
-    if (expoEventId) {
-      query = query.eq('expo_event_id', expoEventId);
-    }
+      if (expoEventId) {
+        query = query.eq('expo_event_id', expoEventId);
+      }
 
-    if (capturedBy) {
-      query = query.eq('captured_by', capturedBy);
-    }
+      if (capturedBy) {
+        query = query.eq('captured_by', capturedBy);
+      }
 
-    if (waOptIn === 'true') {
-      query = query.eq('wa_opt_in', true);
-    }
+      if (waOptIn === 'true') {
+        query = query.eq('wa_opt_in', true);
+      }
 
-    // Filter by program — match against ALL three program-id storage columns
-    // since the 2026-04-21 split:
-    //   - program_id (single uuid, primary)            → `eq`
-    //   - alternative_programs (uuid[], multi-select) → `cs` (array contains)
-    //   - interested_programs (legacy uuid[])         → `cs` (pre-split rows)
-    // The `.or(...)` chain emits one PostgREST `or=(...)` clause so the user
-    // sees every lead that lists this program in any of the three columns.
-    // UUIDs are safe to interpolate (alphanumeric + dashes only — no escape
-    // hazards in the PostgREST OR syntax).
-    if (programId) {
-      query = query.or(
-        [
-          `program_id.eq.${programId}`,
-          `alternative_programs.cs.{${programId}}`,
-          `interested_programs.cs.{${programId}}`,
-        ].join(','),
-      );
-    }
-
-    if (search) {
-      const sanitized = sanitizeSearch(search);
-      if (sanitized) {
+      // Filter by program — match against ALL three program-id storage columns
+      // since the 2026-04-21 split:
+      //   - program_id (single uuid, primary)            → `eq`
+      //   - alternative_programs (uuid[], multi-select) → `cs` (array contains)
+      //   - interested_programs (legacy uuid[])         → `cs` (pre-split rows)
+      // The `.or(...)` chain emits one PostgREST `or=(...)` clause so the user
+      // sees every lead that lists this program in any of the three columns.
+      // UUIDs are safe to interpolate (alphanumeric + dashes only — no escape
+      // hazards in the PostgREST OR syntax).
+      if (programId) {
         query = query.or(
-          `full_name.ilike.%${sanitized}%,phone.ilike.%${sanitized}%,email.ilike.%${sanitized}%`
+          [
+            `program_id.eq.${programId}`,
+            `alternative_programs.cs.{${programId}}`,
+            `interested_programs.cs.{${programId}}`,
+          ].join(','),
         );
       }
-    }
 
-    if (dateFrom) {
-      query = query.gte('created_at', dateFrom);
-    }
-    if (dateTo) {
-      query = query.lte('created_at', dateTo);
-    }
+      if (search) {
+        const sanitized = sanitizeSearch(search);
+        if (sanitized) {
+          query = query.or(
+            `full_name.ilike.%${sanitized}%,phone.ilike.%${sanitized}%,email.ilike.%${sanitized}%`
+          );
+        }
+      }
 
-    // Stale filter — leads with no contact in N+ days. PostgREST has no direct
-    // COALESCE-comparison primitive, so emulate it with an OR over three
-    // mutually-exclusive branches: last_contact_at first, then last_activity_at
-    // when contact is null, then created_at when both are null. Cutoff is
-    // computed in JS so the comparison is a literal timestamp PostgREST accepts.
-    if (staleMinDays && staleMinDays > 0) {
-      const cutoff = new Date(Date.now() - staleMinDays * 24 * 60 * 60 * 1000).toISOString();
-      query = query.or(
-        `last_contact_at.lt.${cutoff},` +
-        `and(last_contact_at.is.null,last_activity_at.lt.${cutoff}),` +
-        `and(last_contact_at.is.null,last_activity_at.is.null,created_at.lt.${cutoff})`
-      );
+      if (dateFrom) {
+        query = query.gte('created_at', dateFrom);
+      }
+      if (dateTo) {
+        query = query.lte('created_at', dateTo);
+      }
+
+      // Stale filter — leads with no contact in N+ days. PostgREST has no direct
+      // COALESCE-comparison primitive, so emulate it with an OR over three
+      // mutually-exclusive branches: last_contact_at first, then last_activity_at
+      // when contact is null, then created_at when both are null. Cutoff is
+      // computed in JS so the comparison is a literal timestamp PostgREST accepts.
+      if (staleMinDays && staleMinDays > 0) {
+        const cutoff = new Date(Date.now() - staleMinDays * 24 * 60 * 60 * 1000).toISOString();
+        query = query.or(
+          `last_contact_at.lt.${cutoff},` +
+          `and(last_contact_at.is.null,last_activity_at.lt.${cutoff}),` +
+          `and(last_contact_at.is.null,last_activity_at.is.null,created_at.lt.${cutoff})`
+        );
+      }
+
+      // 7. Sorting.
+      // Stable secondary sort key (id) so rows sharing the same sortBy value
+      // (e.g. identical last_activity_at after a batch capture) keep a fixed
+      // relative order across refetches instead of reshuffling. Without it,
+      // editing one lead re-floats it and the list appears to "change" or show
+      // someone else's lead between refreshes.
+      // BUG-004123/BUG-004121/BUG-004120/BUG-004119/BUG-004117/BUG-003960/BUG-003954
+      return query
+        .order(sortBy, { ascending: sortOrder === 'asc' })
+        .order('id', { ascending: true });
+    };
+
+    // 8. Pagination with last-page clamp. A stale ?page=N past the (possibly
+    // just-filtered) result count makes PostgREST answer 416 "Requested Range
+    // Not Satisfiable" (BUG-003967). On that error we re-issue at page 1 so the
+    // table renders rather than throwing; metadata.totalPages still reports the
+    // true bound so the client's pager self-corrects.
+    const requestedPage = Math.max(1, page);
+    const from = (requestedPage - 1) * limit;
+    let { data, error, count } = await retryOnFetchFailure(() =>
+      buildQuery().range(from, from + limit - 1),
+    );
+    const isRangeError =
+      !!error &&
+      (String((error as any)?.code) === 'PGRST103' ||
+        /range not satisfiable/i.test(String((error as any)?.message)));
+    if (isRangeError) {
+      ({ data, error, count } = await retryOnFetchFailure(() =>
+        buildQuery().range(0, limit - 1),
+      ));
     }
-
-    // 7. Sorting and pagination
-    // Stable secondary sort key (id) so rows sharing the same sortBy value
-    // (e.g. identical last_activity_at after a batch capture) keep a fixed
-    // relative order across refetches instead of reshuffling. Without it,
-    // editing one lead re-floats it and the list appears to "change" or show
-    // someone else's lead between refreshes.
-    // BUG-004123/BUG-004121/BUG-004120/BUG-004119/BUG-004117/BUG-003960/BUG-003954
-    query = query.order(sortBy, { ascending: sortOrder === 'asc' });
-    query = query.order('id', { ascending: true });
-    const from = (page - 1) * limit;
-    query = query.range(from, from + limit - 1);
-
-    const { data, error, count } = await retryOnFetchFailure(() => query);
 
     if (error) throw error;
 
-    // 8. Resolve program IDs to names server-side so the client never renders
+    // 9. Resolve program IDs to names server-side so the client never renders
     //    raw UUIDs while a client-side map loads.
     //
     //    Three columns can hold program IDs since the 2026-04-21 split:
