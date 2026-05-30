@@ -20,7 +20,7 @@ export async function GET(request: NextRequest) {
       status: (sp.get('status') as MentorPairingFilters['status']) ?? undefined,
     };
 
-    const result = await MentorService.list(filters);
+    const result = await MentorService.list(supabase, filters);
     return NextResponse.json(result);
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : 'Internal server error';
