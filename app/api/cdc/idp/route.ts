@@ -21,7 +21,7 @@ export async function GET(request: NextRequest) {
       source: sp.get('source') ?? undefined,
     };
 
-    const result = await IdpService.list(filters);
+    const result = await IdpService.list(supabase, filters);
     return NextResponse.json(result);
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : 'Internal server error';
