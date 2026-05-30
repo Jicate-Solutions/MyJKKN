@@ -35,7 +35,7 @@ export class ClubService {
     let memberCounts: Record<string, number> = {};
 
     if (ids.length > 0) {
-      const { data: memberships } = await this.supabase
+      const { data: memberships } = await supabase
         .from('cdc_club_memberships')
         .select('club_id')
         .in('club_id', ids)
