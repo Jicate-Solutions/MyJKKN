@@ -18,7 +18,7 @@
 // composer when the last inbound was >24h ago so the user knows ahead of
 // the send attempt.
 
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { formatDistanceToNow } from 'date-fns';
 import { ContentLayout } from '@/components/layout/content-layout';
