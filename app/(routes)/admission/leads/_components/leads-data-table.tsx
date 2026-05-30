@@ -754,8 +754,12 @@ export function LeadsDataTable() {
   // Memoize getColumns to avoid creating a new function reference on every render.
   // The DataTable's internal useMemo depends on getColumns identity.
   const stableGetColumns = useCallback(
-    () => getLeadColumns(attributionsMap) as any,
-    [attributionsMap]
+    () =>
+      getLeadColumns(attributionsMap, {
+        id: profile?.id ?? null,
+        counselorId: myCounselorId,
+      }) as any,
+    [attributionsMap, profile?.id, myCounselorId]
   );
 
   return (

@@ -147,12 +147,17 @@ export async function GET(request: NextRequest) {
   const page = parseInt(searchParams.get('page') || '1', 10);
   const limit = Math.min(parseInt(searchParams.get('limit') || '50', 10), 200);
   const search = searchParams.get('search') || undefined;
-  // Default sort = last_activity_at DESC so dedup'd leads (e.g. an
-  // existing lead re-captured by a new campaign submission) bubble to
-  // the top instead of staying buried at their original created_at.
-  // Set via migration K; bumped on every admission_lead_source_captures
-  // insert. Callers can still override with ?sort_by=created_at.
-  const sortBy = searchParams.get('sort_by') || 'last_activity_at';
+  // Default sort = created_at DESC.
+  // Previously defaulted to last_activity_at DESC, which is bumped on every
+  // edit / source-capture and so re-floated the just-edited lead to the top
+  // after each update. To a counselor watching one lead, the list appeared to
+  // reshuffle / show "someone else's lead" between refetches
+  // (BUG-004123/BUG-004121/BUG-004120/BUG-004119/BUG-004117/BUG-003960/BUG-003954).
+  // created_at is immutable so the row's position is stable across edits.
+  // The leads list client already sends sort_by=created_at by default; this
+  // aligns the route default for any other caller (dashboard deep-links) that
+  // omits sort_by. Callers wanting recency can still pass ?sort_by=last_activity_at.
+  const sortBy = searchParams.get('sort_by') || 'created_at';
   const sortOrder = searchParams.get('sort_order') || 'desc';
   const funnelStage = searchParams.get('funnel_stage') || undefined;
   const priority = searchParams.get('priority') || undefined;
@@ -202,6 +207,7 @@ export async function GET(request: NextRequest) {
         interested_programs,
         preferred_channel,
         counselor_id,
+        assigned_counselor_id,
         expo_event_id,
         created_at,
         updated_at,
@@ -364,7 +370,14 @@ export async function GET(request: NextRequest) {
     }
 
     // 7. Sorting and pagination
+    // Stable secondary sort key (id) so rows sharing the same sortBy value
+    // (e.g. identical last_activity_at after a batch capture) keep a fixed
+    // relative order across refetches instead of reshuffling. Without it,
+    // editing one lead re-floats it and the list appears to "change" or show
+    // someone else's lead between refreshes.
+    // BUG-004123/BUG-004121/BUG-004120/BUG-004119/BUG-004117/BUG-003960/BUG-003954
     query = query.order(sortBy, { ascending: sortOrder === 'asc' });
+    query = query.order('id', { ascending: true });
     const from = (page - 1) * limit;
     query = query.range(from, from + limit - 1);
 

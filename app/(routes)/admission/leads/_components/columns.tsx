@@ -145,7 +145,8 @@ export function getStageLabel(stage: string | null, statuses?: AdmissionStatus[]
 }
 
 export function getLeadColumns(
-  attributionsMap: Map<string, string> = new Map()
+  attributionsMap: Map<string, string> = new Map(),
+  currentUser?: { id?: string | null; counselorId?: string | null }
 ): ColumnDef<AdmissionLead>[] {
   return [
   {
@@ -305,6 +306,22 @@ export function getLeadColumns(
         return consultantName
           ? <span className="text-sm">{consultantName} <Badge variant="outline" className="ml-1 text-[10px] px-1 py-0">Consultant</Badge></span>
           : <span className="text-sm text-muted-foreground">No consultant</span>;
+      }
+      // "Assigned to you" — when the row is assigned to the current counselor.
+      // Reporters (correctly-scoped strict counselors) read the assignee column
+      // as "another facilitator is on my lead" because it renders the canonical
+      // counselor display name, which differs from their self-image. Surfacing
+      // an explicit badge resolves the confusion.
+      const assignedToMe =
+        (!!currentUser?.counselorId && lead.counselor_id === currentUser.counselorId) ||
+        (!!currentUser?.id && (lead as any).assigned_counselor_id === currentUser.id);
+      if (assignedToMe) {
+        return (
+          <span className="text-sm">
+            {lead.counselor?.name || 'You'}{' '}
+            <Badge variant="secondary" className="ml-1 text-[10px] px-1 py-0">Assigned to you</Badge>
+          </span>
+        );
       }
       return lead.counselor?.name
         ? <span className="text-sm">{lead.counselor.name} <Badge variant="outline" className="ml-1 text-[10px] px-1 py-0">Counselor</Badge></span>
