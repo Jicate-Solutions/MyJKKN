@@ -14,7 +14,7 @@ export async function GET(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const members = await ClubService.listMembers(id);
+    const members = await ClubService.listMembers(supabase, id);
     return NextResponse.json(members);
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : 'Internal server error';
