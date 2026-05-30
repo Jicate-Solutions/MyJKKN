@@ -466,8 +466,7 @@ export class LeadService {
       id: result.lead_id,
       full_name:
         (p_lead.full_name as string | undefined) ??
-        [p_lead.first_name, p_lead.last_name].filter(Boolean).join(' ').trim() ||
-        null,
+        ([p_lead.first_name, p_lead.last_name].filter(Boolean).join(' ').trim() || null),
     };
 
     // ─── Side effects (only on 'created'; never on plain 'merged') ──
