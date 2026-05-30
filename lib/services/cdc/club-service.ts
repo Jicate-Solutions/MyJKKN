@@ -1,5 +1,5 @@
 // lib/services/cdc/club-service.ts
-import { createClientSupabaseClient } from '@/lib/supabase/client';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import type {
   CdcClub,
   CdcClubWithMemberCount,
@@ -12,15 +12,11 @@ import type {
 } from '@/types/cdc/clubs';
 
 export class ClubService {
-  private static get supabase() {
-    return createClientSupabaseClient();
-  }
-
-  static async list(filters: ClubFilters = {}): Promise<ClubListResponse> {
+  static async list(supabase: SupabaseClient, filters: ClubFilters = {}): Promise<ClubListResponse> {
     const { page = 1, limit = 20, institution_id, is_active, club_type } = filters;
     const offset = (page - 1) * limit;
 
-    let query = this.supabase
+    let query = supabase
       .from('cdc_clubs')
       .select('*', { count: 'exact' })
       .order('name', { ascending: true })
