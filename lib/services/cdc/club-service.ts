@@ -97,7 +97,7 @@ export class ClubService {
     return data as CdcClub;
   }
 
-  static async update(id: string, dto: UpdateClubDto): Promise<CdcClub> {
+  static async update(supabase: SupabaseClient, id: string, dto: UpdateClubDto): Promise<CdcClub> {
     const payload: Record<string, unknown> = { updated_at: new Date().toISOString() };
     if (dto.name !== undefined) payload.name = dto.name;
     if (dto.description !== undefined) payload.description = dto.description;
