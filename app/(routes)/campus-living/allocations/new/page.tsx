@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
@@ -19,6 +19,7 @@ import { useBedsByRoom } from '@/hooks/campus-living/use-hostel-beds';
 import { useLearnerHostelites } from '@/hooks/campus-living/use-learner-hostelites';
 import { useActiveMessCategories } from '@/hooks/campus-living/use-mess-categories';
 import { useCurrentHostelYear } from '@/hooks/campus-living/use-hostel-years';
+import { usePackageForLearner } from '@/hooks/campus-living/use-admission-packages';
 import {
   useLearnerProgramId,
   useEffectiveRoomCategories,
@@ -38,6 +39,7 @@ import {
   Heart,
   Info,
   Receipt,
+  Package,
 } from 'lucide-react';
 
 
@@ -97,6 +99,15 @@ export default function NewAllocationPage() {
   const { messCategories } = useActiveMessCategories();
   const { currentYear } = useCurrentHostelYear();
 
+  // ── PR ε handoff: resolve the learner's admission package (read-only) ──
+  // When the selected learner has a package for the current year, surface it
+  // as a hint and pre-fill the mess select from their package-time choice.
+  // Returns null when the learner has no package — fail-open, never blocks.
+  const { data: learnerPackage } = usePackageForLearner(
+    formData.learner_id || null,
+    currentYear?.id ?? null,
+  );
+
   // Fail-open gates: only narrow when the resolver returned a non-empty set.
   const roomFilterActive = (eligibleRoomCategoryIds?.length ?? 0) > 0;
   const messFilterActive = (eligibleMessCategoryIds?.length ?? 0) > 0;
@@ -136,6 +147,26 @@ export default function NewAllocationPage() {
       currency: 'INR',
       maximumFractionDigits: 0,
     }).format(n);
+
+  // Resolve a mess category id → display name (from the active categories the
+  // page already loads) for the package hint card.
+  const messName = (id: string | null): string | null =>
+    id ? messCategories.find((m) => m.id === id)?.name ?? null : null;
+
+  // Visual pre-fill: seed the mess select from the package's chosen mess, but
+  // only when the warden hasn't already picked one (never clobber a manual
+  // choice). The hint card below always shows the package's mess regardless,
+  // so the truth is visible even if this guard skips the auto-fill.
+  const packageMessId = learnerPackage?.chosen_mess_category_id ?? null;
+  useEffect(() => {
+    if (packageMessId) {
+      setFormData((prev) =>
+        prev.mess_category_id
+          ? prev
+          : { ...prev, mess_category_id: packageMessId },
+      );
+    }
+  }, [packageMessId]);
 
   // Resident search — pulls from `learners_profiles.accommodation_type='HOSTEL'`
   // (the same cohort visible on /campus-living/residents). Previously used the
@@ -311,6 +342,49 @@ export default function NewAllocationPage() {
                   )}
                 </div>
 
+                {/* PR ε handoff: admission-package hint. Shows the package the
+                    student was assigned at admission — bundled room category,
+                    flat price, and the mess they chose (pre-filled below).
+                    Appears only when a package is on file; never blocks. */}
+                {formData.learner_id && learnerPackage && (
+                  <div className="rounded-lg border border-primary/30 bg-primary/5 p-4 space-y-2">
+                    <div className="flex items-center gap-2">
+                      <Package className="h-4 w-4 text-primary" />
+                      <p className="text-sm font-medium">Admission package on file</p>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1 text-sm">
+                      <p className="text-muted-foreground">
+                        Package:{' '}
+                        <span className="text-foreground font-medium">
+                          {learnerPackage.pkg.name}
+                        </span>
+                      </p>
+                      <p className="text-muted-foreground">
+                        Flat price:{' '}
+                        <span className="text-foreground">
+                          {inr(learnerPackage.pkg.total_price_inr)}
+                        </span>
+                      </p>
+                      <p className="text-muted-foreground">
+                        Bundled room:{' '}
+                        <span className="text-foreground">
+                          {learnerPackage.pkg.room_category_name || '—'}
+                        </span>
+                      </p>
+                      <p className="text-muted-foreground">
+                        Chosen mess:{' '}
+                        <span className="text-foreground">
+                          {messName(learnerPackage.chosen_mess_category_id) || 'Not chosen'}
+                        </span>
+                      </p>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Pre-filled from the student&apos;s admission package. You can
+                      still change the room, bed, and mess below.
+                    </p>
+                  </div>
+                )}
+
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label>Allocation Type</Label>
@@ -482,6 +556,12 @@ export default function NewAllocationPage() {
                     <p className="text-xs text-muted-foreground inline-flex items-center gap-1">
                       <Info className="h-3 w-3" />
                       No mess eligibility configured — showing all plans.
+                    </p>
+                  )}
+                  {packageMessId && formData.mess_category_id === packageMessId && (
+                    <p className="text-xs text-primary inline-flex items-center gap-1">
+                      <Package className="h-3 w-3" />
+                      Pre-filled from the student&apos;s admission package.
                     </p>
                   )}
                 </div>

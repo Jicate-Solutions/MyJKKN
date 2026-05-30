@@ -17,11 +17,14 @@ const LOG = 'campus-living/admission-packages';
 
 export class AdmissionPackageService {
   private static get supabase() {
-    // Cast to any: the new admission_packages / admission_package_program_eligibility /
-    // learner_package_assignment tables aren't in the generated types/supabase.ts yet,
-    // which makes the typed query-builder recurse infinitely (TS2589). Mirrors the
-    // established pattern in premium-vacancy-service.ts. Public method signatures stay
-    // typed via explicit `data as T` casts; types resolve once supabase types regen.
+    // Cast to any — REQUIRED, do not remove. The admission_packages /
+    // admission_package_program_eligibility / learner_package_assignment tables
+    // ARE now present in types/supabase.ts, yet removing this cast still makes
+    // tsc abort (SIGABRT / stack overflow) on the embed-select query builder:
+    // the failure is schema-SIZE driven TS2589 (a 107K-line generated Database
+    // type), not a missing-table gap. Verified empirically 2026-05-30. Mirrors
+    // the same cast across ~36 service files (e.g. premium-vacancy-service.ts).
+    // Public method signatures stay typed via explicit `data as T` casts.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return createClientSupabaseClient() as any;
   }
@@ -38,7 +41,7 @@ export class AdmissionPackageService {
     let query = this.supabase
       .from('admission_packages')
       .select(
-        '*, room_category:hostel_categories(name), hostel_year:hostel_years(name)',
+        '*, room_category:hostel_categories(name), hostel_year:hostel_years(name), program_eligibility:admission_package_program_eligibility(program_id)',
         { count: 'exact' }
       )
       .order('name', { ascending: true })
@@ -55,14 +58,22 @@ export class AdmissionPackageService {
       throw new Error(error.message || 'Failed to fetch admission packages');
     }
 
-    // flatten the embedded join names for display
+    // flatten the embedded join names + summarise program availability
     const rows = (data ?? []).map((r: Record<string, unknown>) => {
       const rc = r.room_category as { name?: string } | null;
       const hy = r.hostel_year as { name?: string } | null;
+      const elig =
+        (r.program_eligibility as { program_id: string | null }[] | null) ?? [];
+      const specific = elig.filter((e) => e.program_id !== null);
+      const hasAll = elig.some((e) => e.program_id === null);
+      // available to all when an all-programs row exists and nothing overrides it
+      const availableToAll = hasAll && specific.length === 0;
       return {
         ...r,
         room_category_name: rc?.name ?? null,
         hostel_year_name: hy?.name ?? null,
+        available_to_all_programs: availableToAll,
+        restricted_program_count: specific.length,
       };
     }) as AdmissionPackage[];
 
@@ -237,7 +248,9 @@ export class AdmissionPackageService {
   ): Promise<ResolvedLearnerPackage | null> {
     let query = this.supabase
       .from('learner_package_assignment')
-      .select('*, pkg:admission_packages(*)')
+      // embed the bundled room category's name so the allocation hint can show
+      // "bundles <category>" without a second round-trip.
+      .select('*, pkg:admission_packages(*, room_category:hostel_categories(name))')
       .eq('learner_id', learnerId);
     query = hostelYearId
       ? query.eq('hostel_year_id', hostelYearId)
@@ -250,8 +263,17 @@ export class AdmissionPackageService {
     }
     if (!data) return null;
 
-    const row = data as LearnerPackageAssignment & { pkg: AdmissionPackage | null };
+    const row = data as LearnerPackageAssignment & {
+      pkg: (AdmissionPackage & { room_category?: { name?: string } | null }) | null;
+    };
     if (!row.pkg) return null;
+
+    // flatten the embedded category join onto the package's display field
+    const pkg: AdmissionPackage = {
+      ...row.pkg,
+      room_category_name:
+        row.pkg.room_category?.name ?? row.pkg.room_category_name ?? null,
+    };
 
     return {
       assignment: {
@@ -263,8 +285,8 @@ export class AdmissionPackageService {
         assigned_at: row.assigned_at,
         created_by: row.created_by,
       },
-      pkg: row.pkg,
-      room_category_id: row.pkg.room_category_id,
+      pkg,
+      room_category_id: pkg.room_category_id,
       chosen_mess_category_id: row.chosen_mess_category_id,
     };
   }

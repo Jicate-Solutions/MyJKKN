@@ -29,6 +29,11 @@ export interface AdmissionPackage {
   // optional joined display fields (populated by select with embeds)
   room_category_name?: string | null;
   hostel_year_name?: string | null;
+  // derived program-availability summary for the list view (populated by
+  // getPackages via the embedded eligibility rows). available_to_all = a
+  // program_id=null row exists with no specific overrides.
+  available_to_all_programs?: boolean;
+  restricted_program_count?: number;
 }
 
 export interface CreateAdmissionPackageDto {
