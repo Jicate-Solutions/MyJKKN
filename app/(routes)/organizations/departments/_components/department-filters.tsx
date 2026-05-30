@@ -1,7 +1,7 @@
 'use client';
 // app/(routes)/organizations/departments/_components/department-filters.tsx
 
-
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 import { useEffect, useState } from 'react';
 import {
   Select,
@@ -27,6 +27,7 @@ export function DepartmentFilters({
   onFilterChange,
   onClearFilters
 }: DepartmentFiltersProps) {
+  const adapt = useAdaptiveLabels();
   const [institutions, setInstitutions] = useState<
     Array<{ id: string; name: string }>
   >([]);
@@ -156,10 +157,10 @@ export function DepartmentFilters({
               disabled={!searchParams.institution_id || loading}
             >
               <SelectTrigger className='w-full'>
-                <SelectValue placeholder='All Degrees' />
+                <SelectValue placeholder={`All ${adapt('Degrees')}`} />
               </SelectTrigger>
               <SelectContent className='max-h-60 overflow-y-auto'>
-                <SelectItem value='all'>All Degrees</SelectItem>
+                <SelectItem value='all'>All {adapt('Degrees')}</SelectItem>
                 {degrees.map((degree) => (
                   <SelectItem key={degree.id} value={degree.id}>
                     {degree.degree_name}

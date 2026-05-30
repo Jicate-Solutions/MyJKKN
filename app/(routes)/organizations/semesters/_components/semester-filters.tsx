@@ -16,6 +16,7 @@ import { DepartmentService } from '@/lib/services/organization/department-servic
 import { ProgramService } from '@/lib/services/organization/program-service';
 import { SemestersSearchParams } from './data-table-schema';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 
 interface SemesterFiltersProps {
   searchParams: SemestersSearchParams;
@@ -28,6 +29,7 @@ export function SemesterFilters({
   onFilterChange,
   onClearFilters
 }: SemesterFiltersProps) {
+  const adapt = useAdaptiveLabels();
   // Loading states
   const [loadingInstitutions, setLoadingInstitutions] = useState(false);
   const [loadingDegrees, setLoadingDegrees] = useState(false);
@@ -227,12 +229,12 @@ export function SemesterFilters({
                       ? 'Select Institution First'
                       : loadingDegrees
                       ? 'Loading...'
-                      : 'All Degrees'
+                      : `All ${adapt('Degrees')}`
                   }
                 />
               </SelectTrigger>
               <SelectContent className='max-h-60 overflow-y-auto'>
-                <SelectItem value='all'>All Degrees</SelectItem>
+                <SelectItem value='all'>All {adapt('Degrees')}</SelectItem>
                 {degrees.map((degree) => (
                   <SelectItem key={degree.id} value={degree.id}>
                     {degree.degree_name}
@@ -261,12 +263,12 @@ export function SemesterFilters({
                       ? 'Select Degree First'
                       : loadingDepartments
                       ? 'Loading...'
-                      : 'All Departments'
+                      : `All ${adapt('Departments')}`
                   }
                 />
               </SelectTrigger>
               <SelectContent className='max-h-60 overflow-y-auto'>
-                <SelectItem value='all'>All Departments</SelectItem>
+                <SelectItem value='all'>All {adapt('Departments')}</SelectItem>
                 {departments.map((department) => (
                   <SelectItem key={department.id} value={department.id}>
                     {department.department_name}
@@ -295,12 +297,12 @@ export function SemesterFilters({
                       ? 'Select Department First'
                       : loadingPrograms
                       ? 'Loading...'
-                      : 'All Programs'
+                      : `All ${adapt('Programs')}`
                   }
                 />
               </SelectTrigger>
               <SelectContent className='max-h-60 overflow-y-auto'>
-                <SelectItem value='all'>All Programs</SelectItem>
+                <SelectItem value='all'>All {adapt('Programs')}</SelectItem>
                 {programs.map((program) => (
                   <SelectItem key={program.id} value={program.id}>
                     {program.program_name}
