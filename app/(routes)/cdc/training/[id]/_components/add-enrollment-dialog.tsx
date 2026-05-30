@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { SearchableSelect } from '@/components/ui/searchable-select';
 import {
   Dialog,
   DialogContent,
@@ -12,6 +13,7 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import { useAddCdcEnrollment } from '@/hooks/cdc/use-cdc-training';
+import { useLearnersForPicker } from '@/hooks/cdc/use-cdc-pickers';
 import { Loader2 } from 'lucide-react';
 
 interface Props {
@@ -22,15 +24,16 @@ interface Props {
 
 export function AddEnrollmentDialog({ open, onOpenChange, programmeId }: Props) {
   const addMutation = useAddCdcEnrollment();
+  const { data: learnerOptions, isLoading: learnersLoading } = useLearnersForPicker();
   const [learnerId, setLearnerId] = useState('');
   const [notes, setNotes] = useState('');
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!learnerId.trim()) return;
+    if (!learnerId) return;
     await addMutation.mutateAsync({
       programme_id: programmeId,
-      learner_id: learnerId.trim(),
+      learner_id: learnerId,
       notes: notes || null,
     });
     setLearnerId('');
@@ -46,13 +49,17 @@ export function AddEnrollmentDialog({ open, onOpenChange, programmeId }: Props) 
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-1.5">
-            <Label htmlFor="learner_id">Learner ID (UUID)</Label>
-            <Input
-              id="learner_id"
+            <Label htmlFor="learner_id">Learner</Label>
+            <SearchableSelect
               value={learnerId}
-              onChange={(e) => setLearnerId(e.target.value)}
-              placeholder="Paste learner UUID"
-              required
+              onValueChange={setLearnerId}
+              options={learnerOptions ?? []}
+              placeholder="Search by name or register number…"
+              searchPlaceholder="Type to search learners…"
+              emptyMessage="No matching learners"
+              loading={learnersLoading}
+              className="w-full"
+              modal
             />
           </div>
           <div className="space-y-1.5">
@@ -66,7 +73,7 @@ export function AddEnrollmentDialog({ open, onOpenChange, programmeId }: Props) 
           </div>
           <DialogFooter>
             <Button variant="outline" type="button" onClick={() => onOpenChange(false)}>Cancel</Button>
-            <Button type="submit" disabled={addMutation.isPending || !learnerId.trim()}>
+            <Button type="submit" disabled={addMutation.isPending || !learnerId}>
               {addMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
               Enroll
             </Button>

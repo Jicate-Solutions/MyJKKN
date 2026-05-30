@@ -69,8 +69,9 @@ export interface CdcTrainingEnrollment {
   // Joined
   learner?: {
     id: string;
-    name: string;
-    roll_number?: string;
+    first_name: string | null;
+    last_name: string | null;
+    roll_number?: string | null;
     institution?: { id: string; name: string } | null;
   } | null;
   programme?: CdcTrainingProgramme | null;

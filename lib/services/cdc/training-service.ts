@@ -131,9 +131,10 @@ export class TrainingService {
       .from('cdc_training_enrollments')
       .select(`
         *,
-        learner:learner_profiles(
+        learner:learners_profiles(
           id,
-          name,
+          first_name,
+          last_name,
           roll_number,
           institution:institutions(id, name)
         ),

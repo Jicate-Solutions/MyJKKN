@@ -180,7 +180,7 @@ function TrainingProgrammeDetailContent({ params }: Props) {
               {(enrollments ?? []).map((enrollment) => (
                 <div key={enrollment.id} className="flex items-center justify-between px-4 py-3 text-sm">
                   <div>
-                    <p className="font-medium">{enrollment.learner?.name ?? enrollment.learner_id}</p>
+                    <p className="font-medium">{[enrollment.learner?.first_name, enrollment.learner?.last_name].filter(Boolean).join(' ') || 'Unknown learner'}</p>
                     <p className="text-muted-foreground text-xs">
                       {enrollment.learner?.roll_number && `${enrollment.learner.roll_number} · `}
                       {enrollment.learner?.institution?.name}

@@ -23,13 +23,17 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
         .eq('id', id)
         .maybeSingle(),
       sb.from('cdc_training_enrollments')
-        .select(`*, learner:learner_profiles(id, name, roll_number, institution:institutions(id, name))`)
+        .select(`*, learner:learners_profiles(id, first_name, last_name, roll_number, institution:institutions(id, name))`)
         .eq('programme_id', id)
         .order('enrolled_at', { ascending: false }),
     ]);
 
     if (programmeRes.error) {
       return NextResponse.json({ error: programmeRes.error.message }, { status: 500 });
+    }
+    if (enrollmentsRes.error) {
+      console.error('[cdc/training] GET enrollments error:', enrollmentsRes.error);
+      return NextResponse.json({ error: enrollmentsRes.error.message }, { status: 500 });
     }
     if (!programmeRes.data) {
       return NextResponse.json({ error: 'Not found' }, { status: 404 });
