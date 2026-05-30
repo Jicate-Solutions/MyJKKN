@@ -36,6 +36,12 @@ import { useLearnersForPicker, useStaffForPicker } from '@/hooks/cdc/use-cdc-pic
 interface Cycle { id: string; cycle_name: string; start_date: string; end_date: string; }
 interface Site  { id: string; site_name: string; city: string | null; state: string | null; }
 
+// Placeholder for the form's initial render only. The authoritative default is
+// the cdc.min_attendance_pct_for_internship_certificate policy: it is fetched on
+// mount (see useEffect below) and the service overrides any omitted value at
+// create time. This literal is never the source of truth, only a first-paint value.
+const DEFAULT_REQUIRED_ATTENDANCE_PCT = 75;
+
 export default function NewCdcInternshipPage() {
   const router = useRouter();
   const { createInternship, loading } = useCdcInternshipCreate();
@@ -51,7 +57,7 @@ export default function NewCdcInternshipPage() {
     cycle_id: '',
     rotation_start_date: '',
     rotation_end_date: '',
-    required_attendance_pct: 75,
+    required_attendance_pct: DEFAULT_REQUIRED_ATTENDANCE_PCT,
     department_rotation: '',
   });
   const [institutionId, setInstitutionId] = useState<string>('');
@@ -60,6 +66,11 @@ export default function NewCdcInternshipPage() {
     // Load institution from user profile and fetch cycles/sites
     const init = async () => {
       try {
+        // Seed the required-attendance default from the policy (global row),
+        // so the form's initial value matches what the service would apply.
+        const policyDefault = await CdcInternshipService.getDefaultRequiredAttendancePct();
+        setFormData(p => ({ ...p, required_attendance_pct: policyDefault }));
+
         // For now, fetch user profile to get institution_id
         const res = await fetch('/api/users/profile');
         const json = await res.json();
@@ -255,7 +266,7 @@ export default function NewCdcInternshipPage() {
                   max={100}
                   value={formData.required_attendance_pct}
                   onChange={e =>
-                    setFormData(p => ({ ...p, required_attendance_pct: parseInt(e.target.value) || 75 }))
+                    setFormData(p => ({ ...p, required_attendance_pct: parseInt(e.target.value) || DEFAULT_REQUIRED_ATTENDANCE_PCT }))
                   }
                 />
               </div>
