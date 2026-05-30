@@ -182,31 +182,39 @@ export class LeadService {
   /**
    * Get a single lead by ID
    */
-  static async getLead(id: string, institutionId?: string): Promise<AdmissionLead> {
-    let query = (this.supabase as any).from('admission_leads')
-      .select(`
-        *,
-        counselor:admission_counselors(id, name, email),
-        program:programs!program_id(id, program_name, program_id),
-        admission_year:admission_years(id, admission_year_name, program_start_year, program_end_year)
-      `)
-      .eq('id', id);
-
-    if (institutionId) {
-      query = query.eq('institution_id', institutionId);
+  static async getLead(id: string, _institutionId?: string): Promise<AdmissionLead> {
+    // Route through the server-side service-role detail endpoint, which mirrors
+    // the leads-list route's auth + permission + counselor-scope gate.
+    //
+    // BUG-003956: the previous direct browser query ran under RLS, whose
+    // strict-counselor policy excludes source='referral' even when the
+    // counselor is assigned — so a referral lead that appears in the list
+    // 404'd on its detail page. The endpoint applies the SAME ownership rule
+    // the list uses (counselor_id / assigned_counselor_id) WITHOUT the blanket
+    // referral exclusion. The institutionId param is kept for signature
+    // compatibility; the endpoint enforces scope server-side.
+    let res = await fetch(`/api/admission/leads/${id}`);
+    if (res.status === 503) {
+      await new Promise((r) => setTimeout(r, 300));
+      res = await fetch(`/api/admission/leads/${id}`);
     }
 
-    const { data, error } = await query.maybeSingle();
-
-    if (error) {
-      console.error('[LeadService] Error fetching lead:', error);
-      throw new Error(`Failed to fetch lead: ${error.message}`);
-    }
-    if (!data) {
+    if (res.status === 404) {
       throw new Error('Lead not found');
     }
 
-    return this.normalizeLead(data);
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      console.error('[LeadService] Error fetching lead:', body);
+      throw new Error(body.error || `Failed to fetch lead (HTTP ${res.status})`);
+    }
+
+    const result = await res.json();
+    if (!result?.data) {
+      throw new Error('Lead not found');
+    }
+
+    return this.normalizeLead(result.data);
   }
 
   /**
@@ -438,14 +446,29 @@ export class LeadService {
     const result = rpcRes as { lead_id: string; capture_id: string; action: CaptureAction; reactivated: boolean };
 
     // ─── Fetch the resulting lead row for the caller ────────────────
-    const { data: leadRow, error: fetchErr } = await db
+    // Use maybeSingle(): under strict-counselor / referral RLS the caller may
+    // not be able to SELECT the row they just created via the SECURITY DEFINER
+    // RPC. That is a visibility quirk, NOT a create failure — the lead exists.
+    // (BUG-004101: .single() threw PGRST116 "multiple (or no) rows returned" and
+    // the UI reported "Failed to fetch captured lead" even though creation
+    // succeeded.) On null, synthesize a minimal row from the payload + RPC result
+    // so downstream side-effects and the return value still have id/source/phone.
+    const { data: fetchedRow, error: fetchErr } = await db
       .from('admission_leads')
       .select('*')
       .eq('id', result.lead_id)
-      .single();
+      .maybeSingle();
     if (fetchErr) {
       throw new Error(`Failed to fetch captured lead: ${fetchErr.message}`);
     }
+    const leadRow = fetchedRow ?? {
+      ...p_lead,
+      id: result.lead_id,
+      full_name:
+        (p_lead.full_name as string | undefined) ??
+        [p_lead.first_name, p_lead.last_name].filter(Boolean).join(' ').trim() ||
+        null,
+    };
 
     // ─── Side effects (only on 'created'; never on plain 'merged') ──
     if (result.action === 'created') {
@@ -831,15 +854,33 @@ export class LeadService {
       .eq('id', leadId)
       .single();
 
-    // Validate transition (skip if force=true — for super-admin overrides)
-    // currentStage is undefined for legacy rows with no funnel_stage — skip validation
+    // Validate transition (skip if force=true — for super-admin overrides).
+    // 2026-05-30 (BUG-004110/004111): the previous hardcoded per-stage matrix
+    // (ALLOWED_STAGE_TRANSITIONS) omitted many valid moves among the 26 active
+    // admission_statuses(scope='lead') rows, so counselors hit a spurious
+    // "Invalid stage transition" when picking a legitimate DB stage. Admins can
+    // also add/rename statuses at runtime, which a static map can never track.
+    // We now only reject UNKNOWN/INACTIVE target codes — any active lead status
+    // is a legal target. currentStage stays informational.
     const currentStage = current?.funnel_stage as FunnelStage | undefined;
     if (!force && currentStage && currentStage !== newStage) {
-      const allowed = ALLOWED_STAGE_TRANSITIONS[currentStage] ?? [];
-      if (!allowed.includes(newStage)) {
+      const { data: activeStatuses } = await (db as any)
+        .from('admission_statuses')
+        .select('code')
+        .eq('scope', 'lead')
+        .eq('is_active', true);
+      const validCodes = new Set<string>(
+        (activeStatuses ?? []).map((s: any) => s.code as string),
+      );
+      // If the catalog read fails/returns empty (RLS or transient), fall back to
+      // the FunnelStage union keys so we never hard-block a known stage.
+      const known =
+        validCodes.size > 0
+          ? validCodes.has(newStage)
+          : Object.prototype.hasOwnProperty.call(ALLOWED_STAGE_TRANSITIONS, newStage);
+      if (!known) {
         throw new Error(
-          `Invalid stage transition: "${currentStage}" -> "${newStage}" is not allowed. ` +
-          `Allowed next stages: ${allowed.join(', ')}.`
+          `Invalid stage transition: "${newStage}" is not an active lead status.`,
         );
       }
     }
