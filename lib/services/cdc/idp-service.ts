@@ -99,7 +99,7 @@ export class IdpService {
     if (dto.academic_year_label !== undefined) payload.academic_year_label = dto.academic_year_label;
     if (dto.updated_by !== undefined) payload.updated_by = dto.updated_by;
 
-    const { data, error } = await this.supabase
+    const { data, error } = await supabase
       .from('cdc_idp_responses')
       .update(payload)
       .eq('id', id)
