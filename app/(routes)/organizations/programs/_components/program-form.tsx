@@ -10,6 +10,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { Program } from '@/types/organizations';
 import { ProgramService } from '@/lib/services/organization/program-service';
 import { useInstitutionTypeLabels } from '@/hooks/use-institution-type-labels';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 import { OrganizationService } from '@/lib/services/organization/organization-service';
 import { DegreeService } from '@/lib/services/organization/degree-service';
 import { DepartmentService } from '@/lib/services/organization/department-service';
@@ -77,6 +78,7 @@ export function ProgramForm({ program, isEditing }: ProgramFormProps) {
   const router = useRouter();
   const queryClient = useQueryClient();
   const { label } = useInstitutionTypeLabels();
+  const adapt = useAdaptiveLabels();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [institutions, setInstitutions] = useState<Institution[]>([]);
   // Seed dropdowns with the program's own degree/department so saved
@@ -264,7 +266,7 @@ export function ProgramForm({ program, isEditing }: ProgramFormProps) {
                 name='degree_id'
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Degree</FormLabel>
+                    <FormLabel>{adapt('Degree')}</FormLabel>
                     <Select
                       onValueChange={field.onChange}
                       value={field.value}
@@ -293,7 +295,7 @@ export function ProgramForm({ program, isEditing }: ProgramFormProps) {
                 name='department_id'
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Department</FormLabel>
+                    <FormLabel>{adapt('Department')}</FormLabel>
                     <Select onValueChange={field.onChange} value={field.value}>
                       <FormControl>
                         <SelectTrigger>
@@ -360,7 +362,7 @@ export function ProgramForm({ program, isEditing }: ProgramFormProps) {
                   <div className='space-y-0.5'>
                     <FormLabel>Active Status</FormLabel>
                     <div className='text-sm text-muted-foreground'>
-                      Disable to temporarily hide this program
+                      Disable to temporarily hide this {label('program').toLowerCase()}
                     </div>
                   </div>
                   <FormControl>
@@ -391,7 +393,7 @@ export function ProgramForm({ program, isEditing }: ProgramFormProps) {
                 : 'Creating...'
               : isEditing
               ? 'Save Changes'
-              : 'Create Program'}
+              : `Create ${label('Program')}`}
           </Button>
         </div>
       </form>

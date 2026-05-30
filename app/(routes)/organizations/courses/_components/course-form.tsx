@@ -11,6 +11,7 @@ import { Course } from '@/types/organizations';
 import { CourseService } from '@/lib/services/organization/course-service';
 import { OrganizationService } from '@/lib/services/organization/organization-service';
 import { useInstitutionTypeLabels } from '@/hooks/use-institution-type-labels';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 import { Button } from '@/components/ui/button';
 import {
   Form,
@@ -54,6 +55,7 @@ export function CourseForm({ course, isEditing }: CourseFormProps) {
   const router = useRouter();
   const queryClient = useQueryClient();
   const { label } = useInstitutionTypeLabels();
+  const adapt = useAdaptiveLabels();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [institutions, setInstitutions] = useState<
     Array<{ id: string; name: string }>
@@ -188,7 +190,7 @@ export function CourseForm({ course, isEditing }: CourseFormProps) {
                     <div className='space-y-0.5'>
                       <FormLabel className='text-base'>Active Status</FormLabel>
                       <FormDescription>
-                        Set whether this course is currently active
+                        Set whether this {label('course').toLowerCase()} is currently active
                       </FormDescription>
                     </div>
                     <FormControl>
@@ -216,8 +218,8 @@ export function CourseForm({ course, isEditing }: CourseFormProps) {
             {isSubmitting
               ? 'Saving...'
               : isEditing
-              ? 'Update Course'
-              : 'Save Course'}
+              ? `Update ${label('Course')}`
+              : `Save ${label('Course')}`}
           </Button>
         </div>
       </form>

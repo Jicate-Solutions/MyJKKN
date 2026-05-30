@@ -14,6 +14,7 @@ import { DegreeService } from '@/lib/services/organization/degree-service';
 import { DepartmentService } from '@/lib/services/organization/department-service';
 import { ProgramService } from '@/lib/services/organization/program-service';
 import { useInstitutionTypeLabels } from '@/hooks/use-institution-type-labels';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 import { Button } from '@/components/ui/button';
 import {
   Form,
@@ -61,6 +62,7 @@ export function SemesterForm({ semester, isEditing }: SemesterFormProps) {
   const router = useRouter();
   const queryClient = useQueryClient();
   const { label } = useInstitutionTypeLabels();
+  const adapt = useAdaptiveLabels();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [institutions, setInstitutions] = useState<
     Array<{ id: string; name: string }>
@@ -236,7 +238,7 @@ export function SemesterForm({ semester, isEditing }: SemesterFormProps) {
                 name='degree_id'
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Degree</FormLabel>
+                    <FormLabel>{adapt('Degree')}</FormLabel>
                     <Select
                       onValueChange={field.onChange}
                       value={field.value}
@@ -265,7 +267,7 @@ export function SemesterForm({ semester, isEditing }: SemesterFormProps) {
                 name='department_id'
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Department</FormLabel>
+                    <FormLabel>{adapt('Department')}</FormLabel>
                     <Select
                       onValueChange={field.onChange}
                       value={field.value}
@@ -294,7 +296,7 @@ export function SemesterForm({ semester, isEditing }: SemesterFormProps) {
                 name='program_id'
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Program</FormLabel>
+                    <FormLabel>{label('Program')}</FormLabel>
                     <Select onValueChange={field.onChange} value={field.value}>
                       <FormControl>
                         <SelectTrigger>
@@ -383,7 +385,7 @@ export function SemesterForm({ semester, isEditing }: SemesterFormProps) {
                   <div className='space-y-0.5'>
                     <FormLabel>Active Status</FormLabel>
                     <div className='text-sm text-muted-foreground'>
-                      Disable to temporarily hide this semester
+                      Disable to temporarily hide this {label('semester').toLowerCase()}
                     </div>
                   </div>
                   <FormControl>
@@ -414,7 +416,7 @@ export function SemesterForm({ semester, isEditing }: SemesterFormProps) {
                 : 'Creating...'
               : isEditing
               ? 'Save Changes'
-              : 'Create Semester'}
+              : `Create ${label('Semester')}`}
           </Button>
         </div>
       </form>

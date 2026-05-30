@@ -13,6 +13,7 @@ import { Department } from '@/types/organizations';
 import { DepartmentService } from '@/lib/services/organization/department-service';
 import { OrganizationService } from '@/lib/services/organization/organization-service';
 import { DegreeService } from '@/lib/services/organization/degree-service';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 import { Button } from '@/components/ui/button';
 import {
   Form,
@@ -62,6 +63,7 @@ interface DepartmentFormProps {
 export function DepartmentForm({ department, isEditing }: DepartmentFormProps) {
   const router = useRouter();
   const queryClient = useQueryClient();
+  const adapt = useAdaptiveLabels();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [institutions, setInstitutions] = useState<
     Array<{ id: string; name: string; counselling_code: string }>
@@ -190,7 +192,7 @@ export function DepartmentForm({ department, isEditing }: DepartmentFormProps) {
                 name='degree_id'
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Degree</FormLabel>
+                    <FormLabel>{adapt('Degree')}</FormLabel>
                     <Select
                       onValueChange={field.onChange}
                       value={field.value}
@@ -219,7 +221,7 @@ export function DepartmentForm({ department, isEditing }: DepartmentFormProps) {
                 name='department_code'
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Department Code</FormLabel>
+                    <FormLabel>{adapt('Department')} Code</FormLabel>
                     <FormControl>
                       <Input
                         placeholder='Enter department code'
@@ -243,12 +245,12 @@ export function DepartmentForm({ department, isEditing }: DepartmentFormProps) {
                 name='department_name'
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Department Name</FormLabel>
+                    <FormLabel>{adapt('Department')} Name</FormLabel>
                     <FormControl>
-                      <Input placeholder='Enter department name' {...field} />
+                      <Input placeholder={`Enter ${adapt('Department').toLowerCase()} name`} {...field} />
                     </FormControl>
                     <FormDescription>
-                      The full name of the department
+                      The full name of the {adapt('department').toLowerCase()}
                     </FormDescription>
                     <FormMessage />
                   </FormItem>
@@ -306,7 +308,7 @@ export function DepartmentForm({ department, isEditing }: DepartmentFormProps) {
                   <div className='space-y-0.5'>
                     <FormLabel>Active Status</FormLabel>
                     <div className='text-sm text-muted-foreground'>
-                      Disable to temporarily hide this department
+                      Disable to temporarily hide this {adapt('department').toLowerCase()}
                     </div>
                   </div>
                   <FormControl>
@@ -337,7 +339,7 @@ export function DepartmentForm({ department, isEditing }: DepartmentFormProps) {
                 : 'Creating...'
               : isEditing
               ? 'Save Changes'
-              : 'Create Department'}
+              : `Create ${adapt('Department')}`}
           </Button>
         </div>
       </form>
