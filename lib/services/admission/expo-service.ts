@@ -316,11 +316,18 @@ export class ExpoService {
         daily_reports:expo_daily_reports(*)`
       )
       .eq('id', id)
-      .single();
+      .maybeSingle();
 
     if (error) {
       console.error('[admission/expos] Failed to fetch expo event:', error);
       throw new Error(error.message);
+    }
+    if (!data) {
+      // No row — the event was deleted or is not visible to this user (RLS),
+      // e.g. a lead whose expo_event_id points to an event the counselor can't
+      // access. This is an expected condition, NOT an error: maybeSingle() keeps
+      // it out of `error` so we no longer log the noisy PGRST116 "0 rows" line.
+      throw new Error('Expo event not found');
     }
 
     return data as ExpoEvent;
