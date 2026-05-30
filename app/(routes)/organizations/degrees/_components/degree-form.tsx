@@ -184,7 +184,7 @@ export function DegreeForm({ degree, isEditing }: DegreeFormProps) {
                 name='degree_type'
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>{adapt('Degree Type')}</FormLabel>
+                    <FormLabel>Type</FormLabel>
                     <Select onValueChange={field.onChange} value={field.value}>
                       <FormControl>
                         <SelectTrigger>

@@ -16,9 +16,18 @@ import { findRestrictedPages, RestrictedPageItem } from './RequestAccess';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { usePathname } from 'next/navigation';
 import { useAuth } from '@/hooks/use-auth';
-import { Search, Star, Clock, Zap, TrendingUp, ArrowRight, FileText, Compass, Lock } from 'lucide-react';
+import { Search, Star, Clock, Zap, TrendingUp, ArrowRight, FileText, Compass, Lock, Layers } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { SearchResult, RecentPage } from '@/lib/navigation/types';
+
+interface StreamResult {
+  id: string;
+  title: string;
+  subtitle: string;
+  institution: string;
+  path: string;
+  type: 'stream';
+}
 
 interface CommandPaletteModalProps {
   isOpen: boolean;
@@ -29,6 +38,8 @@ interface CommandPaletteModalProps {
 
 export function CommandPaletteModal({ isOpen, onClose, onNavigate, onPermissionsLoaded }: CommandPaletteModalProps) {
   const [query, setQuery] = useState('');
+  const [streamsResults, setStreamsResults] = useState<StreamResult[]>([]);
+  const [streamsLoading, setStreamsLoading] = useState(false);
   const { search, searchablePages, recentPages, frequentPages, isLoading } = usePageSearch();
   const { isFavorite } = usePageFavorites();
   const isMobile = useIsMobile();
@@ -41,6 +52,32 @@ export function CommandPaletteModal({ isOpen, onClose, onNavigate, onPermissions
 
   // Accessible paths set (for finding restricted pages)
   const accessiblePaths = new Set(searchablePages.map(p => p.path));
+
+  // Fetch streams search results
+  useEffect(() => {
+    if (query.trim().length < 2) {
+      setStreamsResults([]);
+      return;
+    }
+
+    console.log('[Streams Search] Searching for:', query);
+    setStreamsLoading(true);
+
+    fetch(`/api/streams/search?q=${encodeURIComponent(query)}`)
+      .then((res) => {
+        console.log('[Streams Search] Response status:', res.status);
+        return res.json();
+      })
+      .then((result) => {
+        console.log('[Streams Search] Results:', result);
+        setStreamsResults(result.data || []);
+      })
+      .catch((err) => {
+        console.error('[Streams Search] Error:', err);
+        setStreamsResults([]);
+      })
+      .finally(() => setStreamsLoading(false));
+  }, [query]);
 
   // Sync permissions back to provider for keyboard shortcuts
   useEffect(() => {
@@ -251,6 +288,35 @@ export function CommandPaletteModal({ isOpen, onClose, onNavigate, onPermissions
                     ))}
                   </Command.Group>
                 )}
+
+                {/* Streams Results - Debug: Always show section */}
+                <Command.Group heading={
+                  <span className="flex items-center gap-1.5 text-xs uppercase tracking-wider">
+                    <Layers className="h-3 w-3" /> Streams {streamsLoading && '(Loading...)'}
+                  </span>
+                }>
+                  {streamsResults.length > 0 ? (
+                    streamsResults.map((stream) => (
+                      <Command.Item
+                        key={`stream-${stream.id}`}
+                        value={stream.id}
+                        onSelect={() => handleSelect(stream.path)}
+                        className="cursor-pointer"
+                      >
+                        <div className="flex flex-col flex-1">
+                          <span className="font-medium">{stream.title}</span>
+                          <span className="text-xs text-muted-foreground">
+                            {stream.subtitle} • {stream.institution}
+                          </span>
+                        </div>
+                      </Command.Item>
+                    ))
+                  ) : (
+                    <div className="text-xs text-muted-foreground px-2 py-2">
+                      {query.trim().length >= 2 ? 'No streams found' : 'Type to search streams'}
+                    </div>
+                  )}
+                </Command.Group>
 
                 {/* Restricted pages the user can't access */}
                 {restrictedPages.length > 0 && (

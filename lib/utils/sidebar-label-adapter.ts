@@ -41,6 +41,10 @@ const LABEL_MAP: Record<InstitutionType, Record<string, string>> = {
     'Program Name': 'Class Name',
     'Degree ID': 'Stream ID',
     'Degree Name': 'Stream Name',
+    'Degree Details': 'Stream Details',
+    'Edit Degree': 'Edit Stream',
+    'New Degree': 'New Stream',
+    'Add a new degree': 'Add a new stream',
     'Department ID': 'Wing ID',
     'Department Name': 'Wing Name',
     // Search placeholders
