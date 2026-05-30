@@ -40,7 +40,7 @@ export default function CdcTrainingPage() {
     status: statusFilter !== 'all' ? (statusFilter as TrainingProgrammeStatus) : undefined,
   }), [search, typeFilter, statusFilter]);
 
-  const { data: programmes, isLoading } = useCdcProgrammes(filters);
+  const { data: programmes, isLoading, isError, error, refetch } = useCdcProgrammes(filters);
   const { data: trainingTypes } = useCdcTrainingTypes();
 
   return (
@@ -112,6 +112,19 @@ export default function CdcTrainingPage() {
               <Skeleton key={i} className="h-40 rounded-lg" />
             ))}
           </div>
+        ) : isError ? (
+          <Card>
+            <CardContent className="flex flex-col items-center justify-center py-16 text-center gap-3">
+              <BookOpen className="w-12 h-12 text-destructive/40" />
+              <p className="text-lg font-medium text-destructive">Failed to load training programmes</p>
+              <p className="text-sm text-muted-foreground">
+                {error instanceof Error ? error.message : 'Something went wrong. Please try again.'}
+              </p>
+              <Button variant="outline" size="sm" onClick={() => refetch()}>
+                Retry
+              </Button>
+            </CardContent>
+          </Card>
         ) : (programmes ?? []).length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 text-center">
             <BookOpen className="w-12 h-12 text-muted-foreground mb-4" />
