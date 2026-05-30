@@ -288,7 +288,7 @@ async function resolveFormContext(
     .maybeSingle();
 
   let institutionId: string | null = (form?.institution_id as string) ?? null;
-  let formId: string | null = (form?.id as string) ?? null;
+  const formId: string | null = (form?.id as string) ?? null;
 
   // Fallback: global default institution policy.
   if (!institutionId) {
