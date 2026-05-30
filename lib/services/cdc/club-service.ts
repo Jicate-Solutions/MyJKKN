@@ -120,8 +120,8 @@ export class ClubService {
   }
 
   // Members
-  static async listMembers(clubId: string): Promise<CdcClubMembershipWithLearner[]> {
-    const { data, error } = await this.supabase
+  static async listMembers(supabase: SupabaseClient, clubId: string): Promise<CdcClubMembershipWithLearner[]> {
+    const { data, error } = await supabase
       .from('cdc_club_memberships')
       .select(`*, learner:learner_id(id, name, roll_number, institution_id)`)
       .eq('club_id', clubId)
