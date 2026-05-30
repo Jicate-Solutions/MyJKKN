@@ -20,7 +20,7 @@ export async function GET(request: NextRequest) {
       club_type: sp.get('club_type') ?? undefined,
     };
 
-    const result = await ClubService.list(filters);
+    const result = await ClubService.list(supabase, filters);
     return NextResponse.json(result);
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : 'Internal server error';
