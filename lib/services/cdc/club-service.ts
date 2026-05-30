@@ -72,13 +72,13 @@ export class ClubService {
     return { ...(data as CdcClub), member_count: count ?? 0 };
   }
 
-  static async create(dto: CreateClubDto): Promise<CdcClub> {
+  static async create(supabase: SupabaseClient, dto: CreateClubDto): Promise<CdcClub> {
     const slug = dto.name
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/(^-|-$)/g, '');
 
-    const { data, error } = await this.supabase
+    const { data, error } = await supabase
       .from('cdc_clubs')
       .insert({
         name: dto.name,
