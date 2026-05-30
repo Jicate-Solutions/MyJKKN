@@ -29,6 +29,7 @@ import { useCommandPalette } from '@/components/CommandPalette/CommandPalettePro
 import { GetRoleBasedPages, RolePermissionData, filterMenuByEntityType, adaptMenuLabels } from '@/lib/sidebarMenuLink';
 import { useAuth } from '@/providers/auth-provider';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useInstitutionType } from '@/hooks/use-institution-type';
 import { useUserExpoTeamStatus } from '@/hooks/admission/use-expo-capture';
 import { usePageFavorites } from '@/hooks/use-page-favorites';
 import { ICON_MAP } from '@/lib/navigation/page-registry';
@@ -146,6 +147,7 @@ export function BottomNavbar() {
   } = usePermissions();
 
   const { user } = useAuth();
+  const { institutionType } = useInstitutionType();
 
   const { open: openSearch } = useCommandPalette();
   const { favorites } = usePageFavorites();
@@ -206,11 +208,7 @@ export function BottomNavbar() {
     const pages = GetRoleBasedPages(pathname, roleData);
 
     // Apply entity_type filter for schools (hide college-only pages)
-    const entityType = user?.institutions?.entity_type ?? 'institution';
-
-    if (process.env.NODE_ENV === 'development') {
-      console.log('[BottomNav] entityType:', entityType, 'user institutions:', user?.institutions);
-    }
+    const entityType = institutionType ?? 'institution';
 
     const entityFiltered = pages.map(group => ({
       ...group,
@@ -218,14 +216,8 @@ export function BottomNavbar() {
     })).filter(group => group.menus.length > 0);
 
     // Apply label adaptation for schools (Degrees → Streams, etc.)
-    const adapted = adaptMenuLabels(entityFiltered, entityType);
-
-    if (process.env.NODE_ENV === 'development' && entityType === 'school') {
-      console.log('[BottomNav] Adapted menus for school:', adapted);
-    }
-
-    return adapted;
-  }, [pathname, roleData, user?.institutions?.entity_type]);
+    return adaptMenuLabels(entityFiltered, entityType);
+  }, [pathname, roleData, institutionType]);
 
   // Transform filtered pages into bottom nav groups.
   //
