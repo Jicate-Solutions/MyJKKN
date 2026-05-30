@@ -40,8 +40,8 @@ export class MentorService {
     };
   }
 
-  static async getById(id: string): Promise<CdcMentorPairingWithLearners> {
-    const { data, error } = await this.supabase
+  static async getById(supabase: SupabaseClient, id: string): Promise<CdcMentorPairingWithLearners> {
+    const { data, error } = await supabase
       .from('cdc_mentor_pairings')
       .select(
         `*,
