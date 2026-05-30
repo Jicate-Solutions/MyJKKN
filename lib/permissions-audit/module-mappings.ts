@@ -158,6 +158,10 @@ export const ROUTE_PREFIX_TO_MODULE: ReadonlyArray<readonly [string, string]> = 
   ['/vac', 'VAC'],
   ['/bos', 'System'],
   ['/cdc', 'CDC'], // Career Development Centre — drives, placements, internships, idp, clubs, mentors, training, bulletin, exports, industry-mentors
+  // Instagram monitoring substrate (Phase 1B, 2026-05-30): /social/instagram/*
+  // sub-routes (accounts, posts, audits, dormant queue, alerts) all roll up
+  // into the Instagram module. Listed before broader prefixes to be safe.
+  ['/social/instagram', 'Instagram'],
   ['/hr', 'Staff'],
 
   // Single-segment dashboards — keep last to avoid swallowing nested paths.
@@ -195,6 +199,7 @@ export const MODULE_WITHOUT_CATEGORY = new Set<string>([
   'Chatbot', // chatbot tables exist; no permission catalog yet
   'Expo', // expo tables exist; no permission catalog yet
   'Marathon', // marathon tables exist; no permission catalog yet
+  'Instagram', // ig_* tables exist (Phase 1B substrate, 2026-05-30); permission catalog ships with Phase 2 UI
   // 'CDC' — removed 2026-05-21. CDC permission catalog now lives in
   // lib/constants/permissions.ts (cdc.* keys for 10 sub-modules). Audit
   // dashboard should report against those keys instead of em-dashing the row.
