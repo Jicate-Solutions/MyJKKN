@@ -66,9 +66,35 @@ const ASSIGNMENT_SELECT = `
   )
 ` as const;
 
+// Last-resort fallback if the policy row is missing/inactive. The policy
+// (cdc.min_attendance_pct_for_internship_certificate) is the primary source;
+// this literal exists only so the service never throws when the row is absent.
+const FALLBACK_REQUIRED_ATTENDANCE_PCT = 75;
+
 export class CdcInternshipService {
   private static getClient() {
     return createClientSupabaseClient();
+  }
+
+  /**
+   * Default "required attendance %" for an internship, sourced from the
+   * canonical platform_policies row rather than a hardcoded literal.
+   * Mirrors the certificate route's read idiom (global / active / number),
+   * coalescing to FALLBACK_REQUIRED_ATTENDANCE_PCT only if the row is absent.
+   */
+  static async getDefaultRequiredAttendancePct(): Promise<number> {
+    const supabase = this.getClient();
+    const { data: policyRow } = await (supabase as any)
+      .from('platform_policies')
+      .select('value')
+      .eq('policy_key', 'cdc.min_attendance_pct_for_internship_certificate')
+      .eq('scope_type', 'global')
+      .eq('is_active', true)
+      .limit(1)
+      .maybeSingle();
+
+    const parsed = Number(policyRow?.value);
+    return Number.isFinite(parsed) ? parsed : FALLBACK_REQUIRED_ATTENDANCE_PCT;
   }
 
   static async listInternships(
@@ -132,6 +158,10 @@ export class CdcInternshipService {
     institutionId: string
   ): Promise<InternshipAssignmentDetail> {
     const supabase = this.getClient();
+    // Service is authoritative for the default: when the form omits the value,
+    // source it from the policy (not a hardcoded literal).
+    const requiredAttendancePct =
+      payload.required_attendance_pct ?? (await this.getDefaultRequiredAttendancePct());
     const { data, error } = await (supabase as any)
       .from('internship_assignments')
       .insert({
@@ -142,7 +172,7 @@ export class CdcInternshipService {
         facilitator_id: payload.facilitator_id,
         rotation_start_date: payload.rotation_start_date,
         rotation_end_date: payload.rotation_end_date,
-        required_attendance_pct: payload.required_attendance_pct ?? 75,
+        required_attendance_pct: requiredAttendancePct,
         department_rotation: payload.department_rotation ?? null,
         internship_type: 'corporate_internship',
         status: 'pending',
