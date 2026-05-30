@@ -438,14 +438,29 @@ export class LeadService {
     const result = rpcRes as { lead_id: string; capture_id: string; action: CaptureAction; reactivated: boolean };
 
     // ─── Fetch the resulting lead row for the caller ────────────────
-    const { data: leadRow, error: fetchErr } = await db
+    // Use maybeSingle(): under strict-counselor / referral RLS the caller may
+    // not be able to SELECT the row they just created via the SECURITY DEFINER
+    // RPC. That is a visibility quirk, NOT a create failure — the lead exists.
+    // (BUG-004101: .single() threw PGRST116 "multiple (or no) rows returned" and
+    // the UI reported "Failed to fetch captured lead" even though creation
+    // succeeded.) On null, synthesize a minimal row from the payload + RPC result
+    // so downstream side-effects and the return value still have id/source/phone.
+    const { data: fetchedRow, error: fetchErr } = await db
       .from('admission_leads')
       .select('*')
       .eq('id', result.lead_id)
-      .single();
+      .maybeSingle();
     if (fetchErr) {
       throw new Error(`Failed to fetch captured lead: ${fetchErr.message}`);
     }
+    const leadRow = fetchedRow ?? {
+      ...p_lead,
+      id: result.lead_id,
+      full_name:
+        (p_lead.full_name as string | undefined) ??
+        [p_lead.first_name, p_lead.last_name].filter(Boolean).join(' ').trim() ||
+        null,
+    };
 
     // ─── Side effects (only on 'created'; never on plain 'merged') ──
     if (result.action === 'created') {
