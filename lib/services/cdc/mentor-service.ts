@@ -55,13 +55,13 @@ export class MentorService {
     return data as CdcMentorPairingWithLearners;
   }
 
-  static async create(dto: CreateMentorPairingDto): Promise<CdcMentorPairing> {
+  static async create(supabase: SupabaseClient, dto: CreateMentorPairingDto): Promise<CdcMentorPairing> {
     // Guard: prevent self-pairing
     if (dto.mentor_learner_id === dto.mentee_learner_id) {
       throw new Error('Mentor and mentee must be different learners.');
     }
 
-    const { data, error } = await this.supabase
+    const { data, error } = await supabase
       .from('cdc_mentor_pairings')
       .insert({
         mentor_learner_id: dto.mentor_learner_id,
