@@ -188,7 +188,7 @@ export default function MessengerInboxPage() {
               ) : (
                 <ul className="divide-y">
                   {conversations.map((c) => {
-                    const isSelected = c.id === selectedId;
+                    const isSelected = c.id === effectiveSelectedId;
                     return (
                       <li key={c.id}>
                         <button
