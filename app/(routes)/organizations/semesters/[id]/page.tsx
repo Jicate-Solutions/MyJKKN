@@ -20,6 +20,7 @@ import {
 } from '@/components/ui/breadcrumb';
 import { Badge } from '@/components/ui/badge';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 
 interface SemesterDetailsPageProps {
   params: Promise<{ id: string }>;
@@ -35,6 +36,8 @@ export default function SemesterDetailsPage({
 
   // Get permissions
   const { canAccess, isSuperAdmin } = usePermissions();
+  const adapt = useAdaptiveLabels();
+  const pageTitle = adapt('Semester Details');
   const canEditSemester =
     isSuperAdmin || canAccess('organizations.semesters', 'edit');
 
@@ -60,7 +63,7 @@ export default function SemesterDetailsPage({
 
   if (loading) {
     return (
-      <ContentLayout title='Semester Details'>
+      <ContentLayout title={pageTitle}>
         <div className='flex items-center justify-center min-h-[400px]'>
           <Loader2 className='h-8 w-8 animate-spin' />
         </div>
@@ -70,13 +73,13 @@ export default function SemesterDetailsPage({
 
   if (error || !semester) {
     return (
-      <ContentLayout title='Semester Details'>
+      <ContentLayout title={pageTitle}>
         <div className='text-center py-8'>
           <p className='text-destructive mb-4'>
-            {error || 'Semester not found'}
+            {error || `${adapt('Semester')} not found`}
           </p>
           <Button variant='outline' asChild>
-            <Link href='/organizations/semesters'>Back to Semesters</Link>
+            <Link href='/organizations/semesters'>Back to {adapt('Semesters')}</Link>
           </Button>
         </div>
       </ContentLayout>
@@ -84,7 +87,7 @@ export default function SemesterDetailsPage({
   }
 
   return (
-    <ContentLayout title='Semester Details'>
+    <ContentLayout title={pageTitle}>
       <Breadcrumb>
         <BreadcrumbList>
           <BreadcrumbItem>
@@ -101,12 +104,12 @@ export default function SemesterDetailsPage({
           <BreadcrumbSeparator />
           <BreadcrumbItem>
             <BreadcrumbLink asChild>
-              <Link href='/organizations/semesters'>Semesters</Link>
+              <Link href='/organizations/semesters'>{adapt('Semesters')}</Link>
             </BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator />
           <BreadcrumbItem>
-            <BreadcrumbPage>Semester Details</BreadcrumbPage>
+            <BreadcrumbPage>{pageTitle}</BreadcrumbPage>
           </BreadcrumbItem>
         </BreadcrumbList>
       </Breadcrumb>
@@ -118,20 +121,20 @@ export default function SemesterDetailsPage({
               {semester.semester_name}
             </h1>
             <p className='text-sm sm:text-base text-muted-foreground'>
-              Semester Details
+              {pageTitle}
             </p>
           </div>
           {canEditSemester ? (
             <Button asChild>
               <Link href={`/organizations/semesters/${id}/edit`}>
                 <PenSquare className='mr-2 h-4 w-4' />
-                Edit Semester
+                {adapt('Edit Semester')}
               </Link>
             </Button>
           ) : (
             <Button disabled variant='outline'>
               <PenSquare className='mr-2 h-4 w-4' />
-              Edit Semester
+              {adapt('Edit Semester')}
             </Button>
           )}
         </div>

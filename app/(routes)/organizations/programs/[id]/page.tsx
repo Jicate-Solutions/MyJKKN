@@ -20,6 +20,7 @@ import {
 } from '@/components/ui/breadcrumb';
 import { Badge } from '@/components/ui/badge';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 
 interface ProgramDetailsPageProps {
   params: Promise<{ id: string }>;
@@ -35,6 +36,8 @@ export default function ProgramDetailsPage({
 
   // Get permissions
   const { canAccess, isSuperAdmin } = usePermissions();
+  const adapt = useAdaptiveLabels();
+  const pageTitle = adapt('Program Details');
   const canEditProgram =
     isSuperAdmin || canAccess('organizations.programs', 'edit');
 
@@ -60,7 +63,7 @@ export default function ProgramDetailsPage({
 
   if (loading) {
     return (
-      <ContentLayout title='Program Details'>
+      <ContentLayout title={pageTitle}>
         <div className='flex items-center justify-center min-h-[400px]'>
           <Loader2 className='h-8 w-8 animate-spin' />
         </div>
@@ -70,13 +73,13 @@ export default function ProgramDetailsPage({
 
   if (error || !program) {
     return (
-      <ContentLayout title='Program Details'>
+      <ContentLayout title={pageTitle}>
         <div className='text-center py-8'>
           <p className='text-destructive mb-4'>
-            {error || 'Program not found'}
+            {error || `${adapt('Program')} not found`}
           </p>
           <Button variant='outline' asChild>
-            <Link href='/organizations/programs'>Back to Programs</Link>
+            <Link href='/organizations/programs'>Back to {adapt('Programs')}</Link>
           </Button>
         </div>
       </ContentLayout>
@@ -84,7 +87,7 @@ export default function ProgramDetailsPage({
   }
 
   return (
-    <ContentLayout title='Program Details'>
+    <ContentLayout title={pageTitle}>
       <Breadcrumb>
         <BreadcrumbList>
           <BreadcrumbItem>
@@ -101,12 +104,12 @@ export default function ProgramDetailsPage({
           <BreadcrumbSeparator />
           <BreadcrumbItem>
             <BreadcrumbLink asChild>
-              <Link href='/organizations/programs'>Programs</Link>
+              <Link href='/organizations/programs'>{adapt('Programs')}</Link>
             </BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator />
           <BreadcrumbItem>
-            <BreadcrumbPage>Program Details</BreadcrumbPage>
+            <BreadcrumbPage>{pageTitle}</BreadcrumbPage>
           </BreadcrumbItem>
         </BreadcrumbList>
       </Breadcrumb>
@@ -116,20 +119,20 @@ export default function ProgramDetailsPage({
           <div>
             <h1 className='text-2xl font-bold py-1'>{program.program_name}</h1>
             <p className='text-sm sm:text-base text-muted-foreground'>
-              Program Details
+              {pageTitle}
             </p>
           </div>
           {canEditProgram ? (
             <Button asChild>
               <Link href={`/organizations/programs/${id}/edit`}>
                 <PenSquare className='mr-2 h-4 w-4' />
-                Edit Program
+                {adapt('Edit Program')}
               </Link>
             </Button>
           ) : (
             <Button disabled variant='outline'>
               <PenSquare className='mr-2 h-4 w-4' />
-              Edit Program
+              {adapt('Edit Program')}
             </Button>
           )}
         </div>
