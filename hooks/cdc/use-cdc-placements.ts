@@ -1,6 +1,7 @@
 'use client';
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'react-hot-toast';
 import type {
   CdcPlacementFilters,
   CdcPlacementInsert,
@@ -97,6 +98,7 @@ export function useUpdateCdcPlacementStatus() {
       qc.invalidateQueries({ queryKey: ['cdc-placements'] });
       qc.invalidateQueries({ queryKey: ['cdc-placement', id] });
     },
+    onError: (e: Error) => toast.error(e.message),
   });
 }
 
