@@ -102,6 +102,12 @@ export function CommunityField({
       <Select
         value={selectValue}
         onValueChange={(next) => {
+          // Radix Select can emit an empty onValueChange while the options list
+          // is still loading (selectValue is '' until the fetch resolves). There
+          // is no empty SelectItem, so a real user pick is ALWAYS a non-empty id.
+          // Ignore '' to avoid wiping a valid pre-selected community_category_id
+          // (and cascade-clearing caste_id) on the edit form's first render.
+          if (!next) return;
           onChange(next);
           if (next !== selectValue) onCascadeReset?.();
         }}

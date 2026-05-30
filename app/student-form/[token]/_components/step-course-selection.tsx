@@ -11,7 +11,7 @@ import {
   SelectContent,
   SelectItem,
 } from '@/components/ui/select';
-import { Loader2, Lock, Info } from 'lucide-react';
+import { Loader2, Lock } from 'lucide-react';
 import toast from 'react-hot-toast';
 import type { Language } from './language-toggle';
 import {
@@ -328,15 +328,19 @@ export function StepCourseSelection({
   const institutionHasShDept = programs.some(
     (p) => p.department_code === 'SH',
   );
-  // 2026-05-21: the SH (Science & Humanities) dept is the first-year-only
-  // home for engineering students. Inverted rule per user:
-  //   - entry_type === 'FIRST YEAR' → show ONLY SH programmes
-  //   - any other entry_type (LATERAL ENTRY, etc.) → HIDE SH programmes
-  //   - entry_type unset → also hide SH (safer default; SH is only ever
-  //     intentional for FIRST YEAR, so it shouldn't show before the
-  //     student has committed to that entry type)
-  const restrictToSh = institutionHasShDept && v.entry_type === 'FIRST YEAR';
-  const hideSh = institutionHasShDept && v.entry_type !== 'FIRST YEAR';
+  // 2026-05-21 (revised 2026-05-30): the SH (Science & Humanities) dept is
+  // the first-year home for engineering students, and FIRST YEAR is the
+  // default/mandatory path for QR-form admissions. Because the Programme
+  // field is picked BEFORE Entry Type, an unset entry_type is treated the
+  // SAME as FIRST YEAR so the student sees the correct list by default:
+  //   - entry_type === 'FIRST YEAR' OR unset → show ONLY SH programmes
+  //   - any other entry_type (LATERAL ENTRY, etc.) → HIDE SH, show branch
+  // Branch-department programmes only surface once the student explicitly
+  // picks a non-first-year entry type.
+  const isFirstYearOrDefault =
+    v.entry_type === 'FIRST YEAR' || v.entry_type === '';
+  const restrictToSh = institutionHasShDept && isFirstYearOrDefault;
+  const hideSh = institutionHasShDept && !isFirstYearOrDefault;
   const displayedPrograms = useMemo(() => {
     if (!institutionHasShDept) return programs;
     if (restrictToSh) return programs.filter((p) => p.department_code === 'SH');
@@ -513,41 +517,6 @@ export function StepCourseSelection({
           </Select>
         </Field>
 
-        {restrictToSh && (
-          <div className="flex items-start gap-2 rounded-md border border-blue-200 bg-blue-50 p-3 text-xs text-blue-900 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-200">
-            <Info className="mt-0.5 h-4 w-4 shrink-0" />
-            <div className="leading-relaxed">
-              <p className="font-medium">
-                First-year admission — Science &amp; Humanities only
-              </p>
-              <p className="mt-0.5 text-blue-800/90 dark:text-blue-300/90">
-                At this institution, first-year students enrol under the
-                Science &amp; Humanities department. The Programme dropdown
-                shows only those programmes; you&apos;ll move to your branch
-                department from year&nbsp;2 onward.
-                <span className="block opacity-75">
-                  முதலாம் ஆண்டு மாணவர்கள் இந்நிறுவனத்தில் அறிவியல் &amp;
-                  மனிதவியல் துறையில் சேர்க்கப்படுவர்.
-                </span>
-              </p>
-            </div>
-          </div>
-        )}
-        {hideSh && v.entry_type && (
-          <div className="flex items-start gap-2 rounded-md border border-slate-200 bg-slate-50 p-3 text-xs text-slate-800 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
-            <Info className="mt-0.5 h-4 w-4 shrink-0" />
-            <div className="leading-relaxed">
-              <p className="font-medium">
-                Branch-department programmes only
-              </p>
-              <p className="mt-0.5 text-slate-700/90 dark:text-slate-300/90">
-                Lateral entry and later admissions skip the Science &amp;
-                Humanities first-year track. Only branch-department
-                programmes are shown.
-              </p>
-            </div>
-          </div>
-        )}
         <Field label="Program / பாடம்" required>
           <Select
             value={v.program_id}
