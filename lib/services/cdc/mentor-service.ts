@@ -1,5 +1,5 @@
 // lib/services/cdc/mentor-service.ts
-import { createClientSupabaseClient } from '@/lib/supabase/client';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import type {
   CdcMentorPairing,
   CdcMentorPairingWithLearners,
@@ -10,15 +10,11 @@ import type {
 } from '@/types/cdc/mentors';
 
 export class MentorService {
-  private static get supabase() {
-    return createClientSupabaseClient();
-  }
-
-  static async list(filters: MentorPairingFilters = {}): Promise<MentorPairingListResponse> {
+  static async list(supabase: SupabaseClient, filters: MentorPairingFilters = {}): Promise<MentorPairingListResponse> {
     const { page = 1, limit = 20, mentor_learner_id, mentee_learner_id, status } = filters;
     const offset = (page - 1) * limit;
 
-    let query = this.supabase
+    let query = supabase
       .from('cdc_mentor_pairings')
       .select(
         `*,
