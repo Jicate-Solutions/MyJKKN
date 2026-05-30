@@ -37,7 +37,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     const { data, error } = await sb
       .from('cdc_training_enrollments')
       .insert({ ...body, programme_id })
-      .select(`*, learner:learner_profiles(id, name, roll_number, institution:institutions(id, name))`)
+      .select(`*, learner:learners_profiles(id, first_name, last_name, roll_number, institution:institutions(id, name))`)
       .single();
 
     if (error) {

@@ -38,6 +38,14 @@ export async function GET(request: NextRequest) {
   await connection();
   try {
     const supabase = await getClient();
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser();
+    if (authError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     const sp = request.nextUrl.searchParams;
 
     const statusParam = sp.getAll('status') as CdcPlacementStatus[];
@@ -65,6 +73,14 @@ export async function POST(request: NextRequest) {
   await connection();
   try {
     const supabase = await getClient();
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser();
+    if (authError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     const body = await request.json();
     const placement = await CdcPlacementService.createPlacement(supabase, body);
     return NextResponse.json(placement, { status: 201 });

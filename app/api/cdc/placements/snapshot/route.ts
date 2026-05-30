@@ -38,6 +38,14 @@ export async function POST(request: NextRequest) {
   await connection();
   try {
     const supabase = await getClient();
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser();
+    if (authError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     const { cycle } = await request.json();
     if (!cycle || typeof cycle !== 'string') {
       return NextResponse.json({ error: 'cycle is required' }, { status: 400 });

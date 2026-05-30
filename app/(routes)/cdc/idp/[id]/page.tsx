@@ -110,7 +110,7 @@ function IdpDetailContent({ params }: PageProps) {
           <BreadcrumbSeparator />
           <BreadcrumbItem><BreadcrumbLink href="/cdc/idp">IDP Responses</BreadcrumbLink></BreadcrumbItem>
           <BreadcrumbSeparator />
-          <BreadcrumbItem><BreadcrumbPage>{learner?.name ?? id}</BreadcrumbPage></BreadcrumbItem>
+          <BreadcrumbItem><BreadcrumbPage>{learner?.name ?? 'IDP Response'}</BreadcrumbPage></BreadcrumbItem>
         </BreadcrumbList>
       </Breadcrumb>
 

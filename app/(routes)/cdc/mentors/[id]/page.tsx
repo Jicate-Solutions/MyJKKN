@@ -107,7 +107,7 @@ function MentorPairingDetailContent({ params }: PageProps) {
             </CardTitle>
           </CardHeader>
           <CardContent className="text-sm">
-            <p className="font-medium">{mentor?.name ?? pairing.mentor_learner_id}</p>
+            <p className="font-medium">{mentor?.name ?? 'Unknown learner'}</p>
             {mentor?.roll_number && <p className="text-gray-500">Roll: {mentor.roll_number}</p>}
           </CardContent>
         </Card>
@@ -120,7 +120,7 @@ function MentorPairingDetailContent({ params }: PageProps) {
             </CardTitle>
           </CardHeader>
           <CardContent className="text-sm">
-            <p className="font-medium">{mentee?.name ?? pairing.mentee_learner_id}</p>
+            <p className="font-medium">{mentee?.name ?? 'Unknown learner'}</p>
             {mentee?.roll_number && <p className="text-gray-500">Roll: {mentee.roll_number}</p>}
           </CardContent>
         </Card>
