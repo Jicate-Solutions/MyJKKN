@@ -47,7 +47,7 @@ export default function CdcBulletinPage() {
     status: statusFilter !== 'all' ? (statusFilter as OpportunityFilters['status']) : undefined,
   }), [search, categoryFilter, statusFilter]);
 
-  const { data: opportunities, isLoading } = useCdcOpportunities(filters);
+  const { data: opportunities, isLoading, isError, error, refetch } = useCdcOpportunities(filters);
 
   // 'archived' status is a manage-only filter option; gate it on edit perms.
   const canSeeArchived = isSuperAdmin || canAccess('cdc.bulletin', 'edit');
@@ -121,6 +121,19 @@ export default function CdcBulletinPage() {
               <Skeleton key={i} className="h-40 rounded-lg" />
             ))}
           </div>
+        ) : isError ? (
+          <Card>
+            <CardContent className="flex flex-col items-center justify-center py-16 text-center gap-3">
+              <Megaphone className="w-12 h-12 text-destructive/40" />
+              <p className="text-lg font-medium text-destructive">Failed to load opportunities</p>
+              <p className="text-sm text-muted-foreground">
+                {error instanceof Error ? error.message : 'Something went wrong. Please try again.'}
+              </p>
+              <Button variant="outline" size="sm" onClick={() => refetch()}>
+                Retry
+              </Button>
+            </CardContent>
+          </Card>
         ) : (opportunities ?? []).length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 text-center">
             <Megaphone className="w-12 h-12 text-muted-foreground mb-4" />

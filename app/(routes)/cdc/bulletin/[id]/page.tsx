@@ -21,6 +21,14 @@ const STATUS_COLORS: Record<BulletinStatus, string> = {
   expired: 'bg-red-100 text-red-700',
 };
 
+// Title-case the raw status enum for display (e.g. "published" -> "Published").
+// The STATUS_COLORS lookup above still uses the raw enum value.
+function humanizeStatus(status: string): string {
+  return status
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
 interface Props {
   params: Promise<{ id: string }>;
 }
@@ -88,7 +96,7 @@ function BulletinOpportunityDetailContent({ params }: Props) {
             <div className="flex items-center gap-3 flex-wrap">
               <h1 className="text-2xl font-bold">{opp.title}</h1>
               <Badge className={STATUS_COLORS[opp.status ?? 'published']}>
-                {opp.status ?? 'published'}
+                {humanizeStatus(opp.status ?? 'published')}
               </Badge>
             </div>
             {opp.source_organisation && (

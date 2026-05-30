@@ -52,6 +52,7 @@ export default function CdcInternshipsPage() {
     total,
     page,
     loading,
+    error,
     fetchInternships,
     updateFilters,
   } = useCdcInternships({ internship_type: 'corporate_internship' });
@@ -132,7 +133,20 @@ export default function CdcInternshipsPage() {
         {/* Content */}
         {loading && <Loading />}
 
-        {!loading && internships.length === 0 && (
+        {!loading && error && (
+          <Card>
+            <CardContent className="flex flex-col items-center justify-center py-16 gap-3">
+              <Briefcase className="w-12 h-12 text-red-300 mb-1" />
+              <p className="text-red-600 text-sm font-medium">Failed to load corporate internships</p>
+              <p className="text-gray-500 text-sm text-center">{error}</p>
+              <Button variant="outline" size="sm" onClick={() => fetchInternships()}>
+                Retry
+              </Button>
+            </CardContent>
+          </Card>
+        )}
+
+        {!loading && !error && internships.length === 0 && (
           <Card>
             <CardContent className="flex flex-col items-center justify-center py-16">
               <Briefcase className="w-12 h-12 text-gray-300 mb-4" />
