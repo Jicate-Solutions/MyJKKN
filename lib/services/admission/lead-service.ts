@@ -182,31 +182,39 @@ export class LeadService {
   /**
    * Get a single lead by ID
    */
-  static async getLead(id: string, institutionId?: string): Promise<AdmissionLead> {
-    let query = (this.supabase as any).from('admission_leads')
-      .select(`
-        *,
-        counselor:admission_counselors(id, name, email),
-        program:programs!program_id(id, program_name, program_id),
-        admission_year:admission_years(id, admission_year_name, program_start_year, program_end_year)
-      `)
-      .eq('id', id);
-
-    if (institutionId) {
-      query = query.eq('institution_id', institutionId);
+  static async getLead(id: string, _institutionId?: string): Promise<AdmissionLead> {
+    // Route through the server-side service-role detail endpoint, which mirrors
+    // the leads-list route's auth + permission + counselor-scope gate.
+    //
+    // BUG-003956: the previous direct browser query ran under RLS, whose
+    // strict-counselor policy excludes source='referral' even when the
+    // counselor is assigned — so a referral lead that appears in the list
+    // 404'd on its detail page. The endpoint applies the SAME ownership rule
+    // the list uses (counselor_id / assigned_counselor_id) WITHOUT the blanket
+    // referral exclusion. The institutionId param is kept for signature
+    // compatibility; the endpoint enforces scope server-side.
+    let res = await fetch(`/api/admission/leads/${id}`);
+    if (res.status === 503) {
+      await new Promise((r) => setTimeout(r, 300));
+      res = await fetch(`/api/admission/leads/${id}`);
     }
 
-    const { data, error } = await query.maybeSingle();
-
-    if (error) {
-      console.error('[LeadService] Error fetching lead:', error);
-      throw new Error(`Failed to fetch lead: ${error.message}`);
-    }
-    if (!data) {
+    if (res.status === 404) {
       throw new Error('Lead not found');
     }
 
-    return this.normalizeLead(data);
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      console.error('[LeadService] Error fetching lead:', body);
+      throw new Error(body.error || `Failed to fetch lead (HTTP ${res.status})`);
+    }
+
+    const result = await res.json();
+    if (!result?.data) {
+      throw new Error('Lead not found');
+    }
+
+    return this.normalizeLead(result.data);
   }
 
   /**
