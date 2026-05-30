@@ -31,6 +31,9 @@ export const TABLE_OVERRIDES: Record<string, string> = {
   class_incharges: 'Academic',
   api_keys: 'System',
   institution_program_approvals: 'Staff',
+  // Instagram monitoring audit log — doesn't follow the ig_ prefix because
+  // it sits alongside future social_<platform>_logs siblings.
+  social_instagram_logs: 'Instagram',
 };
 
 /** Prefix-to-module mapping checked in order; first match wins. */
@@ -68,6 +71,10 @@ export const MODULE_PREFIXES: [string, string][] = [
   ['chatbot_', 'Chatbot'],
   ['chat_', 'Chatbot'],
   ['expo_', 'Expo'],
+  // Instagram monitoring substrate (Phase 1B, 2026-05-30):
+  // ig_accounts / ig_account_metrics / ig_posts / ig_post_metrics →
+  // Instagram. Companion social_instagram_logs goes through TABLE_OVERRIDES.
+  ['ig_', 'Instagram'],
   ['scholarship', 'Billing'],
   ['counselor_', 'Admission'],
   ['consultant_', 'Admission'],
