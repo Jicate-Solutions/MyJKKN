@@ -76,7 +76,7 @@ export class MentorService {
     return data as CdcMentorPairing;
   }
 
-  static async update(id: string, dto: UpdateMentorPairingDto): Promise<CdcMentorPairing> {
+  static async update(supabase: SupabaseClient, id: string, dto: UpdateMentorPairingDto): Promise<CdcMentorPairing> {
     const payload: Record<string, unknown> = { updated_at: new Date().toISOString() };
     if (dto.status !== undefined) payload.status = dto.status;
     if (dto.notes !== undefined) payload.notes = dto.notes;
@@ -85,7 +85,7 @@ export class MentorService {
       payload.concluded_at = new Date().toISOString();
     }
 
-    const { data, error } = await this.supabase
+    const { data, error } = await supabase
       .from('cdc_mentor_pairings')
       .update(payload)
       .eq('id', id)
