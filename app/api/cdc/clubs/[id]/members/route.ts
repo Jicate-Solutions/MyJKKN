@@ -64,7 +64,7 @@ export async function DELETE(
       return NextResponse.json({ error: 'learner_id is required' }, { status: 400 });
     }
 
-    await ClubService.removeMember(id, learner_id);
+    await ClubService.removeMember(supabase, id, learner_id);
     return NextResponse.json({ success: true });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : 'Internal server error';
