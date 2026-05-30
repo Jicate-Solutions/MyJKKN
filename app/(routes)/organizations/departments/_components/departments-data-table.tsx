@@ -3,6 +3,7 @@
 import { DataTable } from '@/components/data-table/data-table';
 import { columns } from './columns';
 import type { DepartmentsSearchParams } from './data-table-schema';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 import { Button } from '@/components/ui/button';
 import { Plus, TrashIcon, Loader2, Upload, Download, ChevronDown, FileSpreadsheet, FileText, FileJson } from 'lucide-react';
 import { useRouter } from 'next/navigation';
@@ -37,6 +38,7 @@ interface DepartmentsDataTableProps {
 export function DepartmentsDataTable({ search }: DepartmentsDataTableProps) {
   const router = useRouter();
   const { canAccess, isSuperAdmin } = usePermissions();
+  const adapt = useAdaptiveLabels();
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [selectedForDelete, setSelectedForDelete] = useState<Department[]>([]);
   const [deleteResetFn, setDeleteResetFn] = useState<(() => void) | null>(null);
@@ -126,7 +128,7 @@ export function DepartmentsDataTable({ search }: DepartmentsDataTableProps) {
 
       if (successful > 0) {
         toast.success(
-          `Successfully deleted ${successful} department${
+          `Successfully deleted ${successful} ${adapt('department').toLowerCase()}${
             successful > 1 ? 's' : ''
           }`
         );
@@ -134,7 +136,7 @@ export function DepartmentsDataTable({ search }: DepartmentsDataTableProps) {
 
       if (failed > 0) {
         toast.error(
-          `Failed to delete ${failed} department${failed > 1 ? 's' : ''}`
+          `Failed to delete ${failed} ${adapt('department').toLowerCase()}${failed > 1 ? 's' : ''}`
         );
       }
 
@@ -169,7 +171,7 @@ export function DepartmentsDataTable({ search }: DepartmentsDataTableProps) {
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `departments-template-${new Date().toISOString().split('T')[0]}.xlsx`;
+      a.download = `${adapt('departments').toLowerCase()}-template-${new Date().toISOString().split('T')[0]}.xlsx`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -187,12 +189,12 @@ export function DepartmentsDataTable({ search }: DepartmentsDataTableProps) {
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `departments-export-${new Date().toISOString().split('T')[0]}.xlsx`;
+      a.download = `${adapt('departments').toLowerCase()}-export-${new Date().toISOString().split('T')[0]}.xlsx`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
       window.URL.revokeObjectURL(url);
-      toast.success('Departments exported successfully');
+      toast.success(`${adapt('Departments')} exported successfully`);
     } catch (error) {
       console.error('Export error:', error);
       toast.error('Failed to export departments');

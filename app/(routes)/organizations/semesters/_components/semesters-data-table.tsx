@@ -3,6 +3,7 @@
 import { DataTable } from '@/components/data-table/data-table';
 import { columns } from './columns';
 import type { SemestersSearchParams } from './data-table-schema';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 import { Button } from '@/components/ui/button';
 import {
   Plus,
@@ -49,6 +50,7 @@ export function SemestersDataTable({ search }: SemestersDataTableProps) {
   const router = useRouter();
   const { canAccess, isSuperAdmin } = usePermissions();
   const { label } = useInstitutionTypeLabels();
+  const adapt = useAdaptiveLabels();
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [selectedForDelete, setSelectedForDelete] = useState<Semester[]>([]);
   const [deleteResetFn, setDeleteResetFn] = useState<(() => void) | null>(null);
@@ -132,7 +134,7 @@ export function SemestersDataTable({ search }: SemestersDataTableProps) {
 
       if (successful > 0) {
         toast.success(
-          `Successfully deleted ${successful} semester${
+          `Successfully deleted ${successful} ${label('semester').toLowerCase()}${
             successful > 1 ? 's' : ''
           }`
         );
@@ -140,7 +142,7 @@ export function SemestersDataTable({ search }: SemestersDataTableProps) {
 
       if (failed > 0) {
         toast.error(
-          `Failed to delete ${failed} semester${failed > 1 ? 's' : ''}`
+          `Failed to delete ${failed} ${label('semester').toLowerCase()}${failed > 1 ? 's' : ''}`
         );
       }
 

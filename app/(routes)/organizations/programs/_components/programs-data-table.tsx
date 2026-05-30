@@ -38,7 +38,7 @@ interface ProgramsDataTableProps {
 export function ProgramsDataTable({ search }: ProgramsDataTableProps) {
   const router = useRouter();
   const { canAccess, isSuperAdmin } = usePermissions();
-  const adaptLabel = useAdaptiveLabels();
+  const adapt = useAdaptiveLabels();
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [selectedForDelete, setSelectedForDelete] = useState<Program[]>([]);
   const [deleteResetFn, setDeleteResetFn] = useState<(() => void) | null>(null);
