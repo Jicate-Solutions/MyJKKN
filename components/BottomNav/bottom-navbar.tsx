@@ -26,7 +26,7 @@ import { cn } from '@/lib/utils';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useBottomNav, useBottomNavHydration } from '@/hooks/use-bottom-nav';
 import { useCommandPalette } from '@/components/CommandPalette/CommandPaletteProvider';
-import { GetRoleBasedPages, RolePermissionData, filterMenuByEntityType } from '@/lib/sidebarMenuLink';
+import { GetRoleBasedPages, RolePermissionData } from '@/lib/sidebarMenuLink';
 import { adaptMenuLabels } from '@/lib/utils/sidebar-label-adapter';
 import { useAuth } from '@/providers/auth-provider';
 import { usePermissions } from '@/hooks/use-permissions';
@@ -212,17 +212,12 @@ export function BottomNavbar() {
   const filteredPages = useMemo(() => {
     const pages = GetRoleBasedPages(pathname, roleData);
 
-    // Apply entity_type filter for schools (hide college-only pages)
-    const entityType = (institutionType ?? 'institution') as any;
-
-    const entityFiltered = pages.map(group => ({
-      ...group,
-      menus: filterMenuByEntityType(group.menus, entityType)
-    })).filter(group => group.menus.length > 0);
-
     // Apply label adaptation for schools (Degrees → Streams, etc.)
-    // Uses the canonical adaptMenuLabels from sidebar-label-adapter (same as desktop sidebar)
-    return adaptMenuLabels(entityFiltered, entityType);
+    // NOTE: Do NOT filter by entity type like filterMenuByEntityType does.
+    // Schools need access to organization menus, just with adapted labels.
+    // The sidebar approach (adapt labels, don't hide menus) is correct.
+    const entityType = (institutionType ?? 'institution') as any;
+    return adaptMenuLabels(pages, entityType);
   }, [pathname, roleData, institutionType]);
 
   // Transform filtered pages into bottom nav groups.
