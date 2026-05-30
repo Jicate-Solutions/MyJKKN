@@ -39,7 +39,7 @@ export async function POST(
       return NextResponse.json({ error: 'learner_id is required' }, { status: 400 });
     }
 
-    await ClubService.addMember(id, body);
+    await ClubService.addMember(supabase, id, body);
     return NextResponse.json({ success: true }, { status: 201 });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : 'Internal server error';
