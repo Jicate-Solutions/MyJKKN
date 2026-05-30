@@ -5,6 +5,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
 import type { AdmissionPackage } from '@/types/admission-packages';
 import { PackageRowActions } from './row-actions';
+import { PackageProgramsCell } from './programs-cell';
 
 const inr = (n: number) =>
   new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(n);
@@ -66,6 +67,11 @@ export const createColumns = (): ColumnDef<AdmissionPackage>[] => [
         {row.original.hostel_year_name || 'All years'}
       </span>
     ),
+  },
+  {
+    id: 'programs',
+    header: 'Programs',
+    cell: ({ row }) => <PackageProgramsCell pkg={row.original} />,
   },
   {
     accessorKey: 'is_active',
