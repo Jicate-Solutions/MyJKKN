@@ -207,13 +207,24 @@ export function BottomNavbar() {
 
     // Apply entity_type filter for schools (hide college-only pages)
     const entityType = user?.institutions?.entity_type ?? 'institution';
+
+    if (process.env.NODE_ENV === 'development') {
+      console.log('[BottomNav] entityType:', entityType, 'user institutions:', user?.institutions);
+    }
+
     const entityFiltered = pages.map(group => ({
       ...group,
       menus: filterMenuByEntityType(group.menus, entityType)
     })).filter(group => group.menus.length > 0);
 
     // Apply label adaptation for schools (Degrees → Streams, etc.)
-    return adaptMenuLabels(entityFiltered, entityType);
+    const adapted = adaptMenuLabels(entityFiltered, entityType);
+
+    if (process.env.NODE_ENV === 'development' && entityType === 'school') {
+      console.log('[BottomNav] Adapted menus for school:', adapted);
+    }
+
+    return adapted;
   }, [pathname, roleData, user?.institutions?.entity_type]);
 
   // Transform filtered pages into bottom nav groups.
