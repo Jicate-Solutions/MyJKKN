@@ -35,7 +35,7 @@ export async function PATCH(
     }
 
     const body = await request.json();
-    const result = await IdpService.update(id, { ...body, updated_by: user.id });
+    const result = await IdpService.update(supabase, id, { ...body, updated_by: user.id });
     return NextResponse.json(result);
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : 'Internal server error';
