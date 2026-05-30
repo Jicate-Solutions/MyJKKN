@@ -35,7 +35,7 @@ export async function PATCH(
     }
 
     const body = await request.json();
-    const result = await MentorService.update(id, body);
+    const result = await MentorService.update(supabase, id, body);
     return NextResponse.json(result);
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : 'Internal server error';
