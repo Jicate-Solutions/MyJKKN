@@ -120,6 +120,14 @@ export const ROUTE_PREFIX_TO_MODULE: ReadonlyArray<readonly [string, string]> = 
   ['/admin/reset-driver-passwords', 'System'],
   ['/admin/hr', 'Staff'], // HR admin pages (recruitment-need, payroll, etc.)
   ['/admin/hostel', 'Campus Living'], // Hostel admin pages (curfew, allocation-rules, rooms, allocations)
+  // Meta surface modules (catalog consolidation 2026-05-30, κ).
+  // /admin/social/* — sub-prefixes BEFORE any future /admin/social catch-all.
+  ['/admin/social/facebook', 'Social Facebook'], // β PR #1150
+  ['/admin/social/lead-ads', 'Social Lead Ads'], // γ PR #1154
+  ['/admin/social/ads', 'Social Ads'], // ζ PR #1152
+  // /admin/integrations/* — sub-prefixes for Meta integrations.
+  ['/admin/integrations/meta-pixel', 'Integrations Meta Pixel'], // ε PR #1151
+  ['/admin/integrations/meta-audiences', 'Integrations Meta Audiences'], // η PR #1155
   ['/admin', 'System'], // catch-all for any future /admin/*
 
   // Module-prefixed sidebar entries (sorted longest-first to be safe).
@@ -136,6 +144,9 @@ export const ROUTE_PREFIX_TO_MODULE: ReadonlyArray<readonly [string, string]> = 
   ['/ai-pulse', 'AI Pulse'],
   ['/my-bug-reports', 'Bug Reports'],
   ['/bug-leaderboard', 'Bug Reports'],
+  // /admission/inbox/* — sub-prefixes BEFORE /admission catch-all (κ 2026-05-30).
+  ['/admission/inbox/messenger', 'Social Messenger'], // δ PR #1149
+  ['/admission/inbox/instagram', 'Instagram'], // ι PR #1153 — shares ig_* substrate with /social/instagram
   ['/admission', 'Admission'],
   ['/organizations', 'Organization'],
   ['/documents', 'Documents'],
@@ -200,6 +211,16 @@ export const MODULE_WITHOUT_CATEGORY = new Set<string>([
   'Expo', // expo tables exist; no permission catalog yet
   'Marathon', // marathon tables exist; no permission catalog yet
   'Instagram', // ig_* tables exist (Phase 1B substrate, 2026-05-30); permission catalog ships with Phase 2 UI
+  // Meta surface modules (catalog consolidation 2026-05-30, κ).
+  // Each has tables + admin routes shipped via PRs #1149–#1155; permission
+  // catalogs (e.g. `social.facebook.view`/`.manage`) ship in follow-up PRs
+  // when each module's permission keys land in lib/constants/permissions.ts.
+  'Social Facebook', // β PR #1150 — social.facebook.view/.manage
+  'Social Lead Ads', // γ PR #1154 — social.lead_ads.view/.manage
+  'Social Messenger', // δ PR #1149 — social.messenger.view/.send
+  'Social Ads', // ζ PR #1152 — social.ads.view
+  'Integrations Meta Pixel', // ε PR #1151 — integrations.meta_pixel.view/.manage
+  'Integrations Meta Audiences', // η PR #1155 — integrations.meta_audiences.view/.manage
   // 'CDC' — removed 2026-05-21. CDC permission catalog now lives in
   // lib/constants/permissions.ts (cdc.* keys for 10 sub-modules). Audit
   // dashboard should report against those keys instead of em-dashing the row.
