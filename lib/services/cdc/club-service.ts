@@ -1,5 +1,5 @@
 // lib/services/cdc/club-service.ts
-import { createClientSupabaseClient } from '@/lib/supabase/client';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import type {
   CdcClub,
   CdcClubWithMemberCount,
@@ -12,15 +12,11 @@ import type {
 } from '@/types/cdc/clubs';
 
 export class ClubService {
-  private static get supabase() {
-    return createClientSupabaseClient();
-  }
-
-  static async list(filters: ClubFilters = {}): Promise<ClubListResponse> {
+  static async list(supabase: SupabaseClient, filters: ClubFilters = {}): Promise<ClubListResponse> {
     const { page = 1, limit = 20, institution_id, is_active, club_type } = filters;
     const offset = (page - 1) * limit;
 
-    let query = this.supabase
+    let query = supabase
       .from('cdc_clubs')
       .select('*', { count: 'exact' })
       .order('name', { ascending: true })
@@ -39,7 +35,7 @@ export class ClubService {
     let memberCounts: Record<string, number> = {};
 
     if (ids.length > 0) {
-      const { data: memberships } = await this.supabase
+      const { data: memberships } = await supabase
         .from('cdc_club_memberships')
         .select('club_id')
         .in('club_id', ids)
@@ -58,8 +54,8 @@ export class ClubService {
     return { data: enriched, total: count ?? 0, page, limit };
   }
 
-  static async getById(id: string): Promise<CdcClubWithMemberCount> {
-    const { data, error } = await this.supabase
+  static async getById(supabase: SupabaseClient, id: string): Promise<CdcClubWithMemberCount> {
+    const { data, error } = await supabase
       .from('cdc_clubs')
       .select('*')
       .eq('id', id)
@@ -67,7 +63,7 @@ export class ClubService {
 
     if (error) throw new Error(error.message);
 
-    const { count } = await this.supabase
+    const { count } = await supabase
       .from('cdc_club_memberships')
       .select('*', { count: 'exact', head: true })
       .eq('club_id', id)
@@ -76,13 +72,13 @@ export class ClubService {
     return { ...(data as CdcClub), member_count: count ?? 0 };
   }
 
-  static async create(dto: CreateClubDto): Promise<CdcClub> {
+  static async create(supabase: SupabaseClient, dto: CreateClubDto): Promise<CdcClub> {
     const slug = dto.name
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/(^-|-$)/g, '');
 
-    const { data, error } = await this.supabase
+    const { data, error } = await supabase
       .from('cdc_clubs')
       .insert({
         name: dto.name,
@@ -101,7 +97,7 @@ export class ClubService {
     return data as CdcClub;
   }
 
-  static async update(id: string, dto: UpdateClubDto): Promise<CdcClub> {
+  static async update(supabase: SupabaseClient, id: string, dto: UpdateClubDto): Promise<CdcClub> {
     const payload: Record<string, unknown> = { updated_at: new Date().toISOString() };
     if (dto.name !== undefined) payload.name = dto.name;
     if (dto.description !== undefined) payload.description = dto.description;
@@ -112,7 +108,7 @@ export class ClubService {
     if (dto.formed_on !== undefined) payload.formed_on = dto.formed_on;
     if (dto.updated_by !== undefined) payload.updated_by = dto.updated_by;
 
-    const { data, error } = await this.supabase
+    const { data, error } = await supabase
       .from('cdc_clubs')
       .update(payload)
       .eq('id', id)
@@ -124,8 +120,8 @@ export class ClubService {
   }
 
   // Members
-  static async listMembers(clubId: string): Promise<CdcClubMembershipWithLearner[]> {
-    const { data, error } = await this.supabase
+  static async listMembers(supabase: SupabaseClient, clubId: string): Promise<CdcClubMembershipWithLearner[]> {
+    const { data, error } = await supabase
       .from('cdc_club_memberships')
       .select(`*, learner:learner_id(id, name, roll_number, institution_id)`)
       .eq('club_id', clubId)
@@ -136,8 +132,8 @@ export class ClubService {
     return (data ?? []) as CdcClubMembershipWithLearner[];
   }
 
-  static async addMember(clubId: string, dto: AddMemberDto): Promise<void> {
-    const { error } = await this.supabase
+  static async addMember(supabase: SupabaseClient, clubId: string, dto: AddMemberDto): Promise<void> {
+    const { error } = await supabase
       .from('cdc_club_memberships')
       .insert({
         club_id: clubId,
@@ -150,8 +146,8 @@ export class ClubService {
     if (error) throw new Error(error.message);
   }
 
-  static async removeMember(clubId: string, learnerId: string): Promise<void> {
-    const { error } = await this.supabase
+  static async removeMember(supabase: SupabaseClient, clubId: string, learnerId: string): Promise<void> {
+    const { error } = await supabase
       .from('cdc_club_memberships')
       .update({ is_active: false, left_at: new Date().toISOString() })
       .eq('club_id', clubId)

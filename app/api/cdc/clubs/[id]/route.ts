@@ -14,7 +14,7 @@ export async function GET(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const result = await ClubService.getById(id);
+    const result = await ClubService.getById(supabase, id);
     return NextResponse.json(result);
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : 'Internal server error';
@@ -35,7 +35,7 @@ export async function PATCH(
     }
 
     const body = await request.json();
-    const result = await ClubService.update(id, { ...body, updated_by: user.id });
+    const result = await ClubService.update(supabase, id, { ...body, updated_by: user.id });
     return NextResponse.json(result);
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : 'Internal server error';

@@ -1,5 +1,5 @@
 // lib/services/cdc/mentor-service.ts
-import { createClientSupabaseClient } from '@/lib/supabase/client';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import type {
   CdcMentorPairing,
   CdcMentorPairingWithLearners,
@@ -10,15 +10,11 @@ import type {
 } from '@/types/cdc/mentors';
 
 export class MentorService {
-  private static get supabase() {
-    return createClientSupabaseClient();
-  }
-
-  static async list(filters: MentorPairingFilters = {}): Promise<MentorPairingListResponse> {
+  static async list(supabase: SupabaseClient, filters: MentorPairingFilters = {}): Promise<MentorPairingListResponse> {
     const { page = 1, limit = 20, mentor_learner_id, mentee_learner_id, status } = filters;
     const offset = (page - 1) * limit;
 
-    let query = this.supabase
+    let query = supabase
       .from('cdc_mentor_pairings')
       .select(
         `*,
@@ -44,8 +40,8 @@ export class MentorService {
     };
   }
 
-  static async getById(id: string): Promise<CdcMentorPairingWithLearners> {
-    const { data, error } = await this.supabase
+  static async getById(supabase: SupabaseClient, id: string): Promise<CdcMentorPairingWithLearners> {
+    const { data, error } = await supabase
       .from('cdc_mentor_pairings')
       .select(
         `*,
@@ -59,13 +55,13 @@ export class MentorService {
     return data as CdcMentorPairingWithLearners;
   }
 
-  static async create(dto: CreateMentorPairingDto): Promise<CdcMentorPairing> {
+  static async create(supabase: SupabaseClient, dto: CreateMentorPairingDto): Promise<CdcMentorPairing> {
     // Guard: prevent self-pairing
     if (dto.mentor_learner_id === dto.mentee_learner_id) {
       throw new Error('Mentor and mentee must be different learners.');
     }
 
-    const { data, error } = await this.supabase
+    const { data, error } = await supabase
       .from('cdc_mentor_pairings')
       .insert({
         mentor_learner_id: dto.mentor_learner_id,
@@ -80,7 +76,7 @@ export class MentorService {
     return data as CdcMentorPairing;
   }
 
-  static async update(id: string, dto: UpdateMentorPairingDto): Promise<CdcMentorPairing> {
+  static async update(supabase: SupabaseClient, id: string, dto: UpdateMentorPairingDto): Promise<CdcMentorPairing> {
     const payload: Record<string, unknown> = { updated_at: new Date().toISOString() };
     if (dto.status !== undefined) payload.status = dto.status;
     if (dto.notes !== undefined) payload.notes = dto.notes;
@@ -89,7 +85,7 @@ export class MentorService {
       payload.concluded_at = new Date().toISOString();
     }
 
-    const { data, error } = await this.supabase
+    const { data, error } = await supabase
       .from('cdc_mentor_pairings')
       .update(payload)
       .eq('id', id)

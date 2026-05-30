@@ -20,7 +20,7 @@ export async function GET(request: NextRequest) {
       status: (sp.get('status') as MentorPairingFilters['status']) ?? undefined,
     };
 
-    const result = await MentorService.list(filters);
+    const result = await MentorService.list(supabase, filters);
     return NextResponse.json(result);
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : 'Internal server error';
@@ -41,7 +41,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'mentor_learner_id and mentee_learner_id are required' }, { status: 400 });
     }
 
-    const result = await MentorService.create(body);
+    const result = await MentorService.create(supabase, body);
     return NextResponse.json(result, { status: 201 });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : 'Internal server error';

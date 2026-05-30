@@ -1,5 +1,5 @@
 // lib/services/cdc/idp-service.ts
-import { createClientSupabaseClient } from '@/lib/supabase/client';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import type {
   CdcIdpResponse,
   CdcIdpResponseWithLearner,
@@ -10,15 +10,11 @@ import type {
 } from '@/types/cdc/idp';
 
 export class IdpService {
-  private static get supabase() {
-    return createClientSupabaseClient();
-  }
-
-  static async list(filters: IdpFilters = {}): Promise<IdpListResponse> {
+  static async list(supabase: SupabaseClient, filters: IdpFilters = {}): Promise<IdpListResponse> {
     const { page = 1, limit = 20, institution_id, academic_year_label, learner_id, source } = filters;
     const offset = (page - 1) * limit;
 
-    let query = this.supabase
+    let query = supabase
       .from('cdc_idp_responses')
       .select(
         `*, learner:learner_id(id, name, roll_number, institution_id)`,
@@ -46,8 +42,8 @@ export class IdpService {
     };
   }
 
-  static async getById(id: string): Promise<CdcIdpResponseWithLearner> {
-    const { data, error } = await this.supabase
+  static async getById(supabase: SupabaseClient, id: string): Promise<CdcIdpResponseWithLearner> {
+    const { data, error } = await supabase
       .from('cdc_idp_responses')
       .select(`*, learner:learner_id(id, name, roll_number, institution_id)`)
       .eq('id', id)
@@ -57,8 +53,8 @@ export class IdpService {
     return data as CdcIdpResponseWithLearner;
   }
 
-  static async getByLearnerId(learner_id: string): Promise<CdcIdpResponse | null> {
-    const { data, error } = await this.supabase
+  static async getByLearnerId(supabase: SupabaseClient, learner_id: string): Promise<CdcIdpResponse | null> {
+    const { data, error } = await supabase
       .from('cdc_idp_responses')
       .select('*')
       .eq('learner_id', learner_id)
@@ -70,8 +66,8 @@ export class IdpService {
     return data as CdcIdpResponse | null;
   }
 
-  static async create(dto: CreateIdpResponseDto): Promise<CdcIdpResponse> {
-    const { data, error } = await this.supabase
+  static async create(supabase: SupabaseClient, dto: CreateIdpResponseDto): Promise<CdcIdpResponse> {
+    const { data, error } = await supabase
       .from('cdc_idp_responses')
       .insert({
         learner_id: dto.learner_id,
@@ -92,7 +88,7 @@ export class IdpService {
     return data as CdcIdpResponse;
   }
 
-  static async update(id: string, dto: UpdateIdpResponseDto): Promise<CdcIdpResponse> {
+  static async update(supabase: SupabaseClient, id: string, dto: UpdateIdpResponseDto): Promise<CdcIdpResponse> {
     const payload: Record<string, unknown> = { updated_at: new Date().toISOString() };
     if (dto.interests !== undefined) payload.interests = dto.interests;
     if (dto.aspirations !== undefined) payload.aspirations = dto.aspirations;
@@ -103,7 +99,7 @@ export class IdpService {
     if (dto.academic_year_label !== undefined) payload.academic_year_label = dto.academic_year_label;
     if (dto.updated_by !== undefined) payload.updated_by = dto.updated_by;
 
-    const { data, error } = await this.supabase
+    const { data, error } = await supabase
       .from('cdc_idp_responses')
       .update(payload)
       .eq('id', id)
