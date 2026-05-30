@@ -2155,45 +2155,6 @@ export function normalizeRoute(href: string): string {
   return href.replace(UUID_SEGMENT_REGEX, '[id]');
 }
 
-// Label adaptation mapping for schools
-const MENU_LABEL_MAP: Record<string, Record<string, string>> = {
-  'school': {
-    'Degrees': 'Streams',
-    'Departments': 'Wings',
-    'Programs': 'Classes',
-    'Semesters': 'Terms',
-    'Courses': 'Subjects',
-    'All Courses': 'All Subjects',
-    'Course Mappings': 'Subject Mappings'
-  },
-  'institution': {},
-  'admin_office': {},
-  'company': {}
-};
-
-// Helper function to adapt menu labels based on institution type
-export function adaptMenuLabels(
-  menus: MenuGroup[],
-  entityType?: string
-): MenuGroup[] {
-  if (!entityType || entityType !== 'school') {
-    return menus;
-  }
-
-  const labelMap = MENU_LABEL_MAP['school'];
-  return menus.map(group => ({
-    ...group,
-    menus: group.menus.map(menu => ({
-      ...menu,
-      label: labelMap[menu.label] || menu.label,
-      submenus: menu.submenus.map(sub => ({
-        ...sub,
-        label: labelMap[sub.label] || sub.label
-      }))
-    }))
-  }));
-}
-
 // New function to filter menus based on user role permissions
 export function GetRoleBasedPages(
   pathname: string,

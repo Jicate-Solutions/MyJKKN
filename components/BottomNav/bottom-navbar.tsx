@@ -26,7 +26,8 @@ import { cn } from '@/lib/utils';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useBottomNav, useBottomNavHydration } from '@/hooks/use-bottom-nav';
 import { useCommandPalette } from '@/components/CommandPalette/CommandPaletteProvider';
-import { GetRoleBasedPages, RolePermissionData, filterMenuByEntityType, adaptMenuLabels } from '@/lib/sidebarMenuLink';
+import { GetRoleBasedPages, RolePermissionData, filterMenuByEntityType } from '@/lib/sidebarMenuLink';
+import { adaptMenuLabels } from '@/lib/utils/sidebar-label-adapter';
 import { useAuth } from '@/providers/auth-provider';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useInstitutionType } from '@/hooks/use-institution-type';
@@ -212,7 +213,7 @@ export function BottomNavbar() {
     const pages = GetRoleBasedPages(pathname, roleData);
 
     // Apply entity_type filter for schools (hide college-only pages)
-    const entityType = institutionType ?? 'institution';
+    const entityType = (institutionType ?? 'institution') as any;
 
     const entityFiltered = pages.map(group => ({
       ...group,
@@ -220,6 +221,7 @@ export function BottomNavbar() {
     })).filter(group => group.menus.length > 0);
 
     // Apply label adaptation for schools (Degrees → Streams, etc.)
+    // Uses the canonical adaptMenuLabels from sidebar-label-adapter (same as desktop sidebar)
     return adaptMenuLabels(entityFiltered, entityType);
   }, [pathname, roleData, institutionType]);
 
