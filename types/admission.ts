@@ -22,6 +22,7 @@ export type LeadSource =
   | 'youtube_ads'
   | 'inbound_call'
   | 'gate_entry'
+  | 'learner_creator_content'
   | 'other';
 
 /**

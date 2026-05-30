@@ -28,7 +28,8 @@ export type LeadSourceEnum =
   | 'other'
   | 'inbound_call'
   | 'gate_entry'
-  | 'whatsapp';
+  | 'whatsapp'
+  | 'learner_creator_content';
 
 export interface SourceMaster {
   id: string;

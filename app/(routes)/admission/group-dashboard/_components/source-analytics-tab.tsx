@@ -33,6 +33,7 @@ const SOURCE_COLORS: Record<string, string> = {
   youtube_ads: '#e11d48',
   admission_form: '#84cc16',
   publisher: '#0ea5e9',
+  learner_creator_content: '#d946ef',
   other: '#9ca3af',
   unknown: '#d1d5db',
 };

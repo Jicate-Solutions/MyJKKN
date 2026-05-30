@@ -56,6 +56,7 @@ const ENUM_OPTIONS: { value: LeadSourceEnum; label: string }[] = [
   { value: 'inbound_call', label: 'Inbound Call' },
   { value: 'whatsapp', label: 'WhatsApp' },
   { value: 'gate_entry', label: 'Gate Entry' },
+  { value: 'learner_creator_content', label: 'Learner Creator (Instagram)' },
   { value: 'other', label: 'Other' },
 ];
 
