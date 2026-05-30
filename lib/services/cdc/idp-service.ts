@@ -66,8 +66,8 @@ export class IdpService {
     return data as CdcIdpResponse | null;
   }
 
-  static async create(dto: CreateIdpResponseDto): Promise<CdcIdpResponse> {
-    const { data, error } = await this.supabase
+  static async create(supabase: SupabaseClient, dto: CreateIdpResponseDto): Promise<CdcIdpResponse> {
+    const { data, error } = await supabase
       .from('cdc_idp_responses')
       .insert({
         learner_id: dto.learner_id,
