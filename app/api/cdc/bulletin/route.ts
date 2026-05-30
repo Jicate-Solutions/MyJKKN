@@ -6,6 +6,18 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import type { CreateOpportunityDto, OpportunityFilters } from '@/types/cdc/bulletin';
 
+/**
+ * Strip characters that are reserved syntax inside a PostgREST `.or()` filter
+ * string (comma separates conditions; parentheses group; `*` is the ilike
+ * wildcard; backslash escapes). Leaving these in lets a crafted search value
+ * break out of the intended title/source_organisation ilike and inject
+ * arbitrary OR conditions (filter injection -> data exposure).
+ * Normal alphanumeric searches (e.g. "infosys") pass through unchanged.
+ */
+function sanitizeSearch(value: string): string {
+  return value.replace(/[,()*\\]/g, '').trim();
+}
+
 export async function GET(request: NextRequest) {
   try {
     const supabase = await createServerSupabaseClient();
@@ -30,7 +42,10 @@ export async function GET(request: NextRequest) {
       .order('posted_at', { ascending: false });
 
     if (filters.search) {
-      query = query.or(`title.ilike.%${filters.search}%,source_organisation.ilike.%${filters.search}%`);
+      const safeSearch = sanitizeSearch(filters.search);
+      if (safeSearch) {
+        query = query.or(`title.ilike.%${safeSearch}%,source_organisation.ilike.%${safeSearch}%`);
+      }
     }
     if (filters.category) query = query.eq('category', filters.category);
     if (filters.status === 'active') {
