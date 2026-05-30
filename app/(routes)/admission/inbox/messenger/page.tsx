@@ -84,18 +84,22 @@ export default function MessengerInboxPage() {
     refetchInterval: 30_000,
   });
 
-  const conversations = conversationsQuery.data ?? [];
+  const conversations = useMemo(
+    () => conversationsQuery.data ?? [],
+    [conversationsQuery.data]
+  );
 
-  // Auto-select the first conversation when the list loads (and nothing is selected yet).
-  useEffect(() => {
-    if (!selectedId && conversations.length > 0) {
-      setSelectedId(conversations[0].id);
-    }
-  }, [selectedId, conversations]);
+  // Effective selection: explicit `selectedId` if it still exists in the list,
+  // otherwise the first conversation. Derived (no setState in effect) so the
+  // initial render shows a selected thread without a cascading re-render.
+  const effectiveSelectedId =
+    (selectedId && conversations.some((c) => c.id === selectedId))
+      ? selectedId
+      : (conversations[0]?.id ?? null);
 
   const selected = useMemo(
-    () => conversations.find((c) => c.id === selectedId) ?? null,
-    [conversations, selectedId]
+    () => conversations.find((c) => c.id === effectiveSelectedId) ?? null,
+    [conversations, effectiveSelectedId]
   );
 
   const messagesQuery = useQuery({
