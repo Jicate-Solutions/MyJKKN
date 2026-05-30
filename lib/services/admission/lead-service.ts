@@ -846,15 +846,33 @@ export class LeadService {
       .eq('id', leadId)
       .single();
 
-    // Validate transition (skip if force=true — for super-admin overrides)
-    // currentStage is undefined for legacy rows with no funnel_stage — skip validation
+    // Validate transition (skip if force=true — for super-admin overrides).
+    // 2026-05-30 (BUG-004110/004111): the previous hardcoded per-stage matrix
+    // (ALLOWED_STAGE_TRANSITIONS) omitted many valid moves among the 26 active
+    // admission_statuses(scope='lead') rows, so counselors hit a spurious
+    // "Invalid stage transition" when picking a legitimate DB stage. Admins can
+    // also add/rename statuses at runtime, which a static map can never track.
+    // We now only reject UNKNOWN/INACTIVE target codes — any active lead status
+    // is a legal target. currentStage stays informational.
     const currentStage = current?.funnel_stage as FunnelStage | undefined;
     if (!force && currentStage && currentStage !== newStage) {
-      const allowed = ALLOWED_STAGE_TRANSITIONS[currentStage] ?? [];
-      if (!allowed.includes(newStage)) {
+      const { data: activeStatuses } = await (db as any)
+        .from('admission_statuses')
+        .select('code')
+        .eq('scope', 'lead')
+        .eq('is_active', true);
+      const validCodes = new Set<string>(
+        (activeStatuses ?? []).map((s: any) => s.code as string),
+      );
+      // If the catalog read fails/returns empty (RLS or transient), fall back to
+      // the FunnelStage union keys so we never hard-block a known stage.
+      const known =
+        validCodes.size > 0
+          ? validCodes.has(newStage)
+          : Object.prototype.hasOwnProperty.call(ALLOWED_STAGE_TRANSITIONS, newStage);
+      if (!known) {
         throw new Error(
-          `Invalid stage transition: "${currentStage}" -> "${newStage}" is not allowed. ` +
-          `Allowed next stages: ${allowed.join(', ')}.`
+          `Invalid stage transition: "${newStage}" is not an active lead status.`,
         );
       }
     }
