@@ -108,7 +108,7 @@ export class ClubService {
     if (dto.formed_on !== undefined) payload.formed_on = dto.formed_on;
     if (dto.updated_by !== undefined) payload.updated_by = dto.updated_by;
 
-    const { data, error } = await this.supabase
+    const { data, error } = await supabase
       .from('cdc_clubs')
       .update(payload)
       .eq('id', id)
