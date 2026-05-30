@@ -5012,7 +5012,7 @@ export type Database = {
       }
       admission_fee_structures: {
         Row: {
-          accommodation_type_id: string
+          accommodation_type_id: string | null
           admission_year_id: string
           created_at: string
           created_by: string | null
@@ -5032,7 +5032,7 @@ export type Database = {
           updated_by: string | null
         }
         Insert: {
-          accommodation_type_id: string
+          accommodation_type_id?: string | null
           admission_year_id: string
           created_at?: string
           created_by?: string | null
@@ -5052,7 +5052,7 @@ export type Database = {
           updated_by?: string | null
         }
         Update: {
-          accommodation_type_id?: string
+          accommodation_type_id?: string | null
           admission_year_id?: string
           created_at?: string
           created_by?: string | null
@@ -7526,6 +7526,231 @@ export type Database = {
             columns: ["stall_id"]
             isOneToOne: false
             referencedRelation: "expo_event_stalls"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      admission_package_program_eligibility: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          id: string
+          package_id: string
+          program_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          package_id: string
+          program_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          package_id?: string
+          program_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "admission_package_program_eligibility_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "admission_package_program_eligibility_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "admission_package_program_eligibility_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "admission_package_program_eligibility_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "admission_package_program_eligibility_package_id_fkey"
+            columns: ["package_id"]
+            isOneToOne: false
+            referencedRelation: "admission_packages"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "admission_package_program_eligibility_program_id_fkey"
+            columns: ["program_id"]
+            isOneToOne: false
+            referencedRelation: "case_graduation_readiness"
+            referencedColumns: ["programme_id"]
+          },
+          {
+            foreignKeyName: "admission_package_program_eligibility_program_id_fkey"
+            columns: ["program_id"]
+            isOneToOne: false
+            referencedRelation: "programs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      admission_packages: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          description: string | null
+          hostel_year_id: string | null
+          id: string
+          institution_id: string
+          is_active: boolean
+          name: string
+          room_category_id: string
+          total_price_inr: number
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          hostel_year_id?: string | null
+          id?: string
+          institution_id: string
+          is_active?: boolean
+          name: string
+          room_category_id: string
+          total_price_inr: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          hostel_year_id?: string | null
+          id?: string
+          institution_id?: string
+          is_active?: boolean
+          name?: string
+          room_category_id?: string
+          total_price_inr?: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "admission_packages_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "admission_packages_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "admission_packages_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "admission_packages_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "admission_packages_hostel_year_id_fkey"
+            columns: ["hostel_year_id"]
+            isOneToOne: false
+            referencedRelation: "hostel_years"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "admission_packages_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "case_graduation_readiness"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "admission_packages_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "admission_packages_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_colleges"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "admission_packages_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "admission_packages_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "v_institutions_needing_admission_counselors"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "admission_packages_room_category_id_fkey"
+            columns: ["room_category_id"]
+            isOneToOne: false
+            referencedRelation: "hostel_categories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "admission_packages_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "admission_packages_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "admission_packages_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "admission_packages_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
             referencedColumns: ["id"]
           },
         ]
@@ -12107,6 +12332,34 @@ export type Database = {
             referencedRelation: "billing_student_bills"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "fk_billing_discounts_created_by"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "fk_billing_discounts_created_by"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "fk_billing_discounts_created_by"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_billing_discounts_created_by"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
         ]
       }
       billing_invoice_items: {
@@ -12416,6 +12669,34 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "fk_billing_receipts_created_by"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "fk_billing_receipts_created_by"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "fk_billing_receipts_created_by"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_billing_receipts_created_by"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "fk_billing_receipts_institution"
             columns: ["institution_id"]
             isOneToOne: false
@@ -12603,6 +12884,34 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "fk_billing_refunds_created_by"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "fk_billing_refunds_created_by"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "fk_billing_refunds_created_by"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_billing_refunds_created_by"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "fk_billing_refunds_receipt"
             columns: ["receipt_id"]
             isOneToOne: false
@@ -12697,6 +13006,34 @@ export type Database = {
             columns: ["superseded_by_bill_id"]
             isOneToOne: false
             referencedRelation: "billing_student_bills"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_billing_student_bills_created_by"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "fk_billing_student_bills_created_by"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "fk_billing_student_bills_created_by"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_billing_student_bills_created_by"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
             referencedColumns: ["id"]
           },
           {
@@ -15848,6 +16185,56 @@ export type Database = {
             columns: ["prerequisite_track_id"]
             isOneToOne: false
             referencedRelation: "case_tracks"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      castes: {
+        Row: {
+          aliases: string[]
+          community_category_id: string
+          created_at: string
+          created_by: string | null
+          id: string
+          is_active: boolean
+          name: string
+          notes: string | null
+          sort_order: number
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          aliases?: string[]
+          community_category_id: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          is_active?: boolean
+          name: string
+          notes?: string | null
+          sort_order?: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          aliases?: string[]
+          community_category_id?: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          is_active?: boolean
+          name?: string
+          notes?: string | null
+          sort_order?: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "castes_community_category_id_fkey"
+            columns: ["community_category_id"]
+            isOneToOne: false
+            referencedRelation: "community_categories"
             referencedColumns: ["id"]
           },
         ]
@@ -21576,6 +21963,7 @@ export type Database = {
           degree_name: string
           degree_order: number
           degree_type: string
+          deleted_at: string | null
           display_name: string | null
           id: string
           institution_id: string
@@ -21589,6 +21977,7 @@ export type Database = {
           degree_name: string
           degree_order?: number
           degree_type: string
+          deleted_at?: string | null
           display_name?: string | null
           id?: string
           institution_id: string
@@ -21602,6 +21991,7 @@ export type Database = {
           degree_name?: string
           degree_order?: number
           degree_type?: string
+          deleted_at?: string | null
           display_name?: string | null
           id?: string
           institution_id?: string
@@ -30366,6 +30756,105 @@ export type Database = {
           },
         ]
       }
+      hostel_amenity_tags: {
+        Row: {
+          active: boolean
+          code: string
+          created_at: string
+          created_by: string | null
+          description: string | null
+          icon: string | null
+          id: string
+          name: string
+          sort_order: number
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          active?: boolean
+          code: string
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          icon?: string | null
+          id?: string
+          name: string
+          sort_order?: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          active?: boolean
+          code?: string
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          icon?: string | null
+          id?: string
+          name?: string
+          sort_order?: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hostel_amenity_tags_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "hostel_amenity_tags_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "hostel_amenity_tags_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_amenity_tags_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_amenity_tags_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "hostel_amenity_tags_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "hostel_amenity_tags_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_amenity_tags_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       hostel_attendance: {
         Row: {
           block_id: string
@@ -30651,6 +31140,254 @@ export type Database = {
           },
         ]
       }
+      hostel_billable_amenities: {
+        Row: {
+          active: boolean
+          code: string
+          commitment_months: number
+          created_at: string
+          created_by: string | null
+          default_config_schema: Json
+          description: string | null
+          fee_calculation_type: string
+          icon: string | null
+          id: string
+          late_joiner_min_months: number
+          name: string
+          refund_mode: string
+          sort_order: number
+          updated_at: string
+          updated_by: string | null
+          upfront_required: boolean
+        }
+        Insert: {
+          active?: boolean
+          code: string
+          commitment_months?: number
+          created_at?: string
+          created_by?: string | null
+          default_config_schema?: Json
+          description?: string | null
+          fee_calculation_type: string
+          icon?: string | null
+          id?: string
+          late_joiner_min_months?: number
+          name: string
+          refund_mode?: string
+          sort_order?: number
+          updated_at?: string
+          updated_by?: string | null
+          upfront_required?: boolean
+        }
+        Update: {
+          active?: boolean
+          code?: string
+          commitment_months?: number
+          created_at?: string
+          created_by?: string | null
+          default_config_schema?: Json
+          description?: string | null
+          fee_calculation_type?: string
+          icon?: string | null
+          id?: string
+          late_joiner_min_months?: number
+          name?: string
+          refund_mode?: string
+          sort_order?: number
+          updated_at?: string
+          updated_by?: string | null
+          upfront_required?: boolean
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hostel_billable_amenities_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "hostel_billable_amenities_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "hostel_billable_amenities_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_billable_amenities_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_billable_amenities_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "hostel_billable_amenities_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "hostel_billable_amenities_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_billable_amenities_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      hostel_block_amenity_tags: {
+        Row: {
+          block_id: string
+          created_at: string
+          created_by: string | null
+          tag_id: string
+        }
+        Insert: {
+          block_id: string
+          created_at?: string
+          created_by?: string | null
+          tag_id: string
+        }
+        Update: {
+          block_id?: string
+          created_at?: string
+          created_by?: string | null
+          tag_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hostel_block_amenity_tags_block_id_fkey"
+            columns: ["block_id"]
+            isOneToOne: false
+            referencedRelation: "hostel_blocks"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_block_amenity_tags_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "hostel_block_amenity_tags_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "hostel_block_amenity_tags_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_block_amenity_tags_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_block_amenity_tags_tag_id_fkey"
+            columns: ["tag_id"]
+            isOneToOne: false
+            referencedRelation: "hostel_amenity_tags"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      hostel_block_billable_amenities: {
+        Row: {
+          billable_id: string
+          block_id: string
+          created_at: string
+          created_by: string | null
+          default_config: Json
+        }
+        Insert: {
+          billable_id: string
+          block_id: string
+          created_at?: string
+          created_by?: string | null
+          default_config?: Json
+        }
+        Update: {
+          billable_id?: string
+          block_id?: string
+          created_at?: string
+          created_by?: string | null
+          default_config?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hostel_block_billable_amenities_billable_id_fkey"
+            columns: ["billable_id"]
+            isOneToOne: false
+            referencedRelation: "hostel_billable_amenities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_block_billable_amenities_block_id_fkey"
+            columns: ["block_id"]
+            isOneToOne: false
+            referencedRelation: "hostel_blocks"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_block_billable_amenities_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "hostel_block_billable_amenities_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "hostel_block_billable_amenities_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_block_billable_amenities_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       hostel_block_institutions: {
         Row: {
           block_id: string
@@ -30856,6 +31593,39 @@ export type Database = {
           },
         ]
       }
+      hostel_categories: {
+        Row: {
+          created_at: string
+          description: string | null
+          id: string
+          is_active: boolean
+          name: string
+          sort_order: number
+          type: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          is_active?: boolean
+          name: string
+          sort_order?: number
+          type: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          is_active?: boolean
+          name?: string
+          sort_order?: number
+          type?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       hostel_category_fees: {
         Row: {
           amenities_category_id: string | null
@@ -30893,7 +31663,36 @@ export type Database = {
           mess_category_id?: string | null
           updated_at?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "hostel_category_fees_amenities_category_id_fkey"
+            columns: ["amenities_category_id"]
+            isOneToOne: false
+            referencedRelation: "amenities_categories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_category_fees_hostel_category_id_fkey"
+            columns: ["hostel_category_id"]
+            isOneToOne: false
+            referencedRelation: "hostel_categories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_category_fees_hostel_year_id_fkey"
+            columns: ["hostel_year_id"]
+            isOneToOne: false
+            referencedRelation: "hostel_years"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_category_fees_mess_category_id_fkey"
+            columns: ["mess_category_id"]
+            isOneToOne: false
+            referencedRelation: "mess_categories"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       hostel_cleaning_schedules: {
         Row: {
@@ -31809,11 +32608,11 @@ export type Database = {
           annual_fee: number
           created_at: string | null
           deposit_amount: number
-          hostel_year_id: string
           electricity_charges:
             | Database["public"]["Enums"]["electricity_charges_enum"]
             | null
           electricity_fixed_amount: number | null
+          hostel_year_id: string
           id: string
           institution_id: string
           is_active: boolean | null
@@ -31829,11 +32628,11 @@ export type Database = {
           annual_fee: number
           created_at?: string | null
           deposit_amount: number
-          hostel_year_id: string
           electricity_charges?:
             | Database["public"]["Enums"]["electricity_charges_enum"]
             | null
           electricity_fixed_amount?: number | null
+          hostel_year_id: string
           id?: string
           institution_id: string
           is_active?: boolean | null
@@ -31849,11 +32648,11 @@ export type Database = {
           annual_fee?: number
           created_at?: string | null
           deposit_amount?: number
-          hostel_year_id?: string
           electricity_charges?:
             | Database["public"]["Enums"]["electricity_charges_enum"]
             | null
           electricity_fixed_amount?: number | null
+          hostel_year_id?: string
           id?: string
           institution_id?: string
           is_active?: boolean | null
@@ -31865,6 +32664,13 @@ export type Database = {
           tier_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "hostel_fee_config_hostel_year_id_fkey"
+            columns: ["hostel_year_id"]
+            isOneToOne: false
+            referencedRelation: "hostel_years"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "hostel_fee_config_institution_id_fkey"
             columns: ["institution_id"]
@@ -34352,6 +35158,136 @@ export type Database = {
           },
         ]
       }
+      hostel_pending_premium_entitlements: {
+        Row: {
+          amount_prepaid_inr: number
+          created_at: string
+          fulfilled_at: string | null
+          fulfilled_by_vacancy_id: string | null
+          hostel_year_id: string | null
+          id: string
+          institution_id: string
+          learner_id: string
+          package_value_inr: number
+          status: string
+          target_room_category_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          amount_prepaid_inr?: number
+          created_at?: string
+          fulfilled_at?: string | null
+          fulfilled_by_vacancy_id?: string | null
+          hostel_year_id?: string | null
+          id?: string
+          institution_id: string
+          learner_id: string
+          package_value_inr?: number
+          status?: string
+          target_room_category_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          amount_prepaid_inr?: number
+          created_at?: string
+          fulfilled_at?: string | null
+          fulfilled_by_vacancy_id?: string | null
+          hostel_year_id?: string | null
+          id?: string
+          institution_id?: string
+          learner_id?: string
+          package_value_inr?: number
+          status?: string
+          target_room_category_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hostel_pending_premium_entitlement_fulfilled_by_vacancy_id_fkey"
+            columns: ["fulfilled_by_vacancy_id"]
+            isOneToOne: false
+            referencedRelation: "hostel_premium_vacancies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_pending_premium_entitlement_target_room_category_id_fkey"
+            columns: ["target_room_category_id"]
+            isOneToOne: false
+            referencedRelation: "hostel_categories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_pending_premium_entitlements_hostel_year_id_fkey"
+            columns: ["hostel_year_id"]
+            isOneToOne: false
+            referencedRelation: "hostel_years"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_pending_premium_entitlements_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "case_graduation_readiness"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "hostel_pending_premium_entitlements_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_pending_premium_entitlements_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_colleges"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "hostel_pending_premium_entitlements_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "hostel_pending_premium_entitlements_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "v_institutions_needing_admission_counselors"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "hostel_pending_premium_entitlements_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "hostel_pending_premium_entitlements_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "hostel_pending_premium_entitlements_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_pending_premium_entitlements_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       hostel_pm_schedules: {
         Row: {
           assigned_to_name: string | null
@@ -34887,6 +35823,545 @@ export type Database = {
           },
         ]
       }
+      hostel_premium_vacancies: {
+        Row: {
+          bed_id: string | null
+          block_id: string | null
+          cluster_key: string | null
+          created_at: string
+          current_discount_pct: number
+          filled_at: string | null
+          filled_by_learner_id: string | null
+          hostel_type: string | null
+          id: string
+          institution_id: string
+          last_dropped_at: string | null
+          opened_at: string
+          opened_by_vacate_request_id: string | null
+          room_category_id: string | null
+          room_id: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          bed_id?: string | null
+          block_id?: string | null
+          cluster_key?: string | null
+          created_at?: string
+          current_discount_pct?: number
+          filled_at?: string | null
+          filled_by_learner_id?: string | null
+          hostel_type?: string | null
+          id?: string
+          institution_id: string
+          last_dropped_at?: string | null
+          opened_at?: string
+          opened_by_vacate_request_id?: string | null
+          room_category_id?: string | null
+          room_id: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          bed_id?: string | null
+          block_id?: string | null
+          cluster_key?: string | null
+          created_at?: string
+          current_discount_pct?: number
+          filled_at?: string | null
+          filled_by_learner_id?: string | null
+          hostel_type?: string | null
+          id?: string
+          institution_id?: string
+          last_dropped_at?: string | null
+          opened_at?: string
+          opened_by_vacate_request_id?: string | null
+          room_category_id?: string | null
+          room_id?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hostel_premium_vacancies_bed_id_fkey"
+            columns: ["bed_id"]
+            isOneToOne: false
+            referencedRelation: "hostel_beds"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_premium_vacancies_block_id_fkey"
+            columns: ["block_id"]
+            isOneToOne: false
+            referencedRelation: "hostel_blocks"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_premium_vacancies_filled_by_learner_id_fkey"
+            columns: ["filled_by_learner_id"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "hostel_premium_vacancies_filled_by_learner_id_fkey"
+            columns: ["filled_by_learner_id"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "hostel_premium_vacancies_filled_by_learner_id_fkey"
+            columns: ["filled_by_learner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_premium_vacancies_filled_by_learner_id_fkey"
+            columns: ["filled_by_learner_id"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_premium_vacancies_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "case_graduation_readiness"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "hostel_premium_vacancies_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_premium_vacancies_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_colleges"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "hostel_premium_vacancies_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "hostel_premium_vacancies_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "v_institutions_needing_admission_counselors"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "hostel_premium_vacancies_opened_by_vacate_request_id_fkey"
+            columns: ["opened_by_vacate_request_id"]
+            isOneToOne: false
+            referencedRelation: "hostel_vacate_requests"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_premium_vacancies_room_category_id_fkey"
+            columns: ["room_category_id"]
+            isOneToOne: false
+            referencedRelation: "hostel_categories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_premium_vacancies_room_id_fkey"
+            columns: ["room_id"]
+            isOneToOne: false
+            referencedRelation: "hostel_rooms"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_premium_vacancies_room_id_fkey"
+            columns: ["room_id"]
+            isOneToOne: false
+            referencedRelation: "v_hostel_room_occupancy"
+            referencedColumns: ["room_id"]
+          },
+        ]
+      }
+      hostel_premium_vacancy_notifications: {
+        Row: {
+          channel: string | null
+          created_at: string
+          discount_pct_at_notify: number
+          id: string
+          notified_at: string
+          notified_learner_id: string
+          vacancy_id: string
+        }
+        Insert: {
+          channel?: string | null
+          created_at?: string
+          discount_pct_at_notify?: number
+          id?: string
+          notified_at?: string
+          notified_learner_id: string
+          vacancy_id: string
+        }
+        Update: {
+          channel?: string | null
+          created_at?: string
+          discount_pct_at_notify?: number
+          id?: string
+          notified_at?: string
+          notified_learner_id?: string
+          vacancy_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hostel_premium_vacancy_notifications_notified_learner_id_fkey"
+            columns: ["notified_learner_id"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "hostel_premium_vacancy_notifications_notified_learner_id_fkey"
+            columns: ["notified_learner_id"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "hostel_premium_vacancy_notifications_notified_learner_id_fkey"
+            columns: ["notified_learner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_premium_vacancy_notifications_notified_learner_id_fkey"
+            columns: ["notified_learner_id"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_premium_vacancy_notifications_vacancy_id_fkey"
+            columns: ["vacancy_id"]
+            isOneToOne: false
+            referencedRelation: "hostel_premium_vacancies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      hostel_program_mess_eligibility: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          effective_from: string | null
+          id: string
+          institution_id: string
+          is_active: boolean
+          is_monthly_mess_allowed: boolean
+          mess_category_id: string
+          program_id: string | null
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          effective_from?: string | null
+          id?: string
+          institution_id: string
+          is_active?: boolean
+          is_monthly_mess_allowed?: boolean
+          mess_category_id: string
+          program_id?: string | null
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          effective_from?: string | null
+          id?: string
+          institution_id?: string
+          is_active?: boolean
+          is_monthly_mess_allowed?: boolean
+          mess_category_id?: string
+          program_id?: string | null
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hostel_program_mess_eligibility_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "hostel_program_mess_eligibility_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "hostel_program_mess_eligibility_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_program_mess_eligibility_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_program_mess_eligibility_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "case_graduation_readiness"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "hostel_program_mess_eligibility_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_program_mess_eligibility_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_colleges"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "hostel_program_mess_eligibility_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "hostel_program_mess_eligibility_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "v_institutions_needing_admission_counselors"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "hostel_program_mess_eligibility_mess_category_id_fkey"
+            columns: ["mess_category_id"]
+            isOneToOne: false
+            referencedRelation: "mess_categories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_program_mess_eligibility_program_id_fkey"
+            columns: ["program_id"]
+            isOneToOne: false
+            referencedRelation: "case_graduation_readiness"
+            referencedColumns: ["programme_id"]
+          },
+          {
+            foreignKeyName: "hostel_program_mess_eligibility_program_id_fkey"
+            columns: ["program_id"]
+            isOneToOne: false
+            referencedRelation: "programs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_program_mess_eligibility_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "hostel_program_mess_eligibility_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "hostel_program_mess_eligibility_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_program_mess_eligibility_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      hostel_program_room_eligibility: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          effective_from: string | null
+          id: string
+          institution_id: string
+          is_active: boolean
+          program_id: string | null
+          room_category_id: string
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          effective_from?: string | null
+          id?: string
+          institution_id: string
+          is_active?: boolean
+          program_id?: string | null
+          room_category_id: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          effective_from?: string | null
+          id?: string
+          institution_id?: string
+          is_active?: boolean
+          program_id?: string | null
+          room_category_id?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hostel_program_room_eligibility_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "hostel_program_room_eligibility_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "hostel_program_room_eligibility_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_program_room_eligibility_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_program_room_eligibility_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "case_graduation_readiness"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "hostel_program_room_eligibility_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_program_room_eligibility_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_colleges"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "hostel_program_room_eligibility_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "hostel_program_room_eligibility_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "v_institutions_needing_admission_counselors"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "hostel_program_room_eligibility_program_id_fkey"
+            columns: ["program_id"]
+            isOneToOne: false
+            referencedRelation: "case_graduation_readiness"
+            referencedColumns: ["programme_id"]
+          },
+          {
+            foreignKeyName: "hostel_program_room_eligibility_program_id_fkey"
+            columns: ["program_id"]
+            isOneToOne: false
+            referencedRelation: "programs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_program_room_eligibility_room_category_id_fkey"
+            columns: ["room_category_id"]
+            isOneToOne: false
+            referencedRelation: "hostel_categories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_program_room_eligibility_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "hostel_program_room_eligibility_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "hostel_program_room_eligibility_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_program_room_eligibility_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       hostel_pulse_configs: {
         Row: {
           created_at: string | null
@@ -35371,6 +36846,157 @@ export type Database = {
           },
         ]
       }
+      hostel_room_amenity_tags: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          present: boolean
+          room_id: string
+          tag_id: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          present?: boolean
+          room_id: string
+          tag_id: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          present?: boolean
+          room_id?: string
+          tag_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hostel_room_amenity_tags_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "hostel_room_amenity_tags_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "hostel_room_amenity_tags_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_room_amenity_tags_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_room_amenity_tags_room_id_fkey"
+            columns: ["room_id"]
+            isOneToOne: false
+            referencedRelation: "hostel_rooms"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_room_amenity_tags_room_id_fkey"
+            columns: ["room_id"]
+            isOneToOne: false
+            referencedRelation: "v_hostel_room_occupancy"
+            referencedColumns: ["room_id"]
+          },
+          {
+            foreignKeyName: "hostel_room_amenity_tags_tag_id_fkey"
+            columns: ["tag_id"]
+            isOneToOne: false
+            referencedRelation: "hostel_amenity_tags"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      hostel_room_billable_amenities: {
+        Row: {
+          billable_id: string
+          config_override: Json | null
+          created_at: string
+          created_by: string | null
+          present: boolean
+          room_id: string
+        }
+        Insert: {
+          billable_id: string
+          config_override?: Json | null
+          created_at?: string
+          created_by?: string | null
+          present?: boolean
+          room_id: string
+        }
+        Update: {
+          billable_id?: string
+          config_override?: Json | null
+          created_at?: string
+          created_by?: string | null
+          present?: boolean
+          room_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hostel_room_billable_amenities_billable_id_fkey"
+            columns: ["billable_id"]
+            isOneToOne: false
+            referencedRelation: "hostel_billable_amenities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_room_billable_amenities_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "hostel_room_billable_amenities_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "hostel_room_billable_amenities_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_room_billable_amenities_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_room_billable_amenities_room_id_fkey"
+            columns: ["room_id"]
+            isOneToOne: false
+            referencedRelation: "hostel_rooms"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_room_billable_amenities_room_id_fkey"
+            columns: ["room_id"]
+            isOneToOne: false
+            referencedRelation: "v_hostel_room_occupancy"
+            referencedColumns: ["room_id"]
+          },
+        ]
+      }
       hostel_roommate_preferences: {
         Row: {
           academic_year_id: string
@@ -35518,7 +37144,10 @@ export type Database = {
       }
       hostel_rooms: {
         Row: {
+          ac_annual_cost_inr: number | null
           ac_status: Database["public"]["Enums"]["ac_status_enum"]
+          ac_tonnage_tons: number | null
+          actual_capacity: number | null
           annual_fee: number | null
           block_id: string
           capacity: number
@@ -35532,13 +37161,19 @@ export type Database = {
           last_inspection_date: string | null
           maintenance_notes: string | null
           metadata: Json | null
+          painting: string | null
+          renovated: string | null
           room_number: string
+          room_purpose: string
           room_type: Database["public"]["Enums"]["room_type_enum"]
           tier_access: string
           updated_at: string | null
         }
         Insert: {
+          ac_annual_cost_inr?: number | null
           ac_status: Database["public"]["Enums"]["ac_status_enum"]
+          ac_tonnage_tons?: number | null
+          actual_capacity?: number | null
           annual_fee?: number | null
           block_id: string
           capacity: number
@@ -35552,13 +37187,19 @@ export type Database = {
           last_inspection_date?: string | null
           maintenance_notes?: string | null
           metadata?: Json | null
+          painting?: string | null
+          renovated?: string | null
           room_number: string
+          room_purpose?: string
           room_type: Database["public"]["Enums"]["room_type_enum"]
           tier_access?: string
           updated_at?: string | null
         }
         Update: {
+          ac_annual_cost_inr?: number | null
           ac_status?: Database["public"]["Enums"]["ac_status_enum"]
+          ac_tonnage_tons?: number | null
+          actual_capacity?: number | null
           annual_fee?: number | null
           block_id?: string
           capacity?: number
@@ -35572,7 +37213,10 @@ export type Database = {
           last_inspection_date?: string | null
           maintenance_notes?: string | null
           metadata?: Json | null
+          painting?: string | null
+          renovated?: string | null
           room_number?: string
+          room_purpose?: string
           room_type?: Database["public"]["Enums"]["room_type_enum"]
           tier_access?: string
           updated_at?: string | null
@@ -35583,6 +37227,13 @@ export type Database = {
             columns: ["block_id"]
             isOneToOne: false
             referencedRelation: "hostel_blocks"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_rooms_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "hostel_categories"
             referencedColumns: ["id"]
           },
         ]
@@ -55887,6 +57538,114 @@ export type Database = {
           },
         ]
       }
+      learner_package_assignment: {
+        Row: {
+          assigned_at: string
+          chosen_mess_category_id: string | null
+          created_by: string | null
+          hostel_year_id: string | null
+          id: string
+          learner_id: string
+          package_id: string
+        }
+        Insert: {
+          assigned_at?: string
+          chosen_mess_category_id?: string | null
+          created_by?: string | null
+          hostel_year_id?: string | null
+          id?: string
+          learner_id: string
+          package_id: string
+        }
+        Update: {
+          assigned_at?: string
+          chosen_mess_category_id?: string | null
+          created_by?: string | null
+          hostel_year_id?: string | null
+          id?: string
+          learner_id?: string
+          package_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "learner_package_assignment_chosen_mess_category_id_fkey"
+            columns: ["chosen_mess_category_id"]
+            isOneToOne: false
+            referencedRelation: "mess_categories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "learner_package_assignment_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "learner_package_assignment_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "learner_package_assignment_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "learner_package_assignment_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "learner_package_assignment_hostel_year_id_fkey"
+            columns: ["hostel_year_id"]
+            isOneToOne: false
+            referencedRelation: "hostel_years"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "learner_package_assignment_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "learner_package_assignment_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "learner_package_assignment_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "learner_package_assignment_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "learner_package_assignment_package_id_fkey"
+            columns: ["package_id"]
+            isOneToOne: false
+            referencedRelation: "admission_packages"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       learner_pulse_responses: {
         Row: {
           created_at: string
@@ -56435,9 +58194,11 @@ export type Database = {
           batch_id: string | null
           blood_group: string | null
           board_of_study: string
+          bus_required: boolean | null
           capabilities: Json | null
           career_aspirations: Json | null
           caste: string | null
+          caste_id: string | null
           college_email: string | null
           community: string
           community_category_id: string | null
@@ -56457,6 +58218,7 @@ export type Database = {
           father_occupation: string | null
           fee_items: Json
           fee_structure_type: string | null
+          fees_confirmed: boolean
           first_graduate: boolean | null
           first_name: string
           gender: string
@@ -56464,7 +58226,6 @@ export type Database = {
           hostel_category_id: string | null
           hostel_fee: number | null
           id: string
-          mess_category_id: string | null
           industry_readiness_score: number | null
           institution_id: string | null
           is_profile_complete: boolean
@@ -56476,6 +58237,7 @@ export type Database = {
           location_type: string | null
           medical_cutoff_marks: string | null
           medium_of_instruction: string | null
+          mess_category_id: string | null
           migrated_at: string | null
           migration_source: string | null
           mother_mobile: string
@@ -56513,7 +58275,6 @@ export type Database = {
           student_mobile: string
           student_photo_url: string | null
           tenth_marks: Json
-          bus_required: boolean | null
           transport_fee: number | null
           transport_route_id: string | null
           transport_stop_id: string | null
@@ -56543,9 +58304,11 @@ export type Database = {
           batch_id?: string | null
           blood_group?: string | null
           board_of_study: string
+          bus_required?: boolean | null
           capabilities?: Json | null
           career_aspirations?: Json | null
           caste?: string | null
+          caste_id?: string | null
           college_email?: string | null
           community: string
           community_category_id?: string | null
@@ -56565,6 +58328,7 @@ export type Database = {
           father_occupation?: string | null
           fee_items?: Json
           fee_structure_type?: string | null
+          fees_confirmed?: boolean
           first_graduate?: boolean | null
           first_name: string
           gender: string
@@ -56572,7 +58336,6 @@ export type Database = {
           hostel_category_id?: string | null
           hostel_fee?: number | null
           id?: string
-          mess_category_id?: string | null
           industry_readiness_score?: number | null
           institution_id?: string | null
           is_profile_complete?: boolean
@@ -56584,6 +58347,7 @@ export type Database = {
           location_type?: string | null
           medical_cutoff_marks?: string | null
           medium_of_instruction?: string | null
+          mess_category_id?: string | null
           migrated_at?: string | null
           migration_source?: string | null
           mother_mobile: string
@@ -56621,7 +58385,6 @@ export type Database = {
           student_mobile: string
           student_photo_url?: string | null
           tenth_marks: Json
-          bus_required?: boolean | null
           transport_fee?: number | null
           transport_route_id?: string | null
           transport_stop_id?: string | null
@@ -56651,9 +58414,11 @@ export type Database = {
           batch_id?: string | null
           blood_group?: string | null
           board_of_study?: string
+          bus_required?: boolean | null
           capabilities?: Json | null
           career_aspirations?: Json | null
           caste?: string | null
+          caste_id?: string | null
           college_email?: string | null
           community?: string
           community_category_id?: string | null
@@ -56673,6 +58438,7 @@ export type Database = {
           father_occupation?: string | null
           fee_items?: Json
           fee_structure_type?: string | null
+          fees_confirmed?: boolean
           first_graduate?: boolean | null
           first_name?: string
           gender?: string
@@ -56680,7 +58446,6 @@ export type Database = {
           hostel_category_id?: string | null
           hostel_fee?: number | null
           id?: string
-          mess_category_id?: string | null
           industry_readiness_score?: number | null
           institution_id?: string | null
           is_profile_complete?: boolean
@@ -56692,6 +58457,7 @@ export type Database = {
           location_type?: string | null
           medical_cutoff_marks?: string | null
           medium_of_instruction?: string | null
+          mess_category_id?: string | null
           migrated_at?: string | null
           migration_source?: string | null
           mother_mobile?: string
@@ -56729,7 +58495,6 @@ export type Database = {
           student_mobile?: string
           student_photo_url?: string | null
           tenth_marks?: Json
-          bus_required?: boolean | null
           transport_fee?: number | null
           transport_route_id?: string | null
           transport_stop_id?: string | null
@@ -56882,6 +58647,13 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "learners_profiles_caste_id_fkey"
+            columns: ["caste_id"]
+            isOneToOne: false
+            referencedRelation: "castes"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "learners_profiles_community_category_id_fkey"
             columns: ["community_category_id"]
             isOneToOne: false
@@ -56917,10 +58689,38 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "learners_profiles_hostel_category_id_fkey"
+            columns: ["hostel_category_id"]
+            isOneToOne: false
+            referencedRelation: "hostel_categories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "learners_profiles_mess_category_id_fkey"
+            columns: ["mess_category_id"]
+            isOneToOne: false
+            referencedRelation: "mess_categories"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "learners_profiles_quota_id_fkey"
             columns: ["quota_id"]
             isOneToOne: false
             referencedRelation: "quotas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "learners_profiles_transport_route_id_fkey"
+            columns: ["transport_route_id"]
+            isOneToOne: false
+            referencedRelation: "tms_route"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "learners_profiles_transport_stop_id_fkey"
+            columns: ["transport_stop_id"]
+            isOneToOne: false
+            referencedRelation: "tms_route_stop"
             referencedColumns: ["id"]
           },
           {
@@ -60743,6 +62543,39 @@ export type Database = {
           },
         ]
       }
+      mess_categories: {
+        Row: {
+          created_at: string
+          description: string | null
+          id: string
+          is_active: boolean
+          name: string
+          sort_order: number
+          type: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          is_active?: boolean
+          name: string
+          sort_order?: number
+          type: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          is_active?: boolean
+          name?: string
+          sort_order?: number
+          type?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       mess_caterer_blocks: {
         Row: {
           block_id: string
@@ -60825,39 +62658,6 @@ export type Database = {
             referencedColumns: ["institution_id"]
           },
         ]
-      }
-      mess_categories: {
-        Row: {
-          created_at: string
-          description: string | null
-          id: string
-          is_active: boolean
-          name: string
-          sort_order: number
-          type: string
-          updated_at: string
-        }
-        Insert: {
-          created_at?: string
-          description?: string | null
-          id?: string
-          is_active?: boolean
-          name: string
-          sort_order?: number
-          type: string
-          updated_at?: string
-        }
-        Update: {
-          created_at?: string
-          description?: string | null
-          id?: string
-          is_active?: boolean
-          name?: string
-          sort_order?: number
-          type?: string
-          updated_at?: string
-        }
-        Relationships: []
       }
       mess_caterers: {
         Row: {
@@ -63891,51 +65691,6 @@ export type Database = {
           },
         ]
       }
-      okr_attachments: {
-        Row: {
-          created_at: string
-          description: string | null
-          entity_id: string
-          entity_type: string
-          external_url: string | null
-          file_name: string
-          file_size: number | null
-          file_type: string
-          id: string
-          storage_path: string | null
-          thumbnail_path: string | null
-          uploaded_by: string
-        }
-        Insert: {
-          created_at?: string
-          description?: string | null
-          entity_id: string
-          entity_type: string
-          external_url?: string | null
-          file_name: string
-          file_size?: number | null
-          file_type: string
-          id?: string
-          storage_path?: string | null
-          thumbnail_path?: string | null
-          uploaded_by: string
-        }
-        Update: {
-          created_at?: string
-          description?: string | null
-          entity_id?: string
-          entity_type?: string
-          external_url?: string | null
-          file_name?: string
-          file_size?: number | null
-          file_type?: string
-          id?: string
-          storage_path?: string | null
-          thumbnail_path?: string | null
-          uploaded_by?: string
-        }
-        Relationships: []
-      }
       okr_auto_track_sources: {
         Row: {
           created_at: string
@@ -63974,424 +65729,6 @@ export type Database = {
           source_module?: string
         }
         Relationships: []
-      }
-      okr_check_ins: {
-        Row: {
-          blocker_assigned_to: string | null
-          blocker_description: string | null
-          blocker_flagged: boolean
-          blocker_resolved: boolean
-          blocker_resolved_at: string | null
-          check_in_date: string | null
-          created_at: string
-          days_overdue: number
-          due_date: string
-          id: string
-          is_completed: boolean
-          is_overdue: boolean
-          overall_notes: string | null
-          updated_at: string
-          user_id: string
-          week_number: number
-          year: number
-        }
-        Insert: {
-          blocker_assigned_to?: string | null
-          blocker_description?: string | null
-          blocker_flagged?: boolean
-          blocker_resolved?: boolean
-          blocker_resolved_at?: string | null
-          check_in_date?: string | null
-          created_at?: string
-          days_overdue?: number
-          due_date: string
-          id?: string
-          is_completed?: boolean
-          is_overdue?: boolean
-          overall_notes?: string | null
-          updated_at?: string
-          user_id: string
-          week_number: number
-          year: number
-        }
-        Update: {
-          blocker_assigned_to?: string | null
-          blocker_description?: string | null
-          blocker_flagged?: boolean
-          blocker_resolved?: boolean
-          blocker_resolved_at?: string | null
-          check_in_date?: string | null
-          created_at?: string
-          days_overdue?: number
-          due_date?: string
-          id?: string
-          is_completed?: boolean
-          is_overdue?: boolean
-          overall_notes?: string | null
-          updated_at?: string
-          user_id?: string
-          week_number?: number
-          year?: number
-        }
-        Relationships: []
-      }
-      okr_comments: {
-        Row: {
-          author_id: string
-          content: string
-          created_at: string
-          deleted_at: string | null
-          edited_at: string | null
-          entity_id: string
-          entity_type: Database["public"]["Enums"]["okr_entity_type"]
-          id: string
-          is_deleted: boolean
-          is_edited: boolean
-          mentioned_user_ids: string[] | null
-          parent_comment_id: string | null
-          updated_at: string
-        }
-        Insert: {
-          author_id: string
-          content: string
-          created_at?: string
-          deleted_at?: string | null
-          edited_at?: string | null
-          entity_id: string
-          entity_type: Database["public"]["Enums"]["okr_entity_type"]
-          id?: string
-          is_deleted?: boolean
-          is_edited?: boolean
-          mentioned_user_ids?: string[] | null
-          parent_comment_id?: string | null
-          updated_at?: string
-        }
-        Update: {
-          author_id?: string
-          content?: string
-          created_at?: string
-          deleted_at?: string | null
-          edited_at?: string | null
-          entity_id?: string
-          entity_type?: Database["public"]["Enums"]["okr_entity_type"]
-          id?: string
-          is_deleted?: boolean
-          is_edited?: boolean
-          mentioned_user_ids?: string[] | null
-          parent_comment_id?: string | null
-          updated_at?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "okr_comments_parent_comment_id_fkey"
-            columns: ["parent_comment_id"]
-            isOneToOne: false
-            referencedRelation: "okr_comments"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      okr_compliance: {
-        Row: {
-          blocked_at: string | null
-          blocked_reason: string | null
-          check_in_completed: boolean
-          check_in_required: boolean
-          completion_date: string | null
-          created_at: string
-          escalation_date: string | null
-          escalation_sent: boolean
-          escalation_to: string | null
-          grace_period_end: string | null
-          id: string
-          is_blocked: boolean
-          unblocked_at: string | null
-          updated_at: string
-          user_id: string
-          week_number: number
-          year: number
-        }
-        Insert: {
-          blocked_at?: string | null
-          blocked_reason?: string | null
-          check_in_completed?: boolean
-          check_in_required?: boolean
-          completion_date?: string | null
-          created_at?: string
-          escalation_date?: string | null
-          escalation_sent?: boolean
-          escalation_to?: string | null
-          grace_period_end?: string | null
-          id?: string
-          is_blocked?: boolean
-          unblocked_at?: string | null
-          updated_at?: string
-          user_id: string
-          week_number: number
-          year: number
-        }
-        Update: {
-          blocked_at?: string | null
-          blocked_reason?: string | null
-          check_in_completed?: boolean
-          check_in_required?: boolean
-          completion_date?: string | null
-          created_at?: string
-          escalation_date?: string | null
-          escalation_sent?: boolean
-          escalation_to?: string | null
-          grace_period_end?: string | null
-          id?: string
-          is_blocked?: boolean
-          unblocked_at?: string | null
-          updated_at?: string
-          user_id?: string
-          week_number?: number
-          year?: number
-        }
-        Relationships: []
-      }
-      okr_dependencies: {
-        Row: {
-          created_at: string
-          dependency_type: Database["public"]["Enums"]["okr_dependency_type"]
-          description: string | null
-          id: string
-          objective_id: string
-          owner_department_id: string | null
-          owner_user_id: string | null
-          required_by_date: string | null
-          resolution_notes: string | null
-          resolved_at: string | null
-          status: Database["public"]["Enums"]["okr_dependency_status"]
-          title: string
-          updated_at: string
-        }
-        Insert: {
-          created_at?: string
-          dependency_type?: Database["public"]["Enums"]["okr_dependency_type"]
-          description?: string | null
-          id?: string
-          objective_id: string
-          owner_department_id?: string | null
-          owner_user_id?: string | null
-          required_by_date?: string | null
-          resolution_notes?: string | null
-          resolved_at?: string | null
-          status?: Database["public"]["Enums"]["okr_dependency_status"]
-          title: string
-          updated_at?: string
-        }
-        Update: {
-          created_at?: string
-          dependency_type?: Database["public"]["Enums"]["okr_dependency_type"]
-          description?: string | null
-          id?: string
-          objective_id?: string
-          owner_department_id?: string | null
-          owner_user_id?: string | null
-          required_by_date?: string | null
-          resolution_notes?: string | null
-          resolved_at?: string | null
-          status?: Database["public"]["Enums"]["okr_dependency_status"]
-          title?: string
-          updated_at?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "okr_dependencies_objective_id_fkey"
-            columns: ["objective_id"]
-            isOneToOne: false
-            referencedRelation: "okr_objectives"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "okr_dependencies_owner_department_id_fkey"
-            columns: ["owner_department_id"]
-            isOneToOne: false
-            referencedRelation: "departments"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      okr_external_api_credentials: {
-        Row: {
-          api_name: string
-          auth_config: Json
-          auth_type: string
-          base_url: string
-          created_at: string
-          default_headers: Json | null
-          description: string | null
-          display_name: string
-          id: string
-          is_active: boolean
-          last_error: string | null
-          last_validated_at: string | null
-          rate_limit_per_minute: number | null
-          timeout_seconds: number | null
-          updated_at: string
-        }
-        Insert: {
-          api_name: string
-          auth_config: Json
-          auth_type: string
-          base_url: string
-          created_at?: string
-          default_headers?: Json | null
-          description?: string | null
-          display_name: string
-          id?: string
-          is_active?: boolean
-          last_error?: string | null
-          last_validated_at?: string | null
-          rate_limit_per_minute?: number | null
-          timeout_seconds?: number | null
-          updated_at?: string
-        }
-        Update: {
-          api_name?: string
-          auth_config?: Json
-          auth_type?: string
-          base_url?: string
-          created_at?: string
-          default_headers?: Json | null
-          description?: string | null
-          display_name?: string
-          id?: string
-          is_active?: boolean
-          last_error?: string | null
-          last_validated_at?: string | null
-          rate_limit_per_minute?: number | null
-          timeout_seconds?: number | null
-          updated_at?: string
-        }
-        Relationships: []
-      }
-      okr_key_results: {
-        Row: {
-          created_at: string
-          current_value: number
-          data_source: Database["public"]["Enums"]["kr_data_source"]
-          data_source_config: Json | null
-          deadline: string
-          description: string | null
-          id: string
-          last_synced_at: string | null
-          measured_by: string | null
-          objective_id: string
-          order_index: number
-          progress_percentage: number
-          start_value: number
-          status: Database["public"]["Enums"]["kr_status"]
-          target_value: number
-          title: string
-          unit: string
-          updated_at: string
-        }
-        Insert: {
-          created_at?: string
-          current_value?: number
-          data_source?: Database["public"]["Enums"]["kr_data_source"]
-          data_source_config?: Json | null
-          deadline: string
-          description?: string | null
-          id?: string
-          last_synced_at?: string | null
-          measured_by?: string | null
-          objective_id: string
-          order_index?: number
-          progress_percentage?: number
-          start_value?: number
-          status?: Database["public"]["Enums"]["kr_status"]
-          target_value: number
-          title: string
-          unit?: string
-          updated_at?: string
-        }
-        Update: {
-          created_at?: string
-          current_value?: number
-          data_source?: Database["public"]["Enums"]["kr_data_source"]
-          data_source_config?: Json | null
-          deadline?: string
-          description?: string | null
-          id?: string
-          last_synced_at?: string | null
-          measured_by?: string | null
-          objective_id?: string
-          order_index?: number
-          progress_percentage?: number
-          start_value?: number
-          status?: Database["public"]["Enums"]["kr_status"]
-          target_value?: number
-          title?: string
-          unit?: string
-          updated_at?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "okr_key_results_objective_id_fkey"
-            columns: ["objective_id"]
-            isOneToOne: false
-            referencedRelation: "okr_objectives"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      okr_kr_updates: {
-        Row: {
-          auto_calculated: boolean
-          check_in_id: string
-          created_at: string
-          exception_flagged: boolean
-          exception_note: string | null
-          id: string
-          key_result_id: string
-          new_value: number
-          previous_value: number
-          source: Database["public"]["Enums"]["okr_update_source"]
-        }
-        Insert: {
-          auto_calculated?: boolean
-          check_in_id: string
-          created_at?: string
-          exception_flagged?: boolean
-          exception_note?: string | null
-          id?: string
-          key_result_id: string
-          new_value: number
-          previous_value: number
-          source?: Database["public"]["Enums"]["okr_update_source"]
-        }
-        Update: {
-          auto_calculated?: boolean
-          check_in_id?: string
-          created_at?: string
-          exception_flagged?: boolean
-          exception_note?: string | null
-          id?: string
-          key_result_id?: string
-          new_value?: number
-          previous_value?: number
-          source?: Database["public"]["Enums"]["okr_update_source"]
-        }
-        Relationships: [
-          {
-            foreignKeyName: "okr_kr_updates_check_in_id_fkey"
-            columns: ["check_in_id"]
-            isOneToOne: false
-            referencedRelation: "okr_check_ins"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "okr_kr_updates_key_result_id_fkey"
-            columns: ["key_result_id"]
-            isOneToOne: false
-            referencedRelation: "okr_key_results"
-            referencedColumns: ["id"]
-          },
-        ]
       }
       okr_metric_cache: {
         Row: {
@@ -64613,373 +65950,6 @@ export type Database = {
           unit?: string
           updated_at?: string
           value_type?: Database["public"]["Enums"]["metric_value_type"]
-        }
-        Relationships: []
-      }
-      okr_milestones: {
-        Row: {
-          achieved_at: string
-          announced_at: string | null
-          celebration_type: string | null
-          created_at: string
-          id: string
-          is_announced: boolean
-          key_result_id: string | null
-          milestone_type: Database["public"]["Enums"]["okr_milestone_type"]
-          objective_id: string | null
-          recognition_notes: string | null
-          user_id: string
-        }
-        Insert: {
-          achieved_at?: string
-          announced_at?: string | null
-          celebration_type?: string | null
-          created_at?: string
-          id?: string
-          is_announced?: boolean
-          key_result_id?: string | null
-          milestone_type: Database["public"]["Enums"]["okr_milestone_type"]
-          objective_id?: string | null
-          recognition_notes?: string | null
-          user_id: string
-        }
-        Update: {
-          achieved_at?: string
-          announced_at?: string | null
-          celebration_type?: string | null
-          created_at?: string
-          id?: string
-          is_announced?: boolean
-          key_result_id?: string | null
-          milestone_type?: Database["public"]["Enums"]["okr_milestone_type"]
-          objective_id?: string | null
-          recognition_notes?: string | null
-          user_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "okr_milestones_key_result_id_fkey"
-            columns: ["key_result_id"]
-            isOneToOne: false
-            referencedRelation: "okr_key_results"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "okr_milestones_objective_id_fkey"
-            columns: ["objective_id"]
-            isOneToOne: false
-            referencedRelation: "okr_objectives"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      okr_objectives: {
-        Row: {
-          ai_integration_notes: Json | null
-          approved_at: string | null
-          approved_by: string | null
-          created_at: string
-          created_by: string
-          cycle_type: Database["public"]["Enums"]["okr_cycle_type"]
-          department_id: string | null
-          description: string | null
-          end_date: string
-          id: string
-          institution_id: string | null
-          level: Database["public"]["Enums"]["okr_level"]
-          overall_progress: number
-          owner_id: string
-          parent_objective_id: string | null
-          rationale: string | null
-          start_date: string
-          status: Database["public"]["Enums"]["okr_status"]
-          tier: Database["public"]["Enums"]["okr_tier"]
-          title: string
-          updated_at: string
-        }
-        Insert: {
-          ai_integration_notes?: Json | null
-          approved_at?: string | null
-          approved_by?: string | null
-          created_at?: string
-          created_by: string
-          cycle_type?: Database["public"]["Enums"]["okr_cycle_type"]
-          department_id?: string | null
-          description?: string | null
-          end_date: string
-          id?: string
-          institution_id?: string | null
-          level?: Database["public"]["Enums"]["okr_level"]
-          overall_progress?: number
-          owner_id: string
-          parent_objective_id?: string | null
-          rationale?: string | null
-          start_date: string
-          status?: Database["public"]["Enums"]["okr_status"]
-          tier?: Database["public"]["Enums"]["okr_tier"]
-          title: string
-          updated_at?: string
-        }
-        Update: {
-          ai_integration_notes?: Json | null
-          approved_at?: string | null
-          approved_by?: string | null
-          created_at?: string
-          created_by?: string
-          cycle_type?: Database["public"]["Enums"]["okr_cycle_type"]
-          department_id?: string | null
-          description?: string | null
-          end_date?: string
-          id?: string
-          institution_id?: string | null
-          level?: Database["public"]["Enums"]["okr_level"]
-          overall_progress?: number
-          owner_id?: string
-          parent_objective_id?: string | null
-          rationale?: string | null
-          start_date?: string
-          status?: Database["public"]["Enums"]["okr_status"]
-          tier?: Database["public"]["Enums"]["okr_tier"]
-          title?: string
-          updated_at?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "okr_objectives_department_id_fkey"
-            columns: ["department_id"]
-            isOneToOne: false
-            referencedRelation: "departments"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "okr_objectives_institution_id_fkey"
-            columns: ["institution_id"]
-            isOneToOne: false
-            referencedRelation: "case_graduation_readiness"
-            referencedColumns: ["institution_id"]
-          },
-          {
-            foreignKeyName: "okr_objectives_institution_id_fkey"
-            columns: ["institution_id"]
-            isOneToOne: false
-            referencedRelation: "institutions"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "okr_objectives_institution_id_fkey"
-            columns: ["institution_id"]
-            isOneToOne: false
-            referencedRelation: "mv_cluster_leaderboard_colleges"
-            referencedColumns: ["institution_id"]
-          },
-          {
-            foreignKeyName: "okr_objectives_institution_id_fkey"
-            columns: ["institution_id"]
-            isOneToOne: false
-            referencedRelation: "semester_hierarchy_health"
-            referencedColumns: ["institution_id"]
-          },
-          {
-            foreignKeyName: "okr_objectives_institution_id_fkey"
-            columns: ["institution_id"]
-            isOneToOne: false
-            referencedRelation: "v_institutions_needing_admission_counselors"
-            referencedColumns: ["institution_id"]
-          },
-          {
-            foreignKeyName: "okr_objectives_parent_objective_id_fkey"
-            columns: ["parent_objective_id"]
-            isOneToOne: false
-            referencedRelation: "okr_objectives"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      okr_reactions: {
-        Row: {
-          created_at: string
-          entity_id: string
-          entity_type: string
-          id: string
-          reaction_type: Database["public"]["Enums"]["okr_reaction_type"]
-          user_id: string
-        }
-        Insert: {
-          created_at?: string
-          entity_id: string
-          entity_type: string
-          id?: string
-          reaction_type: Database["public"]["Enums"]["okr_reaction_type"]
-          user_id: string
-        }
-        Update: {
-          created_at?: string
-          entity_id?: string
-          entity_type?: string
-          id?: string
-          reaction_type?: Database["public"]["Enums"]["okr_reaction_type"]
-          user_id?: string
-        }
-        Relationships: []
-      }
-      okr_risks: {
-        Row: {
-          created_at: string
-          description: string
-          id: string
-          impact: Database["public"]["Enums"]["okr_risk_level"]
-          likelihood: Database["public"]["Enums"]["okr_risk_level"]
-          mitigation_strategy: string
-          objective_id: string
-          owner_id: string | null
-          status: string
-          updated_at: string
-        }
-        Insert: {
-          created_at?: string
-          description: string
-          id?: string
-          impact?: Database["public"]["Enums"]["okr_risk_level"]
-          likelihood?: Database["public"]["Enums"]["okr_risk_level"]
-          mitigation_strategy: string
-          objective_id: string
-          owner_id?: string | null
-          status?: string
-          updated_at?: string
-        }
-        Update: {
-          created_at?: string
-          description?: string
-          id?: string
-          impact?: Database["public"]["Enums"]["okr_risk_level"]
-          likelihood?: Database["public"]["Enums"]["okr_risk_level"]
-          mitigation_strategy?: string
-          objective_id?: string
-          owner_id?: string | null
-          status?: string
-          updated_at?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "okr_risks_objective_id_fkey"
-            columns: ["objective_id"]
-            isOneToOne: false
-            referencedRelation: "okr_objectives"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      okr_tasks: {
-        Row: {
-          accountable_id: string | null
-          consulted_ids: string[] | null
-          created_at: string
-          deadline: string | null
-          description: string | null
-          id: string
-          informed_ids: string[] | null
-          key_result_id: string | null
-          objective_id: string
-          order_index: number
-          responsible_id: string | null
-          status: string
-          title: string
-          updated_at: string
-        }
-        Insert: {
-          accountable_id?: string | null
-          consulted_ids?: string[] | null
-          created_at?: string
-          deadline?: string | null
-          description?: string | null
-          id?: string
-          informed_ids?: string[] | null
-          key_result_id?: string | null
-          objective_id: string
-          order_index?: number
-          responsible_id?: string | null
-          status?: string
-          title: string
-          updated_at?: string
-        }
-        Update: {
-          accountable_id?: string | null
-          consulted_ids?: string[] | null
-          created_at?: string
-          deadline?: string | null
-          description?: string | null
-          id?: string
-          informed_ids?: string[] | null
-          key_result_id?: string | null
-          objective_id?: string
-          order_index?: number
-          responsible_id?: string | null
-          status?: string
-          title?: string
-          updated_at?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "okr_tasks_key_result_id_fkey"
-            columns: ["key_result_id"]
-            isOneToOne: false
-            referencedRelation: "okr_key_results"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "okr_tasks_objective_id_fkey"
-            columns: ["objective_id"]
-            isOneToOne: false
-            referencedRelation: "okr_objectives"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      okr_user_status: {
-        Row: {
-          at_risk_count: number
-          behind_count: number
-          blocked_count: number
-          consecutive_missed_weeks: number
-          consecutive_on_track_weeks: number
-          current_badge: Database["public"]["Enums"]["okr_user_badge"]
-          id: string
-          last_check_in_date: string | null
-          next_check_in_due: string | null
-          on_track_count: number
-          total_objectives: number
-          updated_at: string
-          user_id: string
-        }
-        Insert: {
-          at_risk_count?: number
-          behind_count?: number
-          blocked_count?: number
-          consecutive_missed_weeks?: number
-          consecutive_on_track_weeks?: number
-          current_badge?: Database["public"]["Enums"]["okr_user_badge"]
-          id?: string
-          last_check_in_date?: string | null
-          next_check_in_due?: string | null
-          on_track_count?: number
-          total_objectives?: number
-          updated_at?: string
-          user_id: string
-        }
-        Update: {
-          at_risk_count?: number
-          behind_count?: number
-          blocked_count?: number
-          consecutive_missed_weeks?: number
-          consecutive_on_track_weeks?: number
-          current_badge?: Database["public"]["Enums"]["okr_user_badge"]
-          id?: string
-          last_check_in_date?: string | null
-          next_check_in_due?: string | null
-          on_track_count?: number
-          total_objectives?: number
-          updated_at?: string
-          user_id?: string
         }
         Relationships: []
       }
@@ -70554,6 +71524,3192 @@ export type Database = {
           },
         ]
       }
+      project_activity_feed: {
+        Row: {
+          actor_id: string | null
+          created_at: string
+          detail: Json
+          entity_id: string | null
+          entity_type: string
+          event_type: string
+          id: string
+          project_id: string
+          summary: string | null
+        }
+        Insert: {
+          actor_id?: string | null
+          created_at?: string
+          detail?: Json
+          entity_id?: string | null
+          entity_type: string
+          event_type: string
+          id?: string
+          project_id: string
+          summary?: string | null
+        }
+        Update: {
+          actor_id?: string | null
+          created_at?: string
+          detail?: Json
+          entity_id?: string | null
+          entity_type?: string
+          event_type?: string
+          id?: string
+          project_id?: string
+          summary?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_activity_feed_actor_id_fkey"
+            columns: ["actor_id"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "project_activity_feed_actor_id_fkey"
+            columns: ["actor_id"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "project_activity_feed_actor_id_fkey"
+            columns: ["actor_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_activity_feed_actor_id_fkey"
+            columns: ["actor_id"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_activity_feed_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      project_approval_requests: {
+        Row: {
+          created_at: string
+          current_step: number
+          decided_at: string | null
+          decided_by: string | null
+          decision_notes: string | null
+          emergency_followup_due: string | null
+          escalated_at: string | null
+          escalation_status: string
+          id: string
+          is_emergency: boolean
+          project_id: string
+          reminded_at: string | null
+          requested_by: string | null
+          snapshot_chain: Json | null
+          status: string
+          trigger_action: string
+          updated_at: string
+          workflow_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          current_step?: number
+          decided_at?: string | null
+          decided_by?: string | null
+          decision_notes?: string | null
+          emergency_followup_due?: string | null
+          escalated_at?: string | null
+          escalation_status?: string
+          id?: string
+          is_emergency?: boolean
+          project_id: string
+          reminded_at?: string | null
+          requested_by?: string | null
+          snapshot_chain?: Json | null
+          status?: string
+          trigger_action: string
+          updated_at?: string
+          workflow_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          current_step?: number
+          decided_at?: string | null
+          decided_by?: string | null
+          decision_notes?: string | null
+          emergency_followup_due?: string | null
+          escalated_at?: string | null
+          escalation_status?: string
+          id?: string
+          is_emergency?: boolean
+          project_id?: string
+          reminded_at?: string | null
+          requested_by?: string | null
+          snapshot_chain?: Json | null
+          status?: string
+          trigger_action?: string
+          updated_at?: string
+          workflow_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_approval_requests_decided_by_fkey"
+            columns: ["decided_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "project_approval_requests_decided_by_fkey"
+            columns: ["decided_by"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "project_approval_requests_decided_by_fkey"
+            columns: ["decided_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_approval_requests_decided_by_fkey"
+            columns: ["decided_by"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_approval_requests_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_approval_requests_requested_by_fkey"
+            columns: ["requested_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "project_approval_requests_requested_by_fkey"
+            columns: ["requested_by"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "project_approval_requests_requested_by_fkey"
+            columns: ["requested_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_approval_requests_requested_by_fkey"
+            columns: ["requested_by"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_approval_requests_workflow_id_fkey"
+            columns: ["workflow_id"]
+            isOneToOne: false
+            referencedRelation: "project_approval_workflows"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      project_approval_workflows: {
+        Row: {
+          approval_chain: Json
+          created_at: string
+          created_by: string | null
+          id: string
+          is_active: boolean
+          name: string
+          project_type_id: string | null
+          trigger_action: string
+          updated_at: string
+        }
+        Insert: {
+          approval_chain?: Json
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          is_active?: boolean
+          name: string
+          project_type_id?: string | null
+          trigger_action: string
+          updated_at?: string
+        }
+        Update: {
+          approval_chain?: Json
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          is_active?: boolean
+          name?: string
+          project_type_id?: string | null
+          trigger_action?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_approval_workflows_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "project_approval_workflows_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "project_approval_workflows_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_approval_workflows_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_approval_workflows_project_type_id_fkey"
+            columns: ["project_type_id"]
+            isOneToOne: false
+            referencedRelation: "project_types"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      project_audit_log: {
+        Row: {
+          action: string
+          actor_id: string | null
+          created_at: string
+          id: string
+          new_values: Json | null
+          old_values: Json | null
+          project_id: string | null
+          record_id: string | null
+          table_name: string
+        }
+        Insert: {
+          action: string
+          actor_id?: string | null
+          created_at?: string
+          id?: string
+          new_values?: Json | null
+          old_values?: Json | null
+          project_id?: string | null
+          record_id?: string | null
+          table_name: string
+        }
+        Update: {
+          action?: string
+          actor_id?: string | null
+          created_at?: string
+          id?: string
+          new_values?: Json | null
+          old_values?: Json | null
+          project_id?: string | null
+          record_id?: string | null
+          table_name?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_audit_log_actor_id_fkey"
+            columns: ["actor_id"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "project_audit_log_actor_id_fkey"
+            columns: ["actor_id"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "project_audit_log_actor_id_fkey"
+            columns: ["actor_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_audit_log_actor_id_fkey"
+            columns: ["actor_id"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_audit_log_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      project_budget: {
+        Row: {
+          actual_amount_inr: number
+          category_id: string | null
+          created_at: string
+          created_by: string | null
+          currency: string
+          forecast_amount_inr: number | null
+          id: string
+          notes: string | null
+          period_month: string | null
+          planned_amount_inr: number
+          project_id: string
+          updated_at: string
+        }
+        Insert: {
+          actual_amount_inr?: number
+          category_id?: string | null
+          created_at?: string
+          created_by?: string | null
+          currency?: string
+          forecast_amount_inr?: number | null
+          id?: string
+          notes?: string | null
+          period_month?: string | null
+          planned_amount_inr?: number
+          project_id: string
+          updated_at?: string
+        }
+        Update: {
+          actual_amount_inr?: number
+          category_id?: string | null
+          created_at?: string
+          created_by?: string | null
+          currency?: string
+          forecast_amount_inr?: number | null
+          id?: string
+          notes?: string | null
+          period_month?: string | null
+          planned_amount_inr?: number
+          project_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_budget_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "project_budget_categories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_budget_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "project_budget_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "project_budget_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_budget_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_budget_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      project_budget_categories: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          description: string | null
+          id: string
+          is_active: boolean
+          is_system: boolean
+          key: string
+          name: string
+          order_index: number
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          id?: string
+          is_active?: boolean
+          is_system?: boolean
+          key: string
+          name: string
+          order_index?: number
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          id?: string
+          is_active?: boolean
+          is_system?: boolean
+          key?: string
+          name?: string
+          order_index?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_budget_categories_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "project_budget_categories_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "project_budget_categories_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_budget_categories_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      project_budget_changes: {
+        Row: {
+          approval_status: string
+          approved_at: string | null
+          approved_by: string | null
+          budget_id: string | null
+          created_at: string
+          id: string
+          new_amount_inr: number | null
+          old_amount_inr: number | null
+          project_id: string
+          reason: string | null
+          requested_by: string | null
+        }
+        Insert: {
+          approval_status?: string
+          approved_at?: string | null
+          approved_by?: string | null
+          budget_id?: string | null
+          created_at?: string
+          id?: string
+          new_amount_inr?: number | null
+          old_amount_inr?: number | null
+          project_id: string
+          reason?: string | null
+          requested_by?: string | null
+        }
+        Update: {
+          approval_status?: string
+          approved_at?: string | null
+          approved_by?: string | null
+          budget_id?: string | null
+          created_at?: string
+          id?: string
+          new_amount_inr?: number | null
+          old_amount_inr?: number | null
+          project_id?: string
+          reason?: string | null
+          requested_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_budget_changes_approved_by_fkey"
+            columns: ["approved_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "project_budget_changes_approved_by_fkey"
+            columns: ["approved_by"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "project_budget_changes_approved_by_fkey"
+            columns: ["approved_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_budget_changes_approved_by_fkey"
+            columns: ["approved_by"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_budget_changes_budget_id_fkey"
+            columns: ["budget_id"]
+            isOneToOne: false
+            referencedRelation: "project_budget"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_budget_changes_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_budget_changes_requested_by_fkey"
+            columns: ["requested_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "project_budget_changes_requested_by_fkey"
+            columns: ["requested_by"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "project_budget_changes_requested_by_fkey"
+            columns: ["requested_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_budget_changes_requested_by_fkey"
+            columns: ["requested_by"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      project_change_requests: {
+        Row: {
+          change_type: string
+          created_at: string
+          created_by: string | null
+          decided_at: string | null
+          decided_by: string | null
+          description: string | null
+          id: string
+          impact_summary: string | null
+          is_major: boolean
+          project_id: string
+          requested_by: string | null
+          status: string
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          change_type: string
+          created_at?: string
+          created_by?: string | null
+          decided_at?: string | null
+          decided_by?: string | null
+          description?: string | null
+          id?: string
+          impact_summary?: string | null
+          is_major?: boolean
+          project_id: string
+          requested_by?: string | null
+          status?: string
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          change_type?: string
+          created_at?: string
+          created_by?: string | null
+          decided_at?: string | null
+          decided_by?: string | null
+          description?: string | null
+          id?: string
+          impact_summary?: string | null
+          is_major?: boolean
+          project_id?: string
+          requested_by?: string | null
+          status?: string
+          title?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_change_requests_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "project_change_requests_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "project_change_requests_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_change_requests_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_change_requests_decided_by_fkey"
+            columns: ["decided_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "project_change_requests_decided_by_fkey"
+            columns: ["decided_by"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "project_change_requests_decided_by_fkey"
+            columns: ["decided_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_change_requests_decided_by_fkey"
+            columns: ["decided_by"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_change_requests_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_change_requests_requested_by_fkey"
+            columns: ["requested_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "project_change_requests_requested_by_fkey"
+            columns: ["requested_by"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "project_change_requests_requested_by_fkey"
+            columns: ["requested_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_change_requests_requested_by_fkey"
+            columns: ["requested_by"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      project_closure_reports: {
+        Row: {
+          checklist: Json
+          closure_type: string
+          created_at: string
+          created_by: string | null
+          finalized_at: string | null
+          finalized_by: string | null
+          id: string
+          impact_summary: string | null
+          is_finalized: boolean
+          outcome_summary: string | null
+          project_id: string
+          updated_at: string
+        }
+        Insert: {
+          checklist?: Json
+          closure_type?: string
+          created_at?: string
+          created_by?: string | null
+          finalized_at?: string | null
+          finalized_by?: string | null
+          id?: string
+          impact_summary?: string | null
+          is_finalized?: boolean
+          outcome_summary?: string | null
+          project_id: string
+          updated_at?: string
+        }
+        Update: {
+          checklist?: Json
+          closure_type?: string
+          created_at?: string
+          created_by?: string | null
+          finalized_at?: string | null
+          finalized_by?: string | null
+          id?: string
+          impact_summary?: string | null
+          is_finalized?: boolean
+          outcome_summary?: string | null
+          project_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_closure_reports_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "project_closure_reports_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "project_closure_reports_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_closure_reports_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_closure_reports_finalized_by_fkey"
+            columns: ["finalized_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "project_closure_reports_finalized_by_fkey"
+            columns: ["finalized_by"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "project_closure_reports_finalized_by_fkey"
+            columns: ["finalized_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_closure_reports_finalized_by_fkey"
+            columns: ["finalized_by"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_closure_reports_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: true
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      project_institutions: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          id: string
+          institution_id: string
+          project_id: string
+          role: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          institution_id: string
+          project_id: string
+          role?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          institution_id?: string
+          project_id?: string
+          role?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_institutions_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "project_institutions_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "project_institutions_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_institutions_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_institutions_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "case_graduation_readiness"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "project_institutions_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_institutions_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_colleges"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "project_institutions_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "project_institutions_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "v_institutions_needing_admission_counselors"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "project_institutions_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      project_issues: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          description: string | null
+          id: string
+          owner_staff_id: string | null
+          project_id: string
+          raised_from_risk_id: string | null
+          resolution_notes: string | null
+          resolved_at: string | null
+          severity: string | null
+          status_key: string
+          task_id: string | null
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          id?: string
+          owner_staff_id?: string | null
+          project_id: string
+          raised_from_risk_id?: string | null
+          resolution_notes?: string | null
+          resolved_at?: string | null
+          severity?: string | null
+          status_key?: string
+          task_id?: string | null
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          id?: string
+          owner_staff_id?: string | null
+          project_id?: string
+          raised_from_risk_id?: string | null
+          resolution_notes?: string | null
+          resolved_at?: string | null
+          severity?: string | null
+          status_key?: string
+          task_id?: string | null
+          title?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_issues_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "project_issues_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "project_issues_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_issues_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_issues_owner_staff_id_fkey"
+            columns: ["owner_staff_id"]
+            isOneToOne: false
+            referencedRelation: "staff"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_issues_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_issues_raised_from_risk_id_fkey"
+            columns: ["raised_from_risk_id"]
+            isOneToOne: false
+            referencedRelation: "project_risks"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_issues_task_id_fkey"
+            columns: ["task_id"]
+            isOneToOne: false
+            referencedRelation: "project_tasks"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      project_labels: {
+        Row: {
+          color: string | null
+          created_at: string
+          created_by: string | null
+          id: string
+          is_active: boolean
+          is_system: boolean
+          key: string
+          name: string
+          updated_at: string
+        }
+        Insert: {
+          color?: string | null
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          is_active?: boolean
+          is_system?: boolean
+          key: string
+          name: string
+          updated_at?: string
+        }
+        Update: {
+          color?: string | null
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          is_active?: boolean
+          is_system?: boolean
+          key?: string
+          name?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_labels_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "project_labels_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "project_labels_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_labels_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      project_lessons_learned: {
+        Row: {
+          category: string | null
+          closure_report_id: string | null
+          created_at: string
+          created_by: string | null
+          id: string
+          lesson: string
+          project_id: string | null
+          project_type_id: string | null
+          tags: string[] | null
+          updated_at: string
+        }
+        Insert: {
+          category?: string | null
+          closure_report_id?: string | null
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          lesson: string
+          project_id?: string | null
+          project_type_id?: string | null
+          tags?: string[] | null
+          updated_at?: string
+        }
+        Update: {
+          category?: string | null
+          closure_report_id?: string | null
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          lesson?: string
+          project_id?: string | null
+          project_type_id?: string | null
+          tags?: string[] | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_lessons_learned_closure_report_id_fkey"
+            columns: ["closure_report_id"]
+            isOneToOne: false
+            referencedRelation: "project_closure_reports"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_lessons_learned_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "project_lessons_learned_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "project_lessons_learned_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_lessons_learned_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_lessons_learned_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_lessons_learned_project_type_id_fkey"
+            columns: ["project_type_id"]
+            isOneToOne: false
+            referencedRelation: "project_types"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      project_meeting_links: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          external_meeting_id: string | null
+          id: string
+          meeting_date: string | null
+          meeting_source: string
+          meeting_title: string | null
+          processed_at: string | null
+          project_id: string
+          suggested_tasks: Json
+          transcript_url: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          external_meeting_id?: string | null
+          id?: string
+          meeting_date?: string | null
+          meeting_source?: string
+          meeting_title?: string | null
+          processed_at?: string | null
+          project_id: string
+          suggested_tasks?: Json
+          transcript_url?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          external_meeting_id?: string | null
+          id?: string
+          meeting_date?: string | null
+          meeting_source?: string
+          meeting_title?: string | null
+          processed_at?: string | null
+          project_id?: string
+          suggested_tasks?: Json
+          transcript_url?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_meeting_links_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "project_meeting_links_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "project_meeting_links_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_meeting_links_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_meeting_links_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      project_members: {
+        Row: {
+          allocation_percentage: number | null
+          created_at: string
+          created_by: string | null
+          delegation_end: string | null
+          delegation_start: string | null
+          delegation_to_user_id: string | null
+          id: string
+          project_id: string
+          role: string
+          staff_id: string
+          updated_at: string
+        }
+        Insert: {
+          allocation_percentage?: number | null
+          created_at?: string
+          created_by?: string | null
+          delegation_end?: string | null
+          delegation_start?: string | null
+          delegation_to_user_id?: string | null
+          id?: string
+          project_id: string
+          role?: string
+          staff_id: string
+          updated_at?: string
+        }
+        Update: {
+          allocation_percentage?: number | null
+          created_at?: string
+          created_by?: string | null
+          delegation_end?: string | null
+          delegation_start?: string | null
+          delegation_to_user_id?: string | null
+          id?: string
+          project_id?: string
+          role?: string
+          staff_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_members_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "project_members_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "project_members_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_members_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_members_delegation_to_user_id_fkey"
+            columns: ["delegation_to_user_id"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "project_members_delegation_to_user_id_fkey"
+            columns: ["delegation_to_user_id"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "project_members_delegation_to_user_id_fkey"
+            columns: ["delegation_to_user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_members_delegation_to_user_id_fkey"
+            columns: ["delegation_to_user_id"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_members_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_members_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: false
+            referencedRelation: "staff"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      project_milestones: {
+        Row: {
+          actual_date: string | null
+          created_at: string
+          created_by: string | null
+          description: string | null
+          id: string
+          is_complete: boolean
+          name: string
+          order_index: number
+          phase_id: string | null
+          planned_date: string | null
+          project_id: string
+          updated_at: string
+        }
+        Insert: {
+          actual_date?: string | null
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          id?: string
+          is_complete?: boolean
+          name: string
+          order_index?: number
+          phase_id?: string | null
+          planned_date?: string | null
+          project_id: string
+          updated_at?: string
+        }
+        Update: {
+          actual_date?: string | null
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          id?: string
+          is_complete?: boolean
+          name?: string
+          order_index?: number
+          phase_id?: string | null
+          planned_date?: string | null
+          project_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_milestones_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "project_milestones_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "project_milestones_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_milestones_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_milestones_phase_id_fkey"
+            columns: ["phase_id"]
+            isOneToOne: false
+            referencedRelation: "project_phases"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_milestones_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      project_phases: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          description: string | null
+          due_date: string | null
+          id: string
+          name: string
+          order_index: number
+          percent_complete: number
+          project_id: string
+          start_date: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          due_date?: string | null
+          id?: string
+          name: string
+          order_index?: number
+          percent_complete?: number
+          project_id: string
+          start_date?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          due_date?: string | null
+          id?: string
+          name?: string
+          order_index?: number
+          percent_complete?: number
+          project_id?: string
+          start_date?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_phases_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "project_phases_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "project_phases_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_phases_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_phases_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      project_priorities: {
+        Row: {
+          color: string | null
+          created_at: string
+          created_by: string | null
+          id: string
+          is_active: boolean
+          is_system: boolean
+          key: string
+          name: string
+          order_index: number
+          updated_at: string
+          weight: number
+        }
+        Insert: {
+          color?: string | null
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          is_active?: boolean
+          is_system?: boolean
+          key: string
+          name: string
+          order_index?: number
+          updated_at?: string
+          weight?: number
+        }
+        Update: {
+          color?: string | null
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          is_active?: boolean
+          is_system?: boolean
+          key?: string
+          name?: string
+          order_index?: number
+          updated_at?: string
+          weight?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_priorities_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "project_priorities_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "project_priorities_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_priorities_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      project_risk_escalations: {
+        Row: {
+          created_at: string
+          escalated_by: string | null
+          escalated_to_staff_id: string | null
+          escalation_level: string | null
+          id: string
+          is_auto: boolean
+          reason: string | null
+          risk_id: string
+        }
+        Insert: {
+          created_at?: string
+          escalated_by?: string | null
+          escalated_to_staff_id?: string | null
+          escalation_level?: string | null
+          id?: string
+          is_auto?: boolean
+          reason?: string | null
+          risk_id: string
+        }
+        Update: {
+          created_at?: string
+          escalated_by?: string | null
+          escalated_to_staff_id?: string | null
+          escalation_level?: string | null
+          id?: string
+          is_auto?: boolean
+          reason?: string | null
+          risk_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_risk_escalations_escalated_by_fkey"
+            columns: ["escalated_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "project_risk_escalations_escalated_by_fkey"
+            columns: ["escalated_by"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "project_risk_escalations_escalated_by_fkey"
+            columns: ["escalated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_risk_escalations_escalated_by_fkey"
+            columns: ["escalated_by"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_risk_escalations_escalated_to_staff_id_fkey"
+            columns: ["escalated_to_staff_id"]
+            isOneToOne: false
+            referencedRelation: "staff"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_risk_escalations_risk_id_fkey"
+            columns: ["risk_id"]
+            isOneToOne: false
+            referencedRelation: "project_risks"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      project_risk_mitigation_steps: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          deadline: string | null
+          description: string
+          id: string
+          is_complete: boolean
+          linked_task_id: string | null
+          order_index: number
+          owner_staff_id: string | null
+          risk_id: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          deadline?: string | null
+          description: string
+          id?: string
+          is_complete?: boolean
+          linked_task_id?: string | null
+          order_index?: number
+          owner_staff_id?: string | null
+          risk_id: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          deadline?: string | null
+          description?: string
+          id?: string
+          is_complete?: boolean
+          linked_task_id?: string | null
+          order_index?: number
+          owner_staff_id?: string | null
+          risk_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_risk_mitigation_steps_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "project_risk_mitigation_steps_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "project_risk_mitigation_steps_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_risk_mitigation_steps_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_risk_mitigation_steps_linked_task_id_fkey"
+            columns: ["linked_task_id"]
+            isOneToOne: false
+            referencedRelation: "project_tasks"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_risk_mitigation_steps_owner_staff_id_fkey"
+            columns: ["owner_staff_id"]
+            isOneToOne: false
+            referencedRelation: "staff"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_risk_mitigation_steps_risk_id_fkey"
+            columns: ["risk_id"]
+            isOneToOne: false
+            referencedRelation: "project_risks"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      project_risks: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          description: string | null
+          escalated_at: string | null
+          id: string
+          impact: number | null
+          is_escalated: boolean
+          likelihood: number | null
+          milestone_id: string | null
+          owner_staff_id: string | null
+          project_id: string
+          rag_status: string
+          risk_category: string | null
+          severity_simple: string | null
+          status_key: string
+          task_id: string | null
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          escalated_at?: string | null
+          id?: string
+          impact?: number | null
+          is_escalated?: boolean
+          likelihood?: number | null
+          milestone_id?: string | null
+          owner_staff_id?: string | null
+          project_id: string
+          rag_status?: string
+          risk_category?: string | null
+          severity_simple?: string | null
+          status_key?: string
+          task_id?: string | null
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          escalated_at?: string | null
+          id?: string
+          impact?: number | null
+          is_escalated?: boolean
+          likelihood?: number | null
+          milestone_id?: string | null
+          owner_staff_id?: string | null
+          project_id?: string
+          rag_status?: string
+          risk_category?: string | null
+          severity_simple?: string | null
+          status_key?: string
+          task_id?: string | null
+          title?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_risks_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "project_risks_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "project_risks_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_risks_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_risks_milestone_id_fkey"
+            columns: ["milestone_id"]
+            isOneToOne: false
+            referencedRelation: "project_milestones"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_risks_owner_staff_id_fkey"
+            columns: ["owner_staff_id"]
+            isOneToOne: false
+            referencedRelation: "staff"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_risks_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_risks_task_id_fkey"
+            columns: ["task_id"]
+            isOneToOne: false
+            referencedRelation: "project_tasks"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      project_stakeholders: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          external_email: string | null
+          external_name: string | null
+          id: string
+          notify_email: boolean
+          notify_in_app: boolean
+          project_id: string
+          role: string | null
+          staff_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          external_email?: string | null
+          external_name?: string | null
+          id?: string
+          notify_email?: boolean
+          notify_in_app?: boolean
+          project_id: string
+          role?: string | null
+          staff_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          external_email?: string | null
+          external_name?: string | null
+          id?: string
+          notify_email?: boolean
+          notify_in_app?: boolean
+          project_id?: string
+          role?: string | null
+          staff_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_stakeholders_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "project_stakeholders_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "project_stakeholders_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_stakeholders_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_stakeholders_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_stakeholders_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: false
+            referencedRelation: "staff"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      project_status_reports: {
+        Row: {
+          content: Json
+          created_at: string
+          created_by: string | null
+          generated_type: string
+          id: string
+          project_id: string
+          rag_status: string | null
+          report_period_end: string | null
+          report_period_start: string | null
+          storage_path: string | null
+          summary: string | null
+          updated_at: string
+        }
+        Insert: {
+          content?: Json
+          created_at?: string
+          created_by?: string | null
+          generated_type?: string
+          id?: string
+          project_id: string
+          rag_status?: string | null
+          report_period_end?: string | null
+          report_period_start?: string | null
+          storage_path?: string | null
+          summary?: string | null
+          updated_at?: string
+        }
+        Update: {
+          content?: Json
+          created_at?: string
+          created_by?: string | null
+          generated_type?: string
+          id?: string
+          project_id?: string
+          rag_status?: string | null
+          report_period_end?: string | null
+          report_period_start?: string | null
+          storage_path?: string | null
+          summary?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_status_reports_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "project_status_reports_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "project_status_reports_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_status_reports_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_status_reports_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      project_statuses: {
+        Row: {
+          category: string
+          color: string | null
+          created_at: string
+          created_by: string | null
+          id: string
+          is_active: boolean
+          is_system: boolean
+          key: string
+          name: string
+          order_index: number
+          updated_at: string
+        }
+        Insert: {
+          category?: string
+          color?: string | null
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          is_active?: boolean
+          is_system?: boolean
+          key: string
+          name: string
+          order_index?: number
+          updated_at?: string
+        }
+        Update: {
+          category?: string
+          color?: string | null
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          is_active?: boolean
+          is_system?: boolean
+          key?: string
+          name?: string
+          order_index?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_statuses_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "project_statuses_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "project_statuses_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_statuses_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      project_task_assignees: {
+        Row: {
+          assigned_by: string | null
+          created_at: string
+          id: string
+          role: string
+          staff_id: string
+          task_id: string
+        }
+        Insert: {
+          assigned_by?: string | null
+          created_at?: string
+          id?: string
+          role?: string
+          staff_id: string
+          task_id: string
+        }
+        Update: {
+          assigned_by?: string | null
+          created_at?: string
+          id?: string
+          role?: string
+          staff_id?: string
+          task_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_task_assignees_assigned_by_fkey"
+            columns: ["assigned_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "project_task_assignees_assigned_by_fkey"
+            columns: ["assigned_by"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "project_task_assignees_assigned_by_fkey"
+            columns: ["assigned_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_task_assignees_assigned_by_fkey"
+            columns: ["assigned_by"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_task_assignees_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: false
+            referencedRelation: "staff"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_task_assignees_task_id_fkey"
+            columns: ["task_id"]
+            isOneToOne: false
+            referencedRelation: "project_tasks"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      project_task_attachments: {
+        Row: {
+          created_at: string
+          file_name: string
+          id: string
+          is_final_report: boolean
+          mime_type: string | null
+          project_id: string | null
+          size_bytes: number | null
+          storage_path: string
+          supersedes_id: string | null
+          task_id: string | null
+          uploaded_by: string | null
+          version: number
+        }
+        Insert: {
+          created_at?: string
+          file_name: string
+          id?: string
+          is_final_report?: boolean
+          mime_type?: string | null
+          project_id?: string | null
+          size_bytes?: number | null
+          storage_path: string
+          supersedes_id?: string | null
+          task_id?: string | null
+          uploaded_by?: string | null
+          version?: number
+        }
+        Update: {
+          created_at?: string
+          file_name?: string
+          id?: string
+          is_final_report?: boolean
+          mime_type?: string | null
+          project_id?: string | null
+          size_bytes?: number | null
+          storage_path?: string
+          supersedes_id?: string | null
+          task_id?: string | null
+          uploaded_by?: string | null
+          version?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_task_attachments_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_task_attachments_supersedes_id_fkey"
+            columns: ["supersedes_id"]
+            isOneToOne: false
+            referencedRelation: "project_task_attachments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_task_attachments_task_id_fkey"
+            columns: ["task_id"]
+            isOneToOne: false
+            referencedRelation: "project_tasks"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_task_attachments_uploaded_by_fkey"
+            columns: ["uploaded_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "project_task_attachments_uploaded_by_fkey"
+            columns: ["uploaded_by"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "project_task_attachments_uploaded_by_fkey"
+            columns: ["uploaded_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_task_attachments_uploaded_by_fkey"
+            columns: ["uploaded_by"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      project_task_comments: {
+        Row: {
+          author_id: string | null
+          body: string
+          created_at: string
+          created_by: string | null
+          id: string
+          parent_comment_id: string | null
+          task_id: string
+          updated_at: string
+        }
+        Insert: {
+          author_id?: string | null
+          body: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          parent_comment_id?: string | null
+          task_id: string
+          updated_at?: string
+        }
+        Update: {
+          author_id?: string | null
+          body?: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          parent_comment_id?: string | null
+          task_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_task_comments_author_id_fkey"
+            columns: ["author_id"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "project_task_comments_author_id_fkey"
+            columns: ["author_id"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "project_task_comments_author_id_fkey"
+            columns: ["author_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_task_comments_author_id_fkey"
+            columns: ["author_id"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_task_comments_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "project_task_comments_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "project_task_comments_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_task_comments_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_task_comments_parent_comment_id_fkey"
+            columns: ["parent_comment_id"]
+            isOneToOne: false
+            referencedRelation: "project_task_comments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_task_comments_task_id_fkey"
+            columns: ["task_id"]
+            isOneToOne: false
+            referencedRelation: "project_tasks"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      project_task_dependencies: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          dependency_type: string
+          depends_on_task_id: string
+          id: string
+          task_id: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          dependency_type?: string
+          depends_on_task_id: string
+          id?: string
+          task_id: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          dependency_type?: string
+          depends_on_task_id?: string
+          id?: string
+          task_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_task_dependencies_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "project_task_dependencies_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "project_task_dependencies_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_task_dependencies_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_task_dependencies_depends_on_task_id_fkey"
+            columns: ["depends_on_task_id"]
+            isOneToOne: false
+            referencedRelation: "project_tasks"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_task_dependencies_task_id_fkey"
+            columns: ["task_id"]
+            isOneToOne: false
+            referencedRelation: "project_tasks"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      project_task_labels: {
+        Row: {
+          created_at: string
+          id: string
+          label_id: string
+          task_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          label_id: string
+          task_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          label_id?: string
+          task_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_task_labels_label_id_fkey"
+            columns: ["label_id"]
+            isOneToOne: false
+            referencedRelation: "project_labels"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_task_labels_task_id_fkey"
+            columns: ["task_id"]
+            isOneToOne: false
+            referencedRelation: "project_tasks"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      project_task_subtasks: {
+        Row: {
+          assignee_staff_id: string | null
+          created_at: string
+          created_by: string | null
+          id: string
+          is_complete: boolean
+          order_index: number
+          task_id: string
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          assignee_staff_id?: string | null
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          is_complete?: boolean
+          order_index?: number
+          task_id: string
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          assignee_staff_id?: string | null
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          is_complete?: boolean
+          order_index?: number
+          task_id?: string
+          title?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_task_subtasks_assignee_staff_id_fkey"
+            columns: ["assignee_staff_id"]
+            isOneToOne: false
+            referencedRelation: "staff"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_task_subtasks_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "project_task_subtasks_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "project_task_subtasks_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_task_subtasks_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_task_subtasks_task_id_fkey"
+            columns: ["task_id"]
+            isOneToOne: false
+            referencedRelation: "project_tasks"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      project_tasks: {
+        Row: {
+          actual_hours: number | null
+          completed_at: string | null
+          created_at: string
+          created_by: string | null
+          description: string | null
+          due_date: string | null
+          estimated_hours: number | null
+          id: string
+          is_blocked: boolean
+          is_overdue: boolean
+          metadata: Json
+          milestone_id: string | null
+          order_index: number
+          owner_staff_id: string | null
+          phase_id: string | null
+          priority_id: string | null
+          project_id: string
+          sprint_id: string | null
+          start_date: string | null
+          status_key: string
+          story_points: number | null
+          task_type: string
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          actual_hours?: number | null
+          completed_at?: string | null
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          due_date?: string | null
+          estimated_hours?: number | null
+          id?: string
+          is_blocked?: boolean
+          is_overdue?: boolean
+          metadata?: Json
+          milestone_id?: string | null
+          order_index?: number
+          owner_staff_id?: string | null
+          phase_id?: string | null
+          priority_id?: string | null
+          project_id: string
+          sprint_id?: string | null
+          start_date?: string | null
+          status_key?: string
+          story_points?: number | null
+          task_type?: string
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          actual_hours?: number | null
+          completed_at?: string | null
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          due_date?: string | null
+          estimated_hours?: number | null
+          id?: string
+          is_blocked?: boolean
+          is_overdue?: boolean
+          metadata?: Json
+          milestone_id?: string | null
+          order_index?: number
+          owner_staff_id?: string | null
+          phase_id?: string | null
+          priority_id?: string | null
+          project_id?: string
+          sprint_id?: string | null
+          start_date?: string | null
+          status_key?: string
+          story_points?: number | null
+          task_type?: string
+          title?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_tasks_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "project_tasks_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "project_tasks_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_tasks_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_tasks_milestone_id_fkey"
+            columns: ["milestone_id"]
+            isOneToOne: false
+            referencedRelation: "project_milestones"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_tasks_owner_staff_id_fkey"
+            columns: ["owner_staff_id"]
+            isOneToOne: false
+            referencedRelation: "staff"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_tasks_phase_id_fkey"
+            columns: ["phase_id"]
+            isOneToOne: false
+            referencedRelation: "project_phases"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_tasks_priority_id_fkey"
+            columns: ["priority_id"]
+            isOneToOne: false
+            referencedRelation: "project_priorities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_tasks_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      project_templates: {
+        Row: {
+          blueprint: Json
+          created_at: string
+          created_by: string | null
+          description: string | null
+          id: string
+          is_active: boolean
+          name: string
+          project_type_id: string | null
+          source_project_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          blueprint?: Json
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          id?: string
+          is_active?: boolean
+          name: string
+          project_type_id?: string | null
+          source_project_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          blueprint?: Json
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          id?: string
+          is_active?: boolean
+          name?: string
+          project_type_id?: string | null
+          source_project_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_templates_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "project_templates_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "project_templates_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_templates_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_templates_project_type_id_fkey"
+            columns: ["project_type_id"]
+            isOneToOne: false
+            referencedRelation: "project_types"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_templates_source_project_id_fkey"
+            columns: ["source_project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      project_types: {
+        Row: {
+          closure_model: string
+          color: string | null
+          created_at: string
+          created_by: string | null
+          description: string | null
+          field_config: Json
+          icon: string | null
+          id: string
+          is_active: boolean
+          is_system: boolean
+          key: string
+          name: string
+          order_index: number
+          updated_at: string
+        }
+        Insert: {
+          closure_model?: string
+          color?: string | null
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          field_config?: Json
+          icon?: string | null
+          id?: string
+          is_active?: boolean
+          is_system?: boolean
+          key: string
+          name: string
+          order_index?: number
+          updated_at?: string
+        }
+        Update: {
+          closure_model?: string
+          color?: string | null
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          field_config?: Json
+          icon?: string | null
+          id?: string
+          is_active?: boolean
+          is_system?: boolean
+          key?: string
+          name?: string
+          order_index?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_types_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "project_types_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "project_types_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_types_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      projects: {
+        Row: {
+          actual_end_date: string | null
+          actual_start_date: string | null
+          allow_collaborators: boolean
+          baseline_snapshot: Json | null
+          cancellation_reason: string | null
+          cancelled_at: string | null
+          cancelled_by: string | null
+          code: string | null
+          created_at: string
+          created_by: string | null
+          description: string | null
+          due_date: string | null
+          enforce_dependencies: boolean
+          financial_year: string | null
+          id: string
+          institution_id: string | null
+          is_confidential: boolean
+          is_okr: boolean
+          is_refreezable: boolean
+          metadata: Json
+          owner_staff_id: string | null
+          percent_complete: number
+          priority_id: string | null
+          project_type_id: string | null
+          rag_status: string
+          scope_model: string
+          snapshot_approval_chain: Json | null
+          source_template_id: string | null
+          start_date: string | null
+          status_id: string | null
+          status_workflow: Json
+          title: string
+          updated_at: string
+          visibility: string
+        }
+        Insert: {
+          actual_end_date?: string | null
+          actual_start_date?: string | null
+          allow_collaborators?: boolean
+          baseline_snapshot?: Json | null
+          cancellation_reason?: string | null
+          cancelled_at?: string | null
+          cancelled_by?: string | null
+          code?: string | null
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          due_date?: string | null
+          enforce_dependencies?: boolean
+          financial_year?: string | null
+          id?: string
+          institution_id?: string | null
+          is_confidential?: boolean
+          is_okr?: boolean
+          is_refreezable?: boolean
+          metadata?: Json
+          owner_staff_id?: string | null
+          percent_complete?: number
+          priority_id?: string | null
+          project_type_id?: string | null
+          rag_status?: string
+          scope_model?: string
+          snapshot_approval_chain?: Json | null
+          source_template_id?: string | null
+          start_date?: string | null
+          status_id?: string | null
+          status_workflow?: Json
+          title: string
+          updated_at?: string
+          visibility?: string
+        }
+        Update: {
+          actual_end_date?: string | null
+          actual_start_date?: string | null
+          allow_collaborators?: boolean
+          baseline_snapshot?: Json | null
+          cancellation_reason?: string | null
+          cancelled_at?: string | null
+          cancelled_by?: string | null
+          code?: string | null
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          due_date?: string | null
+          enforce_dependencies?: boolean
+          financial_year?: string | null
+          id?: string
+          institution_id?: string | null
+          is_confidential?: boolean
+          is_okr?: boolean
+          is_refreezable?: boolean
+          metadata?: Json
+          owner_staff_id?: string | null
+          percent_complete?: number
+          priority_id?: string | null
+          project_type_id?: string | null
+          rag_status?: string
+          scope_model?: string
+          snapshot_approval_chain?: Json | null
+          source_template_id?: string | null
+          start_date?: string | null
+          status_id?: string | null
+          status_workflow?: Json
+          title?: string
+          updated_at?: string
+          visibility?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fk_projects_source_template"
+            columns: ["source_template_id"]
+            isOneToOne: false
+            referencedRelation: "project_templates"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "projects_cancelled_by_fkey"
+            columns: ["cancelled_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "projects_cancelled_by_fkey"
+            columns: ["cancelled_by"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "projects_cancelled_by_fkey"
+            columns: ["cancelled_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "projects_cancelled_by_fkey"
+            columns: ["cancelled_by"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "projects_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "projects_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "projects_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "projects_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "projects_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "case_graduation_readiness"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "projects_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "projects_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_colleges"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "projects_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "projects_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "v_institutions_needing_admission_counselors"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "projects_owner_staff_id_fkey"
+            columns: ["owner_staff_id"]
+            isOneToOne: false
+            referencedRelation: "staff"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "projects_priority_id_fkey"
+            columns: ["priority_id"]
+            isOneToOne: false
+            referencedRelation: "project_priorities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "projects_project_type_id_fkey"
+            columns: ["project_type_id"]
+            isOneToOne: false
+            referencedRelation: "project_types"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "projects_status_id_fkey"
+            columns: ["status_id"]
+            isOneToOne: false
+            referencedRelation: "project_statuses"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       push_subscriptions: {
         Row: {
           created_at: string
@@ -74139,6 +78295,103 @@ export type Database = {
             columns: ["snap_semester_id"]
             isOneToOne: false
             referencedRelation: "semesters"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      school_defaults_audit_logs: {
+        Row: {
+          action: string
+          changes: Json
+          created_at: string
+          id: string
+          resource_type: string
+          school_id: string
+          school_name: string
+          user_id: string
+        }
+        Insert: {
+          action: string
+          changes: Json
+          created_at?: string
+          id?: string
+          resource_type: string
+          school_id: string
+          school_name: string
+          user_id: string
+        }
+        Update: {
+          action?: string
+          changes?: Json
+          created_at?: string
+          id?: string
+          resource_type?: string
+          school_id?: string
+          school_name?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "school_defaults_audit_logs_school_id_fkey"
+            columns: ["school_id"]
+            isOneToOne: false
+            referencedRelation: "case_graduation_readiness"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "school_defaults_audit_logs_school_id_fkey"
+            columns: ["school_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "school_defaults_audit_logs_school_id_fkey"
+            columns: ["school_id"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_colleges"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "school_defaults_audit_logs_school_id_fkey"
+            columns: ["school_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "school_defaults_audit_logs_school_id_fkey"
+            columns: ["school_id"]
+            isOneToOne: false
+            referencedRelation: "v_institutions_needing_admission_counselors"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "school_defaults_audit_logs_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "school_defaults_audit_logs_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "school_defaults_audit_logs_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "school_defaults_audit_logs_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
             referencedColumns: ["id"]
           },
         ]
@@ -88309,6 +92562,337 @@ export type Database = {
           },
         ]
       }
+      tms_driver: {
+        Row: {
+          aadhar_number: string | null
+          address: string | null
+          assigned_route_id: string | null
+          created_at: string
+          created_by: string | null
+          driver_status: string
+          emergency_contact_name: string | null
+          emergency_contact_phone: string | null
+          experience_years: number
+          id: string
+          license_expiry: string | null
+          license_number: string | null
+          location_sharing_enabled: boolean
+          medical_certificate_expiry: string | null
+          notes: string | null
+          rating: number
+          staff_id: string
+          total_trips: number
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          aadhar_number?: string | null
+          address?: string | null
+          assigned_route_id?: string | null
+          created_at?: string
+          created_by?: string | null
+          driver_status?: string
+          emergency_contact_name?: string | null
+          emergency_contact_phone?: string | null
+          experience_years?: number
+          id?: string
+          license_expiry?: string | null
+          license_number?: string | null
+          location_sharing_enabled?: boolean
+          medical_certificate_expiry?: string | null
+          notes?: string | null
+          rating?: number
+          staff_id: string
+          total_trips?: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          aadhar_number?: string | null
+          address?: string | null
+          assigned_route_id?: string | null
+          created_at?: string
+          created_by?: string | null
+          driver_status?: string
+          emergency_contact_name?: string | null
+          emergency_contact_phone?: string | null
+          experience_years?: number
+          id?: string
+          license_expiry?: string | null
+          license_number?: string | null
+          location_sharing_enabled?: boolean
+          medical_certificate_expiry?: string | null
+          notes?: string | null
+          rating?: number
+          staff_id?: string
+          total_trips?: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tms_driver_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: true
+            referencedRelation: "staff"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      tms_route: {
+        Row: {
+          arrival_time: string
+          created_at: string
+          created_by: string | null
+          current_passengers: number
+          departure_time: string
+          distance: number
+          driver_id: string | null
+          duration: string
+          end_latitude: number | null
+          end_location: string
+          end_longitude: number | null
+          fare: number
+          id: string
+          route_code: string | null
+          route_name: string
+          route_number: string
+          start_latitude: number | null
+          start_location: string
+          start_longitude: number | null
+          status: string
+          total_capacity: number
+          updated_at: string
+          updated_by: string | null
+          vehicle_id: string | null
+        }
+        Insert: {
+          arrival_time: string
+          created_at?: string
+          created_by?: string | null
+          current_passengers?: number
+          departure_time: string
+          distance: number
+          driver_id?: string | null
+          duration: string
+          end_latitude?: number | null
+          end_location: string
+          end_longitude?: number | null
+          fare?: number
+          id?: string
+          route_code?: string | null
+          route_name: string
+          route_number: string
+          start_latitude?: number | null
+          start_location: string
+          start_longitude?: number | null
+          status?: string
+          total_capacity?: number
+          updated_at?: string
+          updated_by?: string | null
+          vehicle_id?: string | null
+        }
+        Update: {
+          arrival_time?: string
+          created_at?: string
+          created_by?: string | null
+          current_passengers?: number
+          departure_time?: string
+          distance?: number
+          driver_id?: string | null
+          duration?: string
+          end_latitude?: number | null
+          end_location?: string
+          end_longitude?: number | null
+          fare?: number
+          id?: string
+          route_code?: string | null
+          route_name?: string
+          route_number?: string
+          start_latitude?: number | null
+          start_location?: string
+          start_longitude?: number | null
+          status?: string
+          total_capacity?: number
+          updated_at?: string
+          updated_by?: string | null
+          vehicle_id?: string | null
+        }
+        Relationships: []
+      }
+      tms_route_possible_stop: {
+        Row: {
+          created_at: string
+          id: string
+          is_major_stop: boolean
+          latitude: number | null
+          longitude: number | null
+          route_id: string
+          sequence_order: number
+          source_route_id: string
+          stop_name: string
+          stop_time: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          is_major_stop?: boolean
+          latitude?: number | null
+          longitude?: number | null
+          route_id: string
+          sequence_order: number
+          source_route_id: string
+          stop_name: string
+          stop_time: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          is_major_stop?: boolean
+          latitude?: number | null
+          longitude?: number | null
+          route_id?: string
+          sequence_order?: number
+          source_route_id?: string
+          stop_name?: string
+          stop_time?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tms_route_possible_stop_route_id_fkey"
+            columns: ["route_id"]
+            isOneToOne: false
+            referencedRelation: "tms_route"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tms_route_possible_stop_source_route_id_fkey"
+            columns: ["source_route_id"]
+            isOneToOne: false
+            referencedRelation: "tms_route"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      tms_route_stop: {
+        Row: {
+          created_at: string
+          id: string
+          is_major_stop: boolean
+          latitude: number | null
+          longitude: number | null
+          route_id: string
+          sequence_order: number
+          stop_name: string
+          stop_time: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          is_major_stop?: boolean
+          latitude?: number | null
+          longitude?: number | null
+          route_id: string
+          sequence_order: number
+          stop_name: string
+          stop_time: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          is_major_stop?: boolean
+          latitude?: number | null
+          longitude?: number | null
+          route_id?: string
+          sequence_order?: number
+          stop_name?: string
+          stop_time?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tms_route_stop_route_id_fkey"
+            columns: ["route_id"]
+            isOneToOne: false
+            referencedRelation: "tms_route"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      tms_vehicle: {
+        Row: {
+          capacity: number
+          chassis_number: string | null
+          created_at: string
+          created_by: string | null
+          engine_number: string | null
+          fitness_expiry: string | null
+          fuel_type: string
+          gps_device_id: string | null
+          id: string
+          insurance_expiry: string | null
+          last_maintenance: string | null
+          live_tracking_enabled: boolean
+          mileage: number
+          model: string
+          next_maintenance: string | null
+          purchase_date: string | null
+          registration_number: string
+          status: string
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          capacity?: number
+          chassis_number?: string | null
+          created_at?: string
+          created_by?: string | null
+          engine_number?: string | null
+          fitness_expiry?: string | null
+          fuel_type?: string
+          gps_device_id?: string | null
+          id?: string
+          insurance_expiry?: string | null
+          last_maintenance?: string | null
+          live_tracking_enabled?: boolean
+          mileage?: number
+          model: string
+          next_maintenance?: string | null
+          purchase_date?: string | null
+          registration_number: string
+          status?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          capacity?: number
+          chassis_number?: string | null
+          created_at?: string
+          created_by?: string | null
+          engine_number?: string | null
+          fitness_expiry?: string | null
+          fuel_type?: string
+          gps_device_id?: string | null
+          id?: string
+          insurance_expiry?: string | null
+          last_maintenance?: string | null
+          live_tracking_enabled?: boolean
+          mileage?: number
+          model?: string
+          next_maintenance?: string | null
+          purchase_date?: string | null
+          registration_number?: string
+          status?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: []
+      }
       track_declarations: {
         Row: {
           approved_at: string | null
@@ -94871,31 +99455,62 @@ export type Database = {
       }
       v_learner_hostelites: {
         Row: {
+          academic_year_id: string | null
           accommodation_type: string | null
           admission_year_id: string | null
           college_email: string | null
           current_allocation_id: string | null
           current_bed_id: string | null
+          current_block_code: string | null
           current_block_id: string | null
+          current_block_name: string | null
           current_room_id: string | null
           dayscholar_fee: number | null
+          degree_id: string | null
+          degree_name: string | null
+          department_id: string | null
           father_name: string | null
           first_name: string | null
           gender: string | null
           hostel_fee: number | null
-          hostel_type: string | null
           id: string | null
           institution_id: string | null
           last_name: string | null
           mother_name: string | null
           program_end_year: number | null
+          program_id: string | null
+          program_name: string | null
           program_start_year: number | null
           roll_number: string | null
+          section_id: string | null
+          semester_id: string | null
+          semester_name: string | null
           student_email: string | null
           year_of_study: number | null
           year_source: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "fk_learners_profiles_academic_year"
+            columns: ["academic_year_id"]
+            isOneToOne: false
+            referencedRelation: "academic_years"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_learners_profiles_degree"
+            columns: ["degree_id"]
+            isOneToOne: false
+            referencedRelation: "degrees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_learners_profiles_department"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "departments"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "fk_learners_profiles_institution"
             columns: ["institution_id"]
@@ -94930,6 +99545,34 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "v_institutions_needing_admission_counselors"
             referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "fk_learners_profiles_program"
+            columns: ["program_id"]
+            isOneToOne: false
+            referencedRelation: "case_graduation_readiness"
+            referencedColumns: ["programme_id"]
+          },
+          {
+            foreignKeyName: "fk_learners_profiles_program"
+            columns: ["program_id"]
+            isOneToOne: false
+            referencedRelation: "programs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_learners_profiles_section"
+            columns: ["section_id"]
+            isOneToOne: false
+            referencedRelation: "sections"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_learners_profiles_semester"
+            columns: ["semester_id"]
+            isOneToOne: false
+            referencedRelation: "semesters"
+            referencedColumns: ["id"]
           },
           {
             foreignKeyName: "hostel_allocations_bed_id_fkey"
@@ -95075,6 +99718,29 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      v_room_effective_amenity_tags: {
+        Row: {
+          code: string | null
+          icon: string | null
+          name: string | null
+          room_id: string | null
+          source: string | null
+          tag_id: string | null
+        }
+        Relationships: []
+      }
+      v_room_effective_billable_amenities: {
+        Row: {
+          billable_id: string | null
+          code: string | null
+          effective_config: Json | null
+          fee_calculation_type: string | null
+          name: string | null
+          room_id: string | null
+          source: string | null
+        }
+        Relationships: []
       }
       vac_enrollments_with_details: {
         Row: {
@@ -96876,6 +101542,10 @@ export type Database = {
         }
         Returns: undefined
       }
+      fn_cdc_emit_placement_notification: {
+        Args: { p_actor: string; p_placement_id: string; p_to_state: string }
+        Returns: undefined
+      }
       fn_cdc_expire_stale_opportunities: { Args: never; Returns: number }
       fn_cdc_quarterly_placement_snapshot: { Args: never; Returns: undefined }
       fn_check_role_demotion_impact: {
@@ -97498,6 +102168,15 @@ export type Database = {
         }
         Returns: Json
       }
+      fn_premium_upgrade_accept: {
+        Args: {
+          p_billed_inr: number
+          p_learner_id: string
+          p_vacancy_id: string
+          p_was_free?: boolean
+        }
+        Returns: Json
+      }
       fn_prepare_payroll_period: {
         Args: { p_comment?: string; p_period_id: string }
         Returns: {
@@ -97678,6 +102357,7 @@ export type Database = {
           program_id: string
           program_name: string
           program_short: string
+          reserved: number
           stream: string
           study_year: string
         }[]
@@ -98260,6 +102940,7 @@ export type Database = {
           total_periods: number
         }[]
       }
+      get_fee_structure_stats: { Args: never; Returns: Json }
       get_geography_analytics: {
         Args: { p_academic_year_id?: string; p_institution_id?: string }
         Returns: {
@@ -98751,6 +103432,7 @@ export type Database = {
           program_id: string
           program_name: string
           program_start_year: number
+          reserved_seats: number
           total_seats: number
         }[]
       }
@@ -102315,4 +106997,3 @@ export const Constants = {
     },
   },
 } as const
-

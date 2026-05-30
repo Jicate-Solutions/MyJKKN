@@ -387,6 +387,7 @@ const config: ModuleNavConfig = {
             '/admission/settings/lookups',
             '/admission/settings/lookups/quotas',
             '/admission/settings/lookups/community-categories',
+            '/admission/settings/lookups/castes',
             '/admission/settings/lookups/accommodation-types',
             '/admission/settings/lookups/data-quality',
           ],

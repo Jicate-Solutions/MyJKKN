@@ -164,7 +164,7 @@ export class StudentFormService {
     // Nullable UUID FKs must never reach the UPDATE as '' — Postgres rejects an
     // empty string cast to uuid with 22P02. Coerce blank → null for every
     // uuid-typed writable column the student form can submit.
-    for (const uuidCol of ['hostel_category_id', 'mess_category_id']) {
+    for (const uuidCol of ['hostel_category_id', 'mess_category_id', 'community_category_id', 'caste_id']) {
       if (allowedFields[uuidCol] === '') allowedFields[uuidCol] = null;
     }
 

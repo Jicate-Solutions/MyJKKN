@@ -97,8 +97,13 @@ export const enquiryFormSchema = z.object({
   date_of_birth: z.string().min(1, 'Date of birth is required'),
   gender: z.enum(['MALE', 'FEMALE', 'OTHER'], { required_error: 'Gender is required' }),
   religion: z.string().min(1, 'Religion is required'),
-  community: z.string().min(1, 'Community is required'),
-  caste: z.string().min(1, 'Caste is required'),
+  // FK source of truth (DB-backed community_categories / castes).
+  community_category_id: z.string().uuid('Community is required'),
+  caste_id: z.string().uuid().optional().or(z.literal('')),
+  // Legacy TEXT shadows — kept optional for back-compat; the DB trigger keeps
+  // them in sync from the FK ids above, so the UI no longer writes them.
+  community: z.string().optional().or(z.literal('')),
+  caste: z.string().optional().or(z.literal('')),
   aadhar_number: z.string().nullable().optional(),
   blood_group: z.string().nullable().optional(),
   student_photo_url: z.string().nullable().optional(),
@@ -736,6 +741,8 @@ export function EnquiryForm({
           religion: learner.religion || '',
           community: learner.community || '',
           caste: learner.caste || '',
+          community_category_id: learner.community_category_id || '',
+          caste_id: learner.caste_id || '',
           aadhar_number: learner.aadhar_number || '',
           blood_group: learner.blood_group || '',
           student_photo_url: learner.student_photo_url || '',
@@ -892,6 +899,8 @@ export function EnquiryForm({
           religion: '',
           community: '',
           caste: '',
+          community_category_id: '',
+          caste_id: '',
           aadhar_number: '',
           blood_group: '',
           student_photo_url: '',
@@ -1075,8 +1084,10 @@ export function EnquiryForm({
       date_of_birth: values.date_of_birth || '',
       gender: toUpperCaseField(values.gender) || '',
       religion: toUpperCaseField(values.religion) || '',
-      community: toUpperCaseField(values.community) || '',
-      caste: toUpperCaseField(values.caste),
+      // FK source of truth; community/caste TEXT are auto-filled by the DB
+      // shadow trigger (sync_learner_community_caste_text) from these ids.
+      community_category_id: formatUUID(values.community_category_id) || null,
+      caste_id: formatUUID(values.caste_id) || null,
       aadhar_number: values.aadhar_number || undefined,
       blood_group: values.blood_group || undefined,
       student_photo_url: values.student_photo_url || undefined,
@@ -1722,7 +1733,10 @@ export function EnquiryForm({
         };
 
         let resolvedQuotaId = learnerLike.quota_id;
-        let resolvedCommunityId = learnerLike.community_category_id;
+        // Form now carries the FK directly; prefer it over the loaded prop.
+        let resolvedCommunityId =
+          formatUUID((values as { community_category_id?: string }).community_category_id) ||
+          learnerLike.community_category_id;
         let resolvedAccommodationId = learnerLike.accommodation_type_id;
 
         if (!resolvedQuotaId || !resolvedCommunityId || !resolvedAccommodationId) {

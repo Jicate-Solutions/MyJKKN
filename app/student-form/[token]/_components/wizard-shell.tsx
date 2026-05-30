@@ -61,7 +61,7 @@ const looksFilled = (v: unknown) =>
 const REQUIRED_BY_SECTION: Record<Section, Array<{ key: string; label: string }>> = {
   basic: [
     { key: 'first_name', label: 'First Name' },
-    { key: 'community',  label: 'Community' },
+    { key: 'community_category_id', label: 'Community' },
   ],
   academic: [
     // Marks are optional at the wizard level — students can submit blanks.

@@ -16,7 +16,7 @@
 export const STUDENT_WRITABLE_COLUMNS = {
   basic: [
     'first_name', 'last_name', 'date_of_birth', 'gender',
-    'religion', 'community', 'caste', 'student_photo_url',
+    'religion', 'community', 'caste', 'community_category_id', 'caste_id', 'student_photo_url',
     'father_name', 'father_occupation', 'father_mobile',
     'mother_name', 'mother_occupation', 'mother_mobile',
     'annual_income',

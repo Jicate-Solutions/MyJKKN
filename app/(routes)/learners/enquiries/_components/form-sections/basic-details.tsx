@@ -231,22 +231,23 @@ export function BasicDetailsSection({ form, onImageFileChange, isStudentView = f
           {/* Community and Caste — separate cells in the 3-col grid so
               Religion | Community | Caste sit on one row at md:+ widths. */}
           <CommunityField
-            value={form.watch('community') ?? ''}
+            value={form.watch('community_category_id') ?? ''}
             onChange={(val) =>
-              form.setValue('community', val, { shouldDirty: true, shouldValidate: true })
+              form.setValue('community_category_id', val, { shouldDirty: true, shouldValidate: true })
             }
             onCascadeReset={() =>
-              form.setValue('caste', '', { shouldDirty: true, shouldValidate: true })
+              form.setValue('caste_id', '', { shouldDirty: true, shouldValidate: true })
             }
             required
           />
           <CasteField
-            community={form.watch('community') ?? ''}
-            value={form.watch('caste') ?? ''}
+            communityCategoryId={form.watch('community_category_id') ?? ''}
+            value={form.watch('caste_id') ?? ''}
             onChange={(val) =>
-              form.setValue('caste', val, { shouldDirty: true, shouldValidate: true })
+              form.setValue('caste_id', val, { shouldDirty: true, shouldValidate: true })
             }
             required
+            legacyCasteText={form.watch('caste') ?? ''}
           />
         </div>
 
