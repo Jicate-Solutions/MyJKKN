@@ -146,8 +146,8 @@ export class ClubService {
     if (error) throw new Error(error.message);
   }
 
-  static async removeMember(clubId: string, learnerId: string): Promise<void> {
-    const { error } = await this.supabase
+  static async removeMember(supabase: SupabaseClient, clubId: string, learnerId: string): Promise<void> {
+    const { error } = await supabase
       .from('cdc_club_memberships')
       .update({ is_active: false, left_at: new Date().toISOString() })
       .eq('club_id', clubId)
