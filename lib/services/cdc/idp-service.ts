@@ -42,8 +42,8 @@ export class IdpService {
     };
   }
 
-  static async getById(id: string): Promise<CdcIdpResponseWithLearner> {
-    const { data, error } = await this.supabase
+  static async getById(supabase: SupabaseClient, id: string): Promise<CdcIdpResponseWithLearner> {
+    const { data, error } = await supabase
       .from('cdc_idp_responses')
       .select(`*, learner:learner_id(id, name, roll_number, institution_id)`)
       .eq('id', id)
@@ -53,8 +53,8 @@ export class IdpService {
     return data as CdcIdpResponseWithLearner;
   }
 
-  static async getByLearnerId(learner_id: string): Promise<CdcIdpResponse | null> {
-    const { data, error } = await this.supabase
+  static async getByLearnerId(supabase: SupabaseClient, learner_id: string): Promise<CdcIdpResponse | null> {
+    const { data, error } = await supabase
       .from('cdc_idp_responses')
       .select('*')
       .eq('learner_id', learner_id)
