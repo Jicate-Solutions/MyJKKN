@@ -42,7 +42,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'learner_id is required' }, { status: 400 });
     }
 
-    const result = await IdpService.create({ ...body, created_by: user.id });
+    const result = await IdpService.create(supabase, { ...body, created_by: user.id });
     return NextResponse.json(result, { status: 201 });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : 'Internal server error';
