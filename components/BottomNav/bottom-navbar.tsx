@@ -147,7 +147,11 @@ export function BottomNavbar() {
   } = usePermissions();
 
   const { user } = useAuth();
-  const { institutionType } = useInstitutionType();
+  const { institutionType, isLoading: institutionTypeLoading } = useInstitutionType();
+
+  if (process.env.NODE_ENV === 'development') {
+    console.log('[BottomNav] institutionType:', institutionType, 'isLoading:', institutionTypeLoading);
+  }
 
   const { open: openSearch } = useCommandPalette();
   const { favorites } = usePageFavorites();
