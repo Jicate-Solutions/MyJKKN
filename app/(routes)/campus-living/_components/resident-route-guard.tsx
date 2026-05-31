@@ -34,13 +34,27 @@ export function CampusLivingResidentGuard({ children }: { children: React.ReactN
   const { isSuperAdmin, can, isLoading: permsLoading } = usePermissions();
 
   const isCampusLiving = !!pathname && pathname.startsWith('/campus-living');
-  const onMyHostel = !!pathname && pathname.startsWith('/campus-living/my-hostel');
   const isStudent = profile?.role === 'student';
 
-  // A student with no campus-living staff access is confined to My Hostel.
+  // Paths a student/resident is allowed to reach within campus-living: the
+  // My Hostel hub, the two self-service request forms (CTAs from the Requests
+  // tab — gated by leave.request / gate_passes.create), and the vacate-requests
+  // area (their own request detail is page-guarded for view_own). Everything
+  // else under /campus-living is admin/operational → redirect to My Hostel.
+  const RESIDENT_PATHS = [
+    '/campus-living/my-hostel',
+    '/campus-living/leave/new',
+    '/campus-living/gate-passes/new',
+    '/campus-living/vacate-requests',
+  ];
+  const onResidentPath =
+    !!pathname && RESIDENT_PATHS.some((p) => pathname.startsWith(p));
+
+  // A student with no campus-living staff access is confined to the resident
+  // paths above.
   const confineToMyHostel =
     isCampusLiving &&
-    !onMyHostel &&
+    !onResidentPath &&
     isStudent &&
     !isSuperAdmin &&
     !can('campus_living.dashboard.view') &&
