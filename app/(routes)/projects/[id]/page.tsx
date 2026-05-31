@@ -32,6 +32,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useProject } from '@/hooks/projects/use-projects';
 import { BoardView } from '@/components/projects/board/board-view';
 import { ProjectFormDialog } from '../_components/project-form-dialog';
+import { ProjectDetailNav } from './_components/project-detail-nav';
 import type { RagStatus } from '@/types/projects';
 
 const RAG_BADGE: Record<RagStatus, { label: string; className: string }> = {
@@ -142,6 +143,14 @@ export default function ProjectDetailPage({
               </Button>
             </CardHeader>
           </Card>
+
+          {/* Workspace — links to every per-project feature view (Wave-4 integration) */}
+          <div className="mt-6">
+            <h2 className="mb-3 text-sm font-medium text-muted-foreground">
+              Workspace
+            </h2>
+            <ProjectDetailNav projectId={project.id} />
+          </div>
 
           {/* Tabs */}
           <div className="mt-6">
