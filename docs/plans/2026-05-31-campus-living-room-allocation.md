@@ -1,6 +1,6 @@
 # Campus Living — Room Allocation System (Design & Roadmap)
 
-**Status:** P0–P2 complete (foundations · physical-room eligibility · auto-allocation + warden approval). P3 (manual self-selection) pending. **Date:** 2026-05-31.
+**Status:** ✅ COMPLETE — P0 foundations · P1 physical-room eligibility · P2 auto-allocation (Classic) + warden batch approval · P3 manual self-selection (premium) + individual warden approval. **Date:** 2026-05-31.
 **Working mode:** direct commits to `main`, one commit per phase, verify before next.
 
 ## Goal

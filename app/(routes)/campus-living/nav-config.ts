@@ -27,6 +27,7 @@ const config: ModuleNavConfig = {
       matchPaths: ['/campus-living/my-hostel', '/campus-living/my-hostel/premium'],
       children: [
         { label: 'My Hostel', icon: 'Home', href: '/campus-living/my-hostel', matchPaths: ['/campus-living/my-hostel'] },
+        { label: 'Request Room', icon: 'BedDouble', href: '/campus-living/my-hostel/request-room', matchPaths: ['/campus-living/my-hostel/request-room'] },
         { label: 'Premium Stay', icon: 'Sparkles', href: '/campus-living/my-hostel/premium', matchPaths: ['/campus-living/my-hostel/premium'] },
         { label: 'Pick Room', icon: 'BedDouble', href: '/campus-living/my-hostel/premium/pick-room', matchPaths: ['/campus-living/my-hostel/premium/pick-room'] },
         { label: 'Invite Roommate', icon: 'UserPlus', href: '/campus-living/my-hostel/premium/invite-roommate', matchPaths: ['/campus-living/my-hostel/premium/invite-roommate'] },
@@ -79,6 +80,12 @@ const config: ModuleNavConfig = {
           icon: 'ClipboardCheck',
           href: '/campus-living/allocations/batches',
           matchPaths: ['/campus-living/allocations/batches'],
+        },
+        {
+          label: 'Pending Approvals',
+          icon: 'ClipboardList',
+          href: '/campus-living/allocations/pending',
+          matchPaths: ['/campus-living/allocations/pending'],
         },
         {
           label: 'Waitlist',

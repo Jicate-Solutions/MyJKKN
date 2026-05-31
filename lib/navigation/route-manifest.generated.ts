@@ -2745,6 +2745,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             ]
           },
           {
+            "path": "/campus-living/allocations/pending",
+            "label": "Pending",
+            "iconName": "PackageCheck",
+            "children": []
+          },
+          {
             "path": "/campus-living/allocations/roommate-matching",
             "label": "Roommate Matching",
             "iconName": "PackageCheck",
@@ -3082,6 +3088,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
                 "children": []
               }
             ]
+          },
+          {
+            "path": "/campus-living/my-hostel/request-room",
+            "label": "Request Room",
+            "iconName": "FileText",
+            "children": []
           },
           {
             "path": "/campus-living/my-hostel/vacate-request",
