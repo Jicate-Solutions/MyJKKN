@@ -6,7 +6,7 @@ import { queryKeys } from '@/lib/query/query-keys';
 
 export function useMyHostelSummary() {
   const { profile } = useAuth();
-  const learnerId = (profile as any)?.learner_id ?? '';
+  const learnerId = profile?.learner_id ?? '';
   return useQuery({
     queryKey: queryKeys.campusLiving.myHostel.summary(learnerId),
     queryFn: () => MyHostelService.getMySummary(learnerId),

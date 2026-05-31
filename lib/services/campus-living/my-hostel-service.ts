@@ -1,5 +1,6 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { logger } from '@/lib/utils/enhanced-logger';
+import { HostelYearService } from '@/lib/services/campus-living/hostel-year-service';
 
 export interface MyHostelSummary {
   learnerId: string;
@@ -43,13 +44,7 @@ export class MyHostelService {
   static async getMyCategoryFees(hostelCategoryId: string) {
     if (!hostelCategoryId) return [];
     const supabase = createClientSupabaseClient();
-    const { data: years } = await supabase
-      .from('hostel_years')
-      .select('id, is_current, start_date')
-      .order('is_current', { ascending: false })
-      .order('start_date', { ascending: false })
-      .limit(1);
-    const year = years?.[0] as { id: string } | undefined;
+    const year = await HostelYearService.getCurrentYear();
     if (!year) return [];
     const { data, error } = await supabase
       .from('hostel_category_fees')
