@@ -99,8 +99,8 @@ export function useEligibilitySemesters(programId: string | null) {
 
 export function useEligibilityBlocks(institutionId: string | null) {
   const query = useQuery({
-    queryKey: [...KEY, 'blocks', institutionId],
-    queryFn: () => RoomEligibilityService.getBlocks(institutionId!),
+    queryKey: [...KEY, 'blocks'],
+    queryFn: () => RoomEligibilityService.getBlocks(),
     enabled: !!institutionId,
   });
   return { options: query.data ?? [], loading: query.isLoading };

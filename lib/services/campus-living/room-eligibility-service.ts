@@ -208,18 +208,15 @@ export class RoomEligibilityService {
     }));
   }
 
-  static async getBlocks(institutionId: string): Promise<BlockOption[]> {
-    const { data: junction, error: jErr } = await this.supabase
-      .from('hostel_block_institutions')
-      .select('block_id')
-      .eq('institution_id', institutionId);
-    if (jErr) throw new Error(jErr.message || 'Failed to load blocks');
-    const ids = (junction ?? []).map((j) => j.block_id);
-    if (ids.length === 0) return [];
+  // All blocks. An eligibility rule's block is a PHYSICAL target, independent of
+  // which institution the cohort belongs to (the institution dimension gates the
+  // learner, not the block). Filtering by the hostel_block_institutions junction
+  // hid blocks linked to a different institution (or not linked at all, e.g. a
+  // block created by a super-admin with no institution).
+  static async getBlocks(): Promise<BlockOption[]> {
     const { data, error } = await this.supabase
       .from('hostel_blocks')
       .select('id, name')
-      .in('id', ids)
       .order('name', { ascending: true });
     if (error) throw new Error(error.message || 'Failed to load blocks');
     return (data ?? []).map((b: Record<string, unknown>) => ({
