@@ -1213,6 +1213,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         ]
       },
       {
+        "path": "/admin/instagram-attribution",
+        "label": "Instagram Attribution",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
         "path": "/admin/internship-policy",
         "label": "Internship Policy",
         "iconName": "FileText",
@@ -1582,6 +1588,19 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "label": "Saml",
         "iconName": "KeyRound",
         "children": []
+      },
+      {
+        "path": "/admin/social",
+        "label": "Social",
+        "iconName": "FileText",
+        "children": [
+          {
+            "path": "/admin/social/instagram",
+            "label": "Instagram",
+            "iconName": "FileText",
+            "children": []
+          }
+        ]
       },
       {
         "path": "/admin/telephony-policies",
@@ -2075,6 +2094,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
               {
                 "path": "/admission/settings/lookups/accommodation-types",
                 "label": "Accommodation Types",
+                "iconName": "GraduationCap",
+                "children": []
+              },
+              {
+                "path": "/admission/settings/lookups/castes",
+                "label": "Castes",
                 "iconName": "GraduationCap",
                 "children": []
               },

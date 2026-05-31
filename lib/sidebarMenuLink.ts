@@ -484,6 +484,10 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   //    routed sub-pages. Super admin sees all without these entries.
   '/staff': 'staff.view',
   '/campus-living': 'campus_living.view',
+  '/campus-living/my-hostel': 'campus_living.my_hostel.view',
+  '/campus-living/my-hostel/premium': 'campus_living.premium.view_dashboard',
+  '/campus-living/my-hostel/premium/pick-room': 'campus_living.premium.pick_room',
+  '/campus-living/my-hostel/premium/invite-roommate': 'campus_living.premium.invite_roommate',
   '/hr': 'hr.view',
   '/okr': 'okr.view',
   '/learn': 'learn.view',
