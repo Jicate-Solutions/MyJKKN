@@ -11,6 +11,8 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/hooks/use-auth';
+import { usePermissions } from '@/hooks/use-permissions';
+import { useIsHosteler } from '@/hooks/campus-living/use-is-hosteler';
 import { useMyVacateRequests } from '@/hooks/campus-living/use-hostel-vacate';
 import { HostelAllocationService } from '@/lib/services/campus-living/hostel-allocation-service';
 import {
@@ -57,7 +59,10 @@ const getJoined = (row: any, relation: string, field: string): string =>
 
 export default function MyHostelPage() {
   const { profile, user } = useAuth();
+  const { isSuperAdmin, can } = usePermissions();
   const userId = user?.id ?? '';
+
+  const { data: isHosteler, isLoading: hostelerLoading } = useIsHosteler();
 
   const {
     data: allocations,
@@ -74,6 +79,33 @@ export default function MyHostelPage() {
   const activeRequest = (myRequests ?? []).find(
     (r) => r.status !== 'completed' && r.status !== 'rejected' && r.status !== 'cancelled'
   );
+
+  const allowed = isSuperAdmin || (can('campus_living.my_hostel.view') && isHosteler);
+
+  if (hostelerLoading) {
+    return (
+      <ContentLayout title='My Hostel'>
+        <div className='flex items-center justify-center min-h-[400px]'>
+          <Loader2 className='h-8 w-8 animate-spin text-primary' />
+        </div>
+      </ContentLayout>
+    );
+  }
+
+  if (!allowed) {
+    return (
+      <ContentLayout title='My Hostel'>
+        <Card>
+          <CardContent className='p-8 text-center space-y-2'>
+            <AlertCircle className='h-10 w-10 mx-auto text-muted-foreground' />
+            <p className='text-muted-foreground'>
+              My Hostel is available only to hostel residents.
+            </p>
+          </CardContent>
+        </Card>
+      </ContentLayout>
+    );
+  }
 
   if (allocLoading || reqLoading) {
     return (
