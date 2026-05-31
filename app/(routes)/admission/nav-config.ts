@@ -302,6 +302,31 @@ const config: ModuleNavConfig = {
       ],
     },
     {
+      label: 'Inbox',
+      icon: 'Inbox',
+      href: '/admission/inbox/messenger',
+      matchPaths: ['/admission/inbox'],
+      // Tier-3 chips for inbound social channels. Messenger + Instagram DMs
+      // land here via Meta webhooks (substrate: PR #1149, #1153). When
+      // master kill-switches (meta.messenger.is_enabled / ig.dm.is_enabled)
+      // are off, the chip is still rendered but the page shows a disabled
+      // placeholder.
+      children: [
+        {
+          label: 'Messenger',
+          icon: 'MessageCircle',
+          href: '/admission/inbox/messenger',
+          matchPaths: ['/admission/inbox/messenger'],
+        },
+        {
+          label: 'Instagram DMs',
+          icon: 'Instagram',
+          href: '/admission/inbox/instagram',
+          matchPaths: ['/admission/inbox/instagram'],
+        },
+      ],
+    },
+    {
       label: 'AI Insights',
       icon: 'Sparkles',
       href: '/admission/insights',
