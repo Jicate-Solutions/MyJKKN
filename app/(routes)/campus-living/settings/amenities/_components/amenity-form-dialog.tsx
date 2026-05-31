@@ -163,7 +163,7 @@ export function AmenityFormDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className='w-[95vw] max-w-[480px]'>
+      <DialogContent className='w-[95vw] max-w-[480px] max-h-[90vh] overflow-y-auto'>
         <DialogHeader>
           <DialogTitle>
             {mode === 'create' ? 'Create Amenity' : 'Edit Amenity'}
