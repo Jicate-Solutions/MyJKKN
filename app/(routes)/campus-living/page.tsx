@@ -32,16 +32,18 @@ import {
 
 export default function CampusLivingDashboardPage() {
   const { profile } = useAuth();
-  const { isSuperAdmin, can } = usePermissions();
+  const { isSuperAdmin, can, isLoading: permsLoading } = usePermissions();
   const router = useRouter();
   const institutionId = profile?.institution_id ?? '';
 
-  // Redirect pure residents (no dashboard.view) to their personal My Hostel hub
+  // Redirect pure residents (no dashboard.view) to their personal My Hostel hub.
+  // Gate on permsLoading — while usePermissions resolves, isSuperAdmin/can() are
+  // both false, which would otherwise bounce admins/wardens off the dashboard.
   useEffect(() => {
-    if (!isSuperAdmin && !can('campus_living.dashboard.view')) {
+    if (!permsLoading && !isSuperAdmin && !can('campus_living.dashboard.view')) {
       router.replace('/campus-living/my-hostel');
     }
-  }, [isSuperAdmin, can, router]);
+  }, [permsLoading, isSuperAdmin, can, router]);
   const { data: dashboardData, isLoading, error } = useCampusLivingOverview(institutionId);
 
   if (isLoading) {
