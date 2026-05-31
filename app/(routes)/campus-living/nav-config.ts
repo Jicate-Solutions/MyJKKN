@@ -563,6 +563,12 @@ const config: ModuleNavConfig = {
           matchPaths: ['/campus-living/settings/billable-amenities'],
         },
         {
+          label: 'AC / Category Audit',
+          icon: 'ClipboardCheck',
+          href: '/campus-living/settings/ac-amenity-audit',
+          matchPaths: ['/campus-living/settings/ac-amenity-audit'],
+        },
+        {
           label: 'Hostel Years',
           icon: 'CalendarRange',
           href: '/campus-living/settings/hostel-years',
