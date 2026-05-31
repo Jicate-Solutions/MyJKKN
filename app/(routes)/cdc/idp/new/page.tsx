@@ -13,16 +13,22 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { SearchableSelect } from '@/components/ui/searchable-select';
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { useCreateIdp } from '@/hooks/cdc/use-cdc-idp';
 import { useLearnersForPicker } from '@/hooks/cdc/use-cdc-pickers';
+import { useAcademicYears } from '@/hooks/use-academic-years';
 import { X, Plus } from 'lucide-react';
 
 export default function NewIdpPage() {
   const router = useRouter();
   const createIdp = useCreateIdp();
   const { data: learnerOptions = [], isLoading: learnersLoading } = useLearnersForPicker();
+  const { data: academicYearsData, isLoading: academicYearsLoading } = useAcademicYears();
+  const academicYearOptions = academicYearsData?.data ?? [];
 
   const [learnerId, setLearnerId] = useState('');
   const [academicYear, setAcademicYear] = useState('');
@@ -108,12 +114,20 @@ export default function NewIdpPage() {
               </div>
               <div className="space-y-1">
                 <Label htmlFor="academic_year">Academic Year</Label>
-                <Input
-                  id="academic_year"
-                  value={academicYear}
-                  onChange={e => setAcademicYear(e.target.value)}
-                  placeholder="e.g. 2025-26"
-                />
+                <Select value={academicYear} onValueChange={setAcademicYear}>
+                  <SelectTrigger id="academic_year" className="w-full">
+                    <SelectValue
+                      placeholder={academicYearsLoading ? 'Loading…' : 'Select an academic year'}
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {academicYearOptions.map(y => (
+                      <SelectItem key={y.id} value={y.academic_year_name}>
+                        {y.academic_year_name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
             </CardContent>
           </Card>
