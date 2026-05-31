@@ -11,9 +11,9 @@ AS $$
   SELECT EXISTS (
     SELECT 1
     FROM learners_profiles lp
-    LEFT JOIN accommodation_types at ON at.id = lp.accommodation_type_id
+    LEFT JOIN accommodation_types acc ON acc.id = lp.accommodation_type_id
     WHERE lp.id = public.get_my_learner_id()
-      AND (at.code = 'hostel' OR lp.accommodation_type ILIKE 'hostel%')
+      AND (acc.code = 'hostel' OR lp.accommodation_type ILIKE 'hostel%')
   );
 $$;
 
