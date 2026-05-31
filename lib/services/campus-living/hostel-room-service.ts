@@ -73,6 +73,24 @@ async function fetchOccupancyMap(
   return map;
 }
 
+// Flatten embedded hostel_room_amenity_tags (present=true) → catalog rows
+// (selected as `room_amenity_links`) into a simple amenity_tags array and drop
+// the raw embed key, so callers see room.amenity_tags = [{id,name,icon}].
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function mapRoomAmenityTags(row: any) {
+  const { room_amenity_links, ...rest } = row ?? {};
+  const amenity_tags = (room_amenity_links ?? [])
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    .filter((l: any) => l.present !== false)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    .map((l: any) => l.amenity)
+    .filter(Boolean);
+  return { ...rest, amenity_tags };
+}
+
+const ROOM_AMENITY_EMBED =
+  'room_amenity_links:hostel_room_amenity_tags(present, amenity:hostel_amenity_tags(id, name, icon))';
+
 export class HostelRoomService {
   // ── List rooms with filters ───────────────────────────────────────
   // institutionId parameter retained as a chip-filter convenience (still
@@ -256,7 +274,7 @@ export class HostelRoomService {
       const supabase = createClientSupabaseClient();
       const { data, error } = await supabase
         .from('hostel_rooms')
-        .select('*, hostel_beds(*), hostel_blocks(name, code)')
+        .select(`*, hostel_beds(*), hostel_blocks(name, code), ${ROOM_AMENITY_EMBED}`)
         .eq('id', id)
         .maybeSingle();
 
@@ -266,7 +284,7 @@ export class HostelRoomService {
       }
       if (!data) return null;
 
-      const room = data as HostelRoom & { hostel_beds: unknown[]; hostel_blocks: unknown };
+      const room = mapRoomAmenityTags(data) as HostelRoom & { hostel_beds: unknown[]; hostel_blocks: unknown };
       const occMap = await fetchOccupancyMap(supabase, [room.id]);
       return {
         ...room,
@@ -278,8 +296,49 @@ export class HostelRoomService {
     }
   }
 
+  // ── Room amenity tags (hostel_room_amenity_tags junction) ─────────
+  static async getRoomAmenityTagIds(roomId: string): Promise<string[]> {
+    if (!isUuid(roomId)) return [];
+    const supabase = createClientSupabaseClient();
+    const { data, error } = await supabase
+      .from('hostel_room_amenity_tags')
+      .select('tag_id')
+      .eq('room_id', roomId)
+      .eq('present', true);
+    if (error) {
+      logger.error('campus-living/rooms', 'Failed to fetch room amenity tags', error);
+      throw error;
+    }
+    return (data ?? []).map((r) => r.tag_id);
+  }
+
+  // Replace the room's amenity-tag set with present=true rows: clear existing
+  // links then insert the selected ones. The present=false "suppress block
+  // default" override is not exposed here — the catalog picker manages only
+  // direct room amenities.
+  static async syncRoomAmenityTags(roomId: string, tagIds: string[]): Promise<void> {
+    const supabase = createClientSupabaseClient();
+    const { error: delErr } = await supabase
+      .from('hostel_room_amenity_tags')
+      .delete()
+      .eq('room_id', roomId);
+    if (delErr) {
+      logger.error('campus-living/rooms', 'Failed to clear room amenity tags', delErr);
+      throw delErr;
+    }
+    if (tagIds.length === 0) return;
+    const rows = tagIds.map((tag_id) => ({ room_id: roomId, tag_id, present: true }));
+    const { error: insErr } = await supabase
+      .from('hostel_room_amenity_tags')
+      .insert(rows);
+    if (insErr) {
+      logger.error('campus-living/rooms', 'Failed to insert room amenity tags', insErr);
+      throw insErr;
+    }
+  }
+
   // ── Create ────────────────────────────────────────────────────────
-  static async createRoom(payload: CreateHostelRoomDTO) {
+  static async createRoom(payload: CreateHostelRoomDTO, amenityTagIds?: string[]) {
     try {
       const supabase = createClientSupabaseClient();
       const { data, error } = await supabase
@@ -293,7 +352,11 @@ export class HostelRoomService {
         logger.error('campus-living/rooms', 'Failed to create room', error);
         throw error;
       }
-      return data as HostelRoom;
+      const room = data as HostelRoom;
+      if (amenityTagIds && amenityTagIds.length > 0) {
+        await this.syncRoomAmenityTags(room.id, amenityTagIds);
+      }
+      return room;
     } catch (error) {
       logger.error('campus-living/rooms', 'Unexpected error in createRoom', error);
       throw error;
@@ -301,7 +364,7 @@ export class HostelRoomService {
   }
 
   // ── Update ────────────────────────────────────────────────────────
-  static async updateRoom(id: string, payload: UpdateHostelRoomDTO) {
+  static async updateRoom(id: string, payload: UpdateHostelRoomDTO, amenityTagIds?: string[]) {
     try {
       const supabase = createClientSupabaseClient();
       const { data, error } = await supabase
@@ -316,6 +379,11 @@ export class HostelRoomService {
         logger.error('campus-living/rooms', 'Failed to update room', error);
         throw error;
       }
+
+      if (amenityTagIds !== undefined) {
+        await this.syncRoomAmenityTags(id, amenityTagIds);
+      }
+
       return data as HostelRoom;
     } catch (error) {
       logger.error('campus-living/rooms', 'Unexpected error in updateRoom', error);

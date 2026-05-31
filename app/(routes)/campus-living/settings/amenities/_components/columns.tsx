@@ -51,6 +51,15 @@ export const createColumns = (): ColumnDef<Amenity>[] => [
     ),
   },
   {
+    accessorKey: 'scope',
+    header: 'Scope',
+    cell: ({ row }) => (
+      <Badge variant='secondary' className='capitalize'>
+        {row.original.scope}
+      </Badge>
+    ),
+  },
+  {
     accessorKey: 'icon',
     header: 'Icon',
     cell: ({ row }) => (

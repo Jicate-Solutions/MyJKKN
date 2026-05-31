@@ -260,13 +260,11 @@ export default function HostelBlocksPage() {
 
                     {/* Amenities */}
                     <div className="flex flex-wrap gap-1.5">
-                      {Object.entries(block.amenities ?? {})
-                        .filter(([, available]) => available)
-                        .map(([amenity]) => (
-                          <Badge key={amenity} variant="outline" className="text-xs capitalize">
-                            {amenity.replace('_', ' ')}
-                          </Badge>
-                        ))}
+                      {(block.amenity_tags ?? []).map((a: { id: string; name: string }) => (
+                        <Badge key={a.id} variant="outline" className="text-xs">
+                          {a.name}
+                        </Badge>
+                      ))}
                     </div>
                   </CardContent>
                 </Card>

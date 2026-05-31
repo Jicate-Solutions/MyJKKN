@@ -30736,6 +30736,7 @@ export type Database = {
           icon: string | null
           id: string
           name: string
+          scope: string
           sort_order: number
           updated_at: string
           updated_by: string | null
@@ -30749,6 +30750,7 @@ export type Database = {
           icon?: string | null
           id?: string
           name: string
+          scope?: string
           sort_order?: number
           updated_at?: string
           updated_by?: string | null
@@ -30762,6 +30764,7 @@ export type Database = {
           icon?: string | null
           id?: string
           name?: string
+          scope?: string
           sort_order?: number
           updated_at?: string
           updated_by?: string | null
@@ -31437,7 +31440,6 @@ export type Database = {
       hostel_blocks: {
         Row: {
           address: string | null
-          amenities: Json | null
           code: string
           contact_phone: string | null
           created_at: string | null
@@ -31460,7 +31462,6 @@ export type Database = {
         }
         Insert: {
           address?: string | null
-          amenities?: Json | null
           code: string
           contact_phone?: string | null
           created_at?: string | null
@@ -31483,7 +31484,6 @@ export type Database = {
         }
         Update: {
           address?: string | null
-          amenities?: Json | null
           code?: string
           contact_phone?: string | null
           created_at?: string | null

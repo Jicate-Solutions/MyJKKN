@@ -20,6 +20,7 @@ import { Switch } from '@/components/ui/switch';
 import { useHostelBlock } from '@/hooks/campus-living/use-hostel-blocks';
 import { useActiveHostelCategories } from '@/hooks/campus-living/use-hostel-categories';
 import { useCreateHostelRoom } from '@/hooks/campus-living/use-hostel-rooms';
+import { useAmenitiesByScope } from '@/hooks/campus-living/use-amenities';
 import type { RoomType, AcStatus } from '@/types/campus-living';
 import { ArrowLeft, Save, Loader2 } from 'lucide-react';
 
@@ -44,6 +45,16 @@ export default function NewRoomPage({ params }: { params: Promise<{ id: string }
   const block = blockData as { name?: string; hostel_type?: string } | undefined;
   const createRoom = useCreateHostelRoom();
   const { hostelCategories: allCategories, loading: categoriesLoading } = useActiveHostelCategories();
+  const { amenities: roomAmenities, loading: amenitiesLoading } =
+    useAmenitiesByScope('room');
+  const [selectedAmenityIds, setSelectedAmenityIds] = useState<string[]>([]);
+
+  const toggleAmenity = (amenityId: string) =>
+    setSelectedAmenityIds((prev) =>
+      prev.includes(amenityId)
+        ? prev.filter((x) => x !== amenityId)
+        : [...prev, amenityId]
+    );
 
   // Categories are gendered tiers; a block is a single gender, so only its
   // matching tiers apply. A 'mixed' block (rare) accepts every category.
@@ -91,6 +102,7 @@ export default function NewRoomPage({ params }: { params: Promise<{ id: string }
         annual_fee: formData.annual_fee === '' ? null : Number(formData.annual_fee),
         has_attached_bathroom: formData.has_attached_bathroom,
         is_accessible: formData.is_accessible,
+        amenityTagIds: selectedAmenityIds,
       });
       router.push(`/campus-living/blocks/${id}/rooms`);
     } catch {
@@ -250,6 +262,43 @@ export default function NewRoomPage({ params }: { params: Promise<{ id: string }
                   onCheckedChange={(v) => set('is_accessible', v)}
                 />
               </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Amenities</CardTitle>
+              <CardDescription>Room-level facilities</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {amenitiesLoading ? (
+                <div className="flex items-center text-sm text-muted-foreground">
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Loading amenities…
+                </div>
+              ) : roomAmenities.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  No room-scoped amenities defined yet. Add them under Settings →
+                  Amenities (set Scope to Room or Both).
+                </p>
+              ) : (
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                  {roomAmenities.map((a) => (
+                    <div
+                      key={a.id}
+                      className="flex items-center justify-between rounded-lg border p-3"
+                    >
+                      <Label htmlFor={`room-amenity-${a.id}`} className="cursor-pointer">
+                        {a.name}
+                      </Label>
+                      <Switch
+                        id={`room-amenity-${a.id}`}
+                        checked={selectedAmenityIds.includes(a.id)}
+                        onCheckedChange={() => toggleAmenity(a.id)}
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
             </CardContent>
           </Card>
 

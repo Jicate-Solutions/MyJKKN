@@ -472,13 +472,20 @@ export type BlockStatus = 'active' | 'under_maintenance' | 'closed';
 // current_occupancy, total_capacity, total_rooms are now derived from the
 // underlying rooms + active allocations (see v_hostel_room_occupancy for
 // per-room data; aggregations happen in app code or future view).
+export interface BlockAmenityTag {
+  id: string;
+  name: string;
+  icon: string | null;
+}
+
 export interface HostelBlock {
   id: string;
   name: string;
   code: string;
   hostel_type: HostelType;
   address: string | null;
-  amenities: Record<string, unknown> | null;
+  /** Resolved block-default amenity tags (hostel_block_amenity_tags → catalog). */
+  amenity_tags?: BlockAmenityTag[];
   contact_phone: string | null;
   curfew_time_weekday: string | null;
   curfew_time_weekend: string | null;
@@ -502,7 +509,6 @@ export interface CreateHostelBlockDTO {
   hostel_type: HostelType;
   total_floors: number;
   address?: string | null;
-  amenities?: Record<string, unknown> | null;
   contact_phone?: string | null;
   curfew_time_weekday?: string | null;
   curfew_time_weekend?: string | null;

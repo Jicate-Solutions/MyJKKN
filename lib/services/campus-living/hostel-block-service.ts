@@ -13,6 +13,22 @@ import type {
   BlockFilters,
 } from '@/types/campus-living';
 
+// Flatten the embedded hostel_block_amenity_tags → hostel_amenity_tags rows
+// (selected as `block_amenity_links`) into a simple `amenity_tags` array and
+// drop the raw embed key, so callers see block.amenity_tags = [{id,name,icon}].
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function mapBlockAmenityTags(row: any) {
+  const { block_amenity_links, ...rest } = row ?? {};
+  const amenity_tags = (block_amenity_links ?? [])
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    .map((l: any) => l.amenity)
+    .filter(Boolean);
+  return { ...rest, amenity_tags };
+}
+
+const BLOCK_AMENITY_EMBED =
+  'block_amenity_links:hostel_block_amenity_tags(amenity:hostel_amenity_tags(id, name, icon))';
+
 export class HostelBlockService {
   // ── List blocks with filters ──────────────────────────────────────
   // institutionId narrows via hostel_block_institutions junction.
@@ -26,7 +42,7 @@ export class HostelBlockService {
       const supabase = createClientSupabaseClient();
       let query = supabase
         .from('hostel_blocks')
-        .select('*', { count: 'exact' });
+        .select(`*, ${BLOCK_AMENITY_EMBED}`, { count: 'exact' });
 
       if (institutionId) {
         const { data: blockIds, error: junctionErr } = await supabase
@@ -55,7 +71,8 @@ export class HostelBlockService {
         logger.error('campus-living/blocks', 'Failed to fetch blocks', error);
         throw error;
       }
-      return { data: (data ?? []) as HostelBlock[], count: count ?? 0 };
+      const blocks = (data ?? []).map((b) => mapBlockAmenityTags(b)) as HostelBlock[];
+      return { data: blocks, count: count ?? 0 };
     } catch (error) {
       logger.error('campus-living/blocks', 'Unexpected error in getBlocks', error);
       throw error;
@@ -68,7 +85,7 @@ export class HostelBlockService {
       const supabase = createClientSupabaseClient();
       const { data, error } = await supabase
         .from('hostel_blocks')
-        .select('*, hostel_rooms(*), hostel_wardens(*)')
+        .select(`*, hostel_rooms(*), hostel_wardens(*), ${BLOCK_AMENITY_EMBED}`)
         .eq('id', id)
         .maybeSingle();
 
@@ -143,7 +160,7 @@ export class HostelBlockService {
         .sort((a, b) => a.floor - b.floor)
         .map((g) => ({ ...g, label: floorLabel(g.floor) }));
 
-      return { ...data, rooms_summary, floor_summary } as HostelBlock & {
+      return { ...mapBlockAmenityTags(data), rooms_summary, floor_summary } as HostelBlock & {
         hostel_rooms: unknown[];
         hostel_wardens: unknown[];
         rooms_summary: typeof rooms_summary;
@@ -169,6 +186,7 @@ export class HostelBlockService {
   static async createBlock(
     payload: CreateHostelBlockDTO,
     primaryInstitutionId?: string,
+    amenityTagIds?: string[],
   ) {
     try {
       const supabase = createClientSupabaseClient();
@@ -204,6 +222,10 @@ export class HostelBlockService {
         }
       }
 
+      if (amenityTagIds && amenityTagIds.length > 0) {
+        await this.syncBlockAmenityTags(block.id, amenityTagIds);
+      }
+
       return block;
     } catch (error) {
       logger.error('campus-living/blocks', 'Unexpected error in createBlock', error);
@@ -212,7 +234,11 @@ export class HostelBlockService {
   }
 
   // ── Update ────────────────────────────────────────────────────────
-  static async updateBlock(id: string, payload: UpdateHostelBlockDTO) {
+  static async updateBlock(
+    id: string,
+    payload: UpdateHostelBlockDTO,
+    amenityTagIds?: string[],
+  ) {
     try {
       const supabase = createClientSupabaseClient();
       const { data, error } = await supabase
@@ -227,10 +253,52 @@ export class HostelBlockService {
         logger.error('campus-living/blocks', 'Failed to update block', error);
         throw error;
       }
+
+      if (amenityTagIds !== undefined) {
+        await this.syncBlockAmenityTags(id, amenityTagIds);
+      }
+
       return data as HostelBlock;
     } catch (error) {
       logger.error('campus-living/blocks', 'Unexpected error in updateBlock', error);
       throw error;
+    }
+  }
+
+  // ── Block amenity tags (hostel_block_amenity_tags junction) ───────
+  static async getBlockAmenityTagIds(blockId: string): Promise<string[]> {
+    const supabase = createClientSupabaseClient();
+    const { data, error } = await supabase
+      .from('hostel_block_amenity_tags')
+      .select('tag_id')
+      .eq('block_id', blockId);
+    if (error) {
+      logger.error('campus-living/blocks', 'Failed to fetch block amenity tags', error);
+      throw error;
+    }
+    return (data ?? []).map((r) => r.tag_id);
+  }
+
+  // Replace the block's amenity-tag set: clear existing links then insert the
+  // selected ones. Idempotent — the junction has no payload columns.
+  static async syncBlockAmenityTags(blockId: string, tagIds: string[]): Promise<void> {
+    const supabase = createClientSupabaseClient();
+    const { error: delErr } = await supabase
+      .from('hostel_block_amenity_tags')
+      .delete()
+      .eq('block_id', blockId);
+    if (delErr) {
+      logger.error('campus-living/blocks', 'Failed to clear block amenity tags', delErr);
+      throw delErr;
+    }
+    if (tagIds.length === 0) return;
+    const rows = tagIds.map((tag_id) => ({ block_id: blockId, tag_id }));
+    const { error: insErr } = await supabase
+      .from('hostel_block_amenity_tags')
+      .insert(rows);
+    if (insErr) {
+      logger.error('campus-living/blocks', 'Failed to insert block amenity tags', insErr);
+      throw insErr;
     }
   }
 

@@ -159,6 +159,24 @@ export default function RoomDetailPage({
           </Card>
         </div>
 
+        {/* Amenities */}
+        {(room.amenity_tags ?? []).length > 0 && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Amenities</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="flex flex-wrap gap-2">
+                {(room.amenity_tags ?? []).map((a: { id: string; name: string }) => (
+                  <Badge key={a.id} variant="secondary">
+                    {a.name}
+                  </Badge>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Bed Grid */}
           <Card>

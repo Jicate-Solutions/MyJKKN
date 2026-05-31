@@ -23,6 +23,13 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Loader2 } from 'lucide-react';
 import { useAmenities } from '@/hooks/campus-living/use-amenities';
 import { toast } from 'react-hot-toast';
@@ -50,6 +57,7 @@ const formSchema = z.object({
     .max(64, 'Icon name must be at most 64 characters')
     .optional()
     .or(z.literal('')),
+  scope: z.enum(['block', 'room', 'both']),
   sort_order: z.coerce.number().int().min(0, 'Must be 0 or greater'),
   is_active: z.boolean(),
 });
@@ -89,6 +97,7 @@ export function AmenityFormDialog({
       code: '',
       description: '',
       icon: '',
+      scope: 'both',
       sort_order: 0,
       is_active: true,
     },
@@ -102,6 +111,7 @@ export function AmenityFormDialog({
         code: amenity.code,
         description: amenity.description ?? '',
         icon: amenity.icon ?? '',
+        scope: amenity.scope,
         sort_order: amenity.sort_order,
         is_active: amenity.is_active,
       });
@@ -112,6 +122,7 @@ export function AmenityFormDialog({
         code: '',
         description: '',
         icon: '',
+        scope: 'both',
         sort_order: 0,
         is_active: true,
       });
@@ -138,6 +149,7 @@ export function AmenityFormDialog({
           name: data.name,
           description: data.description?.trim() || null,
           icon: data.icon?.trim() || null,
+          scope: data.scope,
           sort_order: data.sort_order,
           is_active: data.is_active,
         });
@@ -147,6 +159,7 @@ export function AmenityFormDialog({
           name: data.name,
           description: data.description?.trim() || null,
           icon: data.icon?.trim() || null,
+          scope: data.scope,
           sort_order: data.sort_order,
           is_active: data.is_active,
         });
@@ -211,6 +224,33 @@ export function AmenityFormDialog({
                   <p className='text-xs text-muted-foreground'>
                     Lowercase letters, numbers, underscores only.
                     {mode === 'create' && ' Auto-filled from name; edit to override.'}
+                  </p>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name='scope'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Scope</FormLabel>
+                  <Select value={field.value} onValueChange={field.onChange}>
+                    <FormControl>
+                      <SelectTrigger>
+                        <SelectValue placeholder='Select scope' />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      <SelectItem value='block'>Block</SelectItem>
+                      <SelectItem value='room'>Room</SelectItem>
+                      <SelectItem value='both'>Both</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className='text-xs text-muted-foreground'>
+                    Where this amenity applies. Block-scoped amenities appear in
+                    the block form, room-scoped in the room form, &ldquo;Both&rdquo; in both.
                   </p>
                   <FormMessage />
                 </FormItem>

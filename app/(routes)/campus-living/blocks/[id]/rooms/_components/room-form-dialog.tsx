@@ -39,6 +39,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Loader2 } from 'lucide-react';
@@ -46,7 +47,9 @@ import { useActiveHostelCategories } from '@/hooks/campus-living/use-hostel-cate
 import {
   useCreateHostelRoom,
   useUpdateHostelRoom,
+  useRoomAmenityTagIds,
 } from '@/hooks/campus-living/use-hostel-rooms';
+import { useAmenitiesByScope } from '@/hooks/campus-living/use-amenities';
 import type { HostelRoom, RoomType, AcStatus } from '@/types/campus-living';
 
 const ROOM_TYPES: { value: RoomType; label: string }[] = [
@@ -118,7 +121,19 @@ export function RoomFormDialog({
   const updateRoom = useUpdateHostelRoom();
   const { hostelCategories: allCategories, loading: categoriesLoading } =
     useActiveHostelCategories();
+  const { amenities: roomAmenities, loading: amenitiesLoading } =
+    useAmenitiesByScope('room');
+  const { data: existingAmenityTagIds } = useRoomAmenityTagIds(
+    room?.id,
+    open && mode === 'edit'
+  );
+  const [selectedAmenityIds, setSelectedAmenityIds] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
+
+  const toggleAmenity = (id: string) =>
+    setSelectedAmenityIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
 
   // Categories are gendered tiers; a block is a single gender, so only its
   // matching tiers apply. A 'mixed' block (rare) accepts every category.
@@ -151,6 +166,12 @@ export function RoomFormDialog({
     }
   }, [open, mode, room, form]);
 
+  // Pre-fill the amenity picker from the room's saved tags (edit mode only).
+  useEffect(() => {
+    if (!open) return;
+    setSelectedAmenityIds(mode === 'edit' ? existingAmenityTagIds ?? [] : []);
+  }, [open, mode, existingAmenityTagIds]);
+
   const onSubmit = async (data: FormValues) => {
     setSubmitting(true);
     try {
@@ -170,9 +191,17 @@ export function RoomFormDialog({
       };
 
       if (mode === 'create') {
-        await createRoom.mutateAsync({ block_id: blockId, ...payload });
+        await createRoom.mutateAsync({
+          block_id: blockId,
+          ...payload,
+          amenityTagIds: selectedAmenityIds,
+        });
       } else if (room) {
-        await updateRoom.mutateAsync({ id: room.id, payload });
+        await updateRoom.mutateAsync({
+          id: room.id,
+          payload,
+          amenityTagIds: selectedAmenityIds,
+        });
       }
       onOpenChange(false);
     } catch {
@@ -386,6 +415,38 @@ export function RoomFormDialog({
                   </FormItem>
                 )}
               />
+            </div>
+
+            <div className="space-y-2">
+              <Label>Amenities</Label>
+              {amenitiesLoading ? (
+                <div className="flex items-center text-sm text-muted-foreground">
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Loading amenities…
+                </div>
+              ) : roomAmenities.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  No room-scoped amenities defined yet. Add them under Settings →
+                  Amenities (set Scope to Room or Both).
+                </p>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {roomAmenities.map((a) => (
+                    <div
+                      key={a.id}
+                      className="flex items-center justify-between rounded-lg border p-3"
+                    >
+                      <Label htmlFor={`room-amenity-${a.id}`} className="cursor-pointer">
+                        {a.name}
+                      </Label>
+                      <Switch
+                        id={`room-amenity-${a.id}`}
+                        checked={selectedAmenityIds.includes(a.id)}
+                        onCheckedChange={() => toggleAmenity(a.id)}
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
             <div className="flex flex-col-reverse sm:flex-row justify-end gap-3 pt-2">

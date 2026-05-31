@@ -95,3 +95,20 @@ export function useActiveAmenities() {
     loading: query.isLoading,
   };
 }
+
+/**
+ * Active amenities applicable to a given assignment scope (block | room).
+ * Returns rows whose scope matches OR is 'both'. Powers the Block form
+ * (scope='block') and Room form (scope='room') amenity pickers.
+ */
+export function useAmenitiesByScope(scope: 'block' | 'room') {
+  const query = useQuery({
+    queryKey: [...AMENITIES_KEY, 'by-scope', scope],
+    queryFn: () => AmenityService.getAmenitiesByScope(scope),
+  });
+
+  return {
+    amenities: query.data ?? [],
+    loading: query.isLoading,
+  };
+}

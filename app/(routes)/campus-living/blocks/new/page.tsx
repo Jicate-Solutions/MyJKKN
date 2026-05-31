@@ -12,6 +12,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 import { useAuth } from '@/hooks/use-auth';
 import { useCreateHostelBlock } from '@/hooks/campus-living/use-hostel-blocks';
+import { useAmenitiesByScope } from '@/hooks/campus-living/use-amenities';
 import {
   Building2,
   ArrowLeft,
@@ -46,28 +47,20 @@ export default function NewBlockPage() {
     curfew_time_weekend: '22:00',
     visiting_hours_start: '16:00',
     visiting_hours_end: '19:00',
-    amenities: {
-      wifi: false,
-      laundry: false,
-      gym: false,
-      study_room: false,
-      tv_room: false,
-      parking: false,
-    },
   });
+
+  const { amenities: blockAmenities, loading: amenitiesLoading } =
+    useAmenitiesByScope('block');
+  const [selectedAmenityIds, setSelectedAmenityIds] = useState<string[]>([]);
 
   const handleInputChange = (field: string, value: string) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
   };
 
-  const handleAmenityToggle = (amenity: string) => {
-    setFormData((prev) => ({
-      ...prev,
-      amenities: {
-        ...prev.amenities,
-        [amenity]: !prev.amenities[amenity as keyof typeof prev.amenities],
-      },
-    }));
+  const toggleAmenity = (id: string) => {
+    setSelectedAmenityIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -90,11 +83,11 @@ export default function NewBlockPage() {
         curfew_time_weekend: formData.curfew_time_weekend || null,
         visiting_hours_start: formData.visiting_hours_start || null,
         visiting_hours_end: formData.visiting_hours_end || null,
-        amenities: formData.amenities,
         warden_id: null,
         deputy_warden_id: null,
         status: 'active' as const,
         metadata: null,
+        amenityTagIds: selectedAmenityIds,
       });
 
       // BUG-003863: After block creation, route to the rooms management page
@@ -280,20 +273,34 @@ export default function NewBlockPage() {
               <CardDescription>Available facilities in this block</CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                {Object.entries(formData.amenities).map(([amenity, enabled]) => (
-                  <div key={amenity} className="flex items-center justify-between rounded-lg border p-3">
-                    <Label htmlFor={`amenity-${amenity}`} className="capitalize cursor-pointer">
-                      {amenity.replace('_', ' ')}
-                    </Label>
-                    <Switch
-                      id={`amenity-${amenity}`}
-                      checked={enabled}
-                      onCheckedChange={() => handleAmenityToggle(amenity)}
-                    />
-                  </div>
-                ))}
-              </div>
+              {amenitiesLoading ? (
+                <div className="flex items-center text-sm text-muted-foreground">
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Loading amenities…
+                </div>
+              ) : blockAmenities.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  No block-scoped amenities defined yet. Add them under Settings →
+                  Amenities (set Scope to Block or Both).
+                </p>
+              ) : (
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                  {blockAmenities.map((a) => (
+                    <div
+                      key={a.id}
+                      className="flex items-center justify-between rounded-lg border p-3"
+                    >
+                      <Label htmlFor={`amenity-${a.id}`} className="cursor-pointer">
+                        {a.name}
+                      </Label>
+                      <Switch
+                        id={`amenity-${a.id}`}
+                        checked={selectedAmenityIds.includes(a.id)}
+                        onCheckedChange={() => toggleAmenity(a.id)}
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
             </CardContent>
           </Card>
 

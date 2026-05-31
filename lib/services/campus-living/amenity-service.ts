@@ -2,6 +2,7 @@ import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { logger } from '@/lib/utils/enhanced-logger';
 import type {
   Amenity,
+  AmenityScope,
   CreateAmenityDto,
   UpdateAmenityDto,
   AmenityFilters,
@@ -19,6 +20,7 @@ interface AmenityRow {
   name: string;
   icon: string | null;
   description: string | null;
+  scope: AmenityScope;
   sort_order: number;
   active: boolean;
   created_at: string;
@@ -32,6 +34,7 @@ function rowToAmenity(row: AmenityRow): Amenity {
     name: row.name,
     icon: row.icon,
     description: row.description,
+    scope: row.scope,
     sort_order: row.sort_order,
     is_active: row.active,
     created_at: row.created_at,
@@ -99,6 +102,27 @@ export class AmenityService {
     return ((data ?? []) as AmenityRow[]).map(rowToAmenity);
   }
 
+  /**
+   * Active amenities applicable to a given assignment scope. Returns rows
+   * whose scope is the requested level OR 'both' (applies everywhere).
+   * Used by the Block form (scope='block') and Room form (scope='room').
+   */
+  static async getAmenitiesByScope(scope: 'block' | 'room'): Promise<Amenity[]> {
+    const { data, error } = await this.supabase
+      .from('hostel_amenity_tags')
+      .select('*')
+      .eq('active', true)
+      .in('scope', [scope, 'both'])
+      .order('sort_order', { ascending: true })
+      .order('name', { ascending: true });
+
+    if (error) {
+      logger.error('campus-living/amenities', 'Database error listing by scope', error);
+      throw new Error(error.message || 'Failed to fetch amenities by scope');
+    }
+    return ((data ?? []) as AmenityRow[]).map(rowToAmenity);
+  }
+
   static async getAmenityById(id: string): Promise<Amenity> {
     const { data, error } = await this.supabase
       .from('hostel_amenity_tags')
@@ -118,6 +142,7 @@ export class AmenityService {
       name: dto.name,
       icon: dto.icon ?? null,
       description: dto.description ?? null,
+      scope: dto.scope ?? 'both',
       sort_order: dto.sort_order ?? 0,
       active: dto.is_active ?? true,
     };
@@ -149,6 +174,7 @@ export class AmenityService {
     if (dto.name !== undefined) updateRow.name = dto.name;
     if (dto.icon !== undefined) updateRow.icon = dto.icon;
     if (dto.description !== undefined) updateRow.description = dto.description;
+    if (dto.scope !== undefined) updateRow.scope = dto.scope;
     if (dto.sort_order !== undefined) updateRow.sort_order = dto.sort_order;
     if (dto.is_active !== undefined) updateRow.active = dto.is_active;
 

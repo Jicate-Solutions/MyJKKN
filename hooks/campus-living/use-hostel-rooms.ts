@@ -79,12 +79,25 @@ export function useHostelRoomWithOccupancy(id: string) {
   });
 }
 
+// Selected room amenity tag IDs (present=true rows in hostel_room_amenity_tags).
+// Powers the room form's amenity picker pre-fill in edit mode.
+export function useRoomAmenityTagIds(roomId: string | undefined, enabled = true) {
+  return useQuery({
+    queryKey: [...hostelRoomKeys.detail(roomId ?? ''), 'amenity-tags'] as const,
+    queryFn: () => HostelRoomService.getRoomAmenityTagIds(roomId as string),
+    enabled: enabled && !!roomId,
+  });
+}
+
 // --- Mutation hooks ---
 
 export function useCreateHostelRoom() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (payload: CreateHostelRoomDTO) => HostelRoomService.createRoom(payload),
+    mutationFn: (vars: CreateHostelRoomDTO & { amenityTagIds?: string[] }) => {
+      const { amenityTagIds, ...payload } = vars;
+      return HostelRoomService.createRoom(payload, amenityTagIds);
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: hostelRoomKeys.all });
       toast.success('Room created');
@@ -98,8 +111,15 @@ export function useCreateHostelRoom() {
 export function useUpdateHostelRoom() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, payload }: { id: string; payload: UpdateHostelRoomDTO }) =>
-      HostelRoomService.updateRoom(id, payload),
+    mutationFn: ({
+      id,
+      payload,
+      amenityTagIds,
+    }: {
+      id: string;
+      payload: UpdateHostelRoomDTO;
+      amenityTagIds?: string[];
+    }) => HostelRoomService.updateRoom(id, payload, amenityTagIds),
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: hostelRoomKeys.all });
       queryClient.invalidateQueries({ queryKey: hostelRoomKeys.detail(variables.id) });

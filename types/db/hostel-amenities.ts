@@ -33,6 +33,9 @@ export type HostelBillableRefundMode =
 /** v_room_effective_* views' `source` discriminator. */
 export type RoomEffectiveAmenitySource = 'block_default' | 'room_added';
 
+/** hostel_amenity_tags.scope CHECK values — where the amenity applies. */
+export type HostelAmenityScope = 'block' | 'room' | 'both';
+
 // ────────────────────────────────────────────────────────────────────────
 // Catalog tables
 // ────────────────────────────────────────────────────────────────────────
@@ -44,6 +47,7 @@ export interface HostelAmenityTag {
   name: string;
   icon: string | null;
   description: string | null;
+  scope: HostelAmenityScope;
   sort_order: number;
   active: boolean;
   created_at: string;

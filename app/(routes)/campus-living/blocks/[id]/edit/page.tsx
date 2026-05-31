@@ -13,6 +13,7 @@ import {
   useHostelBlock,
   useUpdateHostelBlock,
 } from '@/hooks/campus-living/use-hostel-blocks';
+import { useAmenitiesByScope } from '@/hooks/campus-living/use-amenities';
 import { ArrowLeft, Save, Loader2 } from 'lucide-react';
 
 /**
@@ -23,17 +24,6 @@ import { ArrowLeft, Save, Loader2 } from 'lucide-react';
 export const navMeta = {
   invokedFrom: '/campus-living/blocks/[id]',
 } as const;
-
-const DEFAULT_AMENITIES = {
-  wifi: false,
-  laundry: false,
-  gym: false,
-  study_room: false,
-  tv_room: false,
-  parking: false,
-} as const;
-
-type AmenityKey = keyof typeof DEFAULT_AMENITIES;
 
 export default function EditBlockPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -55,8 +45,11 @@ export default function EditBlockPage({ params }: { params: Promise<{ id: string
     visiting_hours_start: '',
     visiting_hours_end: '',
     status: 'active' as 'active' | 'under_maintenance' | 'closed',
-    amenities: { ...DEFAULT_AMENITIES } as Record<AmenityKey, boolean>,
   });
+
+  const { amenities: blockAmenities, loading: amenitiesLoading } =
+    useAmenitiesByScope('block');
+  const [selectedAmenityIds, setSelectedAmenityIds] = useState<string[]>([]);
 
   // Pre-fill form once block data arrives
   useEffect(() => {
@@ -73,25 +66,20 @@ export default function EditBlockPage({ params }: { params: Promise<{ id: string
       visiting_hours_start: block.visiting_hours_start ?? '',
       visiting_hours_end: block.visiting_hours_end ?? '',
       status: block.status ?? 'active',
-      amenities: {
-        ...DEFAULT_AMENITIES,
-        ...(block.amenities ?? {}),
-      } as Record<AmenityKey, boolean>,
     });
+    setSelectedAmenityIds(
+      (block.amenity_tags ?? []).map((a: { id: string }) => a.id)
+    );
   }, [block]);
 
   const handleInputChange = (field: string, value: string) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
   };
 
-  const handleAmenityToggle = (amenity: AmenityKey) => {
-    setFormData((prev) => ({
-      ...prev,
-      amenities: {
-        ...prev.amenities,
-        [amenity]: !prev.amenities[amenity],
-      },
-    }));
+  const toggleAmenity = (id: string) => {
+    setSelectedAmenityIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -112,9 +100,9 @@ export default function EditBlockPage({ params }: { params: Promise<{ id: string
           curfew_time_weekend: formData.curfew_time_weekend || null,
           visiting_hours_start: formData.visiting_hours_start || null,
           visiting_hours_end: formData.visiting_hours_end || null,
-          amenities: formData.amenities,
           status: formData.status,
         } as any,
+        amenityTagIds: selectedAmenityIds,
       });
 
       router.push(`/campus-living/blocks/${id}`);
@@ -314,20 +302,34 @@ export default function EditBlockPage({ params }: { params: Promise<{ id: string
               <CardDescription>Available facilities in this block</CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                {(Object.keys(DEFAULT_AMENITIES) as AmenityKey[]).map((amenity) => (
-                  <div key={amenity} className="flex items-center justify-between rounded-lg border p-3">
-                    <Label htmlFor={`amenity-${amenity}`} className="capitalize cursor-pointer">
-                      {amenity.replace('_', ' ')}
-                    </Label>
-                    <Switch
-                      id={`amenity-${amenity}`}
-                      checked={!!formData.amenities[amenity]}
-                      onCheckedChange={() => handleAmenityToggle(amenity)}
-                    />
-                  </div>
-                ))}
-              </div>
+              {amenitiesLoading ? (
+                <div className="flex items-center text-sm text-muted-foreground">
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Loading amenities…
+                </div>
+              ) : blockAmenities.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  No block-scoped amenities defined yet. Add them under Settings →
+                  Amenities (set Scope to Block or Both).
+                </p>
+              ) : (
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                  {blockAmenities.map((a) => (
+                    <div
+                      key={a.id}
+                      className="flex items-center justify-between rounded-lg border p-3"
+                    >
+                      <Label htmlFor={`amenity-${a.id}`} className="cursor-pointer">
+                        {a.name}
+                      </Label>
+                      <Switch
+                        id={`amenity-${a.id}`}
+                        checked={selectedAmenityIds.includes(a.id)}
+                        onCheckedChange={() => toggleAmenity(a.id)}
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
             </CardContent>
           </Card>
 
