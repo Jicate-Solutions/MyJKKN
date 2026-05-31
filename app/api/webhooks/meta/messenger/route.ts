@@ -88,11 +88,14 @@ function verifySignature(rawBody: string, signatureHeader: string | null): boole
   const appSecret =
     process.env.MESSENGER_WEBHOOK_SECRET || process.env.META_APP_SECRET;
   if (!appSecret) {
-    logger.warn(
+    // Fail closed: this receiver persists via the service-role client, so an
+    // unverified POST can forge inbound Messenger events. The secret MUST be
+    // set in every environment (tests should inject it, not rely on a bypass).
+    logger.error(
       'meta/messenger-webhook',
-      'MESSENGER_WEBHOOK_SECRET/META_APP_SECRET not set — skipping signature check (dev only)'
+      'MESSENGER_WEBHOOK_SECRET/META_APP_SECRET not set — rejecting webhook'
     );
-    return true;
+    return false;
   }
   if (!signatureHeader) {
     logger.warn('meta/messenger-webhook', 'Missing X-Hub-Signature-256 header');
