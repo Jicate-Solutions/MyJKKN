@@ -22,7 +22,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Separator } from '@/components/ui/separator';
 import { MoreHorizontal, Plus, BookOpen, Loader2, Pencil, Trash2 } from 'lucide-react';
-import { useToast } from '@/components/ui/use-toast';
+import { useToast } from '@/hooks/use-toast';
 import { useLessonsLearned, useAddLesson, useUpdateLesson, useDeleteLesson } from '@/hooks/projects/use-closure';
 import { LessonFormDialog } from './lesson-form-dialog';
 import { SuggestedLessonsPanel } from './suggested-lessons-panel';
