@@ -80,7 +80,8 @@ import {
   Wallet,
   Users2,
   Factory,
-  FileDown
+  FileDown,
+  Share2
 } from 'lucide-react';
 import { CustomRole } from '@/types/auth';
 // FEATURE_FLAGS import removed - not used in sidebar filtering
@@ -269,6 +270,16 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/admin/bug-reports': 'system.bugs.view',
   '/admin/ai-query-tools': 'super_admin', // Super admin only - AI Query Tools Registry
   '/admin/ai-models': 'super_admin', // Super admin only - AI Model Config (provider/model picker + spend caps + usage)
+
+  // Meta admin pages (added 2026-05-31 for Meta integration nav-bar wiring).
+  // All super_admin until the social.* permission catalogs ship in Wave 2.
+  '/admin/social/facebook': 'super_admin',
+  '/admin/social/instagram': 'super_admin',
+  '/admin/social/ads': 'super_admin',
+  '/admin/social/lead-ads': 'super_admin',
+  '/admin/instagram-attribution': 'super_admin',
+  '/admin/integrations/meta-pixel': 'super_admin',
+  '/admin/integrations/meta-audiences': 'super_admin',
 
   // Internship Module — Policy Admin (super_admin only)
   '/admin/internship-policy': 'super_admin',
@@ -1667,6 +1678,65 @@ export function GetPages(pathname: string): MenuGroup[] {
           active: pathname.startsWith('/audit-trail'),
           icon: History,
           submenus: []
+        },
+        {
+          // Meta social channel admin pages (added 2026-05-31). Routes shipped by
+          // the Meta marathon (PRs #1149-#1156). Each subpage gates on the
+          // corresponding meta.X.is_enabled / fb.pages.is_enabled / ig.X.is_enabled
+          // policy — chip still renders when disabled, page shows placeholder.
+          href: '/admin/social/facebook',
+          label: 'Social',
+          active: pathname.startsWith('/admin/social') || pathname.startsWith('/admin/instagram-attribution'),
+          icon: Share2,
+          submenus: [
+            {
+              href: '/admin/social/facebook',
+              label: 'Facebook Pages',
+              active: pathname.startsWith('/admin/social/facebook')
+            },
+            {
+              href: '/admin/social/instagram',
+              label: 'Instagram',
+              active: pathname.startsWith('/admin/social/instagram')
+            },
+            {
+              href: '/admin/social/ads',
+              label: 'Meta Ads',
+              active: pathname.startsWith('/admin/social/ads')
+            },
+            {
+              href: '/admin/social/lead-ads',
+              label: 'Lead Ads',
+              active: pathname.startsWith('/admin/social/lead-ads')
+            },
+            {
+              href: '/admin/instagram-attribution',
+              label: 'IG Attribution',
+              active: pathname.startsWith('/admin/instagram-attribution')
+            }
+          ]
+        },
+        {
+          // Meta integrations (Pixel/CAPI + Custom Audiences). Separate menu from
+          // Social because these are infrastructure config (tokens, pixel IDs) not
+          // editorial channels. Both require additional env vars beyond System
+          // Token: META_CAPI_PIXEL_ID + META_AD_ACCOUNT_ID respectively.
+          href: '/admin/integrations/meta-pixel',
+          label: 'Meta Integrations',
+          active: pathname.startsWith('/admin/integrations/meta-'),
+          icon: Box,
+          submenus: [
+            {
+              href: '/admin/integrations/meta-pixel',
+              label: 'Pixel / CAPI',
+              active: pathname.startsWith('/admin/integrations/meta-pixel')
+            },
+            {
+              href: '/admin/integrations/meta-audiences',
+              label: 'Custom Audiences',
+              active: pathname.startsWith('/admin/integrations/meta-audiences')
+            }
+          ]
         },
         {
           // /admin/ai-models — super_admin AI feature config (provider/model picker
