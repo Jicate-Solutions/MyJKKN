@@ -28,11 +28,11 @@ export class AllocationBatchService {
 
   // ── Auto-allocation engine RPCs ──
   static async preview(
-    institutionId: string,
+    blockId: string,
     categoryId: string
   ): Promise<AllocatePreview> {
     const { data, error } = await this.rpcCall('fn_auto_allocate_preview', {
-      p_institution_id: institutionId,
+      p_block_id: blockId,
       p_category_id: categoryId,
     });
     if (error) {
@@ -49,12 +49,12 @@ export class AllocationBatchService {
   }
 
   static async generate(
-    institutionId: string,
+    blockId: string,
     categoryId: string,
     hostelYearId: string
   ): Promise<string> {
     const { data, error } = await this.rpcCall('fn_auto_allocate_classic', {
-      p_institution_id: institutionId,
+      p_block_id: blockId,
       p_category_id: categoryId,
       p_hostel_year_id: hostelYearId,
     });
@@ -100,7 +100,7 @@ export class AllocationBatchService {
   static async getBatches(institutionId?: string): Promise<AllocationBatchRow[]> {
     let q = this.supabase
       .from('hostel_allocation_batches')
-      .select('*, category:hostel_categories(name), institution:institutions(name)')
+      .select('*, category:hostel_categories(name), institution:institutions(name), block:hostel_blocks(name)')
       .order('created_at', { ascending: false });
     if (institutionId) q = q.eq('institution_id', institutionId);
     const { data, error } = await q;
@@ -111,11 +111,13 @@ export class AllocationBatchService {
     return (data ?? []).map((r: Record<string, unknown>) => {
       const cat = r.category as { name?: string } | null;
       const inst = r.institution as { name?: string } | null;
-      const { category: _c, institution: _i, ...rest } = r;
+      const blk = r.block as { name?: string } | null;
+      const { category: _c, institution: _i, block: _b, ...rest } = r;
       return {
         ...(rest as AllocationBatch),
         category_name: cat?.name ?? null,
         institution_name: inst?.name ?? null,
+        block_name: blk?.name ?? null,
       };
     });
   }
@@ -125,7 +127,7 @@ export class AllocationBatchService {
   ): Promise<{ batch: AllocationBatchRow | null; allocations: ProposedAllocation[] }> {
     const { data: b, error: bErr } = await this.supabase
       .from('hostel_allocation_batches')
-      .select('*, category:hostel_categories(name), institution:institutions(name)')
+      .select('*, category:hostel_categories(name), institution:institutions(name), block:hostel_blocks(name)')
       .eq('id', batchId)
       .maybeSingle();
     if (bErr) {
@@ -137,11 +139,13 @@ export class AllocationBatchService {
       const r = b as Record<string, unknown>;
       const cat = r.category as { name?: string } | null;
       const inst = r.institution as { name?: string } | null;
-      const { category: _c, institution: _i, ...rest } = r;
+      const blk = r.block as { name?: string } | null;
+      const { category: _c, institution: _i, block: _b, ...rest } = r;
       batch = {
         ...(rest as AllocationBatch),
         category_name: cat?.name ?? null,
         institution_name: inst?.name ?? null,
+        block_name: blk?.name ?? null,
       };
     }
 
@@ -191,6 +195,20 @@ export class AllocationBatchService {
       .order('type', { ascending: true });
     if (error) throw new Error(error.message || 'Failed to load auto categories');
     return (data ?? []) as AutoCategoryOption[];
+  }
+
+  // Blocks to fill (the auto-allocate target). Gender comes from hostel_type.
+  static async getBlocks(): Promise<{ id: string; name: string; type: string }[]> {
+    const { data, error } = await this.supabase
+      .from('hostel_blocks')
+      .select('id, name, hostel_type')
+      .order('name', { ascending: true });
+    if (error) throw new Error(error.message || 'Failed to load blocks');
+    return (data ?? []).map((b: Record<string, unknown>) => ({
+      id: b.id as string,
+      name: b.name as string,
+      type: b.hostel_type as string,
+    }));
   }
 
   // Hostel years are global (no institution_id) — the campus-living calendar.

@@ -69,7 +69,7 @@ export default function AllocationBatchesPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Category</TableHead>
-                  <TableHead>Institution</TableHead>
+                  <TableHead>Block</TableHead>
                   <TableHead>Allocated</TableHead>
                   <TableHead>Skipped</TableHead>
                   <TableHead>Status</TableHead>
@@ -80,7 +80,7 @@ export default function AllocationBatchesPage() {
                 {batches.map((b) => (
                   <TableRow key={b.id}>
                     <TableCell className="font-medium">{b.category_name ?? '—'}</TableCell>
-                    <TableCell>{b.institution_name ?? '—'}</TableCell>
+                    <TableCell>{b.block_name ?? '—'}</TableCell>
                     <TableCell>{b.allocated_count}</TableCell>
                     <TableCell className="text-muted-foreground">{b.skipped_count}</TableCell>
                     <TableCell>

@@ -2,7 +2,8 @@ export type AllocationBatchStatus = 'pending_approval' | 'approved' | 'rejected'
 
 export interface AllocationBatch {
   id: string;
-  institution_id: string;
+  institution_id: string | null;
+  block_id: string | null;
   category_id: string;
   hostel_year_id: string | null;
   academic_year_id: string | null;
@@ -20,6 +21,7 @@ export interface AllocationBatch {
 export interface AllocationBatchRow extends AllocationBatch {
   category_name: string | null;
   institution_name: string | null;
+  block_name: string | null;
 }
 
 export interface AllocatePreview {

@@ -30733,12 +30733,13 @@ export type Database = {
           allocated_count: number
           approved_at: string | null
           approved_by: string | null
+          block_id: string | null
           category_id: string
           created_at: string
           created_by: string | null
           hostel_year_id: string | null
           id: string
-          institution_id: string
+          institution_id: string | null
           notes: string | null
           skipped_count: number
           status: string

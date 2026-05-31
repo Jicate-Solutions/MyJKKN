@@ -128,7 +128,7 @@ export default function AllocationBatchDetailPage({
               </Badge>
             </div>
             <p className="text-sm text-muted-foreground mt-1">
-              {batch.institution_name} · {batch.allocated_count} proposed
+              {batch.block_name ?? '—'} · {batch.allocated_count} proposed
               {batch.skipped_count > 0 ? ` · ${batch.skipped_count} skipped` : ''}
             </p>
             {batch.notes && (

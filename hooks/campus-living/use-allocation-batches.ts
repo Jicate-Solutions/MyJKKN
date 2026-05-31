@@ -29,6 +29,14 @@ export function useAutoCategories() {
   return { categories: query.data ?? [], loading: query.isLoading };
 }
 
+export function useAutoBlocks() {
+  const query = useQuery({
+    queryKey: [...KEY, 'auto-blocks'],
+    queryFn: () => AllocationBatchService.getBlocks(),
+  });
+  return { blocks: query.data ?? [], loading: query.isLoading };
+}
+
 export function useHostelYears() {
   const query = useQuery({
     queryKey: [...KEY, 'hostel-years'],
@@ -46,8 +54,8 @@ export function useAllocationBatchActions() {
   );
 
   const generate = useCallback(
-    async (institutionId: string, categoryId: string, academicYearId: string) => {
-      const id = await AllocationBatchService.generate(institutionId, categoryId, academicYearId);
+    async (blockId: string, categoryId: string, hostelYearId: string) => {
+      const id = await AllocationBatchService.generate(blockId, categoryId, hostelYearId);
       await invalidate();
       return id;
     },

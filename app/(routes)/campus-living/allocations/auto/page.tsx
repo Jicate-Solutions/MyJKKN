@@ -17,9 +17,9 @@ import {
 import { Loader2, Wand2, Users, BedDouble } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { usePermissions } from '@/hooks/use-permissions';
-import { useEligibilityInstitutions } from '@/hooks/campus-living/use-program-eligibility';
 import {
   useAutoCategories,
+  useAutoBlocks,
   useHostelYears,
   useAllocationBatchActions,
 } from '@/hooks/campus-living/use-allocation-batches';
@@ -31,16 +31,17 @@ export const navMeta = { invokedFrom: '/campus-living/allocations' } as const;
 export default function AutoAllocatePage() {
   const router = useRouter();
   const { can, isSuperAdmin } = usePermissions();
-  const { institutions } = useEligibilityInstitutions();
   const { categories } = useAutoCategories();
+  const { blocks } = useAutoBlocks();
 
-  const [institutionId, setInstitutionId] = useState('');
   const [genderType, setGenderType] = useState('');
+  const [blockId, setBlockId] = useState('');
   const [categoryId, setCategoryId] = useState('');
   const [yearId, setYearId] = useState('');
   const { years } = useHostelYears();
 
-  // Categories are stored per gender (Classic Room boys / girls) — pick a type first.
+  // Block + category are per-gender — pick a type first to narrow both.
+  const typedBlocks = genderType ? blocks.filter((b) => b.type === genderType) : [];
   const typedCategories = genderType
     ? categories.filter((c) => c.type === genderType)
     : [];
@@ -53,11 +54,11 @@ export default function AutoAllocatePage() {
   const canGenerate = isSuperAdmin || can('campus_living.allocations.create');
 
   const runPreview = async () => {
-    if (!institutionId || !categoryId) return;
+    if (!blockId || !categoryId) return;
     setPreviewing(true);
     setPreview(null);
     try {
-      setPreview(await AllocationBatchService.preview(institutionId, categoryId));
+      setPreview(await AllocationBatchService.preview(blockId, categoryId));
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Failed to preview');
     } finally {
@@ -66,10 +67,10 @@ export default function AutoAllocatePage() {
   };
 
   const runGenerate = async () => {
-    if (!institutionId || !categoryId || !yearId) return;
+    if (!blockId || !categoryId || !yearId) return;
     setGenerating(true);
     try {
-      const batchId = await generate(institutionId, categoryId, yearId);
+      const batchId = await generate(blockId, categoryId, yearId);
       toast.success('Proposed allocation generated — awaiting warden approval');
       router.push(`/campus-living/allocations/batches/${batchId}`);
     } catch (e) {
@@ -94,34 +95,35 @@ export default function AutoAllocatePage() {
         <div>
           <h1 className="text-2xl font-bold py-1">Auto-Allocate (Classic)</h1>
           <p className="text-sm text-muted-foreground">
-            Fills the selected auto-category&apos;s eligible rooms with its unallocated
-            hostelites in alphabetical order. The result is a proposed batch that a
-            warden must approve before it&apos;s committed.
+            Fills the selected block&apos;s eligible rooms with the matching-category,
+            unallocated hostelites in alphabetical order — institution and access are
+            derived from the block and the physical-room rules. The result is a proposed
+            batch a warden approves before it&apos;s committed.
           </p>
         </div>
 
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Selection</CardTitle>
-            <CardDescription>Institution, type, category, and hostel year</CardDescription>
+            <CardDescription>Type, block, category, and hostel year</CardDescription>
           </CardHeader>
           <CardContent className="grid gap-4 sm:grid-cols-3">
-            <div className="space-y-2 sm:col-span-3">
-              <Label>Institution</Label>
-              <Select value={institutionId} onValueChange={(v) => { setInstitutionId(v); setPreview(null); }}>
-                <SelectTrigger><SelectValue placeholder="Select institution" /></SelectTrigger>
-                <SelectContent>
-                  {institutions.map((i) => <SelectItem key={i.id} value={i.id}>{i.name}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
             <div className="space-y-2">
               <Label>Type</Label>
-              <Select value={genderType} onValueChange={(v) => { setGenderType(v); setCategoryId(''); setPreview(null); }}>
+              <Select value={genderType} onValueChange={(v) => { setGenderType(v); setBlockId(''); setCategoryId(''); setPreview(null); }}>
                 <SelectTrigger><SelectValue placeholder="Boys / Girls" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="boys">Boys</SelectItem>
                   <SelectItem value="girls">Girls</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Block</Label>
+              <Select value={blockId} onValueChange={(v) => { setBlockId(v); setPreview(null); }} disabled={!genderType}>
+                <SelectTrigger><SelectValue placeholder={genderType ? 'Select block' : 'Pick a type first'} /></SelectTrigger>
+                <SelectContent>
+                  {typedBlocks.map((b) => <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
@@ -136,7 +138,7 @@ export default function AutoAllocatePage() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-2">
+            <div className="space-y-2 sm:col-span-3">
               <Label>Hostel Year</Label>
               <Select value={yearId} onValueChange={setYearId}>
                 <SelectTrigger><SelectValue placeholder="Select hostel year" /></SelectTrigger>
@@ -149,11 +151,11 @@ export default function AutoAllocatePage() {
         </Card>
 
         <div className="flex gap-3">
-          <Button variant="outline" onClick={runPreview} disabled={!institutionId || !categoryId || previewing}>
+          <Button variant="outline" onClick={runPreview} disabled={!blockId || !categoryId || previewing}>
             {previewing && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Preview
           </Button>
           {canGenerate && (
-            <Button onClick={runGenerate} disabled={!institutionId || !categoryId || !yearId || generating}>
+            <Button onClick={runGenerate} disabled={!blockId || !categoryId || !yearId || generating}>
               {generating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Wand2 className="mr-2 h-4 w-4" />}
               Generate proposed batch
             </Button>
