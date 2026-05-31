@@ -14871,6 +14871,21 @@ $$;
 REVOKE ALL ON FUNCTION public.mark_checklist_item(uuid, uuid, boolean) FROM public;
 GRANT EXECUTE ON FUNCTION public.mark_checklist_item(uuid, uuid, boolean) TO authenticated;
 
+-- get_my_learner_id(): resolves the current user's learners_profiles id from
+-- their profile row. user_is_hosteler() and the resident RLS policies depend
+-- on it. Defined first so fresh provision satisfies the dependency order.
+CREATE OR REPLACE FUNCTION public.get_my_learner_id()
+RETURNS uuid
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $$
+  SELECT learner_id FROM profiles WHERE id = auth.uid();
+$$;
+
+GRANT EXECUTE ON FUNCTION public.get_my_learner_id() TO authenticated;
+
 -- user_is_hosteler(): true when the current user's learner record has
 -- accommodation type = hostel. Built on get_my_learner_id() (existing).
 -- Clean signal: accommodation_types.code='hostel'; fallback: dirty text.

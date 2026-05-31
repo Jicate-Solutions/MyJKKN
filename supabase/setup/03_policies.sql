@@ -6423,6 +6423,12 @@ FOR INSERT WITH CHECK (
   OR (user_has_permission('campus_living.profile.edit_own') AND learner_id = public.get_my_learner_id())
 );
 
+-- lhp_delete_permission predates this change; included here so the setup mirror
+-- shows the table's complete RLS state (admin-only delete).
+DROP POLICY IF EXISTS lhp_delete_permission ON public.learner_hostel_profiles;
+CREATE POLICY lhp_delete_permission ON public.learner_hostel_profiles
+FOR DELETE USING (is_super_admin() OR is_admin());
+
 -- ── hostel_allocations: residents READ own (table empty today) ────────
 DROP POLICY IF EXISTS hostel_allocations_select_permission ON public.hostel_allocations;
 CREATE POLICY hostel_allocations_select_permission ON public.hostel_allocations
