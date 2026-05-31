@@ -85,6 +85,17 @@ export class AllocationBatchService {
     }
   }
 
+  // Completely remove a batch (frees beds + deletes its allocations + the batch).
+  static async reset(batchId: string): Promise<void> {
+    const { error } = await this.rpcCall('fn_reset_allocation_batch', {
+      p_batch_id: batchId,
+    });
+    if (error) {
+      logger.error(LOG, 'reset failed', error);
+      throw new Error(error.message || 'Failed to reset batch');
+    }
+  }
+
   // ── Reads ──
   static async getBatches(institutionId?: string): Promise<AllocationBatchRow[]> {
     let q = this.supabase

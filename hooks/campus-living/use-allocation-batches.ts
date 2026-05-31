@@ -67,6 +67,13 @@ export function useAllocationBatchActions() {
     },
     [invalidate]
   );
+  const reset = useCallback(
+    async (batchId: string) => {
+      await AllocationBatchService.reset(batchId);
+      await invalidate();
+    },
+    [invalidate]
+  );
 
-  return { generate, approve, reject };
+  return { generate, approve, reject, reset };
 }

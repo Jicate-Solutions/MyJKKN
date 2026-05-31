@@ -15,7 +15,17 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { Loader2, Check, X } from 'lucide-react';
+import { Loader2, Check, X, Trash2 } from 'lucide-react';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { toast } from 'react-hot-toast';
 import { usePermissions } from '@/hooks/use-permissions';
 import {
@@ -40,8 +50,10 @@ export default function AllocationBatchDetailPage({
   const router = useRouter();
   const { can, isSuperAdmin } = usePermissions();
   const { data, isLoading, refetch } = useAllocationBatch(id);
-  const { approve, reject } = useAllocationBatchActions();
+  const { approve, reject, reset } = useAllocationBatchActions();
   const [acting, setActing] = useState<'approve' | 'reject' | null>(null);
+  const [confirmReset, setConfirmReset] = useState(false);
+  const [resetting, setResetting] = useState(false);
 
   const batch = data?.batch ?? null;
   const allocations = data?.allocations ?? [];
@@ -70,6 +82,17 @@ export default function AllocationBatchDetailPage({
       toast.error(e instanceof Error ? e.message : 'Failed to reject');
     } finally {
       setActing(null);
+    }
+  };
+  const doReset = async () => {
+    setResetting(true);
+    try {
+      await reset(id);
+      toast.success('Batch removed');
+      router.push('/campus-living/allocations/batches');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to reset');
+      setResetting(false);
     }
   };
 
@@ -112,15 +135,23 @@ export default function AllocationBatchDetailPage({
               <p className="text-xs text-muted-foreground mt-1">{batch.notes}</p>
             )}
           </div>
-          {isPending && canApprove && (
+          {canApprove && (
             <div className="flex gap-2">
-              <Button variant="outline" onClick={doReject} disabled={!!acting}>
-                {acting === 'reject' ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <X className="mr-2 h-4 w-4" />}
-                Reject
-              </Button>
-              <Button onClick={doApprove} disabled={!!acting}>
-                {acting === 'approve' ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Check className="mr-2 h-4 w-4" />}
-                Approve &amp; allocate
+              {isPending && (
+                <>
+                  <Button variant="outline" onClick={doReject} disabled={!!acting || resetting}>
+                    {acting === 'reject' ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <X className="mr-2 h-4 w-4" />}
+                    Reject
+                  </Button>
+                  <Button onClick={doApprove} disabled={!!acting || resetting}>
+                    {acting === 'approve' ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Check className="mr-2 h-4 w-4" />}
+                    Approve &amp; allocate
+                  </Button>
+                </>
+              )}
+              <Button variant="destructive" onClick={() => setConfirmReset(true)} disabled={!!acting || resetting}>
+                {resetting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
+                Reset
               </Button>
             </div>
           )}
@@ -169,6 +200,39 @@ export default function AllocationBatchDetailPage({
             )}
           </CardContent>
         </Card>
+
+        <AlertDialog open={confirmReset} onOpenChange={(o) => { if (!resetting) setConfirmReset(o); }}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Reset this batch?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This permanently removes the batch and all {allocations.length} of its
+                allocations
+                {batch.status === 'approved' ? ', and frees the beds they occupy' : ''}.
+                This cannot be undone.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={resetting}>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={(e) => {
+                  e.preventDefault();
+                  doReset();
+                }}
+                disabled={resetting}
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              >
+                {resetting ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Removing…
+                  </>
+                ) : (
+                  'Reset & remove'
+                )}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
     </ContentLayout>
   );
