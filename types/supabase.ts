@@ -30729,13 +30729,14 @@ export type Database = {
       }
       hostel_allocation_batches: {
         Row: {
-          academic_year_id: string
+          academic_year_id: string | null
           allocated_count: number
           approved_at: string | null
           approved_by: string | null
           category_id: string
           created_at: string
           created_by: string | null
+          hostel_year_id: string | null
           id: string
           institution_id: string
           notes: string | null
@@ -30744,13 +30745,14 @@ export type Database = {
           updated_at: string
         }
         Insert: {
-          academic_year_id: string
+          academic_year_id?: string | null
           allocated_count?: number
           approved_at?: string | null
           approved_by?: string | null
           category_id: string
           created_at?: string
           created_by?: string | null
+          hostel_year_id?: string | null
           id?: string
           institution_id: string
           notes?: string | null
@@ -30759,13 +30761,14 @@ export type Database = {
           updated_at?: string
         }
         Update: {
-          academic_year_id?: string
+          academic_year_id?: string | null
           allocated_count?: number
           approved_at?: string | null
           approved_by?: string | null
           category_id?: string
           created_at?: string
           created_by?: string | null
+          hostel_year_id?: string | null
           id?: string
           institution_id?: string
           notes?: string | null

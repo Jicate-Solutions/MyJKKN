@@ -20,7 +20,7 @@ import { usePermissions } from '@/hooks/use-permissions';
 import { useEligibilityInstitutions } from '@/hooks/campus-living/use-program-eligibility';
 import {
   useAutoCategories,
-  useAcademicYears,
+  useHostelYears,
   useAllocationBatchActions,
 } from '@/hooks/campus-living/use-allocation-batches';
 import { AllocationBatchService } from '@/lib/services/campus-living/allocation-batch-service';
@@ -35,9 +35,15 @@ export default function AutoAllocatePage() {
   const { categories } = useAutoCategories();
 
   const [institutionId, setInstitutionId] = useState('');
+  const [genderType, setGenderType] = useState('');
   const [categoryId, setCategoryId] = useState('');
   const [yearId, setYearId] = useState('');
-  const { years } = useAcademicYears(institutionId || null);
+  const { years } = useHostelYears();
+
+  // Categories are stored per gender (Classic Room boys / girls) — pick a type first.
+  const typedCategories = genderType
+    ? categories.filter((c) => c.type === genderType)
+    : [];
 
   const [preview, setPreview] = useState<AllocatePreview | null>(null);
   const [previewing, setPreviewing] = useState(false);
@@ -84,7 +90,7 @@ export default function AutoAllocatePage() {
         ]}
       />
 
-      <div className="space-y-6 mt-4 max-w-2xl">
+      <div className="space-y-6 mt-4">
         <div>
           <h1 className="text-2xl font-bold py-1">Auto-Allocate (Classic)</h1>
           <p className="text-sm text-muted-foreground">
@@ -97,12 +103,12 @@ export default function AutoAllocatePage() {
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Selection</CardTitle>
-            <CardDescription>Institution, auto-category, and academic year</CardDescription>
+            <CardDescription>Institution, type, category, and hostel year</CardDescription>
           </CardHeader>
           <CardContent className="grid gap-4 sm:grid-cols-3">
             <div className="space-y-2 sm:col-span-3">
               <Label>Institution</Label>
-              <Select value={institutionId} onValueChange={(v) => { setInstitutionId(v); setYearId(''); setPreview(null); }}>
+              <Select value={institutionId} onValueChange={(v) => { setInstitutionId(v); setPreview(null); }}>
                 <SelectTrigger><SelectValue placeholder="Select institution" /></SelectTrigger>
                 <SelectContent>
                   {institutions.map((i) => <SelectItem key={i.id} value={i.id}>{i.name}</SelectItem>)}
@@ -110,20 +116,30 @@ export default function AutoAllocatePage() {
               </Select>
             </div>
             <div className="space-y-2">
-              <Label>Category</Label>
-              <Select value={categoryId} onValueChange={(v) => { setCategoryId(v); setPreview(null); }}>
-                <SelectTrigger><SelectValue placeholder="Auto category" /></SelectTrigger>
+              <Label>Type</Label>
+              <Select value={genderType} onValueChange={(v) => { setGenderType(v); setCategoryId(''); setPreview(null); }}>
+                <SelectTrigger><SelectValue placeholder="Boys / Girls" /></SelectTrigger>
                 <SelectContent>
-                  {categories.map((c) => (
-                    <SelectItem key={c.id} value={c.id} className="capitalize">{c.name} ({c.type})</SelectItem>
+                  <SelectItem value="boys">Boys</SelectItem>
+                  <SelectItem value="girls">Girls</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Category</Label>
+              <Select value={categoryId} onValueChange={(v) => { setCategoryId(v); setPreview(null); }} disabled={!genderType}>
+                <SelectTrigger><SelectValue placeholder={genderType ? 'Auto category' : 'Pick a type first'} /></SelectTrigger>
+                <SelectContent>
+                  {typedCategories.map((c) => (
+                    <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-2 sm:col-span-2">
-              <Label>Academic Year</Label>
-              <Select value={yearId} onValueChange={setYearId} disabled={!institutionId}>
-                <SelectTrigger><SelectValue placeholder="Select academic year" /></SelectTrigger>
+            <div className="space-y-2">
+              <Label>Hostel Year</Label>
+              <Select value={yearId} onValueChange={setYearId}>
+                <SelectTrigger><SelectValue placeholder="Select hostel year" /></SelectTrigger>
                 <SelectContent>
                   {years.map((y) => <SelectItem key={y.id} value={y.id}>{y.label}</SelectItem>)}
                 </SelectContent>

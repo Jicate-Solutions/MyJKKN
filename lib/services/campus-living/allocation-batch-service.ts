@@ -51,12 +51,12 @@ export class AllocationBatchService {
   static async generate(
     institutionId: string,
     categoryId: string,
-    academicYearId: string
+    hostelYearId: string
   ): Promise<string> {
     const { data, error } = await this.rpcCall('fn_auto_allocate_classic', {
       p_institution_id: institutionId,
       p_category_id: categoryId,
-      p_academic_year_id: academicYearId,
+      p_hostel_year_id: hostelYearId,
     });
     if (error) {
       logger.error(LOG, 'generate failed', error);
@@ -182,17 +182,17 @@ export class AllocationBatchService {
     return (data ?? []) as AutoCategoryOption[];
   }
 
-  static async getAcademicYears(institutionId: string): Promise<AcademicYearOption[]> {
+  // Hostel years are global (no institution_id) — the campus-living calendar.
+  static async getHostelYears(): Promise<AcademicYearOption[]> {
     const { data, error } = await this.supabase
-      .from('academic_years')
-      .select('id, academic_year_name')
-      .eq('institution_id', institutionId)
+      .from('hostel_years')
+      .select('id, name, is_current')
       .eq('is_active', true)
       .order('start_date', { ascending: false });
-    if (error) throw new Error(error.message || 'Failed to load academic years');
+    if (error) throw new Error(error.message || 'Failed to load hostel years');
     return (data ?? []).map((y: Record<string, unknown>) => ({
       id: y.id as string,
-      label: y.academic_year_name as string,
+      label: (y.name as string) + (y.is_current ? ' (current)' : ''),
     }));
   }
 }

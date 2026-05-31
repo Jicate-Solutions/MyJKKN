@@ -4,7 +4,8 @@ export interface AllocationBatch {
   id: string;
   institution_id: string;
   category_id: string;
-  academic_year_id: string;
+  hostel_year_id: string | null;
+  academic_year_id: string | null;
   status: AllocationBatchStatus;
   allocated_count: number;
   skipped_count: number;

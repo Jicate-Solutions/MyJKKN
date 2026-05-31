@@ -29,11 +29,10 @@ export function useAutoCategories() {
   return { categories: query.data ?? [], loading: query.isLoading };
 }
 
-export function useAcademicYears(institutionId: string | null) {
+export function useHostelYears() {
   const query = useQuery({
-    queryKey: [...KEY, 'academic-years', institutionId],
-    queryFn: () => AllocationBatchService.getAcademicYears(institutionId!),
-    enabled: !!institutionId,
+    queryKey: [...KEY, 'hostel-years'],
+    queryFn: () => AllocationBatchService.getHostelYears(),
   });
   return { years: query.data ?? [], loading: query.isLoading };
 }
