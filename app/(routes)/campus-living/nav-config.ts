@@ -69,6 +69,18 @@ const config: ModuleNavConfig = {
           matchPaths: ['/campus-living/allocations'],
         },
         {
+          label: 'Auto-Allocate',
+          icon: 'Wand2',
+          href: '/campus-living/allocations/auto',
+          matchPaths: ['/campus-living/allocations/auto'],
+        },
+        {
+          label: 'Allocation Batches',
+          icon: 'ClipboardCheck',
+          href: '/campus-living/allocations/batches',
+          matchPaths: ['/campus-living/allocations/batches'],
+        },
+        {
           label: 'Waitlist',
           icon: 'ListOrdered',
           href: '/campus-living/allocations/waitlist',
@@ -519,6 +531,12 @@ const config: ModuleNavConfig = {
           icon: 'Sliders',
           href: '/campus-living/settings/general',
           matchPaths: ['/campus-living/settings/general'],
+        },
+        {
+          label: 'Hostel Rooms Categories',
+          icon: 'LayoutGrid',
+          href: '/campus-living/settings/categories',
+          matchPaths: ['/campus-living/settings/categories'],
         },
         {
           label: 'Program Eligibility',

@@ -30293,6 +30293,7 @@ export type Database = {
           allocated_by: string | null
           allocation_date: string
           allocation_type: Database["public"]["Enums"]["allocation_type_enum"]
+          batch_id: string | null
           bed_id: string
           block_id: string
           check_in_date: string
@@ -30723,6 +30724,69 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "v_institutions_needing_admission_counselors"
             referencedColumns: ["institution_id"]
+          },
+        ]
+      }
+      hostel_allocation_batches: {
+        Row: {
+          academic_year_id: string
+          allocated_count: number
+          approved_at: string | null
+          approved_by: string | null
+          category_id: string
+          created_at: string
+          created_by: string | null
+          id: string
+          institution_id: string
+          notes: string | null
+          skipped_count: number
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          academic_year_id: string
+          allocated_count?: number
+          approved_at?: string | null
+          approved_by?: string | null
+          category_id: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          institution_id: string
+          notes?: string | null
+          skipped_count?: number
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          academic_year_id?: string
+          allocated_count?: number
+          approved_at?: string | null
+          approved_by?: string | null
+          category_id?: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          institution_id?: string
+          notes?: string | null
+          skipped_count?: number
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hostel_allocation_batches_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "hostel_categories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_allocation_batches_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
           },
         ]
       }

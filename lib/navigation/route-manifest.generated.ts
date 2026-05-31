@@ -2714,6 +2714,18 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "iconName": "PackageCheck",
         "children": [
           {
+            "path": "/campus-living/allocations/auto",
+            "label": "Auto",
+            "iconName": "PackageCheck",
+            "children": []
+          },
+          {
+            "path": "/campus-living/allocations/batches",
+            "label": "Batches",
+            "iconName": "Boxes",
+            "children": []
+          },
+          {
             "path": "/campus-living/allocations/new",
             "label": "New",
             "iconName": "Plus",
@@ -4885,6 +4897,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "path": "/projects/portfolio",
         "label": "Portfolio",
         "iconName": "Briefcase",
+        "children": []
+      },
+      {
+        "path": "/projects/templates",
+        "label": "Templates",
+        "iconName": "FileText",
         "children": []
       }
     ]
