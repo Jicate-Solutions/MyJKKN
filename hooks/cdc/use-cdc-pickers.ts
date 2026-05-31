@@ -12,11 +12,32 @@
 // =====================================================================
 
 import { useQuery } from '@tanstack/react-query';
-import { createClientSupabaseClient } from '@/lib/supabase/client';
 
 export interface PickerOption {
   value: string;
   label: string;
+}
+
+// Fetch helper for the institution-scoped service-role picker routes.
+// These routes (app/api/cdc/pickers/*) read via the service-role client so
+// CDC coordinators — who hold cdc.* but NOT learners.*/staff.* — get data
+// despite RLS, while the API re-imposes institution scope server-side.
+// The routes already build the "First Last (CODE)" label, so the hooks
+// consume `options` directly and the exported PickerOption[] shape is
+// unchanged — all 6 consumers keep working.
+async function fetchPickerOptions(url: string, label: string): Promise<PickerOption[]> {
+  try {
+    const res = await fetch(url, { credentials: 'include' });
+    if (!res.ok) {
+      console.error(`[cdc-pickers] Failed to load ${label}: HTTP ${res.status}`);
+      return [];
+    }
+    const json = await res.json();
+    return (json.options as PickerOption[]) || [];
+  } catch (err) {
+    console.error(`[cdc-pickers] Failed to load ${label}:`, err);
+    return [];
+  }
 }
 
 /**
@@ -28,25 +49,7 @@ export interface PickerOption {
 export function useLearnersForPicker() {
   return useQuery<PickerOption[]>({
     queryKey: ['cdc-picker-learners'],
-    queryFn: async () => {
-      const supabase = createClientSupabaseClient();
-      const { data, error } = await (supabase as any)
-        .from('learners_profiles')
-        .select('id, first_name, last_name, register_number')
-        .in('lifecycle_status', ['active', 'graduated'])
-        .order('first_name', { ascending: true })
-        .limit(5000);
-      if (error) {
-        console.error('[cdc-pickers] Failed to load learners:', error.message);
-        return [];
-      }
-      return (data || []).map((l: { id: string; first_name: string | null; last_name: string | null; register_number: string | null }) => ({
-        value: l.id,
-        label:
-          `${l.first_name ?? ''} ${l.last_name ?? ''}`.trim() +
-          (l.register_number ? ` (${l.register_number})` : ''),
-      }));
-    },
+    queryFn: () => fetchPickerOptions('/api/cdc/pickers/learners', 'learners'),
     staleTime: 5 * 60 * 1000,
   });
 }
@@ -58,25 +61,7 @@ export function useLearnersForPicker() {
 export function useStaffForPicker() {
   return useQuery<PickerOption[]>({
     queryKey: ['cdc-picker-staff'],
-    queryFn: async () => {
-      const supabase = createClientSupabaseClient();
-      const { data, error } = await (supabase as any)
-        .from('staff')
-        .select('id, first_name, last_name, staff_id')
-        .eq('is_active', true)
-        .order('first_name', { ascending: true })
-        .limit(5000);
-      if (error) {
-        console.error('[cdc-pickers] Failed to load staff:', error.message);
-        return [];
-      }
-      return (data || []).map((s: { id: string; first_name: string | null; last_name: string | null; staff_id: string | null }) => ({
-        value: s.id,
-        label:
-          `${s.first_name ?? ''} ${s.last_name ?? ''}`.trim() +
-          (s.staff_id ? ` (${s.staff_id})` : ''),
-      }));
-    },
+    queryFn: () => fetchPickerOptions('/api/cdc/pickers/staff', 'staff'),
     staleTime: 5 * 60 * 1000,
   });
 }
