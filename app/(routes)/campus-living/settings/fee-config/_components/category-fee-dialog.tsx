@@ -24,7 +24,6 @@ import { toast } from 'react-hot-toast';
 import { useHostelCategoryFees } from '@/hooks/campus-living/use-hostel-category-fees';
 import { useActiveHostelCategories } from '@/hooks/campus-living/use-hostel-categories';
 import { useActiveMessCategories } from '@/hooks/campus-living/use-mess-categories';
-import { useActiveAmenitiesCategories } from '@/hooks/campus-living/use-amenities-categories';
 import {
   CATEGORY_KIND_LABELS,
   FEE_FREQUENCY_LABELS,
@@ -56,7 +55,6 @@ export function CategoryFeeDialog({ open, onOpenChange, mode, hostelYearId, fee 
 
   const { hostelCategories } = useActiveHostelCategories();
   const { messCategories } = useActiveMessCategories();
-  const { amenitiesCategories } = useActiveAmenitiesCategories();
 
   const [kind, setKind] = useState<CategoryKind>('hostel_room');
   const [categoryId, setCategoryId] = useState<string>('');
@@ -65,7 +63,7 @@ export function CategoryFeeDialog({ open, onOpenChange, mode, hostelYearId, fee 
   const [frequency, setFrequency] = useState<FeeFrequency>('annual');
   const [submitting, setSubmitting] = useState(false);
 
-  // Hostel-room and mess categories carry a boys/girls `type`; amenities do not.
+  // Both hostel-room and mess categories carry a boys/girls `type`.
   const kindHasGender = kind === 'hostel_room' || kind === 'mess';
 
   useEffect(() => {
@@ -85,7 +83,7 @@ export function CategoryFeeDialog({ open, onOpenChange, mode, hostelYearId, fee 
   }, [open, isEdit, fee]);
 
   const genderList: { id: string; name: string; type: string }[] =
-    kind === 'hostel_room' ? hostelCategories : kind === 'mess' ? messCategories : [];
+    kind === 'hostel_room' ? hostelCategories : messCategories;
 
   // In edit mode the category is locked, so the gender selector just reflects
   // the saved category's type. In create mode it's user-driven and filters the
@@ -96,13 +94,10 @@ export function CategoryFeeDialog({ open, onOpenChange, mode, hostelYearId, fee 
       : 'boys'
     : genderType;
 
-  const categoryOptions =
-    kind === 'amenity'
-      ? amenitiesCategories.map((c) => ({ id: c.id, name: c.name }))
-      : (isEdit
-          ? genderList
-          : genderList.filter((c) => c.type === genderType || c.type === 'mixed')
-        ).map((c) => ({ id: c.id, name: c.name }));
+  const categoryOptions = (isEdit
+    ? genderList
+    : genderList.filter((c) => c.type === genderType || c.type === 'mixed')
+  ).map((c) => ({ id: c.id, name: c.name }));
 
   const canSave = !!categoryId && Number.isFinite(amount) && amount >= 0;
 
@@ -117,7 +112,6 @@ export function CategoryFeeDialog({ open, onOpenChange, mode, hostelYearId, fee 
           hostel_year_id: hostelYearId,
           hostel_category_id: kind === 'hostel_room' ? categoryId : null,
           mess_category_id: kind === 'mess' ? categoryId : null,
-          amenities_category_id: kind === 'amenity' ? categoryId : null,
           amount,
           frequency,
         });

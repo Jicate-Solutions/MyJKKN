@@ -26,7 +26,6 @@ import { Plus, Edit, Trash2, Loader2 } from 'lucide-react';
 import { useHostelCategoryFees } from '@/hooks/campus-living/use-hostel-category-fees';
 import { useActiveHostelCategories } from '@/hooks/campus-living/use-hostel-categories';
 import { useActiveMessCategories } from '@/hooks/campus-living/use-mess-categories';
-import { useActiveAmenitiesCategories } from '@/hooks/campus-living/use-amenities-categories';
 import {
   CATEGORY_KIND_LABELS,
   FEE_FREQUENCY_LABELS,
@@ -52,7 +51,6 @@ export function CategoryFeesSection({ hostelYearId, canEdit }: Props) {
   const { fees, loading, error, deleteFee } = useHostelCategoryFees(hostelYearId);
   const { hostelCategories } = useActiveHostelCategories();
   const { messCategories } = useActiveMessCategories();
-  const { amenitiesCategories } = useActiveAmenitiesCategories();
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<HostelCategoryFee | null>(null);
@@ -62,12 +60,7 @@ export function CategoryFeesSection({ hostelYearId, canEdit }: Props) {
   const nameFor = (fee: HostelCategoryFee) => {
     const kind = getCategoryKind(fee);
     const id = getCategoryId(fee);
-    const list =
-      kind === 'hostel_room'
-        ? hostelCategories
-        : kind === 'mess'
-        ? messCategories
-        : amenitiesCategories;
+    const list = kind === 'hostel_room' ? hostelCategories : messCategories;
     return list.find((c) => c.id === id)?.name ?? '—';
   };
 
@@ -97,7 +90,7 @@ export function CategoryFeesSection({ hostelYearId, canEdit }: Props) {
     <div className="space-y-4">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <p className="text-sm text-muted-foreground">
-          Individual fees per hostel room / mess / amenity category. A learner&apos;s hostel
+          Individual fees per hostel room / mess category. A learner&apos;s hostel
           total is the sum of their selected categories. Shared across all institutions.
         </p>
         {canEdit ? (

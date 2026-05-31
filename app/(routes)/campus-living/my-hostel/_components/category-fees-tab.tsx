@@ -92,8 +92,8 @@ export function CategoryFeesTab() {
           <CardTitle className='text-base'>Fee Breakdown</CardTitle>
           <CardDescription>
             Published fee structure for{' '}
-            <span className='font-medium'>{summary.hostelCategory.name}</span> (room + mess +
-            amenity components are additive).
+            <span className='font-medium'>{summary.hostelCategory.name}</span> (room + mess
+            components are additive).
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -125,11 +125,7 @@ export function CategoryFeesTab() {
                   {fees.map((fee) => (
                     <tr key={fee.id} className='border-b last:border-0'>
                       <td className='py-2 pr-4 text-muted-foreground'>
-                        {fee.mess_category_id
-                          ? 'Mess'
-                          : fee.amenities_category_id
-                          ? 'Amenity'
-                          : 'Room'}
+                        {fee.mess_category_id ? 'Mess' : 'Room'}
                       </td>
                       <td className='py-2 pr-4 capitalize'>
                         {fee.frequency?.replace(/_/g, ' ') ?? '—'}

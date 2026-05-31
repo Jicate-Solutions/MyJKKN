@@ -10094,36 +10094,6 @@ export type Database = {
           },
         ]
       }
-      amenities_categories: {
-        Row: {
-          created_at: string
-          description: string | null
-          id: string
-          is_active: boolean
-          name: string
-          sort_order: number
-          updated_at: string
-        }
-        Insert: {
-          created_at?: string
-          description?: string | null
-          id?: string
-          is_active?: boolean
-          name: string
-          sort_order?: number
-          updated_at?: string
-        }
-        Update: {
-          created_at?: string
-          description?: string | null
-          id?: string
-          is_active?: boolean
-          name?: string
-          sort_order?: number
-          updated_at?: string
-        }
-        Relationships: []
-      }
       anti_ragging_affidavits: {
         Row: {
           academic_year_id: string
@@ -31628,7 +31598,6 @@ export type Database = {
       }
       hostel_category_fees: {
         Row: {
-          amenities_category_id: string | null
           amount: number
           created_at: string
           frequency: string
@@ -31640,7 +31609,6 @@ export type Database = {
           updated_at: string
         }
         Insert: {
-          amenities_category_id?: string | null
           amount: number
           created_at?: string
           frequency?: string
@@ -31652,7 +31620,6 @@ export type Database = {
           updated_at?: string
         }
         Update: {
-          amenities_category_id?: string | null
           amount?: number
           created_at?: string
           frequency?: string
@@ -31664,13 +31631,6 @@ export type Database = {
           updated_at?: string
         }
         Relationships: [
-          {
-            foreignKeyName: "hostel_category_fees_amenities_category_id_fkey"
-            columns: ["amenities_category_id"]
-            isOneToOne: false
-            referencedRelation: "amenities_categories"
-            referencedColumns: ["id"]
-          },
           {
             foreignKeyName: "hostel_category_fees_hostel_category_id_fkey"
             columns: ["hostel_category_id"]

@@ -39,7 +39,7 @@ export class MyHostelService {
     };
   }
 
-  // Fee breakdown (additive room+mess+amenity) for the resident's hostel
+  // Fee breakdown (additive room+mess) for the resident's hostel
   // category in the current hostel year.
   static async getMyCategoryFees(hostelCategoryId: string) {
     if (!hostelCategoryId) return [];
@@ -48,7 +48,7 @@ export class MyHostelService {
     if (!year) return [];
     const { data, error } = await supabase
       .from('hostel_category_fees')
-      .select('id, amount, frequency, mess_category_id, amenities_category_id, is_active')
+      .select('id, amount, frequency, mess_category_id, is_active')
       .eq('hostel_year_id', year.id)
       .eq('hostel_category_id', hostelCategoryId)
       .eq('is_active', true);
