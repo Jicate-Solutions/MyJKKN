@@ -168,7 +168,23 @@ export default function ProjectsPage() {
             <ComingSoonCard view="Timeline" />
           </TabsContent>
           <TabsContent value="portfolio" className="mt-6">
-            <ComingSoonCard view="Portfolio" />
+            <Card>
+              <CardHeader>
+                <CardTitle>Portfolio dashboard</CardTitle>
+                <CardDescription>
+                  Cross-institution command center — grid, status board, and the
+                  institution heatmap.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Button asChild className="gap-1.5">
+                  <Link href="/projects/portfolio">
+                    <FolderKanban className="h-4 w-4" />
+                    Open Portfolio
+                  </Link>
+                </Button>
+              </CardContent>
+            </Card>
           </TabsContent>
         </Tabs>
       </div>
