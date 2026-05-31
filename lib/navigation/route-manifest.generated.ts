@@ -1219,6 +1219,25 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "children": []
       },
       {
+        "path": "/admin/integrations",
+        "label": "Integrations",
+        "iconName": "FileText",
+        "children": [
+          {
+            "path": "/admin/integrations/meta-audiences",
+            "label": "Meta Audiences",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/admin/integrations/meta-pixel",
+            "label": "Meta Pixel",
+            "iconName": "FileText",
+            "children": []
+          }
+        ]
+      },
+      {
         "path": "/admin/internship-policy",
         "label": "Internship Policy",
         "iconName": "FileText",
@@ -1595,8 +1614,20 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "iconName": "FileText",
         "children": [
           {
+            "path": "/admin/social/facebook",
+            "label": "Facebook",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
             "path": "/admin/social/instagram",
             "label": "Instagram",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/admin/social/lead-ads",
+            "label": "Lead Ads",
             "iconName": "FileText",
             "children": []
           }
@@ -1843,6 +1874,19 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "label": "Group Dashboard",
         "iconName": "LayoutGrid",
         "children": []
+      },
+      {
+        "path": "/admission/inbox",
+        "label": "Inbox",
+        "iconName": "Inbox",
+        "children": [
+          {
+            "path": "/admission/inbox/messenger",
+            "label": "Messenger",
+            "iconName": "Inbox",
+            "children": []
+          }
+        ]
       },
       {
         "path": "/admission/insights",
@@ -3155,12 +3199,6 @@ export const ROUTE_MANIFEST: RouteNode[] = [
           {
             "path": "/campus-living/settings/amenities",
             "label": "Amenities",
-            "iconName": "FileText",
-            "children": []
-          },
-          {
-            "path": "/campus-living/settings/amenities-categories",
-            "label": "Amenities Categories",
             "iconName": "FileText",
             "children": []
           },
@@ -4837,6 +4875,19 @@ export const ROUTE_MANIFEST: RouteNode[] = [
     "label": "Profile",
     "iconName": "UserCircle",
     "children": []
+  },
+  {
+    "path": "/projects",
+    "label": "Projects",
+    "iconName": "FileText",
+    "children": [
+      {
+        "path": "/projects/portfolio",
+        "label": "Portfolio",
+        "iconName": "Briefcase",
+        "children": []
+      }
+    ]
   },
   {
     "path": "/resource-management",

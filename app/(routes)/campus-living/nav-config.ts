@@ -521,12 +521,6 @@ const config: ModuleNavConfig = {
           matchPaths: ['/campus-living/settings/general'],
         },
         {
-          label: 'Amenities Categories',
-          icon: 'Sparkles',
-          href: '/campus-living/settings/amenities-categories',
-          matchPaths: ['/campus-living/settings/amenities-categories'],
-        },
-        {
           label: 'Program Eligibility',
           icon: 'ListChecks',
           href: '/campus-living/settings/program-eligibility',
