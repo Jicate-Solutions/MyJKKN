@@ -21,6 +21,18 @@ const config: ModuleNavConfig = {
       matchPaths: ['/campus-living/dashboard'],
     },
     {
+      label: 'My Hostel',
+      icon: 'Home',
+      href: '/campus-living/my-hostel',
+      matchPaths: ['/campus-living/my-hostel', '/campus-living/my-hostel/premium'],
+      children: [
+        { label: 'My Hostel', icon: 'Home', href: '/campus-living/my-hostel', matchPaths: ['/campus-living/my-hostel'] },
+        { label: 'Premium Stay', icon: 'Sparkles', href: '/campus-living/my-hostel/premium', matchPaths: ['/campus-living/my-hostel/premium'] },
+        { label: 'Pick Room', icon: 'BedDouble', href: '/campus-living/my-hostel/premium/pick-room', matchPaths: ['/campus-living/my-hostel/premium/pick-room'] },
+        { label: 'Invite Roommate', icon: 'UserPlus', href: '/campus-living/my-hostel/premium/invite-roommate', matchPaths: ['/campus-living/my-hostel/premium/invite-roommate'] },
+      ],
+    },
+    {
       label: 'Residents',
       icon: 'UsersRound',
       href: '/campus-living/residents',
@@ -29,8 +41,6 @@ const config: ModuleNavConfig = {
         '/campus-living/blocks',
         '/campus-living/wardens',
         '/campus-living/allocations',
-        '/campus-living/my-hostel',
-        '/campus-living/my-hostel/premium',
         '/campus-living/vacate-requests',
       ],
       children: [
@@ -86,34 +96,6 @@ const config: ModuleNavConfig = {
           icon: 'LogOut',
           href: '/campus-living/vacate-requests',
           matchPaths: ['/campus-living/vacate-requests'],
-        },
-        {
-          label: 'My Hostel',
-          icon: 'Home',
-          href: '/campus-living/my-hostel',
-          matchPaths: ['/campus-living/my-hostel'],
-        },
-        // ── Premium Stay (learner-facing, PR #1001) ──────────────────
-        // Previously reachable only via "Upgrade to Premium" button on
-        // /my-hostel. Surfacing as chips so eligible learners can
-        // navigate without a forced detour through the hub page.
-        {
-          label: 'Premium Stay',
-          icon: 'Sparkles',
-          href: '/campus-living/my-hostel/premium',
-          matchPaths: ['/campus-living/my-hostel/premium'],
-        },
-        {
-          label: 'Pick Room',
-          icon: 'BedDouble',
-          href: '/campus-living/my-hostel/premium/pick-room',
-          matchPaths: ['/campus-living/my-hostel/premium/pick-room'],
-        },
-        {
-          label: 'Invite Roommate',
-          icon: 'UserPlus',
-          href: '/campus-living/my-hostel/premium/invite-roommate',
-          matchPaths: ['/campus-living/my-hostel/premium/invite-roommate'],
         },
       ],
     },

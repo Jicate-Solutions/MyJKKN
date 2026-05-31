@@ -11,5 +11,15 @@ export const queryKeys = {
     stats: () => [...queryKeys.bugReports.all, 'stats'] as const,
     reporterStats: (filters: any) =>
       [...queryKeys.bugReports.all, 'reporter-stats', filters] as const
-  }
+  },
+  campusLiving: {
+    all: ['campus-living'] as const,
+    myHostel: {
+      all: ['campus-living', 'my-hostel'] as const,
+      summary: (learnerId: string) =>
+        ['campus-living', 'my-hostel', 'summary', learnerId] as const,
+      fees: (categoryId: string) =>
+        ['campus-living', 'my-hostel', 'fees', categoryId] as const,
+    },
+  },
 } as const;
