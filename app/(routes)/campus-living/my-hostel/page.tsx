@@ -59,7 +59,7 @@ const getJoined = (row: any, relation: string, field: string): string =>
 
 export default function MyHostelPage() {
   const { profile, user } = useAuth();
-  const { isSuperAdmin, can } = usePermissions();
+  const { isSuperAdmin, can, isLoading: permsLoading } = usePermissions();
   const userId = user?.id ?? '';
 
   const { data: isHosteler, isLoading: hostelerLoading } = useIsHosteler();
@@ -82,7 +82,7 @@ export default function MyHostelPage() {
 
   const allowed = isSuperAdmin || (can('campus_living.my_hostel.view') && isHosteler);
 
-  if (hostelerLoading) {
+  if (hostelerLoading || permsLoading) {
     return (
       <ContentLayout title='My Hostel'>
         <div className='flex items-center justify-center min-h-[400px]'>
