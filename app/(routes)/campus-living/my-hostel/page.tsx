@@ -21,6 +21,7 @@ import { useMyVacateRequests } from '@/hooks/campus-living/use-hostel-vacate';
 import { HostelAllocationService } from '@/lib/services/campus-living/hostel-allocation-service';
 import { OverviewTab } from './_components/overview-tab';
 import { CategoryFeesTab } from './_components/category-fees-tab';
+import { ProfileTab } from './_components/profile-tab';
 import {
   FileText,
   Loader2,
@@ -28,7 +29,6 @@ import {
   AlertCircle,
   CheckCircle2,
   ArrowRight,
-  UserCog,
 } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
@@ -284,22 +284,10 @@ export default function MyHostelPage() {
             </div>
           )}
 
-          {/* Profile — Phase 3 placeholder */}
+          {/* Profile — emergency contact + medical notes (resident edits own row) */}
           {tab === 'profile' && (
             <div className='mt-4'>
-              <Card>
-                <CardHeader>
-                  <CardTitle className='flex items-center gap-2'>
-                    <UserCog className='h-5 w-5 text-primary' />
-                    Emergency &amp; Medical Profile
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <p className='text-sm text-muted-foreground'>
-                    Emergency &amp; medical profile editing — coming soon.
-                  </p>
-                </CardContent>
-              </Card>
+              <ProfileTab />
             </div>
           )}
         </Tabs>
