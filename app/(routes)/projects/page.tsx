@@ -6,8 +6,8 @@
  * Single route `/projects` with URL-synced view tabs:
  *   List | Board | Timeline | Portfolio
  *
- * Tabs render placeholders for now; the real views land in Wave 3.
- * The List tab wires useProjects() to prove the data layer (PR 2) works.
+ * List + Board are live (Wave 3, F1 + F13). Timeline + Portfolio remain
+ * placeholders owned by sibling agents.
  *
  * Pattern: app/(routes)/hr/intelligence/page.tsx
  *   (ContentLayout + Breadcrumb + Tabs + searchParams-synced active tab).
@@ -28,9 +28,9 @@ import {
 } from '@/components/ui/breadcrumb';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { List, LayoutGrid, GanttChartSquare, FolderKanban, Plus, Loader2 } from 'lucide-react';
-import { useProjects } from '@/hooks/projects/use-projects';
+import { List, LayoutGrid, GanttChartSquare, FolderKanban } from 'lucide-react';
+import { ProjectList } from './_components/project-list';
+import { BoardTab } from './_components/board-tab';
 
 const PROJECT_TABS = [
   { id: 'list', label: 'List', icon: List },
@@ -60,41 +60,6 @@ function ComingSoonCard({ view }: { view: string }) {
           This view is not built yet. The data layer (services + hooks) is wired
           and ready for it.
         </p>
-      </CardContent>
-    </Card>
-  );
-}
-
-/** List tab — proves the data layer by showing a live count/loading state. */
-function ListViewPlaceholder() {
-  const { data: projects, isLoading, isError, error } = useProjects();
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>List view</CardTitle>
-        <CardDescription>
-          Full table UI comes in the next PR. Below is a live data-layer probe.
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        {isLoading && (
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            Loading projects…
-          </div>
-        )}
-        {isError && (
-          <p className="text-sm text-destructive">
-            Failed to load projects: {(error as Error)?.message ?? 'unknown error'}
-          </p>
-        )}
-        {!isLoading && !isError && (
-          <p className="text-sm text-muted-foreground">
-            {projects?.length ?? 0} project
-            {(projects?.length ?? 0) === 1 ? '' : 's'} loaded.
-          </p>
-        )}
       </CardContent>
     </Card>
   );
@@ -136,12 +101,7 @@ export default function ProjectsPage() {
             </BreadcrumbItem>
           </BreadcrumbList>
         </Breadcrumb>
-
-        {/* New Project — wired in a later PR (create dialog). */}
-        <Button disabled className="gap-1.5">
-          <Plus className="h-4 w-4" />
-          New Project
-        </Button>
+        {/* New Project lives inside the List view toolbar (ProjectFormDialog). */}
       </div>
 
       <div className="mt-6">
@@ -159,10 +119,10 @@ export default function ProjectsPage() {
           </TabsList>
 
           <TabsContent value="list" className="mt-6">
-            <ListViewPlaceholder />
+            <ProjectList />
           </TabsContent>
           <TabsContent value="board" className="mt-6">
-            <ComingSoonCard view="Board" />
+            <BoardTab />
           </TabsContent>
           <TabsContent value="timeline" className="mt-6">
             <ComingSoonCard view="Timeline" />
