@@ -4,7 +4,7 @@ import { ColumnDef } from '@tanstack/react-table';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
 import type { HostelCategory } from '@/types/hostel-categories';
-import { HOSTEL_CATEGORY_TYPE_LABELS } from '@/types/hostel-categories';
+import { HOSTEL_CATEGORY_TYPE_LABELS, ALLOCATION_MODE_LABELS } from '@/types/hostel-categories';
 import { HostelCategoryRowActions } from './row-actions';
 
 const TYPE_VARIANT: Record<string, 'default' | 'secondary' | 'outline'> = {
@@ -63,6 +63,15 @@ export const createColumns = (): ColumnDef<HostelCategory>[] => [
     cell: ({ row }) => (
       <Badge variant={TYPE_VARIANT[row.original.type] ?? 'outline'}>
         {HOSTEL_CATEGORY_TYPE_LABELS[row.original.type as keyof typeof HOSTEL_CATEGORY_TYPE_LABELS] ?? row.original.type}
+      </Badge>
+    ),
+  },
+  {
+    accessorKey: 'allocation_mode',
+    header: 'Allocation',
+    cell: ({ row }) => (
+      <Badge variant={row.original.allocation_mode === 'auto' ? 'default' : 'outline'}>
+        {ALLOCATION_MODE_LABELS[row.original.allocation_mode] ?? row.original.allocation_mode}
       </Badge>
     ),
   },

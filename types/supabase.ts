@@ -31565,6 +31565,7 @@ export type Database = {
       }
       hostel_categories: {
         Row: {
+          allocation_mode: string
           created_at: string
           description: string | null
           id: string
@@ -31575,6 +31576,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          allocation_mode?: string
           created_at?: string
           description?: string | null
           id?: string
@@ -31585,6 +31587,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          allocation_mode?: string
           created_at?: string
           description?: string | null
           id?: string

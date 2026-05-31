@@ -34,7 +34,7 @@ import { Loader2 } from 'lucide-react';
 import { useHostelCategories } from '@/hooks/campus-living/use-hostel-categories';
 import { toast } from 'react-hot-toast';
 import type { HostelCategory } from '@/types/hostel-categories';
-import { HOSTEL_CATEGORY_TYPE_LABELS } from '@/types/hostel-categories';
+import { HOSTEL_CATEGORY_TYPE_LABELS, ALLOCATION_MODE_LABELS } from '@/types/hostel-categories';
 
 const formSchema = z.object({
   name: z
@@ -45,6 +45,7 @@ const formSchema = z.object({
   type: z.enum(['boys', 'girls', 'mixed'], {
     required_error: 'Please select a type',
   }),
+  allocation_mode: z.enum(['auto', 'manual']),
   sort_order: z.coerce.number().int().min(0, 'Must be 0 or greater'),
   is_active: z.boolean(),
 });
@@ -73,6 +74,7 @@ export function HostelCategoryFormDialog({
       name: '',
       description: '',
       type: 'boys',
+      allocation_mode: 'manual',
       sort_order: 0,
       is_active: true,
     },
@@ -85,6 +87,7 @@ export function HostelCategoryFormDialog({
         name: category.name,
         description: category.description ?? '',
         type: category.type as 'boys' | 'girls' | 'mixed',
+        allocation_mode: category.allocation_mode,
         sort_order: category.sort_order,
         is_active: category.is_active,
       });
@@ -93,6 +96,7 @@ export function HostelCategoryFormDialog({
         name: '',
         description: '',
         type: 'boys',
+        allocation_mode: 'manual',
         sort_order: 0,
         is_active: true,
       });
@@ -122,7 +126,7 @@ export function HostelCategoryFormDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className='w-[95vw] max-w-[480px]'>
+      <DialogContent className='w-[95vw] max-w-[480px] max-h-[90vh] overflow-y-auto'>
         <DialogHeader>
           <DialogTitle>
             {mode === 'create' ? 'Create Hostel Category' : 'Edit Hostel Category'}
@@ -193,6 +197,35 @@ export function HostelCategoryFormDialog({
                       )}
                     </SelectContent>
                   </Select>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name='allocation_mode'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Allocation Mode</FormLabel>
+                  <Select value={field.value} onValueChange={field.onChange}>
+                    <FormControl>
+                      <SelectTrigger>
+                        <SelectValue placeholder='Select mode' />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      {Object.entries(ALLOCATION_MODE_LABELS).map(([value, label]) => (
+                        <SelectItem key={value} value={value}>
+                          {label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className='text-xs text-muted-foreground'>
+                    Auto = batch alphabetical allocation (warden-approved). Manual =
+                    learner self-selects the room in My Hostel.
+                  </p>
                   <FormMessage />
                 </FormItem>
               )}
