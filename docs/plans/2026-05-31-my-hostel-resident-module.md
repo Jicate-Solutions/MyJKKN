@@ -592,25 +592,42 @@ export class MyHostelService {
     };
   }
 
-  // Fee breakdown for the resident's category in the active hostel year.
+  // Fee breakdown (additive: room+mess+amenity) for the resident's hostel
+  // category in the current hostel year. VERIFIED column names:
+  //   hostel_category_fees(hostel_category_id, mess_category_id,
+  //     amenities_category_id, amount, frequency, is_active, hostel_year_id)
+  //   hostel_years(is_current, is_active, start_date)  -- prefer is_current.
   static async getMyCategoryFees(hostelCategoryId: string) {
     if (!hostelCategoryId) return [];
     const supabase = createClientSupabaseClient();
-    const { data: year } = await supabase
-      .from('hostel_years').select('id').eq('is_active', true).maybeSingle();
+    // Pick the current hostel year (is_current first, else most recent).
+    const { data: years } = await supabase
+      .from('hostel_years')
+      .select('id, is_current, start_date')
+      .order('is_current', { ascending: false })
+      .order('start_date', { ascending: false })
+      .limit(1);
+    const year = years?.[0] as { id: string } | undefined;
     if (!year) return [];
     const { data, error } = await supabase
       .from('hostel_category_fees')
-      .select('*')
-      .eq('hostel_year_id', (year as any).id)
-      .eq('category_id', hostelCategoryId);
+      .select('id, amount, frequency, mess_category_id, amenities_category_id, is_active')
+      .eq('hostel_year_id', year.id)
+      .eq('hostel_category_id', hostelCategoryId)
+      .eq('is_active', true);
     if (error) { logger.error('campus-living/my-hostel', 'getMyCategoryFees', error); throw error; }
     return data ?? [];
   }
 }
 ```
 
-> Step 1a verification note: confirm `hostel_years` has an `is_active` column and `hostel_category_fees.category_id` is the FK to `hostel_categories` (read `lib/services/campus-living/hostel-year-service.ts` + `hostel-category-fee-service.ts`). Adjust column names if they differ.
+> Verified schema (no further investigation needed): `learners_profiles` embeds resolve via
+> `hostel_categories:hostel_category_id(id,name,type)` and `mess_categories:mess_category_id(id,name)`
+> (FKs confirmed). `hostel_category_fees` keys on `hostel_category_id` (NOT `category_id`).
+> Identity: `useAuth()` returns ONLY `{ profile, isLoading, error }` — `profile.id` = auth.uid(),
+> `profile.learner_id` = learners_profiles.id (used for the summary read; RLS policy
+> `students_view_own_learner_profile` permits it). For permission checks use
+> `usePermissions().can()/isSuperAdmin`, NOT useAuth.
 
 - [ ] **Step 2: Type-check** — `mcp__ide__getDiagnostics`. Expected: clean (note: `.from('learners_profiles')` must exist in `types/supabase.ts` — it does, table is registered).
 
