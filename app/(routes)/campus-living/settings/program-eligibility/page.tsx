@@ -24,12 +24,15 @@ import {
 import { EligibilityDataTable } from './_components/data-table';
 import { ProgramEligibilityFormDialog } from './_components/form-dialog';
 import { createRoomColumns, createMessColumns } from './_components/columns';
+import { RoomRulesTable } from './_components/room-rules-table';
+import { RoomEligibilityFormDialog } from './_components/room-eligibility-form-dialog';
 
 export default function ProgramEligibilityPage() {
   const { institutions, loading: instLoading } = useEligibilityInstitutions();
   const [institutionId, setInstitutionId] = useState<string>('');
   const [addRoomOpen, setAddRoomOpen] = useState(false);
   const [addMessOpen, setAddMessOpen] = useState(false);
+  const [addRoomRuleOpen, setAddRoomRuleOpen] = useState(false);
 
   const room = useRoomEligibility(institutionId || null);
   const mess = useMessEligibility(institutionId || null);
@@ -72,8 +75,9 @@ export default function ProgramEligibilityPage() {
             <div>
               <h2 className='text-lg font-semibold'>Program Eligibility</h2>
               <p className='text-sm text-muted-foreground'>
-                Set which room and mess categories each program may use. Configure
-                an institution-wide default, then override specific programs.
+                Set which room and mess categories each program may use (with an
+                institution-wide default + per-program overrides), and reserve
+                specific blocks / floors / rooms for cohorts under Physical Rooms.
               </p>
             </div>
 
@@ -93,6 +97,7 @@ export default function ProgramEligibilityPage() {
                 <TabsList>
                   <TabsTrigger value='room'>Room Eligibility</TabsTrigger>
                   <TabsTrigger value='mess'>Mess Eligibility</TabsTrigger>
+                  <TabsTrigger value='rooms'>Physical Rooms</TabsTrigger>
                 </TabsList>
 
                 <TabsContent value='room' className='space-y-4 pt-4'>
@@ -122,6 +127,20 @@ export default function ProgramEligibilityPage() {
                     error={mess.error}
                   />
                 </TabsContent>
+
+                <TabsContent value='rooms' className='space-y-4 pt-4'>
+                  <div className='flex items-center justify-between gap-3'>
+                    <p className='text-sm text-muted-foreground'>
+                      Reserve physical rooms for a cohort (Institution → Degree →
+                      Department → Program → Semester). Covered rooms admit only
+                      matching learners; uncovered rooms stay open.
+                    </p>
+                    <Button onClick={() => setAddRoomRuleOpen(true)} className='shrink-0'>
+                      <Plus className='h-4 w-4 mr-2' /> Add Rule
+                    </Button>
+                  </div>
+                  <RoomRulesTable institutionId={institutionId} />
+                </TabsContent>
               </Tabs>
             ) : (
               <div className='rounded-md border border-dashed py-12 text-center text-sm text-muted-foreground'>
@@ -144,6 +163,12 @@ export default function ProgramEligibilityPage() {
               open={addMessOpen}
               onOpenChange={setAddMessOpen}
               kind='mess'
+              institutionId={institutionId}
+            />
+            <RoomEligibilityFormDialog
+              open={addRoomRuleOpen}
+              onOpenChange={setAddRoomRuleOpen}
+              mode='create'
               institutionId={institutionId}
             />
           </>

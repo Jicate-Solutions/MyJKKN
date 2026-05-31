@@ -1,0 +1,341 @@
+'use client';
+
+import { useEffect, useMemo, useState } from 'react';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
+import { Checkbox } from '@/components/ui/checkbox';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { Loader2 } from 'lucide-react';
+import { toast } from 'react-hot-toast';
+import {
+  useRoomEligibilityRules,
+  useEligibilityDegrees,
+  useEligibilityDepartments,
+  useEligibilityPrograms,
+  useEligibilitySemesters,
+  useEligibilityBlocks,
+  useEligibilityRooms,
+} from '@/hooks/campus-living/use-room-eligibility';
+import type { RoomEligibilityRuleRow } from '@/types/room-eligibility';
+
+type Scope = 'block' | 'floor' | 'rooms';
+const ANY = '__any__';
+
+interface Props {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  mode: 'create' | 'edit';
+  institutionId: string;
+  rule?: RoomEligibilityRuleRow | null;
+}
+
+export function RoomEligibilityFormDialog({
+  open,
+  onOpenChange,
+  mode,
+  institutionId,
+  rule,
+}: Props) {
+  const { createRule, updateRule } = useRoomEligibilityRules(institutionId);
+
+  const [blockId, setBlockId] = useState('');
+  const [scope, setScope] = useState<Scope>('block');
+  const [floor, setFloor] = useState<string>('');
+  const [roomIds, setRoomIds] = useState<string[]>([]);
+  const [degreeId, setDegreeId] = useState('');
+  const [departmentId, setDepartmentId] = useState('');
+  const [programId, setProgramId] = useState('');
+  const [semesterId, setSemesterId] = useState('');
+  const [ruleName, setRuleName] = useState('');
+  const [isActive, setIsActive] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+
+  const { options: blocks, loading: blocksLoading } = useEligibilityBlocks(
+    open ? institutionId : null
+  );
+  const { options: degrees } = useEligibilityDegrees(open ? institutionId : null);
+  const { options: departments } = useEligibilityDepartments(degreeId || null);
+  const { options: programs } = useEligibilityPrograms(departmentId || null);
+  const { options: semesters } = useEligibilitySemesters(programId || null);
+  const { rooms, loading: roomsLoading } = useEligibilityRooms(blockId || null);
+
+  const isEdit = mode === 'edit';
+
+  // Reset on open.
+  useEffect(() => {
+    if (!open) return;
+    if (isEdit && rule) {
+      setBlockId(rule.block_id);
+      setFloor(rule.floor != null ? String(rule.floor) : '');
+      setRoomIds(rule.room_ids ?? []);
+      setScope(
+        (rule.room_ids?.length ?? 0) > 0 ? 'rooms' : rule.floor != null ? 'floor' : 'block'
+      );
+      setDegreeId(rule.degree_id ?? '');
+      setDepartmentId(rule.department_id ?? '');
+      setProgramId(rule.program_id ?? '');
+      setSemesterId(rule.semester_id ?? '');
+      setRuleName(rule.rule_name ?? '');
+      setIsActive(rule.is_active);
+    } else {
+      setBlockId('');
+      setScope('block');
+      setFloor('');
+      setRoomIds([]);
+      setDegreeId('');
+      setDepartmentId('');
+      setProgramId('');
+      setSemesterId('');
+      setRuleName('');
+      setIsActive(true);
+    }
+  }, [open, isEdit, rule]);
+
+  // Distinct floors in the chosen block (for the 'floor' scope dropdown).
+  const floorsInBlock = useMemo(
+    () => Array.from(new Set(rooms.map((r) => r.floor))).sort((a, b) => a - b),
+    [rooms]
+  );
+
+  const roomsByFloor = useMemo(() => {
+    const map = new Map<number, typeof rooms>();
+    for (const r of rooms) {
+      const list = map.get(r.floor) ?? [];
+      list.push(r);
+      map.set(r.floor, list);
+    }
+    return Array.from(map.entries()).sort((a, b) => a[0] - b[0]);
+  }, [rooms]);
+
+  const toggleRoom = (id: string) =>
+    setRoomIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  const toggleFloorRooms = (floorRoomIds: string[], allSelected: boolean) =>
+    setRoomIds((prev) =>
+      allSelected
+        ? prev.filter((id) => !floorRoomIds.includes(id))
+        : Array.from(new Set([...prev, ...floorRoomIds]))
+    );
+
+  const canSave =
+    !!blockId &&
+    (scope !== 'floor' || floor !== '') &&
+    (scope !== 'rooms' || roomIds.length > 0);
+
+  const handleSave = async () => {
+    try {
+      setSubmitting(true);
+      const payload = {
+        floor: scope === 'floor' ? Number(floor) : null,
+        room_ids: scope === 'rooms' ? roomIds : [],
+        degree_id: degreeId || null,
+        department_id: departmentId || null,
+        program_id: programId || null,
+        semester_id: semesterId || null,
+        rule_name: ruleName.trim() || null,
+        is_active: isActive,
+      };
+      if (isEdit && rule) {
+        await updateRule(rule.id, payload);
+        toast.success('Room eligibility rule updated');
+      } else {
+        await createRule({ institution_id: institutionId, block_id: blockId, ...payload });
+        toast.success('Room eligibility rule added');
+      }
+      onOpenChange(false);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to save rule');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="w-[95vw] max-w-[640px] max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>
+            {isEdit ? 'Edit Room Eligibility Rule' : 'Add Room Eligibility Rule'}
+          </DialogTitle>
+          <DialogDescription>
+            Reserve a block / floor / set of rooms for a specific cohort. Rooms a
+            rule covers admit only matching learners; uncovered rooms stay open to
+            all. Leave an academic level as &ldquo;Any&rdquo; to wildcard it.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4">
+          {/* Physical target */}
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-2">
+              <Label>Block</Label>
+              <Select value={blockId} onValueChange={(v) => { setBlockId(v); setRoomIds([]); setFloor(''); }} disabled={isEdit}>
+                <SelectTrigger>
+                  <SelectValue placeholder={blocksLoading ? 'Loading…' : 'Select block'} />
+                </SelectTrigger>
+                <SelectContent>
+                  {blocks.map((b) => (
+                    <SelectItem key={b.id} value={b.id}>{b.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Scope</Label>
+              <Select value={scope} onValueChange={(v) => setScope(v as Scope)} disabled={!blockId}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="block">Whole block</SelectItem>
+                  <SelectItem value="floor">Specific floor</SelectItem>
+                  <SelectItem value="rooms">Specific rooms</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          {scope === 'floor' && (
+            <div className="space-y-2 max-w-[200px]">
+              <Label>Floor</Label>
+              <Select value={floor} onValueChange={setFloor}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select floor" />
+                </SelectTrigger>
+                <SelectContent>
+                  {floorsInBlock.map((f) => (
+                    <SelectItem key={f} value={String(f)}>
+                      {f === 0 ? 'Ground floor' : `Floor ${f}`}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+
+          {scope === 'rooms' && (
+            <div className="space-y-2">
+              <Label>Rooms {roomIds.length > 0 && <span className="text-muted-foreground font-normal">({roomIds.length} selected)</span>}</Label>
+              {roomsLoading ? (
+                <div className="flex items-center text-sm text-muted-foreground">
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Loading rooms…
+                </div>
+              ) : rooms.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No student rooms in this block.</p>
+              ) : (
+                <div className="space-y-3 max-h-[240px] overflow-y-auto rounded-md border p-3">
+                  {roomsByFloor.map(([f, frooms]) => {
+                    const fIds = frooms.map((r) => r.id);
+                    const allSelected = fIds.every((id) => roomIds.includes(id));
+                    return (
+                      <div key={f} className="space-y-1.5">
+                        <button
+                          type="button"
+                          className="text-xs font-medium text-primary hover:underline"
+                          onClick={() => toggleFloorRooms(fIds, allSelected)}
+                        >
+                          {f === 0 ? 'Ground floor' : `Floor ${f}`} — {allSelected ? 'clear' : 'select all'}
+                        </button>
+                        <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
+                          {frooms.map((r) => (
+                            <label key={r.id} className="flex items-center gap-1.5 text-sm cursor-pointer">
+                              <Checkbox checked={roomIds.includes(r.id)} onCheckedChange={() => toggleRoom(r.id)} />
+                              {r.room_number}
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Academic predicate */}
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-2">
+              <Label>Degree <span className="text-muted-foreground font-normal">(optional)</span></Label>
+              <Select value={degreeId || ANY} onValueChange={(v) => { const nv = v === ANY ? '' : v; setDegreeId(nv); setDepartmentId(''); setProgramId(''); setSemesterId(''); }}>
+                <SelectTrigger><SelectValue placeholder="Any degree" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={ANY}>Any degree</SelectItem>
+                  {degrees.map((d) => <SelectItem key={d.id} value={d.id}>{d.label}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Department <span className="text-muted-foreground font-normal">(optional)</span></Label>
+              <Select value={departmentId || ANY} onValueChange={(v) => { const nv = v === ANY ? '' : v; setDepartmentId(nv); setProgramId(''); setSemesterId(''); }} disabled={!degreeId}>
+                <SelectTrigger><SelectValue placeholder="Any department" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={ANY}>Any department</SelectItem>
+                  {departments.map((d) => <SelectItem key={d.id} value={d.id}>{d.label}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Program <span className="text-muted-foreground font-normal">(optional)</span></Label>
+              <Select value={programId || ANY} onValueChange={(v) => { const nv = v === ANY ? '' : v; setProgramId(nv); setSemesterId(''); }} disabled={!departmentId}>
+                <SelectTrigger><SelectValue placeholder="Any program" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={ANY}>Any program</SelectItem>
+                  {programs.map((p) => <SelectItem key={p.id} value={p.id}>{p.label}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Semester (year) <span className="text-muted-foreground font-normal">(optional)</span></Label>
+              <Select value={semesterId || ANY} onValueChange={(v) => setSemesterId(v === ANY ? '' : v)} disabled={!programId}>
+                <SelectTrigger><SelectValue placeholder="Any semester" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={ANY}>Any semester</SelectItem>
+                  {semesters.map((s) => <SelectItem key={s.id} value={s.id}>{s.label}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label>Rule name <span className="text-muted-foreground font-normal">(optional)</span></Label>
+            <Input value={ruleName} onChange={(e) => setRuleName(e.target.value)} placeholder="e.g., Dental PDS Year-1 — A Block floor 1" />
+          </div>
+
+          <div className="flex flex-row items-center justify-between rounded-lg border p-3">
+            <Label className="text-sm">Active</Label>
+            <Switch checked={isActive} onCheckedChange={setIsActive} />
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={submitting}>Cancel</Button>
+          <Button onClick={handleSave} disabled={!canSave || submitting}>
+            {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            {isEdit ? 'Save Changes' : 'Add Rule'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}

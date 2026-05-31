@@ -37105,6 +37105,123 @@ export type Database = {
           },
         ]
       }
+      hostel_room_eligibility_rule_rooms: {
+        Row: {
+          room_id: string
+          rule_id: string
+        }
+        Insert: {
+          room_id: string
+          rule_id: string
+        }
+        Update: {
+          room_id?: string
+          rule_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hostel_room_eligibility_rule_rooms_room_id_fkey"
+            columns: ["room_id"]
+            isOneToOne: false
+            referencedRelation: "hostel_rooms"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_room_eligibility_rule_rooms_rule_id_fkey"
+            columns: ["rule_id"]
+            isOneToOne: false
+            referencedRelation: "hostel_room_eligibility_rules"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      hostel_room_eligibility_rules: {
+        Row: {
+          block_id: string
+          created_at: string
+          created_by: string | null
+          degree_id: string | null
+          department_id: string | null
+          floor: number | null
+          id: string
+          institution_id: string
+          is_active: boolean
+          program_id: string | null
+          rule_name: string | null
+          semester_id: string | null
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          block_id: string
+          created_at?: string
+          created_by?: string | null
+          degree_id?: string | null
+          department_id?: string | null
+          floor?: number | null
+          id?: string
+          institution_id: string
+          is_active?: boolean
+          program_id?: string | null
+          rule_name?: string | null
+          semester_id?: string | null
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          block_id?: string
+          created_at?: string
+          created_by?: string | null
+          degree_id?: string | null
+          department_id?: string | null
+          floor?: number | null
+          id?: string
+          institution_id?: string
+          is_active?: boolean
+          program_id?: string | null
+          rule_name?: string | null
+          semester_id?: string | null
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hostel_room_eligibility_rules_block_id_fkey"
+            columns: ["block_id"]
+            isOneToOne: false
+            referencedRelation: "hostel_blocks"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_room_eligibility_rules_degree_id_fkey"
+            columns: ["degree_id"]
+            isOneToOne: false
+            referencedRelation: "degrees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_room_eligibility_rules_department_id_fkey"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "departments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_room_eligibility_rules_program_id_fkey"
+            columns: ["program_id"]
+            isOneToOne: false
+            referencedRelation: "programs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_room_eligibility_rules_semester_id_fkey"
+            columns: ["semester_id"]
+            isOneToOne: false
+            referencedRelation: "semesters"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       hostel_rooms: {
         Row: {
           ac_annual_cost_inr: number | null
