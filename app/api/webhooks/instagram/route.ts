@@ -26,8 +26,10 @@ function getServiceClient() {
 function verifySignature(rawBody: string, signatureHeader: string | null): boolean {
   const appSecret = process.env.INSTAGRAM_WEBHOOK_SECRET;
   if (!appSecret) {
-    logger.warn('meta/ig-webhook', 'INSTAGRAM_WEBHOOK_SECRET not set — skipping signature check');
-    return true; // Allow in dev; enforce in production
+    // Fail closed: an unverified POST can forge inbound Instagram events.
+    // The secret MUST be set in every environment.
+    logger.error('meta/ig-webhook', 'INSTAGRAM_WEBHOOK_SECRET not set — rejecting webhook');
+    return false;
   }
 
   if (!signatureHeader) {

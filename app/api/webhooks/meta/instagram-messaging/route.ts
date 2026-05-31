@@ -33,8 +33,11 @@ import type { IgDmEvent } from '@/lib/instagram/dm-types';
 function verifySignature(rawBody: string, signatureHeader: string | null): boolean {
   const appSecret = process.env.INSTAGRAM_WEBHOOK_SECRET;
   if (!appSecret) {
-    console.warn('[meta/ig-messaging] INSTAGRAM_WEBHOOK_SECRET not set — skipping signature check');
-    return true; // Dev escape hatch. Production deploys MUST set the secret.
+    // Fail closed: this receiver persists via the service-role client, so an
+    // unverified POST can forge inbound IG DMs. The secret MUST be set in every
+    // environment (inject it in tests rather than relying on a runtime bypass).
+    console.error('[meta/ig-messaging] INSTAGRAM_WEBHOOK_SECRET not set — rejecting webhook');
+    return false;
   }
   if (!signatureHeader) {
     console.warn('[meta/ig-messaging] Missing X-Hub-Signature-256 header');

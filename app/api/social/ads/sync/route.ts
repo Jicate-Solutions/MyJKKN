@@ -112,11 +112,26 @@ export async function POST(request: NextRequest) {
       .single();
 
     const isSuperAdmin = profile?.role === 'super_admin';
-    const isInstitutionAdmin =
-      profile?.role === 'institution_admin' &&
-      (!institutionId || profile?.institution_id === institutionId);
+    const isInstitutionAdmin = profile?.role === 'institution_admin';
 
     if (!isSuperAdmin && !isInstitutionAdmin) {
+      return NextResponse.json(
+        { success: false, error: 'Access denied' },
+        { status: 403 }
+      );
+    }
+
+    // Force the institution scope server-side — never trust the body for it.
+    // A super_admin may optionally narrow to one institution (or omit it to
+    // sync all). An institution_admin is hard-pinned to their own institution
+    // regardless of what the body asks for; otherwise they could sync (and
+    // cache Insights for) ad accounts belonging to another institution by
+    // passing a foreign institution_id or account_id.
+    const effectiveInstitutionId = isSuperAdmin
+      ? institutionId
+      : profile?.institution_id;
+
+    if (!isSuperAdmin && !effectiveInstitutionId) {
       return NextResponse.json(
         { success: false, error: 'Access denied' },
         { status: 403 }
@@ -140,7 +155,10 @@ export async function POST(request: NextRequest) {
       .select('id, fb_ad_account_id, institution_id')
       .eq('status', 'active');
     if (accountId) acctQuery = acctQuery.eq('id', accountId);
-    if (institutionId) acctQuery = acctQuery.eq('institution_id', institutionId);
+    // institution_admin is always constrained to effectiveInstitutionId, so a
+    // foreign account_id collapses to zero rows ("No ad accounts to sync").
+    if (effectiveInstitutionId)
+      acctQuery = acctQuery.eq('institution_id', effectiveInstitutionId);
 
     const { data: targets, error: targetsError } = await acctQuery;
     if (targetsError) {
