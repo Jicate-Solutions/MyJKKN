@@ -1904,7 +1904,15 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'Campus Living',
           active: pathname.startsWith('/campus-living'),
           icon: Home,
-          submenus: []
+          submenus: [],
+          // Single sidebar entry by design — all sub-navigation lives in the
+          // in-page AutoTabNav (which is hosteler-aware). Without noSubmenus,
+          // the sidebar auto-discovers EVERY depth-2 /campus-living/* page from
+          // the route manifest (allocations, blocks, mess, …) and shows them as
+          // accordion children. Those pages have no MENU_PERMISSIONS entries, so
+          // filterByPermissions can't hide them — a student would see the full
+          // admin page list. noSubmenus stops the auto-discovery for all roles.
+          noSubmenus: true
         }
       ]
     },
