@@ -1,5 +1,7 @@
 'use client';
 
+import { useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
@@ -7,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/hooks/use-auth';
+import { usePermissions } from '@/hooks/use-permissions';
 import { useCampusLivingOverview } from '@/hooks/campus-living/use-campus-living-dashboard';
 import {
   Building2,
@@ -29,7 +32,16 @@ import {
 
 export default function CampusLivingDashboardPage() {
   const { profile } = useAuth();
+  const { isSuperAdmin, can } = usePermissions();
+  const router = useRouter();
   const institutionId = profile?.institution_id ?? '';
+
+  // Redirect pure residents (no dashboard.view) to their personal My Hostel hub
+  useEffect(() => {
+    if (!isSuperAdmin && !can('campus_living.dashboard.view')) {
+      router.replace('/campus-living/my-hostel');
+    }
+  }, [isSuperAdmin, can, router]);
   const { data: dashboardData, isLoading, error } = useCampusLivingOverview(institutionId);
 
   if (isLoading) {
