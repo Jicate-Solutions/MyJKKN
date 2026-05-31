@@ -26,7 +26,12 @@ import { useJkknInstitutions } from '@/hooks/use-jkkn-institutions';
 export default function NewCdcDrivePage() {
   const router = useRouter();
   const { data: lookups, isLoading: lookupsLoading } = useCdcLookups();
-  const { data: institutionsData, isLoading: instLoading } = useJkknInstitutions({ limit: 50 });
+  const {
+    data: institutionsData,
+    isLoading: instLoading,
+    isError: instIsError,
+    error: instError,
+  } = useJkknInstitutions({ limit: 50 });
   const createDrive = useCreateCdcDrive();
 
   const [title, setTitle] = useState('');
@@ -187,6 +192,17 @@ export default function NewCdcDrivePage() {
           <CardContent>
             {instLoading ? (
               <div className="text-sm text-muted-foreground">Loading institutions…</div>
+            ) : instIsError ? (
+              <div className="text-sm text-destructive border border-destructive/30 bg-destructive/5 rounded-md p-3">
+                Could not load institutions
+                {instError instanceof Error ? `: ${instError.message}` : '.'} Please refresh the
+                page or contact your administrator if this persists.
+              </div>
+            ) : allInstitutions.length === 0 ? (
+              <div className="text-sm text-muted-foreground border rounded-md p-3">
+                No institutions are available to select. Contact your administrator to confirm
+                institutions are configured.
+              </div>
             ) : (
               <div className="grid gap-2 md:grid-cols-2">
                 {allInstitutions.map((inst) => (
