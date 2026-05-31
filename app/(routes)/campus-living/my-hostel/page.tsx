@@ -5,14 +5,11 @@
 // the eager-render gotcha (Radix TabsContent renders all children regardless
 // of visibility). Each tab's body is only mounted when active.
 
-import Link from 'next/link';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
+import { Card, CardContent } from '@/components/ui/card';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useAuth } from '@/hooks/use-auth';
 import { usePermissions } from '@/hooks/use-permissions';
@@ -22,44 +19,11 @@ import { HostelAllocationService } from '@/lib/services/campus-living/hostel-all
 import { OverviewTab } from './_components/overview-tab';
 import { CategoryFeesTab } from './_components/category-fees-tab';
 import { ProfileTab } from './_components/profile-tab';
+import { RequestsTab } from './_components/requests-tab';
 import {
-  FileText,
   Loader2,
-  LogOut,
   AlertCircle,
-  CheckCircle2,
-  ArrowRight,
 } from 'lucide-react';
-
-// ---------------------------------------------------------------------------
-// Status helpers (used in the Requests tab)
-// ---------------------------------------------------------------------------
-const statusVariant: Record<
-  string,
-  'default' | 'secondary' | 'destructive' | 'outline' | 'success'
-> = {
-  draft: 'outline',
-  pending_parent: 'secondary',
-  pending_warden: 'secondary',
-  pending_chief: 'secondary',
-  pending_dues: 'default',
-  approved: 'default',
-  completed: 'success',
-  rejected: 'destructive',
-  cancelled: 'outline',
-};
-
-const statusLabel: Record<string, string> = {
-  draft: 'Draft',
-  pending_parent: 'Waiting for parent consent',
-  pending_warden: 'With warden',
-  pending_chief: 'With chief warden',
-  pending_dues: 'Dues clearance',
-  approved: 'Approved — awaiting finalize',
-  completed: 'Vacated',
-  rejected: 'Rejected',
-  cancelled: 'Cancelled',
-};
 
 // ---------------------------------------------------------------------------
 // Page
@@ -170,117 +134,14 @@ export default function MyHostelPage() {
 
           {/* Requests */}
           {tab === 'requests' && (
-            <div className='mt-4 space-y-6'>
-              {reqLoading ? (
-                <div className='flex items-center justify-center min-h-[200px]'>
-                  <Loader2 className='h-6 w-6 animate-spin text-primary' />
-                </div>
-              ) : (
-                <>
-                  {/* Active vacate request status card */}
-                  {activeRequest && (
-                    <Card>
-                      <CardHeader>
-                        <CardTitle className='flex items-center gap-2'>
-                          <FileText className='h-5 w-5 text-amber-600' />
-                          Your Vacate Request
-                        </CardTitle>
-                        <CardDescription>
-                          Submitted {new Date(activeRequest.created_at).toLocaleDateString()}
-                        </CardDescription>
-                      </CardHeader>
-                      <CardContent className='space-y-3'>
-                        <div className='flex items-center gap-2'>
-                          <Badge
-                            variant={statusVariant[activeRequest.status] ?? 'outline'}
-                          >
-                            {statusLabel[activeRequest.status] ?? activeRequest.status}
-                          </Badge>
-                          <span className='text-xs text-muted-foreground capitalize'>
-                            {activeRequest.reason_type.replace(/_/g, ' ')}
-                          </span>
-                        </div>
-                        <p className='text-sm text-muted-foreground'>
-                          Requested vacate date:{' '}
-                          <strong>{activeRequest.requested_vacate_date}</strong>
-                        </p>
-                        <Button asChild variant='outline' size='sm'>
-                          <Link
-                            href={`/campus-living/vacate-requests/${activeRequest.id}`}
-                          >
-                            View details
-                            <ArrowRight className='ml-2 h-4 w-4' />
-                          </Link>
-                        </Button>
-                      </CardContent>
-                    </Card>
-                  )}
-
-                  {/* Request Vacate CTA — only when there's an active allocation
-                      that isn't already pending vacate and no in-flight request */}
-                  {canRequestVacate && (
-                    <Card>
-                      <CardContent className='p-6 flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between'>
-                        <div className='space-y-1'>
-                          <p className='font-medium'>Request Vacate</p>
-                          <p className='text-sm text-muted-foreground max-w-xl'>
-                            Start a vacate request. You&apos;ll go through parent consent
-                            (learners), warden approval, chief warden approval, and dues
-                            clearance before the room is released.
-                          </p>
-                        </div>
-                        <Button asChild>
-                          <Link href='/campus-living/my-hostel/vacate-request'>
-                            <LogOut className='mr-2 h-4 w-4' />
-                            Request Vacate
-                          </Link>
-                        </Button>
-                      </CardContent>
-                    </Card>
-                  )}
-
-                  {/* Request history */}
-                  {pastRequests.length > 0 && (
-                    <Card>
-                      <CardHeader>
-                        <CardTitle className='text-base'>Request History</CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <div className='space-y-2'>
-                          {pastRequests.map((r) => (
-                            <div
-                              key={r.id}
-                              className='flex items-center justify-between gap-2 rounded-md border p-2'
-                            >
-                              <div className='flex items-center gap-3'>
-                                {r.status === 'completed' ? (
-                                  <CheckCircle2 className='h-4 w-4 text-green-600' />
-                                ) : (
-                                  <FileText className='h-4 w-4 text-muted-foreground' />
-                                )}
-                                <div className='flex flex-col'>
-                                  <span className='text-sm capitalize'>
-                                    {r.reason_type.replace(/_/g, ' ')}
-                                  </span>
-                                  <span className='text-xs text-muted-foreground'>
-                                    {new Date(r.created_at).toLocaleDateString()} &middot;{' '}
-                                    {statusLabel[r.status] ?? r.status}
-                                  </span>
-                                </div>
-                              </div>
-                              <Button asChild size='sm' variant='ghost'>
-                                <Link href={`/campus-living/vacate-requests/${r.id}`}>
-                                  View
-                                </Link>
-                              </Button>
-                            </div>
-                          ))}
-                        </div>
-                      </CardContent>
-                    </Card>
-                  )}
-                </>
-              )}
+            <div className='mt-4'>
+              <RequestsTab
+                profileId={profileId}
+                reqLoading={reqLoading}
+                activeRequest={activeRequest}
+                pastRequests={pastRequests}
+                canRequestVacate={canRequestVacate}
+              />
             </div>
           )}
 

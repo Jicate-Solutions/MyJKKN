@@ -6381,6 +6381,26 @@ FOR SELECT USING (
   OR (user_has_permission('campus_living.gate_passes.view_own') AND learner_id = auth.uid())
 );
 
+-- ── hostel_leave_requests: INSERT (staff + resident self) ────────────
+-- Added: 2026-05-31 (migration: 20260531093000_resident_request_insert_rls)
+DROP POLICY IF EXISTS hostel_leave_requests_insert_permission ON public.hostel_leave_requests;
+CREATE POLICY hostel_leave_requests_insert_permission ON public.hostel_leave_requests
+FOR INSERT WITH CHECK (
+  is_super_admin() OR is_admin()
+  OR (user_has_permission('campus_living.leave.create') AND role_has_institution_access(institution_id) AND role_has_block_access(block_id))
+  OR (user_has_permission('campus_living.leave.request') AND learner_id = auth.uid())
+);
+
+-- ── hostel_gate_passes: INSERT (staff + resident self) ───────────────
+-- Added: 2026-05-31 (migration: 20260531093000_resident_request_insert_rls)
+DROP POLICY IF EXISTS hostel_gate_passes_insert_permission ON public.hostel_gate_passes;
+CREATE POLICY hostel_gate_passes_insert_permission ON public.hostel_gate_passes
+FOR INSERT WITH CHECK (
+  is_super_admin() OR is_admin()
+  OR (user_has_permission('campus_living.gate_passes.approve') AND role_has_institution_access(institution_id))
+  OR (user_has_permission('campus_living.gate_passes.create') AND learner_id = auth.uid())
+);
+
 -- ── learner_hostel_profiles: residents read + upsert OWN ──────────────
 DROP POLICY IF EXISTS lhp_select_permission ON public.learner_hostel_profiles;
 CREATE POLICY lhp_select_permission ON public.learner_hostel_profiles
