@@ -35,16 +35,21 @@ export default function NewClubPage() {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [clubType, setClubType] = useState('');
+  const [clubTypeOther, setClubTypeOther] = useState('');
   const [formedOn, setFormedOn] = useState('');
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) return;
 
+    // When 'Other' is selected, submit the typed custom value instead of the sentinel.
+    const resolvedClubType =
+      clubType === 'other' ? clubTypeOther.trim() || undefined : clubType || undefined;
+
     await createClub.mutateAsync({
       name: name.trim(),
       description: description || undefined,
-      club_type: clubType || undefined,
+      club_type: resolvedClubType,
       formed_on: formedOn || undefined,
     });
 
@@ -84,7 +89,7 @@ export default function NewClubPage() {
 
               <div className="space-y-1">
                 <Label htmlFor="club_type">Type</Label>
-                <Select onValueChange={setClubType}>
+                <Select value={clubType} onValueChange={setClubType}>
                   <SelectTrigger id="club_type">
                     <SelectValue placeholder="Select type" />
                   </SelectTrigger>
@@ -94,6 +99,15 @@ export default function NewClubPage() {
                     ))}
                   </SelectContent>
                 </Select>
+                {clubType === 'other' && (
+                  <Input
+                    id="club_type_other"
+                    className="mt-2"
+                    value={clubTypeOther}
+                    onChange={e => setClubTypeOther(e.target.value)}
+                    placeholder="Enter custom type"
+                  />
+                )}
               </div>
 
               <div className="space-y-1">
