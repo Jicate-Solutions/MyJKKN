@@ -6,10 +6,18 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { ArrowLeft, Save } from 'lucide-react';
+import { format } from 'date-fns';
+import { ArrowLeft, Save, Calendar as CalendarIcon } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import { Button } from '@/components/ui/button';
+import { Calendar } from '@/components/ui/calendar';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover';
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -94,7 +102,14 @@ export default function NewCdcInternshipPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.learner_id || !formData.site_id || !formData.facilitator_id || !formData.cycle_id) {
+    if (
+      !formData.learner_id ||
+      !formData.site_id ||
+      !formData.facilitator_id ||
+      !formData.cycle_id ||
+      !formData.rotation_start_date ||
+      !formData.rotation_end_date
+    ) {
       return;
     }
     const created = await createInternship(
@@ -117,6 +132,58 @@ export default function NewCdcInternshipPage() {
 
   const set = (key: string) => (val: string) =>
     setFormData(prev => ({ ...prev, [key]: val }));
+
+  // Parse an ISO yyyy-mm-dd string to a Date without timezone drift.
+  const parseIsoDate = (iso: string): Date | undefined => {
+    if (!iso) return undefined;
+    const d = new Date(`${iso}T00:00:00`);
+    return isNaN(d.getTime()) ? undefined : d;
+  };
+
+  // Convert a calendar-selected Date back to ISO yyyy-mm-dd (what the backend expects).
+  const toIsoDate = (date: Date | undefined): string => {
+    if (!date) return '';
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
+  // Indian dd/mm/yyyy date field. Stores the value as ISO yyyy-mm-dd in formData
+  // (unchanged submission contract) but DISPLAYS it as dd/mm/yyyy, instead of the
+  // native <input type="date"> whose displayed order follows the browser/OS locale
+  // (mm/dd/yyyy in US locales) — BUG-004051.
+  const renderDateField = (key: 'rotation_start_date' | 'rotation_end_date', id: string) => {
+    const iso = formData[key];
+    const selected = parseIsoDate(iso);
+    return (
+      <Popover>
+        <PopoverTrigger asChild>
+          <Button
+            id={id}
+            type="button"
+            variant="outline"
+            className={cn(
+              'w-full justify-start text-left font-normal',
+              !selected && 'text-muted-foreground'
+            )}
+          >
+            <CalendarIcon className="mr-2 h-4 w-4 opacity-50" />
+            {selected ? format(selected, 'dd/MM/yyyy') : <span>dd/mm/yyyy</span>}
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent className="w-auto p-0" align="start">
+          <Calendar
+            mode="single"
+            selected={selected}
+            onSelect={(date) => set(key)(toIsoDate(date ?? undefined))}
+            disabled={(date) => date < new Date('1900-01-01')}
+            initialFocus
+          />
+        </PopoverContent>
+      </Popover>
+    );
+  };
 
   return (
     <PermissionGuard module="cdc.internships" action="create">
@@ -232,27 +299,15 @@ export default function NewCdcInternshipPage() {
                 />
               </div>
 
-              {/* Dates */}
+              {/* Dates — dd/mm/yyyy display (Indian standard); value stored as ISO yyyy-mm-dd */}
               <div className="grid grid-cols-2 gap-4">
                 <div className="grid gap-1">
                   <Label htmlFor="start_date">Start date <span className="text-red-500">*</span></Label>
-                  <Input
-                    id="start_date"
-                    type="date"
-                    value={formData.rotation_start_date}
-                    onChange={e => set('rotation_start_date')(e.target.value)}
-                    required
-                  />
+                  {renderDateField('rotation_start_date', 'start_date')}
                 </div>
                 <div className="grid gap-1">
                   <Label htmlFor="end_date">End date <span className="text-red-500">*</span></Label>
-                  <Input
-                    id="end_date"
-                    type="date"
-                    value={formData.rotation_end_date}
-                    onChange={e => set('rotation_end_date')(e.target.value)}
-                    required
-                  />
+                  {renderDateField('rotation_end_date', 'end_date')}
                 </div>
               </div>
 

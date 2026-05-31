@@ -9,6 +9,22 @@ import type {
   IdpListResponse,
 } from '@/types/cdc/idp';
 
+// The embedded learner row comes from learners_profiles, which has
+// first_name / last_name but NO `name` column. Compose a display `name`
+// in JS so consumers (idp list/detail pages reading learner.name) keep working.
+function withLearnerDisplayName<T extends Record<string, unknown>>(row: T): T {
+  const learner = row?.learner as
+    | { first_name?: string | null; last_name?: string | null }
+    | null
+    | undefined;
+  if (!learner) return row;
+  const name = [learner.first_name, learner.last_name]
+    .filter(Boolean)
+    .join(' ')
+    .trim();
+  return { ...row, learner: { ...learner, name } };
+}
+
 export class IdpService {
   static async list(supabase: SupabaseClient, filters: IdpFilters = {}): Promise<IdpListResponse> {
     const { page = 1, limit = 20, institution_id, academic_year_label, learner_id, source } = filters;
@@ -17,7 +33,7 @@ export class IdpService {
     let query = supabase
       .from('cdc_idp_responses')
       .select(
-        `*, learner:learner_id(id, name, roll_number, institution_id)`,
+        `*, learner:learner_id(id, first_name, last_name, roll_number, institution_id)`,
         { count: 'exact' }
       )
       .order('submitted_at', { ascending: false })
@@ -35,7 +51,7 @@ export class IdpService {
     if (error) throw new Error(error.message);
 
     return {
-      data: (data ?? []) as CdcIdpResponseWithLearner[],
+      data: (data ?? []).map(withLearnerDisplayName) as CdcIdpResponseWithLearner[],
       total: count ?? 0,
       page,
       limit,
@@ -45,12 +61,12 @@ export class IdpService {
   static async getById(supabase: SupabaseClient, id: string): Promise<CdcIdpResponseWithLearner> {
     const { data, error } = await supabase
       .from('cdc_idp_responses')
-      .select(`*, learner:learner_id(id, name, roll_number, institution_id)`)
+      .select(`*, learner:learner_id(id, first_name, last_name, roll_number, institution_id)`)
       .eq('id', id)
       .single();
 
     if (error) throw new Error(error.message);
-    return data as CdcIdpResponseWithLearner;
+    return withLearnerDisplayName(data) as CdcIdpResponseWithLearner;
   }
 
   static async getByLearnerId(supabase: SupabaseClient, learner_id: string): Promise<CdcIdpResponse | null> {

@@ -297,3 +297,4 @@ export default process.env.CI ? withSentryConfig(nextConfig, {
     },
   }
 }) : nextConfig;
+// Env-var rollout trigger 1780199813 — Meta integration tokens.

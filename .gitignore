@@ -20,7 +20,7 @@ yarn.lock
 /coverage
 
 # next.js
-/.next/
+.next
 /out/
 
 # production

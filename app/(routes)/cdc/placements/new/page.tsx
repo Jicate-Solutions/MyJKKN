@@ -20,32 +20,33 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { SearchableSelect } from '@/components/ui/searchable-select';
 import { ArrowLeft, Loader2 } from 'lucide-react';
-import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { useCreateCdcPlacement } from '@/hooks/cdc/use-cdc-placements';
 import { useCdcLookups, useCdcDrives } from '@/hooks/cdc/use-cdc-drives';
 import type { CdcPlacementInsert } from '@/types/cdc/placements';
 
-/** Active + graduated learners for the placement-recipient picker. */
+/**
+ * Active + graduated learners for the placement-recipient picker.
+ *
+ * BUG-004044: this used to read `learners_profiles` straight from the browser
+ * supabase client, but that table's RLS SELECT policy needs a `learners.*`
+ * permission a CDC placement coordinator doesn't hold — so the client read
+ * returned 0 rows and the picker showed "No matching learners". We now fetch
+ * from a server route that uses the service-role client and scopes to the
+ * caller's accessible institutions (see app/api/cdc/placements/new/learners).
+ */
 function useLearnersForPicker() {
-  return useQuery({
+  return useQuery<Array<{ id: string; label: string }>>({
     queryKey: ['cdc-placement-learner-picker'],
     queryFn: async () => {
-      const supabase = createClientSupabaseClient();
-      const { data, error } = await (supabase as any)
-        .from('learners_profiles')
-        .select('id, first_name, last_name, register_number')
-        .in('lifecycle_status', ['active', 'graduated'])
-        .order('first_name', { ascending: true })
-        .limit(5000);
-      if (error) {
-        console.error('[placement-new] Failed to load learners:', error.message);
+      const res = await fetch('/api/cdc/placements/new/learners');
+      if (!res.ok) {
+        console.error('[placement-new] Failed to load learners:', res.status);
         return [];
       }
-      return (data || []).map((l: any) => ({
-        id: l.id as string,
-        label: `${l.first_name ?? ''} ${l.last_name ?? ''}`.trim() +
-               (l.register_number ? ` (${l.register_number})` : ''),
-      }));
+      const json = (await res.json()) as {
+        data?: Array<{ value: string; label: string }>;
+      };
+      return (json.data ?? []).map((o) => ({ id: o.value, label: o.label }));
     },
     staleTime: 5 * 60 * 1000,
   });

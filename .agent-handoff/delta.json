@@ -1,0 +1,6 @@
+{
+  "route_prefixes": ["/admission/inbox/messenger"],
+  "module_key": "social_messenger",
+  "tables": ["messenger_conversations", "messenger_messages"],
+  "permission_keys": ["social.messenger.view", "social.messenger.send"]
+}
