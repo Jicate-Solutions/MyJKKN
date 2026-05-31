@@ -263,8 +263,16 @@ FK semantics (verified): `hostel_leave_requests/.gate_passes/.allocations.learne
 
 - [ ] **Step 1: Write the migration SQL**
 
+> **Scope (revised):** Task 4 adds SELECT own-row branches + learner_hostel_profiles
+> own read/write only. Resident own-INSERT for leave & gate passes is deferred to
+> **Task 13**, where the self-constraint is designed with the action UI — residents
+> and staff *both* hold `*.create`, so the resident insert path must be self-bound by
+> `learner_id = auth.uid()` (a naive `create AND institution_access` branch would let a
+> resident file requests for classmates). Each policy below preserves the existing admin
+> branch verbatim and only appends an own-row `OR`.
+
 ```sql
--- ── hostel_leave_requests: residents read + create own ────────────────
+-- ── hostel_leave_requests: residents READ own ────────────────────────
 DROP POLICY IF EXISTS hostel_leave_requests_select_permission ON public.hostel_leave_requests;
 CREATE POLICY hostel_leave_requests_select_permission ON public.hostel_leave_requests
 FOR SELECT USING (
@@ -273,15 +281,7 @@ FOR SELECT USING (
   OR (user_has_permission('campus_living.leave.view_own') AND learner_id = auth.uid())
 );
 
-DROP POLICY IF EXISTS hostel_leave_requests_insert_permission ON public.hostel_leave_requests;
-CREATE POLICY hostel_leave_requests_insert_permission ON public.hostel_leave_requests
-FOR INSERT WITH CHECK (
-  is_super_admin() OR is_admin()
-  OR (user_has_permission('campus_living.leave.create') AND role_has_institution_access(institution_id) AND role_has_block_access(block_id))
-  OR (user_has_permission('campus_living.leave.request') AND learner_id = auth.uid())
-);
-
--- ── hostel_gate_passes: residents read + create own ───────────────────
+-- ── hostel_gate_passes: residents READ own ───────────────────────────
 DROP POLICY IF EXISTS hostel_gate_passes_select_permission ON public.hostel_gate_passes;
 CREATE POLICY hostel_gate_passes_select_permission ON public.hostel_gate_passes
 FOR SELECT USING (
@@ -290,15 +290,7 @@ FOR SELECT USING (
   OR (user_has_permission('campus_living.gate_passes.view_own') AND learner_id = auth.uid())
 );
 
-DROP POLICY IF EXISTS hostel_gate_passes_insert_permission ON public.hostel_gate_passes;
-CREATE POLICY hostel_gate_passes_insert_permission ON public.hostel_gate_passes
-FOR INSERT WITH CHECK (
-  is_super_admin() OR is_admin()
-  OR (user_has_permission('campus_living.gate_passes.create') AND role_has_institution_access(institution_id) AND learner_id = auth.uid())
-  OR (user_has_permission('campus_living.gate_passes.create') AND role_has_institution_access(institution_id))
-);
-
--- ── learner_hostel_profiles: residents read + upsert own ──────────────
+-- ── learner_hostel_profiles: residents read + upsert OWN ──────────────
 DROP POLICY IF EXISTS lhp_select_permission ON public.learner_hostel_profiles;
 CREATE POLICY lhp_select_permission ON public.learner_hostel_profiles
 FOR SELECT USING (
@@ -310,9 +302,19 @@ FOR SELECT USING (
   OR (user_has_permission('campus_living.profile.view_own') AND learner_id = public.get_my_learner_id())
 );
 
+-- UPDATE needs BOTH USING (which rows) and WITH CHECK (resulting row) so a
+-- resident cannot re-point their row's learner_id to someone else.
 DROP POLICY IF EXISTS lhp_update_permission ON public.learner_hostel_profiles;
 CREATE POLICY lhp_update_permission ON public.learner_hostel_profiles
 FOR UPDATE USING (
+  is_super_admin() OR is_admin()
+  OR EXISTS (SELECT 1 FROM learners_profiles lp
+             WHERE lp.id = learner_hostel_profiles.learner_id
+               AND user_has_permission('campus_living.residents.edit')
+               AND role_has_institution_access(lp.institution_id))
+  OR (user_has_permission('campus_living.profile.edit_own') AND learner_id = public.get_my_learner_id())
+)
+WITH CHECK (
   is_super_admin() OR is_admin()
   OR EXISTS (SELECT 1 FROM learners_profiles lp
              WHERE lp.id = learner_hostel_profiles.learner_id
@@ -332,7 +334,7 @@ FOR INSERT WITH CHECK (
   OR (user_has_permission('campus_living.profile.edit_own') AND learner_id = public.get_my_learner_id())
 );
 
--- ── hostel_allocations: residents read own (table empty today) ────────
+-- ── hostel_allocations: residents READ own (table empty today) ────────
 DROP POLICY IF EXISTS hostel_allocations_select_permission ON public.hostel_allocations;
 CREATE POLICY hostel_allocations_select_permission ON public.hostel_allocations
 FOR SELECT USING (
@@ -742,8 +744,34 @@ git commit -m "feat(campus-living): route hostelers from module root to My Hoste
 ### Task 13: Requests tab (vacate + leave + gate passes, own-scoped)
 
 **Files:**
+- Create: `supabase/migrations/20260531093000_resident_request_insert_rls.sql`
 - Create: `app/(routes)/campus-living/my-hostel/_components/requests-tab.tsx`
 - Modify: `app/(routes)/campus-living/my-hostel/page.tsx` (wire the `requests` tab)
+- Modify: `supabase/setup/03_policies.sql`
+
+- [ ] **Step 0: Own-INSERT RLS (deferred from Task 4).** Add self-bound INSERT branches so a resident can file ONLY their own leave/gate-pass requests. The resident branch must be self-constrained by `learner_id = auth.uid()` and must NOT rely on the staff `*.create AND role_has_institution_access` branch (residents share `*.create`, so that branch would let them file for classmates). Apply to the live DB, mirror into `03_policies.sql`, verify with impersonation that a hosteler can insert a row with their own `learner_id` but is rejected inserting with a different `learner_id`.
+
+```sql
+-- hostel_leave_requests: append resident self-insert
+DROP POLICY IF EXISTS hostel_leave_requests_insert_permission ON public.hostel_leave_requests;
+CREATE POLICY hostel_leave_requests_insert_permission ON public.hostel_leave_requests
+FOR INSERT WITH CHECK (
+  is_super_admin() OR is_admin()
+  OR (user_has_permission('campus_living.leave.create') AND role_has_institution_access(institution_id) AND role_has_block_access(block_id))
+  OR (user_has_permission('campus_living.leave.request') AND learner_id = auth.uid())
+);
+
+-- hostel_gate_passes: append resident self-insert (self-bound, not institution-wide)
+DROP POLICY IF EXISTS hostel_gate_passes_insert_permission ON public.hostel_gate_passes;
+CREATE POLICY hostel_gate_passes_insert_permission ON public.hostel_gate_passes
+FOR INSERT WITH CHECK (
+  is_super_admin() OR is_admin()
+  OR (user_has_permission('campus_living.gate_passes.approve') AND role_has_institution_access(institution_id))
+  OR (user_has_permission('campus_living.gate_passes.create') AND learner_id = auth.uid())
+);
+```
+
+> Note: the gate-pass staff branch is re-expressed as `gate_passes.approve` (a staff-only key) so the broad institution-wide insert stays with staff while residents are self-bound via `gate_passes.create AND learner_id = auth.uid()`. Confirm which staff roles hold `gate_passes.approve` vs `.create` before applying; if staff rely on `.create` for on-behalf creation, instead keep the original staff branch and add a separate `submitted_by`/`created_by = auth.uid()`-style self-constraint. Decide during this task with the actual role grants in hand.
 
 - [ ] **Step 1:** Build `requests-tab.tsx` with three sections:
   - **Vacate** — reuse `useMyVacateRequests(userId)` (already used in current page) + the existing "Request Vacate" CTA → `/campus-living/my-hostel/vacate-request`.
