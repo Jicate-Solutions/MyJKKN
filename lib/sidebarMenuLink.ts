@@ -275,7 +275,6 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // All super_admin until the social.* permission catalogs ship in Wave 2.
   '/admin/social/facebook': 'super_admin',
   '/admin/social/instagram': 'super_admin',
-  '/admin/social/ads': 'super_admin',
   '/admin/social/lead-ads': 'super_admin',
   '/admin/instagram-attribution': 'super_admin',
   '/admin/integrations/meta-pixel': 'super_admin',
@@ -1699,11 +1698,9 @@ export function GetPages(pathname: string): MenuGroup[] {
               label: 'Instagram',
               active: pathname.startsWith('/admin/social/instagram')
             },
-            {
-              href: '/admin/social/ads',
-              label: 'Meta Ads',
-              active: pathname.startsWith('/admin/social/ads')
-            },
+            // Meta Ads submenu omitted — /admin/social/ads page.tsx not yet
+            // created. Meta marathon shipped Ads Insights cron + types (PR #1152)
+            // but not the admin UI page. Add when page ships.
             {
               href: '/admin/social/lead-ads',
               label: 'Lead Ads',
