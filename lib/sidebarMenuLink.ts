@@ -1905,14 +1905,14 @@ export function GetPages(pathname: string): MenuGroup[] {
           active: pathname.startsWith('/campus-living'),
           icon: Home,
           submenus: [],
-          // Single sidebar entry by design — all sub-navigation lives in the
-          // in-page AutoTabNav (which is hosteler-aware). Without noSubmenus,
-          // the sidebar auto-discovers EVERY depth-2 /campus-living/* page from
-          // the route manifest (allocations, blocks, mess, …) and shows them as
-          // accordion children. Those pages have no MENU_PERMISSIONS entries, so
-          // filterByPermissions can't hide them — a student would see the full
-          // admin page list. noSubmenus stops the auto-discovery for all roles.
-          noSubmenus: true
+          // noSubmenus is set ROLE-AWARE in GetRoleBasedPages(): true for
+          // students (single entry — admin sub-pages would otherwise auto-
+          // discover from the route manifest, which lacks MENU_PERMISSIONS
+          // gating, leaking the full admin list to students), false for
+          // everyone else (super admin / wardens / staff get the full
+          // auto-discovered accordion, filtered by filterByPermissions /
+          // super-admin bypass). Default false here = show accordion.
+          noSubmenus: false
         }
       ]
     },
@@ -2247,6 +2247,19 @@ export function GetRoleBasedPages(
   userRole?: CustomRole | RolePermissionData | null
 ): MenuGroup[] {
   const allMenus = GetPages(pathname);
+
+  // Campus Living sidebar is role-aware: students get a single entry (no
+  // admin sub-page accordion — those pages auto-discover from the route
+  // manifest ungated and would otherwise leak the full admin list). Everyone
+  // else (super admin, wardens, staff) gets the full auto-discovered
+  // accordion. Set here because GetPages() has no role context.
+  if (userRole?.role_key === 'student') {
+    for (const group of allMenus) {
+      for (const menu of group.menus) {
+        if (menu.href === '/campus-living') menu.noSubmenus = true;
+      }
+    }
+  }
 
   // Super admin gets all menus EXCEPT student-only pages
   if (userRole?.role_key === 'super_admin') {
