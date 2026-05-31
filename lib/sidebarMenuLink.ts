@@ -1904,7 +1904,15 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'Campus Living',
           active: pathname.startsWith('/campus-living'),
           icon: Home,
-          submenus: []
+          submenus: [],
+          // noSubmenus is set ROLE-AWARE in GetRoleBasedPages(): true for
+          // students (single entry — admin sub-pages would otherwise auto-
+          // discover from the route manifest, which lacks MENU_PERMISSIONS
+          // gating, leaking the full admin list to students), false for
+          // everyone else (super admin / wardens / staff get the full
+          // auto-discovered accordion, filtered by filterByPermissions /
+          // super-admin bypass). Default false here = show accordion.
+          noSubmenus: false
         }
       ]
     },
@@ -2239,6 +2247,19 @@ export function GetRoleBasedPages(
   userRole?: CustomRole | RolePermissionData | null
 ): MenuGroup[] {
   const allMenus = GetPages(pathname);
+
+  // Campus Living sidebar is role-aware: students get a single entry (no
+  // admin sub-page accordion — those pages auto-discover from the route
+  // manifest ungated and would otherwise leak the full admin list). Everyone
+  // else (super admin, wardens, staff) gets the full auto-discovered
+  // accordion. Set here because GetPages() has no role context.
+  if (userRole?.role_key === 'student') {
+    for (const group of allMenus) {
+      for (const menu of group.menus) {
+        if (menu.href === '/campus-living') menu.noSubmenus = true;
+      }
+    }
+  }
 
   // Super admin gets all menus EXCEPT student-only pages
   if (userRole?.role_key === 'super_admin') {
