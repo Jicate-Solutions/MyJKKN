@@ -17,6 +17,7 @@ const LABEL_MAP: Record<InstitutionType, Record<string, string>> = {
     'Semester': 'Term',
     'Courses': 'Subjects',
     'Course': 'Subject',
+    'Course Mappings': 'Subject Mappings',
     'Sections': 'Sections',
     'Section': 'Section',
     // Help text & descriptions
