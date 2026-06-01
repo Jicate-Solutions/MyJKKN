@@ -68,7 +68,7 @@ export function SectionFilters({
         setLoading(true);
 
         // Load institutions
-        const institutionsData = await OrganizationService.getInstitutionNames(true);
+        const institutionsData = await OrganizationService.getInstitutionNames(true, undefined, 'all');
         setInstitutions(institutionsData);
 
         // Load ALL degrees (no filter)

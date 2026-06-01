@@ -60,7 +60,7 @@ export function SemesterFilters({
     async function loadInstitutions() {
       try {
         setLoadingInstitutions(true);
-        const data = await OrganizationService.getInstitutionNames(true);
+        const data = await OrganizationService.getInstitutionNames(true, undefined, 'all');
         setInstitutions(data);
       } catch (error) {
         console.error('Error loading institutions:', error);

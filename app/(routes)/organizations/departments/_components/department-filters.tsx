@@ -43,7 +43,8 @@ export function DepartmentFilters({
     async function loadInstitutions() {
       try {
         setLoading(true);
-        const data = await OrganizationService.getInstitutionNames(true);
+        // Fetch both institution and school types so super_admin sees all options
+        const data = await OrganizationService.getInstitutionNames(true, undefined, 'all');
 
         // Only update state if not aborted
         if (!abortController.signal.aborted) {
