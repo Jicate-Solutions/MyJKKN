@@ -19,6 +19,7 @@ import type {
   ProjectBudgetCategory,
   ProjectBudgetChange,
 } from '@/types/projects';
+import { getCurrentActorId } from '@/lib/services/projects/_actor';
 
 // ─── Input shapes ────────────────────────────────────────────────────────────────
 
@@ -181,6 +182,13 @@ export class BudgetService {
     supabase: SupabaseClient,
     input: BudgetChangeInsert
   ): Promise<ProjectBudgetChange> {
+    // requested_by → project_budget_changes.requested_by FK → profiles(id)
+    // No DB default; resolved here. Caller-supplied value takes precedence.
+    const requestedBy =
+      input.requested_by !== undefined
+        ? input.requested_by
+        : await getCurrentActorId(supabase);
+
     const { data, error } = await supabase
       .from('project_budget_changes')
       .insert({
@@ -190,7 +198,7 @@ export class BudgetService {
         new_amount_inr: input.new_amount_inr ?? null,
         reason: input.reason ?? null,
         approval_status: input.approval_status ?? 'pending',
-        requested_by: input.requested_by ?? null,
+        requested_by: requestedBy,
       })
       .select('*')
       .single();
