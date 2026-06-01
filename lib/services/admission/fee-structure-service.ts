@@ -58,8 +58,6 @@ export class FeeStructureService {
     admission_year_ids?: string[];
     quota_id?: string;
     community_category_id?: string;
-    accommodation_type_id?: string;
-    accommodation_type_ids?: string[];
     status?: 'draft' | 'active' | 'archived';
   }): Promise<{
     data: Array<
@@ -73,7 +71,6 @@ export class FeeStructureService {
         community_name: string | null;
         /** All community names attached to this structure (via junction). */
         community_names: string[];
-        accommodation_name: string | null;
         admission_year_name: string | null;
         item_count: number;
       }
@@ -125,7 +122,6 @@ export class FeeStructureService {
         programme:programs(id, program_name),
         quota:quotas(id, name),
         communities:admission_fee_structure_communities(community_category_id, community_category:community_categories(id, name)),
-        accommodation:accommodation_types(id, name),
         admission_year:admission_years(id, admission_year_name),
         items:admission_fee_structure_items(id)
       `,
@@ -146,13 +142,6 @@ export class FeeStructureService {
       query = query.eq('admission_year_id', params.admission_year_id);
     }
     if (params.quota_id) query = query.eq('quota_id', params.quota_id);
-    if (params.accommodation_type_ids?.length) {
-      query = params.accommodation_type_ids.length === 1
-        ? query.eq('accommodation_type_id', params.accommodation_type_ids[0])
-        : query.in('accommodation_type_id', params.accommodation_type_ids);
-    } else if (params.accommodation_type_id) {
-      query = query.eq('accommodation_type_id', params.accommodation_type_id);
-    }
     if (communityScopedIds) query = query.in('id', communityScopedIds);
     if (params.status) query = query.eq('status', params.status);
     if (params.search && params.search.trim()) query = query.ilike('name', `%${params.search.trim()}%`);
@@ -170,7 +159,6 @@ export class FeeStructureService {
         community_category_id: string;
         community_category: { id: string; name: string } | null;
       }>;
-      accommodation: { name: string } | null;
       admission_year: { admission_year_name: string } | null;
       items: Array<{ id: string }>;
     }
@@ -194,7 +182,6 @@ export class FeeStructureService {
         // `community_names` (plural) when rendering chips.
         community_name: communityNames.join(', ') || null,
         community_names: communityNames,
-        accommodation_name: joined.accommodation?.name ?? null,
         admission_year_name: joined.admission_year?.admission_year_name ?? null,
         item_count: joined.items?.length ?? 0,
       };
@@ -245,7 +232,6 @@ export class FeeStructureService {
         quota_name: string | null;
         community_name: string | null;
         community_names: string[];
-        accommodation_name: string | null;
         admission_year_name: string | null;
         items: Array<
           AdmissionFeeStructureItem & {
@@ -267,7 +253,6 @@ export class FeeStructureService {
         programme:programs(id, program_name),
         quota:quotas(id, name),
         communities:admission_fee_structure_communities(community_category_id, community_category:community_categories(id, name)),
-        accommodation:accommodation_types(id, name),
         admission_year:admission_years(id, admission_year_name),
         items:admission_fee_structure_items(*, billing_category:billing_categories(id, category_name, frequency))
       `)
@@ -286,7 +271,6 @@ export class FeeStructureService {
         community_category_id: string;
         community_category: { id: string; name: string } | null;
       }>;
-      accommodation: { name: string } | null;
       admission_year: { admission_year_name: string } | null;
       items: Array<{
         billing_category: { category_name: string; frequency: string } | null;
@@ -308,7 +292,6 @@ export class FeeStructureService {
       quota_name: joined.quota?.name ?? null,
       community_name: communityNames.join(', ') || null,
       community_names: communityNames,
-      accommodation_name: joined.accommodation?.name ?? null,
       admission_year_name: joined.admission_year?.admission_year_name ?? null,
       items: joined.items.map((it) => {
         const withJoin = it as typeof it & {

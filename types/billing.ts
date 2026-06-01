@@ -10,11 +10,26 @@ export type BillingCategoryFrequency =
   | 'yearly'
   | 'one-time';
 
+// DB enum `billing_category_kind`. Drives category grouping and lets specific
+// pickers exclude kinds they don't manage (e.g. the admission fee-structure
+// editor excludes 'transport' + 'hostel' — those are owned by the transport
+// and campus-living modules respectively).
+export type BillingCategoryKind =
+  | 'application_fee'
+  | 'tuition'
+  | 'hostel'
+  | 'transport'
+  | 'exam'
+  | 'library'
+  | 'other'
+  | 'university_fee';
+
 export interface BillingCategory {
   id: string;
   category_name: string;
   amount: number | null;
   frequency: BillingCategoryFrequency;
+  kind: BillingCategoryKind;
   description: string | null;
   is_active: boolean;
   created_at: string;

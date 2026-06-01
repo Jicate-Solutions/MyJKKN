@@ -27,7 +27,6 @@ export type FeeStructureRow = AdmissionFeeStructure & {
   programme_name: string | null;
   quota_name: string | null;
   community_name: string | null;
-  accommodation_name: string | null;
   admission_year_name: string | null;
   item_count: number;
 };

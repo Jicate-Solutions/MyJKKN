@@ -223,7 +223,6 @@ export const enquiryFormSchema = z.object({
   uniform_fee: z.coerce.number().min(0, 'Must be non-negative').nullable().optional(),
   hospital_training_fee: z.coerce.number().min(0, 'Must be non-negative').nullable().optional(),
   placement_fee: z.coerce.number().min(0, 'Must be non-negative').nullable().optional(),
-  transport_fee: z.coerce.number().min(0, 'Must be non-negative').nullable().optional(),
 
   // Updated: 2026-04-15 - Dynamic fee line items (new flow)
   fee_items: z
@@ -1199,7 +1198,6 @@ export function EnquiryForm({
       uniform_fee: values.uniform_fee ?? null,
       hospital_training_fee: values.hospital_training_fee ?? null,
       placement_fee: values.placement_fee ?? null,
-      transport_fee: values.transport_fee ?? null,
 
       // Updated: 2026-04-15 - Dynamic fee line items persisted as JSONB array.
       fee_items: Array.isArray(values.fee_items)

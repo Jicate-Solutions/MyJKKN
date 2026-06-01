@@ -56,7 +56,6 @@ import {
   Calendar,
   Tag,
   Users,
-  Home,
   Receipt,
   Hash,
   Activity,
@@ -95,7 +94,6 @@ type DetailRow = AdmissionFeeStructure & {
   programme_name: string | null;
   quota_name: string | null;
   community_name: string | null;
-  accommodation_name: string | null;
   admission_year_name: string | null;
   items: DetailRowItem[];
 };
@@ -195,7 +193,6 @@ function FeeStructureDetailPageContent({ id }: { id: string }) {
         // exact row. The form's editor then surfaces the full community list
         // for the operator to edit.
         community_category_id: structure.community_category_ids?.[0],
-        accommodation_type_id: structure.accommodation_type_id,
         admission_year_id: structure.admission_year_id,
         gender: structure.gender ?? undefined,
       }
@@ -393,12 +390,6 @@ function FeeStructureDetailPageContent({ id }: { id: string }) {
                         ? structure.community_category_ids[0]
                         : ''
                     }
-                  />
-                  <DimCard
-                    icon={<Home className="h-4 w-4" />}
-                    label="Accommodation"
-                    name={structure.accommodation_name}
-                    id={structure.accommodation_type_id}
                   />
                   <DimCard
                     icon={<UserCircle className="h-4 w-4" />}
