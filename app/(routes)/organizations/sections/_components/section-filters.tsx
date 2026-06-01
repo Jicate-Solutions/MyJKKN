@@ -10,6 +10,7 @@ import {
 } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
 import { RotateCcw } from 'lucide-react';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 import { OrganizationService } from '@/lib/services/organization/organization-service';
 import { DegreeService } from '@/lib/services/organization/degree-service';
 import { DepartmentService } from '@/lib/services/organization/department-service';
@@ -28,6 +29,7 @@ export function SectionFilters({
   onFilterChange,
   onClearFilters
 }: SectionFiltersProps) {
+  const adapt = useAdaptiveLabels();
   const [institutions, setInstitutions] = useState<
     Array<{ id: string; name: string; counselling_code: string }>
   >([]);
@@ -332,10 +334,10 @@ export function SectionFilters({
               disabled={!searchParams.institution_id || loading}
             >
               <SelectTrigger className='w-full'>
-                <SelectValue placeholder='All Degrees' />
+                <SelectValue placeholder={`All ${adapt('Degrees')}`} />
               </SelectTrigger>
               <SelectContent className='max-h-60 overflow-y-auto'>
-                <SelectItem value='all'>All Degrees</SelectItem>
+                <SelectItem value='all'>All {adapt('Degrees')}</SelectItem>
                 {degrees.map((degree) => (
                   <SelectItem key={degree.id} value={degree.id}>
                     {degree.degree_name}
@@ -353,10 +355,10 @@ export function SectionFilters({
               disabled={!searchParams.degree_id || loading}
             >
               <SelectTrigger className='w-full'>
-                <SelectValue placeholder='All Departments' />
+                <SelectValue placeholder={`All ${adapt('Departments')}`} />
               </SelectTrigger>
               <SelectContent className='max-h-60 overflow-y-auto'>
-                <SelectItem value='all'>All Departments</SelectItem>
+                <SelectItem value='all'>All {adapt('Departments')}</SelectItem>
                 {departments.map((department) => (
                   <SelectItem key={department.id} value={department.id}>
                     {department.department_name}
@@ -374,10 +376,10 @@ export function SectionFilters({
               disabled={!searchParams.department_id || loading}
             >
               <SelectTrigger className='w-full'>
-                <SelectValue placeholder='All Programs' />
+                <SelectValue placeholder={`All ${adapt('Programs')}`} />
               </SelectTrigger>
               <SelectContent className='max-h-60 overflow-y-auto'>
-                <SelectItem value='all'>All Programs</SelectItem>
+                <SelectItem value='all'>All {adapt('Programs')}</SelectItem>
                 {programs.map((program) => (
                   <SelectItem key={program.id} value={program.id}>
                     {program.program_name}
@@ -397,10 +399,10 @@ export function SectionFilters({
               disabled={!searchParams.program_id || loading}
             >
               <SelectTrigger className='w-full'>
-                <SelectValue placeholder='All Semesters' />
+                <SelectValue placeholder={`All ${adapt('Semesters')}`} />
               </SelectTrigger>
               <SelectContent className='max-h-60 overflow-y-auto'>
-                <SelectItem value='all'>All Semesters</SelectItem>
+                <SelectItem value='all'>All {adapt('Semesters')}</SelectItem>
                 {semesters.map((semester) => (
                   <SelectItem key={semester.id} value={semester.id}>
                     {semester.semester_name}
