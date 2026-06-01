@@ -32,6 +32,7 @@ import {
   Lock,
   LucideIcon,
   LayoutGrid,
+  FolderKanban,
   Building,
   Boxes,
   CalendarClock,
@@ -1932,6 +1933,18 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'OKR & Performance',
           active: pathname.startsWith('/okr'),
           icon: Target,
+          submenus: []
+        }
+      ]
+    },
+    {
+      groupLabel: 'Projects',
+      menus: [
+        {
+          href: '/projects',
+          label: 'Projects',
+          active: pathname.startsWith('/projects'),
+          icon: FolderKanban,
           submenus: []
         }
       ]
