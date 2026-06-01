@@ -160,6 +160,18 @@
     {
       "path": "/api/cron/instagram-monthly-audit?secret=${CRON_SECRET}",
       "schedule": "0 6 1 * *"
+    },
+    {
+      "path": "/api/cron/meta-facebook-poll?secret=${CRON_SECRET}",
+      "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/cron/meta-ads-sync?secret=${CRON_SECRET}",
+      "schedule": "0 */2 * * *"
+    },
+    {
+      "path": "/api/cron/ig-stories-poll?secret=${CRON_SECRET}",
+      "schedule": "30 */2 * * *"
     }
   ]
 }
