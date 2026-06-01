@@ -9,9 +9,7 @@
  * Errors are thrown, not swallowed.
  * Spec: specs/pm-projects-module-2026-05-26.md — Feature F9.
  *
- * NOTE: requested_by / decided_by are null on create/act because the client has
- * no auth-user helper wired in this module yet. A follow-up PR can inject
- * supabase.auth.getUser() here. Tracked in PR body under "Deferred".
+ * requested_by / decided_by are now wired via getCurrentActorId (profiles.id).
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -19,6 +17,7 @@ import type {
   ProjectApprovalWorkflow,
   ProjectApprovalRequest,
 } from '@/types/projects';
+import { getCurrentActorId } from '@/lib/services/projects/_actor';
 
 // ─── Shared shape: a single step in the approval chain ──────────────────────
 
@@ -229,6 +228,9 @@ export class ApprovalRequestService {
     supabase: SupabaseClient,
     input: RequestInsert
   ): Promise<ProjectApprovalRequest> {
+    // requested_by → project_approval_requests.requested_by FK → profiles(id); no DB default
+    const requestedBy = await getCurrentActorId(supabase);
+
     const { data, error } = await supabase
       .from('project_approval_requests')
       .insert({
@@ -242,7 +244,7 @@ export class ApprovalRequestService {
         is_emergency: input.is_emergency ?? false,
         escalation_status: input.escalation_status ?? 'none',
         status: 'pending',
-        // requested_by: null — auth helper not yet wired (see file NOTE)
+        requested_by: requestedBy,
       })
       .select('*')
       .single();
@@ -261,11 +263,14 @@ export class ApprovalRequestService {
     id: string,
     input: ActOnRequestInput
   ): Promise<ProjectApprovalRequest> {
+    // decided_by → project_approval_requests.decided_by FK → profiles(id); no DB default
+    const decidedBy = await getCurrentActorId(supabase);
+
     const patch: Record<string, unknown> = {
       status: input.status,
       decided_at: new Date().toISOString(),
       decision_notes: input.decision_notes ?? null,
-      // decided_by: null — auth helper not yet wired (see file NOTE)
+      decided_by: decidedBy,
     };
 
     if (input.next_step !== null && input.next_step !== undefined) {
