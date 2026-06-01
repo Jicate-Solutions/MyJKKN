@@ -23,6 +23,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { SubscribedAssetsPanel } from '@/components/admin/social/subscribed-assets-panel';
 
 interface PageHealthRow {
   fb_page_id: string;
@@ -269,6 +270,9 @@ export default function FacebookAdminPage() {
             </div>
           </CardContent>
         </Card>
+
+        {/* Webhook subscription drift panel */}
+        <SubscribedAssetsPanel filter="page" />
       </div>
     </ContentLayout>
   );
