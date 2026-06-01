@@ -706,7 +706,12 @@ CREATE POLICY "learners_profiles_insert_policy" ON learners_profiles
         )
     );
 
--- UPDATE: super/admin, any learners.* edit permission + institution scope, or self-update by email
+-- UPDATE: super/admin or any learners.* edit permission + institution scope.
+-- NOTE (2026-06-01): students intentionally have NO direct UPDATE on their own
+-- profile. Self-service edits go through the admin-approved change-request flow
+-- (profile_change_requests). The former "self-update by email" clauses and the
+-- students_update_own_learner_profile policy were removed
+-- (migration 20260704120000_revoke_student_learner_profile_direct_edit.sql).
 CREATE POLICY "learners_profiles_update_policy" ON learners_profiles
     FOR UPDATE USING (
         is_super_admin() OR is_admin()
@@ -718,8 +723,6 @@ CREATE POLICY "learners_profiles_update_policy" ON learners_profiles
                 OR user_has_permission('learners.edit')
             )
         )
-        OR student_email = (SELECT email FROM profiles WHERE id = auth.uid())
-        OR college_email = (SELECT email FROM profiles WHERE id = auth.uid())
     );
 
 -- DELETE: super/admin or user with delete permission + institution scope
@@ -747,24 +750,12 @@ CREATE POLICY "students_view_own_learner_profile" ON learners_profiles
         )
     );
 
--- Student self-access: Update own profile via profiles.learner_id linkage
-CREATE POLICY "students_update_own_learner_profile" ON learners_profiles
-    FOR UPDATE USING (
-        EXISTS (
-            SELECT 1 FROM profiles p
-            WHERE p.id = auth.uid()
-            AND p.learner_id = learners_profiles.id
-            AND p.role = 'student'
-        )
-    )
-    WITH CHECK (
-        EXISTS (
-            SELECT 1 FROM profiles p
-            WHERE p.id = auth.uid()
-            AND p.learner_id = learners_profiles.id
-            AND p.role = 'student'
-        )
-    );
+-- Student self-access: UPDATE intentionally removed (2026-06-01).
+-- Students are view-only on their own profile; edits flow through the
+-- admin-approved change-request workflow. Their VIEW access is preserved by
+-- students_view_own_learner_profile (above) plus the email-match clause on
+-- learners_profiles_select_policy.
+-- Removed by migration 20260704120000_revoke_student_learner_profile_direct_edit.sql.
 
 -- INTAKE_HISTORY TABLE (Added: 2025-01-31)
 -- Purpose: Capacity analytics and 3-year stability index tracking
