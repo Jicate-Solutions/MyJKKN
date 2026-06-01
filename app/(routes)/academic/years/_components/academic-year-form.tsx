@@ -131,11 +131,25 @@ export function AcademicYearForm({
   }, [academicYear, userProfile, form, isEditing]);
 
   // Fetch institutions for dropdown
+  // - entityType:'all' → include schools (entity_type='school') and every other
+  //   type, not just entity_type='institution'. The Schools migration broke the
+  //   previous default which silently excluded school entities.
+  // - Super admins: no userId → all institutions of every type.
+  // - Normal users: pass userId → only their own accessible institutions.
   useEffect(() => {
+    // Wait until permission state resolves so we fetch the correct scope.
+    if (isSuperAdmin === undefined) return;
+    // Non-super-admins need their profile id to scope the access query.
+    if (!isSuperAdmin && !userProfile?.id) return;
+
     async function loadInstitutions() {
       try {
         setLoadingInstitutions(true);
-        const data = await OrganizationService.getInstitutionNames(true);
+        const data = await OrganizationService.getInstitutionNames(
+          true,
+          isSuperAdmin ? undefined : userProfile?.id,
+          'all'
+        );
         setInstitutions(data);
       } catch (error) {
         logger.error('academic/academic-years', 'Error loading institutions', error);
@@ -145,7 +159,7 @@ export function AcademicYearForm({
       }
     }
     loadInstitutions();
-  }, []);
+  }, [isSuperAdmin, userProfile?.id]);
 
   // Auto-set institution for faculty users
   useEffect(() => {

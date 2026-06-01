@@ -104,16 +104,25 @@ export function FeeStructuresListView() {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [refetchKey, setRefetchKey] = useState(0);
 
-  // Cascading option lists. Same pattern as fees-structure-dimension-selector.
+  // Cascading option lists for the hierarchy (inst → degree → dept → prog).
   const [degrees, setDegrees] = useState<Option[]>([]);
   const [departments, setDepartments] = useState<Option[]>([]);
   const [programmes, setProgrammes] = useState<Option[]>([]);
-  const [admissionYears, setAdmissionYears] = useState<Option[]>([]);
-  const [accommodations, setAccommodations] = useState<Option[]>([]);
   const [quotas, setQuotas] = useState<Option[]>([]);
   const [communities, setCommunities] = useState<Option[]>([]);
 
-  // Global lookups — quotas + communities — load once.
+  // Raw data for independent filters — loaded once on mount, resolved to
+  // ID arrays at query time so they work across institutions/programmes.
+  const [allAccommodationTypes, setAllAccommodationTypes] = useState<
+    Array<{ id: string; name: string; institution_id: string }>
+  >([]);
+  const [allAdmissionYears, setAllAdmissionYears] = useState<
+    Array<{ id: string; name: string }>
+  >([]);
+
+  // Global lookups — quotas, communities, accommodation types, admission
+  // years — load once. RLS scopes accommodation types and admission years
+  // to the caller's accessible institutions automatically.
   useEffect(() => {
     LookupService.listQuotas(true)
       .then((rows) => setQuotas(rows.map((r) => ({ id: r.id, name: r.name }))))
@@ -121,13 +130,51 @@ export function FeeStructuresListView() {
     LookupService.listCommunityCategories(true)
       .then((rows) => setCommunities(rows.map((r) => ({ id: r.id, name: r.name }))))
       .catch(() => setCommunities([]));
+    LookupService.listAllActiveAccommodationTypes()
+      .then((rows) =>
+        setAllAccommodationTypes(
+          rows.map((r) => ({ id: r.id, name: r.name, institution_id: r.institution_id })),
+        ),
+      )
+      .catch(() => setAllAccommodationTypes([]));
+    AdmissionYearService.listAllActiveYearNames()
+      .then((rows) =>
+        setAllAdmissionYears(
+          rows.map((r) => ({ id: r.id, name: r.admission_year_name })),
+        ),
+      )
+      .catch(() => setAllAdmissionYears([]));
   }, []);
 
-  // Institution change → load degrees + accommodations; reset descendants.
+  // Accommodation dropdown — deduplicated by name, scoped to institution
+  // when one is selected to keep the list tight.
+  const accommodationOptions = useMemo(() => {
+    const filtered =
+      institutionFilter !== ALL
+        ? allAccommodationTypes.filter((t) => t.institution_id === institutionFilter)
+        : allAccommodationTypes;
+    const seen = new Set<string>();
+    return filtered.filter((t) => {
+      if (seen.has(t.name)) return false;
+      seen.add(t.name);
+      return true;
+    });
+  }, [allAccommodationTypes, institutionFilter]);
+
+  // Admission year dropdown — deduplicated by name across all programmes.
+  const admissionYearOptions = useMemo(() => {
+    const seen = new Set<string>();
+    return allAdmissionYears.filter((y) => {
+      if (seen.has(y.name)) return false;
+      seen.add(y.name);
+      return true;
+    });
+  }, [allAdmissionYears]);
+
+  // Institution change → load degrees; reset hierarchy descendants only.
   useEffect(() => {
     if (institutionFilter === ALL) {
       setDegrees([]);
-      setAccommodations([]);
       return;
     }
     DegreeService.getDegreesByInstitution(institutionFilter)
@@ -135,9 +182,6 @@ export function FeeStructuresListView() {
         setDegrees(rows.map((d) => ({ id: d.id, name: d.degree_name }))),
       )
       .catch(() => setDegrees([]));
-    LookupService.listAccommodationTypes(institutionFilter, true)
-      .then((rows) => setAccommodations(rows.map((r) => ({ id: r.id, name: r.name }))))
-      .catch(() => setAccommodations([]));
   }, [institutionFilter]);
 
   // Degree change → load departments.
@@ -165,19 +209,6 @@ export function FeeStructuresListView() {
       )
       .catch(() => setProgrammes([]));
   }, [departmentFilter]);
-
-  // Programme change → load admission years (scoped to that programme).
-  useEffect(() => {
-    if (programmeFilter === ALL) {
-      setAdmissionYears([]);
-      return;
-    }
-    AdmissionYearService.getAdmissionYearsByProgram(programmeFilter)
-      .then((rows) =>
-        setAdmissionYears(rows.map((y) => ({ id: y.id, name: y.admission_year_name }))),
-      )
-      .catch(() => setAdmissionYears([]));
-  }, [programmeFilter]);
 
   // Bulk-selection state, lifted out of the toolbar so the bulk-action bar
   // can render as a FULL-WIDTH banner above the DataTable instead of
@@ -208,16 +239,13 @@ export function FeeStructuresListView() {
 
   const bumpRefetch = useCallback(() => setRefetchKey((k) => k + 1), []);
 
-  // Cascading setters — picking a parent collapses every descendant back to
-  // ALL. Matches the cascade in fees-structure-dimension-selector so users
-  // get the same mental model when filtering as when authoring.
+  // Hierarchy cascade: institution → degree → department → programme.
+  // Accommodation and admission year are independent — NOT reset here.
   const handleInstitutionChange = (v: string) => {
     setInstitutionFilter(v);
     setDegreeFilter(ALL);
     setDepartmentFilter(ALL);
     setProgrammeFilter(ALL);
-    setAdmissionYearFilter(ALL);
-    setAccommodationFilter(ALL);
     bumpRefetch();
   };
 
@@ -225,20 +253,17 @@ export function FeeStructuresListView() {
     setDegreeFilter(v);
     setDepartmentFilter(ALL);
     setProgrammeFilter(ALL);
-    setAdmissionYearFilter(ALL);
     bumpRefetch();
   };
 
   const handleDepartmentChange = (v: string) => {
     setDepartmentFilter(v);
     setProgrammeFilter(ALL);
-    setAdmissionYearFilter(ALL);
     bumpRefetch();
   };
 
   const handleProgrammeChange = (v: string) => {
     setProgrammeFilter(v);
-    setAdmissionYearFilter(ALL);
     bumpRefetch();
   };
 
@@ -331,6 +356,28 @@ export function FeeStructuresListView() {
     sort_order: string;
   }) => {
     try {
+      // Resolve name-based filters to ID arrays for cross-institution matching.
+      const resolvedAccommodationIds =
+        accommodationFilter === ALL
+          ? undefined
+          : (institutionFilter !== ALL
+              ? allAccommodationTypes.filter(
+                  (t) =>
+                    t.name === accommodationFilter &&
+                    t.institution_id === institutionFilter,
+                )
+              : allAccommodationTypes.filter(
+                  (t) => t.name === accommodationFilter,
+                )
+            ).map((t) => t.id);
+
+      const resolvedAdmissionYearIds =
+        admissionYearFilter === ALL
+          ? undefined
+          : allAdmissionYears
+              .filter((y) => y.name === admissionYearFilter)
+              .map((y) => y.id);
+
       const { data, metadata } = await FeeStructureService.listAllPaginated({
         page: params.page,
         limit: params.limit,
@@ -341,13 +388,11 @@ export function FeeStructuresListView() {
         degree_id: degreeFilter === ALL ? undefined : degreeFilter,
         department_id: departmentFilter === ALL ? undefined : departmentFilter,
         programme_id: programmeFilter === ALL ? undefined : programmeFilter,
-        admission_year_id:
-          admissionYearFilter === ALL ? undefined : admissionYearFilter,
+        admission_year_ids: resolvedAdmissionYearIds,
         quota_id: quotaFilter === ALL ? undefined : quotaFilter,
         community_category_id:
           communityFilter === ALL ? undefined : communityFilter,
-        accommodation_type_id:
-          accommodationFilter === ALL ? undefined : accommodationFilter,
+        accommodation_type_ids: resolvedAccommodationIds,
         status:
           statusFilter === ALL
             ? undefined
@@ -503,7 +548,7 @@ export function FeeStructuresListView() {
                 Advanced filters
               </span>
               <span className="text-[11px] text-muted-foreground">
-                Pick parents first — descendants enable as you go.
+                Degree/Department/Programme cascade from Institution. Other filters work independently.
               </span>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
@@ -591,27 +636,20 @@ export function FeeStructuresListView() {
                 </Select>
               </div>
 
-              {/* Admission Year (needs programme) */}
+              {/* Admission Year (independent — works across programmes) */}
               <div className="space-y-1">
                 <Label className="text-xs">Admission Year</Label>
                 <Select
                   value={admissionYearFilter}
                   onValueChange={handleSimpleChange(setAdmissionYearFilter)}
-                  disabled={programmeFilter === ALL}
                 >
                   <SelectTrigger className="w-full h-8 text-xs">
-                    <SelectValue
-                      placeholder={
-                        programmeFilter === ALL
-                          ? 'Pick programme first'
-                          : 'All admission years'
-                      }
-                    />
+                    <SelectValue placeholder="All admission years" />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value={ALL}>All admission years</SelectItem>
-                    {admissionYears.map((y) => (
-                      <SelectItem key={y.id} value={y.id}>
+                    {admissionYearOptions.map((y) => (
+                      <SelectItem key={y.name} value={y.name}>
                         {y.name}
                       </SelectItem>
                     ))}
@@ -662,27 +700,20 @@ export function FeeStructuresListView() {
                 </Select>
               </div>
 
-              {/* Accommodation (institution-scoped) */}
+              {/* Accommodation (independent — works across institutions) */}
               <div className="space-y-1">
                 <Label className="text-xs">Accommodation</Label>
                 <Select
                   value={accommodationFilter}
                   onValueChange={handleSimpleChange(setAccommodationFilter)}
-                  disabled={institutionFilter === ALL}
                 >
                   <SelectTrigger className="w-full h-8 text-xs">
-                    <SelectValue
-                      placeholder={
-                        institutionFilter === ALL
-                          ? 'Pick institution first'
-                          : 'All accommodations'
-                      }
-                    />
+                    <SelectValue placeholder="All accommodations" />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value={ALL}>All accommodations</SelectItem>
-                    {accommodations.map((a) => (
-                      <SelectItem key={a.id} value={a.id}>
+                    {accommodationOptions.map((a) => (
+                      <SelectItem key={a.name} value={a.name}>
                         {a.name}
                       </SelectItem>
                     ))}

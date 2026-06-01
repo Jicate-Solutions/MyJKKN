@@ -68,7 +68,10 @@ export function StatusFormDialog({ scope, initial, open, onOpenChange }: Props) 
       >
         <DialogHeader className="px-6 pt-6 pb-4 border-b">
           <DialogTitle>
-            {isEdit ? 'Edit Status' : 'Add Status'} — {scope === 'lead' ? 'Lead' : 'Learner'}
+            {scope === 'lead'
+              ? (isEdit ? 'Edit Stage' : 'Add Stage')
+              : (isEdit ? 'Edit Status' : 'Add Status')
+            } — {scope === 'lead' ? 'Lead' : 'Learner'}
           </DialogTitle>
         </DialogHeader>
 

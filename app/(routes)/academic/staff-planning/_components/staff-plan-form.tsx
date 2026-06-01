@@ -50,6 +50,7 @@ import { BeatLoader } from 'react-spinners';
 
 import { StaffSearchSelector } from './staff-search-selector';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 
 const staffPlanSchema = z.object({
   institution_id: z.string().min(1, 'Institution is required'),
@@ -94,6 +95,7 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
   const [loading, setLoading] = useState(isEditing);
   const [staffPlan, setStaffPlan] = useState<StaffPlan | null>(null);
   const { userProfile, isSuperAdmin } = usePermissions();
+  const adapt = useAdaptiveLabels();
 
   // Track if initial data load has completed to prevent re-initialization
   // when userProfile reference changes (e.g., tab switch triggers re-fetch)
@@ -705,7 +707,7 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
                 name='degree_id'
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Degree</FormLabel>
+                    <FormLabel>{adapt('Degree')}</FormLabel>
                     <Select
                       value={field.value}
                       onValueChange={(value) => {
@@ -718,13 +720,13 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
                     >
                       <FormControl>
                         <SelectTrigger>
-                          <SelectValue placeholder='Select degree' />
+                          <SelectValue placeholder={`Select ${adapt('degree')}`} />
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent className='max-h-60 overflow-y-auto'>
                         {degrees.length === 0 ? (
                           <div className='p-2 text-center text-sm text-muted-foreground'>
-                            No degrees available
+                            No {adapt('degrees')} available
                           </div>
                         ) : (
                           degrees.map((degree) => (
@@ -745,7 +747,7 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
                 name='department_id'
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Department</FormLabel>
+                    <FormLabel>{adapt('Department')}</FormLabel>
                     <Select
                       value={field.value}
                       onValueChange={(value) => {
@@ -757,13 +759,13 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
                     >
                       <FormControl>
                         <SelectTrigger>
-                          <SelectValue placeholder='Select department' />
+                          <SelectValue placeholder={`Select ${adapt('department')}`} />
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent className='max-h-60 overflow-y-auto'>
                         {departments.length === 0 ? (
                           <div className='p-2 text-center text-sm text-muted-foreground'>
-                            No departments available
+                            No {adapt('departments')} available
                           </div>
                         ) : (
                           departments.map((dept) => (
@@ -784,7 +786,7 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
                 name='program_id'
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Program</FormLabel>
+                    <FormLabel>{adapt('Program')}</FormLabel>
                     <Select
                       value={field.value}
                       onValueChange={(value) => {
@@ -795,13 +797,13 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
                     >
                       <FormControl>
                         <SelectTrigger>
-                          <SelectValue placeholder='Select program' />
+                          <SelectValue placeholder={`Select ${adapt('program')}`} />
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent className='max-h-60 overflow-y-auto'>
                         {programs.length === 0 ? (
                           <div className='p-2 text-center text-sm text-muted-foreground'>
-                            No programs available
+                            No {adapt('programs')} available
                           </div>
                         ) : (
                           programs.map((program) => (
@@ -822,7 +824,7 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
                 name='semester_id'
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Semester</FormLabel>
+                    <FormLabel>{adapt('Semester')}</FormLabel>
                     <Select
                       value={field.value}
                       onValueChange={field.onChange}
@@ -830,13 +832,13 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
                     >
                       <FormControl>
                         <SelectTrigger>
-                          <SelectValue placeholder='Select semester' />
+                          <SelectValue placeholder={`Select ${adapt('semester')}`} />
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent className='max-h-60 overflow-y-auto'>
                         {semesters.length === 0 ? (
                           <div className='p-2 text-center text-sm text-muted-foreground'>
-                            No semesters available
+                            No {adapt('semesters')} available
                           </div>
                         ) : (
                           semesters.map((semester) => (

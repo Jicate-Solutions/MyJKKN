@@ -50,7 +50,7 @@ export default function BillingSchedulePage() {
     due_date_to: search.dueDateRange?.to?.toISOString().slice(0, 10)
   };
 
-  // Handle filter changes by updating URL
+  // Handle a single filter change by updating URL
   const handleFilterChange = useCallback(
     (key: string, value: string | undefined) => {
       const params = new URLSearchParams(searchParams);
@@ -61,9 +61,26 @@ export default function BillingSchedulePage() {
         params.delete(key);
       }
 
-      // Reset page to 1 when filters change
       params.set('page', '1');
+      router.push(`/billing/schedule?${params.toString()}`);
+    },
+    [router, searchParams]
+  );
 
+  // Handle multiple filter changes in a single URL push to avoid race conditions
+  const handleBatchFilterChange = useCallback(
+    (changes: Record<string, string | undefined>) => {
+      const params = new URLSearchParams(searchParams);
+
+      for (const [key, value] of Object.entries(changes)) {
+        if (value) {
+          params.set(key, value);
+        } else {
+          params.delete(key);
+        }
+      }
+
+      params.set('page', '1');
       router.push(`/billing/schedule?${params.toString()}`);
     },
     [router, searchParams]
@@ -72,7 +89,6 @@ export default function BillingSchedulePage() {
   // Handle clearing all filters
   const handleClearFilters = useCallback(() => {
     const params = new URLSearchParams();
-    // Keep only page and pageSize
     params.set('page', '1');
     if (searchParams.get('pageSize')) {
       params.set('pageSize', searchParams.get('pageSize')!);
@@ -154,12 +170,14 @@ export default function BillingSchedulePage() {
                   <AdvancedBillingScheduleFilters
                     searchParams={search}
                     onFilterChange={handleFilterChange}
+                    onBatchFilterChange={handleBatchFilterChange}
                     onClearFilters={handleClearFilters}
                   />
                 ) : (
                   <BillingScheduleFilters
                     searchParams={search}
                     onFilterChange={handleFilterChange}
+                    onBatchFilterChange={handleBatchFilterChange}
                     onClearFilters={handleClearFilters}
                   />
                 )}

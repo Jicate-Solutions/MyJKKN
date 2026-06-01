@@ -79,14 +79,16 @@ function exportPivotToXlsx(
   }
 
   const aoa: (string | number)[][] = [];
-  const header = ['S NO', 'COURSE NAME', 'INTAKE', 'TOTAL', 'BALANCE', '%', ...dates];
+  // RESERVED is a point-in-time status count (not a daily flow), so it is never
+  // affected by the date-range filter — only ADMITTED/BALANCE/% recompute.
+  const header = ['S NO', 'COURSE NAME', 'INTAKE', 'RESERVED', 'ADMITTED', 'BALANCE', '%', ...dates];
   aoa.push(header);
 
   let serial = 0;
   for (const groupLabel of groupOrder) {
     aoa.push([groupLabel, ...new Array(header.length - 1).fill('')]);
     const groupRows = groups.get(groupLabel)!;
-    let gIntake = 0, gFilled = 0;
+    let gIntake = 0, gFilled = 0, gReserved = 0;
     const gDaily: Record<string, number> = {};
 
     for (const r of groupRows) {
@@ -105,6 +107,7 @@ function exportPivotToXlsx(
       const pct = r.intake === 0 ? 0 : Math.round((filled / r.intake) * 10000) / 100;
       gIntake += r.intake;
       gFilled += filled;
+      gReserved += r.reserved;
       for (const [d, c] of Object.entries(r.daily_counts)) {
         if (dateFrom && d < dateFrom) continue;
         if (dateTo && d > dateTo) continue;
@@ -115,6 +118,7 @@ function exportPivotToXlsx(
         serial,
         r.course_short,
         r.intake,
+        r.reserved,
         filled,
         balance,
         `${pct}%`,
@@ -127,6 +131,7 @@ function exportPivotToXlsx(
       '',
       'TOTAL',
       gIntake,
+      gReserved,
       gFilled,
       Math.max(gIntake - gFilled, 0),
       gIntake > 0 ? `${Math.round((gFilled / gIntake) * 10000) / 100}%` : '0%',
@@ -134,8 +139,9 @@ function exportPivotToXlsx(
     ]);
   }
 
-  // Grand total — also filtered.
+  // Grand total — ADMITTED/daily filtered by date range; RESERVED is not.
   const grandIntake = rows.reduce((s, r) => s + r.intake, 0);
+  const grandReserved = rows.reduce((s, r) => s + r.reserved, 0);
   let grandFilled = 0;
   const grandDaily: Record<string, number> = {};
   for (const r of rows) {
@@ -150,6 +156,7 @@ function exportPivotToXlsx(
     '',
     'GRAND TOTAL',
     grandIntake,
+    grandReserved,
     grandFilled,
     Math.max(grandIntake - grandFilled, 0),
     grandIntake > 0 ? `${Math.round((grandFilled / grandIntake) * 10000) / 100}%` : '0%',
@@ -164,10 +171,13 @@ function exportPivotToXlsx(
 }
 
 /** Inner Seat Analytics cards paired with their drill-down policy metric.
- *  Mirrors spec §3.1 (Seat Analytics tab block). */
+ *  Mirrors spec §3.1 (Seat Analytics tab block).
+ *  2026-05-28: "Filled" relabelled "Admitted" (= admitted-or-beyond) and a
+ *  "Reserved" card added (tentative holds; does not reduce Balance). */
 const SEAT_INNER_CARDS = [
   { label: 'Total Seats', metric: 'total_seats' as DrilldownMetric },
-  { label: 'Filled', metric: 'filled' as DrilldownMetric },
+  { label: 'Reserved', metric: 'reserved' as DrilldownMetric },
+  { label: 'Admitted', metric: 'filled' as DrilldownMetric },
   { label: 'Balance', metric: 'seat_balance' as DrilldownMetric },
   { label: 'Fill Rate', metric: 'fill_rate' as DrilldownMetric },
 ] as const;
@@ -199,6 +209,7 @@ export function SeatAnalyticsDashboard({ institutionIds, programStartYear }: Sea
   // (typically <100ms; cached on subsequent loads).
   const [destinations, setDestinations] = useState<Record<string, string | null>>({
     total_seats: null,
+    reserved: null,
     filled: null,
     seat_balance: null,
     fill_rate: null,
@@ -260,6 +271,7 @@ export function SeatAnalyticsDashboard({ institutionIds, programStartYear }: Sea
 
   const totalSeats = rows.reduce((s, r) => s + r.total_seats, 0);
   const totalFilled = rows.reduce((s, r) => s + Number(r.filled_seats), 0);
+  const totalReserved = rows.reduce((s, r) => s + Number(r.reserved_seats), 0);
   const totalBalance = rows.reduce((s, r) => s + r.balance_seats, 0);
   const overallPct = totalSeats > 0 ? Math.round((totalFilled / totalSeats) * 100) : 0;
   const chartData = aggregateByInstitution(rows);
@@ -283,11 +295,13 @@ export function SeatAnalyticsDashboard({ institutionIds, programStartYear }: Sea
 
         {/* Summary — existing dashboard */}
         <TabsContent value="summary" className="space-y-4">
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
             {SEAT_INNER_CARDS.map((c) => {
               const value =
                 c.metric === 'total_seats'
                   ? totalSeats.toLocaleString()
+                  : c.metric === 'reserved'
+                  ? totalReserved.toLocaleString()
                   : c.metric === 'filled'
                   ? totalFilled.toLocaleString()
                   : c.metric === 'seat_balance'

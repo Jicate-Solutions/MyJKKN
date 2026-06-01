@@ -52,6 +52,7 @@ import { useDepartments } from '@/hooks/organization/use-departments';
 import { useSemesters } from '@/hooks/organization/use-semesters';
 import { useSections } from '@/hooks/organization/use-sections';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 import Loading from '@/components/Loading/Loading';
 import { Checkbox } from '@/components/ui/checkbox';
 import { cn } from '@/lib/utils';
@@ -152,6 +153,7 @@ export default function NewTimetablePage() {
   const { createTimetable } = useTimetables();
   const { isSuperAdmin, userProfile } = usePermissions();
   const createFromTemplate = useCreateFromTemplate();
+  const adapt = useAdaptiveLabels();
 
   // Initialize the form first to use its state in hooks
   const form = useForm<TimetableFormValues>({
@@ -196,11 +198,16 @@ export default function NewTimetablePage() {
     fetchAcademicYears
   } = useAcademicYears();
 
+  // entityType: 'all' — show every entity the user has access to (institutions
+  // AND schools). The underlying access filter still scopes the list to the
+  // user's own accessible institutions, so an HOD only sees their own.
+  // Without this, the hook defaults to entity_type='institution' and silently
+  // excludes school users (entity_type='school') → empty dropdown.
   const {
     institutions,
     loading: loadingInstitutions,
     refetch: fetchInstitutions
-  } = useInstitutionsWithAccess({});
+  } = useInstitutionsWithAccess({ entityType: 'all' });
 
   const degreesQuery = useDegrees({
     institution_id: watchInstitutionId,
@@ -775,7 +782,7 @@ export default function NewTimetablePage() {
                     name='degree_id'
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Degree</FormLabel>
+                        <FormLabel>{adapt('Degree')}</FormLabel>
                         <Select
                           onValueChange={field.onChange}
                           value={field.value}
@@ -787,7 +794,7 @@ export default function NewTimetablePage() {
                         >
                           <FormControl>
                             <SelectTrigger>
-                              <SelectValue placeholder='Select degree' />
+                              <SelectValue placeholder={`Select ${adapt('degree')}`} />
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent className='max-h-60 overflow-y-auto'>
@@ -798,7 +805,7 @@ export default function NewTimetablePage() {
                             ))}
                           </SelectContent>
                         </Select>
-                        <FormDescription>The degree program</FormDescription>
+                        <FormDescription>The {adapt('degree')} program</FormDescription>
                         <FormMessage />
                       </FormItem>
                     )}
@@ -809,7 +816,7 @@ export default function NewTimetablePage() {
                     name='department_id'
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Department</FormLabel>
+                        <FormLabel>{adapt('Department')}</FormLabel>
                         <Select
                           onValueChange={field.onChange}
                           value={field.value}
@@ -821,7 +828,7 @@ export default function NewTimetablePage() {
                         >
                           <FormControl>
                             <SelectTrigger>
-                              <SelectValue placeholder='Select department' />
+                              <SelectValue placeholder={`Select ${adapt('department')}`} />
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent className='max-h-60 overflow-y-auto'>
@@ -836,7 +843,7 @@ export default function NewTimetablePage() {
                           </SelectContent>
                         </Select>
                         <FormDescription>
-                          The department this timetable is for
+                          The {adapt('department')} this timetable is for
                         </FormDescription>
                         <FormMessage />
                       </FormItem>
@@ -848,7 +855,7 @@ export default function NewTimetablePage() {
                     name='program_id'
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Program</FormLabel>
+                        <FormLabel>{adapt('Program')}</FormLabel>
                         <Select
                           onValueChange={field.onChange}
                           value={field.value}
@@ -860,7 +867,7 @@ export default function NewTimetablePage() {
                         >
                           <FormControl>
                             <SelectTrigger>
-                              <SelectValue placeholder='Select program' />
+                              <SelectValue placeholder={`Select ${adapt('program')}`} />
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent className='max-h-60 overflow-y-auto'>
@@ -871,7 +878,7 @@ export default function NewTimetablePage() {
                             ))}
                           </SelectContent>
                         </Select>
-                        <FormDescription>The specific program</FormDescription>
+                        <FormDescription>The specific {adapt('program')}</FormDescription>
                         <FormMessage />
                       </FormItem>
                     )}
@@ -882,7 +889,7 @@ export default function NewTimetablePage() {
                     name='semester_id'
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Semester</FormLabel>
+                        <FormLabel>{adapt('Semester')}</FormLabel>
                         <Select
                           onValueChange={field.onChange}
                           value={field.value}
@@ -894,7 +901,7 @@ export default function NewTimetablePage() {
                         >
                           <FormControl>
                             <SelectTrigger>
-                              <SelectValue placeholder='Select semester' />
+                              <SelectValue placeholder={`Select ${adapt('semester')}`} />
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent className='max-h-60 overflow-y-auto'>
@@ -909,13 +916,13 @@ export default function NewTimetablePage() {
                               ))
                             ) : (
                               <div className='py-2 px-3 text-sm text-muted-foreground'>
-                                No semesters available
+                                No {adapt('semesters')} available
                               </div>
                             )}
                           </SelectContent>
                         </Select>
                         <FormDescription>
-                          The semester for this timetable
+                          The {adapt('semester')} for this timetable
                         </FormDescription>
                         <FormMessage />
                       </FormItem>

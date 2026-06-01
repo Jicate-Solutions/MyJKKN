@@ -21,6 +21,19 @@ const config: ModuleNavConfig = {
       matchPaths: ['/campus-living/dashboard'],
     },
     {
+      label: 'My Hostel',
+      icon: 'Home',
+      href: '/campus-living/my-hostel',
+      matchPaths: ['/campus-living/my-hostel', '/campus-living/my-hostel/premium'],
+      children: [
+        { label: 'My Hostel', icon: 'Home', href: '/campus-living/my-hostel', matchPaths: ['/campus-living/my-hostel'] },
+        { label: 'Request Room', icon: 'BedDouble', href: '/campus-living/my-hostel/request-room', matchPaths: ['/campus-living/my-hostel/request-room'] },
+        { label: 'Premium Stay', icon: 'Sparkles', href: '/campus-living/my-hostel/premium', matchPaths: ['/campus-living/my-hostel/premium'] },
+        { label: 'Pick Room', icon: 'BedDouble', href: '/campus-living/my-hostel/premium/pick-room', matchPaths: ['/campus-living/my-hostel/premium/pick-room'] },
+        { label: 'Invite Roommate', icon: 'UserPlus', href: '/campus-living/my-hostel/premium/invite-roommate', matchPaths: ['/campus-living/my-hostel/premium/invite-roommate'] },
+      ],
+    },
+    {
       label: 'Residents',
       icon: 'UsersRound',
       href: '/campus-living/residents',
@@ -29,8 +42,6 @@ const config: ModuleNavConfig = {
         '/campus-living/blocks',
         '/campus-living/wardens',
         '/campus-living/allocations',
-        '/campus-living/my-hostel',
-        '/campus-living/my-hostel/premium',
         '/campus-living/vacate-requests',
       ],
       children: [
@@ -57,6 +68,24 @@ const config: ModuleNavConfig = {
           icon: 'Bed',
           href: '/campus-living/allocations',
           matchPaths: ['/campus-living/allocations'],
+        },
+        {
+          label: 'Auto-Allocate',
+          icon: 'Wand2',
+          href: '/campus-living/allocations/auto',
+          matchPaths: ['/campus-living/allocations/auto'],
+        },
+        {
+          label: 'Allocation Batches',
+          icon: 'ClipboardCheck',
+          href: '/campus-living/allocations/batches',
+          matchPaths: ['/campus-living/allocations/batches'],
+        },
+        {
+          label: 'Pending Approvals',
+          icon: 'ClipboardList',
+          href: '/campus-living/allocations/pending',
+          matchPaths: ['/campus-living/allocations/pending'],
         },
         {
           label: 'Waitlist',
@@ -86,34 +115,6 @@ const config: ModuleNavConfig = {
           icon: 'LogOut',
           href: '/campus-living/vacate-requests',
           matchPaths: ['/campus-living/vacate-requests'],
-        },
-        {
-          label: 'My Hostel',
-          icon: 'Home',
-          href: '/campus-living/my-hostel',
-          matchPaths: ['/campus-living/my-hostel'],
-        },
-        // ── Premium Stay (learner-facing, PR #1001) ──────────────────
-        // Previously reachable only via "Upgrade to Premium" button on
-        // /my-hostel. Surfacing as chips so eligible learners can
-        // navigate without a forced detour through the hub page.
-        {
-          label: 'Premium Stay',
-          icon: 'Sparkles',
-          href: '/campus-living/my-hostel/premium',
-          matchPaths: ['/campus-living/my-hostel/premium'],
-        },
-        {
-          label: 'Pick Room',
-          icon: 'BedDouble',
-          href: '/campus-living/my-hostel/premium/pick-room',
-          matchPaths: ['/campus-living/my-hostel/premium/pick-room'],
-        },
-        {
-          label: 'Invite Roommate',
-          icon: 'UserPlus',
-          href: '/campus-living/my-hostel/premium/invite-roommate',
-          matchPaths: ['/campus-living/my-hostel/premium/invite-roommate'],
         },
       ],
     },
@@ -199,6 +200,12 @@ const config: ModuleNavConfig = {
           icon: 'UtensilsCrossed',
           href: '/campus-living/mess',
           matchPaths: ['/campus-living/mess'],
+        },
+        {
+          label: 'Mess Categories',
+          icon: 'Tags',
+          href: '/campus-living/mess/categories',
+          matchPaths: ['/campus-living/mess/categories'],
         },
         {
           label: 'Menu',
@@ -531,6 +538,48 @@ const config: ModuleNavConfig = {
           icon: 'Sliders',
           href: '/campus-living/settings/general',
           matchPaths: ['/campus-living/settings/general'],
+        },
+        {
+          label: 'Hostel Rooms Categories',
+          icon: 'LayoutGrid',
+          href: '/campus-living/settings/categories',
+          matchPaths: ['/campus-living/settings/categories'],
+        },
+        {
+          label: 'Program Eligibility',
+          icon: 'ListChecks',
+          href: '/campus-living/settings/program-eligibility',
+          matchPaths: ['/campus-living/settings/program-eligibility'],
+        },
+        {
+          label: 'Amenities',
+          icon: 'Wifi',
+          href: '/campus-living/settings/amenities',
+          matchPaths: ['/campus-living/settings/amenities'],
+        },
+        {
+          label: 'Billable Amenities',
+          icon: 'Wind',
+          href: '/campus-living/settings/billable-amenities',
+          matchPaths: ['/campus-living/settings/billable-amenities'],
+        },
+        {
+          label: 'AC / Category Audit',
+          icon: 'ClipboardCheck',
+          href: '/campus-living/settings/ac-amenity-audit',
+          matchPaths: ['/campus-living/settings/ac-amenity-audit'],
+        },
+        {
+          label: 'Hostel Years',
+          icon: 'CalendarRange',
+          href: '/campus-living/settings/hostel-years',
+          matchPaths: ['/campus-living/settings/hostel-years'],
+        },
+        {
+          label: 'Admission Packages',
+          icon: 'Package',
+          href: '/campus-living/settings/packages',
+          matchPaths: ['/campus-living/settings/packages'],
         },
         {
           label: 'Fee Config',

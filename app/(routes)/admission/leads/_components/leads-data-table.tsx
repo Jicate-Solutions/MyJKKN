@@ -276,7 +276,11 @@ export function LeadsDataTable() {
       const currentStaleMinDays = staleMinDaysRef.current;
 
       const result = await LeadService.getLeads({
-        institution_id: institutionId || '',
+        // institutionId is undefined in All-Institutions / global-user mode.
+        // `|| ''` coerced it to '' which flows into UUID-typed RPC params and
+        // throws 22P02 invalid input syntax for type uuid "" (BUG-003967/003959).
+        // undefined is the correct "all institutions" signal — getLeads drops it.
+        institution_id: institutionId || undefined,
         page: params.page,
         limit: params.limit,
         search: params.search || undefined,
@@ -750,8 +754,12 @@ export function LeadsDataTable() {
   // Memoize getColumns to avoid creating a new function reference on every render.
   // The DataTable's internal useMemo depends on getColumns identity.
   const stableGetColumns = useCallback(
-    () => getLeadColumns(attributionsMap) as any,
-    [attributionsMap]
+    () =>
+      getLeadColumns(attributionsMap, {
+        id: profile?.id ?? null,
+        counselorId: myCounselorId,
+      }) as any,
+    [attributionsMap, profile?.id, myCounselorId]
   );
 
   return (

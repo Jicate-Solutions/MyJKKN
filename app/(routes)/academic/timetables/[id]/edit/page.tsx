@@ -161,11 +161,14 @@ export default function EditTimetablePage() {
     fetchAcademicYears
   } = useAcademicYearsByInstitution();
 
+  // entityType: 'all' — include schools (entity_type='school'), not just
+  // entity_type='institution'. The access filter still scopes to the user's
+  // own institutions. Without this, school users get an empty dropdown.
   const {
     institutions,
     loading: loadingInstitutions,
     refetch: fetchInstitutions
-  } = useInstitutionsWithAccess({});
+  } = useInstitutionsWithAccess({ entityType: 'all' });
 
   const degreesQuery = useDegrees({
     bypassInstitutionFilter: isSuperAdmin,

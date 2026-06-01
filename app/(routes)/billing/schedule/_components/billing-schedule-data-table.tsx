@@ -6,17 +6,20 @@ import { DataTable } from '@/components/data-table/data-table';
 import { columns } from './columns';
 import type { BillingScheduleSearchParams } from './data-table-schema';
 import { Button } from '@/components/ui/button';
-import { Plus, TrashIcon, Users, FileText, Search } from 'lucide-react';
+import { Plus, TrashIcon, Users, Ban, FileText, Search } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { StudentBillService } from '@/lib/services/billing/schedule/student-bill-service';
 import { StudentBill } from '@/types/billing-schedule';
 import { usePermissions } from '@/hooks/use-permissions';
 import { Skeleton } from '@/components/ui/skeleton';
 import { DeleteConfirmationModal } from '@/components/billing/delete-confirmation-modal';
+import { CancelConfirmationModal } from '@/components/billing/cancel-confirmation-modal';
 
 interface BillingScheduleDataTableProps {
   search: BillingScheduleSearchParams;
 }
+
+const CANCELLABLE_STATUSES = ['unpaid', 'partially_paid', 'overdue'];
 
 export function BillingScheduleDataTable({
   search
@@ -29,14 +32,12 @@ export function BillingScheduleDataTable({
     isLoading: permissionsLoading
   } = usePermissions();
 
-  // Wait for permissions and profile to be loaded before rendering the table
   const isReady = !permissionsLoading && !!userProfile;
 
-  // Permission checks
   const canCreateBills =
     isSuperAdmin || canAccess('billing.schedule', 'create');
-  const canDeleteBills =
-    isSuperAdmin || canAccess('billing.schedule', 'delete');
+  const canCancelBills =
+    isSuperAdmin || canAccess('billing.schedule', 'update');
 
   const fetchData = React.useCallback(
     async (params: {
@@ -49,7 +50,6 @@ export function BillingScheduleDataTable({
       sort_order: string;
     }) => {
       try {
-        // Map the DataTable parameters to our StudentBillService parameters
         const filters = {
           page: params.page,
           limit: params.limit,
@@ -118,7 +118,7 @@ export function BillingScheduleDataTable({
     ]
   );
 
-  // State for deletion modal
+  // ── Delete modal state ───────────────────────────────────────────
   const [deleteModal, setDeleteModal] = React.useState<{
     isOpen: boolean;
     selectedBills: StudentBill[];
@@ -132,10 +132,8 @@ export function BillingScheduleDataTable({
   });
 
   const handleBulkDelete = React.useCallback(
-    async (selectedRows: StudentBill[], resetSelection: () => void) => {
+    (selectedRows: StudentBill[], resetSelection: () => void) => {
       if (selectedRows.length === 0) return;
-
-      // Open custom confirmation modal instead of window.confirm
       setDeleteModal({
         isOpen: true,
         selectedBills: selectedRows,
@@ -153,29 +151,26 @@ export function BillingScheduleDataTable({
     setDeleteModal((prev) => ({ ...prev, isLoading: true }));
 
     try {
-      // Show loading toast
       const loadingToast = toast.loading(
-        `Deleting ${selectedBills.length} bill${
-          selectedBills.length > 1 ? 's' : ''
-        }...`
+        `Deleting ${selectedBills.length} bill${selectedBills.length > 1 ? 's' : ''}...`
       );
 
-      // Delete all selected bills
-      await Promise.all(
-        selectedBills.map((bill: StudentBill) =>
-          StudentBillService.deleteStudentBill(bill.id)
-        )
+      const result = await StudentBillService.bulkDeleteStudentBills(
+        selectedBills.map((b) => b.id)
       );
 
-      // Success toast
-      toast.success(
-        `Successfully deleted ${selectedBills.length} bill${
-          selectedBills.length > 1 ? 's' : ''
-        }!`,
-        { id: loadingToast }
-      );
+      if (result.failed.length > 0) {
+        toast.error(
+          `Failed to delete ${result.failed.length} bill(s).`,
+          { id: loadingToast }
+        );
+      } else {
+        toast.success(
+          `Successfully deleted ${result.success.length} bill${result.success.length > 1 ? 's' : ''}!`,
+          { id: loadingToast }
+        );
+      }
 
-      // Reset selection and refresh data
       resetSelection?.();
       setDeleteModal({
         isOpen: false,
@@ -185,14 +180,9 @@ export function BillingScheduleDataTable({
       });
     } catch (error) {
       console.error('Error deleting bills:', error);
-
-      // Error toast
       toast.error(
-        `Failed to delete ${selectedBills.length} bill${
-          selectedBills.length > 1 ? 's' : ''
-        }. Please try again.`
+        `Failed to delete bills. Please try again.`
       );
-
       setDeleteModal((prev) => ({ ...prev, isLoading: false }));
     }
   }, [deleteModal]);
@@ -208,17 +198,119 @@ export function BillingScheduleDataTable({
     }
   }, [deleteModal.isLoading]);
 
+  // ── Cancel modal state ───────────────────────────────────────────
+  const [cancelModal, setCancelModal] = React.useState<{
+    isOpen: boolean;
+    selectedBills: StudentBill[];
+    resetSelection?: () => void;
+    isLoading: boolean;
+  }>({
+    isOpen: false,
+    selectedBills: [],
+    resetSelection: undefined,
+    isLoading: false
+  });
+
+  const handleBulkCancel = React.useCallback(
+    (selectedRows: StudentBill[], resetSelection: () => void) => {
+      if (selectedRows.length === 0) return;
+      setCancelModal({
+        isOpen: true,
+        selectedBills: selectedRows,
+        resetSelection,
+        isLoading: false
+      });
+    },
+    []
+  );
+
+  const handleConfirmCancel = React.useCallback(
+    async (reason?: string) => {
+      const { selectedBills, resetSelection } = cancelModal;
+      if (selectedBills.length === 0) return;
+
+      const cancellable = selectedBills.filter((b) =>
+        CANCELLABLE_STATUSES.includes(b.status)
+      );
+
+      if (cancellable.length === 0) {
+        toast.error('None of the selected bills can be cancelled.');
+        return;
+      }
+
+      setCancelModal((prev) => ({ ...prev, isLoading: true }));
+
+      try {
+        const loadingToast = toast.loading(
+          `Cancelling ${cancellable.length} bill${cancellable.length > 1 ? 's' : ''}...`
+        );
+
+        const result = await StudentBillService.bulkCancelStudentBills(
+          cancellable.map((b) => b.id),
+          reason
+        );
+
+        const skipped = selectedBills.length - cancellable.length;
+        const parts: string[] = [];
+        if (result.success.length > 0) {
+          parts.push(`${result.success.length} cancelled`);
+        }
+        if (result.failed.length > 0) {
+          parts.push(`${result.failed.length} failed`);
+        }
+        if (skipped > 0) {
+          parts.push(`${skipped} skipped (ineligible status)`);
+        }
+
+        if (result.failed.length > 0) {
+          toast.error(parts.join(', '), { id: loadingToast });
+        } else {
+          toast.success(parts.join(', '), { id: loadingToast });
+        }
+
+        resetSelection?.();
+        setCancelModal({
+          isOpen: false,
+          selectedBills: [],
+          resetSelection: undefined,
+          isLoading: false
+        });
+      } catch (error) {
+        console.error('Error cancelling bills:', error);
+        toast.error('Failed to cancel bills. Please try again.');
+        setCancelModal((prev) => ({ ...prev, isLoading: false }));
+      }
+    },
+    [cancelModal]
+  );
+
+  const handleCloseCancelModal = React.useCallback(() => {
+    if (!cancelModal.isLoading) {
+      setCancelModal({
+        isOpen: false,
+        selectedBills: [],
+        resetSelection: undefined,
+        isLoading: false
+      });
+    }
+  }, [cancelModal.isLoading]);
+
+  // ── Toolbar ──────────────────────────────────────────────────────
   const renderCustomToolbar = React.useCallback(
     (props: {
       selectedRows: any[];
       allSelectedIds: (string | number)[];
       totalSelectedCount: number;
       resetSelection: () => void;
-    }) => (
-      <div className='flex items-center gap-2'>
-        {canCreateBills && (
-          <>
-           
+    }) => {
+      const selected = props.selectedRows as StudentBill[];
+      const cancellableCount = selected.filter((b) =>
+        CANCELLABLE_STATUSES.includes(b.status)
+      ).length;
+
+      return (
+        <div className='flex items-center gap-2'>
+          {canCreateBills && (
             <Button
               onClick={() => router.push('/billing/schedule/bulk-create')}
               variant='outline'
@@ -228,31 +320,46 @@ export function BillingScheduleDataTable({
               <Users className='mr-2 h-4 w-4' />
               Bulk Create
             </Button>
-          </>
-        )}
+          )}
 
-        {canDeleteBills && props.selectedRows.length > 0 && (
-          <Button
-            onClick={() =>
-              handleBulkDelete(
-                props.selectedRows as StudentBill[],
-                props.resetSelection
-              )
-            }
-            variant='destructive'
-            size='sm'
-            className='h-8'
-          >
-            <TrashIcon className='mr-2 h-4 w-4' />
-            Delete Selected ({props.selectedRows.length})
-          </Button>
-        )}
-      </div>
-    ),
-    [canCreateBills, canDeleteBills, router, handleBulkDelete]
+          {canCancelBills && selected.length > 0 && (
+            <Button
+              onClick={() =>
+                handleBulkCancel(selected, props.resetSelection)
+              }
+              variant='outline'
+              size='sm'
+              className='h-8 border-amber-300 text-amber-700 hover:bg-amber-50 hover:text-amber-800'
+              title={
+                cancellableCount < selected.length
+                  ? `${selected.length - cancellableCount} bill(s) have ineligible status and will be skipped`
+                  : undefined
+              }
+            >
+              <Ban className='mr-2 h-4 w-4' />
+              Cancel Selected ({cancellableCount}/{selected.length})
+            </Button>
+          )}
+
+          {isSuperAdmin && selected.length > 0 && (
+            <Button
+              onClick={() =>
+                handleBulkDelete(selected, props.resetSelection)
+              }
+              variant='destructive'
+              size='sm'
+              className='h-8'
+            >
+              <TrashIcon className='mr-2 h-4 w-4' />
+              Delete Selected ({selected.length})
+            </Button>
+          )}
+        </div>
+      );
+    },
+    [canCreateBills, canCancelBills, isSuperAdmin, router, handleBulkDelete, handleBulkCancel]
   );
 
-  // Show loading state while waiting for permissions and profile
   if (!isReady) {
     return (
       <div className='space-y-4'>
@@ -325,7 +432,7 @@ export function BillingScheduleDataTable({
         renderToolbarContent={renderCustomToolbar}
       />
 
-      {/* Custom Delete Confirmation Modal */}
+      {/* Delete Confirmation Modal — super admin only */}
       <DeleteConfirmationModal
         isOpen={deleteModal.isOpen}
         onClose={handleCloseDeleteModal}
@@ -333,7 +440,7 @@ export function BillingScheduleDataTable({
         title={`Delete ${deleteModal.selectedBills.length} Bill${
           deleteModal.selectedBills.length > 1 ? 's' : ''
         }?`}
-        description={`You are about to delete ${
+        description={`You are about to permanently delete ${
           deleteModal.selectedBills.length
         } student bill${
           deleteModal.selectedBills.length > 1 ? 's' : ''
@@ -352,6 +459,15 @@ export function BillingScheduleDataTable({
         isLoading={deleteModal.isLoading}
         showCascadeWarning
         warningMessage='This will permanently remove all payment history, discounts, and related financial records.'
+      />
+
+      {/* Cancel Confirmation Modal */}
+      <CancelConfirmationModal
+        isOpen={cancelModal.isOpen}
+        onClose={handleCloseCancelModal}
+        onConfirm={handleConfirmCancel}
+        bills={cancelModal.selectedBills}
+        isLoading={cancelModal.isLoading}
       />
     </>
   );

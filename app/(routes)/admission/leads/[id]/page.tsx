@@ -110,7 +110,8 @@ import { SMSCampaignService } from '@/lib/services/admission/sms-campaign-servic
 import { WhatsAppCampaignService } from '@/lib/services/admission/whatsapp-campaign-service';
 import { useQueryClient } from '@tanstack/react-query';
 import type { FunnelStage } from '@/types/admission';
-import { ALLOWED_STAGE_TRANSITIONS } from '@/lib/services/admission/lead-service';
+import { useAdmissionStatuses } from '@/hooks/admission/use-admission-statuses';
+import { LeadStageBadge } from '../_components/columns';
 import { SendPersonalMessageDialog } from '@/components/whatsapp/send-personal-message-dialog';
 import { LeadInlineConnectionIndicator } from '@/components/whatsapp/lead-inline-connection-indicator';
 import { showSendErrorToast } from '@/lib/whatsapp/show-send-error-toast';
@@ -125,34 +126,6 @@ import { useLeadCascadeHistory } from '@/hooks/admission/use-lead-cascade-histor
 // message, and follow-up dates on the detail page through the helpers.
 import { formatDateDMY, formatDateTimeDMY } from '@/lib/utils/date-format';
 
-const FUNNEL_STAGES = [
-  { value: 'new', label: 'New' },
-  { value: 'contacted', label: 'Contacted' },
-  { value: 'not_reachable', label: 'Not Reachable' },
-  { value: 'interested', label: 'Interested' },
-  { value: 'follow_up_scheduled', label: 'Follow-up Scheduled' },
-  { value: 'engaged', label: 'Engaged' },
-  { value: 'qualified', label: 'Qualified' },
-  { value: 'application_started', label: 'Application Started' },
-  { value: 'application_submitted', label: 'Application Submitted' },
-  { value: 'documents_pending', label: 'Documents Pending' },
-  { value: 'documents_verified', label: 'Documents Verified' },
-  { value: 'interview_scheduled', label: 'Interview Scheduled' },
-  { value: 'interview_completed', label: 'Interview Completed' },
-  { value: 'offer_sent', label: 'Offer Sent' },
-  { value: 'offer_accepted', label: 'Offer Accepted' },
-  { value: 'token_paid', label: 'Token Paid' },
-  { value: 'applied', label: 'Applied' },
-  { value: 'offered', label: 'Offered' },
-  { value: 'enrolled', label: 'Enrolled' },
-  { value: 'confirmed', label: 'Confirmed' },
-  { value: 'declined', label: 'Declined' },
-  { value: 'withdrew', label: 'Withdrew' },
-  { value: 'expired', label: 'Expired' },
-  { value: 'lost', label: 'Lost' },
-  { value: 'dormant', label: 'Dormant' },
-];
-
 // Source options now come from useActiveLeadSources() — admin-curated rows
 // in admission_lead_sources_master replace this once-static list.
 
@@ -161,37 +134,6 @@ const GENDERS = [
   { value: 'female', label: 'Female' },
   { value: 'other', label: 'Other' }
 ];
-
-function getStageColor(stage: string | null): string {
-  const colors: Record<string, string> = {
-    new: 'bg-blue-100 text-blue-800 border-blue-200',
-    contacted: 'bg-indigo-100 text-indigo-800 border-indigo-200',
-    not_reachable: 'bg-red-100 text-red-800 border-red-200',
-    interested: 'bg-sky-100 text-sky-800 border-sky-200',
-    follow_up_scheduled: 'bg-violet-100 text-violet-800 border-violet-200',
-    engaged: 'bg-fuchsia-100 text-fuchsia-800 border-fuchsia-200',
-    qualified: 'bg-purple-100 text-purple-800 border-purple-200',
-    application_started: 'bg-pink-100 text-pink-800 border-pink-200',
-    application_submitted: 'bg-rose-100 text-rose-800 border-rose-200',
-    documents_pending: 'bg-orange-100 text-orange-800 border-orange-200',
-    documents_verified: 'bg-amber-100 text-amber-800 border-amber-200',
-    interview_scheduled: 'bg-yellow-100 text-yellow-800 border-yellow-200',
-    interview_completed: 'bg-lime-100 text-lime-800 border-lime-200',
-    offer_sent: 'bg-green-100 text-green-800 border-green-200',
-    offer_accepted: 'bg-emerald-100 text-emerald-800 border-emerald-200',
-    token_paid: 'bg-teal-100 text-teal-800 border-teal-200',
-    applied: 'bg-pink-100 text-pink-800 border-pink-200',
-    offered: 'bg-green-100 text-green-800 border-green-200',
-    enrolled: 'bg-cyan-100 text-cyan-800 border-cyan-200',
-    confirmed: 'bg-emerald-100 text-emerald-800 border-emerald-200',
-    declined: 'bg-red-100 text-red-800 border-red-200',
-    withdrew: 'bg-slate-100 text-slate-800 border-slate-200',
-    expired: 'bg-neutral-100 text-neutral-800 border-neutral-200',
-    lost: 'bg-gray-100 text-gray-800 border-gray-200',
-    dormant: 'bg-stone-100 text-stone-800 border-stone-200',
-  };
-  return colors[stage || 'new'] || 'bg-gray-100 text-gray-800 border-gray-200';
-}
 
 function LeadDetailSkeleton() {
   return (
@@ -227,6 +169,10 @@ function LeadDetailSkeleton() {
 
 function LeadDetailPageContent() {
   const { options: leadSources } = useActiveLeadSources();
+  // Dynamic stage list from admission_statuses — used for the stage selector
+  // dropdown and current-stage badge. Sorted by sort_order for consistent ordering.
+  const { data: leadStatuses = [] } = useAdmissionStatuses('lead', { activeOnly: true });
+  const sortedStages = [...leadStatuses].sort((a, b) => a.sort_order - b.sort_order);
   const params = useParams();
   const router = useRouter();
   const leadId = params.id as string;
@@ -1380,9 +1326,7 @@ function LeadDetailPageContent() {
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <span className="text-sm font-medium">Current Stage:</span>
-                  <Badge className={`${getStageColor(lead.funnel_stage)} border`} variant="outline">
-                    {lead.funnel_stage?.replace(/_/g, ' ') || 'New'}
-                  </Badge>
+                  <LeadStageBadge stage={lead.funnel_stage} />
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="text-sm text-muted-foreground">Move to:</span>
@@ -1394,18 +1338,24 @@ function LeadDetailPageContent() {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {(() => {
-                        const allowedNextStages = lead?.funnel_stage
-                          ? ALLOWED_STAGE_TRANSITIONS[lead.funnel_stage as FunnelStage] ?? []
-                          : FUNNEL_STAGES.map(s => s.value);
-                        return FUNNEL_STAGES.filter(
-                          s => allowedNextStages.includes(s.value as FunnelStage) || s.value === lead?.funnel_stage
-                        ).map((stage) => (
-                          <SelectItem key={stage.value} value={stage.value}>
+                      {sortedStages.map((stage) => (
+                        <SelectItem
+                          key={stage.code}
+                          value={stage.code}
+                          disabled={stage.code === lead?.funnel_stage}
+                        >
+                          <span className="flex items-center gap-2">
+                            <span
+                              className="h-2 w-2 rounded-full shrink-0"
+                              style={{ backgroundColor: stage.color }}
+                            />
                             {stage.label}
-                          </SelectItem>
-                        ));
-                      })()}
+                            {stage.is_terminal && (
+                              <span className="text-xs text-muted-foreground">(Terminal)</span>
+                            )}
+                          </span>
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>

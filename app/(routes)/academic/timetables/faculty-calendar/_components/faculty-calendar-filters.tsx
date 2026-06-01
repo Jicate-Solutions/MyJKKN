@@ -68,7 +68,10 @@ export function FacultyCalendarFilters({
   });
 
   // Data hooks
-  const { institutions } = useInstitutionsWithAccess();
+  // entityType: 'all' — include schools (entity_type='school'); the access
+  // filter still scopes to the user's own institutions. Default would be
+  // 'institution' and silently exclude school users.
+  const { institutions } = useInstitutionsWithAccess({ entityType: 'all' });
   const { data: degrees } = useDegrees({
     institution_id: localFilters.institution_id,
     isActive: true

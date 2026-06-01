@@ -302,6 +302,29 @@ const config: ModuleNavConfig = {
       ],
     },
     {
+      label: 'Inbox',
+      icon: 'Inbox',
+      href: '/admission/inbox/messenger',
+      matchPaths: ['/admission/inbox'],
+      // Tier-3 chips for inbound social channels. Messenger + Instagram DMs
+      // land here via Meta webhooks (substrate: PR #1149, #1153). When
+      // master kill-switches (meta.messenger.is_enabled / ig.dm.is_enabled)
+      // are off, the chip is still rendered but the page shows a disabled
+      // placeholder.
+      children: [
+        {
+          label: 'Messenger',
+          icon: 'MessageCircle',
+          href: '/admission/inbox/messenger',
+          matchPaths: ['/admission/inbox/messenger'],
+        },
+        // Instagram DMs chip omitted — /admission/inbox/instagram page.tsx
+        // hasn't been created yet. Meta marathon shipped the IG webhook +
+        // DB substrate (PR #1153) but not the UI page. Add chip when page
+        // ships in a follow-up.
+      ],
+    },
+    {
       label: 'AI Insights',
       icon: 'Sparkles',
       href: '/admission/insights',
@@ -387,6 +410,7 @@ const config: ModuleNavConfig = {
             '/admission/settings/lookups',
             '/admission/settings/lookups/quotas',
             '/admission/settings/lookups/community-categories',
+            '/admission/settings/lookups/castes',
             '/admission/settings/lookups/accommodation-types',
             '/admission/settings/lookups/data-quality',
           ],

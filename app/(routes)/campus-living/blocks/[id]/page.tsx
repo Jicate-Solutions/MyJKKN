@@ -88,7 +88,7 @@ export default function BlockDetailPage({ params }: { params: Promise<{ id: stri
 
   const warden: WardenLike = block.warden ?? null;
   const deputyWarden: WardenLike = block.deputy_warden ?? null;
-  const amenitiesEntries = Object.entries((block.amenities ?? {}) as Record<string, boolean>);
+  const amenityTags = (block.amenity_tags ?? []) as Array<{ id: string; name: string }>;
   const roomsSummary = (block.rooms_summary ?? {}) as Partial<{
     available: number;
     partially_occupied: number;
@@ -326,17 +326,13 @@ export default function BlockDetailPage({ params }: { params: Promise<{ id: stri
                     </div>
                   </div>
 
-                  {amenitiesEntries.length > 0 && (
+                  {amenityTags.length > 0 && (
                     <div className="pt-3 border-t">
                       <p className="text-xs text-muted-foreground mb-2">Amenities</p>
                       <div className="flex flex-wrap gap-2">
-                        {amenitiesEntries.map(([amenity, available]) => (
-                          <Badge
-                            key={amenity}
-                            variant={available ? 'default' : 'outline'}
-                            className={`capitalize ${!available ? 'opacity-40 line-through' : ''}`}
-                          >
-                            {amenity.replace(/_/g, ' ')}
+                        {amenityTags.map((a) => (
+                          <Badge key={a.id} variant="default">
+                            {a.name}
                           </Badge>
                         ))}
                       </div>

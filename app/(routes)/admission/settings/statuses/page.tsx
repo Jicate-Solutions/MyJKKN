@@ -16,7 +16,7 @@ import { StatusesDataTable } from './_components/statuses-data-table';
 function StatusesPageContent() {
   return (
     <PermissionGuard module="admission.settings.statuses" action="view">
-      <ContentLayout title="Admission Statuses">
+      <ContentLayout title="Stages & Statuses">
         <div className="space-y-6">
           <Breadcrumb>
             <BreadcrumbList>
@@ -33,15 +33,15 @@ function StatusesPageContent() {
               </BreadcrumbItem>
               <BreadcrumbSeparator />
               <BreadcrumbItem>
-                <BreadcrumbPage>Statuses</BreadcrumbPage>
+                <BreadcrumbPage>Stages & Statuses</BreadcrumbPage>
               </BreadcrumbItem>
             </BreadcrumbList>
           </Breadcrumb>
 
           <div>
-            <h1 className="text-2xl font-semibold">Admission Statuses</h1>
+            <h1 className="text-2xl font-semibold">Stages & Statuses</h1>
             <p className="text-sm text-muted-foreground">
-              Define lead funnel stages and learner lifecycle statuses. Configure the fee-paid threshold
+              Define lead stages and learner lifecycle statuses. Configure the fee-paid threshold
               that gates the <code>account → active</code> transition and the dashboard&apos;s &quot;Seat Filled&quot; KPI.
             </p>
           </div>

@@ -25,7 +25,7 @@ export function StatusesDataTable() {
     <Tabs value={scope} onValueChange={(v) => setScope(v as AdmissionStatusScope)}>
       <div className="flex items-center justify-between gap-4">
         <TabsList>
-          <TabsTrigger value="lead">Lead Statuses</TabsTrigger>
+          <TabsTrigger value="lead">Lead Stages</TabsTrigger>
           <TabsTrigger value="learner">Learner Statuses</TabsTrigger>
         </TabsList>
         <div className="flex items-center gap-2">
@@ -33,7 +33,7 @@ export function StatusesDataTable() {
             {showInactive ? 'Hide archived' : 'Show archived'}
           </Button>
           <Button size="sm" onClick={() => setCreating(true)}>
-            <Plus className="h-4 w-4 mr-1" /> Add status
+            <Plus className="h-4 w-4 mr-1" /> {scope === 'lead' ? 'Add stage' : 'Add status'}
           </Button>
         </div>
       </div>
@@ -47,7 +47,7 @@ export function StatusesDataTable() {
               <TableHeader>
                 <TableRow>
                   <TableHead className="w-16">Order</TableHead>
-                  <TableHead>Status</TableHead>
+                  <TableHead>{scope === 'lead' ? 'Stage' : 'Status'}</TableHead>
                   <TableHead>Code</TableHead>
                   <TableHead>Terminal</TableHead>
                   <TableHead>Seat Filled</TableHead>

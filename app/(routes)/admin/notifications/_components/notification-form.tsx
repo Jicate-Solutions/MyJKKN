@@ -49,6 +49,7 @@ import { useSemesters } from '@/hooks/organization/use-semesters';
 import { useSections } from '@/hooks/organization/use-sections';
 import { useRoles } from '@/hooks/organization/use-roles';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 import { StorageUtils } from '@/lib/supabase/storage-utils';
 import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
@@ -149,6 +150,7 @@ export function NotificationForm() {
 
   // Check permissions
   const { permissions, isSuperAdmin } = usePermissions();
+  const adapt = useAdaptiveLabels();
   const canSendToAll =
     isSuperAdmin ||
     permissions['notifications.send.all'] ||
@@ -747,7 +749,7 @@ export function NotificationForm() {
                   name='department_id'
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Department</FormLabel>
+                      <FormLabel>{adapt('Department')}</FormLabel>
                       <Select
                         onValueChange={handleDepartmentChange}
                         value={field.value || ''}
@@ -759,7 +761,7 @@ export function NotificationForm() {
                             <SelectValue
                               placeholder={
                                 selectedInstitutionId
-                                  ? 'All departments'
+                                  ? `All ${adapt('departments')}`
                                   : 'Select institution first'
                               }
                             />
@@ -779,7 +781,7 @@ export function NotificationForm() {
                           ) : (
                             <SelectItem value='no-departments' disabled>
                               {selectedInstitutionId
-                                ? 'No departments found'
+                                ? `No ${adapt('departments')} found`
                                 : 'Select institution first'}
                             </SelectItem>
                           )}
@@ -797,7 +799,7 @@ export function NotificationForm() {
                   name='program_id'
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Program</FormLabel>
+                      <FormLabel>{adapt('Program')}</FormLabel>
                       <Select
                         onValueChange={handleProgramChange}
                         value={field.value || ''}
@@ -809,7 +811,7 @@ export function NotificationForm() {
                             <SelectValue
                               placeholder={
                                 selectedDepartmentId
-                                  ? 'All programs'
+                                  ? `All ${adapt('programs')}`
                                   : 'Select department first'
                               }
                             />
@@ -826,7 +828,7 @@ export function NotificationForm() {
                           ) : (
                             <SelectItem value='no-programs' disabled>
                               {selectedDepartmentId
-                                ? 'No programs found'
+                                ? `No ${adapt('programs')} found`
                                 : 'Select department first'}
                             </SelectItem>
                           )}
@@ -842,7 +844,7 @@ export function NotificationForm() {
                   name='semester_id'
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Semester</FormLabel>
+                      <FormLabel>{adapt('Semester')}</FormLabel>
                       <Select
                         onValueChange={handleSemesterChange}
                         value={field.value || ''}
@@ -854,7 +856,7 @@ export function NotificationForm() {
                             <SelectValue
                               placeholder={
                                 selectedProgramId
-                                  ? 'All semesters'
+                                  ? `All ${adapt('semesters')}`
                                   : 'Select program first'
                               }
                             />

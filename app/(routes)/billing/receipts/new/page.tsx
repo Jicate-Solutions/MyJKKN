@@ -278,16 +278,40 @@ export default function NewReceiptPage() {
       toast.error('Please enter the payer name');
       return false;
     }
+
+    // Validate per-bill allocations don't exceed each bill's outstanding balance
+    for (const bill of selectedBills) {
+      const balance = bill.balance_amount > 0 ? bill.balance_amount : bill.final_amount;
+      const allocated = billPayAmounts[bill.id] || 0;
+      if (allocated > balance) {
+        const desc = bill.item_category?.category_name || bill.bill_description || 'Bill';
+        toast.error(
+          `Payment for "${desc}" (₹${allocated.toLocaleString('en-IN')}) exceeds outstanding balance (₹${balance.toLocaleString('en-IN')})`
+        );
+        return false;
+      }
+    }
+
+    // Validate total payment doesn't exceed total outstanding
+    if (formData.payment_amount! > totalPendingAmount && selectedBills.length > 0) {
+      toast.error(
+        `Payment amount (₹${formData.payment_amount!.toLocaleString('en-IN')}) exceeds total outstanding (₹${totalPendingAmount.toLocaleString('en-IN')})`
+      );
+      return false;
+    }
+
     return true;
   };
 
   const handlePreSubmit = () => {
+    if (createReceiptMutation.isPending) return;
     if (!validateForm()) return;
     setConfirmDialogOpen(true);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (createReceiptMutation.isPending) return;
 
     try {
       // Prepare receipt items for multiple bills
@@ -425,15 +449,16 @@ export default function NewReceiptPage() {
                             </TableCell>
                             <TableCell className='text-right'>
                               <Input
-                                type='number'
-                                step='0.01'
+                                type='text'
+                                inputMode='numeric'
+                                pattern='[0-9]*'
                                 min='0'
                                 max={balance}
                                 className={`w-[140px] ml-auto text-right ${isOverPay ? 'border-red-500 focus-visible:ring-red-500' : ''}`}
                                 value={payAmount || ''}
                                 placeholder='0'
                                 onChange={(e) => {
-                                  const val = Math.max(0, parseFloat(e.target.value) || 0);
+                                  const val = Math.max(0, Math.round(parseFloat(e.target.value) || 0));
                                   const capped = Math.min(val, balance);
                                   const newAmounts = { ...billPayAmounts, [bill.id]: capped };
                                   setBillPayAmounts(newAmounts);
@@ -553,19 +578,23 @@ export default function NewReceiptPage() {
                   </Label>
                   <Input
                     id='payment_amount'
-                    type='number'
-                    step='0.01'
-                    min='0'
+                    type='text'
+                    inputMode='numeric'
+                    pattern='[0-9]*'
                     placeholder='Enter total amount received'
                     value={formData.payment_amount || ''}
-                    onChange={(e) =>
-                      handleInputChange(
-                        'payment_amount',
-                        parseFloat(e.target.value)
-                      )
-                    }
+                    onChange={(e) => {
+                      const val = Math.round(parseFloat(e.target.value) || 0);
+                      const capped = totalPendingAmount > 0 ? Math.min(val, totalPendingAmount) : val;
+                      handleInputChange('payment_amount', capped);
+                    }}
                     required
                   />
+                  {totalPendingAmount > 0 && (
+                    <p className='text-xs text-muted-foreground mt-1'>
+                      Max: ₹{totalPendingAmount.toLocaleString('en-IN')}
+                    </p>
+                  )}
                 </div>
 
                 {/* Payment Mode */}
