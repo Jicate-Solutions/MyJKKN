@@ -22,6 +22,8 @@ import type {
 } from '@/types/projects';
 
 const MASTER_STALE_TIME = Infinity; // types/statuses/priorities change only via admin
+const PROJECT_STALE_TIME = 30_000;   // 30 s — back-nav is instant; mutations still invalidate immediately
+const PROJECT_GC_TIME = 5 * 60_000; // keep unused entries 5 min so tab-switches don't refetch
 
 function getSupabase() {
   return createClientSupabaseClient();
@@ -46,6 +48,8 @@ export function useProjects(filters: ProjectFilters = {}) {
   return useQuery({
     queryKey: projectKeys.list(filters),
     queryFn: () => ProjectService.listProjects(getSupabase(), filters),
+    staleTime: PROJECT_STALE_TIME,
+    gcTime: PROJECT_GC_TIME,
   });
 }
 
@@ -54,6 +58,8 @@ export function useProject(id: string | null | undefined) {
     queryKey: projectKeys.detail(id ?? ''),
     queryFn: () => ProjectService.getProject(getSupabase(), id as string),
     enabled: !!id,
+    staleTime: PROJECT_STALE_TIME,
+    gcTime: PROJECT_GC_TIME,
   });
 }
 
