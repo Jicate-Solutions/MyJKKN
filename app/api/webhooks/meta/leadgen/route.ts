@@ -1,23 +1,18 @@
 export const dynamic = 'force-dynamic';
 
-// /api/webhooks/meta/leadgen
-// Meta Lead Ads webhook receiver. Pairs with:
-//   - lib/meta/lead-ads-client.ts       (Graph API fetch)
-//   - lib/services/admission/meta-lead-importer.ts (lead → CRM)
-//
-// Contract (object=page, field=leadgen):
-//   GET  /api/webhooks/meta/leadgen?hub.mode=subscribe
-//                                  &hub.verify_token=<policy>
-//                                  &hub.challenge=<echo>
-//     → echo back hub.challenge if verify_token matches.
-//   POST /api/webhooks/meta/leadgen
-//     → verify X-Hub-Signature-256 HMAC (sha256=hex(meta_app_secret))
-//     → persist raw event
-//     → if meta.leadgen.is_enabled: call importer with hydrated fetchLead
-//     → respond 200 within ~20s (Vercel waitUntil for background work)
-//
-// Pattern mirrors /api/webhooks/instagram/route.ts — same HMAC + same
-// service-role client + same waitUntil background processing.
+/**
+ * @deprecated Meta only allows 1 callback URL per Page product. The
+ * App-level Page subscription points at `/api/webhooks/meta/messenger`,
+ * which now dispatches by `changes[].field` so leadgen events arriving
+ * there are routed correctly. This route remains for backward-compat
+ * with any external test/probe that POSTs directly to /leadgen — it
+ * uses the same dispatcher so behavior is identical.
+ *
+ * /api/webhooks/meta/leadgen
+ * Meta Lead Ads webhook receiver. Pairs with:
+ *   - lib/meta/lead-ads-client.ts       (Graph API fetch)
+ *   - lib/services/admission/meta-lead-importer.ts (lead → CRM)
+ */
 
 import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
@@ -25,10 +20,7 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { logger } from '@/lib/utils/enhanced-logger';
 import { getLead } from '@/lib/meta/lead-ads-client';
 import { importMetaLead } from '@/lib/services/admission/meta-lead-importer';
-import type {
-  FbLeadgenWebhookPayload,
-  FbLeadgenWebhookValue,
-} from '@/lib/meta/lead-ads-types';
+import { dispatchPageWebhook } from '@/lib/webhooks/meta/page-dispatcher';
 
 // =============================================================================
 // Service-role Supabase client (webhook has no user session)
@@ -99,8 +91,6 @@ async function readIsEnabled(db: SupabaseClient): Promise<boolean> {
 function verifySignature(rawBody: string, signatureHeader: string | null, secret: string | null): boolean {
   if (!secret) {
     logger.warn('meta/leadgen-webhook', 'No signing secret configured — rejecting in prod');
-    // Fail closed when secret is unset in prod. In dev (no .env value), this
-    // also fails closed — operators should set META_APP_SECRET locally.
     return false;
   }
   if (!signatureHeader) {
@@ -156,7 +146,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 }
 
 // =============================================================================
-// POST — Receive Meta leadgen events
+// POST — Receive Meta leadgen events (backward-compat shim — uses dispatcher)
 // =============================================================================
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
@@ -172,7 +162,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }
 
   // 2. Parse JSON.
-  let payload: FbLeadgenWebhookPayload;
+  let payload: unknown;
   try {
     payload = JSON.parse(rawBody);
   } catch {
@@ -180,44 +170,32 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
   }
 
-  // 3. Only page-object events are in scope.
-  if (payload.object !== 'page') {
+  const p = payload as { object?: string } | null;
+  if (!p || p.object !== 'page') {
     logger.info('meta/leadgen-webhook', 'Ignoring non-page event', {
-      object: payload.object,
+      object: p?.object,
     });
     return NextResponse.json({ received: true });
   }
 
-  // 4. Collect every leadgen value before responding (so we don't lose
-  //    payloads on a process restart). Persist raw rows immediately —
-  //    the importer can run async after.
-  const leadgenValues = collectLeadgenValues(payload);
-
-  // 5. Insert raw event rows synchronously. The unique index on
-  //    fb_leadgen_id makes the upsert idempotent against Meta retries.
-  for (const value of leadgenValues) {
-    try {
-      await db
-        .from('meta_leadgen_events')
-        .upsert(
-          {
-            fb_leadgen_id: value.leadgen_id,
-            fb_form_id: value.form_id,
-            fb_page_id: value.page_id,
-            raw_payload: value as unknown as Record<string, unknown>,
-            status: 'pending',
-          },
-          { onConflict: 'fb_leadgen_id', ignoreDuplicates: true }
-        );
-    } catch (err) {
-      logger.error('meta/leadgen-webhook', 'Failed to upsert event row', {
-        leadgenId: value.leadgen_id,
-        error: err instanceof Error ? err.message : String(err),
-      });
-    }
+  // 3. Persist raw rows synchronously via the shared dispatcher. The
+  //    dispatcher returns the extracted leadgen values so we can hand them
+  //    to the importer below — keeping the existing hydration behavior.
+  let leadgenValues: Array<{ leadgen_id: string }> = [];
+  try {
+    const result = await dispatchPageWebhook(payload, db);
+    leadgenValues = result.leadgenValues;
+    logger.info('meta/leadgen-webhook', 'Dispatched legacy /leadgen entries', {
+      dispatched: result.dispatched,
+      leadgenCount: leadgenValues.length,
+    });
+  } catch (err) {
+    logger.error('meta/leadgen-webhook', 'dispatchPageWebhook threw', {
+      error: err instanceof Error ? err.message : String(err),
+    });
   }
 
-  // 6. Respond 200 immediately. Importer runs in background.
+  // 4. Respond 200 immediately. Importer runs in background.
   const response = NextResponse.json({ received: true }, { status: 200 });
 
   const isEnabled = await readIsEnabled(db);
@@ -238,7 +216,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     for (const value of leadgenValues) {
       try {
         await importMetaLead(
-          { event: value },
+          { event: value as unknown as Parameters<typeof importMetaLead>[0]['event'] },
           {
             supabaseService: db,
             fetchLead: (leadgenId) =>
@@ -262,30 +240,4 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }
 
   return response;
-}
-
-// =============================================================================
-// Helpers
-// =============================================================================
-
-function collectLeadgenValues(
-  payload: FbLeadgenWebhookPayload
-): FbLeadgenWebhookValue[] {
-  const out: FbLeadgenWebhookValue[] = [];
-  for (const entry of payload.entry ?? []) {
-    for (const change of entry.changes ?? []) {
-      if (change.field !== 'leadgen') continue;
-      const v = change.value as Partial<FbLeadgenWebhookValue> | null;
-      if (!v || !v.leadgen_id || !v.form_id || !v.page_id) continue;
-      out.push({
-        leadgen_id: String(v.leadgen_id),
-        form_id: String(v.form_id),
-        page_id: String(v.page_id),
-        created_time: Number(v.created_time ?? Math.floor(Date.now() / 1000)),
-        ad_id: v.ad_id ? String(v.ad_id) : undefined,
-        adgroup_id: v.adgroup_id ? String(v.adgroup_id) : undefined,
-      });
-    }
-  }
-  return out;
 }

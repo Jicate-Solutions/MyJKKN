@@ -3,39 +3,41 @@ export const dynamic = 'force-dynamic';
 /**
  * /api/webhooks/meta/messenger
  *
- * Facebook Messenger Platform webhook receiver. Two methods:
+ * Facebook Page webhook receiver — registered as the App-level callback URL
+ * for the Page product. Because Meta allows only ONE callback URL per Page
+ * product, this route receives BOTH `messaging` events (Messenger DMs,
+ * postbacks, deliveries, reads) AND `changes[]` events (leadgen, feed, etc.).
+ *
+ * Routing by entry shape is delegated to `lib/webhooks/meta/page-dispatcher`:
+ *   - entry.messaging[]                 → messenger-handler
+ *   - entry.changes[].field=="leadgen"  → leadgen-handler
+ *
+ * Two methods:
  *
  *   GET  — Meta verification challenge. Compares ?hub.verify_token to the
  *          `meta.messenger.verify_token` row in platform_policies, echoes
  *          ?hub.challenge on match.
  *
  *   POST — Event delivery. Verifies the X-Hub-Signature-256 HMAC against the
- *          Meta App Secret, ACKs 200 immediately, then persists each event in
- *          the background via `waitUntil`. We persist BOTH directions —
- *          inbound (user→page) and echoes of outbound (page→user, is_echo).
+ *          Meta App Secret, ACKs 200 immediately, then dispatches each entry
+ *          in the background via `waitUntil`.
  *
  * Module killswitch: when platform_policies.meta.messenger.is_enabled is
  * false, we still verify + ACK (Meta retries forever on non-200), but skip
  * persistence so the inbox stays empty until Director enables.
- *
- * Sibling pattern: `/api/webhooks/instagram/route.ts`.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
-import { createClient } from '@supabase/supabase-js';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { logger } from '@/lib/utils/enhanced-logger';
-import type {
-  MessengerEntry,
-  MessengerEvent,
-  MessengerWebhookPayload,
-} from '@/lib/messenger/types';
+import { dispatchPageWebhook } from '@/lib/webhooks/meta/page-dispatcher';
 
 // ---------------------------------------------------------------------------
 // Service-role Supabase client (webhook has no user session)
 // ---------------------------------------------------------------------------
 
-function getServiceClient() {
+function getServiceClient(): SupabaseClient {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !key) throw new Error('Missing Supabase service role credentials');
@@ -44,13 +46,11 @@ function getServiceClient() {
   });
 }
 
-type ServiceClient = ReturnType<typeof getServiceClient>;
-
 // ---------------------------------------------------------------------------
 // Policy helpers — read verify_token + is_enabled from platform_policies
 // ---------------------------------------------------------------------------
 
-async function getPolicyJson(supabase: ServiceClient, key: string): Promise<unknown> {
+async function getPolicyJson(supabase: SupabaseClient, key: string): Promise<unknown> {
   const { data, error } = await supabase
     .from('platform_policies')
     .select('value')
@@ -69,12 +69,12 @@ async function getPolicyJson(supabase: ServiceClient, key: string): Promise<unkn
   return data?.value;
 }
 
-async function loadVerifyToken(supabase: ServiceClient): Promise<string | null> {
+async function loadVerifyToken(supabase: SupabaseClient): Promise<string | null> {
   const v = await getPolicyJson(supabase, 'meta.messenger.verify_token');
   return typeof v === 'string' ? v : null;
 }
 
-async function loadIsEnabled(supabase: ServiceClient): Promise<boolean> {
+async function loadIsEnabled(supabase: SupabaseClient): Promise<boolean> {
   const v = await getPolicyJson(supabase, 'meta.messenger.is_enabled');
   return v === true;
 }
@@ -89,8 +89,7 @@ function verifySignature(rawBody: string, signatureHeader: string | null): boole
     process.env.MESSENGER_WEBHOOK_SECRET || process.env.META_APP_SECRET;
   if (!appSecret) {
     // Fail closed: this receiver persists via the service-role client, so an
-    // unverified POST can forge inbound Messenger events. The secret MUST be
-    // set in every environment (tests should inject it, not rely on a bypass).
+    // unverified POST can forge inbound Messenger events.
     logger.error(
       'meta/messenger-webhook',
       'MESSENGER_WEBHOOK_SECRET/META_APP_SECRET not set — rejecting webhook'
@@ -129,7 +128,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const token = searchParams.get('hub.verify_token');
   const challenge = searchParams.get('hub.challenge');
 
-  let supabase: ServiceClient;
+  let supabase: SupabaseClient;
   try {
     supabase = getServiceClient();
   } catch (err) {
@@ -155,7 +154,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 }
 
 // ---------------------------------------------------------------------------
-// POST — Receive Messenger webhook events from Meta
+// POST — Receive Page webhook events from Meta (messenger + changes mix)
 // ---------------------------------------------------------------------------
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
@@ -167,17 +166,18 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: 'Invalid signature' }, { status: 401 });
   }
 
-  let payload: MessengerWebhookPayload;
+  let payload: unknown;
   try {
-    payload = JSON.parse(rawBody) as MessengerWebhookPayload;
+    payload = JSON.parse(rawBody);
   } catch {
     logger.error('meta/messenger-webhook', 'Failed to parse webhook JSON');
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
   }
 
-  if (payload.object !== 'page') {
+  const p = payload as { object?: string; entry?: unknown[] } | null;
+  if (!p || p.object !== 'page') {
     logger.info('meta/messenger-webhook', 'Ignoring non-page event', {
-      object: payload.object,
+      object: p?.object,
     });
     return NextResponse.json({ received: true });
   }
@@ -185,7 +185,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const response = NextResponse.json({ received: true }, { status: 200 });
 
   const processEvents = async () => {
-    let supabase: ServiceClient;
+    let supabase: SupabaseClient;
     try {
       supabase = getServiceClient();
     } catch (err) {
@@ -200,23 +200,21 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       logger.info(
         'meta/messenger-webhook',
         'meta.messenger.is_enabled=false — ACK only, skipping persistence',
-        { entryCount: payload.entry?.length ?? 0 }
+        { entryCount: p.entry?.length ?? 0 }
       );
       return;
     }
 
-    for (const entry of payload.entry || []) {
-      for (const event of entry.messaging || []) {
-        try {
-          await processEvent(supabase, entry, event);
-        } catch (err) {
-          logger.error('meta/messenger-webhook', 'Failed to process event', {
-            pageId: entry.id,
-            senderId: event.sender?.id,
-            error: String(err),
-          });
-        }
-      }
+    try {
+      const result = await dispatchPageWebhook(payload, supabase);
+      logger.info('meta/messenger-webhook', 'Dispatched page webhook entries', {
+        dispatched: result.dispatched,
+        leadgenCount: result.leadgenValues.length,
+      });
+    } catch (err) {
+      logger.error('meta/messenger-webhook', 'dispatchPageWebhook threw', {
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
   };
 
@@ -228,118 +226,4 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }
 
   return response;
-}
-
-// ---------------------------------------------------------------------------
-// Event handler — upsert conversation, insert message, advance timestamps
-// ---------------------------------------------------------------------------
-
-async function processEvent(
-  supabase: ServiceClient,
-  entry: MessengerEntry,
-  event: MessengerEvent
-): Promise<void> {
-  if (!event.message) {
-    // Postbacks / deliveries / reads not persisted in Phase 1. Log for visibility.
-    logger.info('meta/messenger-webhook', 'Non-message event skipped', {
-      pageId: entry.id,
-      hasPostback: !!event.postback,
-      hasDelivery: !!event.delivery,
-      hasRead: !!event.read,
-    });
-    return;
-  }
-
-  const pageId = entry.id;
-  const isEcho = event.message.is_echo === true;
-  const direction: 'in' | 'out' = isEcho ? 'out' : 'in';
-
-  // For inbound: sender = user PSID, recipient = page.
-  // For echo:    sender = page, recipient = user PSID.
-  const psid = isEcho ? event.recipient.id : event.sender.id;
-  const eventTimestamp = new Date(event.timestamp || Date.now()).toISOString();
-
-  // Resolve institution_id for the (page_id). For Phase 1 we look up an
-  // existing conversation row first; if none exists we need a Page→Institution
-  // mapping. Until that lands (Director onboards a Page), we route to the
-  // first institution as a fallback so events still persist visibly. Director
-  // will edit the row's institution_id once page-mapping ships.
-  const { data: existing } = await supabase
-    .from('messenger_conversations')
-    .select('id, institution_id, last_inbound_at, last_outbound_at')
-    .eq('page_id', pageId)
-    .eq('psid', psid)
-    .maybeSingle();
-
-  let conversationId: string;
-
-  if (existing) {
-    conversationId = existing.id;
-    const patch: Record<string, unknown> = { status: 'open' };
-    if (direction === 'in') patch.last_inbound_at = eventTimestamp;
-    else patch.last_outbound_at = eventTimestamp;
-
-    const { error: updateErr } = await supabase
-      .from('messenger_conversations')
-      .update(patch)
-      .eq('id', conversationId);
-    if (updateErr) throw updateErr;
-  } else {
-    // Pick a fallback institution. Director-only mapping table comes later.
-    const { data: anyInstitution, error: instErr } = await supabase
-      .from('institutions')
-      .select('id')
-      .limit(1)
-      .maybeSingle();
-    if (instErr || !anyInstitution) {
-      throw new Error(
-        'No institution available to scope new messenger conversation'
-      );
-    }
-
-    const insertRow: Record<string, unknown> = {
-      institution_id: anyInstitution.id,
-      page_id: pageId,
-      psid,
-      status: 'open',
-    };
-    if (direction === 'in') insertRow.last_inbound_at = eventTimestamp;
-    else insertRow.last_outbound_at = eventTimestamp;
-
-    const { data: created, error: createErr } = await supabase
-      .from('messenger_conversations')
-      .insert(insertRow)
-      .select('id')
-      .single();
-    if (createErr) throw createErr;
-    conversationId = created.id;
-  }
-
-  const { error: msgErr } = await supabase.from('messenger_messages').insert({
-    conversation_id: conversationId,
-    direction,
-    mid: event.message.mid ?? null,
-    text: event.message.text ?? null,
-    attachments: event.message.attachments ?? null,
-    sent_at: eventTimestamp,
-  });
-
-  // Duplicate mid (Meta retries) — swallow as success.
-  if (msgErr) {
-    const code = (msgErr as { code?: string }).code;
-    if (code === '23505') {
-      logger.info('meta/messenger-webhook', 'Duplicate mid — already persisted', {
-        mid: event.message.mid,
-      });
-      return;
-    }
-    throw msgErr;
-  }
-
-  logger.info('meta/messenger-webhook', 'Persisted messenger event', {
-    pageId,
-    psid,
-    direction,
-    mid: event.message.mid,
-  });
 }
