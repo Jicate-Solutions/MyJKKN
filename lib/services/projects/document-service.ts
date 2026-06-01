@@ -10,13 +10,13 @@
  * Spec: specs/pm-projects-module-2026-05-26.md — Feature F7.
  *
  * DEFERRED: Supabase Storage file upload is not wired. storage_path must be
- * supplied by the caller (e.g. a placeholder or future upload helper). Actor
- * fields (uploaded_by / actor_id) are null when no auth helper is available.
- * See PR body for details.
+ * supplied by the caller (e.g. a placeholder or future upload helper).
+ * uploaded_by / actor_id are now resolved from the session via getCurrentActorId.
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { ProjectTaskAttachment, ProjectActivityFeedEntry } from '@/types/projects';
+import { getCurrentActorId } from '@/lib/services/projects/_actor';
 
 // ─── Insert / Filter shapes ───────────────────────────────────────────────────
 
@@ -101,12 +101,18 @@ export class DocumentService {
    * Insert an attachment metadata row.
    * Omits audit cols that are DB-defaulted (created_at, id).
    * storage_path must be provided; file upload to bucket is deferred.
-   * uploaded_by is null when no auth helper is wired.
+   * uploaded_by is resolved from the session; caller-supplied value takes precedence.
    */
   static async createAttachment(
     supabase: SupabaseClient,
     input: AttachmentInsert
   ): Promise<ProjectTaskAttachment> {
+    // uploaded_by → project_task_attachments.uploaded_by FK → profiles(id); no DB default
+    const uploadedBy =
+      input.uploaded_by !== undefined
+        ? input.uploaded_by
+        : await getCurrentActorId(supabase);
+
     const { data, error } = await supabase
       .from('project_task_attachments')
       .insert({
@@ -119,7 +125,7 @@ export class DocumentService {
         version: input.version ?? 1,
         supersedes_id: input.supersedes_id ?? null,
         is_final_report: input.is_final_report ?? false,
-        uploaded_by: input.uploaded_by ?? null,
+        uploaded_by: uploadedBy,
       })
       .select('*')
       .single();
@@ -208,12 +214,18 @@ export class DocumentService {
 
   /**
    * Append a decision entry to project_activity_feed.
-   * actor_id is null when no auth helper is wired (deferred).
+   * actor_id is resolved from the session; caller-supplied value takes precedence.
    */
   static async addDecision(
     supabase: SupabaseClient,
     input: DecisionEntryInsert
   ): Promise<ProjectActivityFeedEntry> {
+    // actor_id → project_activity_feed.actor_id FK → profiles(id); no DB default
+    const actorId =
+      input.actor_id !== undefined
+        ? input.actor_id
+        : await getCurrentActorId(supabase);
+
     const { data, error } = await supabase
       .from('project_activity_feed')
       .insert({
@@ -221,7 +233,7 @@ export class DocumentService {
         entity_type: 'decision',
         entity_id: null,
         event_type: input.event_type,
-        actor_id: input.actor_id ?? null,
+        actor_id: actorId,
         summary: input.summary ?? null,
         detail: input.detail ?? {},
       })
