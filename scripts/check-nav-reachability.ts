@@ -211,6 +211,65 @@ const NAV_EXCLUDE = new Set<string>([
   // dev testing (scripts/local-auth.sh director@jkkn.ac.in /events/propose);
   // sidebar entry will land when the Events module is built out beyond Phase 1A.
   '/events/propose',
+
+  // ════════════════════════════════════════════════════════════
+  // Reachability-debt sweep — issue #1193 (2026-06-01).
+  // Every entry below was VERIFIED as either (a) button-invoked from a
+  // chip-reachable parent list page, or (b) served only to a non-staff
+  // persona that never uses the staff sidebar. navMeta.invokedFrom is
+  // IGNORED by this checker (see footer note) — these must live here.
+  // Genuine UNWIRED destinations (/projects, /internships, /hr/* sub-
+  // features, and 6 unlinked admin pages) were deliberately NOT added
+  // here — they need real nav-config wiring by their module owners.
+  // ════════════════════════════════════════════════════════════
+
+  // Admin HR /new forms (button-invoked from the reachable list page)
+  '/admin/hr/disciplinary/new',
+  '/admin/hr/payroll/periods/new',
+  '/admin/hr/training/new',
+  // Admin button-invoked sub-views (linked from the reachable parent page)
+  '/admin/hr/forms/submissions', // ← /admin/hr/forms "View submissions"
+  '/admin/hr/performance-reviews/cycles', // ← /admin/hr/performance-reviews
+  '/admin/pde/compliance/per-college', // ← /admin/pde/compliance drill-down
+
+  // Board of Studies /new forms
+  '/bos/courses/new',
+  '/bos/sop/new',
+  '/bos/taxonomy/new',
+
+  // CDC /new forms (each linked from its reachable list page "+ New" button)
+  '/cdc/bulletin/new',
+  '/cdc/clubs/new',
+  '/cdc/drives/new',
+  '/cdc/idp/new',
+  '/cdc/industry-mentors/new',
+  '/cdc/internships/new',
+  '/cdc/mentors/new',
+  '/cdc/placements/new',
+  '/cdc/training/new',
+
+  // Events /new form
+  '/events/marathon/new',
+
+  // Faculty / Learn PDE /new forms
+  '/faculty/pde/cases/new',
+  '/learn/pde/demonstrations/new',
+
+  // IMS button-invoked sub-view (from the sale detail page)
+  '/ims/sales/history',
+
+  // Notifications sub-view (top-bar surface, like /notifications above)
+  '/notifications/sent', // ← notification-center "Sent" tab
+
+  // External education-consultant persona portal — reached via the
+  // consultant's own login, NOT the staff sidebar. No staff chip surface
+  // by design (managed from /admin/consultants/portal-access).
+  '/consultant-portal',
+  '/consultant-portal/commissions',
+  '/consultant-portal/leads',
+  '/consultant-portal/leads/submit',
+  '/consultant-portal/profile',
+  '/consultant-portal/rewards',
 ]);
 
 /** Walk app/(routes)/ collecting {url} for every static page.tsx. */

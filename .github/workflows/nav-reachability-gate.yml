@@ -1,0 +1,62 @@
+name: Nav reachability gate
+
+# Fails a PR if it adds a static page.tsx that no sidebar/chip click-path can
+# reach (an "orphan page"), beyond the baseline in package.json
+# (`check:reachability --max-unreachable N`).
+#
+# WHY THIS WORKFLOW EXISTS (issue #1193):
+#   The reachability check used to run inside `build-check.yml`, but that
+#   workflow's FIRST step is `tsc --noEmit`, which dies on the repo's large
+#   baseline of pre-existing TS errors. Every run went red, so build-check.yml
+#   was disabled_manually (~2026-04-10). With it off, `check:reachability` ran
+#   in only ONE place — `npm run build` at Vercel DEPLOY time — so orphans
+#   accumulated silently through PRs and then blocked a later, unrelated deploy
+#   (misattributed to whoever deployed next).
+#
+#   This workflow restores PR-time detection WITHOUT the tsc shadow: it runs
+#   ONLY gen:routes + check:reachability, so an orphan fails the PR that
+#   introduced it — when its author can most cheaply wire the nav-config or
+#   add the page to NAV_EXCLUDE.
+#
+# Note: making this a *blocking* check is a branch-protection setting the repo
+# owner controls (Settings > Branches > Require status checks). The workflow
+# provides the signal regardless.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  reachability:
+    name: Every page is chip-reachable
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    # Drafts skip — matches the repo's other gated workflows.
+    if: ${{ !github.event.pull_request.draft }}
+
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Regenerate the route manifest from the PR's filesystem so the check
+      # sees the PR's actual pages, not a stale committed manifest.
+      - name: Regenerate route manifest
+        run: npm run gen:routes
+
+      # Threshold lives in package.json (check:reachability --max-unreachable N),
+      # so this and the Vercel build gate stay in lockstep from one source.
+      - name: Check nav reachability
+        run: npm run check:reachability
