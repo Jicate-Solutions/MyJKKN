@@ -81,7 +81,7 @@ export default function CampusLivingActivityPage() {
     <ContentLayout title="Activity Feed">
       <PageBreadcrumb items={breadcrumbs} />
 
-      <div className="container mx-auto p-6 max-w-5xl space-y-4">
+      <div className="container mx-auto p-6 space-y-4">
         <header className="flex items-start justify-between gap-4">
           <div>
             <h1 className="text-2xl font-bold flex items-center gap-2">
