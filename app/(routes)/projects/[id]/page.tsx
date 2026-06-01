@@ -13,7 +13,7 @@
 
 import { use, useState } from 'react';
 import Link from 'next/link';
-import { ArrowLeft, Loader2, Pencil } from 'lucide-react';
+import { ArrowLeft, Pencil } from 'lucide-react';
 
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
@@ -33,6 +33,7 @@ import { useProject } from '@/hooks/projects/use-projects';
 import { BoardView } from '@/components/projects/board/board-view';
 import { ProjectFormDialog } from '../_components/project-form-dialog';
 import { ProjectDetailNav } from './_components/project-detail-nav';
+import { ProjectDetailSkeleton } from './_components/project-detail-skeleton';
 import type { RagStatus } from '@/types/projects';
 
 const RAG_BADGE: Record<RagStatus, { label: string; className: string }> = {
@@ -89,10 +90,7 @@ export default function ProjectDetailPage({
       </div>
 
       {isLoading ? (
-        <div className="mt-8 flex items-center gap-2 text-sm text-muted-foreground">
-          <Loader2 className="h-4 w-4 animate-spin" />
-          Loading project…
-        </div>
+        <ProjectDetailSkeleton />
       ) : isError ? (
         <p className="mt-8 text-sm text-destructive">
           Failed to load project: {(error as Error)?.message ?? 'unknown error'}
