@@ -146,6 +146,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/users/activity': 'users.activity.view',
   '/users/roles': 'roles.assign',
   '/users/role-management': 'roles.create',
+  '/users/permissions-audit': 'roles.create',
 
   // Application Hub
   '/application-hub': 'application_hub.view',
@@ -489,6 +490,8 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/startup-studio/events/[id]/vote': 'startup_studio.events.view',
   '/startup-studio/events/[id]/checklists': 'startup_studio.checklists.manage',
   '/startup-studio/events/[id]/dashboard': 'startup_studio.analytics.view',
+  '/startup-studio/events/[id]/declare': 'startup_studio.events.view',
+  '/startup-studio/events/[id]/case-study': 'startup_studio.events.view',
 
   // ── Module-root permissions for sections added so the smart accordion
   //    can surface depth-2 children. Granting `<module>.view` to a role
