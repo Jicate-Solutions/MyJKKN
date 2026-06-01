@@ -1,7 +1,7 @@
 'use client';
 
 // ============================================================================
-// /admin/hostel/allocation-rules — Premium-stay allocation rules editor
+// /campus-living/premium/allocation-rules — Premium-stay allocation rules editor (relocated from /admin/hostel 2026-06-01)
 // ============================================================================
 // Surfaces the 7 hostel.premium.* / hostel.premium_plus.* platform_policies
 // rows as English-consequence widgets per Director's D-lock 2026-05-26.
@@ -170,8 +170,7 @@ export default function HostelAllocationRulesPage() {
       <ContentLayout>
         <PageBreadcrumb
           items={[
-            { label: 'Admin', href: '/admin' },
-            { label: 'Hostel', href: '/admin/hostel' },
+            { label: 'Campus Living', href: '/campus-living' },
             { label: 'Allocation Rules' },
           ]}
         />

@@ -1,7 +1,7 @@
 'use client';
 
 // ============================================================================
-// /admin/mess/insights — Chairperson insights dashboard
+// /campus-living/mess/insights — Chairperson insights dashboard (relocated from /admin/mess 2026-06-01)
 // ============================================================================
 // Aggregates from mess_meal_ratings via fn_get_popular_items + raw
 // rated_at rows for activity-by-day. Per Director lock 2026-05-26: not
@@ -142,7 +142,7 @@ export default function MessInsightsPage() {
         <header className="mb-6 flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <Link
-              href="/admin/mess"
+              href="/campus-living/mess"
               className="text-muted-foreground hover:text-foreground"
             >
               <ChevronLeft className="h-5 w-5" />

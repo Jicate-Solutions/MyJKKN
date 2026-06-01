@@ -57,7 +57,7 @@ export default function PremiumStayAuditLogPage() {
             free-text search across learner names, actors, and reasons. Visit
             the{' '}
             <Link
-              href="/admin/campus-living/premium/override"
+              href="/campus-living/premium/override"
               className="font-medium underline underline-offset-2 hover:text-foreground"
             >
               override page

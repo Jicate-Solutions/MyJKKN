@@ -1,5 +1,5 @@
 'use client';
-// app/(routes)/admin/hostel/rooms/page.tsx
+// app/(routes)/campus-living/rooms/page.tsx (relocated from admin/hostel 2026-06-01)
 //
 // Hostel rooms v2 PR 4a (2026-05-26)
 //

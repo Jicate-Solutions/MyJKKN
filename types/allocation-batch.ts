@@ -22,6 +22,9 @@ export interface AllocationBatchRow extends AllocationBatch {
   category_name: string | null;
   institution_name: string | null;
   block_name: string | null;
+  // Populated by getBatch (detail) only; the list (getBatches) omits them.
+  block_total_capacity?: number | null;
+  block_current_occupancy?: number | null;
 }
 
 export interface AllocatePreview {
@@ -34,6 +37,8 @@ export interface AllocatePreview {
 export interface ProposedAllocation {
   id: string;
   learner_name: string;
+  learner_institution: string | null;
+  learner_program: string | null;
   block_name: string | null;
   room_number: string | null;
   bed_number: string | null;

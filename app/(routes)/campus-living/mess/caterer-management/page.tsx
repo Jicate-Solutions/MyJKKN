@@ -1,7 +1,7 @@
 'use client';
 
 // ============================================================================
-// /admin/mess/caterers — Caterer admin (rename, set gender_served, edit phone)
+// /campus-living/mess/caterer-management — Caterer admin: rename, set gender_served (drives dispatch), edit phone (relocated from /admin/mess/caterers 2026-06-01)
 // ============================================================================
 // Director uses this page to:
 //   • Rename the seed placeholders ("Boys Hostel Caterer" / "Girls Hostel

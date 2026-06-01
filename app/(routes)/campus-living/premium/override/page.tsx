@@ -58,7 +58,7 @@ export default function PremiumStayOverridePage() {
             roommate conflict resolution, block closure for renovation, parent
             request escalation. Every override leaves an entry in the{' '}
             <Link
-              href="/admin/campus-living/premium/audit-log"
+              href="/campus-living/premium/audit-log"
               className="font-medium underline underline-offset-2 hover:text-foreground"
             >
               audit log

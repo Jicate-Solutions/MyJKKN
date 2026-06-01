@@ -1,5 +1,5 @@
 'use client';
-// app/(routes)/admin/hostel/rooms/_components/room-college-access-dialog.tsx
+// app/(routes)/campus-living/rooms/_components/room-college-access-dialog.tsx (relocated 2026-06-01)
 //
 // Hostel rooms v2 PR 4a (2026-05-26)
 //

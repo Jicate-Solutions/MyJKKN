@@ -1,9 +1,9 @@
 'use client';
 
 // ============================================================================
-// /admin/mess/menu/[tier] — Weekly menu editor for a single tier.
+// /campus-living/mess/menu-editor/[tier] — Weekly menu editor for a single tier (relocated from /admin/mess 2026-06-01).
 // ============================================================================
-// URL: /admin/mess/menu/standard or /admin/mess/menu/premium
+// URL: /campus-living/mess/menu-editor/standard or /campus-living/mess/menu-editor/premium
 // (uses tier_key values from the hostel_tier_policy ladder per Director D2
 // lock 2026-05-25)
 //
@@ -136,7 +136,7 @@ export default function MessMenuEditorPage() {
         {/* Tier toggle */}
         <nav aria-label="Tier picker" className="mb-4 flex flex-wrap gap-2">
           {VALID_TIERS.map((t) => (
-            <Link key={t} href={`/admin/mess/menu/${t}`}>
+            <Link key={t} href={`/campus-living/mess/menu-editor/${t}`}>
               <Badge
                 variant={t === tierKey ? 'default' : 'outline'}
                 className="cursor-pointer text-sm px-3 py-1"
@@ -164,7 +164,7 @@ export default function MessMenuEditorPage() {
             ) : !catererId ? (
               <p className="text-sm text-muted-foreground">
                 No active caterer for this institution. Add one via the{' '}
-                <Link href="/admin/mess/caterers" className="underline">
+                <Link href="/campus-living/mess/caterer-management" className="underline">
                   Caterers
                 </Link>{' '}
                 page first.

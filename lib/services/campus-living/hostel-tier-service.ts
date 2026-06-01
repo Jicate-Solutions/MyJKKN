@@ -3,7 +3,7 @@
 // ============================================================================
 // Spec: .claude/scratch/premium-stay-spec-2026-05-16.html
 // Migration: supabase/migrations/20260516131800_create_hostel_tier_policy.sql
-// Companion admin UI: app/(routes)/admin/campus-living/tier-policy/page.tsx
+// Companion admin UI: app/(routes)/campus-living/premium/tier-policy/page.tsx
 //
 // CRUD against hostel_tier_policy. Mirrors the consultant_tier_policy
 // service pattern (PR #874) with the cardinal difference being:
