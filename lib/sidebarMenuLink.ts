@@ -1925,18 +1925,9 @@ export function GetPages(pathname: string): MenuGroup[] {
         }
       ]
     },
-    {
-      groupLabel: 'OKR',
-      menus: [
-        {
-          href: '/okr',
-          label: 'OKR & Performance',
-          active: pathname.startsWith('/okr'),
-          icon: Target,
-          submenus: []
-        }
-      ]
-    },
+    // OKR menu retired 2026-06-01 — superseded by Projects (unified work-management).
+    // OKR's data tables were dropped in PR #1114 so its dashboard only errors/zeros.
+    // Routes remain at /okr (direct-URL) but are removed from the sidebar.
     {
       groupLabel: 'Projects',
       menus: [
