@@ -29,7 +29,7 @@ import toast from 'react-hot-toast';
 import { AdmissionErrorBoundary } from '@/components/admission';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import { FeesStructureDimensionSelector } from '../../_components/fees-structure-dimension-selector';
-import { NewStructureForm } from '../../_components/fees-structure-form';
+import { NewStructureForm, filterFeeStructureCategories } from '../../_components/fees-structure-form';
 import { FeeStructureService } from '@/lib/services/admission/fee-structure-service';
 import { BillingCategoryService } from '@/lib/services/billing/categories/billing-category-service';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
@@ -130,7 +130,7 @@ function CloneFeeStructurePageContent({ id }: { id: string }) {
           return;
         }
 
-        setCategories(cats);
+        setCategories(filterFeeStructureCategories(cats));
         setCommunityOptions(comms);
         setSourceName(source.name);
 
@@ -141,7 +141,6 @@ function CloneFeeStructurePageContent({ id }: { id: string }) {
           department_id: source.department_id,
           programme_id: source.programme_id,
           quota_id: source.quota_id,
-          accommodation_type_id: source.accommodation_type_id,
           admission_year_id: source.admission_year_id,
           gender: source.gender ?? undefined,
         });
@@ -191,8 +190,7 @@ function CloneFeeStructurePageContent({ id }: { id: string }) {
     selectedDims.department_id &&
     selectedDims.programme_id &&
     selectedDims.admission_year_id &&
-    selectedDims.quota_id &&
-    selectedDims.accommodation_type_id
+    selectedDims.quota_id
   );
 
   return (

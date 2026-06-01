@@ -891,7 +891,6 @@ export function LearnerDetail({ learner }: LearnerDetailProps) {
                     { name: 'uniform_fee', label: 'Uniform Fee' },
                     { name: 'hospital_training_fee', label: 'Hospital Training Fee' },
                     { name: 'placement_fee', label: 'Placement Fee' },
-                    { name: 'transport_fee', label: 'Transport Fee' },
                   ];
                   const presentLegacy = legacyFields.filter(
                     ({ name }) =>

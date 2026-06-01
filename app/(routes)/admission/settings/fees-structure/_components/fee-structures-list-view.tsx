@@ -10,7 +10,7 @@
 //
 // 2026-05-18: Advanced filters expanded to match the 7-dimensional matrix
 // key of fee structures (institution × degree × department × programme ×
-// admission year × quota × accommodation, plus community via junction).
+// admission year × quota, plus community via junction).
 // Primary row keeps Institution + Status + Search; the rest live in an
 // "More" panel that cascades the same way as fees-structure-dimension-selector.
 
@@ -37,7 +37,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { Filter, Plus, RotateCcw, Trash2 } from 'lucide-react';
+import { Download, Filter, Plus, RotateCcw, Trash2, Upload } from 'lucide-react';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import { usePermissions } from '@/hooks/use-permissions';
 import { FeeStructureService } from '@/lib/services/admission/fee-structure-service';
@@ -47,6 +47,7 @@ import { ProgramService } from '@/lib/services/organization/program-service';
 import { AdmissionYearService } from '@/lib/services/admission/admission-year-service';
 import { LookupService } from '@/lib/services/admission/lookup-service';
 import { columns, type FeeStructureRow } from './columns';
+import { BulkFeeStructureDialog } from './bulk-fee-structure-dialog';
 
 interface Option {
   id: string;
@@ -87,6 +88,18 @@ export function FeeStructuresListView() {
   const { institutions } = useInstitutionsWithAccess();
   const { isSuperAdmin, canPerformAll } = usePermissions();
   const canBulkDelete = isSuperAdmin || canPerformAll('admission_fees', ['delete']);
+  const canManage = isSuperAdmin || canPerformAll('admission_fees', ['manage']);
+  const [bulkOpen, setBulkOpen] = useState(false);
+
+  const downloadTemplate = () => {
+    window.open('/api/admission/fees-structure/template', '_blank');
+  };
+  const exportForEdit = () => {
+    const params = new URLSearchParams();
+    if (institutionFilter !== ALL) params.set('institution_id', institutionFilter);
+    if (statusFilter !== ALL) params.set('status', statusFilter);
+    window.open(`/api/admission/fees-structure/export?${params.toString()}`, '_blank');
+  };
 
   // Primary filters (always visible)
   const [institutionFilter, setInstitutionFilter] = useState<string>(ALL);
@@ -99,7 +112,6 @@ export function FeeStructuresListView() {
   const [admissionYearFilter, setAdmissionYearFilter] = useState<string>(ALL);
   const [quotaFilter, setQuotaFilter] = useState<string>(ALL);
   const [communityFilter, setCommunityFilter] = useState<string>(ALL);
-  const [accommodationFilter, setAccommodationFilter] = useState<string>(ALL);
 
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [refetchKey, setRefetchKey] = useState(0);
@@ -113,16 +125,13 @@ export function FeeStructuresListView() {
 
   // Raw data for independent filters — loaded once on mount, resolved to
   // ID arrays at query time so they work across institutions/programmes.
-  const [allAccommodationTypes, setAllAccommodationTypes] = useState<
-    Array<{ id: string; name: string; institution_id: string }>
-  >([]);
   const [allAdmissionYears, setAllAdmissionYears] = useState<
     Array<{ id: string; name: string }>
   >([]);
 
-  // Global lookups — quotas, communities, accommodation types, admission
-  // years — load once. RLS scopes accommodation types and admission years
-  // to the caller's accessible institutions automatically.
+  // Global lookups — quotas, communities, admission years — load once. RLS
+  // scopes admission years to the caller's accessible institutions
+  // automatically.
   useEffect(() => {
     LookupService.listQuotas(true)
       .then((rows) => setQuotas(rows.map((r) => ({ id: r.id, name: r.name }))))
@@ -130,13 +139,6 @@ export function FeeStructuresListView() {
     LookupService.listCommunityCategories(true)
       .then((rows) => setCommunities(rows.map((r) => ({ id: r.id, name: r.name }))))
       .catch(() => setCommunities([]));
-    LookupService.listAllActiveAccommodationTypes()
-      .then((rows) =>
-        setAllAccommodationTypes(
-          rows.map((r) => ({ id: r.id, name: r.name, institution_id: r.institution_id })),
-        ),
-      )
-      .catch(() => setAllAccommodationTypes([]));
     AdmissionYearService.listAllActiveYearNames()
       .then((rows) =>
         setAllAdmissionYears(
@@ -145,21 +147,6 @@ export function FeeStructuresListView() {
       )
       .catch(() => setAllAdmissionYears([]));
   }, []);
-
-  // Accommodation dropdown — deduplicated by name, scoped to institution
-  // when one is selected to keep the list tight.
-  const accommodationOptions = useMemo(() => {
-    const filtered =
-      institutionFilter !== ALL
-        ? allAccommodationTypes.filter((t) => t.institution_id === institutionFilter)
-        : allAccommodationTypes;
-    const seen = new Set<string>();
-    return filtered.filter((t) => {
-      if (seen.has(t.name)) return false;
-      seen.add(t.name);
-      return true;
-    });
-  }, [allAccommodationTypes, institutionFilter]);
 
   // Admission year dropdown — deduplicated by name across all programmes.
   const admissionYearOptions = useMemo(() => {
@@ -240,7 +227,7 @@ export function FeeStructuresListView() {
   const bumpRefetch = useCallback(() => setRefetchKey((k) => k + 1), []);
 
   // Hierarchy cascade: institution → degree → department → programme.
-  // Accommodation and admission year are independent — NOT reset here.
+  // Admission year is independent — NOT reset here.
   const handleInstitutionChange = (v: string) => {
     setInstitutionFilter(v);
     setDegreeFilter(ALL);
@@ -281,7 +268,6 @@ export function FeeStructuresListView() {
     setAdmissionYearFilter(ALL);
     setQuotaFilter(ALL);
     setCommunityFilter(ALL);
-    setAccommodationFilter(ALL);
     bumpRefetch();
   };
 
@@ -296,7 +282,6 @@ export function FeeStructuresListView() {
       admissionYearFilter,
       quotaFilter,
       communityFilter,
-      accommodationFilter,
     ].filter((v) => v !== ALL).length;
   }, [
     degreeFilter,
@@ -305,7 +290,6 @@ export function FeeStructuresListView() {
     admissionYearFilter,
     quotaFilter,
     communityFilter,
-    accommodationFilter,
   ]);
 
   const hasAnyFilter =
@@ -357,20 +341,6 @@ export function FeeStructuresListView() {
   }) => {
     try {
       // Resolve name-based filters to ID arrays for cross-institution matching.
-      const resolvedAccommodationIds =
-        accommodationFilter === ALL
-          ? undefined
-          : (institutionFilter !== ALL
-              ? allAccommodationTypes.filter(
-                  (t) =>
-                    t.name === accommodationFilter &&
-                    t.institution_id === institutionFilter,
-                )
-              : allAccommodationTypes.filter(
-                  (t) => t.name === accommodationFilter,
-                )
-            ).map((t) => t.id);
-
       const resolvedAdmissionYearIds =
         admissionYearFilter === ALL
           ? undefined
@@ -392,7 +362,6 @@ export function FeeStructuresListView() {
         quota_id: quotaFilter === ALL ? undefined : quotaFilter,
         community_category_id:
           communityFilter === ALL ? undefined : communityFilter,
-        accommodation_type_ids: resolvedAccommodationIds,
         status:
           statusFilter === ALL
             ? undefined
@@ -531,13 +500,27 @@ export function FeeStructuresListView() {
             <Plus className="h-4 w-4 mr-1" />
             New Fee Structure
           </Button>
+
+          {canManage && (
+            <>
+              <Button variant="outline" size="sm" onClick={downloadTemplate}>
+                <Download className="h-4 w-4 mr-1" /> Template
+              </Button>
+              <Button variant="outline" size="sm" onClick={exportForEdit}>
+                <Upload className="h-4 w-4 mr-1 rotate-180" /> Export for Edit
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => setBulkOpen(true)}>
+                <Upload className="h-4 w-4 mr-1" /> Bulk Import
+              </Button>
+            </>
+          )}
         </div>
 
         {/* Advanced filters grid — full card width, responsive columns.
             Cascade order mirrors fees-structure-dimension-selector:
             institution → degree → department → programme → admission_year.
-            Quota + Community are global lookups; Accommodation is
-            institution-scoped. Disabled until their parent is set. */}
+            Quota + Community are global lookups. Disabled until their parent
+            is set. */}
         {showAdvanced && (
           <div
             id="fee-structures-advanced-filters"
@@ -700,26 +683,6 @@ export function FeeStructuresListView() {
                 </Select>
               </div>
 
-              {/* Accommodation (independent — works across institutions) */}
-              <div className="space-y-1">
-                <Label className="text-xs">Accommodation</Label>
-                <Select
-                  value={accommodationFilter}
-                  onValueChange={handleSimpleChange(setAccommodationFilter)}
-                >
-                  <SelectTrigger className="w-full h-8 text-xs">
-                    <SelectValue placeholder="All accommodations" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={ALL}>All accommodations</SelectItem>
-                    {accommodationOptions.map((a) => (
-                      <SelectItem key={a.name} value={a.name}>
-                        {a.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
             </div>
           </div>
         )}
@@ -777,7 +740,6 @@ export function FeeStructuresListView() {
             admission_year_name: 'Admission Year',
             quota_name: 'Quota',
             community_name: 'Community',
-            accommodation_name: 'Accommodation',
             item_count: 'Items',
             status: 'Status',
           },
@@ -828,6 +790,12 @@ export function FeeStructuresListView() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <BulkFeeStructureDialog
+        open={bulkOpen}
+        onOpenChange={setBulkOpen}
+        onImported={bumpRefetch}
+      />
     </>
   );
 }

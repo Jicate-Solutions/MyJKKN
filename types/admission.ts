@@ -1609,10 +1609,13 @@ export interface AdmissionFeeStructure {
   department_id: string;
   programme_id: string;
   quota_id: string;
-  // Communities live in the admission_fee_structure_communities junction
-  // (migration 20260507120001). One structure → N communities. The list is
-  // surfaced on read shapes via `community_category_ids`. No single-community
-  // FK lives on this table any more.
+  // Vestigial: accommodation is NO LONGER a fee-matching dimension (hostel
+  // fees moved to campus-living). The DB column remains for back-compat and is
+  // still referenced by the fee change-event subsystem + learner shadow-FK
+  // sync, but the admission fee-structure UI no longer reads or writes it.
+  // New structures leave it NULL. Communities live in the
+  // admission_fee_structure_communities junction (migration 20260507120001) —
+  // surfaced on read shapes via `community_category_ids`.
   accommodation_type_id: string;
   admission_year_id: string;
   /** Optional gender filter. null = any gender. 'MALE'/'FEMALE' = gender-specific. */
@@ -1659,7 +1662,6 @@ export type CreateAdmissionFeeStructureInput =
     | 'department_id'
     | 'programme_id'
     | 'quota_id'
-    | 'accommodation_type_id'
     | 'admission_year_id'
     | 'name'
   > &
@@ -1678,7 +1680,7 @@ export type UpdateAdmissionFeeStructureInput =
     // overlap-prevention trigger on the junction will reject conflicting
     // moves; the UI layer warns the admin before submit.
     | 'institution_id' | 'degree_id' | 'department_id' | 'programme_id'
-    | 'quota_id' | 'accommodation_type_id' | 'admission_year_id'
+    | 'quota_id' | 'admission_year_id'
     | 'gender'
   >> & {
     /** When provided, replaces the community set for this structure. */
