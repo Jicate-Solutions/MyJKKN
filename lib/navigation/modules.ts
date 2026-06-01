@@ -101,6 +101,9 @@ export const MODULES: Module[] = [
   { slug: 'admin', label: 'Administration', icon: 'Shield', section: 'Administration', hasNavConfig: false },
   { slug: 'audit-trail', label: 'Audit Trail', icon: 'ScrollText', section: 'Administration', hasNavConfig: false },
 
+  // ── Projects (unified work-management, absorbs OKR) ───────────────────
+  { slug: 'projects', label: 'Projects', icon: 'FolderKanban', section: 'OKR', hasNavConfig: true },
+
   // ── OKR ───────────────────────────────────────────────────────────────
   { slug: 'okr', label: 'OKR & Performance', icon: 'Target', section: 'OKR', hasNavConfig: true },
 
