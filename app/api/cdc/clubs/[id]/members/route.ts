@@ -14,7 +14,7 @@ export async function GET(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const members = await ClubService.listMembers(id);
+    const members = await ClubService.listMembers(supabase, id);
     return NextResponse.json(members);
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : 'Internal server error';
@@ -39,7 +39,7 @@ export async function POST(
       return NextResponse.json({ error: 'learner_id is required' }, { status: 400 });
     }
 
-    await ClubService.addMember(id, body);
+    await ClubService.addMember(supabase, id, body);
     return NextResponse.json({ success: true }, { status: 201 });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : 'Internal server error';
@@ -64,7 +64,7 @@ export async function DELETE(
       return NextResponse.json({ error: 'learner_id is required' }, { status: 400 });
     }
 
-    await ClubService.removeMember(id, learner_id);
+    await ClubService.removeMember(supabase, id, learner_id);
     return NextResponse.json({ success: true });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : 'Internal server error';

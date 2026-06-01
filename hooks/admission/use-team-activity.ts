@@ -28,7 +28,13 @@ export type TeamActivityType =
   | 'whatsapp'
   | 'stage_change'
   | 'task'
-  | 'cascade';
+  | 'cascade'
+  | 'lead_created'
+  | 'enquiry_submitted'
+  | 'student_section_filled'
+  | 'moved_to_account_verified'
+  | 'moved_to_counselor'
+  | 'manual_edit';
 
 export const TEAM_ACTIVITY_TYPES: readonly TeamActivityType[] = [
   'call',
@@ -40,6 +46,12 @@ export const TEAM_ACTIVITY_TYPES: readonly TeamActivityType[] = [
   'stage_change',
   'task',
   'cascade',
+  'lead_created',
+  'enquiry_submitted',
+  'student_section_filled',
+  'moved_to_account_verified',
+  'moved_to_counselor',
+  'manual_edit',
 ] as const;
 
 // ── Day RPC row shape (one per event) ────────────────────────────────────────

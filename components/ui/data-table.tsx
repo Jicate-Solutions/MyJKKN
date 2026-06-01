@@ -224,6 +224,11 @@ interface DataTableProps<TData, TValue> {
   onSearch?: (query: string) => void;
 
   /**
+   * Initial value for the search input (useful when restoring from URL params).
+   */
+  initialSearch?: string;
+
+  /**
    * Server-side pagination configuration
    * If provided, disables client-side pagination and uses external pagination
    */
@@ -266,6 +271,7 @@ export function DataTable<TData, TValue>({
   onRefresh,
   showRefresh = true,
   onSearch,
+  initialSearch = '',
   serverSidePagination,
   rowSelection: externalRowSelection,
   onRowSelectionChange: externalOnRowSelectionChange,
@@ -274,7 +280,7 @@ export function DataTable<TData, TValue>({
   const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>(
     []
   );
-  const [globalFilter, setGlobalFilter] = React.useState('');
+  const [globalFilter, setGlobalFilter] = React.useState(initialSearch);
   const [columnVisibility, setColumnVisibility] =
     React.useState<VisibilityState>({});
   

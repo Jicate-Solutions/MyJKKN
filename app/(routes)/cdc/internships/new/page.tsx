@@ -6,10 +6,18 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { ArrowLeft, Save } from 'lucide-react';
+import { format } from 'date-fns';
+import { ArrowLeft, Save, Calendar as CalendarIcon } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import { Button } from '@/components/ui/button';
+import { Calendar } from '@/components/ui/calendar';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover';
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -28,17 +36,25 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { SearchableSelect } from '@/components/ui/searchable-select';
 import { useCdcInternshipCreate } from '@/hooks/cdc/use-cdc-internships';
 import { CdcInternshipService } from '@/lib/services/cdc/internship-service';
-import { useAuth } from '@/hooks/use-auth';
+import { useLearnersForPicker, useStaffForPicker } from '@/hooks/cdc/use-cdc-pickers';
 
 interface Cycle { id: string; cycle_name: string; start_date: string; end_date: string; }
 interface Site  { id: string; site_name: string; city: string | null; state: string | null; }
 
+// Placeholder for the form's initial render only. The authoritative default is
+// the cdc.min_attendance_pct_for_internship_certificate policy: it is fetched on
+// mount (see useEffect below) and the service overrides any omitted value at
+// create time. This literal is never the source of truth, only a first-paint value.
+const DEFAULT_REQUIRED_ATTENDANCE_PCT = 75;
+
 export default function NewCdcInternshipPage() {
   const router = useRouter();
-  const { user } = useAuth();
   const { createInternship, loading } = useCdcInternshipCreate();
+  const { data: learnerOptions = [], isLoading: learnersLoading } = useLearnersForPicker();
+  const { data: staffOptions = [], isLoading: staffLoading } = useStaffForPicker();
 
   const [cycles, setCycles] = useState<Cycle[]>([]);
   const [sites, setSites] = useState<Site[]>([]);
@@ -49,7 +65,7 @@ export default function NewCdcInternshipPage() {
     cycle_id: '',
     rotation_start_date: '',
     rotation_end_date: '',
-    required_attendance_pct: 75,
+    required_attendance_pct: DEFAULT_REQUIRED_ATTENDANCE_PCT,
     department_rotation: '',
   });
   const [institutionId, setInstitutionId] = useState<string>('');
@@ -58,6 +74,11 @@ export default function NewCdcInternshipPage() {
     // Load institution from user profile and fetch cycles/sites
     const init = async () => {
       try {
+        // Seed the required-attendance default from the policy (global row),
+        // so the form's initial value matches what the service would apply.
+        const policyDefault = await CdcInternshipService.getDefaultRequiredAttendancePct();
+        setFormData(p => ({ ...p, required_attendance_pct: policyDefault }));
+
         // For now, fetch user profile to get institution_id
         const res = await fetch('/api/users/profile');
         const json = await res.json();
@@ -81,7 +102,14 @@ export default function NewCdcInternshipPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.learner_id || !formData.site_id || !formData.facilitator_id || !formData.cycle_id) {
+    if (
+      !formData.learner_id ||
+      !formData.site_id ||
+      !formData.facilitator_id ||
+      !formData.cycle_id ||
+      !formData.rotation_start_date ||
+      !formData.rotation_end_date
+    ) {
       return;
     }
     const created = await createInternship(
@@ -104,6 +132,58 @@ export default function NewCdcInternshipPage() {
 
   const set = (key: string) => (val: string) =>
     setFormData(prev => ({ ...prev, [key]: val }));
+
+  // Parse an ISO yyyy-mm-dd string to a Date without timezone drift.
+  const parseIsoDate = (iso: string): Date | undefined => {
+    if (!iso) return undefined;
+    const d = new Date(`${iso}T00:00:00`);
+    return isNaN(d.getTime()) ? undefined : d;
+  };
+
+  // Convert a calendar-selected Date back to ISO yyyy-mm-dd (what the backend expects).
+  const toIsoDate = (date: Date | undefined): string => {
+    if (!date) return '';
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
+  // Indian dd/mm/yyyy date field. Stores the value as ISO yyyy-mm-dd in formData
+  // (unchanged submission contract) but DISPLAYS it as dd/mm/yyyy, instead of the
+  // native <input type="date"> whose displayed order follows the browser/OS locale
+  // (mm/dd/yyyy in US locales) — BUG-004051.
+  const renderDateField = (key: 'rotation_start_date' | 'rotation_end_date', id: string) => {
+    const iso = formData[key];
+    const selected = parseIsoDate(iso);
+    return (
+      <Popover>
+        <PopoverTrigger asChild>
+          <Button
+            id={id}
+            type="button"
+            variant="outline"
+            className={cn(
+              'w-full justify-start text-left font-normal',
+              !selected && 'text-muted-foreground'
+            )}
+          >
+            <CalendarIcon className="mr-2 h-4 w-4 opacity-50" />
+            {selected ? format(selected, 'dd/MM/yyyy') : <span>dd/mm/yyyy</span>}
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent className="w-auto p-0" align="start">
+          <Calendar
+            mode="single"
+            selected={selected}
+            onSelect={(date) => set(key)(toIsoDate(date ?? undefined))}
+            disabled={(date) => date < new Date('1900-01-01')}
+            initialFocus
+          />
+        </PopoverContent>
+      </Popover>
+    );
+  };
 
   return (
     <PermissionGuard module="cdc.internships" action="create">
@@ -158,13 +238,10 @@ export default function NewCdcInternshipPage() {
                     </SelectContent>
                   </Select>
                 ) : (
-                  <Input
-                    id="cycle_id"
-                    placeholder="Cycle UUID"
-                    value={formData.cycle_id}
-                    onChange={e => set('cycle_id')(e.target.value)}
-                    required
-                  />
+                  <div className="px-3 py-2 rounded-md border bg-gray-50 text-sm text-gray-500">
+                    No internship cycles configured for this institution yet. Add one in the
+                    internship cycle setup before assigning.
+                  </div>
                 )}
               </div>
 
@@ -185,67 +262,52 @@ export default function NewCdcInternshipPage() {
                     </SelectContent>
                   </Select>
                 ) : (
-                  <Input
-                    id="site_id"
-                    placeholder="Site UUID"
-                    value={formData.site_id}
-                    onChange={e => set('site_id')(e.target.value)}
-                    required
-                  />
-                )}
-                {sites.length === 0 && (
-                  <p className="text-xs text-gray-400">
-                    No corporate sites found for this institution.{' '}
-                    Add one in the internship sites setup before assigning.
-                  </p>
+                  <div className="px-3 py-2 rounded-md border bg-gray-50 text-sm text-gray-500">
+                    No corporate sites found for this institution. Add one in the internship
+                    sites setup before assigning.
+                  </div>
                 )}
               </div>
 
-              {/* Learner ID */}
+              {/* Learner */}
               <div className="grid gap-1">
-                <Label htmlFor="learner_id">Learner ID <span className="text-red-500">*</span></Label>
-                <Input
-                  id="learner_id"
-                  placeholder="Learner UUID"
+                <Label htmlFor="learner_id">Learner <span className="text-red-500">*</span></Label>
+                <SearchableSelect
                   value={formData.learner_id}
-                  onChange={e => set('learner_id')(e.target.value)}
-                  required
+                  onValueChange={set('learner_id')}
+                  options={learnerOptions}
+                  placeholder="Search by name or register number…"
+                  searchPlaceholder="Type to search learners…"
+                  emptyMessage="No matching learners"
+                  loading={learnersLoading}
+                  className="w-full"
                 />
               </div>
 
-              {/* Facilitator ID */}
+              {/* Facilitator */}
               <div className="grid gap-1">
-                <Label htmlFor="facilitator_id">Facilitator / coordinator ID <span className="text-red-500">*</span></Label>
-                <Input
-                  id="facilitator_id"
-                  placeholder="Staff UUID"
+                <Label htmlFor="facilitator_id">Facilitator / coordinator <span className="text-red-500">*</span></Label>
+                <SearchableSelect
                   value={formData.facilitator_id}
-                  onChange={e => set('facilitator_id')(e.target.value)}
-                  required
+                  onValueChange={set('facilitator_id')}
+                  options={staffOptions}
+                  placeholder="Search staff by name or staff ID…"
+                  searchPlaceholder="Type to search staff…"
+                  emptyMessage="No matching staff"
+                  loading={staffLoading}
+                  className="w-full"
                 />
               </div>
 
-              {/* Dates */}
+              {/* Dates — dd/mm/yyyy display (Indian standard); value stored as ISO yyyy-mm-dd */}
               <div className="grid grid-cols-2 gap-4">
                 <div className="grid gap-1">
                   <Label htmlFor="start_date">Start date <span className="text-red-500">*</span></Label>
-                  <Input
-                    id="start_date"
-                    type="date"
-                    value={formData.rotation_start_date}
-                    onChange={e => set('rotation_start_date')(e.target.value)}
-                    required
-                  />
+                  {renderDateField('rotation_start_date', 'start_date')}
                 </div>
                 <div className="grid gap-1">
                   <Label htmlFor="end_date">End date <span className="text-red-500">*</span></Label>
-                  <Input
-                    id="end_date"
-                    type="date"
-                    value={formData.rotation_end_date}
-                    onChange={e => set('rotation_end_date')(e.target.value)}
-                    required
-                  />
+                  {renderDateField('rotation_end_date', 'end_date')}
                 </div>
               </div>
 
@@ -259,7 +321,7 @@ export default function NewCdcInternshipPage() {
                   max={100}
                   value={formData.required_attendance_pct}
                   onChange={e =>
-                    setFormData(p => ({ ...p, required_attendance_pct: parseInt(e.target.value) || 75 }))
+                    setFormData(p => ({ ...p, required_attendance_pct: parseInt(e.target.value) || DEFAULT_REQUIRED_ATTENDANCE_PCT }))
                   }
                 />
               </div>

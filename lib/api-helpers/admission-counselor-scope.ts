@@ -68,6 +68,7 @@ const LEAD_VIEW_ALLOWLIST_ROLE_KEYS = [
   'expo_counselor',
   'learner_counselor',
   'staff_counselor',
+  'seo',
 ] as const;
 
 export interface CounselorScope {

@@ -26,6 +26,7 @@ import {
 interface Props {
   lang: Language;
   data: Record<string, any>;
+  degreeType?: 'ug' | 'pg';
   onContinue: (fields: Record<string, any>) => void;
   onBack: () => void;
   submitting: boolean;
@@ -100,10 +101,12 @@ function SubjectInput({
 
 export function StepAcademicInformation({
   data,
+  degreeType,
   onContinue,
   onBack,
   submitting,
 }: Props) {
+  const isPG = degreeType === 'pg';
   const [v, setV] = useState({
     // tenth_marks JSONB:
     //   { max_marks, obtained_marks, percentage }
@@ -307,181 +310,212 @@ export function StepAcademicInformation({
         </h2>
       </header>
 
-      {/* Previous Schooling */}
-      <Section title={{ en: 'Previous Schooling', ta: 'கடந்த கல்வி' }}>
-        <Field label="Last School / கடந்த பள்ளி">
+      {/* Previous Schooling / College — always visible */}
+      <Section title={{ en: isPG ? 'Previous College' : 'Previous Schooling', ta: isPG ? 'முந்தைய கல்லூரி' : 'கடந்த கல்வி' }}>
+        <Field label={isPG ? 'College Name & Place / கல்லூரி பெயர் மற்றும் இடம்' : 'Last School / கடந்த பள்ளி'}>
           <Input
             value={v.last_school}
             onChange={(e) => set('last_school', e.target.value)}
-            placeholder="School name"
+            placeholder={isPG ? 'College name and place' : 'School name'}
             className="h-12"
           />
         </Field>
 
-        <Field label="Board of Study / வாரியம்">
-          <Select
-            value={v.board_of_study}
-            onValueChange={(s) => set('board_of_study', s)}
-          >
-            <SelectTrigger className="h-12">
-              <SelectValue placeholder="Select board / வாரியம் தேர்வு செய்க" />
-            </SelectTrigger>
-            <SelectContent>
-              {BOARD_OF_STUDY_OPTIONS.map((o) => (
-                <SelectItem key={o.value} value={o.value}>
-                  {o.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </Field>
-      </Section>
-
-      {/* 10th Marks */}
-      <Section title={{ en: '10th Standard Marks', ta: '10ஆம் வகுப்பு மதிப்பெண்' }}>
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="Max marks">
-            <Input
-              placeholder="e.g. 500"
-              inputMode="numeric"
-              type="number"
-              value={v.tenth_marks.max_marks ?? ''}
-              onChange={(e) => set10('max_marks', e.target.value)}
-              className="h-12"
-            />
+        {!isPG && (
+          <Field label="Board of Study / வாரியம்">
+            <Select
+              value={v.board_of_study}
+              onValueChange={(s) => set('board_of_study', s)}
+            >
+              <SelectTrigger className="h-12">
+                <SelectValue placeholder="Select board / வாரியம் தேர்வு செய்க" />
+              </SelectTrigger>
+              <SelectContent>
+                {BOARD_OF_STUDY_OPTIONS.map((o) => (
+                  <SelectItem key={o.value} value={o.value}>
+                    {o.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </Field>
-          <Field label="Obtained">
-            <Input
-              placeholder="e.g. 450"
-              inputMode="numeric"
-              type="number"
-              value={v.tenth_marks.obtained_marks ?? ''}
-              onChange={(e) => set10('obtained_marks', e.target.value)}
-              className="h-12"
-            />
-          </Field>
-        </div>
-        <Field label="Percentage / சதவீதம்" helper="Auto-calculated from max + obtained">
-          <Input
-            value={v.tenth_marks.percentage ?? ''}
-            readOnly
-            placeholder="—"
-            className="h-12 bg-muted/40"
-          />
-        </Field>
-      </Section>
-
-      {/* 12th Marks + Group */}
-      <Section title={{ en: '12th Standard Marks', ta: '12ஆம் வகுப்பு மதிப்பெண்' }}>
-        <Field label="Group / பிரிவு">
-          <Select
-            value={v.twelfth_marks.group ?? ''}
-            onValueChange={(s) => set12('group', s)}
-          >
-            <SelectTrigger className="h-12">
-              <SelectValue placeholder="Select group / பிரிவு தேர்வு செய்க" />
-            </SelectTrigger>
-            <SelectContent>
-              {GROUP_OPTIONS.map((o) => (
-                <SelectItem key={o.value} value={o.value}>
-                  {o.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </Field>
-
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="Max marks">
-            <Input
-              placeholder="e.g. 600"
-              inputMode="numeric"
-              type="number"
-              value={v.twelfth_marks.max_marks ?? ''}
-              onChange={(e) => set12('max_marks', e.target.value)}
-              className="h-12"
-            />
-          </Field>
-          <Field label="Obtained">
-            <Input
-              placeholder="e.g. 540"
-              inputMode="numeric"
-              type="number"
-              value={v.twelfth_marks.obtained_marks ?? ''}
-              onChange={(e) => set12('obtained_marks', e.target.value)}
-              className="h-12"
-            />
-          </Field>
-        </div>
-        <Field label="Percentage / சதவீதம்" helper="Auto-calculated from max + obtained">
-          <Input
-            value={v.twelfth_marks.percentage ?? ''}
-            readOnly
-            placeholder="—"
-            className="h-12 bg-muted/40"
-          />
-        </Field>
-
-        {/* Subject-wise marks (only shown once a group is picked) */}
-        {group && renderSubjects() && (
-          <div className="space-y-3 rounded-md border bg-muted/20 p-4">
-            <h4 className="text-sm font-medium">
-              Subject-wise marks{' '}
-              <span className="text-muted-foreground font-normal">
-                / பாட வாரியான மதிப்பெண்கள்
-              </span>
-            </h4>
-            <div className="grid grid-cols-2 gap-3">{renderSubjects()}</div>
-            <p className="text-xs text-muted-foreground">
-              Cutoff marks are calculated automatically.
-            </p>
-          </div>
-        )}
-
-        {/* Auto-calculated cutoffs (read-only, only shown when relevant subjects filled) */}
-        {showCutoffs && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 rounded-md border border-primary/30 bg-primary/5 p-4">
-            {v.engineering_cutoff_marks && (
-              <div>
-                <Label className="text-xs text-muted-foreground">Engineering Cutoff</Label>
-                <p className="text-lg font-semibold tabular-nums">{v.engineering_cutoff_marks}</p>
-              </div>
-            )}
-            {v.medical_cutoff_marks && (
-              <div>
-                <Label className="text-xs text-muted-foreground">Medical Cutoff</Label>
-                <p className="text-lg font-semibold tabular-nums">{v.medical_cutoff_marks}</p>
-              </div>
-            )}
-          </div>
         )}
       </Section>
 
-      {/* Entrance Exam (NEET) */}
-      <Section title={{ en: 'Entrance Exam (NEET)', ta: 'நுழைவுத் தேர்வு' }}>
-        <Field label="NEET Roll Number / NEET எண்">
-          <Input
-            value={v.neet_roll_number}
-            onChange={(e) => set('neet_roll_number', e.target.value)}
-            placeholder="Optional"
-            className="h-12"
-          />
-        </Field>
+      {/* PG-specific: Previous Qualification */}
+      {isPG && (
+        <Section title={{ en: 'Previous Qualification', ta: 'முந்தைய தகுதி' }}>
+          <Field label="Previous Course / Degree / முந்தைய பட்டம்">
+            <Input
+              value={v.twelfth_marks.course_name ?? ''}
+              onChange={(e) => set12('course_name', e.target.value)}
+              placeholder="e.g., B.Sc Computer Science"
+              className="h-12"
+            />
+          </Field>
+          <Field label="Previous Degree Percentage / முந்தைய சதவீதம்">
+            <Input
+              type="number"
+              inputMode="numeric"
+              value={v.twelfth_marks.percentage ?? ''}
+              onChange={(e) => set12('percentage', e.target.value)}
+              placeholder="e.g., 85"
+              className="h-12"
+            />
+          </Field>
+        </Section>
+      )}
 
-        <Field label="NEET Score">
-          <Input
-            value={v.neet_score}
-            onChange={(e) => set('neet_score', e.target.value)}
-            placeholder="Optional"
-            inputMode="numeric"
-            type="number"
-            className="h-12"
-          />
-        </Field>
-      </Section>
+      {/* UG-only: 10th Marks */}
+      {!isPG && (
+        <Section title={{ en: '10th Standard Marks', ta: '10ஆம் வகுப்பு மதிப்பெண்' }}>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Max marks">
+              <Input
+                placeholder="e.g. 500"
+                inputMode="numeric"
+                type="number"
+                value={v.tenth_marks.max_marks ?? ''}
+                onChange={(e) => set10('max_marks', e.target.value)}
+                className="h-12"
+              />
+            </Field>
+            <Field label="Obtained">
+              <Input
+                placeholder="e.g. 450"
+                inputMode="numeric"
+                type="number"
+                value={v.tenth_marks.obtained_marks ?? ''}
+                onChange={(e) => set10('obtained_marks', e.target.value)}
+                className="h-12"
+              />
+            </Field>
+          </div>
+          <Field label="Percentage / சதவீதம்" helper="Auto-calculated from max + obtained">
+            <Input
+              value={v.tenth_marks.percentage ?? ''}
+              readOnly
+              placeholder="—"
+              className="h-12 bg-muted/40"
+            />
+          </Field>
+        </Section>
+      )}
 
-      {/* Scholarship & Counseling — Quota and Entry Type moved to the
-          Course Selection step so they live alongside Institution/Program. */}
+      {/* UG-only: 12th Marks + Group */}
+      {!isPG && (
+        <Section title={{ en: '12th Standard Marks', ta: '12ஆம் வகுப்பு மதிப்பெண்' }}>
+          <Field label="Group / பிரிவு">
+            <Select
+              value={v.twelfth_marks.group ?? ''}
+              onValueChange={(s) => set12('group', s)}
+            >
+              <SelectTrigger className="h-12">
+                <SelectValue placeholder="Select group / பிரிவு தேர்வு செய்க" />
+              </SelectTrigger>
+              <SelectContent>
+                {GROUP_OPTIONS.map((o) => (
+                  <SelectItem key={o.value} value={o.value}>
+                    {o.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </Field>
+
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Max marks">
+              <Input
+                placeholder="e.g. 600"
+                inputMode="numeric"
+                type="number"
+                value={v.twelfth_marks.max_marks ?? ''}
+                onChange={(e) => set12('max_marks', e.target.value)}
+                className="h-12"
+              />
+            </Field>
+            <Field label="Obtained">
+              <Input
+                placeholder="e.g. 540"
+                inputMode="numeric"
+                type="number"
+                value={v.twelfth_marks.obtained_marks ?? ''}
+                onChange={(e) => set12('obtained_marks', e.target.value)}
+                className="h-12"
+              />
+            </Field>
+          </div>
+          <Field label="Percentage / சதவீதம்" helper="Auto-calculated from max + obtained">
+            <Input
+              value={v.twelfth_marks.percentage ?? ''}
+              readOnly
+              placeholder="—"
+              className="h-12 bg-muted/40"
+            />
+          </Field>
+
+          {/* Subject-wise marks (only shown once a group is picked) */}
+          {group && renderSubjects() && (
+            <div className="space-y-3 rounded-md border bg-muted/20 p-4">
+              <h4 className="text-sm font-medium">
+                Subject-wise marks{' '}
+                <span className="text-muted-foreground font-normal">
+                  / பாட வாரியான மதிப்பெண்கள்
+                </span>
+              </h4>
+              <div className="grid grid-cols-2 gap-3">{renderSubjects()}</div>
+              <p className="text-xs text-muted-foreground">
+                Cutoff marks are calculated automatically.
+              </p>
+            </div>
+          )}
+
+          {/* Auto-calculated cutoffs (read-only, only shown when relevant subjects filled) */}
+          {showCutoffs && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 rounded-md border border-primary/30 bg-primary/5 p-4">
+              {v.engineering_cutoff_marks && (
+                <div>
+                  <Label className="text-xs text-muted-foreground">Engineering Cutoff</Label>
+                  <p className="text-lg font-semibold tabular-nums">{v.engineering_cutoff_marks}</p>
+                </div>
+              )}
+              {v.medical_cutoff_marks && (
+                <div>
+                  <Label className="text-xs text-muted-foreground">Medical Cutoff</Label>
+                  <p className="text-lg font-semibold tabular-nums">{v.medical_cutoff_marks}</p>
+                </div>
+              )}
+            </div>
+          )}
+        </Section>
+      )}
+
+      {/* UG-only: Entrance Exam (NEET) */}
+      {!isPG && (
+        <Section title={{ en: 'Entrance Exam (NEET)', ta: 'நுழைவுத் தேர்வு' }}>
+          <Field label="NEET Roll Number / NEET எண்">
+            <Input
+              value={v.neet_roll_number}
+              onChange={(e) => set('neet_roll_number', e.target.value)}
+              placeholder="Optional"
+              className="h-12"
+            />
+          </Field>
+
+          <Field label="NEET Score">
+            <Input
+              value={v.neet_score}
+              onChange={(e) => set('neet_score', e.target.value)}
+              placeholder="Optional"
+              inputMode="numeric"
+              type="number"
+              className="h-12"
+            />
+          </Field>
+        </Section>
+      )}
+
+      {/* Scholarship & Counseling — always visible */}
       <Section title={{ en: 'Scholarship & Counseling', ta: 'உதவித்தொகை மற்றும் கவுன்சிலிங்' }}>
         <Field label="Scholarship Type / உதவித்தொகை வகை">
           <Select

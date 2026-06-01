@@ -7,7 +7,6 @@ import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { NextResponse , connection } from 'next/server';
 import type { NextRequest } from 'next/server';
-import toast from 'react-hot-toast';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { CategoryService } from '@/lib/services/application/category-service';
 
@@ -252,9 +251,8 @@ export async function PATCH(
     if (
       profileError ||
       !profile ||
-      !['super_admin', 'administrator'].includes(profile.role)
+      !['super_admin', 'admin', 'administrator'].includes(profile.role)
     ) {
-      toast.error('You are not authorized to update this application');
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
@@ -386,7 +384,7 @@ export async function DELETE(
     if (
       profileError ||
       !profile ||
-      !['super_admin', 'administrator'].includes(profile.role)
+      !['super_admin', 'admin', 'administrator'].includes(profile.role)
     ) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }

@@ -14,7 +14,6 @@ import {
   UNASSIGNED_BLOCK,
   type LearnerHostelite,
   type LearnerHostelitesFilters,
-  type LearnerHostelType,
   type LearnerDetailBundle,
   type LearnerHostelProfile,
   type LearnerCurrentAllocation,
@@ -35,7 +34,6 @@ const VIEW_SELECT = [
   'father_name',
   'mother_name',
   'accommodation_type',
-  'hostel_type',
   'hostel_fee',
   'dayscholar_fee',
   'institution_id',
@@ -45,6 +43,18 @@ const VIEW_SELECT = [
   'current_room_id',
   'current_bed_id',
   'current_allocation_id',
+  // Advanced-table additions
+  'degree_id',
+  'department_id',
+  'program_id',
+  'semester_id',
+  'section_id',
+  'academic_year_id',
+  'program_name',
+  'current_block_name',
+  'current_block_code',
+  'degree_name',
+  'semester_name',
 ].join(',');
 
 // learners_profiles columns NOT exposed on the view (used by mutations and the
@@ -60,7 +70,6 @@ const LEARNER_TABLE_SELECT = [
   'father_name',
   'mother_name',
   'accommodation_type',
-  'hostel_type',
   'hostel_fee',
   'dayscholar_fee',
   'institution_id',
@@ -101,9 +110,6 @@ export class LearnerHosteliteService {
         query = query.eq('institution_id', filters.institution_id);
       }
 
-      if (filters?.hostel_type)
-        query = query.eq('hostel_type', filters.hostel_type);
-
       if (filters?.year_of_study !== undefined && filters.year_of_study !== null)
         query = query.eq('year_of_study', filters.year_of_study);
 
@@ -125,6 +131,14 @@ export class LearnerHosteliteService {
         }
       }
 
+      // Academic cascade filters (parity with Learners Profiles).
+      if (filters?.degree_id) query = query.eq('degree_id', filters.degree_id);
+      if (filters?.department_id) query = query.eq('department_id', filters.department_id);
+      if (filters?.program_id) query = query.eq('program_id', filters.program_id);
+      if (filters?.semester_id) query = query.eq('semester_id', filters.semester_id);
+      if (filters?.section_id) query = query.eq('section_id', filters.section_id);
+      if (filters?.academic_year_id) query = query.eq('academic_year_id', filters.academic_year_id);
+
       if (filters?.search) {
         const s = filters.search.trim();
         if (s) {
@@ -134,9 +148,22 @@ export class LearnerHosteliteService {
         }
       }
 
+      const SORTABLE = new Set([
+        'roll_number',
+        'first_name',
+        'last_name',
+        'program_name',
+        'current_block_name',
+        'gender',
+      ]);
+      const sortColumn = filters?.sortBy && SORTABLE.has(filters.sortBy)
+        ? filters.sortBy
+        : 'roll_number';
+      const ascending = (filters?.sortOrder ?? 'asc') === 'asc';
+
       const from = (page - 1) * pageSize;
       query = query
-        .order('roll_number', { ascending: true })
+        .order(sortColumn, { ascending })
         .range(from, from + pageSize - 1);
 
       const { data, error, count } = await query;
@@ -155,22 +182,61 @@ export class LearnerHosteliteService {
   // Returns blocks the user can see (per RLS on hostel_blocks). Used to
   // populate the Block filter dropdown — all blocks for accessible
   // institutions, plus the "Unassigned" sentinel handled in UI.
+  //
+  // hostel-rooms-v2 PR 2 (2026-05-26): hostel_blocks.institution_id dropped;
+  // blocks now relate to colleges N:M via hostel_block_institutions. The
+  // returned shape gains institution_ids (string[]) replacing institution_id
+  // (string) for the consumer reconciliation logic.
   static async listBlocksForFilter(
     institutionId?: string,
-  ): Promise<Array<{ id: string; name: string; code: string; institution_id: string }>> {
+  ): Promise<Array<{ id: string; name: string; code: string; institution_ids: string[] }>> {
     try {
       const supabase = createClientSupabaseClient();
+
+      // Narrow via junction when institutionId provided.
+      let blockIdFilter: string[] | null = null;
+      if (institutionId) {
+        const { data: ids } = await supabase
+          .from('hostel_block_institutions')
+          .select('block_id')
+          .eq('institution_id', institutionId);
+        blockIdFilter = (ids ?? []).map((r) => r.block_id);
+      }
+
       let query = supabase
         .from('hostel_blocks')
-        .select('id,name,code,institution_id')
+        .select('id,name,code')
         .order('name', { ascending: true });
-      if (institutionId) query = query.eq('institution_id', institutionId);
+      if (blockIdFilter !== null) {
+        if (blockIdFilter.length === 0) return [];
+        query = query.in('id', blockIdFilter);
+      }
       const { data, error } = await query;
       if (error) {
         logger.error('campus-living/learner-hostelite', 'listBlocksForFilter failed', error);
         throw error;
       }
-      return data ?? [];
+      const blocks = data ?? [];
+      if (blocks.length === 0) return [];
+
+      // Pull junction rows for all returned blocks in one query.
+      const { data: junction } = await supabase
+        .from('hostel_block_institutions')
+        .select('block_id,institution_id')
+        .in('block_id', blocks.map((b) => b.id));
+      const grantsByBlock = new Map<string, string[]>();
+      for (const row of junction ?? []) {
+        const existing = grantsByBlock.get(row.block_id) ?? [];
+        existing.push(row.institution_id);
+        grantsByBlock.set(row.block_id, existing);
+      }
+
+      return blocks.map((b) => ({
+        id: b.id,
+        name: b.name,
+        code: b.code,
+        institution_ids: grantsByBlock.get(b.id) ?? [],
+      }));
     } catch (error) {
       logger.error('campus-living/learner-hostelite', 'Unexpected error in listBlocksForFilter', error);
       throw error;
@@ -332,19 +398,12 @@ export class LearnerHosteliteService {
   }
 
   // ── Add a learner to hostel ───────────────────────────────────────────
-  static async addToHostel(
-    learnerId: string,
-    hostelType: LearnerHostelType = null,
-  ): Promise<void> {
+  static async addToHostel(learnerId: string): Promise<void> {
     try {
       const supabase = createClientSupabaseClient();
-      const payload: { accommodation_type: 'HOSTEL'; hostel_type?: LearnerHostelType } = {
-        accommodation_type: 'HOSTEL',
-      };
-      if (hostelType) payload.hostel_type = hostelType;
       const { error } = await supabase
         .from('learners_profiles')
-        .update(payload)
+        .update({ accommodation_type: 'HOSTEL' })
         .eq('id', learnerId);
       if (error) {
         logger.error('campus-living/learner-hostelite', 'addToHostel failed', error);

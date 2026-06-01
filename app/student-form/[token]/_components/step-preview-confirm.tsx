@@ -9,6 +9,7 @@ interface Props {
   lang: Language;
   data: Record<string, any>;
   token: string;
+  degreeType?: 'ug' | 'pg';
   onSubmit: () => void;
   onEditBasic: () => void;
   onEditAcademic: () => void;
@@ -24,6 +25,8 @@ interface CourseNames {
   department?: string;
   program?: string;
   semester?: string;
+  route?: string;
+  stop?: string;
 }
 
 const EMPTY = '—';
@@ -77,22 +80,12 @@ const ACCOMMODATION_LABELS: Record<string, string> = {
   HOME: 'Home',
 };
 
-const HOSTEL_TYPE_LABELS: Record<string, string> = {
-  'AC HOSTEL': 'AC Hostel',
-  'NON-AC HOSTEL': 'Non-AC Hostel',
-};
-
-const FOOD_TYPE_LABELS: Record<string, string> = {
-  VEG: 'Vegetarian',
-  'NON-VEG': 'Non-Vegetarian',
-  VEGAN: 'Vegan',
-};
-
 const looksFilled = (v: unknown) => v !== undefined && v !== null && String(v).trim().length > 0;
 
 export function StepPreviewConfirm({
   data,
   token,
+  degreeType,
   onSubmit,
   onEditBasic,
   onEditAcademic,
@@ -101,6 +94,7 @@ export function StepPreviewConfirm({
   onEditContact,
   submitting,
 }: Props) {
+  const isPG = degreeType === 'pg';
   const fullName = `${data.first_name ?? ''} ${data.last_name ?? ''}`.trim();
   const tenth = data.tenth_marks ?? {};
   const twelfth = data.twelfth_marks ?? {};
@@ -121,6 +115,8 @@ export function StepPreviewConfirm({
       department_id: data.department_id,
       program_id: data.program_id,
       semester_id: data.semester_id,
+      route_id: data.transport_route_id,
+      stop_id: data.transport_stop_id,
     };
     if (!Object.values(ids).some(Boolean)) return;
     let alive = true;
@@ -141,7 +137,7 @@ export function StepPreviewConfirm({
     return () => {
       alive = false;
     };
-  }, [token, data.institution_id, data.degree_id, data.department_id, data.program_id, data.semester_id]);
+  }, [token, data.institution_id, data.degree_id, data.department_id, data.program_id, data.semester_id, data.transport_route_id, data.transport_stop_id]);
 
   const hasCourse =
     looksFilled(data.institution_id) ||
@@ -235,36 +231,49 @@ export function StepPreviewConfirm({
         titleTamil="கல்வி விவரங்கள்"
         onEdit={onEditAcademic}
       >
-        <SubGroup title="Previous Schooling">
-          <Row label="Last School / கடந்த பள்ளி" value={data.last_school} />
-          <Row
-            label="Board of Study / வாரியம்"
-            value={BOARD_LABELS[data.board_of_study] ?? data.board_of_study}
-          />
+        <SubGroup title={isPG ? 'Previous College' : 'Previous Schooling'}>
+          <Row label={isPG ? 'College Name & Place / கல்லூரி' : 'Last School / கடந்த பள்ளி'} value={data.last_school} />
+          {!isPG && (
+            <Row
+              label="Board of Study / வாரியம்"
+              value={BOARD_LABELS[data.board_of_study] ?? data.board_of_study}
+            />
+          )}
         </SubGroup>
 
-        <SubGroup title="10th Standard">
-          <MarksRow
-            max={tenth.max_marks}
-            obtained={tenth.obtained_marks}
-            percentage={tenth.percentage}
-          />
-        </SubGroup>
+        {isPG && (
+          <SubGroup title="Previous Qualification">
+            <Row label="Previous Course / முந்தைய பட்டம்" value={twelfth.course_name} />
+            <Row label="Percentage / சதவீதம்" value={twelfth.percentage} />
+          </SubGroup>
+        )}
 
-        <SubGroup title="12th Standard">
-          <Row
-            label="Group / பிரிவு"
-            value={GROUP_LABELS[twelfth.group] ?? twelfth.group}
-          />
-          <MarksRow
-            max={twelfth.max_marks}
-            obtained={twelfth.obtained_marks}
-            percentage={twelfth.percentage}
-          />
-          {hasSubjects && <SubjectChips subjects={subjects} />}
-        </SubGroup>
+        {!isPG && (
+          <SubGroup title="10th Standard">
+            <MarksRow
+              max={tenth.max_marks}
+              obtained={tenth.obtained_marks}
+              percentage={tenth.percentage}
+            />
+          </SubGroup>
+        )}
 
-        {hasCutoff && (
+        {!isPG && (
+          <SubGroup title="12th Standard">
+            <Row
+              label="Group / பிரிவு"
+              value={GROUP_LABELS[twelfth.group] ?? twelfth.group}
+            />
+            <MarksRow
+              max={twelfth.max_marks}
+              obtained={twelfth.obtained_marks}
+              percentage={twelfth.percentage}
+            />
+            {hasSubjects && <SubjectChips subjects={subjects} />}
+          </SubGroup>
+        )}
+
+        {!isPG && hasCutoff && (
           <SubGroup title="Cutoff Scores">
             <div className="grid grid-cols-2 gap-3 rounded-md border border-primary/30 bg-primary/5 p-3">
               <CutoffChip label="Engineering" value={data.engineering_cutoff_marks} />
@@ -273,14 +282,13 @@ export function StepPreviewConfirm({
           </SubGroup>
         )}
 
-        {hasNeet && (
+        {!isPG && hasNeet && (
           <SubGroup title="NEET">
             <Row label="Roll Number / எண்" value={data.neet_roll_number} />
             <Row label="Score / மதிப்பெண்" value={data.neet_score} />
           </SubGroup>
         )}
 
-        {/* Quota and Entry Type moved to the Course Selection section. */}
         <SubGroup title="Scholarship & Counseling">
           <Row label="Scholarship / உதவித்தொகை" value={data.scholarship_type} />
           <Row
@@ -348,15 +356,27 @@ export function StepPreviewConfirm({
             label="Accommodation Type / தங்குமிட வகை"
             value={ACCOMMODATION_LABELS[data.accommodation_type] ?? data.accommodation_type}
           />
-          {data.accommodation_type === 'HOSTEL' && (
+          {data.accommodation_type === 'DAY SCHOLAR' && (
+            <Row
+              label="Bus Required? / பேருந்து தேவையா?"
+              value={
+                data.bus_required === true
+                  ? 'Yes'
+                  : data.bus_required === false
+                  ? 'No'
+                  : undefined
+              }
+            />
+          )}
+          {data.accommodation_type === 'DAY SCHOLAR' && data.bus_required === true && (
             <>
               <Row
-                label="Hostel Type / விடுதி வகை"
-                value={HOSTEL_TYPE_LABELS[data.hostel_type] ?? data.hostel_type}
+                label="Route / வழித்தடம்"
+                value={courseNames.route ?? (coursesLoading && data.transport_route_id ? 'Loading…' : undefined)}
               />
               <Row
-                label="Food Type / உணவு வகை"
-                value={FOOD_TYPE_LABELS[data.food_type] ?? data.food_type}
+                label="Boarding Point / ஏறும் இடம்"
+                value={courseNames.stop ?? (coursesLoading && data.transport_stop_id ? 'Loading…' : undefined)}
               />
             </>
           )}

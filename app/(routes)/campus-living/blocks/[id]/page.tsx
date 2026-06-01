@@ -1,6 +1,6 @@
 'use client';
 
-import { use } from 'react';
+import { use, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
@@ -10,6 +10,7 @@ import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useAuth } from '@/hooks/use-auth';
 import { useHostelBlock } from '@/hooks/campus-living/use-hostel-blocks';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 import {
   Building2,
   ArrowLeft,
@@ -29,23 +30,23 @@ import {
   Settings
 } from 'lucide-react';
 
-// Shape that the page renders against. The service currently returns the raw
-// `hostel_blocks` row plus `hostel_rooms` / `hostel_wardens` arrays — nested
-// `warden` / `deputy_warden` objects, `rooms_summary`, `floor_summary`, and
-// `recent_activities` are NOT computed server-side. Treating everything past
-// the row columns as optional keeps the detail page from crashing the route's
-// error boundary when a block has no warden assigned yet (BUG-003892 — the
-// "Girls Hostel A" block on production has warden_id = NULL, which made the
-// page throw "Cannot read properties of undefined (reading 'name')" and the
-// (routes)/error.tsx boundary rendered "Something went wrong" / "error error").
-type WardenLike = {
-  id?: string;
-  name?: string | null;
+// `getBlock` returns the raw `hostel_blocks` row plus `hostel_rooms` /
+// `hostel_wardens` arrays + derived `rooms_summary` / `floor_summary`. The
+// assigned wardens live in the `hostel_wardens` array — there is NO pre-computed
+// singular `warden` / `deputy_warden` object (an earlier version read those and
+// always showed "No warden assigned" even when wardens existed). So this page
+// derives the active-warden list from that array and resolves each name from
+// `staff` (hostel_wardens stores staff_id, not a name). `recent_activities` is
+// still not computed server-side and stays optional.
+type BlockWarden = {
+  id: string;
+  staff_id: string;
   designation?: string | null;
   phone?: string | null;
   shift?: string | null;
   is_residential?: boolean | null;
-} | null | undefined;
+  is_active?: boolean | null;
+};
 
 type FloorSummaryRow = {
   floor: number;
@@ -68,6 +69,42 @@ export default function BlockDetailPage({ params }: { params: Promise<{ id: stri
   const { data: blockData, isLoading } = useHostelBlock(id);
   const block = blockData as any;
 
+  // Active wardens come from the embedded hostel_wardens array (not a singular
+  // block.warden field, which the service never computes).
+  const activeWardens = ((block?.hostel_wardens ?? []) as BlockWarden[]).filter(
+    (w) => w.is_active !== false
+  );
+  const staffKey = activeWardens.map((w) => w.staff_id).join(',');
+
+  // hostel_wardens stores staff_id, not a name — resolve names from the staff table.
+  const [wardenNames, setWardenNames] = useState<Map<string, string>>(new Map());
+  useEffect(() => {
+    const ids = Array.from(new Set(activeWardens.map((w) => w.staff_id))).filter(Boolean);
+    if (ids.length === 0) {
+      setWardenNames(new Map());
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const supabase = createClientSupabaseClient();
+      const { data } = await supabase
+        .from('staff')
+        .select('id, first_name, last_name')
+        .in('id', ids);
+      if (cancelled) return;
+      const next = new Map<string, string>();
+      ((data ?? []) as { id: string; first_name: string | null; last_name: string | null }[]).forEach((s) => {
+        const full = [s.first_name, s.last_name].filter(Boolean).join(' ').trim();
+        if (full) next.set(s.id, full);
+      });
+      setWardenNames(next);
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [staffKey]);
+
   if (isLoading || !block) {
     return (
       <ContentLayout title="Block Details">
@@ -86,8 +123,6 @@ export default function BlockDetailPage({ params }: { params: Promise<{ id: stri
     totalCapacity > 0 ? Math.round((currentOccupancy / totalCapacity) * 100) : 0;
   const availableCapacity = Math.max(totalCapacity - currentOccupancy, 0);
 
-  const warden: WardenLike = block.warden ?? null;
-  const deputyWarden: WardenLike = block.deputy_warden ?? null;
   const amenityTags = (block.amenity_tags ?? []) as Array<{ id: string; name: string }>;
   const roomsSummary = (block.rooms_summary ?? {}) as Partial<{
     available: number;
@@ -102,11 +137,11 @@ export default function BlockDetailPage({ params }: { params: Promise<{ id: stri
   const formatDesignation = (value?: string | null) =>
     (value ?? '').replace(/_/g, ' ');
 
-  const renderWardenCard = (w: WardenLike, fallbackKey: string) => {
-    if (!w) return null;
+  const renderWardenCard = (w: BlockWarden) => {
+    const name = wardenNames.get(w.staff_id) ?? 'Unnamed warden';
     return (
       <div
-        key={w.id ?? fallbackKey}
+        key={w.id}
         className="flex items-center justify-between p-4 bg-muted/50 rounded-lg"
       >
         <div className="flex items-center gap-3">
@@ -114,7 +149,7 @@ export default function BlockDetailPage({ params }: { params: Promise<{ id: stri
             <ShieldCheck className="h-5 w-5 text-primary" />
           </div>
           <div>
-            <p className="font-medium">{w.name ?? 'Unnamed warden'}</p>
+            <p className="font-medium">{name}</p>
             <p className="text-sm text-muted-foreground capitalize">
               {formatDesignation(w.designation) || '—'}
             </p>
@@ -240,50 +275,35 @@ export default function BlockDetailPage({ params }: { params: Promise<{ id: stri
                   <CardTitle className="text-base">Warden Details</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  {warden ? (
-                    <div className="flex items-center gap-4 p-3 bg-muted/50 rounded-lg">
-                      <ShieldCheck className="h-8 w-8 text-primary shrink-0" />
-                      <div className="flex-1">
-                        <p className="font-medium">{warden.name ?? 'Unnamed warden'}</p>
-                        <p className="text-sm text-muted-foreground capitalize">
-                          {formatDesignation(warden.designation) || '—'}
-                        </p>
-                      </div>
-                      <div className="text-right text-sm">
-                        <p className="flex items-center gap-1">
-                          <Phone className="h-3 w-3" /> {warden.phone ?? '—'}
-                        </p>
-                        {warden.shift && (
-                          <Badge variant="outline" className="mt-1">{warden.shift}</Badge>
-                        )}
-                      </div>
-                    </div>
-                  ) : (
+                  {activeWardens.length === 0 ? (
                     <div className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg">
                       <ShieldCheck className="h-6 w-6 text-muted-foreground shrink-0" />
                       <p className="text-sm text-muted-foreground">
                         No warden assigned yet.
                       </p>
                     </div>
-                  )}
-                  {deputyWarden && (
-                    <div className="flex items-center gap-4 p-3 bg-muted/50 rounded-lg">
-                      <ShieldCheck className="h-8 w-8 text-muted-foreground shrink-0" />
-                      <div className="flex-1">
-                        <p className="font-medium">{deputyWarden.name ?? 'Unnamed deputy'}</p>
-                        <p className="text-sm text-muted-foreground capitalize">
-                          {formatDesignation(deputyWarden.designation) || '—'}
-                        </p>
+                  ) : (
+                    activeWardens.map((w) => (
+                      <div key={w.id} className="flex items-center gap-4 p-3 bg-muted/50 rounded-lg">
+                        <ShieldCheck className="h-8 w-8 text-primary shrink-0" />
+                        <div className="flex-1">
+                          <p className="font-medium">
+                            {wardenNames.get(w.staff_id) ?? 'Unnamed warden'}
+                          </p>
+                          <p className="text-sm text-muted-foreground capitalize">
+                            {formatDesignation(w.designation) || '—'}
+                          </p>
+                        </div>
+                        <div className="text-right text-sm">
+                          <p className="flex items-center gap-1">
+                            <Phone className="h-3 w-3" /> {w.phone ?? '—'}
+                          </p>
+                          {w.shift && (
+                            <Badge variant="outline" className="mt-1">{w.shift}</Badge>
+                          )}
+                        </div>
                       </div>
-                      <div className="text-right text-sm">
-                        <p className="flex items-center gap-1">
-                          <Phone className="h-3 w-3" /> {deputyWarden.phone ?? '—'}
-                        </p>
-                        {deputyWarden.shift && (
-                          <Badge variant="outline" className="mt-1">{deputyWarden.shift}</Badge>
-                        )}
-                      </div>
-                    </div>
+                    ))
                   )}
                   <Button variant="outline" size="sm" asChild className="w-full">
                     <Link href={`/campus-living/blocks/${id}/wardens`}>
@@ -435,12 +455,12 @@ export default function BlockDetailPage({ params }: { params: Promise<{ id: stri
                 </Button>
               </CardHeader>
               <CardContent className="space-y-3">
-                {[warden, deputyWarden].filter(Boolean).length === 0 ? (
+                {activeWardens.length === 0 ? (
                   <p className="text-sm text-muted-foreground text-center py-6">
                     No wardens assigned yet.
                   </p>
                 ) : (
-                  [warden, deputyWarden].map((w, idx) => renderWardenCard(w, `warden-${idx}`))
+                  activeWardens.map((w) => renderWardenCard(w))
                 )}
               </CardContent>
             </Card>

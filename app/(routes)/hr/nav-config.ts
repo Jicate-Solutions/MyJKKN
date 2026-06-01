@@ -24,6 +24,12 @@ const config: ModuleNavConfig = {
       matchPaths: ['/hr'],
     },
     {
+      label: 'Intelligence',
+      icon: 'Brain',
+      href: '/hr/intelligence',
+      matchPaths: ['/hr/intelligence'],
+    },
+    {
       label: 'Recruitment',
       icon: 'UserPlus',
       href: '/hr/recruitment',

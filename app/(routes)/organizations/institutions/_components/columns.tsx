@@ -15,7 +15,7 @@ const ENTITY_TYPE_CONFIG: Record<EntityType, { label: string; variant: 'default'
   institution: { label: 'Institution', variant: 'default', icon: Building2 },
   admin_office: { label: 'Admin Office', variant: 'secondary', icon: Building },
   company: { label: 'Company', variant: 'outline', icon: Briefcase },
-  school: { label: 'School', variant: 'outline', icon: School },
+  school: { label: 'School', variant: 'secondary', icon: School },
 };
 
 const CounsellingCodeCell = ({ row }: { row: Row<Institution> }) => {
@@ -96,7 +96,7 @@ export const columns: ColumnDef<Institution>[] = [
     ),
     cell: ({ row }) => {
       const entityType = (row.getValue('entity_type') as EntityType) || 'institution';
-      const config = ENTITY_TYPE_CONFIG[entityType];
+      const config = ENTITY_TYPE_CONFIG[entityType] ?? ENTITY_TYPE_CONFIG.institution;
       return (
         <Badge variant={config.variant}>
           {config.label}

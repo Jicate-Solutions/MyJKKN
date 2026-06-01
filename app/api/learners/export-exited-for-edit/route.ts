@@ -234,8 +234,7 @@ export async function GET(request: NextRequest) {
 
       // SECTION 9: Accommodation Details
       'Accommodation Type': learner.accommodation_type || '',
-      'Hostel Type': learner.hostel_type || '',
-      'Food Type': learner.food_type || '',
+      'Bus Required': learner.bus_required === true ? 'Yes' : learner.bus_required === false ? 'No' : '',
       // SECTION 10: Reference Information
       'Reference Type': learner.reference_type || '',
       'Reference Name': learner.reference_name || '',

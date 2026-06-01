@@ -93,8 +93,9 @@ export async function GET(
     permanent_address_pin_code: string;
     permanent_address_state: string;
     accommodation_type: string;
-    hostel_type: string | null;
-    food_type: string | null;
+    bus_required: boolean | null;
+    transport_route_id: string | null;
+    transport_stop_id: string | null;
     institution_id: string | null;
     degree_id: string | null;
     department_id: string | null;
@@ -136,7 +137,7 @@ export async function GET(
         'student_mobile, student_email, ' +
         'permanent_address_street, permanent_address_taluk, permanent_address_district, ' +
         'permanent_address_pin_code, permanent_address_state, ' +
-        'accommodation_type, hostel_type, food_type, ' +
+        'accommodation_type, bus_required, transport_route_id, transport_stop_id, ' +
         'institution_id, degree_id, department_id, program_id, semester_id, section_id, ' +
         'academic_year_id, regulation_id, batch_id, roll_number, register_number, ' +
         'college_email, student_photo_url, is_profile_complete, ' +

@@ -161,6 +161,13 @@ export class StudentFormService {
 
     const allowedFields = filterToWhitelist(section, fields);
 
+    // Nullable UUID FKs must never reach the UPDATE as '' — Postgres rejects an
+    // empty string cast to uuid with 22P02. Coerce blank → null for every
+    // uuid-typed writable column the student form can submit.
+    for (const uuidCol of ['hostel_category_id', 'mess_category_id', 'community_category_id', 'caste_id']) {
+      if (allowedFields[uuidCol] === '') allowedFields[uuidCol] = null;
+    }
+
     // When the student writes the Course Selection step, picking a different
     // institution/program may invalidate the existing admission_year_id.
     // The DB trigger `validate_learner_admission_year_scope` will reject the

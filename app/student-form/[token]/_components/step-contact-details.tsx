@@ -13,7 +13,12 @@ import {
   SelectItem,
 } from '@/components/ui/select';
 import { Loader2 } from 'lucide-react';
-import { indianStates, getDistrictsByState, getTaluksByDistrict } from '@/lib/data/locations';
+import {
+  indianStates,
+  getDistrictsByState,
+  getTaluksByDistrict,
+  getLocationIdByName,
+} from '@/lib/data/locations';
 import type { Language } from './language-toggle';
 
 interface Props {
@@ -71,14 +76,24 @@ export function StepContactDetails({
   onBack,
   submitting,
 }: Props) {
-  const [v, setV] = useState({
-    student_mobile: data.student_mobile ?? '',
-    student_email: data.student_email ?? '',
-    permanent_address_street: data.permanent_address_street ?? '',
-    permanent_address_state: data.permanent_address_state ?? 'tamil_nadu',
-    permanent_address_district: data.permanent_address_district ?? '',
-    permanent_address_taluk: data.permanent_address_taluk ?? '',
-    permanent_address_pin_code: data.permanent_address_pin_code ?? '',
+  // Stored permanent_address_* values may be display NAMES ('TAMIL NADU',
+  // 'SALEM', 'METTUR') rather than the snake_case IDs the <Select>s use, so
+  // resolve them to IDs up front — otherwise the dropdowns render blank on
+  // edit even though the data exists (same root cause as the enquiry form).
+  const [v, setV] = useState(() => {
+    const stateId =
+      getLocationIdByName(data.permanent_address_state, 'state') || 'tamil_nadu';
+    return {
+      student_mobile: data.student_mobile ?? '',
+      student_email: data.student_email ?? '',
+      permanent_address_street: data.permanent_address_street ?? '',
+      permanent_address_state: stateId,
+      permanent_address_district:
+        getLocationIdByName(data.permanent_address_district, 'district') || '',
+      permanent_address_taluk:
+        getLocationIdByName(data.permanent_address_taluk, 'taluk', stateId) || '',
+      permanent_address_pin_code: data.permanent_address_pin_code ?? '',
+    };
   });
   const set = <K extends keyof typeof v>(k: K, val: typeof v[K]) =>
     setV((p) => ({ ...p, [k]: val }));

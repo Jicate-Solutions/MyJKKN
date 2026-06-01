@@ -144,8 +144,8 @@ export function StepBasicDetails({
     // so the Select dropdown finds a matching option for old data.
     gender: (data.gender ?? '').toUpperCase(),
     religion: (data.religion ?? '').toUpperCase(),
-    community: data.community ?? '',
-    caste: data.caste ?? '',
+    community_category_id: data.community_category_id ?? '',
+    caste_id: data.caste_id ?? '',
     father_name: data.father_name ?? '',
     father_occupation: data.father_occupation ?? '',
     father_mobile: data.father_mobile ?? '',
@@ -262,15 +262,17 @@ export function StepBasicDetails({
         </Field>
 
         <CommunityCasteSelector
-          community={v.community}
-          caste={v.caste}
-          onCommunityChange={(val) => set('community', val)}
-          onCasteChange={(val) => set('caste', val)}
+          communityCategoryId={v.community_category_id}
+          casteId={v.caste_id}
+          onCommunityChange={(val) => set('community_category_id', val)}
+          onCasteChange={(val) => set('caste_id', val)}
           bilingual
           // Community is a fee-structure-matrix dimension and is required
           // by REQUIRED_BY_SECTION.basic in the wizard. Caste stays optional
           // (and is hidden entirely for OC), so don't asterisk it.
           communityRequired
+          // Unmatched legacy caste text (caste_id null) shown as a re-pick hint.
+          legacyCasteText={data.caste}
         />
       </Section>
 

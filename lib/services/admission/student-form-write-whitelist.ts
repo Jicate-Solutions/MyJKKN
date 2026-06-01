@@ -16,7 +16,7 @@
 export const STUDENT_WRITABLE_COLUMNS = {
   basic: [
     'first_name', 'last_name', 'date_of_birth', 'gender',
-    'religion', 'community', 'caste', 'student_photo_url',
+    'religion', 'community', 'caste', 'community_category_id', 'caste_id', 'student_photo_url',
     'father_name', 'father_occupation', 'father_mobile',
     'mother_name', 'mother_occupation', 'mother_mobile',
     'annual_income',
@@ -52,7 +52,13 @@ export const STUDENT_WRITABLE_COLUMNS = {
     // DELIBERATELY excluded per product spec: students fill the practical
     // accommodation choice; the reference channel is admin-tracked metadata
     // captured during lead intake, not by the student.
-    'accommodation_type', 'hostel_type', 'food_type',
+    'accommodation_type',
+    // Gender-scoped campus-living category FKs (added 2026-05-29). Options are
+    // filtered by the gender the student picked on the Basic Details step.
+    'hostel_category_id', 'mess_category_id',
+    // Day-Scholar bus transport (added 2026-05-29). bus_required gates the
+    // route + boarding-point selection; routes/stops come from the TMS tables.
+    'bus_required', 'transport_route_id', 'transport_stop_id',
   ],
   contact: [
     'student_mobile', 'student_email',

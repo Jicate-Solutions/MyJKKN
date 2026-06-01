@@ -1,8 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -58,6 +59,61 @@ export default function HostelBlocksPage() {
   const blocks = (data as any)?.data || [] as any[];
   const [searchQuery, setSearchQuery] = useState('');
   const [typeFilter, setTypeFilter] = useState<string>('all');
+
+  // Resolve the primary (chief, else first) active warden per block. getBlocks
+  // returns no warden data, so fetch hostel_wardens for the visible blocks and
+  // resolve staff names separately (hostel_wardens stores staff_id, not a name).
+  const blockIdsKey = blocks.map((b: any) => b.id).join(',');
+  const [wardenByBlock, setWardenByBlock] = useState<Map<string, string>>(new Map());
+  useEffect(() => {
+    const blockIds = blocks.map((b: any) => b.id).filter(Boolean);
+    if (blockIds.length === 0) {
+      setWardenByBlock(new Map());
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const supabase = createClientSupabaseClient();
+      const { data: wardenRows } = await supabase
+        .from('hostel_wardens')
+        .select('block_id, designation, staff_id')
+        .in('block_id', blockIds)
+        .eq('is_active', true);
+      const rows = (wardenRows ?? []) as { block_id: string | null; designation: string | null; staff_id: string }[];
+      const staffIds = Array.from(new Set(rows.map((r) => r.staff_id))).filter(Boolean);
+      const nameById = new Map<string, string>();
+      if (staffIds.length > 0) {
+        const { data: staffRows } = await supabase
+          .from('staff')
+          .select('id, first_name, last_name')
+          .in('id', staffIds);
+        ((staffRows ?? []) as { id: string; first_name: string | null; last_name: string | null }[]).forEach((s) => {
+          const full = [s.first_name, s.last_name].filter(Boolean).join(' ').trim();
+          if (full) nameById.set(s.id, full);
+        });
+      }
+      if (cancelled) return;
+      // Prefer the chief warden as the card's headline name; else keep the first.
+      const picked = new Map<string, { name: string; isChief: boolean }>();
+      rows.forEach((r) => {
+        if (!r.block_id) return;
+        const name = nameById.get(r.staff_id);
+        if (!name) return;
+        const isChief = r.designation === 'chief_warden';
+        const existing = picked.get(r.block_id);
+        if (!existing || (isChief && !existing.isChief)) {
+          picked.set(r.block_id, { name, isChief });
+        }
+      });
+      const flat = new Map<string, string>();
+      picked.forEach((v, k) => flat.set(k, v.name));
+      setWardenByBlock(flat);
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [blockIdsKey]);
 
   // Permission-gated actions (super admin bypasses every check). The matching
   // keys live in lib/constants/permissions.ts and are enforced by RLS on
@@ -250,7 +306,7 @@ export default function HostelBlocksPage() {
                     <div className="flex items-center justify-between text-sm border-t pt-3">
                       <div className="flex items-center gap-1.5 text-muted-foreground">
                         <ShieldCheck className="h-3.5 w-3.5" />
-                        <span>{block.warden_name}</span>
+                        <span>{wardenByBlock.get(block.id) ?? 'No warden assigned'}</span>
                       </div>
                       <div className="flex items-center gap-1.5 text-muted-foreground">
                         <Clock className="h-3.5 w-3.5" />

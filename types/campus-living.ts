@@ -57,6 +57,12 @@ export interface HostelAllocation {
   metadata: Record<string, unknown> | null;
   created_at: string;
   updated_at: string;
+  // ─── New columns added in hostel-rooms-v2 PR 1 (2026-05-26) ───
+  monthly_fee_at_allocation_inr: number | null;
+  warden_id: string | null;
+  roommate_preference_notes: string | null;
+  check_in_date: string; // date NOT NULL DEFAULT CURRENT_DATE
+  check_out_date: string | null; // NULL = active allocation
 }
 
 export interface CreateHostelAllocationDTO {
@@ -67,6 +73,10 @@ export interface CreateHostelAllocationDTO {
   bed_id: string;
   academic_year_id: string;
   semester_id?: string | null;
+  // tier_id is NOT NULL at the DB level — required for any new allocation.
+  // Added 2026-05-26 (rooms-v2 PR 4b) so /admin/hostel/allocations can
+  // pass the resolved hostel_tier_policy.id directly.
+  tier_id: string;
   allocation_type: AllocationType;
   allocation_date: string;
   expected_vacate_date?: string | null;
@@ -79,6 +89,11 @@ export interface CreateHostelAllocationDTO {
   medical_conditions?: string | null;
   food_preference?: FoodPreference | null;
   metadata?: Record<string, unknown>;
+  // ─── New columns added in hostel-rooms-v2 PR 1 ───
+  monthly_fee_at_allocation_inr?: number | null;
+  warden_id?: string | null;
+  roommate_preference_notes?: string | null;
+  check_in_date?: string; // optional; DB default = CURRENT_DATE
 }
 
 export interface UpdateHostelAllocationDTO {
@@ -95,6 +110,12 @@ export interface UpdateHostelAllocationDTO {
   medical_conditions?: string | null;
   food_preference?: FoodPreference | null;
   metadata?: Record<string, unknown>;
+  // ─── New columns added in hostel-rooms-v2 PR 1 ───
+  monthly_fee_at_allocation_inr?: number | null;
+  warden_id?: string | null;
+  roommate_preference_notes?: string | null;
+  check_in_date?: string;
+  check_out_date?: string | null;
 }
 
 export interface AllocationFilters {
@@ -113,7 +134,6 @@ export interface AllocationFilters {
 // prod today: 718 flagged but 0 allocations).
 
 export type LearnerAccommodationType = 'HOSTEL' | 'DAY SCHOLAR' | '' | null;
-export type LearnerHostelType = 'AC HOSTEL' | 'NON-AC HOSTEL' | '' | null;
 
 export interface LearnerHostelite {
   id: string;
@@ -126,12 +146,22 @@ export interface LearnerHostelite {
   father_name: string | null;
   mother_name: string | null;
   accommodation_type: LearnerAccommodationType;
-  hostel_type: LearnerHostelType;
   hostel_fee: number | null;
   dayscholar_fee: number | null;
   institution_id: string;
   department_id: string | null;
   program_id: string | null;
+  // Cascade FKs surfaced from v_learner_hostelites (advanced filters).
+  degree_id?: string | null;
+  semester_id?: string | null;
+  section_id?: string | null;
+  academic_year_id?: string | null;
+  // Display names surfaced from v_learner_hostelites.
+  program_name?: string | null;
+  degree_name?: string | null;
+  semester_name?: string | null;
+  current_block_name?: string | null;
+  current_block_code?: string | null;
   // Surfaced from v_learner_hostelites (PR pending — bugs BUG-003325 + BUG-003326).
   // Optional so callers reading via legacy paths still type-check.
   year_of_study?: number | null;
@@ -150,12 +180,21 @@ export type BlockFilterValue = string | typeof UNASSIGNED_BLOCK;
 
 export interface LearnerHostelitesFilters {
   institution_id?: string;
-  hostel_type?: LearnerHostelType;
   search?: string;  // matches roll_number OR first_name OR last_name OR email
-  // NEW (BUG-003325): institution + year + gender + block filters via v_learner_hostelites view
+  // BUG-003325: year + gender + block filters via v_learner_hostelites view
   year_of_study?: number;
   gender?: 'Male' | 'Female' | 'Other';
   block_id?: BlockFilterValue;
+  // Academic cascade filters (parity with Learners Profiles).
+  degree_id?: string;
+  department_id?: string;
+  program_id?: string;
+  semester_id?: string;
+  section_id?: string;
+  academic_year_id?: string;
+  // Sort (driven by the advanced DataTable column headers).
+  sortBy?: string;
+  sortOrder?: 'asc' | 'desc';
 }
 
 // ─── Detail drawer bundle (BUG-003326) ────────────────────────────────
@@ -428,14 +467,25 @@ export type HostelType =
 
 export type BlockStatus = 'active' | 'under_maintenance' | 'closed';
 
+// hostel-rooms-v2 PR 2 (2026-05-26): institution_id dropped from hostel_blocks.
+// College access flows through hostel_block_institutions junction. The fields
+// current_occupancy, total_capacity, total_rooms are now derived from the
+// underlying rooms + active allocations (see v_hostel_room_occupancy for
+// per-room data; aggregations happen in app code or future view).
+export interface BlockAmenityTag {
+  id: string;
+  name: string;
+  icon: string | null;
+}
+
 export interface HostelBlock {
   id: string;
-  institution_id: string | null;
   name: string;
   code: string;
   hostel_type: HostelType;
   address: string | null;
-  amenities: Record<string, unknown> | null;
+  /** Resolved block-default amenity tags (hostel_block_amenity_tags → catalog). */
+  amenity_tags?: BlockAmenityTag[];
   contact_phone: string | null;
   curfew_time_weekday: string | null;
   curfew_time_weekend: string | null;
@@ -454,13 +504,11 @@ export interface HostelBlock {
 }
 
 export interface CreateHostelBlockDTO {
-  institution_id: string;
   name: string;
   code: string;
   hostel_type: HostelType;
   total_floors: number;
   address?: string | null;
-  amenities?: Record<string, unknown> | null;
   contact_phone?: string | null;
   curfew_time_weekday?: string | null;
   curfew_time_weekend?: string | null;
@@ -477,7 +525,6 @@ export interface CreateHostelBlockDTO {
 export type UpdateHostelBlockDTO = Partial<CreateHostelBlockDTO>;
 
 export interface BlockFilters {
-  institution_id?: string;
   hostel_type?: HostelType;
   status?: BlockStatus;
   search?: string;
@@ -490,24 +537,28 @@ export type AcStatus = 'ac' | 'non_ac' | 'cooler';
 
 export type RoomType = 'single' | 'double' | 'triple' | 'quad' | 'dormitory';
 
+// hostel-rooms-v2 PR 2 (2026-05-26): the RoomStatus enum is no longer stored
+// on hostel_rooms (column dropped). Use v_hostel_room_occupancy.derived_status
+// when you need a status badge. The string-union type is kept here as a UI
+// concept (some components badge "maintenance" / "closed" — those are
+// future planned values, not yet derived).
 export type RoomStatus =
   | 'available'
   | 'partially_occupied'
   | 'full'
-  | 'maintenance'
-  | 'reserved'
-  | 'closed';
+  | 'unknown';
 
+// hostel-rooms-v2 PR 2 (2026-05-26): institution_id dropped (junction now);
+// status + current_occupancy dropped (derive from v_hostel_room_occupancy).
 export interface HostelRoom {
   id: string;
-  institution_id: string;
   block_id: string;
   room_number: string;
   floor: number;
   room_type: RoomType;
   ac_status: AcStatus;
   capacity: number;
-  current_occupancy: number | null;
+  category_id: string | null;
   annual_fee: number | null;
   furniture: Record<string, unknown> | null;
   has_attached_bathroom: boolean | null;
@@ -515,37 +566,35 @@ export interface HostelRoom {
   last_inspection_date: string | null;
   maintenance_notes: string | null;
   metadata: Record<string, unknown> | null;
-  status: RoomStatus;
+  tier_access: string | null;
   created_at: string | null;
   updated_at: string | null;
 }
 
 export interface CreateHostelRoomDTO {
-  institution_id: string;
   block_id: string;
   room_number: string;
   floor: number;
   room_type: RoomType;
   ac_status: AcStatus;
   capacity: number;
+  category_id?: string | null;
   annual_fee?: number | null;
   furniture?: Record<string, unknown> | null;
   has_attached_bathroom?: boolean | null;
   is_accessible?: boolean | null;
   maintenance_notes?: string | null;
   metadata?: Record<string, unknown> | null;
-  status?: RoomStatus;
+  tier_access?: string | null;
 }
 
 export type UpdateHostelRoomDTO = Partial<CreateHostelRoomDTO>;
 
 export interface RoomFilters {
-  institution_id?: string;
   block_id?: string;
   floor?: number;
   room_type?: RoomType;
   ac_status?: AcStatus;
-  status?: RoomStatus;
   search?: string;
 }
 
@@ -1278,7 +1327,8 @@ export interface HostelLeaveTypeConfig {
 export interface HostelFeeConfig {
   id: string;
   institution_id: string;
-  academic_year_id: string;
+  hostel_year_id: string;
+  tier_id: string;
   ac_status: AcStatus;
   room_type: RoomType;
   annual_fee: number;
@@ -1394,6 +1444,9 @@ export type BillingModel =
   | 'bdmr'
   | 'semester_advance';
 
+/** Which resident gender a caterer cooks for. Added by PR 1 ALTER COLUMN. */
+export type GenderServed = 'boys' | 'girls' | 'both';
+
 export interface MessCaterer {
   id: string;
   institution_id: string;
@@ -1412,6 +1465,8 @@ export interface MessCaterer {
   gst_number: string | null;
   metadata: Record<string, unknown> | null;
   performance_score: number | null;
+  /** Which resident gender this caterer serves. NULL on legacy rows. */
+  gender_served: GenderServed | null;
   created_at: string | null;
   updated_at: string | null;
 }
@@ -1433,6 +1488,7 @@ export interface CreateMessCatererDTO {
   gst_number?: string | null;
   metadata?: Record<string, unknown> | null;
   performance_score?: number | null;
+  gender_served?: GenderServed | null;
 }
 
 export type UpdateMessCatererDTO = Partial<CreateMessCatererDTO>;
@@ -1451,9 +1507,21 @@ export interface MessCatererBlock {
 // ─── Mess Menus ────────────────────────────────────────────────────────
 // Mirrors `mess_menus` table + supabase.ts enums.
 
-export type MealType = 'breakfast' | 'lunch' | 'snacks' | 'dinner';
+/**
+ * Meal slots. `'tea'` added by PR 1 ALTER TYPE (2026-05-25 chairperson
+ * decision). `'snacks'` retained for back-compat with pre-2026-05-25 rows.
+ */
+export type MealType = 'breakfast' | 'lunch' | 'snacks' | 'tea' | 'dinner';
 
 export type MenuStatus = 'planned' | 'confirmed' | 'served' | 'cancelled';
+
+/**
+ * Tier vocabulary. Single source of truth across hostel + mess (Director
+ * D2 lock, 2026-05-25): reuse the existing `hostel_tier_policy.tier_key`
+ * ladder instead of inventing a parallel CLASSIC/PREMIUM enum.
+ *   CLASSIC → 'standard', PREMIUM → 'premium', PREMIUM++ → 'premium_plus'
+ */
+export type TierKey = 'standard' | 'premium' | 'premium_plus';
 
 export interface MessMenu {
   id: string;
@@ -1462,7 +1530,17 @@ export interface MessMenu {
   block_id: string | null;
   day_of_week: number;
   meal_type: MealType;
+  /** Legacy locale-unspecified items. Kept in sync with items_tamil for back-compat. */
   items: string[];
+  /**
+   * Tamil-source items for this (week, day, meal, tier) cell. Source-of-truth
+   * when mess.menu.source_locale = 'ta' (default).
+   */
+  items_tamil: string[] | null;
+  /** English translation. NULL until Director fills via admin UI. */
+  items_english: string[] | null;
+  /** Tier this menu cell applies to. NULL = unspecified / global. */
+  tier_key: TierKey | null;
   week_start_date: string;
   dietary_tags: string[] | null;
   estimated_cost_per_plate: number | null;
@@ -1482,6 +1560,9 @@ export interface CreateMessMenuDTO {
   items: string[];
   week_start_date: string;
   block_id?: string | null;
+  items_tamil?: string[] | null;
+  items_english?: string[] | null;
+  tier_key?: TierKey | null;
   dietary_tags?: string[] | null;
   estimated_cost_per_plate?: number | null;
   is_special_day?: boolean | null;
@@ -1671,4 +1752,38 @@ export interface CreateMessWasteLogDTO {
   expected_headcount?: number | null;
   cost_of_waste?: number | null;
   corrective_action?: string | null;
+}
+
+// ─── Mess Meal Ratings (Premium-Plus rating system) ────────────────────
+// Per-item rating (1-5 stars) submitted by Premium-Plus residents.
+// Distinct from MessFeedback (meal-level dimensions) — finer grain.
+
+export interface MessMealRating {
+  id: string;
+  institution_id: string;
+  profile_id: string;
+  menu_id: string;
+  item_text: string;
+  rating: number;
+  comment: string | null;
+  rated_at: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateMessMealRatingDTO {
+  institution_id: string;
+  profile_id: string;
+  menu_id: string;
+  item_text: string;
+  rating: number;
+  comment?: string | null;
+}
+
+/** Row shape returned by fn_get_popular_items RPC. */
+export interface PopularItem {
+  item_text: string;
+  avg_rating: number;
+  total_ratings: number;
+  category: string | null;
 }

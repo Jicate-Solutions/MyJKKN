@@ -5,10 +5,6 @@
 // admission table (to avoid mixing admission-owned columns with warden-owned
 // columns on a single row — see specs/warden-edit-hostel-fields-spec.md).
 //
-// `hostel_type` is NOT here — it stays on `learners_profiles.hostel_type`
-// because billing's fee plumbing already reads it from that column. The
-// edit drawer updates that column separately via LearnerHosteliteService.
-//
 // Type lives in its own file rather than `types/campus-living.ts` because
 // Agent B owns campus-living.ts in the parallel dispatch; this file is
 // the Agent-E lock.

@@ -251,8 +251,6 @@ const AI_TOOLS: Anthropic.Tool[] = [
         caste: { type: 'string', description: 'Filter by caste' },
         // Accommodation filters
         accommodation_type: { type: 'string', description: 'Filter by accommodation type (hostel, dayscholar, day scholar)' },
-        hostel_type: { type: 'string', description: 'Filter by hostel type (e.g., AC HOSTEL)' },
-        food_type: { type: 'string', description: 'Filter by food preference (veg/non-veg)' },
         // Academic filters
         institution_id: { type: 'string', description: 'Filter by institution UUID' },
         department_id: { type: 'string', description: 'Filter by department UUID' },
@@ -649,8 +647,6 @@ async function executeTool(
         community: toolInput.community as string,
         caste: toolInput.caste as string,
         accommodationType: toolInput.accommodation_type as string,
-        hostelType: toolInput.hostel_type as string,
-        foodType: toolInput.food_type as string,
         institutionId: toolInput.institution_id as string,
         departmentId: toolInput.department_id as string,
         programId: toolInput.program_id as string,

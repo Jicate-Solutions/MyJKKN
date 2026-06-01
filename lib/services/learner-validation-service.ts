@@ -16,8 +16,7 @@ import {
   COMMUNITY_VALUES,
   BLOOD_GROUP_VALUES,
   ENTRY_TYPE_VALUES,
-  ACCOMMODATION_VALUES,
-  FOOD_TYPE_VALUES
+  ACCOMMODATION_VALUES
 } from '@/lib/constants/learner-dropdown-values';
 
 // Create admin client for server-side validation
@@ -155,7 +154,6 @@ export class LearnerValidationService {
       { value: data.blood_group, values: BLOOD_GROUP_VALUES, name: 'Blood Group', required: false },
       { value: data.entry_type, values: ENTRY_TYPE_VALUES, name: 'Entry Type', required: false },
       { value: data.accommodation_type, values: ACCOMMODATION_VALUES, name: 'Accommodation Type', required: false },
-      { value: data.food_type, values: FOOD_TYPE_VALUES, name: 'Food Type', required: false },
     ];
 
     dropdownChecks.forEach(({ value, values, name, required }) => {

@@ -80,7 +80,8 @@ import {
   Wallet,
   Users2,
   Factory,
-  FileDown
+  FileDown,
+  Share2
 } from 'lucide-react';
 import { CustomRole } from '@/types/auth';
 // FEATURE_FLAGS import removed - not used in sidebar filtering
@@ -271,6 +272,15 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/admin/ai-query-tools': 'super_admin', // Super admin only - AI Query Tools Registry
   '/admin/ai-models': 'super_admin', // Super admin only - AI Model Config (provider/model picker + spend caps + usage)
 
+  // Meta admin pages (added 2026-05-31 for Meta integration nav-bar wiring).
+  // All super_admin until the social.* permission catalogs ship in Wave 2.
+  '/admin/social/facebook': 'super_admin',
+  '/admin/social/instagram': 'super_admin',
+  '/admin/social/lead-ads': 'super_admin',
+  '/admin/instagram-attribution': 'super_admin',
+  '/admin/integrations/meta-pixel': 'super_admin',
+  '/admin/integrations/meta-audiences': 'super_admin',
+
   // Internship Module — Policy Admin (super_admin only)
   '/admin/internship-policy': 'super_admin',
   '/admin/internship-policy/eligibility': 'super_admin',
@@ -322,6 +332,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/billing/invoices/[id]/edit': 'billing.invoices.edit',
   '/billing/reports': 'billing.reports.view',
   '/billing/onboarding': 'billing.onboarding.view',
+  '/billing/activities': 'billing.activities.view',
 
   // Resource Management
   '/resource-management': 'resources.categories.view',
@@ -344,6 +355,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/resource-management/reservations/new': 'resources.reservations.create',
   '/resource-management/reservations/[id]': 'resources.reservations.view',
   '/resource-management/reservations/[id]/edit': 'resources.reservations.edit',
+  '/resource-management/reservations/calendar': 'resources.reservations.view',
   '/resource-management/reservations/approvals': 'resources.approvals.view',
   '/resource-management/maintenance': 'resources.maintenance.view',
   '/resource-management/analytics': 'resources.analytics.view',
@@ -483,6 +495,10 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   //    routed sub-pages. Super admin sees all without these entries.
   '/staff': 'staff.view',
   '/campus-living': 'campus_living.view',
+  '/campus-living/my-hostel': 'campus_living.my_hostel.view',
+  '/campus-living/my-hostel/premium': 'campus_living.premium.view_dashboard',
+  '/campus-living/my-hostel/premium/pick-room': 'campus_living.premium.pick_room',
+  '/campus-living/my-hostel/premium/invite-roommate': 'campus_living.premium.invite_roommate',
   '/hr': 'hr.view',
   '/okr': 'okr.view',
   '/learn': 'learn.view',
@@ -1492,6 +1508,13 @@ export function GetPages(pathname: string): MenuGroup[] {
           active: pathname.startsWith('/billing/reports'),
           icon: BarChart,
           submenus: []
+        },
+        {
+          href: '/billing/activities',
+          label: 'Activities',
+          active: pathname.startsWith('/billing/activities'),
+          icon: Activity,
+          submenus: []
         }
       ]
     },
@@ -1551,6 +1574,12 @@ export function GetPages(pathname: string): MenuGroup[] {
               label: 'My Reservations',
               active:
                 pathname === '/resource-management/reservations/my-reservations'
+            },
+            {
+              href: '/resource-management/reservations/calendar',
+              label: 'Calendar',
+              active:
+                pathname === '/resource-management/reservations/calendar'
             }
           ]
         },
@@ -1660,6 +1689,63 @@ export function GetPages(pathname: string): MenuGroup[] {
           active: pathname.startsWith('/audit-trail'),
           icon: History,
           submenus: []
+        },
+        {
+          // Meta social channel admin pages (added 2026-05-31). Routes shipped by
+          // the Meta marathon (PRs #1149-#1156). Each subpage gates on the
+          // corresponding meta.X.is_enabled / fb.pages.is_enabled / ig.X.is_enabled
+          // policy — chip still renders when disabled, page shows placeholder.
+          href: '/admin/social/facebook',
+          label: 'Social',
+          active: pathname.startsWith('/admin/social') || pathname.startsWith('/admin/instagram-attribution'),
+          icon: Share2,
+          submenus: [
+            {
+              href: '/admin/social/facebook',
+              label: 'Facebook Pages',
+              active: pathname.startsWith('/admin/social/facebook')
+            },
+            {
+              href: '/admin/social/instagram',
+              label: 'Instagram',
+              active: pathname.startsWith('/admin/social/instagram')
+            },
+            // Meta Ads submenu omitted — /admin/social/ads page.tsx not yet
+            // created. Meta marathon shipped Ads Insights cron + types (PR #1152)
+            // but not the admin UI page. Add when page ships.
+            {
+              href: '/admin/social/lead-ads',
+              label: 'Lead Ads',
+              active: pathname.startsWith('/admin/social/lead-ads')
+            },
+            {
+              href: '/admin/instagram-attribution',
+              label: 'IG Attribution',
+              active: pathname.startsWith('/admin/instagram-attribution')
+            }
+          ]
+        },
+        {
+          // Meta integrations (Pixel/CAPI + Custom Audiences). Separate menu from
+          // Social because these are infrastructure config (tokens, pixel IDs) not
+          // editorial channels. Both require additional env vars beyond System
+          // Token: META_CAPI_PIXEL_ID + META_AD_ACCOUNT_ID respectively.
+          href: '/admin/integrations/meta-pixel',
+          label: 'Meta Integrations',
+          active: pathname.startsWith('/admin/integrations/meta-'),
+          icon: Box,
+          submenus: [
+            {
+              href: '/admin/integrations/meta-pixel',
+              label: 'Pixel / CAPI',
+              active: pathname.startsWith('/admin/integrations/meta-pixel')
+            },
+            {
+              href: '/admin/integrations/meta-audiences',
+              label: 'Custom Audiences',
+              active: pathname.startsWith('/admin/integrations/meta-audiences')
+            }
+          ]
         },
         {
           // /admin/ai-models — super_admin AI feature config (provider/model picker
@@ -1826,7 +1912,15 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'Campus Living',
           active: pathname.startsWith('/campus-living'),
           icon: Home,
-          submenus: []
+          submenus: [],
+          // noSubmenus is set ROLE-AWARE in GetRoleBasedPages(): true for
+          // students (single entry — admin sub-pages would otherwise auto-
+          // discover from the route manifest, which lacks MENU_PERMISSIONS
+          // gating, leaking the full admin list to students), false for
+          // everyone else (super admin / wardens / staff get the full
+          // auto-discovered accordion, filtered by filterByPermissions /
+          // super-admin bypass). Default false here = show accordion.
+          noSubmenus: false
         }
       ]
     },
@@ -2161,6 +2255,19 @@ export function GetRoleBasedPages(
   userRole?: CustomRole | RolePermissionData | null
 ): MenuGroup[] {
   const allMenus = GetPages(pathname);
+
+  // Campus Living sidebar is role-aware: students get a single entry (no
+  // admin sub-page accordion — those pages auto-discover from the route
+  // manifest ungated and would otherwise leak the full admin list). Everyone
+  // else (super admin, wardens, staff) gets the full auto-discovered
+  // accordion. Set here because GetPages() has no role context.
+  if (userRole?.role_key === 'student') {
+    for (const group of allMenus) {
+      for (const menu of group.menus) {
+        if (menu.href === '/campus-living') menu.noSubmenus = true;
+      }
+    }
+  }
 
   // Super admin gets all menus EXCEPT student-only pages
   if (userRole?.role_key === 'super_admin') {

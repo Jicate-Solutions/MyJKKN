@@ -30,6 +30,14 @@ export const TABLE_OVERRIDES: Record<string, string> = {
   daily_attendance: 'Academic',
   class_incharges: 'Academic',
   api_keys: 'System',
+  institution_program_approvals: 'Staff',
+  // Instagram monitoring audit log — doesn't follow the ig_ prefix because
+  // it sits alongside future social_<platform>_logs siblings.
+  social_instagram_logs: 'Instagram',
+  // Meta surface modules (catalog consolidation 2026-05-30, κ): tables that
+  // don't fit the per-module prefix below.
+  social_facebook_logs: 'Social Facebook', // sibling to social_instagram_logs
+  meta_campaigns: 'Social Ads', // ζ — sits alongside meta_ad_accounts/insights
 };
 
 /** Prefix-to-module mapping checked in order; first match wins. */
@@ -59,6 +67,7 @@ export const MODULE_PREFIXES: [string, string][] = [
   ['health_', 'Health'],
   ['ims_', 'IMS'],
   ['marathon_', 'Marathon'],
+  ['hr_', 'Staff'],
   ['hostel_', 'Campus Living'],
   ['mess_', 'Campus Living'],
   ['pde_', 'PDE Learning'],
@@ -66,6 +75,21 @@ export const MODULE_PREFIXES: [string, string][] = [
   ['chatbot_', 'Chatbot'],
   ['chat_', 'Chatbot'],
   ['expo_', 'Expo'],
+  // Instagram monitoring substrate (Phase 1B, 2026-05-30):
+  // ig_accounts / ig_account_metrics / ig_posts / ig_post_metrics →
+  // Instagram. Companion social_instagram_logs goes through TABLE_OVERRIDES.
+  // Phase 2 (ι, 2026-05-30): ig_stories / ig_story_insights /
+  // ig_dm_conversations / ig_dm_messages also bucket here via the same prefix.
+  ['ig_', 'Instagram'],
+  // Meta surface modules (catalog consolidation 2026-05-30, κ).
+  // Order: longer/more-specific meta_* prefixes BEFORE shorter ones.
+  ['meta_lead_', 'Social Lead Ads'], // meta_lead_forms, meta_lead_field_mappings (γ)
+  ['meta_leadgen_', 'Social Lead Ads'], // meta_leadgen_events (γ)
+  ['meta_capi_', 'Integrations Meta Pixel'], // meta_capi_events (ε)
+  ['meta_audience_', 'Integrations Meta Audiences'], // meta_audience_rules, meta_audience_sync_history (η)
+  ['meta_ad_', 'Social Ads'], // meta_ad_accounts, meta_ad_insights (ζ); meta_campaigns goes through TABLE_OVERRIDES
+  ['fb_', 'Social Facebook'], // fb_pages, fb_posts, fb_post_metrics, fb_page_metrics (β)
+  ['messenger_', 'Social Messenger'], // messenger_conversations, messenger_messages (δ)
   ['scholarship', 'Billing'],
   ['counselor_', 'Admission'],
   ['consultant_', 'Admission'],

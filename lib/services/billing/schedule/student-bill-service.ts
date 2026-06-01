@@ -1,4 +1,5 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { logActivityForCurrentUser, BillingActivityTemplates } from '@/lib/utils/activity-logger-client';
 import type {
   StudentBill,
   CreateStudentBillDto,
@@ -71,6 +72,25 @@ export class StudentBillService {
       ) {
         await this.createRecurringBills(data, billData);
       }
+
+      const studentNameBill = `${(data as any)?.student?.first_name || ''} ${(data as any)?.student?.last_name || ''}`.trim() || 'Unknown';
+      const templateBill = BillingActivityTemplates.billCreated(
+        billData.bill_description || 'Student bill',
+        studentNameBill
+      );
+      logActivityForCurrentUser({
+        ...templateBill,
+        resourceId: (data as any).id,
+        institutionId: billData.institution_id,
+        metadata: {
+          sub_type: templateBill.sub_type,
+          student_id: billData.student_id,
+          total_amount: billData.total_amount,
+          final_amount: finalAmount,
+          category_id: billData.item_category_id,
+          is_recurring: billData.is_recurring,
+        },
+      });
 
       return data;
     } catch (error) {
@@ -196,6 +216,24 @@ export class StudentBillService {
         .single();
 
       if (error) throw error;
+
+      const studentNameUpdate = `${(data as any)?.student?.first_name || ''} ${(data as any)?.student?.last_name || ''}`.trim() || 'Unknown';
+      const templateBillUpdate = BillingActivityTemplates.billUpdated(
+        (data as any)?.bill_description || 'Student bill',
+        studentNameUpdate
+      );
+      logActivityForCurrentUser({
+        ...templateBillUpdate,
+        resourceId: id,
+        institutionId: (data as any)?.institution_id,
+        metadata: {
+          sub_type: templateBillUpdate.sub_type,
+          updated_fields: Object.keys(billData),
+          final_amount: finalAmount,
+          balance_amount: balanceAmount,
+        },
+      });
+
       return data;
     } catch (error) {
       console.error('Error updating student bill:', error);
@@ -211,6 +249,13 @@ export class StudentBillService {
         .eq('id', id);
 
       if (error) throw error;
+
+      const templateBillDelete = BillingActivityTemplates.billDeleted(id);
+      logActivityForCurrentUser({
+        ...templateBillDelete,
+        resourceId: id,
+        metadata: { sub_type: templateBillDelete.sub_type },
+      });
     } catch (error) {
       console.error('Error deleting student bill:', error);
       throw error;
@@ -237,6 +282,120 @@ export class StudentBillService {
       }
     }
 
+    if (results.success.length > 0) {
+      const templateBulkDelete = BillingActivityTemplates.billsBulkDeleted(results.success.length, ids.length);
+      logActivityForCurrentUser({
+        ...templateBulkDelete,
+        metadata: { sub_type: templateBulkDelete.sub_type, deleted_ids: results.success, failed_count: results.failed.length },
+      });
+    }
+
+    return results;
+  }
+
+  private static readonly CANCELLABLE_STATUSES = ['unpaid', 'partially_paid', 'overdue'];
+
+  static async cancelStudentBill(
+    id: string,
+    reason?: string
+  ): Promise<StudentBill> {
+    try {
+      const bill = await this.getStudentBill(id);
+
+      if (!this.CANCELLABLE_STATUSES.includes(bill.status)) {
+        throw new Error(
+          `Cannot cancel bill with status "${bill.status}". Only unpaid, partially paid, or overdue bills can be cancelled.`
+        );
+      }
+
+      const updateQuery: any = this.supabase.from('billing_student_bills');
+      const { data, error } = await updateQuery
+        .update({
+          status: 'cancelled',
+          balance_amount: 0,
+          remarks: reason
+            ? `${bill.remarks ? bill.remarks + ' | ' : ''}Cancelled: ${reason}`
+            : bill.remarks
+        })
+        .eq('id', id)
+        .select(
+          `
+          *,
+          student:learners_profiles(
+            id, first_name, last_name, roll_number
+          ),
+          institution:institutions(id, name),
+          item_category:billing_categories(id, category_name)
+        `
+        )
+        .single();
+
+      if (error) throw error;
+
+      const studentName = `${data.student?.first_name || ''} ${data.student?.last_name || ''}`.trim() || 'Unknown';
+      const template = BillingActivityTemplates.billCancelled(
+        bill.bill_description || 'Student bill',
+        studentName,
+        reason
+      );
+      logActivityForCurrentUser({
+        ...template,
+        resourceId: id,
+        institutionId: bill.institution_id,
+        metadata: {
+          sub_type: template.sub_type,
+          student_id: bill.student_id,
+          original_amount: bill.final_amount,
+          balance_at_cancel: bill.balance_amount,
+          reason,
+        },
+      });
+
+      return data;
+    } catch (error) {
+      console.error('Error cancelling student bill:', error);
+      throw error;
+    }
+  }
+
+  static async bulkCancelStudentBills(
+    ids: string[],
+    reason?: string
+  ): Promise<BulkOperationResult> {
+    const results: BulkOperationResult = {
+      success: [],
+      failed: []
+    };
+
+    for (const id of ids) {
+      try {
+        await this.cancelStudentBill(id, reason);
+        results.success.push(id);
+      } catch (error) {
+        results.failed.push({
+          id,
+          error: error instanceof Error ? error.message : 'Unknown error'
+        });
+      }
+    }
+
+    if (results.success.length > 0) {
+      const template = BillingActivityTemplates.billsBulkCancelled(
+        results.success.length,
+        ids.length,
+        reason
+      );
+      logActivityForCurrentUser({
+        ...template,
+        metadata: {
+          sub_type: template.sub_type,
+          cancelled_ids: results.success,
+          failed_count: results.failed.length,
+          reason,
+        },
+      });
+    }
+
     return results;
   }
 
@@ -257,7 +416,10 @@ export class StudentBillService {
       let query;
 
       if (hasAcademicFilters) {
-        // Use the billing_student_bills table with joins when academic filters are needed
+        // !inner turns the student embed into an INNER JOIN so that
+        // .eq('student.column', value) filters actually exclude parent
+        // rows where the student doesn't match (without !inner, PostgREST
+        // returns the bill with student: null instead of excluding it).
         query = (this.supabase as any).from('billing_student_bills').select(
           `
             id,
@@ -281,7 +443,7 @@ export class StudentBillService {
             created_by,
             created_at,
             updated_at,
-            student:learners_profiles(
+            student:learners_profiles!inner(
               first_name,
               last_name,
               roll_number,
@@ -600,14 +762,14 @@ export class StudentBillService {
           ),
           discounts:billing_discounts(
             *,
-            authorizer:profiles(id, full_name)
+            authorizer:profiles!fk_billing_discounts_authorizer(id, full_name)
           ),
           receipt_items:billing_receipt_items(
             *,
             receipt:billing_receipts(
               *,
               student:learners_profiles(id, first_name, last_name, college_email),
-              accountant:profiles(id, full_name),
+              accountant:profiles!fk_billing_receipts_accountant(id, full_name),
               refunds:billing_refunds(
                 *,
                 authorizer:profiles!fk_billing_refunds_authorizer(id, full_name),
@@ -702,6 +864,23 @@ export class StudentBillService {
           onProgress?.(done, total);
         }
       }
+    }
+
+    if (results.success.length > 0) {
+      const templateBulkCreate = BillingActivityTemplates.billsBulkCreated(
+        results.success.length,
+        bulkData.student_ids.length
+      );
+      logActivityForCurrentUser({
+        ...templateBulkCreate,
+        metadata: {
+          sub_type: templateBulkCreate.sub_type,
+          student_count: bulkData.student_ids.length,
+          bill_count_per_student: bulkData.bills.length,
+          total_created: results.success.length,
+          failed_count: results.failed.length,
+        },
+      });
     }
 
     return results;

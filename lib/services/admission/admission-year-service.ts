@@ -258,4 +258,21 @@ export class AdmissionYearService {
       throw error;
     }
   }
+
+  static async listAllActiveYearNames(): Promise<
+    Array<{ id: string; admission_year_name: string }>
+  > {
+    try {
+      const { data, error } = await this.supabase
+        .from('admission_years')
+        .select('id, admission_year_name')
+        .eq('is_active', true)
+        .order('program_start_year', { ascending: false });
+      if (error) throw error;
+      return (data ?? []) as Array<{ id: string; admission_year_name: string }>;
+    } catch (error) {
+      logger.error('admissions', 'Error fetching all active year names', error);
+      throw error;
+    }
+  }
 }

@@ -51,6 +51,9 @@ import { FinanceDetailsSection } from './form-sections/finance-details';
 // FEE_STRUCTURE_CONFIG removed 2026-04-15 — replaced by dynamic fee_items flow.
 import { uploadProfileImage } from './profile-image-upload';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useQuery } from '@tanstack/react-query';
+import { DegreeService } from '@/lib/services/organization/degree-service';
+import type { DegreeType } from '@/types/organizations';
 
 // Plan 6 / Task 5 — pre-submit confirmation dialog wiring
 import { PreSubmitConfirmationDialog } from './pre-submit-confirmation-dialog';
@@ -94,8 +97,13 @@ export const enquiryFormSchema = z.object({
   date_of_birth: z.string().min(1, 'Date of birth is required'),
   gender: z.enum(['MALE', 'FEMALE', 'OTHER'], { required_error: 'Gender is required' }),
   religion: z.string().min(1, 'Religion is required'),
-  community: z.string().min(1, 'Community is required'),
-  caste: z.string().min(1, 'Caste is required'),
+  // FK source of truth (DB-backed community_categories / castes).
+  community_category_id: z.string().uuid('Community is required'),
+  caste_id: z.string().uuid().optional().or(z.literal('')),
+  // Legacy TEXT shadows — kept optional for back-compat; the DB trigger keeps
+  // them in sync from the FK ids above, so the UI no longer writes them.
+  community: z.string().optional().or(z.literal('')),
+  caste: z.string().optional().or(z.literal('')),
   aadhar_number: z.string().nullable().optional(),
   blood_group: z.string().nullable().optional(),
   student_photo_url: z.string().nullable().optional(),
@@ -192,8 +200,11 @@ export const enquiryFormSchema = z.object({
 
   // Accommodation Preferences
   accommodation_type: z.string().min(1, 'Accommodation type is required'),
-  hostel_type: z.string().nullable().optional(),
-  food_type: z.string().nullable().optional(),
+  hostel_category_id: z.string().nullable().optional(),
+  mess_category_id: z.string().nullable().optional(),
+  bus_required: z.boolean().nullable().optional(),
+  transport_route_id: z.string().nullable().optional(),
+  transport_stop_id: z.string().nullable().optional(),
   reference_type: z.string().nullable().optional(),
   reference_name: z.string().nullable().optional(),
   reference_contact: z.string().nullable().optional(),
@@ -251,9 +262,9 @@ interface EnquiryFormProps {
 
   const ALL_TABS = [
     { id: 'basic-details', label: 'Basic Details' },
-    { id: 'academic-information', label: 'Academic Information' },
-    { id: 'course-selection', label: 'Course Selection' },
     { id: 'contact-details', label: 'Contact Details' },
+    { id: 'course-selection', label: 'Course Selection' },
+    { id: 'academic-information', label: 'Academic Information' },
     { id: 'accommodation-preferences', label: 'Accommodation' },
     { id: 'finance-details', label: 'Finance Details' },
   ];
@@ -474,8 +485,11 @@ const fieldToTabMap: Record<string, string> = {
 
   // Accommodation Preferences
   accommodation_type: 'accommodation-preferences',
-  hostel_type: 'accommodation-preferences',
-  food_type: 'accommodation-preferences',
+  hostel_category_id: 'accommodation-preferences',
+  mess_category_id: 'accommodation-preferences',
+  bus_required: 'accommodation-preferences',
+  transport_route_id: 'accommodation-preferences',
+  transport_stop_id: 'accommodation-preferences',
   reference_type: 'accommodation-preferences',
   reference_name: 'accommodation-preferences',
   reference_contact: 'accommodation-preferences',
@@ -523,15 +537,20 @@ const FIELD_LABELS: Record<string, string> = {
   permanent_address_state:    'State',
   permanent_address_pin_code: 'PIN Code',
   accommodation_type:         'Accommodation Type',
+  hostel_category_id:         'Hostel Room Category',
+  mess_category_id:           'Mess Category',
+  bus_required:               'Bus Required',
+  transport_route_id:         'Route',
+  transport_stop_id:          'Boarding Point',
 };
 
 // Tab labels keyed by tab id (mirrors ALL_TABS but module-level for use
 // in the error-grouping helpers without closing over component state).
 const TAB_LABELS: Record<string, string> = {
   'basic-details':            'Basic Details',
-  'academic-information':     'Academic Information',
-  'course-selection':         'Course Selection',
   'contact-details':          'Contact Details',
+  'course-selection':         'Course Selection',
+  'academic-information':     'Academic Information',
   'accommodation-preferences':'Accommodation',
   'finance-details':          'Finance Details',
 };
@@ -724,6 +743,8 @@ export function EnquiryForm({
           religion: learner.religion || '',
           community: learner.community || '',
           caste: learner.caste || '',
+          community_category_id: learner.community_category_id || '',
+          caste_id: learner.caste_id || '',
           aadhar_number: learner.aadhar_number || '',
           blood_group: learner.blood_group || '',
           student_photo_url: learner.student_photo_url || '',
@@ -842,8 +863,11 @@ export function EnquiryForm({
 
           // Accommodation
           accommodation_type: learner.accommodation_type || '',
-          hostel_type: learner.hostel_type || '',
-          food_type: learner.food_type || '',
+          hostel_category_id: learner.hostel_category_id || undefined,
+          mess_category_id: learner.mess_category_id || undefined,
+          bus_required: learner.bus_required ?? undefined,
+          transport_route_id: learner.transport_route_id || undefined,
+          transport_stop_id: learner.transport_stop_id || undefined,
           reference_type: normalizeReferenceType(learner.reference_type),
           reference_name: learner.reference_name || '',
           reference_contact: learner.reference_contact || '',
@@ -877,6 +901,8 @@ export function EnquiryForm({
           religion: '',
           community: '',
           caste: '',
+          community_category_id: '',
+          caste_id: '',
           aadhar_number: '',
           blood_group: '',
           student_photo_url: '',
@@ -956,8 +982,11 @@ export function EnquiryForm({
 
           // Accommodation
           accommodation_type: '',
-          hostel_type: '',
-          food_type: '',
+          hostel_category_id: undefined,
+          mess_category_id: undefined,
+          bus_required: undefined,
+          transport_route_id: undefined,
+          transport_stop_id: undefined,
           reference_type: '',
           reference_name: '',
           reference_contact: '',
@@ -1008,9 +1037,11 @@ export function EnquiryForm({
 
   // Format form data with default values for required fields
   const formatFormDataForAPI = (values: EnquiryFormValues) => {
-    // Helper to handle UUID fields - return undefined if empty string
-    const formatUUID = (value: string | undefined) => {
-      if (!value || value.trim() === '') return undefined;
+    // Helper to handle UUID fields - return null if empty string so the DB
+    // column is explicitly cleared. Returning undefined would cause
+    // JSON.stringify to strip the key, leaving the old stale value in place.
+    const formatUUID = (value: string | undefined): string | null => {
+      if (!value || value.trim() === '') return null;
       return value;
     };
 
@@ -1055,8 +1086,10 @@ export function EnquiryForm({
       date_of_birth: values.date_of_birth || '',
       gender: toUpperCaseField(values.gender) || '',
       religion: toUpperCaseField(values.religion) || '',
-      community: toUpperCaseField(values.community) || '',
-      caste: toUpperCaseField(values.caste),
+      // FK source of truth; community/caste TEXT are auto-filled by the DB
+      // shadow trigger (sync_learner_community_caste_text) from these ids.
+      community_category_id: formatUUID(values.community_category_id) || null,
+      caste_id: formatUUID(values.caste_id) || null,
       aadhar_number: values.aadhar_number || undefined,
       blood_group: values.blood_group || undefined,
       student_photo_url: values.student_photo_url || undefined,
@@ -1145,8 +1178,15 @@ export function EnquiryForm({
 
       // Accommodation Preferences (NOT NULL for accommodation_type)
       accommodation_type: values.accommodation_type || '',
-      hostel_type: values.hostel_type || undefined,
-      food_type: values.food_type || undefined,
+      // Nullable UUID FKs — normalize '' → null so an unset dropdown doesn't
+      // send the empty string as a uuid param (Postgres 22P02).
+      hostel_category_id: values.hostel_category_id || null,
+      mess_category_id: values.mess_category_id || null,
+      // Transport (Day Scholar). bus_required is a real boolean; the FK UUIDs
+      // normalize '' → null so an unset dropdown doesn't send '' (Postgres 22P02).
+      bus_required: values.bus_required ?? null,
+      transport_route_id: values.transport_route_id || null,
+      transport_stop_id: values.transport_stop_id || null,
       reference_type: values.reference_type || undefined,
       reference_name: toUpperCaseField(values.reference_name),
       reference_contact: values.reference_contact || undefined,
@@ -1695,7 +1735,10 @@ export function EnquiryForm({
         };
 
         let resolvedQuotaId = learnerLike.quota_id;
-        let resolvedCommunityId = learnerLike.community_category_id;
+        // Form now carries the FK directly; prefer it over the loaded prop.
+        let resolvedCommunityId =
+          formatUUID((values as { community_category_id?: string }).community_category_id) ||
+          learnerLike.community_category_id;
         let resolvedAccommodationId = learnerLike.accommodation_type_id;
 
         if (!resolvedQuotaId || !resolvedCommunityId || !resolvedAccommodationId) {
@@ -1789,6 +1832,16 @@ export function EnquiryForm({
     // No dialog — proceed to save inline.
     await commitSubmit(values);
   };
+
+  // Resolve degree_type for the selected degree — drives PG-conditional
+  // field visibility in AcademicInformationSection.
+  const watchedDegreeId = form.watch('degree_id');
+  const { data: selectedDegree } = useQuery({
+    queryKey: ['degree-for-form', watchedDegreeId],
+    queryFn: () => DegreeService.getDegree(watchedDegreeId),
+    enabled: !!watchedDegreeId,
+  });
+  const selectedDegreeType: DegreeType | undefined = selectedDegree?.degree_type;
 
   // Calculate profile completion status
   const collegeEmail = form.watch('college_email');
@@ -1920,30 +1973,6 @@ export function EnquiryForm({
             </Card>
           </TabsContent>
 
-          <TabsContent value="academic-information" className="space-y-4 mt-4">
-            {!isStudentView && learner?.id && (
-              <div className="flex items-center justify-between mb-1">
-                <div />
-                <StudentSectionStatusChip
-                  filled={sectionStatus.academic.filled}
-                  filledAt={sectionStatus.academic.filledAt}
-                  filledBy={sectionStatus.academic.filledBy}
-                  canOverride={canOverrideStudentSection && !sectionStatus.academic.filled}
-                  onOverrideClick={() => setOverrideDialog('academic')}
-                />
-              </div>
-            )}
-            <Card className="p-3 sm:p-4 md:p-6">
-              <AcademicInformationSection form={form} />
-            </Card>
-          </TabsContent>
-
-          <TabsContent value="course-selection" className="space-y-4 mt-4">
-            <Card className="p-3 sm:p-4 md:p-6">
-              <CourseSelectionSection form={form} showLearnerType={!!learner && !isStudentView} />
-            </Card>
-          </TabsContent>
-
           <TabsContent value="contact-details" className="space-y-4 mt-4">
             {!isStudentView && learner?.id && (
               <div className="flex items-center justify-between mb-1">
@@ -1959,6 +1988,30 @@ export function EnquiryForm({
             )}
             <Card className="p-3 sm:p-4 md:p-6">
               <ContactDetailsSection form={form} />
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="course-selection" className="space-y-4 mt-4">
+            <Card className="p-3 sm:p-4 md:p-6">
+              <CourseSelectionSection form={form} showLearnerType={!!learner && !isStudentView} />
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="academic-information" className="space-y-4 mt-4">
+            {!isStudentView && learner?.id && (
+              <div className="flex items-center justify-between mb-1">
+                <div />
+                <StudentSectionStatusChip
+                  filled={sectionStatus.academic.filled}
+                  filledAt={sectionStatus.academic.filledAt}
+                  filledBy={sectionStatus.academic.filledBy}
+                  canOverride={canOverrideStudentSection && !sectionStatus.academic.filled}
+                  onOverrideClick={() => setOverrideDialog('academic')}
+                />
+              </div>
+            )}
+            <Card className="p-3 sm:p-4 md:p-6">
+              <AcademicInformationSection form={form} degreeType={selectedDegreeType} />
             </Card>
           </TabsContent>
 
@@ -2042,8 +2095,8 @@ export function EnquiryForm({
               >
                 {isSavingDraft && <Loader2 className="mr-1 sm:mr-2 h-4 w-4 animate-spin" />}
                 {!isSavingDraft && <Save className="mr-1 sm:mr-2 h-4 w-4" />}
-                <span className="hidden xs:inline">Save Draft</span>
-                <span className="xs:hidden">Draft</span>
+                <span className="hidden xs:inline">{learner ? 'Update' : 'Save Draft'}</span>
+                <span className="xs:hidden">{learner ? 'Update' : 'Draft'}</span>
               </Button>
             )}
 

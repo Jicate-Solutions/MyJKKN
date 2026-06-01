@@ -523,7 +523,8 @@ export const PERMISSION_CATEGORIES = [
       { key: 'billing.payment.view', label: 'View Payments' },
       { key: 'billing.payment.create', label: 'Record Payments' },
       { key: 'billing.payment.edit', label: 'Edit Payments' },
-      { key: 'billing.payment.delete', label: 'Delete Payments' }
+      { key: 'billing.payment.delete', label: 'Delete Payments' },
+      { key: 'billing.activities.view', label: 'View Billing Activities' }
     ]
   },
   {
@@ -1299,6 +1300,7 @@ export const PERMISSION_CATEGORIES = [
 
       // Allocations
       { key: 'campus_living.allocations.view', label: 'View Hostel Allocations' },
+      { key: 'campus_living.allocations.view_own', label: 'View Own Allocation (Resident)' },
       { key: 'campus_living.allocations.create', label: 'Create Allocation' },
       { key: 'campus_living.allocations.edit', label: 'Edit Allocation' },
       { key: 'campus_living.allocations.transfer', label: 'Transfer Learner Between Rooms' },
@@ -1310,6 +1312,11 @@ export const PERMISSION_CATEGORIES = [
       { key: 'campus_living.residents.create', label: 'Create Hostel Resident Record' },
       { key: 'campus_living.residents.edit', label: 'Edit Hostel Resident Record' },
       { key: 'campus_living.residents.delete', label: 'Delete Hostel Resident (no allocation history)' },
+
+      // My Hostel — resident self-service portal (added 2026-05-31)
+      { key: 'campus_living.my_hostel.view', label: 'View My Hostel (Resident Self-Service)' },
+      { key: 'campus_living.profile.view_own', label: 'View Own Hostel Profile (Emergency/Medical)' },
+      { key: 'campus_living.profile.edit_own', label: 'Edit Own Hostel Profile (Emergency/Medical)' },
 
       // Approval chains (engine master data — added 2026-04-22 PR-0, drives vacate + future workflows)
       { key: 'campus_living.approval_chains.view', label: 'View Approval Chain Rules' },
@@ -1401,6 +1408,7 @@ export const PERMISSION_CATEGORIES = [
 
       // Fees
       { key: 'campus_living.fees.view', label: 'View Hostel Fees' },
+      { key: 'campus_living.fees.view_own', label: 'View Own Hostel Fees (Resident)' },
       { key: 'campus_living.fees.config', label: 'Configure Fee Structure' },
       { key: 'campus_living.fees.waive', label: 'Waive Fee' },
       { key: 'campus_living.fees.refund', label: 'Refund Fee' },

@@ -17,8 +17,6 @@ import {
   BLOOD_GROUP_VALUES,
   ENTRY_TYPE_VALUES,
   ACCOMMODATION_VALUES,
-  HOSTEL_TYPE_VALUES,
-  FOOD_TYPE_VALUES,
   QUOTA_VALUES,
   SCHOLARSHIP_TYPE_VALUES,
 } from '@/lib/constants/learner-dropdown-values';
@@ -101,8 +99,15 @@ export const createLearnerSchema = z
     batch_id: z.string().uuid().optional().or(z.literal('')),
     admission_year_id: z.string().uuid().optional().or(z.literal('')),
     student_email: z.string().email().optional().or(z.literal('')),
-    hostel_type: z.enum(asTuple(HOSTEL_TYPE_VALUES)).optional().or(z.literal('')),
-    food_type: z.enum(asTuple(FOOD_TYPE_VALUES)).optional().or(z.literal('')),
+    // Gender-scoped campus-living category FKs (optional). Accept uuid, ''
+    // (unset dropdown), or null (normalized payload). Without these here the
+    // strict z.object would strip them before the insert.
+    hostel_category_id: z.string().uuid().nullable().optional().or(z.literal('')),
+    mess_category_id: z.string().uuid().nullable().optional().or(z.literal('')),
+    // Day-Scholar bus transport. bus_required gates the route + stop FKs.
+    bus_required: z.boolean().nullable().optional(),
+    transport_route_id: z.string().uuid().nullable().optional().or(z.literal('')),
+    transport_stop_id: z.string().uuid().nullable().optional().or(z.literal('')),
     last_school: z.string().optional(),
     board_of_study: z.string().optional(),
     tenth_max_marks: z.union([z.string(), z.number()]).optional(),
@@ -125,25 +130,6 @@ export const createLearnerSchema = z
     roll_number: z.string().optional(),
     register_number: z.string().optional(),
     student_photo_url: z.string().optional(),
-  })
-  .superRefine((data, ctx) => {
-    // Conditional: HOSTEL accommodation requires hostel_type + food_type
-    if (data.accommodation_type === 'HOSTEL') {
-      if (!data.hostel_type) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['hostel_type'],
-          message: 'Hostel type is required when accommodation is HOSTEL',
-        });
-      }
-      if (!data.food_type) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['food_type'],
-          message: 'Food type is required when accommodation is HOSTEL',
-        });
-      }
-    }
   });
 
 export type CreateLearnerInput = z.infer<typeof createLearnerSchema>;
@@ -160,5 +146,10 @@ export function createLearnerWithDefaults(
     ...parsed,
     last_school: parsed.last_school ?? '',
     board_of_study: parsed.board_of_study ?? '',
+    // Blank uuid → null so the insert never sends '' for an FK (Postgres 22P02).
+    hostel_category_id: parsed.hostel_category_id || null,
+    mess_category_id: parsed.mess_category_id || null,
+    transport_route_id: parsed.transport_route_id || null,
+    transport_stop_id: parsed.transport_stop_id || null,
   };
 }

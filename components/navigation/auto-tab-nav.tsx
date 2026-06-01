@@ -37,6 +37,7 @@ import { cn } from '@/lib/utils';
 import { usePermissions } from '@/hooks/use-permissions';
 import { MENU_PERMISSIONS, normalizeRoute } from '@/lib/sidebarMenuLink';
 import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
+import { useIsHosteler } from '@/hooks/campus-living/use-is-hosteler';
 
 interface AutoTabNavProps {
   maxDepth?: number;
@@ -123,6 +124,16 @@ export function AutoTabNav({
   const adapt = typeof adaptFn === 'function' ? adaptFn : (label: string) => label;
   const { permissions, isSuperAdmin, isLoading } = usePermissions();
 
+  const isCampusLiving = !!pathname && pathname.startsWith('/campus-living');
+  const { data: isHosteler } = useIsHosteler(isCampusLiving);
+  // A pure hostel resident: holds my_hostel.view, is NOT staff (no dashboard.view),
+  // is super-admin-exempt, and is an actual hosteler. Such a user sees ONLY the
+  // My Hostel bucket in campus-living; admins/wardens are unaffected.
+  const residentOnlyCampusLiving =
+    isCampusLiving && !isSuperAdmin && isHosteler === true &&
+    permissions['campus_living.my_hostel.view'] === true &&
+    permissions['campus_living.dashboard.view'] !== true;
+
   if (!pathname) return null;
   if (
     pathname === '/' ||
@@ -146,7 +157,18 @@ export function AutoTabNav({
   const sliceEnd = Math.max(0, maxDepth - 1);
   const visible = allTiers
     .slice(sliceStart, sliceEnd)
-    .map((chips) => chips.filter((c) => canShowChip(c.href)))
+    .map((chips, tierIdx) =>
+      chips.filter((c) => {
+        if (
+          residentOnlyCampusLiving &&
+          tierIdx === 0 &&
+          !normalizeRoute(c.href).startsWith('/campus-living/my-hostel')
+        ) {
+          return false;
+        }
+        return canShowChip(c.href);
+      })
+    )
     // Belt-and-suspenders: even if the generated manifest or an admin-side
     // override produces two chips with the same href, dedupe here so we
     // never trip React's "two children with the same key" warning in TabBar.

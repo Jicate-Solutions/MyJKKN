@@ -1,4 +1,5 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { logActivityForCurrentUser, BillingActivityTemplates } from '@/lib/utils/activity-logger-client';
 import { trackUsage } from '@/lib/utils/track-usage';
 import type {
   BillingRefund,
@@ -62,6 +63,26 @@ export class BillingRefundService {
 
       if (error) throw error;
       trackUsage({ module: 'billing/refunds', feature: 'create_refund', eventType: 'create' });
+
+      const studentNameCreate = `${(data as any)?.receipt?.student?.first_name || ''} ${(data as any)?.receipt?.student?.last_name || ''}`.trim() || 'Unknown';
+      const templateCreate = BillingActivityTemplates.refundCreated(
+        refundData.refund_amount,
+        (data as any)?.receipt?.receipt_number || 'N/A',
+        studentNameCreate
+      );
+      logActivityForCurrentUser({
+        ...templateCreate,
+        resourceId: (data as any).id,
+        metadata: {
+          sub_type: templateCreate.sub_type,
+          receipt_id: refundData.receipt_id,
+          refund_amount: refundData.refund_amount,
+          net_refund_amount: netRefundAmount,
+          refund_category: refundData.refund_category,
+          refund_method: refundData.refund_method,
+        },
+      });
+
       return data;
     } catch (error) {
       console.error('Error creating refund:', error);
@@ -108,6 +129,14 @@ export class BillingRefundService {
         .single();
 
       if (error) throw error;
+
+      const templateUpdate = BillingActivityTemplates.refundUpdated(id);
+      logActivityForCurrentUser({
+        ...templateUpdate,
+        resourceId: id,
+        metadata: { sub_type: templateUpdate.sub_type, updated_fields: Object.keys(refundData) },
+      });
+
       return data;
     } catch (error) {
       console.error('Error updating refund:', error);
@@ -125,6 +154,13 @@ export class BillingRefundService {
         .eq('id', id);
 
       if (error) throw error;
+
+      const templateDelete = BillingActivityTemplates.refundDeleted(id);
+      logActivityForCurrentUser({
+        ...templateDelete,
+        resourceId: id,
+        metadata: { sub_type: templateDelete.sub_type },
+      });
     } catch (error) {
       console.error('Error deleting refund:', error);
       throw new Error(
@@ -308,6 +344,18 @@ export class BillingRefundService {
 
       if (error) throw error;
       trackUsage({ module: 'billing/refunds', feature: 'approve_refund', eventType: 'update' });
+
+      const studentNameApprove = `${(data as any)?.receipt?.student?.first_name || ''} ${(data as any)?.receipt?.student?.last_name || ''}`.trim() || 'Unknown';
+      const templateApprove = BillingActivityTemplates.refundApproved(
+        (data as any)?.refund_amount || 0,
+        studentNameApprove
+      );
+      logActivityForCurrentUser({
+        ...templateApprove,
+        resourceId: id,
+        metadata: { sub_type: templateApprove.sub_type, refund_amount: (data as any)?.refund_amount },
+      });
+
       return data;
     } catch (error) {
       console.error('Error approving refund:', error);
@@ -357,6 +405,15 @@ export class BillingRefundService {
         .single();
 
       if (error) throw error;
+
+      const studentNameReject = `${(data as any)?.receipt?.student?.first_name || ''} ${(data as any)?.receipt?.student?.last_name || ''}`.trim() || 'Unknown';
+      const templateReject = BillingActivityTemplates.refundRejected(studentNameReject, reason);
+      logActivityForCurrentUser({
+        ...templateReject,
+        resourceId: id,
+        metadata: { sub_type: templateReject.sub_type, rejection_reason: reason },
+      });
+
       return data;
     } catch (error) {
       console.error('Error rejecting refund:', error);
@@ -434,6 +491,22 @@ export class BillingRefundService {
       }
 
       trackUsage({ module: 'billing/refunds', feature: 'process_refund', eventType: 'update' });
+
+      const studentNameProcess = `${refund.receipt?.student?.first_name || ''} ${refund.receipt?.student?.last_name || ''}`.trim() || 'Unknown';
+      const templateProcess = BillingActivityTemplates.refundProcessed(
+        refund.refund_amount,
+        studentNameProcess
+      );
+      logActivityForCurrentUser({
+        ...templateProcess,
+        resourceId: id,
+        metadata: {
+          sub_type: templateProcess.sub_type,
+          receipt_id: refund.receipt_id,
+          refund_amount: refund.refund_amount,
+        },
+      });
+
       return data;
     } catch (error) {
       console.error('Error processing refund:', error);

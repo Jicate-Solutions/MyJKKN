@@ -26,13 +26,21 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'User profile not found' }, { status: 404 });
     }
 
-    // Institution scoping: super_admin can pass any institution_id (or none);
-    // every other approver is pinned to their own institution. RLS enforces
-    // this too, but the explicit filter keeps the pagination total honest and
-    // stops a stale dropdown from leaking another institution's row counts.
+    // Institution scoping: cross-institutional users (super_admin, or roles
+    // with institution_scope='all' like CAO) can pass any institution_id or
+    // see all institutions; everyone else is pinned to their own institution.
     const isSuperAdmin = profile.role === 'super_admin';
+
+    const { data: userCustomRole } = await (supabase as any)
+      .from('custom_roles')
+      .select('institution_scope')
+      .eq('role_key', profile.role)
+      .eq('institution_scope', 'all')
+      .maybeSingle();
+    const isCrossInstitutional = isSuperAdmin || !!userCustomRole;
+
     const requestedInstitutionId = new URL(request.url).searchParams.get('institution_id');
-    const effectiveInstitutionId = isSuperAdmin
+    const effectiveInstitutionId = isCrossInstitutional
       ? (requestedInstitutionId || undefined)
       : (profile.institution_id || undefined);
 

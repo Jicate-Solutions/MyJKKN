@@ -193,6 +193,8 @@ export function useReservationOperations() {
       queryClient.invalidateQueries({ queryKey: ['pending-approvals'] });
       queryClient.invalidateQueries({ queryKey: ['reservation-stats'] });
       queryClient.invalidateQueries({ queryKey: ['approval-stats'] });
+      queryClient.invalidateQueries({ queryKey: ['my-approval-statuses'] });
+      queryClient.invalidateQueries({ queryKey: ['reservation-approvals'] });
 
       // Invalidate analytics queries for real-time dashboard updates
       queryClient.invalidateQueries({ queryKey: ['resourceAnalytics'] });
@@ -252,6 +254,8 @@ export function useReservationOperations() {
       queryClient.invalidateQueries({ queryKey: ['pending-approvals'] });
       queryClient.invalidateQueries({ queryKey: ['reservation-stats'] });
       queryClient.invalidateQueries({ queryKey: ['approval-stats'] });
+      queryClient.invalidateQueries({ queryKey: ['my-approval-statuses'] });
+      queryClient.invalidateQueries({ queryKey: ['reservation-approvals'] });
 
       // Invalidate analytics queries for real-time dashboard updates
       queryClient.invalidateQueries({ queryKey: ['resourceAnalytics'] });
@@ -259,7 +263,7 @@ export function useReservationOperations() {
       queryClient.invalidateQueries({ queryKey: ['dashboardSummary'] });
 
       toast.success(
-        '✅ Reservation Rejected!\nThe reservation has been rejected successfully.',
+        'Reservation Rejected!\nThe reservation has been rejected.',
         {
           duration: 5000,
           style: {

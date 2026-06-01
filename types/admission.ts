@@ -22,6 +22,7 @@ export type LeadSource =
   | 'youtube_ads'
   | 'inbound_call'
   | 'gate_entry'
+  | 'learner_creator_content'
   | 'other';
 
 /**
@@ -1696,7 +1697,9 @@ export interface FeeStructureMatrixDimensions {
   department_id: string;
   programme_id: string;
   quota_id: string;
-  accommodation_type_id: string;
+  /** No longer a fee-matching dimension — hostel fees moved to campus-living.
+   *  Kept optional for back-compat; ignored by resolution. */
+  accommodation_type_id?: string;
   admission_year_id: string;
   /** Optional. When set, fee resolution prefers gender-specific structures. */
   gender?: string;

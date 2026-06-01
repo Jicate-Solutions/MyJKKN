@@ -14,7 +14,7 @@ import { RotateCcw, ChevronDown, ChevronUp, Search } from 'lucide-react';
 import { ProfilesSearchParams } from './data-table-schema';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useAuth } from '@/hooks/use-auth';
-import { OrganizationService } from '@/lib/services/organization/organization-service';
+import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import { DegreeService } from '@/lib/services/organization/degree-service';
 import { DepartmentService } from '@/lib/services/organization/department-service';
 import { ProgramService } from '@/lib/services/organization/program-service';
@@ -40,6 +40,20 @@ export function ProfilesFilters({ searchParams, statusFilter }: ProfilesFiltersP
   const router = useRouter();
   const currentSearchParams = useSearchParams();
 
+  // Institution scope is driven by the user's ACCESSIBLE institutions (which
+  // honors institution_scope='all' / multi-institution roles via the
+  // get_user_accessible_institutions RPC), NOT by isSuperAdmin. Gating on
+  // isSuperAdmin silently locked scope='all' admission/custom-role users to a
+  // single (often empty) institution. See feedback: frontend institution-scope
+  // must trust accessibleIds, not isSuperAdmin.
+  const { institutions, loading: loadingInstitutions } = useInstitutionsWithAccess();
+  // User may pick "All Institutions" / switch institutions when they can reach
+  // more than one (super admins always can).
+  const canSelectAcrossInstitutions = isSuperAdmin || institutions.length > 1;
+  // When exactly one institution is reachable, auto-select and lock it.
+  const singleInstitutionId =
+    !isSuperAdmin && institutions.length === 1 ? institutions[0].id : undefined;
+
   // Local state for managing filter values
   const [localFilters, setLocalFilters] = useState<{
     institution_id?: string;
@@ -63,8 +77,7 @@ export function ProfilesFilters({ searchParams, statusFilter }: ProfilesFiltersP
     is_profile_complete: searchParams.is_profile_complete || undefined
   });
 
-  // State for dropdown options
-  const [institutions, setInstitutions] = useState<any[]>([]);
+  // State for dropdown options (institutions come from useInstitutionsWithAccess)
   const [degrees, setDegrees] = useState<any[]>([]);
   const [departments, setDepartments] = useState<any[]>([]);
   const [programs, setPrograms] = useState<any[]>([]);
@@ -160,25 +173,6 @@ export function ProfilesFilters({ searchParams, statusFilter }: ProfilesFiltersP
       is_profile_complete: searchParams.is_profile_complete || undefined
     });
   }, [searchParams]);
-
-  // Fetch institutions on component mount
-  useEffect(() => {
-    const fetchInstitutions = async () => {
-      try {
-        const response = await OrganizationService.getInstitutions({
-          page: 1,
-          limit: 1000,
-          isActive: true
-        });
-        setInstitutions(response.data || []);
-      } catch (error) {
-        console.error('[learners/profiles] Error fetching institutions:', error);
-        setInstitutions([]);
-      }
-    };
-
-    fetchInstitutions();
-  }, []);
 
   // Fetch degrees when institution changes
   useEffect(() => {
@@ -354,17 +348,18 @@ export function ProfilesFilters({ searchParams, statusFilter }: ProfilesFiltersP
     fetchAcademicYears();
   }, [localFilters.institution_id]);
 
-  // Auto-select institution for HOD/Faculty users
+  // Auto-select institution ONLY when the user can reach exactly one — e.g.
+  // single-institution faculty/HOD. Multi-institution / scope='all' users keep
+  // the "All Institutions" default so they can choose. Driven by accessible
+  // institutions, not isSuperAdmin (which wrongly clamped scope='all' users).
   useEffect(() => {
-    if (profile?.institution_id && !isSuperAdmin) {
-      if (!localFilters.institution_id) {
-        setLocalFilters((prev) => ({
-          ...prev,
-          institution_id: profile.institution_id || undefined
-        }));
-      }
+    if (singleInstitutionId && !localFilters.institution_id) {
+      setLocalFilters((prev) => ({
+        ...prev,
+        institution_id: singleInstitutionId
+      }));
     }
-  }, [profile?.institution_id, localFilters.institution_id, isSuperAdmin]);
+  }, [singleInstitutionId, localFilters.institution_id]);
 
   // Auto-select department for HOD users
   useEffect(() => {
@@ -480,12 +475,14 @@ export function ProfilesFilters({ searchParams, statusFilter }: ProfilesFiltersP
               <Select
                 value={localFilters.institution_id || ''}
                 onValueChange={handleInstitutionChange}
-                disabled={!isSuperAdmin}
+                disabled={loadingInstitutions || !canSelectAcrossInstitutions}
               >
                 <SelectTrigger>
                   <SelectValue
                     placeholder={
-                      !isSuperAdmin && profile?.institution_id
+                      loadingInstitutions
+                        ? 'Loading...'
+                        : !canSelectAcrossInstitutions
                         ? 'Your institution is auto-selected'
                         : 'Select Institution'
                     }

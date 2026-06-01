@@ -324,7 +324,7 @@ export function useResourcesSelect(
   departmentId?: string
 ) {
   const [resources, setResources] = useState<
-    Array<{ id: string; name: string; status: string }>
+    Array<{ id: string; name: string; status: string; parent_category_id?: string }>
   >([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);

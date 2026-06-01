@@ -55,9 +55,11 @@ export class FeeStructureService {
     department_id?: string;
     programme_id?: string;
     admission_year_id?: string;
+    admission_year_ids?: string[];
     quota_id?: string;
     community_category_id?: string;
     accommodation_type_id?: string;
+    accommodation_type_ids?: string[];
     status?: 'draft' | 'active' | 'archived';
   }): Promise<{
     data: Array<
@@ -136,9 +138,21 @@ export class FeeStructureService {
     if (params.degree_id) query = query.eq('degree_id', params.degree_id);
     if (params.department_id) query = query.eq('department_id', params.department_id);
     if (params.programme_id) query = query.eq('programme_id', params.programme_id);
-    if (params.admission_year_id) query = query.eq('admission_year_id', params.admission_year_id);
+    if (params.admission_year_ids?.length) {
+      query = params.admission_year_ids.length === 1
+        ? query.eq('admission_year_id', params.admission_year_ids[0])
+        : query.in('admission_year_id', params.admission_year_ids);
+    } else if (params.admission_year_id) {
+      query = query.eq('admission_year_id', params.admission_year_id);
+    }
     if (params.quota_id) query = query.eq('quota_id', params.quota_id);
-    if (params.accommodation_type_id) query = query.eq('accommodation_type_id', params.accommodation_type_id);
+    if (params.accommodation_type_ids?.length) {
+      query = params.accommodation_type_ids.length === 1
+        ? query.eq('accommodation_type_id', params.accommodation_type_ids[0])
+        : query.in('accommodation_type_id', params.accommodation_type_ids);
+    } else if (params.accommodation_type_id) {
+      query = query.eq('accommodation_type_id', params.accommodation_type_id);
+    }
     if (communityScopedIds) query = query.in('id', communityScopedIds);
     if (params.status) query = query.eq('status', params.status);
     if (params.search && params.search.trim()) query = query.ilike('name', `%${params.search.trim()}%`);
@@ -341,7 +355,6 @@ export class FeeStructureService {
         .eq('structure.department_id', d.department_id)
         .eq('structure.programme_id', d.programme_id)
         .eq('structure.quota_id', d.quota_id)
-        .eq('structure.accommodation_type_id', d.accommodation_type_id)
         .eq('structure.admission_year_id', d.admission_year_id)
         .eq('structure.status', 'active');
 
@@ -606,7 +619,6 @@ export class FeeStructureService {
       department_id:         overrides?.department_id         ?? source.department_id,
       programme_id:          overrides?.programme_id          ?? source.programme_id,
       quota_id:              overrides?.quota_id              ?? source.quota_id,
-      accommodation_type_id: overrides?.accommodation_type_id ?? source.accommodation_type_id,
       admission_year_id:     newAcademicYearId,
       gender:                overrides?.gender                ?? source.gender ?? undefined,
     };
@@ -672,5 +684,26 @@ export class FeeStructureService {
       }
     }
     return rows;
+  }
+
+  static async getStats(): Promise<{
+    total: number;
+    active: number;
+    draft: number;
+    archived: number;
+    institutions_covered: number;
+    total_fee_amount: number;
+    avg_fee_per_structure: number;
+    min_fee: number;
+    max_fee: number;
+    avg_items_per_structure: number;
+    total_optional_items: number;
+    total_mandatory_items: number;
+    structures_without_items: number;
+  }> {
+    const supabase = createClientSupabaseClient();
+    const { data, error } = await supabase.rpc('get_fee_structure_stats');
+    if (error) throw error;
+    return data as any;
   }
 }

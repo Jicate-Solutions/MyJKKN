@@ -2415,6 +2415,26 @@ CREATE POLICY "lead_scores_delete" ON admission_lead_scores FOR DELETE USING (
 );
 
 -- ============================================================================
+-- ADMISSION STATUSES (funnel-stage / lifecycle reference catalog)
+-- Global lookup data, no institution_id. SELECT is open to any authenticated
+-- user (consumed by the lead "Move to:" dropdown + LifecycleStatusBadge across
+-- learners/billing); writes stay gated on the settings-admin permission.
+-- See migration 20260529000002_admission_statuses_select_open_to_authenticated.
+-- ============================================================================
+CREATE POLICY admission_statuses_select ON admission_statuses FOR SELECT
+  USING (auth.uid() IS NOT NULL);
+
+CREATE POLICY admission_statuses_insert ON admission_statuses FOR INSERT
+  WITH CHECK (is_super_admin() OR is_admin() OR user_has_permission('admission.settings.statuses.manage'));
+
+CREATE POLICY admission_statuses_update ON admission_statuses FOR UPDATE
+  USING (is_super_admin() OR is_admin() OR user_has_permission('admission.settings.statuses.manage'))
+  WITH CHECK (is_super_admin() OR is_admin() OR user_has_permission('admission.settings.statuses.manage'));
+
+CREATE POLICY admission_statuses_delete ON admission_statuses FOR DELETE
+  USING (is_super_admin() OR is_admin());
+
+-- ============================================================================
 -- 2. ADMISSION TASKS
 -- institution_id: direct column
 -- ============================================================================
@@ -6337,3 +6357,103 @@ CREATE POLICY student_credit_balances_write
            AND public.role_has_institution_access(lp.institution_id)
       )
     );
+
+-- ============================================================================
+-- Campus Living — Resident own-row RLS (My Hostel feature)
+-- Added: 2026-05-31 (migration: 20260531090100_my_hostel_resident_rls)
+-- ============================================================================
+
+-- ── hostel_leave_requests: residents READ own ────────────────────────
+DROP POLICY IF EXISTS hostel_leave_requests_select_permission ON public.hostel_leave_requests;
+CREATE POLICY hostel_leave_requests_select_permission ON public.hostel_leave_requests
+FOR SELECT USING (
+  is_super_admin() OR is_admin()
+  OR (user_has_permission('campus_living.leave.view') AND role_has_institution_access(institution_id) AND role_has_block_access(block_id))
+  OR (user_has_permission('campus_living.leave.view_own') AND learner_id = auth.uid())
+);
+
+-- ── hostel_gate_passes: residents READ own ───────────────────────────
+DROP POLICY IF EXISTS hostel_gate_passes_select_permission ON public.hostel_gate_passes;
+CREATE POLICY hostel_gate_passes_select_permission ON public.hostel_gate_passes
+FOR SELECT USING (
+  is_super_admin() OR is_admin()
+  OR (user_has_permission('campus_living.gate_passes.view') AND role_has_institution_access(institution_id))
+  OR (user_has_permission('campus_living.gate_passes.view_own') AND learner_id = auth.uid())
+);
+
+-- ── hostel_leave_requests: INSERT (staff + resident self) ────────────
+-- Added: 2026-05-31 (migration: 20260531093000_resident_request_insert_rls)
+DROP POLICY IF EXISTS hostel_leave_requests_insert_permission ON public.hostel_leave_requests;
+CREATE POLICY hostel_leave_requests_insert_permission ON public.hostel_leave_requests
+FOR INSERT WITH CHECK (
+  is_super_admin() OR is_admin()
+  OR (user_has_permission('campus_living.leave.create') AND role_has_institution_access(institution_id) AND role_has_block_access(block_id))
+  OR (user_has_permission('campus_living.leave.request') AND learner_id = auth.uid())
+);
+
+-- ── hostel_gate_passes: INSERT (staff + resident self) ───────────────
+-- Added: 2026-05-31 (migration: 20260531093000_resident_request_insert_rls)
+DROP POLICY IF EXISTS hostel_gate_passes_insert_permission ON public.hostel_gate_passes;
+CREATE POLICY hostel_gate_passes_insert_permission ON public.hostel_gate_passes
+FOR INSERT WITH CHECK (
+  is_super_admin() OR is_admin()
+  OR (user_has_permission('campus_living.gate_passes.approve') AND role_has_institution_access(institution_id))
+  OR (user_has_permission('campus_living.gate_passes.create') AND learner_id = auth.uid())
+);
+
+-- ── learner_hostel_profiles: residents read + upsert OWN ──────────────
+DROP POLICY IF EXISTS lhp_select_permission ON public.learner_hostel_profiles;
+CREATE POLICY lhp_select_permission ON public.learner_hostel_profiles
+FOR SELECT USING (
+  is_super_admin() OR is_admin()
+  OR EXISTS (SELECT 1 FROM learners_profiles lp
+             WHERE lp.id = learner_hostel_profiles.learner_id
+               AND user_has_permission('campus_living.residents.view')
+               AND role_has_institution_access(lp.institution_id))
+  OR (user_has_permission('campus_living.profile.view_own') AND learner_id = public.get_my_learner_id())
+);
+
+DROP POLICY IF EXISTS lhp_update_permission ON public.learner_hostel_profiles;
+CREATE POLICY lhp_update_permission ON public.learner_hostel_profiles
+FOR UPDATE USING (
+  is_super_admin() OR is_admin()
+  OR EXISTS (SELECT 1 FROM learners_profiles lp
+             WHERE lp.id = learner_hostel_profiles.learner_id
+               AND user_has_permission('campus_living.residents.edit')
+               AND role_has_institution_access(lp.institution_id))
+  OR (user_has_permission('campus_living.profile.edit_own') AND learner_id = public.get_my_learner_id())
+)
+WITH CHECK (
+  is_super_admin() OR is_admin()
+  OR EXISTS (SELECT 1 FROM learners_profiles lp
+             WHERE lp.id = learner_hostel_profiles.learner_id
+               AND user_has_permission('campus_living.residents.edit')
+               AND role_has_institution_access(lp.institution_id))
+  OR (user_has_permission('campus_living.profile.edit_own') AND learner_id = public.get_my_learner_id())
+);
+
+DROP POLICY IF EXISTS lhp_insert_permission ON public.learner_hostel_profiles;
+CREATE POLICY lhp_insert_permission ON public.learner_hostel_profiles
+FOR INSERT WITH CHECK (
+  is_super_admin() OR is_admin()
+  OR EXISTS (SELECT 1 FROM learners_profiles lp
+             WHERE lp.id = learner_hostel_profiles.learner_id
+               AND user_has_permission('campus_living.residents.edit')
+               AND role_has_institution_access(lp.institution_id))
+  OR (user_has_permission('campus_living.profile.edit_own') AND learner_id = public.get_my_learner_id())
+);
+
+-- lhp_delete_permission predates this change; included here so the setup mirror
+-- shows the table's complete RLS state (admin-only delete).
+DROP POLICY IF EXISTS lhp_delete_permission ON public.learner_hostel_profiles;
+CREATE POLICY lhp_delete_permission ON public.learner_hostel_profiles
+FOR DELETE USING (is_super_admin() OR is_admin());
+
+-- ── hostel_allocations: residents READ own (table empty today) ────────
+DROP POLICY IF EXISTS hostel_allocations_select_permission ON public.hostel_allocations;
+CREATE POLICY hostel_allocations_select_permission ON public.hostel_allocations
+FOR SELECT USING (
+  is_super_admin() OR is_admin()
+  OR (user_has_permission('campus_living.allocations.view') AND role_has_institution_access(institution_id) AND role_has_block_access(block_id))
+  OR (user_has_permission('campus_living.allocations.view_own') AND learner_id = auth.uid())
+);

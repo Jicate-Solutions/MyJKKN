@@ -82,7 +82,6 @@ function isFullDims(d: Partial<FeeStructureMatrixDimensions>): boolean {
     d.programme_id &&
     d.quota_id &&
     d.community_category_id &&
-    d.accommodation_type_id &&
     d.admission_year_id
   );
 }

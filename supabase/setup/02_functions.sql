@@ -8105,6 +8105,9 @@ GRANT EXECUTE ON FUNCTION public.transfer_learner_enquiry(
 --   filter is bypassed so historical (now-inactive) cohorts remain queryable.
 DROP FUNCTION IF EXISTS public.get_seat_analytics(uuid);
 DROP FUNCTION IF EXISTS public.get_seat_analytics(uuid, uuid);
+-- 2026-05-28: return shape changed (added reserved_seats) — drop the prior
+-- (uuid, integer) signature so this file stays re-runnable on an existing DB.
+DROP FUNCTION IF EXISTS public.get_seat_analytics(uuid, integer);
 
 CREATE OR REPLACE FUNCTION public.get_seat_analytics(
   p_institution_id     uuid    DEFAULT NULL,
@@ -8125,6 +8128,7 @@ RETURNS TABLE (
   program_end_year    integer,
   total_seats         integer,
   filled_seats        bigint,
+  reserved_seats      bigint,
   balance_seats       integer,
   fill_percentage     numeric,
   last_filled_at      timestamptz
@@ -8134,6 +8138,11 @@ STABLE
 SECURITY DEFINER
 SET search_path = public
 AS $$
+  -- 2026-05-28: "Filled" = admitted-or-beyond ('admitted','active','graduated',
+  -- 'account'); "Reserved" surfaced as its own count (tentative hold, does NOT
+  -- reduce Balance). Set defined locally rather than via
+  -- admission_statuses.is_seat_filled, which means "fee-paid/active" and is
+  -- shared by fn_geography_analytics + fn_group_dashboard_overview.
   SELECT
     i.id,
     i.name,
@@ -8147,15 +8156,30 @@ AS $$
     ay.admission_year_name,
     ay.program_start_year,
     ay.program_end_year,
-    ay.sanctioned_intake::integer                               AS total_seats,
-    COUNT(lp.id)                                                AS filled_seats,
-    GREATEST(0, ay.sanctioned_intake - COUNT(lp.id)::integer)   AS balance_seats,
+    ay.sanctioned_intake::integer AS total_seats,
+    COUNT(lp.id) FILTER (
+      WHERE lp.lifecycle_status::text IN ('admitted','active','graduated','account')
+    )                                                           AS filled_seats,
+    COUNT(lp.id) FILTER (
+      WHERE lp.lifecycle_status::text = 'reserved'
+    )                                                           AS reserved_seats,
+    GREATEST(
+      0,
+      ay.sanctioned_intake - (COUNT(lp.id) FILTER (
+        WHERE lp.lifecycle_status::text IN ('admitted','active','graduated','account')
+      ))::integer
+    )                                                           AS balance_seats,
     CASE
       WHEN ay.sanctioned_intake > 0
-        THEN ROUND(COUNT(lp.id)::numeric / ay.sanctioned_intake * 100, 1)
+        THEN ROUND(
+          (COUNT(lp.id) FILTER (
+            WHERE lp.lifecycle_status::text IN ('admitted','active','graduated','account')
+          ))::numeric / ay.sanctioned_intake * 100, 1)
       ELSE 0
     END                                                         AS fill_percentage,
-    MAX(lp.activated_at)                                        AS last_filled_at
+    MAX(lp.activated_at) FILTER (
+      WHERE lp.lifecycle_status::text IN ('admitted','active','graduated','account')
+    )                                                           AS last_filled_at
   FROM admission_years ay
   JOIN programs p       ON p.id    = ay.program_id
   JOIN departments dept ON dept.id = p.department_id
@@ -8163,7 +8187,7 @@ AS $$
   JOIN institutions i   ON i.id    = ay.institution_id
   LEFT JOIN learners_profiles lp
     ON  lp.admission_year_id = ay.id
-    AND lp.lifecycle_status IN ('admitted', 'active', 'graduated', 'account')
+    AND lp.lifecycle_status::text IN ('admitted','active','graduated','account','reserved')
   WHERE
     (
       (p_program_start_year IS NULL     AND ay.is_active = true)
@@ -12362,6 +12386,7 @@ RETURNS TABLE (
   group_sort_key    text,
   intake            integer,
   filled            integer,
+  reserved          integer,
   balance           integer,
   fill_percentage   numeric,
   daily_counts      jsonb
@@ -12418,10 +12443,24 @@ AS $$
       AND lp.lifecycle_status::text IN ('admitted','active','graduated','account')
       AND COALESCE(p.is_active, true) = true
   ),
+  -- 2026-05-28: programs with reserved learners but no filled rows must still
+  -- appear so their Reserved count is visible.
+  reserved_anchor AS (
+    SELECT DISTINCT lp.institution_id, pr.resolved_id AS program_id
+    FROM learners_profiles lp
+    JOIN programs p           ON p.id = lp.program_id
+    JOIN program_resolution pr ON pr.original_id = lp.program_id
+    WHERE lp.institution_id IN (SELECT id FROM eligible_institutions)
+      AND lp.admission_year_id IN (SELECT id FROM target_ays)
+      AND lp.lifecycle_status::text = 'reserved'
+      AND COALESCE(p.is_active, true) = true
+  ),
   anchor AS (
     SELECT institution_id, program_id FROM ay_anchor
     UNION
     SELECT institution_id, program_id FROM lp_anchor
+    UNION
+    SELECT institution_id, program_id FROM reserved_anchor
   ),
   intake_per_program AS (
     SELECT
@@ -12436,6 +12475,20 @@ AS $$
     JOIN programs p           ON p.id = ay.program_id
     JOIN program_resolution pr ON pr.original_id = ay.program_id
     GROUP BY ay.institution_id, pr.resolved_id
+  ),
+  -- 2026-05-28: point-in-time count of reserved learners per resolved program.
+  reserved_per_program AS (
+    SELECT
+      lp.institution_id,
+      pr.resolved_id AS program_id,
+      COUNT(*)::int AS reserved_total
+    FROM learners_profiles lp
+    JOIN program_resolution pr ON pr.original_id = lp.program_id
+    WHERE lp.institution_id IN (SELECT id FROM eligible_institutions)
+      AND lp.admission_year_id IN (SELECT id FROM target_ays)
+      AND lp.lifecycle_status::text = 'reserved'
+      AND (NOT p_exclude_bulk_migrated OR lp.migrated_at IS NULL)
+    GROUP BY lp.institution_id, pr.resolved_id
   ),
   filled_per_day AS (
     SELECT
@@ -12465,12 +12518,14 @@ AS $$
       COALESCE(ipp.has_lateral_row, false) AS has_lateral_row,
       COALESCE(ipp.intake_total, 0)         AS intake_total,
       COALESCE(SUM(fpd.cnt), 0)::int        AS filled,
+      COALESCE(rpp.reserved_total, 0)       AS reserved,
       jsonb_object_agg(fpd.admit_date::text, fpd.cnt)
         FILTER (WHERE fpd.admit_date IS NOT NULL) AS daily_counts
     FROM anchor a
     JOIN institutions i        ON i.id    = a.institution_id
     JOIN programs p            ON p.id    = a.program_id
     LEFT JOIN intake_per_program ipp ON ipp.institution_id = a.institution_id AND ipp.program_id = a.program_id
+    LEFT JOIN reserved_per_program rpp ON rpp.institution_id = a.institution_id AND rpp.program_id = a.program_id
     LEFT JOIN degrees d        ON d.id    = p.degree_id
     LEFT JOIN departments dept ON dept.id = p.department_id
     LEFT JOIN filled_per_day fpd
@@ -12478,7 +12533,7 @@ AS $$
     GROUP BY
       a.institution_id, i.name, i.counselling_code,
       a.program_id, p.program_id, p.program_name, d.degree_type, dept.department_code,
-      ipp.has_lateral_row, ipp.intake_total
+      ipp.has_lateral_row, ipp.intake_total, rpp.reserved_total
   )
   SELECT
     pp.institution_id,
@@ -12506,6 +12561,7 @@ AS $$
       || CASE WHEN pp.has_lateral_row THEN '1' ELSE '0' END   AS group_sort_key,
     pp.intake_total                                           AS intake,
     pp.filled,
+    pp.reserved,
     GREATEST(pp.intake_total - pp.filled, 0)                  AS balance,
     CASE WHEN pp.intake_total = 0 THEN 0::numeric
          ELSE ROUND(pp.filled::numeric / pp.intake_total * 100, 2)
@@ -12516,7 +12572,7 @@ AS $$
 $$;
 
 COMMENT ON FUNCTION public.fn_seat_analytics_daily_pivot(uuid[], integer, boolean) IS
-  'Daily admission pivot for Seat Analytics tab. -SH programs merged into base. Date: COALESCE(activated_at, created_at) AT TIME ZONE IST. SECURITY DEFINER + role_has_institution_access.';
+  'Daily admission pivot for Seat Analytics tab. Filled = admitted/active/graduated/account; Reserved surfaced separately. -SH programs merged into base. Date: COALESCE(activated_at, created_at) AT TIME ZONE IST. SECURITY DEFINER + role_has_institution_access.';
 
 GRANT EXECUTE ON FUNCTION public.fn_seat_analytics_daily_pivot(uuid[], integer, boolean) TO authenticated, service_role;
 
@@ -12525,8 +12581,22 @@ GRANT EXECUTE ON FUNCTION public.fn_seat_analytics_daily_pivot(uuid[], integer, 
 -- Added: 2026-04-28 (migration 20260428_fn_source_analytics)
 -- =============================================================================
 -- Replaces get_source_analytics(uuid, uuid). Takes p_admission_year integer
--- (cohort year) instead of academic_year_id UUID. enrolled_count is limited
--- by the sparse al.learner_profile_id FK (~1.5% coverage today).
+-- (cohort year) instead of academic_year_id UUID.
+--
+-- Updated 2026-05-20: enrolled/admitted lifecycle set narrowed to
+-- ('admitted','active') and an admitted_count column added (workflow rename
+-- enrolled→admitted).
+--
+-- Updated 2026-05-29: FIX Admitted Matrix undercount. Cohort membership now
+-- uses COALESCE(profile.admission_year_id, lead.admission_year_id) instead of
+-- the lead's AY alone. The lead's admission_year_id is NULL/stale on ~94% of
+-- leads; the cohort truth lives on the profile (stamped at admission, not
+-- back-propagated). Old logic dropped admitted learners whose lead AY didn't
+-- match — AY 2026 showed 4 admitted vs 9 source-attributable in reality. The
+-- old scoped_leads + per_lead_status CTEs are merged into one since the AY
+-- decision now needs the profile join. (Leads with no profile and no lead AY
+-- correctly fall out of a cohort; direct admits with no lead row have no
+-- source and are absent by design.)
 -- =============================================================================
 CREATE OR REPLACE FUNCTION public.fn_source_analytics(
   p_institution_ids uuid[],
@@ -12539,6 +12609,7 @@ RETURNS TABLE (
   referral_type     text,
   lead_count        integer,
   enrolled_count    integer,
+  admitted_count    integer,
   conversion_rate   numeric,
   last_enrolled_at  timestamptz
 )
@@ -12547,10 +12618,6 @@ STABLE
 SECURITY DEFINER
 SET search_path = public
 AS $$
-  -- Updated 2026-05-02 (Phase C-7): drop OR-fallback on lp.admission_year
-  -- integer and on EXTRACT(year FROM al.created_at). Phase A backfilled the
-  -- FK on both admission_leads and learners_profiles. Drop is_active=true
-  -- from cohort_ay_ids so historical cohorts are queryable.
   WITH eligible_institutions AS (
     SELECT id FROM institutions
     WHERE id = ANY(p_institution_ids) AND role_has_institution_access(id)
@@ -12560,44 +12627,38 @@ AS $$
     WHERE p_admission_year IS NOT NULL
       AND program_start_year = p_admission_year
   ),
-  scoped_leads AS (
+  per_lead_status AS (
     SELECT
       al.id,
       al.institution_id,
       al.source::text                                  AS source,
       COALESCE(NULLIF(TRIM(al.referral_type), ''), '') AS referral_type,
-      al.learner_profile_id
-    FROM admission_leads al
-    WHERE al.institution_id IN (SELECT id FROM eligible_institutions)
-      AND (p_admission_year IS NULL OR al.admission_year_id IN (SELECT id FROM cohort_ay_ids))
-  ),
-  per_lead_status AS (
-    SELECT
-      sl.id, sl.institution_id, sl.source, sl.referral_type,
-      lp.lifecycle_status::text AS lp_status,
+      lp.lifecycle_status::text                        AS lp_status,
       lp.activated_at
-    FROM scoped_leads sl
-    LEFT JOIN learners_profiles lp ON lp.id = sl.learner_profile_id
-    WHERE sl.learner_profile_id IS NULL
-       OR p_admission_year IS NULL
-       OR lp.admission_year_id IN (SELECT id FROM cohort_ay_ids)
-       OR lp.admission_year_id IS NULL
+    FROM admission_leads al
+    LEFT JOIN learners_profiles lp ON lp.id = al.learner_profile_id
+    WHERE al.institution_id IN (SELECT id FROM eligible_institutions)
+      AND (
+        p_admission_year IS NULL
+        -- Cohort membership: profile AY wins (truth once admitted), lead AY is
+        -- the fallback for leads not yet linked to a profile.
+        OR COALESCE(lp.admission_year_id, al.admission_year_id) IN (SELECT id FROM cohort_ay_ids)
+      )
   )
-  -- Updated 2026-05-02 (Phase C-10): 'account' added to enrolled lifecycle
-  -- set so Source tab agrees with dashboard-wide Filled definition.
   SELECT
     pls.institution_id,
     i.name::text                                                    AS institution_name,
     pls.source,
     pls.referral_type,
     COUNT(*)::int                                                   AS lead_count,
-    COUNT(*) FILTER (WHERE pls.lp_status IN ('admitted','active','graduated','account'))::int AS enrolled_count,
+    COUNT(*) FILTER (WHERE pls.lp_status IN ('admitted','active'))::int AS enrolled_count,
+    COUNT(*) FILTER (WHERE pls.lp_status IN ('admitted','active'))::int AS admitted_count,
     CASE WHEN COUNT(*) = 0 THEN 0::numeric
          ELSE ROUND(
-           COUNT(*) FILTER (WHERE pls.lp_status IN ('admitted','active','graduated','account'))::numeric
+           COUNT(*) FILTER (WHERE pls.lp_status IN ('admitted','active'))::numeric
              / COUNT(*)::numeric * 100, 2)
     END                                                             AS conversion_rate,
-    MAX(pls.activated_at) FILTER (WHERE pls.lp_status IN ('admitted','active','graduated','account'))
+    MAX(pls.activated_at) FILTER (WHERE pls.lp_status IN ('admitted','active'))
                                                                     AS last_enrolled_at
   FROM per_lead_status pls
   JOIN institutions i ON i.id = pls.institution_id
@@ -12611,9 +12672,16 @@ GRANT EXECUTE ON FUNCTION public.fn_source_analytics(uuid[], integer) TO authent
 -- fn_geography_analytics — AY-scoped geographic distribution
 -- Added: 2026-04-28 (migration 20260428_fn_geography_analytics)
 -- =============================================================================
--- Replaces get_geography_analytics(uuid, uuid). Normalizes state/district/taluk
--- (case + whitespace), DISTINCT learners only, lifecycle_status broadened to
--- match the Seat Analytics gold standard.
+-- Replaces get_geography_analytics(uuid, uuid). Normalizes state/district/city
+-- (case + whitespace), DISTINCT leads only.
+--
+-- Updated 2026-05-29 (migration 20260529000003): switched from learners_profiles
+-- (filled-stage learners, ~464 for AY 2026) to admission_leads (prospect
+-- catchment, ~16.7k have a district). The Geography tab now reflects where the
+-- LEADS come from. Cohort scope respects the selected year via
+-- COALESCE(profile.admission_year_id, lead.admission_year_id). Column shape is
+-- unchanged for frontend stability: `taluk` carries the lead CITY (leads have no
+-- taluk), `active_learners` carries the LEAD COUNT. UI relabels accordingly.
 -- =============================================================================
 CREATE OR REPLACE FUNCTION public.fn_geography_analytics(
   p_institution_ids uuid[],
@@ -12624,17 +12692,14 @@ RETURNS TABLE (
   institution_name  text,
   state             text,
   district          text,
-  taluk             text,
-  active_learners   bigint
+  taluk             text,    -- carries lead CITY (leads have no taluk)
+  active_learners   bigint   -- carries LEAD COUNT (name retained for frontend stability)
 )
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
 SET search_path = public
 AS $$
-  -- Updated 2026-05-02 (Phase C-7): switched lp.admission_year integer match
-  -- to admission_year_id FK; allows historical cohorts (Phase A is_active=false)
-  -- to be queried by explicit year.
   WITH eligible_institutions AS (
     SELECT id FROM institutions
     WHERE id = ANY(p_institution_ids) AND role_has_institution_access(id)
@@ -12645,33 +12710,34 @@ AS $$
   ),
   normalized AS (
     SELECT
-      lp.id                                                                AS learner_id,
-      lp.institution_id,
-      INITCAP(NULLIF(TRIM(REGEXP_REPLACE(COALESCE(lp.permanent_address_state,    ''), '\s+', ' ', 'g')), '')) AS state_norm,
-      INITCAP(NULLIF(TRIM(REGEXP_REPLACE(COALESCE(lp.permanent_address_district, ''), '\s+', ' ', 'g')), '')) AS district_norm,
-      INITCAP(NULLIF(TRIM(REGEXP_REPLACE(COALESCE(lp.permanent_address_taluk,    ''), '\s+', ' ', 'g')), '')) AS taluk_norm
-    FROM learners_profiles lp
-    WHERE lp.institution_id IS NOT NULL
-      AND lp.institution_id IN (SELECT id FROM eligible_institutions)
-      AND lp.lifecycle_status::text IN ('admitted','active','graduated','account')
-      AND lp.permanent_address_district IS NOT NULL
-      AND TRIM(lp.permanent_address_district) <> ''
-      AND (p_admission_year IS NULL OR lp.admission_year_id IN (SELECT id FROM cohort_ay_ids))
+      al.id                                                                AS lead_id,
+      al.institution_id,
+      INITCAP(NULLIF(TRIM(REGEXP_REPLACE(COALESCE(al.state,    ''), '\s+', ' ', 'g')), '')) AS state_norm,
+      INITCAP(NULLIF(TRIM(REGEXP_REPLACE(COALESCE(al.district, ''), '\s+', ' ', 'g')), '')) AS district_norm,
+      INITCAP(NULLIF(TRIM(REGEXP_REPLACE(COALESCE(al.city,     ''), '\s+', ' ', 'g')), '')) AS city_norm
+    FROM admission_leads al
+    LEFT JOIN learners_profiles lp ON lp.id = al.learner_profile_id
+    WHERE al.institution_id IS NOT NULL
+      AND al.institution_id IN (SELECT id FROM eligible_institutions)
+      AND al.district IS NOT NULL
+      AND TRIM(al.district) <> ''
+      AND (
+        p_admission_year IS NULL
+        OR COALESCE(lp.admission_year_id, al.admission_year_id) IN (SELECT id FROM cohort_ay_ids)
+      )
   )
-  -- Updated 2026-05-02 (Phase C-10): added 'account' to the lifecycle set so
-  -- the Geography tab's count matches dashboard-wide Filled = 183 for 2026.
   SELECT
     n.institution_id,
     i.name::text                       AS institution_name,
     n.state_norm                       AS state,
     n.district_norm                    AS district,
-    n.taluk_norm                       AS taluk,
-    COUNT(DISTINCT n.learner_id)::bigint AS active_learners
+    n.city_norm                        AS taluk,
+    COUNT(DISTINCT n.lead_id)::bigint   AS active_learners
   FROM normalized n
   JOIN institutions i ON i.id = n.institution_id
-  GROUP BY n.institution_id, i.name, n.state_norm, n.district_norm, n.taluk_norm
-  HAVING COUNT(DISTINCT n.learner_id) > 0
-  ORDER BY i.name, n.state_norm, n.district_norm, n.taluk_norm;
+  GROUP BY n.institution_id, i.name, n.state_norm, n.district_norm, n.city_norm
+  HAVING COUNT(DISTINCT n.lead_id) > 0
+  ORDER BY i.name, n.state_norm, n.district_norm, n.city_norm;
 $$;
 
 GRANT EXECUTE ON FUNCTION public.fn_geography_analytics(uuid[], integer) TO authenticated, service_role;
@@ -13289,7 +13355,6 @@ BEGIN
        AND afs.department_id         = v_lead.department_id
        AND afs.programme_id          = v_lead.program_id
        AND afs.quota_id              = v_lead.quota_id
-       AND afs.accommodation_type_id = v_lead.accommodation_type_id
        AND afs.admission_year_id     = v_lead.admission_year_id
        AND afs.status = 'active'
        AND EXISTS (
@@ -13989,13 +14054,14 @@ AS $$
          'administrator',
          'ceo', 'coo', 'cbo', 'registrar',
          'admission_counselor', 'expo_counselor',
-         'learner_counselor',   'staff_counselor'
+         'learner_counselor',   'staff_counselor',
+         'seo'
        )
   );
 $$;
 
 COMMENT ON FUNCTION public._user_in_admission_lead_allowlist(uuid) IS
-  'Defense-in-depth allowlist for admission.leads.view. Returns TRUE iff user holds one of: admission, admission_staff, administrator, ceo, coo, cbo, registrar, or any of 4 counselor role_keys. Added 2026-05-11 so granting admission.leads.view to off-list roles (faculty, hod, principal, student, etc.) does not re-leak the leads list.';
+  'Defense-in-depth allowlist for admission.leads.view. Returns TRUE iff user holds one of: admission, admission_staff, administrator, ceo, coo, cbo, registrar, any of 4 counselor role_keys, or seo. Updated 2026-05-26 to include seo role.';
 
 GRANT EXECUTE ON FUNCTION public._user_in_admission_lead_allowlist(uuid) TO authenticated;
 
@@ -14804,3 +14870,39 @@ $$;
 
 REVOKE ALL ON FUNCTION public.mark_checklist_item(uuid, uuid, boolean) FROM public;
 GRANT EXECUTE ON FUNCTION public.mark_checklist_item(uuid, uuid, boolean) TO authenticated;
+
+-- get_my_learner_id(): resolves the current user's learners_profiles id from
+-- their profile row. user_is_hosteler() and the resident RLS policies depend
+-- on it. Defined first so fresh provision satisfies the dependency order.
+CREATE OR REPLACE FUNCTION public.get_my_learner_id()
+RETURNS uuid
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $$
+  SELECT learner_id FROM profiles WHERE id = auth.uid();
+$$;
+
+GRANT EXECUTE ON FUNCTION public.get_my_learner_id() TO authenticated;
+
+-- user_is_hosteler(): true when the current user's learner record has
+-- accommodation type = hostel. Built on get_my_learner_id() (existing).
+-- Clean signal: accommodation_types.code='hostel'; fallback: dirty text.
+CREATE OR REPLACE FUNCTION public.user_is_hosteler()
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $$
+  SELECT EXISTS (
+    SELECT 1
+    FROM learners_profiles lp
+    LEFT JOIN accommodation_types acc ON acc.id = lp.accommodation_type_id
+    WHERE lp.id = public.get_my_learner_id()
+      AND (acc.code = 'hostel' OR lp.accommodation_type ILIKE 'hostel%')
+  );
+$$;
+
+GRANT EXECUTE ON FUNCTION public.user_is_hosteler() TO authenticated;

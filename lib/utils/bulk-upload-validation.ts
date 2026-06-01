@@ -17,8 +17,6 @@ import {
   BLOOD_GROUP_VALUES,
   ENTRY_TYPE_VALUES,
   ACCOMMODATION_VALUES,
-  HOSTEL_TYPE_VALUES,
-  FOOD_TYPE_VALUES,
   QUOTA_VALUES,
   SCHOLARSHIP_TYPE_VALUES
 } from '@/lib/constants/learner-dropdown-values';
@@ -98,8 +96,7 @@ export const COLUMN_MAPPING: Record<string, string[]> = {
 
   // SECTION 7: Accommodation
   'accommodation_type': ['Accommodation Type', '* Accommodation Type', 'accommodation_type'],
-  'hostel_type': ['Hostel Type', 'hostel_type'],
-  'food_type': ['Food Type', 'food_type'],
+  'bus_required': ['Bus Required', 'bus_required', 'Bus'],
 
   // SECTION 8: Previous Education (Required for database)
   'last_school': ['Last School', '* Last School', 'last_school', 'school', 'Previous School', 'School Name'],
@@ -259,10 +256,14 @@ export function sanitizeValue(
             return normalizeDropdownValue(strValue, ENTRY_TYPE_VALUES) ?? strValue.toUpperCase();
           case 'accommodation_type':
             return normalizeDropdownValue(strValue, ACCOMMODATION_VALUES) ?? strValue.toUpperCase();
-          case 'hostel_type':
-            return normalizeDropdownValue(strValue, HOSTEL_TYPE_VALUES) ?? strValue.toUpperCase();
-          case 'food_type':
-            return normalizeDropdownValue(strValue, FOOD_TYPE_VALUES) ?? strValue.toUpperCase();
+          case 'bus_required': {
+            // Normalize Yes/No/true/false/1/0 → 'TRUE' | 'FALSE' | '' (the
+            // route converts to a real boolean before insert).
+            const b = strValue.trim().toLowerCase();
+            if (['yes', 'y', 'true', '1'].includes(b)) return 'TRUE';
+            if (['no', 'n', 'false', '0'].includes(b)) return 'FALSE';
+            return '';
+          }
           case 'quota':
             return normalizeDropdownValue(strValue, QUOTA_VALUES) ?? strValue.toUpperCase();
           case 'scholarship_type':
@@ -629,17 +630,6 @@ export function validateRow(data: Record<string, any>): ValidationResult {
       field: 'accommodation_type',
       message: accommodationValidation.error!
     });
-  }
-
-  // OPTIONAL: Food Type (with dropdown validation)
-  if (data.food_type?.trim()) {
-    const foodTypeValidation = validateDropdownValue(data.food_type, FOOD_TYPE_VALUES, 'Food Type', false);
-    if (!foodTypeValidation.valid) {
-      errors.push({
-        field: 'food_type',
-        message: foodTypeValidation.error!
-      });
-    }
   }
 
   // OPTIONAL: Previous Education (no validation required)

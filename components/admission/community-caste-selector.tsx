@@ -2,23 +2,25 @@
 
 // components/admission/community-caste-selector.tsx
 //
-// Community + Caste pickers backed by the TN govt taxonomy in
-// lib/constants/community-caste-list.ts. Exposes THREE components:
+// FK-based Community + Caste pickers, backed by the DB tables
+// `community_categories` and `castes` (seeded from the TN govt taxonomy).
+// Values are UUIDs (community_category_id / caste_id) — NOT free text — so
+// pre-selection on edit is an exact id match and the old text-matching
+// asymmetry (community blank while caste showed) is gone.
 //
-//   <CommunityField />      — community Select only
-//   <CasteField />          — caste picker (searchable combobox) only;
-//                             receives community as prop for cascade
-//   <CommunityCasteSelector /> — convenience wrapper that stacks the two
-//                                vertically (e.g., student form mobile)
+// Read is open to anon (RLS), so the public QR student form gets the same DB
+// data as the authenticated enquiry/profile forms — one global source.
 //
-// Why split: the enquiry form lays out Religion | Community | Caste as a
-// 3-column grid where Community and Caste must be SIBLING cells, not nested.
-// The student form stacks vertically. Splitting lets each form compose freely.
+// Exposes:
+//   <CommunityField />          — community Select (value = community_category_id)
+//   <CasteField />              — caste combobox keyed off the community id
+//   <CommunityCasteSelector />  — stacks both (student form)
 //
-// Caste picker uses a Popover + cmdk Command for type-to-filter search.
-// With 142 BC entries and 115 MBC entries, a plain Select scroll is painful.
+// `legacyCasteText` (optional): for rows whose caste_id couldn't be backfilled
+// from the old text column, show the stored text as a hint so the operator can
+// re-pick it from the now-complete list.
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Popover,
   PopoverContent,
@@ -33,7 +35,6 @@ import {
   CommandList,
 } from '@/components/ui/command';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
   Select,
@@ -44,31 +45,30 @@ import {
 } from '@/components/ui/select';
 import { Check, ChevronsUpDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import {
-  COMMUNITIES,
-  CASTES_BY_COMMUNITY,
-  findCommunity,
-  findCasteInCommunity,
-  type CommunityCode,
-} from '@/lib/constants/community-caste-list';
-
-const OTHER_SENTINEL = '__OTHER__';
+import { LookupService } from '@/lib/services/admission/lookup-service';
+import { CasteService, type Caste } from '@/lib/services/admission/caste-service';
 
 function Req() {
   return <span className="text-red-500 ml-0.5">*</span>;
 }
 
+interface CommunityOpt {
+  id: string;
+  code: string;
+  name: string;
+}
+
 // ════════════════════════════════════════════════════════════════════════════
-// CommunityField — plain Select with 7 canonical communities
+// CommunityField — Select bound to community_category_id
 // ════════════════════════════════════════════════════════════════════════════
 
 interface CommunityFieldProps {
+  /** community_category_id (uuid) or '' */
   value: string;
-  onChange: (val: string) => void;
+  onChange: (id: string) => void;
   required?: boolean;
   bilingual?: boolean;
-  /** Fires after onChange when value transitions to a different community
-   *  code. Useful for resetting dependent caste state in the parent. */
+  /** Fires when the community changes to a different id — reset dependent caste. */
   onCascadeReset?: () => void;
 }
 
@@ -79,8 +79,18 @@ export function CommunityField({
   bilingual = false,
   onCascadeReset,
 }: CommunityFieldProps) {
-  const matched = findCommunity(value);
-  const selectValue = matched?.code ?? '';
+  const [options, setOptions] = useState<CommunityOpt[]>([]);
+
+  useEffect(() => {
+    LookupService.listCommunityCategories(true)
+      .then((rows) =>
+        setOptions(rows.map((r) => ({ id: r.id, code: r.code, name: r.name }))),
+      )
+      .catch(() => setOptions([]));
+  }, []);
+
+  // Exact id match — value is community_category_id.
+  const selectValue = options.find((o) => o.id === value)?.id ?? '';
 
   return (
     <div className="space-y-1.5">
@@ -92,6 +102,12 @@ export function CommunityField({
       <Select
         value={selectValue}
         onValueChange={(next) => {
+          // Radix Select can emit an empty onValueChange while the options list
+          // is still loading (selectValue is '' until the fetch resolves). There
+          // is no empty SelectItem, so a real user pick is ALWAYS a non-empty id.
+          // Ignore '' to avoid wiping a valid pre-selected community_category_id
+          // (and cascade-clearing caste_id) on the edit form's first render.
+          if (!next) return;
           onChange(next);
           if (next !== selectValue) onCascadeReset?.();
         }}
@@ -99,16 +115,14 @@ export function CommunityField({
         <SelectTrigger className="h-12">
           <SelectValue
             placeholder={
-              bilingual
-                ? 'Select community / சமூகம் தேர்வு செய்க'
-                : 'Select community'
+              bilingual ? 'Select community / சமூகம் தேர்வு செய்க' : 'Select community'
             }
           />
         </SelectTrigger>
         <SelectContent>
-          {COMMUNITIES.map((c) => (
-            <SelectItem key={c.code} value={c.code}>
-              {c.label}
+          {options.map((c) => (
+            <SelectItem key={c.id} value={c.id}>
+              {c.name}
             </SelectItem>
           ))}
         </SelectContent>
@@ -118,52 +132,64 @@ export function CommunityField({
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// CasteField — searchable combobox keyed off the selected community
+// CasteField — searchable combobox bound to caste_id, keyed off community id
 // ════════════════════════════════════════════════════════════════════════════
 
 interface CasteFieldProps {
-  /** Community code (OC / BC / BC-M / MBC / SC / SC-A / ST) — drives which
-   *  caste list to render. Empty disables the picker. */
-  community: string;
+  /** community_category_id (uuid). Empty disables the picker. */
+  communityCategoryId: string;
+  /** caste_id (uuid) or '' */
   value: string;
-  onChange: (val: string) => void;
+  onChange: (id: string) => void;
   required?: boolean;
   bilingual?: boolean;
+  /** Legacy caste text (when caste_id is unset) shown as a re-pick hint. */
+  legacyCasteText?: string | null;
 }
 
 export function CasteField({
-  community,
+  communityCategoryId,
   value,
   onChange,
   required = false,
   bilingual = false,
+  legacyCasteText,
 }: CasteFieldProps) {
-  const matchedCommunity = findCommunity(community);
-  const communityCode = matchedCommunity?.code;
-
-  // List of canonical castes for this community. Empty array for OC or unset.
-  const casteList = useMemo(
-    () => (communityCode ? CASTES_BY_COMMUNITY[communityCode] : []),
-    [communityCode],
-  );
-
-  // Match logic: is the saved value a canonical caste name (or alias)?
-  const matchedCaste = useMemo(() => {
-    if (!communityCode || !value) return undefined;
-    return findCasteInCommunity(communityCode, value);
-  }, [communityCode, value]);
-
-  // OTHER mode tracking: once set, only flips on user pick of Other or a
-  // canonical option. Initialized from saved value at mount.
-  const [isOtherMode, setIsOtherMode] = useState<boolean>(() => {
-    if (!value || !communityCode || communityCode === 'OC') return false;
-    return !findCasteInCommunity(communityCode, value);
-  });
-
+  const [castes, setCastes] = useState<Caste[]>([]);
+  const [loaded, setLoaded] = useState(false);
   const [open, setOpen] = useState(false);
 
-  // OC special case: hide the caste picker entirely with explanatory helper text
-  if (communityCode === 'OC') {
+  useEffect(() => {
+    let cancelled = false;
+    if (!communityCategoryId) {
+      setCastes([]);
+      setLoaded(true);
+      return;
+    }
+    setLoaded(false);
+    CasteService.listByCommunity(communityCategoryId, true)
+      .then((rows) => {
+        if (!cancelled) {
+          setCastes(rows);
+          setLoaded(true);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setCastes([]);
+          setLoaded(true);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [communityCategoryId]);
+
+  const selected = useMemo(() => castes.find((c) => c.id === value), [castes, value]);
+  const disabled = !communityCategoryId;
+
+  // Community with no caste list (e.g. OC) — show helper, nothing to pick.
+  if (communityCategoryId && loaded && castes.length === 0) {
     return (
       <div className="space-y-1.5">
         <Label className="text-sm font-medium text-muted-foreground">
@@ -171,34 +197,16 @@ export function CasteField({
           {bilingual && <span> / ஜாதி</span>}
         </Label>
         <p className="text-xs text-muted-foreground rounded-md border bg-muted/30 px-3 py-2">
-          Forward Castes — caste not required
-          {bilingual && (
-            <span className="block">திறந்த வகுப்பு — ஜாதி தேவையில்லை</span>
-          )}
+          No caste list for this community.
+          {bilingual && <span className="block">இந்த சமூகத்திற்கு ஜாதி பட்டியல் இல்லை.</span>}
         </p>
       </div>
     );
   }
 
-  function pickCanonical(name: string) {
-    setIsOtherMode(false);
-    onChange(name);
-    setOpen(false);
-  }
-
-  function pickOther() {
-    setIsOtherMode(true);
-    onChange('');
-    setOpen(false);
-  }
-
-  // Trigger label: show selected caste name, OR "Other (specify)" when in
-  // other mode with no text yet, OR the typed text, OR placeholder.
-  const triggerLabel = isOtherMode
-    ? value || 'Other (specify)'
-    : matchedCaste?.name ?? value ?? '';
-
-  const disabled = !communityCode;
+  const triggerLabel =
+    selected?.name ??
+    (!value && legacyCasteText ? `${legacyCasteText} — re-select to confirm` : '');
 
   return (
     <div className="space-y-1.5">
@@ -219,7 +227,7 @@ export function CasteField({
             className={cn(
               'h-12 w-full justify-between font-normal',
               !triggerLabel && 'text-muted-foreground',
-              isOtherMode && 'bg-muted/40',
+              !value && legacyCasteText && 'border-amber-400',
             )}
           >
             <span className="truncate">
@@ -235,15 +243,9 @@ export function CasteField({
             <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
           </Button>
         </PopoverTrigger>
-        <PopoverContent
-          className="w-[--radix-popover-trigger-width] p-0"
-          align="start"
-        >
+        <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
           <Command
             filter={(itemValue, search) => {
-              // cmdk default filter scores by case-insensitive contains.
-              // We extend it to also search the canonical name (the option
-              // value IS the name in our case, so default behavior works).
               const haystack = itemValue.toLowerCase();
               const needle = search.toLowerCase().trim();
               if (!needle) return 1;
@@ -251,28 +253,27 @@ export function CasteField({
             }}
           >
             <CommandInput
-              placeholder={
-                bilingual
-                  ? 'Search caste / தேடவும்'
-                  : 'Search caste...'
-              }
+              placeholder={bilingual ? 'Search caste / தேடவும்' : 'Search caste...'}
               className="h-10"
             />
             <CommandList className="max-h-72">
-              <CommandEmpty>
-                No matching caste. Try "Other (specify)" below.
-              </CommandEmpty>
+              <CommandEmpty>No matching caste.</CommandEmpty>
               <CommandGroup>
-                {casteList.map((c) => (
+                {castes.map((c) => (
                   <CommandItem
-                    key={c.name}
-                    value={c.name}
-                    onSelect={() => pickCanonical(c.name)}
+                    key={c.id}
+                    // Search by name + aliases; value carries the id after a '|'.
+                    value={`${c.name} ${(c.aliases ?? []).join(' ')}|${c.id}`}
+                    onSelect={(v) => {
+                      const id = v.split('|').pop() ?? c.id;
+                      onChange(id);
+                      setOpen(false);
+                    }}
                   >
                     <Check
                       className={cn(
                         'mr-2 h-4 w-4',
-                        matchedCaste?.name === c.name ? 'opacity-100' : 'opacity-0',
+                        selected?.id === c.id ? 'opacity-100' : 'opacity-0',
                       )}
                     />
                     <span className="flex-1">{c.name}</span>
@@ -283,93 +284,60 @@ export function CasteField({
                     )}
                   </CommandItem>
                 ))}
-                <CommandItem
-                  value={OTHER_SENTINEL}
-                  onSelect={pickOther}
-                  className="border-t mt-1 pt-2"
-                >
-                  <Check
-                    className={cn(
-                      'mr-2 h-4 w-4',
-                      isOtherMode ? 'opacity-100' : 'opacity-0',
-                    )}
-                  />
-                  <span className="italic">Other (specify)</span>
-                  {bilingual && (
-                    <span className="ml-2 text-xs text-muted-foreground">
-                      / பிற
-                    </span>
-                  )}
-                </CommandItem>
               </CommandGroup>
             </CommandList>
           </Command>
         </PopoverContent>
       </Popover>
-
-      {/* Free-text input — appears below the Popover trigger when OTHER picked */}
-      {isOtherMode && (
-        <Input
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder={
-            bilingual
-              ? 'Specify caste / ஜாதியைக் குறிப்பிடவும்'
-              : 'Specify caste'
-          }
-          className="h-12"
-          aria-label="Specify other caste"
-        />
-      )}
     </div>
   );
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// CommunityCasteSelector — convenience wrapper that stacks both vertically
+// CommunityCasteSelector — stacks both vertically (student form)
 // ════════════════════════════════════════════════════════════════════════════
 
 interface CommunityCasteSelectorProps {
-  community: string;
-  caste: string;
-  onCommunityChange: (val: string) => void;
-  onCasteChange: (val: string) => void;
-  /** Marks BOTH community and caste fields as required. */
+  /** community_category_id */
+  communityCategoryId: string;
+  /** caste_id */
+  casteId: string;
+  onCommunityChange: (id: string) => void;
+  onCasteChange: (id: string) => void;
   required?: boolean;
-  // 2026-05-21: added so the QR student form can require Community
-  // (a fee-structure-matrix dimension) without also asterisking Caste
-  // (which is not part of the fee resolver and is genuinely optional
-  // for the OC community).
   /** Marks community required without affecting caste. Overrides `required`. */
   communityRequired?: boolean;
   bilingual?: boolean;
+  legacyCasteText?: string | null;
 }
 
 export function CommunityCasteSelector({
-  community,
-  caste,
+  communityCategoryId,
+  casteId,
   onCommunityChange,
   onCasteChange,
   required = false,
   communityRequired,
   bilingual = false,
+  legacyCasteText,
 }: CommunityCasteSelectorProps) {
   const commReq = communityRequired ?? required;
   return (
     <div className="space-y-4">
       <CommunityField
-        value={community}
+        value={communityCategoryId}
         onChange={onCommunityChange}
         onCascadeReset={() => onCasteChange('')}
         required={commReq}
         bilingual={bilingual}
       />
       <CasteField
-        community={community}
-        value={caste}
+        communityCategoryId={communityCategoryId}
+        value={casteId}
         onChange={onCasteChange}
         required={required}
         bilingual={bilingual}
+        legacyCasteText={legacyCasteText}
       />
     </div>
   );

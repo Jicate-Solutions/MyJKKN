@@ -33,6 +33,12 @@ export default function NewTrainingProgrammePage() {
     external_provider: null,
   });
 
+  // BUG-004049: End Date must not be earlier than Start Date.
+  // Dates come from <input type="date"> as ISO 'YYYY-MM-DD' strings, so a
+  // lexicographic string comparison correctly orders them by calendar date.
+  const dateRangeInvalid =
+    !!form.start_date && !!form.end_date && form.end_date < form.start_date;
+
   function set<K extends keyof CreateTrainingProgrammeDto>(key: K, value: CreateTrainingProgrammeDto[K]) {
     setForm((prev) => ({ ...prev, [key]: value }));
   }
@@ -40,6 +46,7 @@ export default function NewTrainingProgrammePage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!form.name.trim()) return;
+    if (dateRangeInvalid) return;
     const programme = await createMutation.mutateAsync(form);
     router.push(`/cdc/training/${programme.id}`);
   }
@@ -135,10 +142,17 @@ export default function NewTrainingProgrammePage() {
                     id="end_date"
                     type="date"
                     value={form.end_date ?? ''}
+                    min={form.start_date ?? undefined}
+                    aria-invalid={dateRangeInvalid}
                     onChange={(e) => set('end_date', e.target.value || null)}
                   />
                 </div>
               </div>
+              {dateRangeInvalid && (
+                <p className="text-sm text-destructive" role="alert">
+                  End Date cannot be earlier than Start Date.
+                </p>
+              )}
 
               {/* Total Hours */}
               <div className="space-y-1.5">
@@ -177,7 +191,7 @@ export default function NewTrainingProgrammePage() {
               </div>
 
               <div className="flex gap-3 pt-2">
-                <Button type="submit" disabled={createMutation.isPending || !form.name.trim()}>
+                <Button type="submit" disabled={createMutation.isPending || !form.name.trim() || dateRangeInvalid}>
                   {createMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
                   Create Programme
                 </Button>

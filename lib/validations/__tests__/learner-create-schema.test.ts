@@ -79,26 +79,10 @@ describe('createLearnerSchema', () => {
     expect(result.success).toBe(false);
   });
 
-  it('rejects accommodation_type=HOSTEL without hostel_type', () => {
+  it('accepts accommodation_type=HOSTEL with only category FKs', () => {
     const result = createLearnerSchema.safeParse({
       ...validInput,
       accommodation_type: 'HOSTEL',
-      // hostel_type intentionally missing
-      // food_type intentionally missing
-    });
-    expect(result.success).toBe(false);
-    if (!result.success) {
-      const paths = result.error.issues.flatMap((i) => i.path);
-      expect(paths).toContain('hostel_type');
-    }
-  });
-
-  it('accepts accommodation_type=HOSTEL when hostel_type + food_type are present', () => {
-    const result = createLearnerSchema.safeParse({
-      ...validInput,
-      accommodation_type: 'HOSTEL',
-      hostel_type: 'AC HOSTEL',
-      food_type: 'VEG',
     });
     expect(result.success).toBe(true);
   });
@@ -122,8 +106,6 @@ describe('createLearnerSchema', () => {
     const result = createLearnerSchema.safeParse({
       ...validInput,
       blood_group: '',
-      hostel_type: '',
-      food_type: '',
       quota: '',
       regulation_id: '',
       batch_id: '',

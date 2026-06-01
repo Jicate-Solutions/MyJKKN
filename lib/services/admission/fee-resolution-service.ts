@@ -26,7 +26,6 @@ function isValidDimensions(d: FeeStructureMatrixDimensions): boolean {
     isValidUuid(d.programme_id) &&
     isValidUuid(d.quota_id) &&
     isValidUuid(d.community_category_id) &&
-    isValidUuid(d.accommodation_type_id) &&
     isValidUuid(d.admission_year_id)
   );
 }

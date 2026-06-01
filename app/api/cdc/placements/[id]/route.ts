@@ -42,6 +42,14 @@ export async function GET(
   try {
     const { id } = await params;
     const supabase = await getClient();
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser();
+    if (authError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     const detail = await CdcPlacementService.getPlacement(supabase, id);
     if (!detail) return NextResponse.json({ error: 'Not found' }, { status: 404 });
     return NextResponse.json(detail);
@@ -60,6 +68,14 @@ export async function PATCH(
   try {
     const { id } = await params;
     const supabase = await getClient();
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser();
+    if (authError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     const body: CdcPlacementStatusUpdate = await request.json();
     const updated = await CdcPlacementService.updateStatus(supabase, id, body);
     return NextResponse.json(updated);

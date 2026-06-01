@@ -768,11 +768,11 @@ export class ResourceService {
   static async getResourcesForSelect(
     institutionId?: string,
     departmentId?: string
-  ): Promise<Array<{ id: string; name: string; status: string }>> {
+  ): Promise<Array<{ id: string; name: string; status: string; parent_category_id?: string }>> {
     try {
       let query = this.supabase
         .from('resources')
-        .select('id, name, status')
+        .select('id, name, status, parent_category_id')
         .eq('status', 'available')
         .order('name');
 

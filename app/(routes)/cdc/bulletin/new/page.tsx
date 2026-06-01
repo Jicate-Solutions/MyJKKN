@@ -33,6 +33,9 @@ export default function NewBulletinOpportunityPage() {
     stipend_text: null,
     is_active: true,
   });
+  // Tracks the Select choice separately so 'other' can reveal a custom text input.
+  const [categoryChoice, setCategoryChoice] = useState<string>('none');
+  const [categoryOther, setCategoryOther] = useState('');
 
   function set<K extends keyof CreateOpportunityDto>(key: K, value: CreateOpportunityDto[K]) {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -41,7 +44,10 @@ export default function NewBulletinOpportunityPage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!form.title.trim()) return;
-    const opp = await createMutation.mutateAsync(form);
+    // When 'other' is chosen, submit the typed custom category instead of the literal 'other'.
+    const resolvedCategory =
+      categoryChoice === 'other' ? categoryOther.trim() || null : form.category;
+    const opp = await createMutation.mutateAsync({ ...form, category: resolvedCategory });
     router.push(`/cdc/bulletin/${opp.id}`);
   }
 
@@ -96,8 +102,11 @@ export default function NewBulletinOpportunityPage() {
               <div className="space-y-1.5">
                 <Label>Category</Label>
                 <Select
-                  value={form.category ?? 'none'}
-                  onValueChange={(v) => set('category', v === 'none' ? null : v)}
+                  value={categoryChoice}
+                  onValueChange={(v) => {
+                    setCategoryChoice(v);
+                    set('category', v === 'none' ? null : v);
+                  }}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Select category" />
@@ -109,6 +118,15 @@ export default function NewBulletinOpportunityPage() {
                     ))}
                   </SelectContent>
                 </Select>
+                {categoryChoice === 'other' && (
+                  <Input
+                    id="category_other"
+                    className="mt-2"
+                    value={categoryOther}
+                    onChange={(e) => setCategoryOther(e.target.value)}
+                    placeholder="Enter custom category"
+                  />
+                )}
               </div>
 
               {/* Deadline */}

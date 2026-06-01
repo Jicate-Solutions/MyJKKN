@@ -61,17 +61,6 @@ export const ACCOMMODATION_VALUES = [
   'HOME'
 ] as const;
 
-export const HOSTEL_TYPE_VALUES = [
-  'AC HOSTEL',
-  'NON-AC HOSTEL'
-] as const;
-
-export const FOOD_TYPE_VALUES = [
-  'VEG',
-  'NON-VEG',
-  'VEGAN'
-] as const;
-
 export const QUOTA_VALUES = [
   'GOVERNMENT',
   'GOVERNMENT 7.5%',
@@ -95,8 +84,6 @@ export type Community = typeof COMMUNITY_VALUES[number];
 export type BloodGroup = typeof BLOOD_GROUP_VALUES[number];
 export type EntryType = typeof ENTRY_TYPE_VALUES[number];
 export type AccommodationType = typeof ACCOMMODATION_VALUES[number];
-export type HostelType = typeof HOSTEL_TYPE_VALUES[number];
-export type FoodType = typeof FOOD_TYPE_VALUES[number];
 export type Quota = typeof QUOTA_VALUES[number];
 export type ScholarshipType = typeof SCHOLARSHIP_TYPE_VALUES[number];
 
@@ -255,17 +242,6 @@ export const ACCOMMODATION_OPTIONS = [
   { value: 'HOSTEL', label: 'Hostel' },
   { value: 'DAY SCHOLAR', label: 'Day Scholar' },
   { value: 'HOME', label: 'Home' }
-] as const;
-
-export const HOSTEL_TYPE_OPTIONS = [
-  { value: 'AC HOSTEL', label: 'AC Hostel' },
-  { value: 'NON-AC HOSTEL', label: 'Non-AC Hostel' }
-] as const;
-
-export const FOOD_TYPE_OPTIONS = [
-  { value: 'VEG', label: 'Vegetarian' },
-  { value: 'NON-VEG', label: 'Non-Vegetarian' },
-  { value: 'VEGAN', label: 'Vegan' }
 ] as const;
 
 export const QUOTA_OPTIONS = [
