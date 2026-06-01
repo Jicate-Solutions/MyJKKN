@@ -13,6 +13,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { ProjectChangeRequest } from '@/types/projects';
+import { getCurrentActorId } from '@/lib/services/projects/_actor';
 
 export interface ChangeRequestFilters {
   projectId?: string | null;
@@ -91,6 +92,12 @@ export class ChangeService {
     supabase: SupabaseClient,
     input: ChangeRequestInsert
   ): Promise<ProjectChangeRequest> {
+    // requested_by + created_by → project_change_requests FK → profiles(id); no DB defaults
+    // Caller-supplied requested_by takes precedence; created_by always resolved from session.
+    const actorId = await getCurrentActorId(supabase);
+    const requestedBy =
+      input.requested_by !== undefined ? input.requested_by : actorId;
+
     const { data, error } = await supabase
       .from('project_change_requests')
       .insert({
@@ -101,7 +108,8 @@ export class ChangeService {
         impact_summary: input.impact_summary ?? null,
         is_major: input.is_major ?? false,
         status: input.status ?? 'pending',
-        requested_by: input.requested_by ?? null,
+        requested_by: requestedBy,
+        created_by: actorId,
       })
       .select('*')
       .single();
@@ -139,11 +147,18 @@ export class ChangeService {
     id: string,
     decision: ChangeRequestDecision
   ): Promise<ProjectChangeRequest> {
+    // decided_by → project_change_requests.decided_by FK → profiles(id); no DB default
+    // Caller-supplied value takes precedence (e.g. admin acting on behalf of someone).
+    const decidedBy =
+      decision.decided_by !== undefined
+        ? decision.decided_by
+        : await getCurrentActorId(supabase);
+
     const { data, error } = await supabase
       .from('project_change_requests')
       .update({
         status: decision.status,
-        decided_by: decision.decided_by ?? null,
+        decided_by: decidedBy,
         decided_at: new Date().toISOString(),
       })
       .eq('id', id)

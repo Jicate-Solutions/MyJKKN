@@ -16,6 +16,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { ProjectStakeholder, ProjectStatusReport } from '@/types/projects';
+import { getCurrentActorId } from '@/lib/services/projects/_actor';
 import type {
   StakeholderInsert,
   StakeholderUpdate,
@@ -161,6 +162,9 @@ export class StatusReportService {
     supabase: SupabaseClient,
     input: StatusReportInsert
   ): Promise<ProjectStatusReport> {
+    // created_by → project_status_reports.created_by FK → profiles(id); no DB default
+    const createdBy = await getCurrentActorId(supabase);
+
     const { data, error } = await supabase
       .from('project_status_reports')
       .insert({
@@ -172,6 +176,7 @@ export class StatusReportService {
         generated_type: input.generated_type ?? 'manual',
         content: input.content ?? {},
         storage_path: input.storage_path ?? null,
+        created_by: createdBy,
       })
       .select('*')
       .single();
