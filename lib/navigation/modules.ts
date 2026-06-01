@@ -101,11 +101,12 @@ export const MODULES: Module[] = [
   { slug: 'admin', label: 'Administration', icon: 'Shield', section: 'Administration', hasNavConfig: false },
   { slug: 'audit-trail', label: 'Audit Trail', icon: 'ScrollText', section: 'Administration', hasNavConfig: false },
 
-  // ── Projects (unified work-management, absorbs OKR) ───────────────────
-  { slug: 'projects', label: 'Projects', icon: 'FolderKanban', section: 'OKR', hasNavConfig: true },
-
-  // ── OKR ───────────────────────────────────────────────────────────────
-  { slug: 'okr', label: 'OKR & Performance', icon: 'Target', section: 'OKR', hasNavConfig: true },
+  // ── Projects (unified work-management — supersedes OKR) ───────────────
+  // OKR menu retired 2026-06-01: Projects is the single work-management surface
+  // (objectives→projects, key-results→tasks). The /okr routes + okr_metric_* tables
+  // remain live (direct-URL accessible) but are removed from the sidebar; OKR's data
+  // tables were dropped in PR #1114 so its dashboard only renders empty/errored.
+  { slug: 'projects', label: 'Projects', icon: 'FolderKanban', section: 'Projects', hasNavConfig: true },
 
   // ── AI Pulse ──────────────────────────────────────────────────────────
   // Productivity / activity insights tool — sits next to OKR & Work Pulse.
