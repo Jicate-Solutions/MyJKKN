@@ -6,8 +6,7 @@
  * a "suggested lessons" query that surfaces existing lessons from OTHER projects
  * sharing the same project_type_id — no LLM involved; simple DB read.
  *
- * finalized_by is passed in by the caller (current user's profile id); it is
- * null when the caller does not supply it (deferred wiring — see PR notes).
+ * finalized_by and created_by are resolved from the session via getCurrentActorId.
  *
  * Pattern: static class, SupabaseClient as first arg — mirrors RiskService /
  * TaskService.  Errors thrown, never swallowed.
@@ -16,6 +15,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { ProjectClosureReport, ProjectLessonLearned } from '@/types/projects';
+import { getCurrentActorId } from '@/lib/services/projects/_actor';
 
 // ─── Insert / Update shapes ───────────────────────────────────────────────────
 
@@ -84,6 +84,9 @@ export class ClosureService {
       });
     }
 
+    // created_by → project_closure_reports.created_by FK → profiles(id); no DB default
+    const createdBy = await getCurrentActorId(supabase);
+
     const { data, error } = await supabase
       .from('project_closure_reports')
       .insert({
@@ -93,6 +96,7 @@ export class ClosureService {
         outcome_summary: input.outcome_summary ?? null,
         impact_summary: input.impact_summary ?? null,
         is_finalized: false,
+        created_by: createdBy,
       })
       .select('*')
       .single();
@@ -119,20 +123,24 @@ export class ClosureService {
 
   /**
    * Finalize — stamps is_finalized = true + finalized_at = now().
-   * finalized_by is the caller's profile id (UUID string), or null when not
-   * available (orchestrator wires the auth context later).
+   * finalized_by is resolved from the session via getCurrentActorId.
+   * Caller may pass an explicit value (e.g. admin acting on behalf); null
+   * resolves automatically from the authenticated session.
    */
   static async finalizeReport(
     supabase: SupabaseClient,
     id: string,
     finalizedBy: string | null = null
   ): Promise<ProjectClosureReport> {
+    // finalized_by → project_closure_reports.finalized_by FK → profiles(id); no DB default
+    const resolvedFinalizedBy = finalizedBy ?? await getCurrentActorId(supabase);
+
     const { data, error } = await supabase
       .from('project_closure_reports')
       .update({
         is_finalized: true,
         finalized_at: new Date().toISOString(),
-        finalized_by: finalizedBy,
+        finalized_by: resolvedFinalizedBy,
       })
       .eq('id', id)
       .select('*')
