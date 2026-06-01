@@ -1,15 +1,17 @@
 'use client';
 
-import { use, useState } from 'react';
+import { use, useEffect, useState } from 'react';
 import Link from 'next/link';
-import { toast } from 'sonner';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/hooks/use-auth';
 import { useHostelWardens } from '@/hooks/campus-living/use-hostel-wardens';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { WardenFormDialog } from '@/app/(routes)/campus-living/wardens/_components/warden-form-dialog';
+import type { HostelWarden } from '@/types/campus-living';
 import {
   ArrowLeft,
   ShieldCheck,
@@ -44,7 +46,54 @@ export default function BlockWardensPage({ params }: { params: Promise<{ id: str
   const { id } = use(params);
   const { profile } = useAuth();
   const { data: rawWardens, isLoading } = useHostelWardens(profile?.institution_id ?? '', { block_id: id });
-  const wardens = rawWardens as any[] | undefined;
+  const wardens = rawWardens as HostelWarden[] | undefined;
+
+  // Dialog state — shared create/edit form (reused from the standalone wardens module).
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [dialogMode, setDialogMode] = useState<'create' | 'edit'>('create');
+  const [editingWarden, setEditingWarden] = useState<HostelWarden | undefined>(undefined);
+
+  const openCreate = () => {
+    setDialogMode('create');
+    setEditingWarden(undefined);
+    setDialogOpen(true);
+  };
+  const openEdit = (warden: HostelWarden) => {
+    setDialogMode('edit');
+    setEditingWarden(warden);
+    setDialogOpen(true);
+  };
+
+  // hostel_wardens stores staff_id, not a name — resolve names from the staff table.
+  const [staffNames, setStaffNames] = useState<Map<string, string>>(new Map());
+  const staffKey = (wardens ?? []).map((w) => w.staff_id).join(',');
+
+  useEffect(() => {
+    const staffIds = Array.from(new Set((wardens ?? []).map((w) => w.staff_id))).filter(Boolean);
+    if (staffIds.length === 0) {
+      setStaffNames(new Map());
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const supabase = createClientSupabaseClient();
+      const { data } = await supabase
+        .from('staff')
+        .select('id, first_name, last_name')
+        .in('id', staffIds);
+      if (cancelled) return;
+      const next = new Map<string, string>();
+      ((data ?? []) as { id: string; first_name: string | null; last_name: string | null }[]).forEach((s) => {
+        const full = [s.first_name, s.last_name].filter(Boolean).join(' ').trim();
+        if (full) next.set(s.id, full);
+      });
+      setStaffNames(next);
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [staffKey]);
 
   if (isLoading) {
     return (
@@ -84,13 +133,7 @@ export default function BlockWardensPage({ params }: { params: Promise<{ id: str
               </p>
             </div>
           </div>
-          <Button
-            onClick={() =>
-              toast.info('Warden-assignment dialog ships next.', {
-                description: 'Inline assign-warden form is being wired in a follow-up PR.',
-              })
-            }
-          >
+          <Button onClick={openCreate}>
             <Plus className="mr-2 h-4 w-4" />
             Assign Warden
           </Button>
@@ -100,6 +143,7 @@ export default function BlockWardensPage({ params }: { params: Promise<{ id: str
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {wardens?.map((warden) => {
             const dCfg = designationConfig[warden.designation] ?? { label: warden.designation, color: '' };
+            const wardenName = staffNames.get(warden.staff_id) ?? warden.staff_id;
             return (
               <Card key={warden.id} className="hover:shadow-md transition-shadow">
                 <CardContent className="p-6">
@@ -109,18 +153,15 @@ export default function BlockWardensPage({ params }: { params: Promise<{ id: str
                         <ShieldCheck className="h-6 w-6 text-primary" />
                       </div>
                       <div>
-                        <p className="font-semibold text-lg">{warden.name}</p>
+                        <p className="font-semibold text-lg">{wardenName}</p>
                         <Badge className={`${dCfg.color} text-xs`}>{dCfg.label}</Badge>
                       </div>
                     </div>
                     <Button
                       variant="ghost"
                       size="icon"
-                      onClick={() =>
-                        toast.info('Warden-edit dialog ships next.', {
-                          description: `Edit ${warden.name} is being wired in a follow-up PR.`,
-                        })
-                      }
+                      onClick={() => openEdit(warden)}
+                      aria-label={`Edit ${wardenName}`}
                     >
                       <UserCog className="h-4 w-4" />
                     </Button>
@@ -130,37 +171,49 @@ export default function BlockWardensPage({ params }: { params: Promise<{ id: str
                     <div className="grid grid-cols-2 gap-3 text-sm">
                       <div className="flex items-center gap-2 text-muted-foreground">
                         <Phone className="h-3.5 w-3.5" />
-                        <span>{warden.phone}</span>
+                        <span>{warden.phone || '—'}</span>
                       </div>
                       <div className="flex items-center gap-2 text-muted-foreground">
                         <Calendar className="h-3.5 w-3.5" />
-                        <span>Since {warden.assigned_at}</span>
+                        <span>
+                          Since{' '}
+                          {warden.assigned_at
+                            ? new Date(warden.assigned_at).toLocaleDateString()
+                            : '—'}
+                        </span>
                       </div>
                     </div>
 
                     <div className="flex flex-wrap gap-2">
-                      <Badge variant="outline" className="flex items-center gap-1">
-                        {shiftIcons[warden.shift]}
-                        <span className="capitalize">{warden.shift.replace('_', ' ')}</span>
-                      </Badge>
+                      {warden.shift && (
+                        <Badge variant="outline" className="flex items-center gap-1">
+                          {shiftIcons[warden.shift]}
+                          <span className="capitalize">{warden.shift.replace('_', ' ')}</span>
+                        </Badge>
+                      )}
                       {warden.is_residential && (
                         <Badge variant="outline" className="flex items-center gap-1">
                           <Home className="h-3 w-3" />
                           Residential
                         </Badge>
                       )}
+                      {warden.is_active === false && (
+                        <Badge variant="secondary">Relieved</Badge>
+                      )}
                     </div>
 
-                    <div>
-                      <p className="text-xs text-muted-foreground mb-1.5">Assigned Floors</p>
-                      <div className="flex gap-1.5">
-                        {warden.assigned_floors.map((floor) => (
-                          <Badge key={floor} variant="secondary" className="text-xs">
-                            {floorLabels[floor] ?? floor} Floor
-                          </Badge>
-                        ))}
+                    {warden.assigned_floors && warden.assigned_floors.length > 0 && (
+                      <div>
+                        <p className="text-xs text-muted-foreground mb-1.5">Assigned Floors</p>
+                        <div className="flex gap-1.5">
+                          {warden.assigned_floors.map((floor) => (
+                            <Badge key={floor} variant="secondary" className="text-xs">
+                              {floorLabels[floor] ?? floor} Floor
+                            </Badge>
+                          ))}
+                        </div>
                       </div>
-                    </div>
+                    )}
                   </div>
                 </CardContent>
               </Card>
@@ -173,11 +226,23 @@ export default function BlockWardensPage({ params }: { params: Promise<{ id: str
             <CardContent className="flex flex-col items-center justify-center py-12">
               <ShieldCheck className="h-12 w-12 text-muted-foreground mb-4" />
               <p className="text-lg font-medium">No Wardens Assigned</p>
-              <p className="text-sm text-muted-foreground">Assign wardens to manage this hostel block</p>
+              <p className="text-sm text-muted-foreground mb-4">Assign wardens to manage this hostel block</p>
+              <Button onClick={openCreate}>
+                <Plus className="mr-2 h-4 w-4" />
+                Assign Warden
+              </Button>
             </CardContent>
           </Card>
         )}
       </div>
+
+      <WardenFormDialog
+        open={dialogOpen}
+        onOpenChange={setDialogOpen}
+        mode={dialogMode}
+        warden={editingWarden}
+        defaultBlockId={id}
+      />
     </ContentLayout>
   );
 }

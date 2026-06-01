@@ -53,7 +53,25 @@ export class HostelBlockService {
           logger.error('campus-living/blocks', 'Failed to filter blocks by institution', junctionErr);
           throw junctionErr;
         }
-        const ids = (blockIds ?? []).map((r) => r.block_id);
+        // Wardens manage blocks regardless of which college "owns" them, so the
+        // visible set is the UNION of (a) blocks in the user's institution and
+        // (b) blocks directly granted to the user via user_block_access. This
+        // mirrors role_has_hostel_block_scope() branch (a) — without it, a
+        // warden whose home institution differs from the block's institution
+        // sees nothing here even though RLS would allow the rows.
+        const { data: { user } } = await supabase.auth.getUser();
+        let grantedIds: string[] = [];
+        if (user) {
+          const { data: grantedBlocks } = await supabase
+            .from('user_block_access')
+            .select('block_id')
+            .eq('user_id', user.id)
+            .is('revoked_at', null);
+          grantedIds = (grantedBlocks ?? []).map((r) => r.block_id);
+        }
+        const ids = Array.from(
+          new Set([...(blockIds ?? []).map((r) => r.block_id), ...grantedIds])
+        ).filter(Boolean);
         if (ids.length === 0) return { data: [] as HostelBlock[], count: 0 };
         query = query.in('id', ids);
       }

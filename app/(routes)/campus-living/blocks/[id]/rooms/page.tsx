@@ -79,13 +79,24 @@ export default function BlockRoomsPage({ params }: { params: Promise<{ id: strin
       selected.map((room) => HostelRoomService.deleteRoom(room.id))
     );
     await refetch();
-    const failed = results.filter((r) => r.status === 'rejected').length;
-    if (failed > 0) {
-      throw new Error(
-        `${failed} of ${selected.length} room${selected.length === 1 ? '' : 's'} could not be deleted. ` +
-          'Rooms with active residents must be vacated first.'
-      );
-    }
+    const rejected = results.filter(
+      (r): r is PromiseRejectedResult => r.status === 'rejected'
+    );
+    if (rejected.length === 0) return;
+
+    // Beds cascade-delete with the room, so the remaining blockers are real
+    // dependencies. Surface the actual Postgres reason (Supabase errors are
+    // plain { code, details, message } objects, not Error instances).
+    const reasonFor = (e: { details?: string; message?: string } | undefined) => {
+      const text = `${e?.details ?? ''} ${e?.message ?? ''}`;
+      if (text.includes('hostel_allocations')) return 'have active residents (vacate them first)';
+      if (text.includes('hostel_maintenance_requests')) return 'have open maintenance requests';
+      return 'have linked records that must be removed first';
+    };
+    const reason = reasonFor(rejected[0].reason as { details?: string; message?: string });
+    throw new Error(
+      `${rejected.length} of ${selected.length} room${selected.length === 1 ? '' : 's'} could not be deleted — they ${reason}.`
+    );
   };
 
   if (isLoading) {
