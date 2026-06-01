@@ -37,7 +37,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { Filter, Plus, RotateCcw, Trash2 } from 'lucide-react';
+import { Download, Filter, Plus, RotateCcw, Trash2, Upload } from 'lucide-react';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import { usePermissions } from '@/hooks/use-permissions';
 import { FeeStructureService } from '@/lib/services/admission/fee-structure-service';
@@ -47,6 +47,7 @@ import { ProgramService } from '@/lib/services/organization/program-service';
 import { AdmissionYearService } from '@/lib/services/admission/admission-year-service';
 import { LookupService } from '@/lib/services/admission/lookup-service';
 import { columns, type FeeStructureRow } from './columns';
+import { BulkFeeStructureDialog } from './bulk-fee-structure-dialog';
 
 interface Option {
   id: string;
@@ -87,6 +88,18 @@ export function FeeStructuresListView() {
   const { institutions } = useInstitutionsWithAccess();
   const { isSuperAdmin, canPerformAll } = usePermissions();
   const canBulkDelete = isSuperAdmin || canPerformAll('admission_fees', ['delete']);
+  const canManage = isSuperAdmin || canPerformAll('admission_fees', ['manage']);
+  const [bulkOpen, setBulkOpen] = useState(false);
+
+  const downloadTemplate = () => {
+    window.open('/api/admission/fees-structure/template', '_blank');
+  };
+  const exportForEdit = () => {
+    const params = new URLSearchParams();
+    if (institutionFilter !== ALL) params.set('institution_id', institutionFilter);
+    if (statusFilter !== ALL) params.set('status', statusFilter);
+    window.open(`/api/admission/fees-structure/export?${params.toString()}`, '_blank');
+  };
 
   // Primary filters (always visible)
   const [institutionFilter, setInstitutionFilter] = useState<string>(ALL);
@@ -487,6 +500,20 @@ export function FeeStructuresListView() {
             <Plus className="h-4 w-4 mr-1" />
             New Fee Structure
           </Button>
+
+          {canManage && (
+            <>
+              <Button variant="outline" size="sm" onClick={downloadTemplate}>
+                <Download className="h-4 w-4 mr-1" /> Template
+              </Button>
+              <Button variant="outline" size="sm" onClick={exportForEdit}>
+                <Upload className="h-4 w-4 mr-1 rotate-180" /> Export for Edit
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => setBulkOpen(true)}>
+                <Upload className="h-4 w-4 mr-1" /> Bulk Import
+              </Button>
+            </>
+          )}
         </div>
 
         {/* Advanced filters grid — full card width, responsive columns.
@@ -763,6 +790,12 @@ export function FeeStructuresListView() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <BulkFeeStructureDialog
+        open={bulkOpen}
+        onOpenChange={setBulkOpen}
+        onImported={bumpRefetch}
+      />
     </>
   );
 }
