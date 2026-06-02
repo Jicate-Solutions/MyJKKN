@@ -1310,6 +1310,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "iconName": "FileText",
         "children": [
           {
+            "path": "/admin/pde/accreditation-evidence",
+            "label": "Accreditation Evidence",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
             "path": "/admin/pde/assessments",
             "label": "Assessments",
             "iconName": "ClipboardCheck",
@@ -1487,6 +1493,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
                 "children": []
               }
             ]
+          },
+          {
+            "path": "/admin/pde/transcript",
+            "label": "Transcript",
+            "iconName": "FileText",
+            "children": []
           }
         ]
       },
@@ -2345,6 +2357,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "path": "/billing/activities",
         "label": "Activities",
         "iconName": "Wallet",
+        "children": []
+      },
+      {
+        "path": "/billing/analytics",
+        "label": "Analytics",
+        "iconName": "BarChart",
         "children": []
       },
       {
@@ -4238,6 +4256,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "label": "Pde",
         "iconName": "FileText",
         "children": [
+          {
+            "path": "/learn/pde/cases",
+            "label": "Cases",
+            "iconName": "FileText",
+            "children": []
+          },
           {
             "path": "/learn/pde/cohort",
             "label": "PDE Cohort Comparison",
