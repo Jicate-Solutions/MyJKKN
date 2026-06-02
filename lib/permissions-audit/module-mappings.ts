@@ -119,7 +119,6 @@ export const ROUTE_PREFIX_TO_MODULE: ReadonlyArray<readonly [string, string]> = 
   ['/admin/ai-query-tools', 'System'],
   ['/admin/reset-driver-passwords', 'System'],
   ['/admin/hr', 'Staff'], // HR admin pages (recruitment-need, payroll, etc.)
-  ['/admin/internship-policy', 'Internship'], // Director-only policy pages (PR #1209); operational routes live at /internships/*
   // Meta surface modules (catalog consolidation 2026-05-30, κ).
   // /admin/social/* — sub-prefixes BEFORE any future /admin/social catch-all.
   ['/admin/social/facebook', 'Social Facebook'], // β PR #1150

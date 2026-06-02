@@ -1,6 +1,6 @@
 'use client';
 
-// /admin/internship-policy/evaluation
+// /internships/policy/evaluation
 // Dual-eval toggle, approval escalation config.
 // Rubric editor and approval chain UIs are future sub-pages (Q3 phase).
 
@@ -106,7 +106,7 @@ export default function EvaluationPolicyPage() {
       <PageBreadcrumb
         items={[
           { label: 'Admin', href: '/admin' },
-          { label: 'Internship Policies', href: '/admin/internship-policy' },
+          { label: 'Internship Policies', href: '/internships/policy' },
           { label: 'Evaluation' },
         ]}
       />
@@ -137,7 +137,7 @@ export default function EvaluationPolicyPage() {
           <span>Rubric editors per program</span>
           <Badge variant="outline" className="text-xs">Q3</Badge>
           <ArrowRight className="h-3.5 w-3.5" />
-          <Link href="/admin/internship-policy" className="text-primary text-xs hover:underline">
+          <Link href="/internships/policy" className="text-primary text-xs hover:underline">
             Coming in Phase 1D
           </Link>
         </div>

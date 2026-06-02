@@ -1,9 +1,7 @@
 'use client';
 
-// /admin/internship-policy/fees
-// Fee compliance threshold (primary) + logbook late penalty.
-// This is the page from the spec's v1 differentiator example:
-//   "Changing fee threshold from 70% → 80% will block ~12 currently-pending learners"
+// /internships/policy/eligibility
+// Fee compliance threshold, registration cutoff, GPA gate for posting allocation.
 
 import { useEffect, useState } from 'react';
 import { ShieldAlert, RefreshCw } from 'lucide-react';
@@ -22,7 +20,7 @@ import { PolicyField } from '../_components/PolicyField';
 
 const POLICY_KEYS = [
   INTERNSHIP_POLICY_KEYS.FEE_COMPLIANCE_THRESHOLD,
-  INTERNSHIP_POLICY_KEYS.LOGBOOK_LATE_PENALTY_PCT,
+  INTERNSHIP_POLICY_KEYS.REGISTRATION_CUTOFF_DAYS,
 ];
 
 const FIELD_CONFIGS = [
@@ -30,7 +28,7 @@ const FIELD_CONFIGS = [
     key: INTERNSHIP_POLICY_KEYS.FEE_COMPLIANCE_THRESHOLD,
     label: 'Fee Compliance Threshold',
     description:
-      'Percentage of fee balance that must be cleared before a learner is eligible for posting allocation. Cascade-preview shows how many in-flight learners would be blocked by raising this. Default: 70%.',
+      'Minimum percentage of fee paid before a learner is eligible for posting allocation. Learners below this threshold are blocked from being assigned to a cycle. Default: 70%.',
     type: 'number' as const,
     unit: '%',
     min: 0,
@@ -38,19 +36,19 @@ const FIELD_CONFIGS = [
     step: 5,
   },
   {
-    key: INTERNSHIP_POLICY_KEYS.LOGBOOK_LATE_PENALTY_PCT,
-    label: 'Logbook Late Submission Penalty',
+    key: INTERNSHIP_POLICY_KEYS.REGISTRATION_CUTOFF_DAYS,
+    label: 'Registration Cutoff (days before cycle start)',
     description:
-      'Score deduction applied when a logbook is submitted after the deadline window. Applied to the logbook evaluation score for the affected day. Default: 10%.',
+      'Number of days before a cycle starts after which new registrations are blocked. Coordinators cannot add learners after this window. Default: 7 days.',
     type: 'number' as const,
-    unit: '%',
+    unit: 'days',
     min: 0,
-    max: 50,
-    step: 5,
+    max: 30,
+    step: 1,
   },
 ];
 
-export default function FeesPolicyPage() {
+export default function EligibilityPolicyPage() {
   const { isSuperAdmin, isLoading: permsLoading } = usePermissions();
   const [rows, setRows] = useState<Record<string, PolicyRow>>({});
   const [loading, setLoading] = useState(true);
@@ -68,7 +66,7 @@ export default function FeesPolicyPage() {
 
   if (permsLoading) {
     return (
-      <ContentLayout title="Fees Policies">
+      <ContentLayout title="Eligibility Policies">
         <Skeleton className="h-32 w-full" />
       </ContentLayout>
     );
@@ -76,12 +74,12 @@ export default function FeesPolicyPage() {
 
   if (!isSuperAdmin) {
     return (
-      <ContentLayout title="Fees Policies">
+      <ContentLayout title="Eligibility Policies">
         <Alert variant="destructive">
           <ShieldAlert className="h-4 w-4" />
           <AlertTitle>Super-admin only</AlertTitle>
           <AlertDescription>
-            Internship fee policy is restricted to super-admin users.
+            Internship eligibility policy is restricted to super-admin users.
           </AlertDescription>
         </Alert>
       </ContentLayout>
@@ -89,22 +87,21 @@ export default function FeesPolicyPage() {
   }
 
   return (
-    <ContentLayout title="Fees Policies">
+    <ContentLayout title="Eligibility Policies">
       <PageBreadcrumb
         items={[
           { label: 'Admin', href: '/admin' },
-          { label: 'Internship Policies', href: '/admin/internship-policy' },
-          { label: 'Fees' },
+          { label: 'Internship Policies', href: '/internships/policy' },
+          { label: 'Eligibility' },
         ]}
       />
 
       <div className="mt-4 mb-6 flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold">Fees Policies</h1>
+          <h1 className="text-2xl font-semibold">Eligibility Policies</h1>
           <p className="text-sm text-muted-foreground mt-1 max-w-2xl">
-            Fee threshold drives posting eligibility for ~2,740 learners across 7 colleges.
-            Raising the threshold will block learners who have partially cleared dues.
-            The cascade-preview pane shows exactly who is affected before you save.
+            Controls who can be assigned to a posting cycle. Every save shows a cascade-preview
+            of which in-flight learners are affected before the change is applied.
           </p>
         </div>
         <Button

@@ -1,8 +1,9 @@
 'use client';
 
-// /admin/internship-policy/cycle
-// Roster reminder lead-time, vehicle lead time — cycle-level platform defaults.
-// Per-college blackout dates are a Q3 feature (internship_college_blackouts table).
+// /internships/policy/fees
+// Fee compliance threshold (primary) + logbook late penalty.
+// This is the page from the spec's v1 differentiator example:
+//   "Changing fee threshold from 70% → 80% will block ~12 currently-pending learners"
 
 import { useEffect, useState } from 'react';
 import { ShieldAlert, RefreshCw } from 'lucide-react';
@@ -11,7 +12,6 @@ import { PageBreadcrumb } from '@/components/navigation';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Badge } from '@/components/ui/badge';
 import { usePermissions } from '@/hooks/use-permissions';
 import {
   InternshipPolicyService,
@@ -21,36 +21,36 @@ import {
 import { PolicyField } from '../_components/PolicyField';
 
 const POLICY_KEYS = [
-  INTERNSHIP_POLICY_KEYS.ROSTER_REMINDER_D_MINUS,
-  INTERNSHIP_POLICY_KEYS.VEHICLE_LEAD_TIME_DAYS,
+  INTERNSHIP_POLICY_KEYS.FEE_COMPLIANCE_THRESHOLD,
+  INTERNSHIP_POLICY_KEYS.LOGBOOK_LATE_PENALTY_PCT,
 ];
 
 const FIELD_CONFIGS = [
   {
-    key: INTERNSHIP_POLICY_KEYS.ROSTER_REMINDER_D_MINUS,
-    label: 'Roster Reminder Lead-time',
+    key: INTERNSHIP_POLICY_KEYS.FEE_COMPLIANCE_THRESHOLD,
+    label: 'Fee Compliance Threshold',
     description:
-      'Number of days before a cycle starts when the system sends roster confirmation reminders to coordinators and HoDs. Default: 3 days before start.',
+      'Percentage of fee balance that must be cleared before a learner is eligible for posting allocation. Cascade-preview shows how many in-flight learners would be blocked by raising this. Default: 70%.',
     type: 'number' as const,
-    unit: 'days',
-    min: 1,
-    max: 14,
-    step: 1,
+    unit: '%',
+    min: 0,
+    max: 100,
+    step: 5,
   },
   {
-    key: INTERNSHIP_POLICY_KEYS.VEHICLE_LEAD_TIME_DAYS,
-    label: 'Vehicle Booking Lead-time',
+    key: INTERNSHIP_POLICY_KEYS.LOGBOOK_LATE_PENALTY_PCT,
+    label: 'Logbook Late Submission Penalty',
     description:
-      'Minimum number of days in advance a vehicle must be booked for hospital transport. Requests within this window are flagged as urgent and require coordinator override. Default: 5 days.',
+      'Score deduction applied when a logbook is submitted after the deadline window. Applied to the logbook evaluation score for the affected day. Default: 10%.',
     type: 'number' as const,
-    unit: 'days',
-    min: 1,
-    max: 30,
-    step: 1,
+    unit: '%',
+    min: 0,
+    max: 50,
+    step: 5,
   },
 ];
 
-export default function CyclePolicyPage() {
+export default function FeesPolicyPage() {
   const { isSuperAdmin, isLoading: permsLoading } = usePermissions();
   const [rows, setRows] = useState<Record<string, PolicyRow>>({});
   const [loading, setLoading] = useState(true);
@@ -68,7 +68,7 @@ export default function CyclePolicyPage() {
 
   if (permsLoading) {
     return (
-      <ContentLayout title="Cycle Policies">
+      <ContentLayout title="Fees Policies">
         <Skeleton className="h-32 w-full" />
       </ContentLayout>
     );
@@ -76,12 +76,12 @@ export default function CyclePolicyPage() {
 
   if (!isSuperAdmin) {
     return (
-      <ContentLayout title="Cycle Policies">
+      <ContentLayout title="Fees Policies">
         <Alert variant="destructive">
           <ShieldAlert className="h-4 w-4" />
           <AlertTitle>Super-admin only</AlertTitle>
           <AlertDescription>
-            Cycle policy configuration is restricted to super-admin.
+            Internship fee policy is restricted to super-admin users.
           </AlertDescription>
         </Alert>
       </ContentLayout>
@@ -89,21 +89,22 @@ export default function CyclePolicyPage() {
   }
 
   return (
-    <ContentLayout title="Cycle Policies">
+    <ContentLayout title="Fees Policies">
       <PageBreadcrumb
         items={[
           { label: 'Admin', href: '/admin' },
-          { label: 'Internship Policies', href: '/admin/internship-policy' },
-          { label: 'Cycle' },
+          { label: 'Internship Policies', href: '/internships/policy' },
+          { label: 'Fees' },
         ]}
       />
 
       <div className="mt-4 mb-6 flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold">Cycle Policies</h1>
+          <h1 className="text-2xl font-semibold">Fees Policies</h1>
           <p className="text-sm text-muted-foreground mt-1 max-w-2xl">
-            Platform-wide defaults for cycle timing and logistics. Per-college status labels
-            and blackout calendars are configurable per college in Phase 1D.
+            Fee threshold drives posting eligibility for ~2,740 learners across 7 colleges.
+            Raising the threshold will block learners who have partially cleared dues.
+            The cascade-preview pane shows exactly who is affected before you save.
           </p>
         </div>
         <Button
@@ -117,19 +118,6 @@ export default function CyclePolicyPage() {
           Refresh
         </Button>
       </div>
-
-      {/* Q3 features */}
-      <Alert className="mb-6">
-        <AlertTitle className="flex items-center gap-2">
-          Per-college cycle config
-          <Badge variant="outline" className="text-xs">Q3</Badge>
-        </AlertTitle>
-        <AlertDescription className="text-sm">
-          Per-college blackout dates (<code className="rounded bg-muted px-1">internship_college_blackouts</code>),
-          per-college status label overrides (<code className="rounded bg-muted px-1">internship_cycle_status_labels</code>),
-          and per-program duration config will be surfaced here in Phase 1D.
-        </AlertDescription>
-      </Alert>
 
       {loading ? (
         <div className="space-y-4">

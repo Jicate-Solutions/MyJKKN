@@ -1169,49 +1169,6 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         ]
       },
       {
-        "path": "/admin/internship-policy",
-        "label": "Internship Policy",
-        "iconName": "FileText",
-        "children": [
-          {
-            "path": "/admin/internship-policy/attendance",
-            "label": "Attendance",
-            "iconName": "CheckSquare",
-            "children": []
-          },
-          {
-            "path": "/admin/internship-policy/cycle",
-            "label": "Cycle",
-            "iconName": "FileText",
-            "children": []
-          },
-          {
-            "path": "/admin/internship-policy/eligibility",
-            "label": "Eligibility",
-            "iconName": "FileText",
-            "children": []
-          },
-          {
-            "path": "/admin/internship-policy/evaluation",
-            "label": "Evaluation",
-            "iconName": "FileText",
-            "children": []
-          },
-          {
-            "path": "/admin/internship-policy/fees",
-            "label": "Fees",
-            "iconName": "FileText",
-            "children": []
-          },
-          {
-            "path": "/admin/internship-policy/notifications",
-            "label": "Notifications",
-            "iconName": "Bell",
-            "children": []
-          }
-        ]
-      },
-      {
         "path": "/admin/landing-pages",
         "label": "Landing Pages",
         "iconName": "FileText",
@@ -1309,6 +1266,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "label": "Pde",
         "iconName": "FileText",
         "children": [
+          {
+            "path": "/admin/pde/accreditation-evidence",
+            "label": "Accreditation Evidence",
+            "iconName": "FileText",
+            "children": []
+          },
           {
             "path": "/admin/pde/assessments",
             "label": "Assessments",
@@ -1487,6 +1450,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
                 "children": []
               }
             ]
+          },
+          {
+            "path": "/admin/pde/transcript",
+            "label": "Transcript",
+            "iconName": "FileText",
+            "children": []
           }
         ]
       },
@@ -4164,6 +4133,49 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         ]
       },
       {
+        "path": "/internships/policy",
+        "label": "Policy",
+        "iconName": "FileText",
+        "children": [
+          {
+            "path": "/internships/policy/attendance",
+            "label": "Attendance",
+            "iconName": "CheckSquare",
+            "children": []
+          },
+          {
+            "path": "/internships/policy/cycle",
+            "label": "Cycle",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/internships/policy/eligibility",
+            "label": "Eligibility",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/internships/policy/evaluation",
+            "label": "Evaluation",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/internships/policy/fees",
+            "label": "Fees",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/internships/policy/notifications",
+            "label": "Notifications",
+            "iconName": "Bell",
+            "children": []
+          }
+        ]
+      },
+      {
         "path": "/internships/preceptors",
         "label": "Preceptors",
         "iconName": "FileText",
@@ -4238,6 +4250,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "label": "Pde",
         "iconName": "FileText",
         "children": [
+          {
+            "path": "/learn/pde/cases",
+            "label": "Cases",
+            "iconName": "FileText",
+            "children": []
+          },
           {
             "path": "/learn/pde/cohort",
             "label": "PDE Cohort Comparison",

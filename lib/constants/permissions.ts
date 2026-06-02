@@ -2041,8 +2041,8 @@ export const PERMISSION_CATEGORIES = [
   // shipped in PR #1209 used `super_admin` as a sidebar-permission stopgap;
   // these keys (added with this catalog) replace it so role-managed access
   // can scope cycles/sites/preceptors/vehicles per institution. The
-  // `/admin/internship-policy/*` admin-tier routes intentionally remain on
-  // `super_admin` (Director-only).
+  // `/internships/policy/*` admin-tier routes (relocated from `/admin/internship-policy/*`)
+  // intentionally remain on `super_admin` (Director-only).
   // ======================================================================
   {
     name: 'Internship Module',
