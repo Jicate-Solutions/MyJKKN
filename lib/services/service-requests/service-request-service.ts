@@ -239,7 +239,60 @@ export class ServiceRequestService {
     // Pending state is already represented by service_requests.status +
     // current_approval_step; the approvals table is now the action log only.
 
+    const noApprovalSteps = (serviceType.approval_steps || []).length === 0;
+    if (initialStatus === 'submitted' && noApprovalSteps && serviceType.auto_fulfill_on_approval) {
+      await this.finalizeAutoApproval(request.id, serviceType, userId, 'submitted');
+      return await this.getRequest(request.id);
+    }
+
     return request;
+  }
+
+  /**
+   * Finalize a request that needs no approval: mark fulfilled and run any
+   * post-approval side effects (transport profile sync). Used when a service
+   * type has auto_fulfill_on_approval=true and zero approval steps.
+   */
+  private static async finalizeAutoApproval(
+    requestId: string,
+    serviceType: any,
+    userId: string,
+    fromStatus: ServiceRequestStatus
+  ): Promise<void> {
+    const supabase = await getSupabase();
+    const now = new Date().toISOString();
+
+    const updateData: Record<string, any> = {
+      status: 'fulfilled',
+      approved_at: now,
+      fulfilled_at: now,
+      current_approval_step: 0,
+      updated_by: userId,
+    };
+    if (serviceType.validity_period_days) {
+      const expires = new Date();
+      expires.setDate(expires.getDate() + serviceType.validity_period_days);
+      updateData.validity_expires_at = expires.toISOString();
+    }
+
+    await supabase.from('service_requests').update(updateData).eq('id', requestId);
+
+    await ServiceRequestTimelineService.addStatusChange(
+      requestId,
+      userId,
+      fromStatus,
+      'fulfilled' as ServiceRequestStatus,
+      'Auto-approved — no approval required'
+    );
+
+    if (serviceType.slug === 'transport-request') {
+      const { error } = await supabase.rpc('sync_bus_pass_to_learner_profile', {
+        p_request_id: requestId,
+      });
+      if (error) {
+        console.error('[service-requests] Auto-approve bus-pass sync failed:', error);
+      }
+    }
   }
 
   /**
@@ -348,6 +401,13 @@ export class ServiceRequestService {
       'submitted',
       'Request submitted for approval'
     );
+
+    const st = request.service_type;
+    const noApprovalSteps = (st?.approval_steps || []).length === 0;
+    if (noApprovalSteps && st?.auto_fulfill_on_approval) {
+      await this.finalizeAutoApproval(id, st, userId, 'submitted');
+      return await this.getRequest(id);
+    }
 
     return data;
   }
