@@ -340,6 +340,26 @@ export class LearnerProfileChangeService {
         updateData[key] = change.new;
       });
 
+      // community / caste TEXT columns are retired — a change request still
+      // captures them as readable labels, so resolve to the FK ids here and
+      // drop the text keys (else the UPDATE hits a non-existent column).
+      if ('community' in updateData || 'caste' in updateData) {
+        const { buildCommunityResolver } = await import('@/lib/utils/community-name-resolver');
+        const { buildCasteResolver } = await import('@/lib/utils/caste-name-resolver');
+        const resolveCommunity = await buildCommunityResolver(supabase);
+        const resolveCaste = await buildCasteResolver(supabase);
+        if ('community' in updateData) {
+          const cid = resolveCommunity(updateData.community);
+          delete updateData.community;
+          if (cid) updateData.community_category_id = cid;
+        }
+        if ('caste' in updateData) {
+          const cstId = resolveCaste(updateData.caste, updateData.community_category_id);
+          delete updateData.caste;
+          if (cstId) updateData.caste_id = cstId;
+        }
+      }
+
       const { error: updateError } = await supabase
         .from('learners_profiles')
         .update(updateData)

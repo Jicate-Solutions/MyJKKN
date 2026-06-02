@@ -45,6 +45,7 @@ import { DegreeService } from '@/lib/services/organization/degree-service';
 
 import { useQuotaName } from '@/hooks/admission/use-quota-name';
 import { useCommunityName } from '@/hooks/admission/use-community-name';
+import { useCasteName } from '@/hooks/admission/use-caste-name';
 
 interface LearnerDetailProps {
   learner: LearnerProfile;
@@ -54,6 +55,7 @@ export function LearnerDetail({ learner }: LearnerDetailProps) {
   const [activeSection, setActiveSection] = useState('personal');
   const quotaName = useQuotaName((learner as { quota_id?: string }).quota_id);
   const communityName = useCommunityName((learner as { community_category_id?: string }).community_category_id);
+  const casteName = useCasteName((learner as { caste_id?: string }).caste_id);
   const {
     canAccess,
     isSuperAdmin,
@@ -261,7 +263,7 @@ export function LearnerDetail({ learner }: LearnerDetailProps) {
                     </div>
                     <div className="space-y-1">
                       <h4 className="text-sm font-medium text-muted-foreground">Caste</h4>
-                      <p className="text-sm">{learner.caste || 'Not specified'}</p>
+                      <p className="text-sm">{casteName || 'Not specified'}</p>
                     </div>
                     <div className="space-y-1">
                       <h4 className="text-sm font-medium text-muted-foreground">

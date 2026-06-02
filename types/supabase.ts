@@ -58345,7 +58345,6 @@ export type Database = {
           bus_required: boolean | null
           capabilities: Json | null
           career_aspirations: Json | null
-          caste: string | null
           caste_id: string | null
           college_email: string | null
           community_category_id: string | null
@@ -58453,7 +58452,6 @@ export type Database = {
           bus_required?: boolean | null
           capabilities?: Json | null
           career_aspirations?: Json | null
-          caste?: string | null
           caste_id?: string | null
           college_email?: string | null
           community_category_id?: string | null
@@ -58561,7 +58559,6 @@ export type Database = {
           bus_required?: boolean | null
           capabilities?: Json | null
           career_aspirations?: Json | null
-          caste?: string | null
           caste_id?: string | null
           college_email?: string | null
           community_category_id?: string | null

@@ -94,7 +94,7 @@ export interface LearnerProfile {
   gender: string;
   religion: string;
   community_category_id?: string | null;
-  caste?: string;
+  caste_id?: string | null;
   aadhar_number?: string;
   blood_group?: string;
   // Legacy integer year (e.g. 2026). Kept for B2A endpoint back-compat —
@@ -295,7 +295,7 @@ export const learnerProfileSchema = z.object({
   gender: z.string().min(1, 'Gender is required'),
   religion: z.string().min(1, 'Religion is required'),
   community_category_id: z.string().uuid('Community is required'),
-  caste: z.string().optional(),
+  caste_id: z.string().uuid().optional().or(z.literal('')),
   blood_group: z.string().optional(),
   admission_year: z.number().optional(),
   learner_type: z.enum(['regular', 'irregular', 'intern']).optional(),
@@ -416,7 +416,7 @@ export interface UpdateLearnerProfileDto {
   gender?: string;
   religion?: string;
   community_category_id?: string | null;
-  caste?: string | null;
+  caste_id?: string | null;
   aadhar_number?: string | null;
   blood_group?: string | null;
   admission_year?: number | null;

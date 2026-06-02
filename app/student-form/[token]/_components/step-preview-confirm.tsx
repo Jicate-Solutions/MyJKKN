@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Loader2, Pencil, CheckCircle2, AlertCircle } from 'lucide-react';
 import type { Language } from './language-toggle';
 import { LookupService } from '@/lib/services/admission/lookup-service';
+import { CasteService } from '@/lib/services/admission/caste-service';
 
 interface Props {
   lang: Language;
@@ -124,6 +125,18 @@ export function StepPreviewConfirm({
     return () => { alive = false; };
   }, [data.community_category_id]);
 
+  // Caste is stored as caste_id (FK); resolve its name for the preview.
+  const [casteName, setCasteName] = useState<string | undefined>(undefined);
+  useEffect(() => {
+    let alive = true;
+    const id = (data as { caste_id?: string }).caste_id;
+    if (!id) return;
+    CasteService.get(id)
+      .then((c) => { if (alive) setCasteName(c?.name); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [data.caste_id]);
+
   useEffect(() => {
     const ids = {
       institution_id: data.institution_id,
@@ -216,7 +229,7 @@ export function StepPreviewConfirm({
             value={[
               RELIGION_LABELS[data.religion] ?? data.religion,
               communityCode,
-              data.caste,
+              casteName,
             ]
               .filter(looksFilled)
               .join(' · ')}

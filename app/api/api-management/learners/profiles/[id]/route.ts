@@ -81,7 +81,7 @@ export async function GET(
     // Fetch learner by ID - select all fields except migration fields
     const selectFields = `
       id, application_id, lifecycle_status, first_name, last_name, date_of_birth,
-      gender, religion, caste, father_name, father_occupation, father_mobile,
+      gender, religion, father_name, father_occupation, father_mobile,
       mother_name, mother_occupation, mother_mobile, annual_income, last_school,
       board_of_study, tenth_marks, twelfth_marks, medical_cutoff_marks,
       engineering_cutoff_marks, neet_roll_number, neet_score, counseling_applied,
@@ -93,10 +93,11 @@ export async function GET(
       academic_year_id, regulation_id, batch_id, roll_number, register_number,
       college_email, student_photo_url, is_profile_complete, created_at, updated_at,
       created_by, updated_by, aadhar_number, enquiry_date, blood_group,
-      admission_year_id, quota_id, community_category_id,
+      admission_year_id, quota_id, community_category_id, caste_id,
       admission_year_obj:admission_years!admission_year_id(program_start_year),
       quota_obj:quotas!quota_id(name),
-      community_obj:community_categories!community_category_id(code)
+      community_obj:community_categories!community_category_id(code),
+      caste_obj:castes!caste_id(name)
     `.trim();
 
     const { data: learnerRaw, error } = await supabase
@@ -116,12 +117,14 @@ export async function GET(
     const ayObj = (learnerRaw as any).admission_year_obj as { program_start_year?: number } | null;
     const quotaObj = (learnerRaw as any).quota_obj as { name?: string } | null;
     const communityObj = (learnerRaw as any).community_obj as { code?: string } | null;
-    const { admission_year_obj: _ay, quota_obj: _q, community_obj: _c, ...learnerRest } = learnerRaw as any;
+    const casteObj = (learnerRaw as any).caste_obj as { name?: string } | null;
+    const { admission_year_obj: _ay, quota_obj: _q, community_obj: _c, caste_obj: _cs, ...learnerRest } = learnerRaw as any;
     const learner = {
       ...learnerRest,
       admission_year: ayObj?.program_start_year ?? null,
       quota: quotaObj?.name ?? null,
       community: communityObj?.code ?? null,
+      caste: casteObj?.name ?? null,
     };
 
     // Expand related data if requested
