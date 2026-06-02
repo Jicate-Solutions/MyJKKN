@@ -249,6 +249,37 @@ const config: ModuleNavConfig = {
           href: '/campus-living/mess/waste',
           matchPaths: ['/campus-living/mess/waste'],
         },
+        // ── Mess admin surfaces relocated from /admin/mess (2026-06-01) ──
+        {
+          label: 'Menu Editor',
+          icon: 'CalendarRange',
+          href: '/campus-living/mess/menu-editor/standard',
+          matchPaths: ['/campus-living/mess/menu-editor'],
+        },
+        {
+          label: 'Item Library',
+          icon: 'BookOpen',
+          href: '/campus-living/mess/library',
+          matchPaths: ['/campus-living/mess/library'],
+        },
+        {
+          label: 'Caterer Management',
+          icon: 'ChefHat',
+          href: '/campus-living/mess/caterer-management',
+          matchPaths: ['/campus-living/mess/caterer-management'],
+        },
+        {
+          label: 'Rating Insights',
+          icon: 'BarChart3',
+          href: '/campus-living/mess/insights',
+          matchPaths: ['/campus-living/mess/insights'],
+        },
+        {
+          label: 'Mess Policies',
+          icon: 'Settings',
+          href: '/campus-living/mess/policies',
+          matchPaths: ['/campus-living/mess/policies'],
+        },
         {
           label: 'Laundry',
           icon: 'WashingMachine',
@@ -611,25 +642,53 @@ const config: ModuleNavConfig = {
           href: '/campus-living/settings/notification-rules',
           matchPaths: ['/campus-living/settings/notification-rules'],
         },
-        // ── Premium Stay admin shortcuts ─────────────────────────────
-        // These point to /admin/campus-living/premium/* pages, surfaced
-        // here so wardens / chief wardens don't have to context-switch
-        // out of the Campus Living module. The pages are also reachable
-        // from the admin sidebar (auto-flat from route-manifest), this
-        // is a quality-of-life cross-link. Permission gating happens at
-        // the page level via campus_living.premium.override_pick /
-        // .view_dashboard (seeded in 20260519172800 migration).
+        // ── Hostel admin surfaces relocated from /admin/hostel (2026-06-01) ──
         {
-          label: 'Premium Override (Admin)',
-          icon: 'ShieldCheck',
-          href: '/admin/campus-living/premium/override',
-          matchPaths: ['/admin/campus-living/premium/override'],
+          label: 'Curfew Policies',
+          icon: 'Clock',
+          href: '/campus-living/settings/curfew',
+          matchPaths: ['/campus-living/settings/curfew'],
         },
         {
-          label: 'Premium Audit Log (Admin)',
+          label: 'Room Catalog & Access',
+          icon: 'BedDouble',
+          href: '/campus-living/rooms',
+          matchPaths: ['/campus-living/rooms'],
+        },
+        // ── Premium Stay (admin surfaces, now in-module) ────────────
+        // Relocated 2026-06-01 from /admin/campus-living/* into the Campus
+        // Living module so there's no separate admin module. Access is gated
+        // at the page level via SuperAdminOnly + campus_living.premium.*
+        // (view_dashboard / configure_tier / override_pick).
+        {
+          label: 'Premium Dashboard',
+          icon: 'LayoutGrid',
+          href: '/campus-living/premium/dashboard',
+          matchPaths: ['/campus-living/premium/dashboard'],
+        },
+        {
+          label: 'Premium Tier Policy',
+          icon: 'BedDouble',
+          href: '/campus-living/premium/tier-policy',
+          matchPaths: ['/campus-living/premium/tier-policy'],
+        },
+        {
+          label: 'Premium Override',
+          icon: 'ShieldCheck',
+          href: '/campus-living/premium/override',
+          matchPaths: ['/campus-living/premium/override'],
+        },
+        {
+          label: 'Premium Audit Log',
           icon: 'History',
-          href: '/admin/campus-living/premium/audit-log',
-          matchPaths: ['/admin/campus-living/premium/audit-log'],
+          href: '/campus-living/premium/audit-log',
+          matchPaths: ['/campus-living/premium/audit-log'],
+        },
+        {
+          label: 'Premium Allocation Rules',
+          icon: 'Settings2',
+          href: '/campus-living/premium/allocation-rules',
+          matchPaths: ['/campus-living/premium/allocation-rules'],
         },
       ],
     },

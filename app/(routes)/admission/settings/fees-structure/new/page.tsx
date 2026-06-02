@@ -3,9 +3,9 @@
 // app/(routes)/admission/settings/fees-structure/new/page.tsx
 //
 // Create page for a new fee structure. Reuses the dimension-selector +
-// FeesStructureForm components — when all 8 dims are selected, the form
-// renders below. On successful save, the form's onChanged callback redirects
-// the admin back to the list page so they can confirm the new row.
+// FeesStructureForm components — when all 6 required dims are selected, the
+// form renders below. On successful save, the form's onChanged callback
+// redirects the admin back to the list page so they can confirm the new row.
 
 import { useState } from 'react';
 import Link from 'next/link';
@@ -38,7 +38,6 @@ function NewFeeStructurePageContent() {
     && selectedDims.programme_id
     && selectedDims.admission_year_id
     && selectedDims.quota_id
-    && selectedDims.accommodation_type_id
   );
 
   const handleSaved = () => {
@@ -87,7 +86,7 @@ function NewFeeStructurePageContent() {
             <div>
               <h1 className="text-2xl font-bold py-1">New Fee Structure</h1>
               <p className="text-sm sm:text-base text-muted-foreground">
-                Pick the 8 dimensions, then add billing categories with amounts.
+                Pick the 6 required dimensions, then add billing categories with amounts.
               </p>
             </div>
             <Button asChild variant="outline" size="sm">
@@ -110,7 +109,7 @@ function NewFeeStructurePageContent() {
             </div>
           ) : (
             <div className="border rounded-md p-8 bg-muted/30 text-center text-sm text-muted-foreground">
-              Pick all 8 dimensions above to start building the fee structure.
+              Pick all 6 required dimensions above to start building the fee structure.
             </div>
           )}
         </div>

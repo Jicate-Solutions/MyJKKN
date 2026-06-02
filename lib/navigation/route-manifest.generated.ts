@@ -478,44 +478,6 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "children": []
       },
       {
-        "path": "/admin/campus-living",
-        "label": "Campus Living",
-        "iconName": "FileText",
-        "children": [
-          {
-            "path": "/admin/campus-living/premium",
-            "label": "Premium",
-            "iconName": "FileText",
-            "children": [
-              {
-                "path": "/admin/campus-living/premium/audit-log",
-                "label": "Premium Stay — Audit Log",
-                "iconName": "History",
-                "children": []
-              },
-              {
-                "path": "/admin/campus-living/premium/dashboard",
-                "label": "Premium Stay Dashboard",
-                "iconName": "LayoutGrid",
-                "children": []
-              },
-              {
-                "path": "/admin/campus-living/premium/override",
-                "label": "Premium Stay — Chief Warden Override",
-                "iconName": "ShieldCheck",
-                "children": []
-              }
-            ]
-          },
-          {
-            "path": "/admin/campus-living/tier-policy",
-            "label": "Campus Living — Tier Policy",
-            "iconName": "BedDouble",
-            "children": []
-          }
-        ]
-      },
-      {
         "path": "/admin/cdc",
         "label": "Cdc",
         "iconName": "FileText",
@@ -681,37 +643,6 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "label": "Exophone Mapping",
         "iconName": "FileText",
         "children": []
-      },
-      {
-        "path": "/admin/hostel",
-        "label": "Hostel",
-        "iconName": "Home",
-        "children": [
-          {
-            "path": "/admin/hostel/allocation-rules",
-            "label": "Allocation Rules",
-            "iconName": "Settings2",
-            "children": []
-          },
-          {
-            "path": "/admin/hostel/allocations",
-            "label": "Allocations",
-            "iconName": "Home",
-            "children": []
-          },
-          {
-            "path": "/admin/hostel/curfew",
-            "label": "Curfew",
-            "iconName": "Building",
-            "children": []
-          },
-          {
-            "path": "/admin/hostel/rooms",
-            "label": "Rooms",
-            "iconName": "BedDouble",
-            "children": []
-          }
-        ]
       },
       {
         "path": "/admin/hr",
@@ -1319,37 +1250,6 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "path": "/admin/lti/launches",
             "label": "Launches",
             "iconName": "PlugZap",
-            "children": []
-          }
-        ]
-      },
-      {
-        "path": "/admin/mess",
-        "label": "Mess Menu",
-        "iconName": "Utensils",
-        "children": [
-          {
-            "path": "/admin/mess/caterers",
-            "label": "Mess Caterers",
-            "iconName": "ChefHat",
-            "children": []
-          },
-          {
-            "path": "/admin/mess/insights",
-            "label": "Mess Rating Insights",
-            "iconName": "BarChart3",
-            "children": []
-          },
-          {
-            "path": "/admin/mess/library",
-            "label": "Mess Menu Library",
-            "iconName": "BookOpen",
-            "children": []
-          },
-          {
-            "path": "/admin/mess/policies",
-            "label": "Mess Policies",
-            "iconName": "Settings",
             "children": []
           }
         ]
@@ -3020,6 +2920,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
+            "path": "/campus-living/mess/caterer-management",
+            "label": "Mess Caterers",
+            "iconName": "ChefHat",
+            "children": []
+          },
+          {
             "path": "/campus-living/mess/caterers",
             "label": "Caterers",
             "iconName": "Utensils",
@@ -3039,6 +2945,18 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
+            "path": "/campus-living/mess/insights",
+            "label": "Mess Rating Insights",
+            "iconName": "BarChart3",
+            "children": []
+          },
+          {
+            "path": "/campus-living/mess/library",
+            "label": "Mess Menu Library",
+            "iconName": "BookOpen",
+            "children": []
+          },
+          {
             "path": "/campus-living/mess/meals",
             "label": "Meals",
             "iconName": "Utensils",
@@ -3055,6 +2973,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "path": "/campus-living/mess/menu",
             "label": "Menu",
             "iconName": "Utensils",
+            "children": []
+          },
+          {
+            "path": "/campus-living/mess/policies",
+            "label": "Mess Policies",
+            "iconName": "Settings",
             "children": []
           },
           {
@@ -3099,6 +3023,43 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "path": "/campus-living/my-hostel/vacate-request",
             "label": "Vacate Request",
             "iconName": "LogOut",
+            "children": []
+          }
+        ]
+      },
+      {
+        "path": "/campus-living/premium",
+        "label": "Premium",
+        "iconName": "FileText",
+        "children": [
+          {
+            "path": "/campus-living/premium/allocation-rules",
+            "label": "Allocation Rules",
+            "iconName": "Settings2",
+            "children": []
+          },
+          {
+            "path": "/campus-living/premium/audit-log",
+            "label": "Premium Stay — Audit Log",
+            "iconName": "History",
+            "children": []
+          },
+          {
+            "path": "/campus-living/premium/dashboard",
+            "label": "Premium Stay Dashboard",
+            "iconName": "LayoutGrid",
+            "children": []
+          },
+          {
+            "path": "/campus-living/premium/override",
+            "label": "Premium Stay — Chief Warden Override",
+            "iconName": "ShieldCheck",
+            "children": []
+          },
+          {
+            "path": "/campus-living/premium/tier-policy",
+            "label": "Campus Living — Tier Policy",
+            "iconName": "BedDouble",
             "children": []
           }
         ]
@@ -3149,6 +3110,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       {
         "path": "/campus-living/residents",
         "label": "Residents",
+        "iconName": "BedDouble",
+        "children": []
+      },
+      {
+        "path": "/campus-living/rooms",
+        "label": "Rooms",
         "iconName": "BedDouble",
         "children": []
       },
@@ -3242,6 +3209,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "path": "/campus-living/settings/categories",
             "label": "Categories",
             "iconName": "Tags",
+            "children": []
+          },
+          {
+            "path": "/campus-living/settings/curfew",
+            "label": "Curfew",
+            "iconName": "FileText",
             "children": []
           },
           {

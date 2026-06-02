@@ -127,7 +127,7 @@ export class AllocationBatchService {
   ): Promise<{ batch: AllocationBatchRow | null; allocations: ProposedAllocation[] }> {
     const { data: b, error: bErr } = await this.supabase
       .from('hostel_allocation_batches')
-      .select('*, category:hostel_categories(name), institution:institutions(name), block:hostel_blocks(name)')
+      .select('*, category:hostel_categories(name), institution:institutions(name), block:hostel_blocks(name, total_capacity, current_occupancy)')
       .eq('id', batchId)
       .maybeSingle();
     if (bErr) {
@@ -139,24 +139,35 @@ export class AllocationBatchService {
       const r = b as Record<string, unknown>;
       const cat = r.category as { name?: string } | null;
       const inst = r.institution as { name?: string } | null;
-      const blk = r.block as { name?: string } | null;
+      const blk = r.block as { name?: string; total_capacity?: number; current_occupancy?: number } | null;
       const { category: _c, institution: _i, block: _b, ...rest } = r;
       batch = {
         ...(rest as AllocationBatch),
         category_name: cat?.name ?? null,
         institution_name: inst?.name ?? null,
         block_name: blk?.name ?? null,
+        block_total_capacity: blk?.total_capacity ?? null,
+        block_current_occupancy: blk?.current_occupancy ?? null,
       };
     }
 
     const { data: allocs, error: aErr } = await this.supabase
       .from('hostel_allocations')
       .select(
+        // Institution + program come off the learner's profile. profiles has
+        // TWO FKs to institutions, so the constraint must be named explicitly;
+        // program is profiles.learner_id -> learners_profiles.program_id -> programs.
         `id, status,
          block:hostel_blocks(name),
          room:hostel_rooms(room_number, floor),
          bed:hostel_beds(bed_number),
-         learner:profiles!hostel_allocations_learner_id_fkey(full_name, email)`
+         learner:profiles!hostel_allocations_learner_id_fkey(
+           full_name, email,
+           institution:institutions!profiles_institution_id_fkey(name),
+           learner_profile:learners_profiles!profiles_learner_id_fkey(
+             program:programs!fk_learners_profiles_program(program_name)
+           )
+         )`
       )
       .eq('batch_id', batchId);
     if (aErr) {
@@ -169,10 +180,17 @@ export class AllocationBatchService {
         const block = a.block as { name?: string } | null;
         const room = a.room as { room_number?: string; floor?: number } | null;
         const bed = a.bed as { bed_number?: string } | null;
-        const learner = a.learner as { full_name?: string; email?: string } | null;
+        const learner = a.learner as {
+          full_name?: string;
+          email?: string;
+          institution?: { name?: string } | null;
+          learner_profile?: { program?: { program_name?: string } | null } | null;
+        } | null;
         return {
           id: a.id as string,
           learner_name: learner?.full_name || learner?.email || '—',
+          learner_institution: learner?.institution?.name ?? null,
+          learner_program: learner?.learner_profile?.program?.program_name ?? null,
           block_name: block?.name ?? null,
           room_number: room?.room_number ?? null,
           bed_number: bed?.bed_number ?? null,

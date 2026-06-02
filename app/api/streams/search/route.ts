@@ -10,7 +10,14 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const query = request.nextUrl.searchParams.get('q') || '';
+    const rawQuery = request.nextUrl.searchParams.get('q') || '';
+    // Sanitize before interpolating into the PostgREST .or() filter below.
+    // The .or() argument is a PostgREST filter DSL string — unescaped user
+    // input lets a crafted `q` inject extra filter expressions (e.g.
+    // `ab,is_active.eq.false`), a filter-injection / SQL-injection-class bug.
+    // Strip the DSL metacharacters ( . , ( ) : * ) and the LIKE wildcards
+    // ( % _ ); alphanumerics, spaces and hyphens (real degree codes) survive.
+    const query = rawQuery.replace(/[.,()%_*:]/g, ' ').replace(/\s+/g, ' ').trim();
 
     if (query.length < 2) {
       return NextResponse.json({ data: [] });

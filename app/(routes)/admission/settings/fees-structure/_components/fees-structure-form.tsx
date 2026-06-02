@@ -109,7 +109,24 @@ import type {
   AdmissionFeeStructureWithItems,
   FeeStructureMatrixDimensions,
 } from '@/types/admission';
-import type { BillingCategory } from '@/types/billing';
+import type { BillingCategory, BillingCategoryKind } from '@/types/billing';
+
+// Billing-category kinds the admission fee structure does NOT manage. Transport
+// fees are owned by the transport module and hostel fees by campus-living
+// (hostel_category_fees), so neither should be selectable as an admission
+// fee-structure line item. Exported so the clone page applies the same filter.
+export const FEE_STRUCTURE_EXCLUDED_CATEGORY_KINDS: BillingCategoryKind[] = [
+  'transport',
+  'hostel',
+];
+
+export function filterFeeStructureCategories(
+  categories: BillingCategory[],
+): BillingCategory[] {
+  return categories.filter(
+    (c) => !FEE_STRUCTURE_EXCLUDED_CATEGORY_KINDS.includes(c.kind),
+  );
+}
 
 /**
  * The form's `dims` prop carries the 7 matrix dimensions plus an optional
@@ -183,7 +200,7 @@ export function FeesStructureForm({ dims, onChanged }: Props) {
 
   useEffect(() => {
     BillingCategoryService.getActiveBillingCategories()
-      .then(setCategories)
+      .then((cats) => setCategories(filterFeeStructureCategories(cats)))
       .catch((err) => {
         console.error('Failed to load billing categories', err);
         toast.error('Failed to load billing categories');

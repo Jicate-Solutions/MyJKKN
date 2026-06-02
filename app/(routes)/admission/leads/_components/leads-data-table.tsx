@@ -82,11 +82,18 @@ export function LeadsDataTable() {
     }
   }, []);
 
-  // Auto-refetch when page becomes visible (e.g., user navigates back from lead detail/create)
+  // Auto-refetch when the tab becomes visible again (e.g., user navigates back from lead
+  // detail/create). Uses visibilitychange instead of window.focus so that Radix UI
+  // dropdown portals (which briefly shift window focus) don't trigger a mid-interaction
+  // data refetch that races against the user's filter selection.
   useEffect(() => {
-    const handleFocus = () => setRefetchKey((prev) => prev + 1);
-    window.addEventListener('focus', handleFocus);
-    return () => window.removeEventListener('focus', handleFocus);
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        setRefetchKey((prev) => prev + 1);
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => document.removeEventListener('visibilitychange', handleVisibility);
   }, []);
 
   // Bridge from lead mutations → this manual-refetch DataTable. The hooks
@@ -221,7 +228,7 @@ export function LeadsDataTable() {
       cancelled = true;
       ctrl.abort();
     };
-  }, [institutionId, refetchKey]);
+  }, [institutionId]);
 
   // Auto-detect counselor ID for non-manager counselors (they only see assigned leads)
   const [myCounselorId, setMyCounselorId] = useState<string | null>(null);
@@ -328,14 +335,18 @@ export function LeadsDataTable() {
             attrs.forEach((a) => {
               if (a.consultant?.name) map.set(a.admission_id, a.consultant.name);
             });
-            setAttributionsMap(map);
+            // Only update state if the content actually changed so we don't
+            // trigger a second re-render (and columns memo recalc) on every load.
+            setAttributionsMap((prev) => {
+              if (prev.size === map.size && [...map].every(([k, v]) => prev.get(k) === v)) return prev;
+              return map;
+            });
           })
           .catch(() => {
-            // Non-critical -- leads list works without consultant names
-            setAttributionsMap(new Map());
+            setAttributionsMap((prev) => (prev.size === 0 ? prev : new Map()));
           });
       } else {
-        setAttributionsMap(new Map());
+        setAttributionsMap((prev) => (prev.size === 0 ? prev : new Map()));
       }
 
       return {

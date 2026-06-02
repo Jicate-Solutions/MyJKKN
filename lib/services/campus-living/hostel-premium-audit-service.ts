@@ -3,8 +3,8 @@
 // ============================================================================
 // Companion migration: supabase/migrations/20260519101705_create_hostel_premium_audit_log.sql
 // Companion UIs:
-//   - app/(routes)/admin/campus-living/premium/override/page.tsx
-//   - app/(routes)/admin/campus-living/premium/audit-log/page.tsx
+//   - app/(routes)/campus-living/premium/override/page.tsx
+//   - app/(routes)/campus-living/premium/audit-log/page.tsx
 //
 // What lives here:
 //   - listPremiumAuditEvents(filters)         — audit-log viewer

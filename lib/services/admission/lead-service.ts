@@ -29,30 +29,49 @@ import { WAEventDispatcher } from '@/lib/services/whatsapp/wa-event-dispatcher';
 // re-engagement back to 'new' or 'contacted'.
 // ────────────────────────────────────────────────────────────────────────────
 export const ALLOWED_STAGE_TRANSITIONS: Record<FunnelStage, FunnelStage[]> = {
+  // ── Early funnel ──────────────────────────────────────────────────────────
   new:                    ['contacted', 'not_reachable', 'lost', 'dormant'],
-  contacted:              ['interested', 'not_reachable', 'follow_up_scheduled', 'lost', 'dormant'],
-  not_reachable:          ['contacted', 'follow_up_scheduled', 'lost', 'dormant'],
-  interested:             ['engaged', 'qualified', 'follow_up_scheduled', 'not_reachable', 'lost', 'dormant'],
-  follow_up_scheduled:    ['contacted', 'not_reachable', 'interested', 'lost', 'dormant'],
-  engaged:                ['qualified', 'interested', 'follow_up_scheduled', 'lost', 'dormant'],
-  qualified:              ['application_started', 'applied', 'follow_up_scheduled', 'lost', 'dormant'],
-  application_started:    ['application_submitted', 'documents_pending', 'lost', 'dormant'],
-  application_submitted:  ['documents_pending', 'documents_verified', 'lost', 'dormant'],
+  contacted:              ['new', 'interested', 'not_reachable', 'follow_up_scheduled', 'lost', 'dormant'],
+  // Added 'new' (reset an unreachable lead) and 'interested' (they respond
+  // positively before a follow-up is even scheduled).
+  not_reachable:          ['new', 'contacted', 'interested', 'follow_up_scheduled', 'lost', 'dormant'],
+  // Added 'new' + 'contacted' — reset or step back when lead cools off.
+  interested:             ['new', 'contacted', 'engaged', 'qualified', 'follow_up_scheduled', 'not_reachable', 'lost', 'dormant'],
+  follow_up_scheduled:    ['new', 'contacted', 'not_reachable', 'interested', 'lost', 'dormant'],
+  // Added 'new' + 'not_reachable' + 'contacted' — reset or lead goes cold mid-engagement.
+  engaged:                ['new', 'contacted', 'not_reachable', 'qualified', 'interested', 'follow_up_scheduled', 'lost', 'dormant'],
+  // Added 'follow_up_scheduled' — re-schedule before proceeding to application.
+  qualified:              ['application_started', 'applied', 'follow_up_scheduled', 'interested', 'lost', 'dormant'],
+
+  // ── Application track ─────────────────────────────────────────────────────
+  // Added 'qualified' and 'follow_up_scheduled' — abandoned application; push
+  // back to qualified to re-qualify before attempting again.
+  application_started:    ['qualified', 'follow_up_scheduled', 'application_submitted', 'documents_pending', 'lost', 'dormant'],
+  application_submitted:  ['documents_pending', 'documents_verified', 'application_started', 'lost', 'dormant'],
   documents_pending:      ['documents_verified', 'application_submitted', 'lost', 'dormant'],
-  documents_verified:     ['interview_scheduled', 'offer_sent', 'documents_pending', 'lost', 'dormant'],
-  interview_scheduled:    ['interview_completed', 'documents_pending', 'lost', 'dormant'],
+  // Added 'qualified' — documents failed verification entirely; step back.
+  documents_verified:     ['qualified', 'interview_scheduled', 'offer_sent', 'documents_pending', 'lost', 'dormant'],
+  // Added 'qualified' and 'documents_verified' — interview cancelled or
+  // rescheduled; need to step back before re-scheduling.
+  interview_scheduled:    ['qualified', 'documents_verified', 'interview_completed', 'documents_pending', 'lost', 'dormant'],
   interview_completed:    ['offer_sent', 'interviewed', 'lost', 'dormant'],
-  offer_sent:             ['offer_accepted', 'declined', 'lost', 'dormant'],
+
+  // ── Offer / enrolment track ───────────────────────────────────────────────
+  offer_sent:             ['offer_accepted', 'declined', 'interview_completed', 'lost', 'dormant'],
   offer_accepted:         ['token_paid', 'confirmed', 'offer_sent', 'declined', 'lost', 'dormant'],
   token_paid:             ['confirmed', 'enrolled', 'lost', 'dormant'],
+
+  // ── Legacy parallel track (applied → offered) ─────────────────────────────
   applied:                ['interviewed', 'documents_pending', 'lost', 'dormant'],
   interviewed:            ['offered', 'declined', 'lost', 'dormant'],
   offered:                ['confirmed', 'declined', 'withdrew', 'lost', 'dormant'],
+
+  // ── Terminal / re-engagement ──────────────────────────────────────────────
   confirmed:              ['enrolled', 'withdrew', 'lost', 'dormant'],
   enrolled:               ['lost', 'dormant'],
-  declined:               ['new', 'lost', 'dormant'],
-  withdrew:               ['new', 'lost', 'dormant'],
-  expired:                ['new', 'lost', 'dormant'],
+  declined:               ['new', 'contacted', 'lost', 'dormant'],
+  withdrew:               ['new', 'contacted', 'lost', 'dormant'],
+  expired:                ['new', 'contacted', 'lost', 'dormant'],
   lost:                   ['new', 'contacted', 'dormant'],
   dormant:                ['new', 'contacted', 'lost'],
 };
@@ -734,6 +753,13 @@ export class LeadService {
     // institution) and makes the UI appear to save while the DB doesn't update.
     const { id: _stripId, created_at: _stripCreated, ...safeData } = leadData as any;
 
+    // When counselor_id changes without an explicit assigned_counselor_id update,
+    // null out assigned_counselor_id so the stale reference to the previous
+    // counselor is cleared. The next assignCounselor() call repopulates it.
+    if ('counselor_id' in safeData && !('assigned_counselor_id' in safeData)) {
+      (safeData as any).assigned_counselor_id = null;
+    }
+
     const { data, error } = await (this.supabase as any).from('admission_leads')
       .update({
         ...safeData,
@@ -854,16 +880,14 @@ export class LeadService {
       .single();
 
     // Validate transition (skip if force=true — for super-admin overrides).
-    // 2026-05-30 (BUG-004110/004111): the previous hardcoded per-stage matrix
-    // (ALLOWED_STAGE_TRANSITIONS) omitted many valid moves among the 26 active
-    // admission_statuses(scope='lead') rows, so counselors hit a spurious
-    // "Invalid stage transition" when picking a legitimate DB stage. Admins can
-    // also add/rename statuses at runtime, which a static map can never track.
-    // We now only reject UNKNOWN/INACTIVE target codes — any active lead status
-    // is a legal target. currentStage stays informational.
+    // Only reject UNKNOWN/INACTIVE target codes — any active lead status is a
+    // legal target. The old per-stage whitelist (ALLOWED_STAGE_TRANSITIONS) omitted
+    // many valid moves and could never track admin-added statuses at runtime.
+    // If the admission_statuses read fails/returns empty, fall back to the
+    // FunnelStage union keys so a transient DB error never hard-blocks a stage move.
     const currentStage = current?.funnel_stage as FunnelStage | undefined;
     if (!force && currentStage && currentStage !== newStage) {
-      const { data: activeStatuses } = await (db as any)
+      const { data: activeStatuses } = await (this.supabase as any)
         .from('admission_statuses')
         .select('code')
         .eq('scope', 'lead')
@@ -871,8 +895,6 @@ export class LeadService {
       const validCodes = new Set<string>(
         (activeStatuses ?? []).map((s: any) => s.code as string),
       );
-      // If the catalog read fails/returns empty (RLS or transient), fall back to
-      // the FunnelStage union keys so we never hard-block a known stage.
       const known =
         validCodes.size > 0
           ? validCodes.has(newStage)
@@ -1132,11 +1154,26 @@ export class LeadService {
       .maybeSingle();
     const isNewAssignment = !currentLead?.counselor_id || currentLead.counselor_id !== counselorId;
 
+    // Resolve the new counselor's profiles.id so assigned_counselor_id is always
+    // kept in sync with counselor_id. Without this:
+    //   - The assigned counselor cannot SELECT or UPDATE the lead via RLS
+    //     (adm_leads_select / adm_leads_update both check assigned_counselor_id = auth.uid())
+    //   - Stale assigned_counselor_id from the previous counselor persists, making
+    //     the lead visible to the wrong counselor (cross-counselor data leak)
+    let resolvedProfileId: string | null = profileId ?? null;
+    if (!resolvedProfileId && counselorId) {
+      const { data: acRow } = await (this.supabase as any)
+        .from('admission_counselors')
+        .select('user_id')
+        .eq('id', counselorId)
+        .maybeSingle();
+      resolvedProfileId = acRow?.user_id ?? null;
+    }
+
     const { data, error } = await (this.supabase as any).from('admission_leads')
       .update({
         counselor_id: counselorId,
-        // assigned_counselor_id references profiles(id) — use profileId when provided
-        ...(profileId ? { assigned_counselor_id: profileId } : {}),
+        assigned_counselor_id: resolvedProfileId, // always sync — clears stale reference
         assigned_at: new Date().toISOString(),
         last_activity_at: new Date().toISOString(),
         updated_at: new Date().toISOString()

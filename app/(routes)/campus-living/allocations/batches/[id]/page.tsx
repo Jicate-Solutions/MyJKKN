@@ -15,7 +15,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { Loader2, Check, X, Trash2 } from 'lucide-react';
+import { Loader2, Check, X, Trash2, Users, DoorOpen, BedDouble, Building2 } from 'lucide-react';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -106,6 +106,15 @@ export default function AllocationBatchDetailPage({
     );
   }
 
+  // Summary stats for this batch.
+  const studentsAllocated = allocations.length;
+  const roomsUsed = new Set(
+    allocations.map((a) => a.room_number).filter(Boolean)
+  ).size;
+  const bedsAllocated = allocations.filter((a) => a.bed_number).length;
+  const blockCapacity = batch.block_total_capacity;
+  const blockOccupancy = batch.block_current_occupancy;
+
   return (
     <ContentLayout title="Allocation Batch">
       <PageBreadcrumb
@@ -157,6 +166,56 @@ export default function AllocationBatchDetailPage({
           )}
         </div>
 
+        {/* Summary stats */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex items-center gap-2 text-muted-foreground">
+                <Users className="h-4 w-4" />
+                <span className="text-xs">Students Allocated</span>
+              </div>
+              <p className="text-2xl font-bold mt-1">{studentsAllocated}</p>
+              {batch.skipped_count > 0 && (
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {batch.skipped_count} skipped
+                </p>
+              )}
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex items-center gap-2 text-muted-foreground">
+                <DoorOpen className="h-4 w-4" />
+                <span className="text-xs">Rooms Used</span>
+              </div>
+              <p className="text-2xl font-bold mt-1">{roomsUsed}</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex items-center gap-2 text-muted-foreground">
+                <BedDouble className="h-4 w-4" />
+                <span className="text-xs">Beds Allocated</span>
+              </div>
+              <p className="text-2xl font-bold mt-1">{bedsAllocated}</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex items-center gap-2 text-muted-foreground">
+                <Building2 className="h-4 w-4" />
+                <span className="text-xs">Block Capacity</span>
+              </div>
+              <p className="text-2xl font-bold mt-1">{blockCapacity ?? '—'}</p>
+              {blockCapacity != null && blockOccupancy != null && (
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {blockOccupancy} occupied · {Math.max(blockCapacity - blockOccupancy, 0)} free
+                </p>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+
         <Card>
           <CardHeader>
             <CardTitle className="text-base">
@@ -174,6 +233,8 @@ export default function AllocationBatchDetailPage({
                   <TableHeader>
                     <TableRow>
                       <TableHead>Learner</TableHead>
+                      <TableHead>Institution</TableHead>
+                      <TableHead>Program</TableHead>
                       <TableHead>Block</TableHead>
                       <TableHead>Room</TableHead>
                       <TableHead>Bed</TableHead>
@@ -184,6 +245,8 @@ export default function AllocationBatchDetailPage({
                     {allocations.map((a) => (
                       <TableRow key={a.id}>
                         <TableCell className="font-medium">{a.learner_name}</TableCell>
+                        <TableCell>{a.learner_institution ?? '—'}</TableCell>
+                        <TableCell>{a.learner_program ?? '—'}</TableCell>
                         <TableCell>{a.block_name ?? '—'}</TableCell>
                         <TableCell>{a.room_number ?? '—'}</TableCell>
                         <TableCell>{a.bed_number ?? '—'}</TableCell>

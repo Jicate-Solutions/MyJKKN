@@ -36,7 +36,7 @@ export const FEE_STRUCTURE_CONFIG: Record<FeeStructureType, FeeStructureConfig> 
     primaryFields: [
       { name: 'tuition_fee', label: 'Combined Fee (Tuition + Uniform + Hospital)' },
     ],
-    optionalFees: ['transport_fee', 'hostel_fee'],
+    optionalFees: ['hostel_fee'],
   },
   tuition_instruments_hostel: {
     label: 'Tuition + Instruments + Hostel',
@@ -52,7 +52,7 @@ export const FEE_STRUCTURE_CONFIG: Record<FeeStructureType, FeeStructureConfig> 
     primaryFields: [
       { name: 'tuition_fee', label: 'Combined Fee (Tuition + Instruments)' },
     ],
-    optionalFees: ['transport_fee'],
+    optionalFees: [],
   },
   tuition_hostel: {
     label: 'Tuition Fee + Hostel',
@@ -69,7 +69,7 @@ export const FEE_STRUCTURE_CONFIG: Record<FeeStructureType, FeeStructureConfig> 
     primaryFields: [
       { name: 'tuition_fee', label: 'Tuition Fee' },
     ],
-    optionalFees: ['placement_fee', 'transport_fee'],
+    optionalFees: ['placement_fee'],
   },
 };
 
@@ -77,7 +77,6 @@ export const OPTIONAL_FEE_LABELS: Record<string, string> = {
   uniform_fee: 'Uniform Fee',
   hospital_training_fee: 'Hospital Training Fee',
   placement_fee: 'Placement Fee',
-  transport_fee: 'Transport Fee',
   hostel_fee: 'Hostel Fee',
 };
 
@@ -89,5 +88,4 @@ export const ALL_CONDITIONAL_FEE_FIELDS = [
   'uniform_fee',
   'hospital_training_fee',
   'placement_fee',
-  'transport_fee',
 ] as const;
