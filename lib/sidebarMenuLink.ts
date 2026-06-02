@@ -293,20 +293,21 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/admin/internship-policy/cycle': 'super_admin',
   '/admin/internship-policy/notifications': 'super_admin',
 
-  // Internship Module — Operational routes (super_admin until per-module
-  // permission keys land; see Phase 2A.5 plan).
-  '/internships/cycles': 'super_admin',
-  '/internships/cycles/new': 'super_admin',
-  '/internships/cycles/[id]': 'super_admin',
-  '/internships/sites': 'super_admin',
-  '/internships/sites/new': 'super_admin',
-  '/internships/sites/[id]': 'super_admin',
-  '/internships/preceptors': 'super_admin',
-  '/internships/preceptors/new': 'super_admin',
-  '/internships/preceptors/[id]': 'super_admin',
-  '/internships/vehicles': 'super_admin',
-  '/internships/vehicles/new': 'super_admin',
-  '/internships/vehicles/[id]': 'super_admin',
+  // Internship Module — Operational routes (granular per-action permission
+  // keys from PERMISSION_CATEGORIES.internship). Admin-tier policy routes
+  // above stay on super_admin (Director-only audience).
+  '/internships/cycles': 'internship.cycles.view',
+  '/internships/cycles/new': 'internship.cycles.create',
+  '/internships/cycles/[id]': 'internship.cycles.view',
+  '/internships/sites': 'internship.sites.view',
+  '/internships/sites/new': 'internship.sites.create',
+  '/internships/sites/[id]': 'internship.sites.view',
+  '/internships/preceptors': 'internship.preceptors.view',
+  '/internships/preceptors/new': 'internship.preceptors.create',
+  '/internships/preceptors/[id]': 'internship.preceptors.view',
+  '/internships/vehicles': 'internship.vehicles.view',
+  '/internships/vehicles/new': 'internship.vehicles.create',
+  '/internships/vehicles/[id]': 'internship.vehicles.view',
 
   // Lifecycle Analytics
   '/admin/lifecycle': 'admin.lifecycle.view',
