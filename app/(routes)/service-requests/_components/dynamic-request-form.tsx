@@ -17,6 +17,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { useTmsRoutes, useTmsRouteStops } from '@/hooks/service-requests/use-tms-lookups';
 import type { ServiceTypeField } from '@/types/service-request';
 
 interface DynamicRequestFormProps {
@@ -62,6 +63,12 @@ function buildDynamicSchema(fields: ServiceTypeField[]) {
         schema = z.boolean().default(false);
         break;
       case 'date':
+        schema = field.is_required
+          ? z.string().min(1, `${field.field_label} is required`)
+          : z.string().optional();
+        break;
+      case 'tms_route':
+      case 'tms_route_stop':
         schema = field.is_required
           ? z.string().min(1, `${field.field_label} is required`)
           : z.string().optional();
@@ -148,6 +155,95 @@ async function uploadFileFields(
   return processed;
 }
 
+function TmsRouteFieldControl({
+  field,
+  value,
+  onChange,
+  error,
+}: {
+  field: ServiceTypeField;
+  value: string;
+  onChange: (v: string) => void;
+  error?: string;
+}) {
+  const { data: routes = [], isLoading } = useTmsRoutes();
+  return (
+    <div className="space-y-2">
+      <Label htmlFor={field.field_key}>
+        {field.field_label}
+        {field.is_required && <span className="text-red-500 ml-1">*</span>}
+      </Label>
+      <Select value={value || ''} onValueChange={onChange} disabled={isLoading}>
+        <SelectTrigger id={field.field_key}>
+          <SelectValue
+            placeholder={isLoading ? 'Loading routes…' : field.placeholder || 'Select a route'}
+          />
+        </SelectTrigger>
+        <SelectContent>
+          {routes.map((r) => (
+            <SelectItem key={r.id} value={r.id}>
+              {r.route_number} — {r.route_name}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      {field.help_text && (
+        <p className="text-xs text-muted-foreground">{field.help_text}</p>
+      )}
+      {error && <p className="text-xs text-red-500">{error}</p>}
+    </div>
+  );
+}
+
+function TmsRouteStopFieldControl({
+  field,
+  routeId,
+  value,
+  onChange,
+  error,
+}: {
+  field: ServiceTypeField;
+  routeId: string | undefined;
+  value: string;
+  onChange: (v: string) => void;
+  error?: string;
+}) {
+  const { data: stops = [], isLoading } = useTmsRouteStops(routeId);
+  const disabled = !routeId || isLoading;
+  return (
+    <div className="space-y-2">
+      <Label htmlFor={field.field_key}>
+        {field.field_label}
+        {field.is_required && <span className="text-red-500 ml-1">*</span>}
+      </Label>
+      <Select value={value || ''} onValueChange={onChange} disabled={disabled}>
+        <SelectTrigger id={field.field_key}>
+          <SelectValue
+            placeholder={
+              !routeId
+                ? 'Select a route first'
+                : isLoading
+                ? 'Loading stops…'
+                : field.placeholder || 'Select a boarding stop'
+            }
+          />
+        </SelectTrigger>
+        <SelectContent>
+          {stops.map((s) => (
+            <SelectItem key={s.id} value={s.id}>
+              {s.stop_name}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      {field.help_text && (
+        <p className="text-xs text-muted-foreground">{field.help_text}</p>
+      )}
+      {error && <p className="text-xs text-red-500">{error}</p>}
+    </div>
+  );
+}
+
 export function DynamicRequestForm({
   fields,
   defaultValues,
@@ -175,6 +271,12 @@ export function DynamicRequestForm({
 
   const allValues = watch();
 
+  // The Boarding Stop field cascades off whichever field is the tms_route picker.
+  const routeFieldKey = sortedFields.find((f) => f.field_type === 'tms_route')?.field_key;
+  const selectedRouteId = routeFieldKey
+    ? (allValues[routeFieldKey] as string | undefined)
+    : undefined;
+
   // Track whether the component has finished its initial mount so the cascade
   // reset effect does NOT fire on first render (which would clear pre-populated
   // defaultValues for cascading child fields in the edit flow).
@@ -199,6 +301,22 @@ export function DynamicRequestForm({
       .filter((f) => f.field_type === 'select' && !f.field_options?.some((o) => o.value.includes('||')))
       .map((f) => allValues[f.field_key]),
   ]);
+
+  // Clear the boarding-stop field whenever the selected route changes (but not
+  // on first mount, so a pre-filled stop survives the edit flow's initial render).
+  const stopResetMounted = useRef(false);
+  useEffect(() => {
+    if (!stopResetMounted.current) {
+      stopResetMounted.current = true;
+      return;
+    }
+    sortedFields.forEach((field) => {
+      if (field.field_type === 'tms_route_stop') {
+        setValue(field.field_key, '');
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedRouteId]);
 
   const renderField = (field: ServiceTypeField) => {
     const error = errors[field.field_key];
@@ -381,6 +499,29 @@ export function DynamicRequestForm({
           </div>
         );
       }
+
+      case 'tms_route':
+        return (
+          <TmsRouteFieldControl
+            key={field.field_key}
+            field={field}
+            value={(allValues[field.field_key] as string) || ''}
+            onChange={(v) => setValue(field.field_key, v)}
+            error={errorMessage}
+          />
+        );
+
+      case 'tms_route_stop':
+        return (
+          <TmsRouteStopFieldControl
+            key={field.field_key}
+            field={field}
+            routeId={selectedRouteId}
+            value={(allValues[field.field_key] as string) || ''}
+            onChange={(v) => setValue(field.field_key, v)}
+            error={errorMessage}
+          />
+        );
 
       default:
         return null;
