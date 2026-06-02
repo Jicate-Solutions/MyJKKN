@@ -82,7 +82,8 @@ import {
   Users2,
   Factory,
   FileDown,
-  Share2
+  Share2,
+  Truck
 } from 'lucide-react';
 import { CustomRole } from '@/types/auth';
 // FEATURE_FLAGS import removed - not used in sidebar filtering
@@ -291,6 +292,21 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/admin/internship-policy/evaluation': 'super_admin',
   '/admin/internship-policy/cycle': 'super_admin',
   '/admin/internship-policy/notifications': 'super_admin',
+
+  // Internship Module — Operational routes (super_admin until per-module
+  // permission keys land; see Phase 2A.5 plan).
+  '/internships/cycles': 'super_admin',
+  '/internships/cycles/new': 'super_admin',
+  '/internships/cycles/[id]': 'super_admin',
+  '/internships/sites': 'super_admin',
+  '/internships/sites/new': 'super_admin',
+  '/internships/sites/[id]': 'super_admin',
+  '/internships/preceptors': 'super_admin',
+  '/internships/preceptors/new': 'super_admin',
+  '/internships/preceptors/[id]': 'super_admin',
+  '/internships/vehicles': 'super_admin',
+  '/internships/vehicles/new': 'super_admin',
+  '/internships/vehicles/[id]': 'super_admin',
 
   // Lifecycle Analytics
   '/admin/lifecycle': 'admin.lifecycle.view',
@@ -1861,6 +1877,34 @@ export function GetPages(pathname: string): MenuGroup[] {
     {
       groupLabel: 'Internship Module',
       menus: [
+        {
+          href: '/internships/cycles',
+          label: 'Posting Cycles',
+          active: pathname.startsWith('/internships/cycles'),
+          icon: CalendarClock,
+          submenus: []
+        },
+        {
+          href: '/internships/sites',
+          label: 'Hospitals & Sites',
+          active: pathname.startsWith('/internships/sites'),
+          icon: Building2,
+          submenus: []
+        },
+        {
+          href: '/internships/preceptors',
+          label: 'Preceptors',
+          active: pathname.startsWith('/internships/preceptors'),
+          icon: UserCheck,
+          submenus: []
+        },
+        {
+          href: '/internships/vehicles',
+          label: 'Vehicles',
+          active: pathname.startsWith('/internships/vehicles'),
+          icon: Truck,
+          submenus: []
+        },
         {
           href: '/admin/internship-policy',
           label: 'Internship Policies',
