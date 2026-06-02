@@ -16,6 +16,21 @@ export interface AnalyticsExportData {
   range: { from?: string; to?: string };
 }
 
+// Neutralise spreadsheet formula injection: a free-text cell (student/payer/
+// institution name) that starts with = + - @ (or tab/CR) would execute as a
+// formula when the .xlsx is opened. Prefix with a single quote so Excel/Sheets
+// treat it as literal text. Mirrors escapeCsvField() in lib/utils/csv-export.ts.
+function sanitizeCell(v: unknown): unknown {
+  if (typeof v === 'string' && /^[=+\-@\t\r]/.test(v)) return `'${v}`;
+  return v;
+}
+
+function sanitizeRow<T extends Record<string, unknown>>(row: T): T {
+  return Object.fromEntries(
+    Object.entries(row).map(([k, v]) => [k, sanitizeCell(v)])
+  ) as T;
+}
+
 /**
  * Build and download a multi-sheet .xlsx of the current dashboard view.
  * `xlsx` is imported dynamically so it never lands in the initial page bundle.
@@ -44,7 +59,7 @@ export async function exportAnalyticsWorkbook(d: AnalyticsExportData): Promise<v
       { Metric: 'Total Discounts', Value: num(o.total_discounts) },
       { Metric: 'Total Refunds', Value: num(o.total_refunds) },
     ];
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), 'Overview');
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows.map(sanitizeRow)), 'Overview');
   }
 
   if (d.byInstitution?.length) {
@@ -57,7 +72,7 @@ export async function exportAnalyticsWorkbook(d: AnalyticsExportData): Promise<v
       Bills: num(r.bill_count),
       Students: num(r.student_count),
     }));
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), 'Institutions');
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows.map(sanitizeRow)), 'Institutions');
   }
 
   if (d.byCategory?.length) {
@@ -68,7 +83,7 @@ export async function exportAnalyticsWorkbook(d: AnalyticsExportData): Promise<v
       'Paid to date': num(r.paid_to_date),
       Bills: num(r.bill_count),
     }));
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), 'By Category');
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows.map(sanitizeRow)), 'By Category');
   }
 
   if (d.aging?.length) {
@@ -77,7 +92,7 @@ export async function exportAnalyticsWorkbook(d: AnalyticsExportData): Promise<v
       'Bills': num(r.bill_count),
       'Outstanding Balance': num(r.balance),
     }));
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), 'Aging');
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows.map(sanitizeRow)), 'Aging');
   }
 
   if (d.userActivity?.length) {
@@ -91,7 +106,7 @@ export async function exportAnalyticsWorkbook(d: AnalyticsExportData): Promise<v
       Refunds: num(r.refunds_count),
       'Last Active': r.last_active ?? '',
     }));
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), 'User Activity');
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows.map(sanitizeRow)), 'User Activity');
   }
 
   if (wb.SheetNames.length === 0) {
