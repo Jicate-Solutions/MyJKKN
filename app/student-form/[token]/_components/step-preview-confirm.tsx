@@ -21,6 +21,7 @@ interface Props {
 
 interface CourseNames {
   institution?: string;
+  quota?: string;
   degree?: string;
   department?: string;
   program?: string;
@@ -111,6 +112,7 @@ export function StepPreviewConfirm({
   useEffect(() => {
     const ids = {
       institution_id: data.institution_id,
+      quota_id: data.quota_id,
       degree_id: data.degree_id,
       department_id: data.department_id,
       program_id: data.program_id,
@@ -137,13 +139,13 @@ export function StepPreviewConfirm({
     return () => {
       alive = false;
     };
-  }, [token, data.institution_id, data.degree_id, data.department_id, data.program_id, data.semester_id, data.transport_route_id, data.transport_stop_id]);
+  }, [token, data.institution_id, data.quota_id, data.degree_id, data.department_id, data.program_id, data.semester_id, data.transport_route_id, data.transport_stop_id]);
 
   const hasCourse =
     looksFilled(data.institution_id) ||
     looksFilled(data.degree_id) ||
     looksFilled(data.program_id) ||
-    looksFilled(data.quota) ||
+    looksFilled(data.quota_id) ||
     looksFilled(data.entry_type) ||
     looksFilled(data.semester_id);
 
@@ -336,7 +338,10 @@ export function StepPreviewConfirm({
         </SubGroup>
 
         <SubGroup title="Entry & Semester">
-          <Row label="Quota / ஒதுக்கீடு" value={data.quota} />
+          <Row
+            label="Quota / ஒதுக்கீடு"
+            value={courseNames.quota ?? (coursesLoading && data.quota_id ? 'Loading…' : undefined)}
+          />
           <Row label="Entry Type / சேர்க்கை வகை" value={data.entry_type} />
           <Row
             label="Semester / பருவம்"

@@ -485,7 +485,8 @@ export class LearnerProfileService {
         program:programs(id, program_name),
         semester:semesters(id, semester_name, semester_code),
         section:sections(id, section_name),
-        academic_year:academic_years(id, academic_year_name, is_active)
+        academic_year:academic_years(id, academic_year_name, is_active),
+        quota_ref:quotas!quota_id(name)
       `,
         { count: 'exact' }
       );

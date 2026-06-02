@@ -14,10 +14,7 @@ import {
 import { Loader2, Lock } from 'lucide-react';
 import toast from 'react-hot-toast';
 import type { Language } from './language-toggle';
-import {
-  QUOTA_OPTIONS,
-  ENTRY_TYPE_OPTIONS,
-} from '@/lib/constants/learner-dropdown-values';
+import { ENTRY_TYPE_OPTIONS } from '@/lib/constants/learner-dropdown-values';
 
 interface Props {
   lang: Language;
@@ -29,6 +26,10 @@ interface Props {
 }
 
 interface InstitutionRow {
+  id: string;
+  name: string;
+}
+interface QuotaRow {
   id: string;
   name: string;
 }
@@ -148,7 +149,7 @@ export function StepCourseSelection({
   // useEffect below. It's persisted on save so the fee-structure matrix
   // lookup has the right cohort.
   const [v, setV] = useState({
-    quota: data.quota ?? '',
+    quota_id: (data as { quota_id?: string }).quota_id ?? '',
     institution_id: data.institution_id ?? '',
     degree_id: data.degree_id ?? '',
     department_id: data.department_id ?? '',
@@ -163,6 +164,7 @@ export function StepCourseSelection({
   // Dropdown caches. Each fetches via the token-validated options endpoint
   // when its parent selection changes.
   const [institutions, setInstitutions] = useState<InstitutionRow[]>([]);
+  const [quotas, setQuotas] = useState<QuotaRow[]>([]);
   const [degrees, setDegrees] = useState<DegreeRow[]>([]);
   const [programs, setPrograms] = useState<ProgramRow[]>([]);
   const [semesters, setSemesters] = useState<SemesterRow[]>([]);
@@ -179,6 +181,7 @@ export function StepCourseSelection({
   async function fetchOptions(
     kind:
       | 'institutions'
+      | 'quotas'
       | 'degrees'
       | 'programs'
       | 'semesters'
@@ -203,6 +206,18 @@ export function StepCourseSelection({
     fetchOptions('institutions').then((d) => {
       if (alive && d) setInstitutions(d);
       setLoadingI(false);
+    });
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Load quotas on mount (global list; student picks one → quota_id)
+  useEffect(() => {
+    let alive = true;
+    fetchOptions('quotas').then((d) => {
+      if (alive && d) setQuotas(d);
     });
     return () => {
       alive = false;
@@ -442,14 +457,14 @@ export function StepCourseSelection({
           required
           helper="Required — affects the fee structure applied to your admission."
         >
-          <Select value={v.quota} onValueChange={(s) => set('quota', s)}>
+          <Select value={v.quota_id} onValueChange={(s) => set('quota_id', s)}>
             <SelectTrigger className="h-12">
               <SelectValue placeholder="Select quota / ஒதுக்கீடு தேர்வு செய்க" />
             </SelectTrigger>
             <SelectContent>
-              {QUOTA_OPTIONS.map((o) => (
-                <SelectItem key={o.value} value={o.value}>
-                  {o.label}
+              {quotas.map((q) => (
+                <SelectItem key={q.id} value={q.id}>
+                  {q.name}
                 </SelectItem>
               ))}
             </SelectContent>

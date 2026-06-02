@@ -174,7 +174,7 @@ function transformLearnerForExport(learner: any): Record<string, any> {
       ? `${learner.regulation.regulation_code} (${learner.regulation.regulation_year})`
       : '',
     batch_name: learner.batch?.batch_name || '',
-    quota: learner.quota || '',
+    quota: learner.quota_ref?.name || '',
     // Contact
     student_mobile: learner.student_mobile || '',
     college_email: learner.college_email || '',

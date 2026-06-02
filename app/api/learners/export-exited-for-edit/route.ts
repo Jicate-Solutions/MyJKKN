@@ -243,7 +243,7 @@ export async function GET(request: NextRequest) {
       // SECTION 11: Student Specific
       'Roll Number': learner.roll_number || '',
       'Register Number': learner.register_number || '',
-      'Quota': learner.quota || '',
+      'Quota': learner.quota_ref?.name || '',
       'Photo URL': learner.student_photo_url || '',
     }));
 

@@ -121,11 +121,14 @@ function resolveTalukName(
   return stored;
 }
 
+import { useQuotaName } from '@/hooks/admission/use-quota-name';
+
 interface EnquiryDetailProps {
   enquiry: LearnerProfile;
 }
 
 export function EnquiryDetail({ enquiry }: EnquiryDetailProps) {
+  const quotaName = useQuotaName((enquiry as { quota_id?: string }).quota_id);
   const [activeSection, setActiveSection] = useState('personal');
   const { canAccess, isSuperAdmin, isAdmissionGlobalUser } = usePermissions();
 
@@ -570,7 +573,7 @@ export function EnquiryDetail({ enquiry }: EnquiryDetailProps) {
                         Quota
                       </h4>
                       <p className='text-sm'>
-                        {enquiry.quota || 'Not specified'}
+                        {quotaName || 'Not specified'}
                       </p>
                     </div>
                   </div>

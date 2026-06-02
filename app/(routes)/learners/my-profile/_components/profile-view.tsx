@@ -2,6 +2,7 @@
 
 import { useRouter } from 'next/navigation';
 import { LearnerProfile } from '@/types/learner-profile';
+import { useQuotaName } from '@/hooks/admission/use-quota-name';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -42,6 +43,7 @@ interface ProfileViewProps {
 }
 
 export function ProfileView({ learner, canEdit, onEdit }: ProfileViewProps) {
+  const quotaName = useQuotaName((learner as { quota_id?: string }).quota_id);
   const router = useRouter();
 
   // Resolve the stored hostel/mess category FKs to display names.
@@ -433,7 +435,7 @@ export function ProfileView({ learner, canEdit, onEdit }: ProfileViewProps) {
                 value={(learner as any).counseling_number}
                 icon={FileText}
               />
-              <InfoField label="Quota" value={(learner as any).quota} icon={Award} />
+              <InfoField label="Quota" value={quotaName} icon={Award} />
               <InfoField label="Category" value={(learner as any).category} icon={Users} />
               <InfoField
                 label="Scholarship Type"

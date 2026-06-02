@@ -164,7 +164,7 @@ export const enquiryFormSchema = z.object({
   counseling_applied: z.boolean().nullable().optional(),
   counseling_number: z.string().nullable().optional(),
   scholarship_type: z.string().min(1, 'Scholarship type is required'),
-  quota: z.string().nullable().optional(),
+  quota_id: z.string().uuid('Select a valid quota').nullable().optional(),
   entry_type: z.string().min(1, 'Entry type is required'),
 
   // Course Selection
@@ -458,7 +458,7 @@ const fieldToTabMap: Record<string, string> = {
   counseling_applied: 'academic-information',
   counseling_number: 'academic-information',
   scholarship_type: 'academic-information',
-  quota: 'academic-information',
+  quota_id: 'academic-information',
   entry_type: 'academic-information',
 
   // Course Selection
@@ -795,7 +795,7 @@ export function EnquiryForm({
           counseling_applied: learner.counseling_applied || false,
           counseling_number: learner.counseling_number || '',
           scholarship_type: learner.scholarship_type || '',
-          quota: learner.quota || '',
+          quota_id: (learner as { quota_id?: string }).quota_id || '',
           entry_type: learner.entry_type || '',
 
           // Course Selection
@@ -953,7 +953,7 @@ export function EnquiryForm({
           counseling_applied: false,
           counseling_number: '',
           scholarship_type: '',
-          quota: '',
+          quota_id: '',
           entry_type: '',
 
           // Course Selection
@@ -1129,7 +1129,7 @@ export function EnquiryForm({
       counseling_applied: values.counseling_applied || undefined,
       counseling_number: values.counseling_number || undefined,
       scholarship_type: values.scholarship_type || undefined,
-      quota: values.quota || undefined,
+      quota_id: formatUUID(values.quota_id),
       entry_type: values.entry_type || '',
 
       // Course Selection (UUID fields - must be undefined if empty)
@@ -1732,19 +1732,20 @@ export function EnquiryForm({
           return match?.id;
         };
 
-        let resolvedQuotaId = learnerLike.quota_id;
-        // Form now carries the FK directly; prefer it over the loaded prop.
+        // Quota now lives on the form as the FK directly (quota_id); prefer the
+        // live form value, fall back to the loaded learner prop.
+        const resolvedQuotaId =
+          formatUUID((values as { quota_id?: string }).quota_id) || learnerLike.quota_id;
         let resolvedCommunityId =
           formatUUID((values as { community_category_id?: string }).community_category_id) ||
           learnerLike.community_category_id;
         let resolvedAccommodationId = learnerLike.accommodation_type_id;
 
-        if (!resolvedQuotaId || !resolvedCommunityId || !resolvedAccommodationId) {
+        // Community + accommodation are still TEXT fields on the form — resolve
+        // TEXT→FK for the matrix preview when their FK isn't already known.
+        if (!resolvedCommunityId || !resolvedAccommodationId) {
           try {
-            const [quotas, communities, accommodations] = await Promise.all([
-              !resolvedQuotaId
-                ? LookupService.listQuotas(true)
-                : Promise.resolve([]),
+            const [communities, accommodations] = await Promise.all([
               !resolvedCommunityId
                 ? LookupService.listCommunityCategories(true)
                 : Promise.resolve([]),
@@ -1752,9 +1753,6 @@ export function EnquiryForm({
                 ? LookupService.listAccommodationTypes(values.institution_id, true)
                 : Promise.resolve([]),
             ]);
-            if (!resolvedQuotaId) {
-              resolvedQuotaId = resolveLookupId(values.quota, quotas);
-            }
             if (!resolvedCommunityId) {
               resolvedCommunityId = resolveLookupId(values.community, communities);
             }

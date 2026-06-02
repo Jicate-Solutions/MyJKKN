@@ -43,12 +43,15 @@ import { useQuery } from '@tanstack/react-query';
 import { DegreeService } from '@/lib/services/organization/degree-service';
 // Fee structure constants removed 2026-04-15 — replaced by dynamic fee_items flow.
 
+import { useQuotaName } from '@/hooks/admission/use-quota-name';
+
 interface LearnerDetailProps {
   learner: LearnerProfile;
 }
 
 export function LearnerDetail({ learner }: LearnerDetailProps) {
   const [activeSection, setActiveSection] = useState('personal');
+  const quotaName = useQuotaName((learner as { quota_id?: string }).quota_id);
   const {
     canAccess,
     isSuperAdmin,
@@ -503,7 +506,7 @@ export function LearnerDetail({ learner }: LearnerDetailProps) {
                       <h4 className="text-sm font-medium text-muted-foreground">
                         Quota
                       </h4>
-                      <p className="text-sm">{learner.quota || 'Not specified'}</p>
+                      <p className="text-sm">{quotaName || 'Not specified'}</p>
                     </div>
                   </div>
                 </div>

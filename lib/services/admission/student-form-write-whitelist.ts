@@ -44,7 +44,7 @@ export const STUDENT_WRITABLE_COLUMNS = {
     // submitted with the rest of the course fields so the fee-structure
     // matrix lookup has the right cohort.
     'institution_id', 'degree_id', 'department_id', 'program_id', 'semester_id',
-    'quota', 'entry_type', 'admission_year_id',
+    'quota_id', 'entry_type', 'admission_year_id',
   ],
   accommodation: [
     // Accommodation step — added 2026-05-19. The "How did you hear about us?"

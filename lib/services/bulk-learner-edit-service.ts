@@ -9,6 +9,7 @@
 
 import { createClient } from '@supabase/supabase-js';
 import { LearnerValidationService, ValidationResult } from './learner-validation-service';
+import { buildQuotaResolver } from '@/lib/utils/quota-name-resolver';
 
 // Create admin client for database operations
 const supabaseAdmin = createClient(
@@ -271,6 +272,11 @@ export class BulkLearnerEditService {
       errors: []
     };
 
+    // Resolve the readable quota label (Excel "Quota" column) → quota_id (FK)
+    // before each update. Storage is quota_id only; the `quota` TEXT column is
+    // being retired.
+    const resolveQuota = await buildQuotaResolver(supabaseAdmin);
+
     for (const row of rows) {
       try {
         // Skip rows with validation errors
@@ -338,6 +344,20 @@ export class BulkLearnerEditService {
             fieldsUpdated.push(key);
           }
         });
+
+        // Quota arrives as a readable label; persist the FK (quota_id), not the
+        // legacy TEXT column. Drop the text key either way so it never reaches
+        // the (retired) column; only set quota_id when the label resolves.
+        if (updateData.quota !== undefined) {
+          const qid = resolveQuota(updateData.quota);
+          delete updateData.quota;
+          const qi = fieldsUpdated.indexOf('quota');
+          if (qi !== -1) fieldsUpdated.splice(qi, 1);
+          if (qid) {
+            updateData.quota_id = qid;
+            fieldsUpdated.push('quota_id');
+          }
+        }
 
         // Skip if no fields to update
         if (Object.keys(updateData).length === 0) {
@@ -456,7 +476,8 @@ export class BulkLearnerEditService {
           academic_year:academic_years(id, academic_year_name),
           regulation:regulations(id, regulation_year, regulation_code),
           batch:batches(id, batch_name),
-          admission_year_obj:admission_years!admission_year_id(program_start_year)
+          admission_year_obj:admission_years!admission_year_id(program_start_year),
+          quota_ref:quotas!quota_id(name)
         `)
         .eq('lifecycle_status', 'active');
 

@@ -844,6 +844,13 @@ export async function POST(request: NextRequest): Promise<NextResponse<ImportRes
       );
     })();
 
+    // Resolve the readable quota label (Excel "Quota" column) → quota_id (FK).
+    // Storage is quota_id only; the legacy `quota` TEXT column is being retired.
+    const resolveQuota = await (async () => {
+      const { buildQuotaResolver } = await import('@/lib/utils/quota-name-resolver');
+      return buildQuotaResolver(supabase as any);
+    })();
+
     // ============================================================
     // 6. INSERT VALID ROWS (BATCH INSERT)
     // ============================================================
@@ -915,7 +922,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<ImportRes
 
       // Counseling
       counseling_applied: data.counseling_applied,
-      quota: data.quota,
+      quota_id: resolveQuota(data.quota),
 
       // Reference
       reference_type: data.reference_type,

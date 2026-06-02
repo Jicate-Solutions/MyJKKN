@@ -7,6 +7,7 @@
 
 import { createClient } from '@supabase/supabase-js';
 import { LearnerValidationService, ValidationResult } from './learner-validation-service';
+import { buildQuotaResolver } from '@/lib/utils/quota-name-resolver';
 import type { LearnerProfile } from '@/types/learner-profile';
 import { randomUUID } from 'crypto';
 
@@ -425,12 +426,18 @@ export class BulkLearnerUploadService {
 
     console.log(`[bulk-upload] Preparing to insert ${newLearners.length} new learners`);
 
+    // Resolve the readable quota label (Excel "Quota" column) → quota_id (FK).
+    // Storage is quota_id only; the legacy `quota` TEXT column is being retired.
+    const resolveQuota = await buildQuotaResolver(supabaseAdmin);
+
     // STEP 3: Batch insert new learners
     const learnerData = newLearners.map(row => {
       // FIX: Keep scholarship_type as text (no longer converting to boolean first_graduate)
       // The database now has scholarship_type column as TEXT
+      const { quota, ...rest } = row.data as Record<string, any>;
       return {
-        ...row.data,
+        ...rest,
+        quota_id: resolveQuota(quota) ?? (row.data as any).quota_id ?? null,
         lifecycle_status: 'active',
         is_profile_complete: isProfileComplete(row.data)
       };

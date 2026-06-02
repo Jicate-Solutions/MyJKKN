@@ -85,7 +85,7 @@ export async function GET(
       mother_name, mother_occupation, mother_mobile, annual_income, last_school,
       board_of_study, tenth_marks, twelfth_marks, medical_cutoff_marks,
       engineering_cutoff_marks, neet_roll_number, neet_score, counseling_applied,
-      counseling_number, scholarship_type, quota, entry_type, student_mobile,
+      counseling_number, scholarship_type, entry_type, student_mobile,
       student_email, permanent_address_street, permanent_address_taluk,
       permanent_address_district, permanent_address_pin_code, permanent_address_state,
       accommodation_type, bus_required, transport_route_id, transport_stop_id, reference_type, reference_name, reference_contact,
@@ -93,8 +93,9 @@ export async function GET(
       academic_year_id, regulation_id, batch_id, roll_number, register_number,
       college_email, student_photo_url, is_profile_complete, created_at, updated_at,
       created_by, updated_by, aadhar_number, enquiry_date, blood_group,
-      admission_year_id,
-      admission_year_obj:admission_years!admission_year_id(program_start_year)
+      admission_year_id, quota_id,
+      admission_year_obj:admission_years!admission_year_id(program_start_year),
+      quota_obj:quotas!quota_id(name)
     `.trim();
 
     // 2026-05-20: Status taxonomy renamed admitted → enquiry; also accept
@@ -116,10 +117,12 @@ export async function GET(
 
     // 2026-05-02 (Phase C-8): Derive legacy admission_year integer from FK.
     const ayObj = (enquiryRaw as any).admission_year_obj as { program_start_year?: number } | null;
-    const { admission_year_obj: _ay, ...enquiryRest } = enquiryRaw as any;
+    const quotaObj = (enquiryRaw as any).quota_obj as { name?: string } | null;
+    const { admission_year_obj: _ay, quota_obj: _q, ...enquiryRest } = enquiryRaw as any;
     const enquiry = {
       ...enquiryRest,
       admission_year: ayObj?.program_start_year ?? null,
+      quota: quotaObj?.name ?? null,
     };
 
     // Expand related data if requested

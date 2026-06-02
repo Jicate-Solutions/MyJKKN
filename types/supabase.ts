@@ -58401,7 +58401,6 @@ export type Database = {
           placement_fee: number | null
           portfolio_url: string | null
           program_id: string | null
-          quota: string | null
           quota_id: string | null
           reference_contact: string | null
           reference_name: string | null
@@ -58511,7 +58510,6 @@ export type Database = {
           placement_fee?: number | null
           portfolio_url?: string | null
           program_id?: string | null
-          quota?: string | null
           quota_id?: string | null
           reference_contact?: string | null
           reference_name?: string | null
@@ -58621,7 +58619,6 @@ export type Database = {
           placement_fee?: number | null
           portfolio_url?: string | null
           program_id?: string | null
-          quota?: string | null
           quota_id?: string | null
           reference_contact?: string | null
           reference_name?: string | null
