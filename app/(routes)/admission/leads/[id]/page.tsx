@@ -1231,12 +1231,10 @@ function LeadDetailPageContent() {
               'Move to Counselor' per product call. Underlying handler still
               creates the learner_profiles row (handleConvertToLearner) — only
               the user-facing copy changed. */}
-          <div className="flex items-start justify-between">
-            <div />
-            {/* Phase 6 spec #14: disable all write-actions for the cascaded-away FROM-counselor.
-                pointer-events-none + opacity-50 communicate read-only visually.
-                No data-level enforcement here — that lives in RLS. */}
-            <div className={`flex items-center gap-2 ${isReadonlyCascadedView ? 'pointer-events-none opacity-50' : ''}`}>
+          {/* Phase 6 spec #14: disable all write-actions for the cascaded-away FROM-counselor.
+              pointer-events-none + opacity-50 communicate read-only visually.
+              No data-level enforcement here — that lives in RLS. */}
+          <div className={`flex flex-wrap items-center justify-end gap-2 ${isReadonlyCascadedView ? 'pointer-events-none opacity-50' : ''}`}>
               {/* Move to Counselor — shows "View Learner Profile" once moved */}
               {lead.learner_profile_id ? (
                 <>
@@ -1298,7 +1296,6 @@ function LeadDetailPageContent() {
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
-            </div>
           </div>
 
           {/* Quick Actions Bar — Call, Log Call, WhatsApp, SMS, Note, Follow-up.
@@ -1323,18 +1320,18 @@ function LeadDetailPageContent() {
           {/* Stage Selector — disabled for cascaded-away FROM-counselor */}
           <Card className={isReadonlyCascadedView ? 'pointer-events-none opacity-60' : ''}>
             <CardContent className="py-4">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex items-center gap-3">
                   <span className="text-sm font-medium">Current Stage:</span>
                   <LeadStageBadge stage={lead.funnel_stage} />
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="text-sm text-muted-foreground">Move to:</span>
+                  <span className="text-sm text-muted-foreground shrink-0">Move to:</span>
                   <Select
                     value={lead.funnel_stage || 'new'}
                     onValueChange={handleStageChange}
                   >
-                    <SelectTrigger className="w-[200px]">
+                    <SelectTrigger className="w-full sm:w-[200px]">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -1376,13 +1373,15 @@ function LeadDetailPageContent() {
 
               {/* Tabs */}
               <Tabs defaultValue="activity" className="w-full">
-                <TabsList>
-                  <TabsTrigger value="activity">Activity</TabsTrigger>
-                  <TabsTrigger value="calls">Calls</TabsTrigger>
-                  <TabsTrigger value="communication">Communication</TabsTrigger>
-                  <TabsTrigger value="details">Details</TabsTrigger>
-                  <TabsTrigger value="journey">Journey</TabsTrigger>
-                </TabsList>
+                <div className="overflow-x-auto">
+                  <TabsList className="w-max min-w-full">
+                    <TabsTrigger value="activity">Activity</TabsTrigger>
+                    <TabsTrigger value="calls">Calls</TabsTrigger>
+                    <TabsTrigger value="communication">Messages</TabsTrigger>
+                    <TabsTrigger value="details">Details</TabsTrigger>
+                    <TabsTrigger value="journey">Journey</TabsTrigger>
+                  </TabsList>
+                </div>
 
                 <TabsContent value="activity" className="mt-4">
                   <ActivityTab timeline={timeline} timelineLoading={timelineLoading} />
