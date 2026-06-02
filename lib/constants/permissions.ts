@@ -2031,6 +2031,78 @@ export const PERMISSION_CATEGORIES = [
       { key: 'cdc.exports.view', label: 'View CDC Reports & Exports Page' },
       { key: 'cdc.exports.download', label: 'Download CDC Reports (NAAC / AICTE / CSV)' }
     ]
+  },
+  // ======================================================================
+  // Internship Module — operational permissions for cycles, sites,
+  // preceptors, vehicles, and the learner journey (logbook, evaluations,
+  // attendance, incidents, certificates). Distinct from CDC's
+  // `cdc.internships.*` keys (which model placement-style internship records
+  // within Career Development Centre). The /internships/* route family
+  // shipped in PR #1209 used `super_admin` as a sidebar-permission stopgap;
+  // these keys (added with this catalog) replace it so role-managed access
+  // can scope cycles/sites/preceptors/vehicles per institution. The
+  // `/admin/internship-policy/*` admin-tier routes intentionally remain on
+  // `super_admin` (Director-only).
+  // ======================================================================
+  {
+    name: 'Internship Module',
+    key: 'internship',
+    permissions: [
+      // Internship Cycles (master scheduling period: dates, eligibility, capacity)
+      { key: 'internship.cycles.view', label: 'View Internship Cycles' },
+      { key: 'internship.cycles.create', label: 'Create Internship Cycle' },
+      { key: 'internship.cycles.edit', label: 'Edit Internship Cycle' },
+      { key: 'internship.cycles.delete', label: 'Delete Internship Cycle' },
+      { key: 'internship.cycles.activate', label: 'Activate / Close Internship Cycle' },
+
+      // Internship Sites (hospitals, clinics, industry partners hosting learners)
+      { key: 'internship.sites.view', label: 'View Internship Sites' },
+      { key: 'internship.sites.create', label: 'Create Internship Site' },
+      { key: 'internship.sites.edit', label: 'Edit Internship Site' },
+      { key: 'internship.sites.delete', label: 'Delete Internship Site' },
+
+      // Preceptors (clinical instructors / site supervisors)
+      { key: 'internship.preceptors.view', label: 'View Preceptors' },
+      { key: 'internship.preceptors.create', label: 'Create Preceptor' },
+      { key: 'internship.preceptors.edit', label: 'Edit Preceptor' },
+      { key: 'internship.preceptors.delete', label: 'Delete Preceptor' },
+
+      // Vehicles (transport allocation for internship rotations)
+      { key: 'internship.vehicles.view', label: 'View Internship Vehicles' },
+      { key: 'internship.vehicles.create', label: 'Create Internship Vehicle' },
+      { key: 'internship.vehicles.edit', label: 'Edit Internship Vehicle' },
+      { key: 'internship.vehicles.delete', label: 'Delete Internship Vehicle' },
+
+      // Assignments (learner → site / preceptor / vehicle for a cycle)
+      { key: 'internship.assignments.view', label: 'View Internship Assignments' },
+      { key: 'internship.assignments.create', label: 'Create Internship Assignment' },
+      { key: 'internship.assignments.edit', label: 'Edit Internship Assignment' },
+      { key: 'internship.assignments.delete', label: 'Delete Internship Assignment' },
+
+      // Logbook (learner-submitted daily / case-based entries)
+      { key: 'internship.logbook.view', label: 'View Internship Logbook' },
+      { key: 'internship.logbook.submit', label: 'Submit Logbook Entry' },
+      { key: 'internship.logbook.approve', label: 'Approve / Reject Logbook Entry' },
+
+      // Evaluations (preceptor / faculty evaluations of learner performance)
+      { key: 'internship.evaluations.view', label: 'View Internship Evaluations' },
+      { key: 'internship.evaluations.submit', label: 'Submit Internship Evaluation' },
+      { key: 'internship.evaluations.approve', label: 'Approve / Finalise Internship Evaluation' },
+
+      // Attendance (rotation attendance, with override for late corrections)
+      { key: 'internship.attendance.view', label: 'View Internship Attendance' },
+      { key: 'internship.attendance.mark', label: 'Mark Internship Attendance' },
+      { key: 'internship.attendance.override', label: 'Override Internship Attendance Record' },
+
+      // Incidents (site / safety / clinical incidents during rotations)
+      { key: 'internship.incidents.view', label: 'View Internship Incidents' },
+      { key: 'internship.incidents.report', label: 'Report Internship Incident' },
+      { key: 'internship.incidents.escalate', label: 'Escalate Internship Incident' },
+
+      // Certificates (completion certificates issued at end of internship)
+      { key: 'internship.certificates.view', label: 'View Internship Certificates' },
+      { key: 'internship.certificates.generate', label: 'Generate Internship Certificate' }
+    ]
   }
 ];
 
