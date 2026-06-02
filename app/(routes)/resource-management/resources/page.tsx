@@ -2,7 +2,7 @@
 // app/(routes)/resource-management/resources/page.tsx
 
 
-import { useEffect, useMemo, useCallback } from 'react';
+import { useMemo, useCallback } from 'react';
 import Link from 'next/link';
 import { Plus, Edit, Eye, Package, ImageIcon } from 'lucide-react';
 import { format } from 'date-fns';
@@ -66,10 +66,6 @@ export default function ResourcesPage() {
   const canDeleteResources =
     isSuperAdmin || canAccess('resources.resources', 'delete');
 
-  useEffect(() => {
-    fetchResources();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   // Handle search
   const handleSearch = useCallback(

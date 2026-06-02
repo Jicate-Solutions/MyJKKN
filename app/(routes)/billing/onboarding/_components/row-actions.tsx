@@ -28,9 +28,10 @@ import type { OnboardingLearner } from '@/lib/services/billing/onboarding/onboar
 
 interface OnboardingRowActionsProps {
   learner: OnboardingLearner;
+  returnToUrl?: string;
 }
 
-export function OnboardingRowActions({ learner }: OnboardingRowActionsProps) {
+export function OnboardingRowActions({ learner, returnToUrl }: OnboardingRowActionsProps) {
   const router = useRouter();
   const [approveDialogOpen, setApproveDialogOpen] = useState(false);
   const [revertDialogOpen, setRevertDialogOpen] = useState(false);
@@ -58,7 +59,7 @@ export function OnboardingRowActions({ learner }: OnboardingRowActionsProps) {
             <Eye className="mr-2 h-4 w-4" />
             View Details
           </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => router.push(`/billing/schedule/students/${learner.id}`)}>
+          <DropdownMenuItem onClick={() => router.push(`/billing/schedule/students/${learner.id}${returnToUrl ? `?returnTo=${encodeURIComponent(returnToUrl)}` : ''}`)}>
             <Receipt className="mr-2 h-4 w-4" />
             View Bills
           </DropdownMenuItem>

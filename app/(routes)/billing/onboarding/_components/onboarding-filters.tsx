@@ -169,10 +169,6 @@ export function OnboardingFilters({
   }, [filters.department_id]);
 
   // Set one hierarchy level and clear every dependent child in a SINGLE update.
-  // Doing this as one batch (not level-set followed by N separate child-clears)
-  // is what makes the cascade reset work: sequential onFilterChange calls each
-  // read the same stale searchParams snapshot, so the last write would win and
-  // silently drop the value the user just selected.
   const setHierarchyLevel = (
     level: OnboardingFilterKey,
     value: string | undefined
@@ -204,10 +200,7 @@ export function OnboardingFilters({
             <Select
               value={filters.institution_id || 'all'}
               onValueChange={(value) =>
-                setHierarchyLevel(
-                  'institution_id',
-                  value === 'all' ? undefined : value
-                )
+                setHierarchyLevel('institution_id', value === 'all' ? undefined : value)
               }
             >
               <SelectTrigger className='w-full sm:w-[200px]'>
@@ -247,10 +240,7 @@ export function OnboardingFilters({
           <Select
             value={filters.department_id || 'all'}
             onValueChange={(value) =>
-              setHierarchyLevel(
-                'department_id',
-                value === 'all' ? undefined : value
-              )
+              setHierarchyLevel('department_id', value === 'all' ? undefined : value)
             }
             disabled={!filters.degree_id}
           >

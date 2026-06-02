@@ -103,12 +103,14 @@ interface StudentBillFormProps {
   bill?: StudentBill;
   preSelectedStudent?: StudentForBilling;
   onSuccess?: () => void;
+  returnTo?: string;
 }
 
 export function StudentBillForm({
   bill,
   preSelectedStudent,
-  onSuccess
+  onSuccess,
+  returnTo,
 }: StudentBillFormProps) {
   const router = useRouter();
   const [institutions, setInstitutions] = useState<Institution[]>([]);
@@ -387,7 +389,7 @@ export function StudentBillForm({
         if (onSuccess) {
           onSuccess();
         } else {
-          router.push(`/billing/schedule/students/${bill.student_id}`);
+          router.push(returnTo || `/billing/schedule/students/${bill.student_id}`);
         }
         return;
       }
@@ -399,6 +401,8 @@ export function StudentBillForm({
 
       if (onSuccess) {
         onSuccess();
+      } else if (returnTo) {
+        router.push(returnTo);
       } else if (preSelectedStudent) {
         router.push(`/billing/schedule/students/${preSelectedStudent.id}`);
       } else {

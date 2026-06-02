@@ -104,6 +104,10 @@ export default function ApprovalsPage() {
   const filteredData = useMemo(() => {
     let rows = reservations;
 
+    // Never show the current user's own requests in the approval queue —
+    // a requester must not be able to approve or reject their own submission.
+    rows = rows.filter((r) => r.user_id !== user?.id);
+
     if (priorityFilter !== 'all') {
       const p = Number(priorityFilter);
       rows = rows.filter((r) => Number(r.priority) === p);
@@ -134,7 +138,7 @@ export default function ApprovalsPage() {
     });
 
     return sorted;
-  }, [reservations, priorityFilter, searchQuery, sortBy]);
+  }, [reservations, priorityFilter, searchQuery, sortBy, user?.id]);
 
   // Client-side pagination
   const paginatedData = useMemo(() => {
@@ -304,6 +308,7 @@ export default function ApprovalsPage() {
       cell: ({ row }: { row: any }) => {
         const reservation = row.original;
         const overdue = isOverdue(reservation.created_at);
+        const isOwnRequest = reservation.user_id === user?.id;
         const myStatus = myApprovalStatuses?.get(reservation.id);
         const alreadyActed = myStatus === 'approved' || myStatus === 'rejected';
 
@@ -320,7 +325,9 @@ export default function ApprovalsPage() {
               <Eye className='h-3 w-3' />
               View
             </Button>
-            {alreadyActed ? (
+            {isOwnRequest ? (
+              <Badge variant='secondary'>Your Request</Badge>
+            ) : alreadyActed ? (
               <Badge
                 className={
                   myStatus === 'approved'

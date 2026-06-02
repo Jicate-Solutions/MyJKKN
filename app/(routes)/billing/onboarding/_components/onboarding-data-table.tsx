@@ -43,6 +43,7 @@ const HIERARCHY_KEYS: OnboardingFilterKey[] = [
   'lifecycle_status',
 ];
 
+
 export function OnboardingDataTable() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -138,6 +139,11 @@ export function OnboardingDataTable() {
 
   const clearSelection = useCallback(() => setSelectedIds(new Set()), []);
 
+  // Build the URL the user is currently on (with all active filters) so that
+  // any navigation away from this page (View Bills, student name click) can
+  // carry a returnTo param — enabling a redirect back here after billing.
+  const returnToUrl = `/billing/onboarding${searchParams.toString() ? `?${searchParams.toString()}` : ''}`;
+
   const columns = useMemo(
     () =>
       getOnboardingColumns({
@@ -146,8 +152,9 @@ export function OnboardingDataTable() {
         toggleAllOnPage,
         pageRowIds,
         generatingIds,
+        returnToUrl,
       }),
-    [selectedIds, toggleSelected, toggleAllOnPage, pageRowIds, generatingIds]
+    [selectedIds, toggleSelected, toggleAllOnPage, pageRowIds, generatingIds, returnToUrl]
   );
 
   // Ref to guard against the DataTable's spurious mount-time onSearch call
