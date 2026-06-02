@@ -54,6 +54,8 @@ import {
   formValuesToCreatePayload,
   type PreceptorFormValues,
 } from '../../_components/preceptors/preceptor-form';
+import { PermissionGuard } from '@/components/auth/permission-guard';
+import { NoAccessAlert } from '../../_components/no-access-alert';
 
 const SCOPE_HINT: Record<string, string> = {
   cycle: 'Authority limited to current cycle',
@@ -62,6 +64,18 @@ const SCOPE_HINT: Record<string, string> = {
 };
 
 export default function PreceptorDetailPage({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
+  return (
+    <PermissionGuard module="internship.preceptors" action="view" fallback={<NoAccessAlert />}>
+      <PreceptorDetailPageInner params={params} />
+    </PermissionGuard>
+  );
+}
+
+function PreceptorDetailPageInner({
   params,
 }: {
   params: Promise<{ id: string }>;

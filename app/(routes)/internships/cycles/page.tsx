@@ -47,6 +47,8 @@ import { useCycles } from '@/hooks/internships/useCycles';
 import type { CycleStatus, InternshipCycle } from '@/lib/services/internships/types';
 import { CycleStatusBadge } from './_components/cycle-status-badge';
 import { CollegeSelect, useCollegeNameMap } from './_components/college-select';
+import { PermissionGuard } from '@/components/auth/permission-guard';
+import { NoAccessAlert } from '../_components/no-access-alert';
 
 const STATUS_OPTIONS: Array<{ value: 'all' | CycleStatus; label: string }> = [
   { value: 'all', label: 'All statuses' },
@@ -104,6 +106,7 @@ export default function InternshipCyclesPage() {
   };
 
   return (
+    <PermissionGuard module="internship.cycles" action="view" fallback={<NoAccessAlert />}>
     <ContentLayout title="Internship Posting Cycles">
       <Breadcrumb className="mb-4">
         <BreadcrumbList>
@@ -233,6 +236,7 @@ export default function InternshipCyclesPage() {
         <CyclesTable cycles={filtered} collegeNameMap={collegeNameMap} />
       )}
     </ContentLayout>
+    </PermissionGuard>
   );
 }
 

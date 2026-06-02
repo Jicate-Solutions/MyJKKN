@@ -285,28 +285,29 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/admin/integrations/meta-audiences': 'super_admin',
 
   // Internship Module — Policy Admin (super_admin only)
-  '/admin/internship-policy': 'super_admin',
-  '/admin/internship-policy/eligibility': 'super_admin',
-  '/admin/internship-policy/fees': 'super_admin',
-  '/admin/internship-policy/attendance': 'super_admin',
-  '/admin/internship-policy/evaluation': 'super_admin',
-  '/admin/internship-policy/cycle': 'super_admin',
-  '/admin/internship-policy/notifications': 'super_admin',
+  '/internships/policy': 'super_admin',
+  '/internships/policy/eligibility': 'super_admin',
+  '/internships/policy/fees': 'super_admin',
+  '/internships/policy/attendance': 'super_admin',
+  '/internships/policy/evaluation': 'super_admin',
+  '/internships/policy/cycle': 'super_admin',
+  '/internships/policy/notifications': 'super_admin',
 
-  // Internship Module — Operational routes (super_admin until per-module
-  // permission keys land; see Phase 2A.5 plan).
-  '/internships/cycles': 'super_admin',
-  '/internships/cycles/new': 'super_admin',
-  '/internships/cycles/[id]': 'super_admin',
-  '/internships/sites': 'super_admin',
-  '/internships/sites/new': 'super_admin',
-  '/internships/sites/[id]': 'super_admin',
-  '/internships/preceptors': 'super_admin',
-  '/internships/preceptors/new': 'super_admin',
-  '/internships/preceptors/[id]': 'super_admin',
-  '/internships/vehicles': 'super_admin',
-  '/internships/vehicles/new': 'super_admin',
-  '/internships/vehicles/[id]': 'super_admin',
+  // Internship Module — Operational routes (granular per-action permission
+  // keys from PERMISSION_CATEGORIES.internship). Admin-tier policy routes
+  // above stay on super_admin (Director-only audience).
+  '/internships/cycles': 'internship.cycles.view',
+  '/internships/cycles/new': 'internship.cycles.create',
+  '/internships/cycles/[id]': 'internship.cycles.view',
+  '/internships/sites': 'internship.sites.view',
+  '/internships/sites/new': 'internship.sites.create',
+  '/internships/sites/[id]': 'internship.sites.view',
+  '/internships/preceptors': 'internship.preceptors.view',
+  '/internships/preceptors/new': 'internship.preceptors.create',
+  '/internships/preceptors/[id]': 'internship.preceptors.view',
+  '/internships/vehicles': 'internship.vehicles.view',
+  '/internships/vehicles/new': 'internship.vehicles.create',
+  '/internships/vehicles/[id]': 'internship.vehicles.view',
 
   // Lifecycle Analytics
   '/admin/lifecycle': 'admin.lifecycle.view',
@@ -1914,45 +1915,45 @@ export function GetPages(pathname: string): MenuGroup[] {
           submenus: []
         },
         {
-          href: '/admin/internship-policy',
+          href: '/internships/policy',
           label: 'Internship Policies',
-          active: pathname.startsWith('/admin/internship-policy'),
+          active: pathname.startsWith('/internships/policy'),
           icon: GraduationCap,
           submenus: [
             {
-              href: '/admin/internship-policy',
+              href: '/internships/policy',
               label: 'All Policies',
-              active: pathname === '/admin/internship-policy'
+              active: pathname === '/internships/policy'
             },
             {
-              href: '/admin/internship-policy/eligibility',
+              href: '/internships/policy/eligibility',
               label: 'Eligibility',
-              active: pathname === '/admin/internship-policy/eligibility'
+              active: pathname === '/internships/policy/eligibility'
             },
             {
-              href: '/admin/internship-policy/fees',
+              href: '/internships/policy/fees',
               label: 'Fees',
-              active: pathname === '/admin/internship-policy/fees'
+              active: pathname === '/internships/policy/fees'
             },
             {
-              href: '/admin/internship-policy/attendance',
+              href: '/internships/policy/attendance',
               label: 'Attendance',
-              active: pathname === '/admin/internship-policy/attendance'
+              active: pathname === '/internships/policy/attendance'
             },
             {
-              href: '/admin/internship-policy/evaluation',
+              href: '/internships/policy/evaluation',
               label: 'Evaluation',
-              active: pathname === '/admin/internship-policy/evaluation'
+              active: pathname === '/internships/policy/evaluation'
             },
             {
-              href: '/admin/internship-policy/cycle',
+              href: '/internships/policy/cycle',
               label: 'Cycle',
-              active: pathname === '/admin/internship-policy/cycle'
+              active: pathname === '/internships/policy/cycle'
             },
             {
-              href: '/admin/internship-policy/notifications',
+              href: '/internships/policy/notifications',
               label: 'Notifications',
-              active: pathname === '/admin/internship-policy/notifications'
+              active: pathname === '/internships/policy/notifications'
             }
           ]
         }

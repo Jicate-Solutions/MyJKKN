@@ -5,7 +5,7 @@
 // ============================================
 // Director-facing hub for all CDC configuration surfaces.
 // Cards link to: policies, master tables, cron status.
-// Pattern mirrors /admin/internship-policy (Sprint 7a).
+// Pattern mirrors /internships/policy (Sprint 7a).
 // ============================================
 
 import Link from 'next/link';
