@@ -70,7 +70,8 @@ export async function exportAnalyticsWorkbook(d: AnalyticsExportData): Promise<v
       Outstanding: num(r.total_outstanding),
       'Rate %': num(r.collection_rate),
       Bills: num(r.bill_count),
-      Students: num(r.student_count),
+      'Students Billed': num(r.student_count),
+      'Students With Dues': num(r.students_with_dues),
     }));
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows.map(sanitizeRow)), 'Institutions');
   }
