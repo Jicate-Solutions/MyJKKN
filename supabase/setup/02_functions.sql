@@ -15452,11 +15452,12 @@ DECLARE
   v_learner_id   uuid;
   v_form         jsonb;
   v_slug         text;
+  v_status       text;
   v_route_id     uuid;
   v_stop_id      uuid;
 BEGIN
-  SELECT sr.requester_id, sr.form_data, st.slug
-    INTO v_requester_id, v_form, v_slug
+  SELECT sr.requester_id, sr.form_data, st.slug, sr.status::text
+    INTO v_requester_id, v_form, v_slug, v_status
     FROM service_requests sr
     JOIN service_types st ON st.id = sr.service_type_id
    WHERE sr.id = p_request_id;
@@ -15469,6 +15470,17 @@ BEGIN
   IF v_slug <> 'transport-request' THEN
     RAISE NOTICE 'sync_bus_pass: request % is not a transport request (slug=%)', p_request_id, v_slug;
     RETURN;
+  END IF;
+
+  -- AUTHORIZATION: only an approver (or super admin) may trigger the sync, and
+  -- only for a request that has actually been approved/fulfilled. Blocks a
+  -- requester from self-approving their own bus pass by calling the RPC directly.
+  IF NOT (public.is_super_admin() OR public.user_has_permission('service_requests.approve')) THEN
+    RAISE EXCEPTION 'sync_bus_pass: not authorized' USING ERRCODE = '42501';
+  END IF;
+
+  IF v_status NOT IN ('approved', 'fulfilled') THEN
+    RAISE EXCEPTION 'sync_bus_pass: request % is not approved (status=%)', p_request_id, v_status;
   END IF;
 
   SELECT learner_id INTO v_learner_id FROM profiles WHERE id = v_requester_id;
