@@ -6,14 +6,27 @@ import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions
 import {
   useBillingOverview,
   useTodayCollections,
+  useCollectionTrend,
+  useInstitutionAnalytics,
+  useAgingBuckets,
+  useCategoryBreakdown,
+  useUserActivity,
 } from '@/hooks/billing/use-billing-analytics';
-import type { BillingAnalyticsFilters } from '@/types/billing-analytics';
+import type {
+  BillingAnalyticsFilters,
+  TrendGranularity,
+} from '@/types/billing-analytics';
 import {
   AnalyticsFilters,
   type AnalyticsFilterChange,
 } from './analytics-filters';
 import { KpiCards } from './kpi-cards';
 import { TodayCollectionsPanel } from './today-collections-panel';
+import { CollectionTrendChart } from './collection-trend-chart';
+import { AgingChart } from './aging-chart';
+import { CategoryBreakdownChart } from './category-breakdown-chart';
+import { InstitutionComparison } from './institution-comparison';
+import { UserActivityLeaderboard } from './user-activity-leaderboard';
 import { presetRange, type DatePreset } from './_utils';
 
 const VALID_PRESETS: DatePreset[] = ['today', 'month', 'year', 'all', 'custom'];
@@ -71,15 +84,29 @@ export function AnalyticsDashboard() {
     [institutionId, preset, from, to]
   );
 
+  // Daily buckets for short ranges; monthly for year/all-time so the axis stays legible.
+  const granularity: TrendGranularity =
+    preset === 'year' || preset === 'all' ? 'month' : 'day';
+
   const overview = useBillingOverview(filters);
   const today = useTodayCollections({
     institution_ids: filters.institution_ids,
   });
+  const trend = useCollectionTrend({ ...filters, granularity });
+  const byInstitution = useInstitutionAnalytics(filters);
+  const aging = useAgingBuckets(filters);
+  const byCategory = useCategoryBreakdown(filters);
+  const userActivity = useUserActivity(filters);
 
   const refetchAll = useCallback(() => {
     overview.refetch();
     today.refetch();
-  }, [overview, today]);
+    trend.refetch();
+    byInstitution.refetch();
+    aging.refetch();
+    byCategory.refetch();
+    userActivity.refetch();
+  }, [overview, today, trend, byInstitution, aging, byCategory, userActivity]);
 
   return (
     <div className='space-y-6'>
@@ -100,17 +127,32 @@ export function AnalyticsDashboard() {
 
       <div className='grid grid-cols-1 gap-6 lg:grid-cols-3'>
         <div className='lg:col-span-2'>
-          {/* Phase 4: collection trend chart */}
+          <CollectionTrendChart data={trend.data} loading={trend.isLoading} />
         </div>
         <div>
-          <TodayCollectionsPanel
-            data={today.data}
-            loading={today.isLoading}
-          />
+          <TodayCollectionsPanel data={today.data} loading={today.isLoading} />
         </div>
       </div>
 
-      {/* Phase 4-6: aging · category · institution comparison · user leaderboard */}
+      <div className='grid grid-cols-1 gap-6 lg:grid-cols-2'>
+        <AgingChart data={aging.data} loading={aging.isLoading} />
+        <CategoryBreakdownChart
+          data={byCategory.data}
+          loading={byCategory.isLoading}
+        />
+      </div>
+
+      <InstitutionComparison
+        data={byInstitution.data}
+        loading={byInstitution.isLoading}
+        selectedInstitution={institutionId}
+        onSelect={(id) => handleChange({ institution: id })}
+      />
+
+      <UserActivityLeaderboard
+        data={userActivity.data}
+        loading={userActivity.isLoading}
+      />
     </div>
   );
 }
