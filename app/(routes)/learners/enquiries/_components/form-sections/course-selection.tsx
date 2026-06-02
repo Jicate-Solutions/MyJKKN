@@ -19,7 +19,6 @@ import { useEffect, useMemo } from 'react';
 import { UseFormReturn } from 'react-hook-form';
 import toast from 'react-hot-toast';
 import { Info } from 'lucide-react';
-import { useInstitutionTypeLabels } from '@/hooks/use-institution-type-labels';
 import {
   FormControl,
   FormDescription,
@@ -72,9 +71,6 @@ export function CourseSelectionSection({ form, showLearnerType = false }: Course
   // 2026-05-21: watched so the SH-department engineering-first-year rule
   // can react to entry-type changes (filter departments + clear stale pick).
   const watchedEntryType = form.watch('entry_type');
-
-  // Get institution type (school vs college) for conditional UI
-  const { isSchool } = useInstitutionTypeLabels();
 
   // Determine if currently selected institution is a school
   const { institutions } = useInstitutionsWithAccess();

@@ -9,8 +9,8 @@ import { toast } from 'react-hot-toast';
 import { useQueryClient } from '@tanstack/react-query';
 import { Program } from '@/types/organizations';
 import { ProgramService } from '@/lib/services/organization/program-service';
-import { useInstitutionTypeLabels } from '@/hooks/use-institution-type-labels';
 import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
+import { usePermissions } from '@/hooks/use-permissions';
 import { OrganizationService } from '@/lib/services/organization/organization-service';
 import { DegreeService } from '@/lib/services/organization/degree-service';
 import { DepartmentService } from '@/lib/services/organization/department-service';
@@ -77,8 +77,8 @@ interface Department {
 export function ProgramForm({ program, isEditing }: ProgramFormProps) {
   const router = useRouter();
   const queryClient = useQueryClient();
-  const { label } = useInstitutionTypeLabels();
   const adapt = useAdaptiveLabels();
+  const { isSuperAdmin, userProfile } = usePermissions();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [institutions, setInstitutions] = useState<Institution[]>([]);
   // Seed dropdowns with the program's own degree/department so saved
@@ -114,17 +114,35 @@ export function ProgramForm({ program, isEditing }: ProgramFormProps) {
 
   // Load institutions
   useEffect(() => {
+    // Wait until permission state resolves so we fetch the correct scope.
+    if (isSuperAdmin === undefined) return;
+    if (!isSuperAdmin && !userProfile?.id) return;
+
     async function loadInstitutions() {
       try {
-        const data = await OrganizationService.getInstitutionNames(true);
+        // entityType:'all' → include schools/all entity types.
+        // Super admins (no userId) see every institution; normal users are
+        // scoped to their own accessible institutions.
+        const data = await OrganizationService.getInstitutionNames(
+          true,
+          isSuperAdmin ? undefined : userProfile?.id,
+          'all'
+        );
         setInstitutions(data);
+
+        // Auto-select the user's own institution for non-super-admins on create
+        // (form watch primes the degree/department cascade).
+        if (!isSuperAdmin && userProfile?.institution_id && !isEditing) {
+          form.setValue('institution_id', userProfile.institution_id);
+        }
       } catch (error) {
         console.error('Error loading institutions:', error);
         toast.error('Failed to load institutions');
       }
     }
     loadInstitutions();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isSuperAdmin, userProfile?.id, userProfile?.institution_id, isEditing]);
 
   // Load degrees when institution is selected
   useEffect(() => {
@@ -320,7 +338,7 @@ export function ProgramForm({ program, isEditing }: ProgramFormProps) {
                 name='program_id'
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>{label('program')} ID</FormLabel>
+                    <FormLabel>{adapt('program')} ID</FormLabel>
                     <FormControl>
                       <Input
                         placeholder='Enter program ID'
@@ -332,7 +350,7 @@ export function ProgramForm({ program, isEditing }: ProgramFormProps) {
                       />
                     </FormControl>
                     <FormDescription>
-                      A unique identifier for the {label('program').toLowerCase()} (e.g., CSE_BE, IT_ME)
+                      A unique identifier for the {adapt('program').toLowerCase()} (e.g., CSE_BE, IT_ME)
                     </FormDescription>
                     <FormMessage />
                   </FormItem>
@@ -344,7 +362,7 @@ export function ProgramForm({ program, isEditing }: ProgramFormProps) {
                 name='program_name'
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>{label('program')} Name</FormLabel>
+                    <FormLabel>{adapt('program')} Name</FormLabel>
                     <FormControl>
                       <Input placeholder='Enter program name' {...field} />
                     </FormControl>
@@ -362,7 +380,7 @@ export function ProgramForm({ program, isEditing }: ProgramFormProps) {
                   <div className='space-y-0.5'>
                     <FormLabel>Active Status</FormLabel>
                     <div className='text-sm text-muted-foreground'>
-                      Disable to temporarily hide this {label('program').toLowerCase()}
+                      Disable to temporarily hide this {adapt('program').toLowerCase()}
                     </div>
                   </div>
                   <FormControl>
@@ -393,7 +411,7 @@ export function ProgramForm({ program, isEditing }: ProgramFormProps) {
                 : 'Creating...'
               : isEditing
               ? 'Save Changes'
-              : `Create ${label('Program')}`}
+              : `Create ${adapt('Program')}`}
           </Button>
         </div>
       </form>

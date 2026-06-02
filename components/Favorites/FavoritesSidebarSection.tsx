@@ -23,6 +23,7 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 import { usePageFavorites } from '@/hooks/use-page-favorites';
 import { ICON_MAP } from '@/lib/navigation/page-registry';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import type { FavoritePage } from '@/lib/navigation/types';
@@ -162,6 +163,7 @@ function SortableFavoriteItem({
   onTogglePin: () => void;
 }) {
   const [isHovered, setIsHovered] = useState(false);
+  const adapt = useAdaptiveLabels();
   const IconComponent = ICON_MAP[favorite.iconName] || Star;
 
   const {
@@ -213,7 +215,7 @@ function SortableFavoriteItem({
         >
           <Link href={favorite.path}>
             <IconComponent className="h-3.5 w-3.5 mr-2 shrink-0" />
-            <span className="truncate flex-1">{favorite.title}</span>
+            <span className="truncate flex-1">{adapt(favorite.title)}</span>
             {favorite.isPinned && !isHovered && (
               <Pin className="h-2.5 w-2.5 text-muted-foreground/50 shrink-0" />
             )}

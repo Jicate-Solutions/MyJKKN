@@ -6,6 +6,7 @@ import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/compone
 import { VisuallyHidden } from '@radix-ui/react-visually-hidden';
 import { usePageSearch } from '@/hooks/use-page-search';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 import { usePageFavorites } from '@/hooks/use-page-favorites';
 import { ICON_MAP } from '@/lib/navigation/page-registry';
 import { KEYBOARD_SHORTCUTS } from '@/lib/navigation/keyboard-shortcuts';
@@ -16,18 +17,9 @@ import { findRestrictedPages, RestrictedPageItem } from './RequestAccess';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { usePathname } from 'next/navigation';
 import { useAuth } from '@/hooks/use-auth';
-import { Search, Star, Clock, Zap, TrendingUp, ArrowRight, FileText, Compass, Lock, Layers } from 'lucide-react';
+import { Search, Star, Clock, Zap, TrendingUp, ArrowRight, FileText, Compass, Lock } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { SearchResult, RecentPage } from '@/lib/navigation/types';
-
-interface StreamResult {
-  id: string;
-  title: string;
-  subtitle: string;
-  institution: string;
-  path: string;
-  type: 'stream';
-}
 
 interface CommandPaletteModalProps {
   isOpen: boolean;
@@ -38,8 +30,6 @@ interface CommandPaletteModalProps {
 
 export function CommandPaletteModal({ isOpen, onClose, onNavigate, onPermissionsLoaded }: CommandPaletteModalProps) {
   const [query, setQuery] = useState('');
-  const [streamsResults, setStreamsResults] = useState<StreamResult[]>([]);
-  const [streamsLoading, setStreamsLoading] = useState(false);
   const { search, searchablePages, recentPages, frequentPages, isLoading } = usePageSearch();
   const { isFavorite } = usePageFavorites();
   const isMobile = useIsMobile();
@@ -52,32 +42,6 @@ export function CommandPaletteModal({ isOpen, onClose, onNavigate, onPermissions
 
   // Accessible paths set (for finding restricted pages)
   const accessiblePaths = new Set(searchablePages.map(p => p.path));
-
-  // Fetch streams search results
-  useEffect(() => {
-    if (query.trim().length < 2) {
-      setStreamsResults([]);
-      return;
-    }
-
-    console.log('[Streams Search] Searching for:', query);
-    setStreamsLoading(true);
-
-    fetch(`/api/streams/search?q=${encodeURIComponent(query)}`)
-      .then((res) => {
-        console.log('[Streams Search] Response status:', res.status);
-        return res.json();
-      })
-      .then((result) => {
-        console.log('[Streams Search] Results:', result);
-        setStreamsResults(result.data || []);
-      })
-      .catch((err) => {
-        console.error('[Streams Search] Error:', err);
-        setStreamsResults([]);
-      })
-      .finally(() => setStreamsLoading(false));
-  }, [query]);
 
   // Sync permissions back to provider for keyboard shortcuts
   useEffect(() => {
@@ -289,35 +253,6 @@ export function CommandPaletteModal({ isOpen, onClose, onNavigate, onPermissions
                   </Command.Group>
                 )}
 
-                {/* Streams Results - Debug: Always show section */}
-                <Command.Group heading={
-                  <span className="flex items-center gap-1.5 text-xs uppercase tracking-wider">
-                    <Layers className="h-3 w-3" /> Streams {streamsLoading && '(Loading...)'}
-                  </span>
-                }>
-                  {streamsResults.length > 0 ? (
-                    streamsResults.map((stream) => (
-                      <Command.Item
-                        key={`stream-${stream.id}`}
-                        value={stream.id}
-                        onSelect={() => handleSelect(stream.path)}
-                        className="cursor-pointer"
-                      >
-                        <div className="flex flex-col flex-1">
-                          <span className="font-medium">{stream.title}</span>
-                          <span className="text-xs text-muted-foreground">
-                            {stream.subtitle} • {stream.institution}
-                          </span>
-                        </div>
-                      </Command.Item>
-                    ))
-                  ) : (
-                    <div className="text-xs text-muted-foreground px-2 py-2">
-                      {query.trim().length >= 2 ? 'No streams found' : 'Type to search streams'}
-                    </div>
-                  )}
-                </Command.Group>
-
                 {/* Restricted pages the user can't access */}
                 {restrictedPages.length > 0 && (
                   <Command.Group heading={
@@ -386,6 +321,7 @@ function SearchResultItem({
   favorited?: boolean;
 }) {
   const { page } = result;
+  const adapt = useAdaptiveLabels();
   const IconComponent = ICON_MAP[page.iconName] || FileText;
 
   return (
@@ -404,7 +340,7 @@ function SearchResultItem({
       </div>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
-          <span className="text-sm font-medium truncate">{page.title}</span>
+          <span className="text-sm font-medium truncate">{adapt(page.title)}</span>
           {favorited && (
             <Star
               className="h-3 w-3 fill-yellow-400 text-yellow-400 shrink-0"
@@ -442,6 +378,7 @@ function RecentPageItem({
   shortcut?: string;
   onSelect: (path: string) => void;
 }) {
+  const adapt = useAdaptiveLabels();
   const IconComponent = ICON_MAP[recent.iconName] || FileText;
   const timeAgo = getTimeAgo(recent.visitedAt);
 
@@ -460,7 +397,7 @@ function RecentPageItem({
         <IconComponent className="h-4 w-4 text-muted-foreground" />
       </div>
       <div className="flex-1 min-w-0">
-        <span className="text-sm font-medium truncate block">{recent.title}</span>
+        <span className="text-sm font-medium truncate block">{adapt(recent.title)}</span>
         <span className="text-xs text-muted-foreground">{recent.module}</span>
       </div>
       {shortcut ? (

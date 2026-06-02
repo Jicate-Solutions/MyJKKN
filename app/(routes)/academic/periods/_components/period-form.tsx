@@ -233,7 +233,9 @@ export function PeriodForm({
 
       try {
         setInstitutionsLoading(true);
-        const data = await OrganizationService.getInstitutionNames(true);
+        // entityType:'all' → include schools and every entity type, not just
+        // entity_type='institution'. Super-admin-only path, so no userId.
+        const data = await OrganizationService.getInstitutionNames(true, undefined, 'all');
         setInstitutions(data);
       } catch (error) {
         logger.error('academic/periods', 'Error loading institutions', error);
@@ -249,7 +251,14 @@ export function PeriodForm({
     const loadInstitutionName = async () => {
       if (!isSuperAdmin && userProfile?.institution_id) {
         try {
-          const data = await OrganizationService.getInstitutionNames();
+          // entityType:'all' + userId → resolve the user's own institution name
+          // even when it's a school (entity_type='school'); the prior default
+          // 'institution' filter excluded schools so the name never displayed.
+          const data = await OrganizationService.getInstitutionNames(
+            undefined,
+            userProfile?.id,
+            'all'
+          );
           const inst = data.find((i) => i.id === userProfile.institution_id);
           if (inst) setInstitutionName(inst.name);
         } catch (err) {

@@ -6,6 +6,7 @@ import { DegreesDataTable } from './_components/degrees-data-table';
 import { DegreesFiltersClient } from './_components/degrees-filters-client';
 import { StreamsMobileNav } from './_components/streams-mobile-nav';
 import { degreesSearchParamsSchema } from './_components/data-table-schema';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 import { useSearchParams } from 'next/navigation';
 
 interface DegreesPageProps {
@@ -13,14 +14,15 @@ interface DegreesPageProps {
 }
 
 export default function DegreesPage({ searchParams }: DegreesPageProps) {
+  const adapt = useAdaptiveLabels();
   const rawSearchParams = useSearchParams();
 
   // Convert URLSearchParams to object for schema parsing
   const params = Object.fromEntries(rawSearchParams.entries());
   const search = degreesSearchParamsSchema.parse(params);
 
-  const pageTitle = 'Streams';
-  const helpText = 'Manage academic streams';
+  const pageTitle = adapt('Degrees');
+  const helpText = adapt('Manage academic degrees');
 
   return (
     <ContentLayout title={pageTitle}>

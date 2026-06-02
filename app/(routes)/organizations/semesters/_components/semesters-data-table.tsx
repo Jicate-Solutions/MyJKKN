@@ -20,7 +20,6 @@ import { useRouter } from 'next/navigation';
 import { SemesterService } from '@/lib/services/organization/semester-service';
 import { Semester } from '@/types/organizations';
 import { usePermissions } from '@/hooks/use-permissions';
-import { useInstitutionTypeLabels } from '@/hooks/use-institution-type-labels';
 import { useState } from 'react';
 import {
   AlertDialog,
@@ -49,7 +48,7 @@ interface SemestersDataTableProps {
 export function SemestersDataTable({ search }: SemestersDataTableProps) {
   const router = useRouter();
   const { canAccess, isSuperAdmin } = usePermissions();
-  const { label } = useInstitutionTypeLabels();
+  const label = useAdaptiveLabels();
   const adapt = useAdaptiveLabels();
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [selectedForDelete, setSelectedForDelete] = useState<Semester[]>([]);

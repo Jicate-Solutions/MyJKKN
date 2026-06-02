@@ -14,6 +14,7 @@ import { DepartmentService } from '@/lib/services/organization/department-servic
 import { OrganizationService } from '@/lib/services/organization/organization-service';
 import { DegreeService } from '@/lib/services/organization/degree-service';
 import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
+import { usePermissions } from '@/hooks/use-permissions';
 import { Button } from '@/components/ui/button';
 import {
   Form,
@@ -64,6 +65,7 @@ export function DepartmentForm({ department, isEditing }: DepartmentFormProps) {
   const router = useRouter();
   const queryClient = useQueryClient();
   const adapt = useAdaptiveLabels();
+  const { isSuperAdmin, userProfile } = usePermissions();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [institutions, setInstitutions] = useState<
     Array<{ id: string; name: string; counselling_code: string }>
@@ -90,17 +92,36 @@ export function DepartmentForm({ department, isEditing }: DepartmentFormProps) {
 
   // Load institutions
   useEffect(() => {
+    // Wait until permission state resolves so we fetch the correct scope.
+    if (isSuperAdmin === undefined) return;
+    if (!isSuperAdmin && !userProfile?.id) return;
+
     async function loadInstitutions() {
       try {
-        const data = await OrganizationService.getInstitutionNames(true);
+        // entityType:'all' → include schools/all entity types.
+        // Super admins (no userId) see every institution; normal users are
+        // scoped to their own accessible institutions.
+        const data = await OrganizationService.getInstitutionNames(
+          true,
+          isSuperAdmin ? undefined : userProfile?.id,
+          'all'
+        );
         setInstitutions(data);
+
+        // Auto-select the user's own institution for non-super-admins on create
+        // (and prime the degree cascade via selectedInstitution).
+        if (!isSuperAdmin && userProfile?.institution_id && !isEditing) {
+          form.setValue('institution_id', userProfile.institution_id);
+          setSelectedInstitution(userProfile.institution_id);
+        }
       } catch (error) {
         console.error('Error loading institutions:', error);
         toast.error('Failed to load institutions');
       }
     }
     loadInstitutions();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isSuperAdmin, userProfile?.id, userProfile?.institution_id, isEditing]);
 
   // Load degrees when institution changes
   useEffect(() => {

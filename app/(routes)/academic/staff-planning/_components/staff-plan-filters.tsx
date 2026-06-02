@@ -68,7 +68,9 @@ export function StaffPlanFilters({
     async function loadInstitutions() {
       try {
         setLoading(true);
-        const data = await OrganizationService.getInstitutionNames(true);
+        // entityType:'all' → include schools/all entity types. Filter is
+        // rendered for super admin only, so no userId scoping is needed.
+        const data = await OrganizationService.getInstitutionNames(true, undefined, 'all');
         if (isMounted) {
           setInstitutions(data);
         }

@@ -34,6 +34,7 @@ import { Switch } from '@/components/ui/switch';
 import { Card, CardContent } from '@/components/ui/card';
 import { useEffect } from 'react';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
+import { usePermissions } from '@/hooks/use-permissions';
 
 const degreeSchema = z.object({
   institution_id: z.string().min(1, 'Institution is required'),
@@ -65,8 +66,11 @@ export function DegreeForm({ degree, isEditing }: DegreeFormProps) {
   const queryClient = useQueryClient();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const adapt = useAdaptiveLabels();
+  const { isSuperAdmin, userProfile } = usePermissions();
+  // entityType:'all' → include schools; the hook's access filter still scopes
+  // to the user's own institutions (super admin sees all).
   const { institutions, loading: institutionsLoading } =
-    useInstitutionsWithAccess();
+    useInstitutionsWithAccess({ entityType: 'all' });
 
   const form = useForm<FormValues>({
     resolver: zodResolver(degreeSchema),
@@ -80,6 +84,14 @@ export function DegreeForm({ degree, isEditing }: DegreeFormProps) {
       is_active: degree?.is_active ?? true
     }
   });
+
+  // Auto-select the user's own institution for non-super-admins on create.
+  useEffect(() => {
+    if (!isSuperAdmin && userProfile?.institution_id && !isEditing) {
+      form.setValue('institution_id', userProfile.institution_id);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isSuperAdmin, userProfile?.institution_id, isEditing]);
 
   const onSubmit = async (values: FormValues) => {
     try {

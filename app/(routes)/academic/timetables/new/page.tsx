@@ -298,6 +298,17 @@ export default function NewTimetablePage() {
       index === self.findIndex((s) => s.section_name === section.section_name)
   );
 
+  // Auto-select the user's own institution for non-super-admins on create.
+  // The institution dropdown is access-scoped (useInstitutionsWithAccess), so a
+  // normal user only has their own institution available — pre-select it so the
+  // cascade (academic year, degree, …) can proceed without an extra click.
+  useEffect(() => {
+    if (!isSuperAdmin && userProfile?.institution_id && !watchInstitutionId) {
+      form.setValue('institution_id', userProfile.institution_id);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isSuperAdmin, userProfile?.institution_id]);
+
   // Fetch academic years when institution is selected
   useEffect(() => {
     if (watchInstitutionId) {

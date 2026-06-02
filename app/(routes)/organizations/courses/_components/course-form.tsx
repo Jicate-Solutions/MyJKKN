@@ -10,8 +10,8 @@ import { useQueryClient } from '@tanstack/react-query';
 import { Course } from '@/types/organizations';
 import { CourseService } from '@/lib/services/organization/course-service';
 import { OrganizationService } from '@/lib/services/organization/organization-service';
-import { useInstitutionTypeLabels } from '@/hooks/use-institution-type-labels';
 import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
+import { usePermissions } from '@/hooks/use-permissions';
 import { Button } from '@/components/ui/button';
 import {
   Form,
@@ -54,8 +54,9 @@ interface CourseFormProps {
 export function CourseForm({ course, isEditing }: CourseFormProps) {
   const router = useRouter();
   const queryClient = useQueryClient();
-  const { label } = useInstitutionTypeLabels();
+  const label = useAdaptiveLabels();
   const adapt = useAdaptiveLabels();
+  const { isSuperAdmin, userProfile } = usePermissions();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [institutions, setInstitutions] = useState<
     Array<{ id: string; name: string }>
@@ -74,16 +75,33 @@ export function CourseForm({ course, isEditing }: CourseFormProps) {
   const watchedInstitutionId = form.watch('institution_id');
 
   useEffect(() => {
+    // Wait until permission state resolves so we fetch the correct scope.
+    if (isSuperAdmin === undefined) return;
+    if (!isSuperAdmin && !userProfile?.id) return;
+
     async function loadInstitutions() {
       try {
-        const data = await OrganizationService.getInstitutionNames(true);
+        // entityType:'all' → include schools/all entity types.
+        // Super admins (no userId) see every institution; normal users are
+        // scoped to their own accessible institutions.
+        const data = await OrganizationService.getInstitutionNames(
+          true,
+          isSuperAdmin ? undefined : userProfile?.id,
+          'all'
+        );
         setInstitutions(data);
+
+        // Auto-select the user's own institution for non-super-admins on create.
+        if (!isSuperAdmin && userProfile?.institution_id && !isEditing) {
+          form.setValue('institution_id', userProfile.institution_id);
+        }
       } catch (error) {
         console.error('Error loading institutions:', error);
       }
     }
     loadInstitutions();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isSuperAdmin, userProfile?.id, userProfile?.institution_id, isEditing]);
 
   const onSubmit = async (values: FormValues) => {
     try {

@@ -13,8 +13,8 @@ import { OrganizationService } from '@/lib/services/organization/organization-se
 import { DegreeService } from '@/lib/services/organization/degree-service';
 import { DepartmentService } from '@/lib/services/organization/department-service';
 import { ProgramService } from '@/lib/services/organization/program-service';
-import { useInstitutionTypeLabels } from '@/hooks/use-institution-type-labels';
 import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
+import { usePermissions } from '@/hooks/use-permissions';
 import { Button } from '@/components/ui/button';
 import {
   Form,
@@ -61,8 +61,8 @@ interface SemesterFormProps {
 export function SemesterForm({ semester, isEditing }: SemesterFormProps) {
   const router = useRouter();
   const queryClient = useQueryClient();
-  const { label } = useInstitutionTypeLabels();
   const adapt = useAdaptiveLabels();
+  const { isSuperAdmin, userProfile } = usePermissions();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [institutions, setInstitutions] = useState<
     Array<{ id: string; name: string }>
@@ -98,17 +98,35 @@ export function SemesterForm({ semester, isEditing }: SemesterFormProps) {
 
   // Load institutions on mount
   useEffect(() => {
+    // Wait until permission state resolves so we fetch the correct scope.
+    if (isSuperAdmin === undefined) return;
+    if (!isSuperAdmin && !userProfile?.id) return;
+
     async function loadInstitutions() {
       try {
-        const data = await OrganizationService.getInstitutionNames(true);
+        // entityType:'all' → include schools/all entity types.
+        // Super admins (no userId) see every institution; normal users are
+        // scoped to their own accessible institutions.
+        const data = await OrganizationService.getInstitutionNames(
+          true,
+          isSuperAdmin ? undefined : userProfile?.id,
+          'all'
+        );
         setInstitutions(data);
+
+        // Auto-select the user's own institution for non-super-admins on create
+        // (form watch primes the degree/department/program cascade).
+        if (!isSuperAdmin && userProfile?.institution_id && !isEditing) {
+          form.setValue('institution_id', userProfile.institution_id);
+        }
       } catch (error) {
         console.error('Error loading institutions:', error);
         toast.error('Failed to load institutions');
       }
     }
     loadInstitutions();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isSuperAdmin, userProfile?.id, userProfile?.institution_id, isEditing]);
 
   // Load degrees when institution changes
   useEffect(() => {
@@ -296,7 +314,7 @@ export function SemesterForm({ semester, isEditing }: SemesterFormProps) {
                 name='program_id'
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>{label('Program')}</FormLabel>
+                    <FormLabel>{adapt('Program')}</FormLabel>
                     <Select onValueChange={field.onChange} value={field.value}>
                       <FormControl>
                         <SelectTrigger>
@@ -321,7 +339,7 @@ export function SemesterForm({ semester, isEditing }: SemesterFormProps) {
                 name='semester_code'
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>{label('semester')} Code</FormLabel>
+                    <FormLabel>{adapt('semester')} Code</FormLabel>
                     <FormControl>
                       <Input
                         placeholder='Enter semester code'
@@ -345,7 +363,7 @@ export function SemesterForm({ semester, isEditing }: SemesterFormProps) {
                 name='semester_name'
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>{label('semester')} Name</FormLabel>
+                    <FormLabel>{adapt('semester')} Name</FormLabel>
                     <FormControl>
                       <Input placeholder='Enter semester name' {...field} />
                     </FormControl>
@@ -385,7 +403,7 @@ export function SemesterForm({ semester, isEditing }: SemesterFormProps) {
                   <div className='space-y-0.5'>
                     <FormLabel>Active Status</FormLabel>
                     <div className='text-sm text-muted-foreground'>
-                      Disable to temporarily hide this {label('semester').toLowerCase()}
+                      Disable to temporarily hide this {adapt('semester').toLowerCase()}
                     </div>
                   </div>
                   <FormControl>
@@ -416,7 +434,7 @@ export function SemesterForm({ semester, isEditing }: SemesterFormProps) {
                 : 'Creating...'
               : isEditing
               ? 'Save Changes'
-              : `Create ${label('Semester')}`}
+              : `Create ${adapt('Semester')}`}
           </Button>
         </div>
       </form>

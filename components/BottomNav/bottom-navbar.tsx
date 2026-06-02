@@ -27,7 +27,7 @@ import { useIsMobile } from '@/hooks/use-mobile';
 import { useBottomNav, useBottomNavHydration } from '@/hooks/use-bottom-nav';
 import { useCommandPalette } from '@/components/CommandPalette/CommandPaletteProvider';
 import { GetRoleBasedPages, RolePermissionData } from '@/lib/sidebarMenuLink';
-import { adaptMenuLabels } from '@/lib/utils/sidebar-label-adapter';
+import { adaptMenuLabels, adaptLabel } from '@/lib/utils/school-label-adapter';
 import { useAuth } from '@/providers/auth-provider';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useInstitutionType } from '@/hooks/use-institution-type';
@@ -277,18 +277,18 @@ export function BottomNavbar() {
       icon: Star,
       menus: favorites.map((fav) => ({
         href: fav.path,
-        label: fav.title,
+        label: adaptLabel(fav.title, institutionType ?? 'institution'),
         icon: ICON_MAP[fav.iconName] || Star,
       })),
       // Favorites are flat by definition — every favorite is a top-level
       // peer (no nested submenus). topLevelPeers === menus here.
       topLevelPeers: favorites.map((fav) => ({
         href: fav.path,
-        label: fav.title,
+        label: adaptLabel(fav.title, institutionType ?? 'institution'),
         icon: ICON_MAP[fav.iconName] || Star,
       })),
     };
-  }, [favorites]);
+  }, [favorites, institutionType]);
 
   // Primary nav groups: 3 regular + favorites (if any), or 4 regular
   const primaryNavGroups = useMemo(() => {

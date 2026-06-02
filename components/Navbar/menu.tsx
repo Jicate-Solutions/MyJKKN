@@ -21,7 +21,7 @@ import { AuthService } from '@/lib/auth/auth-service';
 import { useEffect, useMemo } from 'react';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useInstitutionType } from '@/hooks/use-institution-type';
-import { adaptMenuLabels } from '@/lib/utils/sidebar-label-adapter';
+import { adaptMenuLabels, adaptLabel } from '@/lib/utils/school-label-adapter';
 import {
   useExpandedSidebarModule,
   useExpandedSidebarModuleHydration,
@@ -530,7 +530,7 @@ export function Menu({ isOpen }: MenuProps) {
                                         <span className='mr-4'>
                                           <SubIcon size={18} />
                                         </span>
-                                        <span className='max-w-[160px] truncate'>{sub.title}</span>
+                                        <span className='max-w-[160px] truncate'>{adaptLabel(sub.title, institutionType)}</span>
                                       </Link>
                                     </Button>
                                   </li>

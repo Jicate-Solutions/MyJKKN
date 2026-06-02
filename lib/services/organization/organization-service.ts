@@ -558,7 +558,13 @@ export class OrganizationService {
         const { data: institutions } = await this.getInstitutions({
           isActive,
           userId,
-          entityType
+          entityType,
+          // This is a name-only dropdown source, not a paged management list.
+          // getInstitutions() defaults to limit:10, which silently truncates
+          // the dropdown for users who can access more than 10 institutions
+          // (the desired institution disappears → "unable to select"). Lift
+          // the cap so every accessible institution is returned.
+          limit: 1000
         });
         return institutions.map((inst) => ({
           id: inst.id,

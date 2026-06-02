@@ -11,7 +11,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { RotateCcw } from 'lucide-react';
 import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
-import { OrganizationService } from '@/lib/services/organization/organization-service';
+import { useScopedInstitutionFilter } from '@/hooks/organization/use-scoped-institution-filter';
 import { DegreeService } from '@/lib/services/organization/degree-service';
 import { DepartmentService } from '@/lib/services/organization/department-service';
 import { ProgramService } from '@/lib/services/organization/program-service';
@@ -30,9 +30,16 @@ export function SectionFilters({
   onClearFilters
 }: SectionFiltersProps) {
   const adapt = useAdaptiveLabels();
-  const [institutions, setInstitutions] = useState<
-    Array<{ id: string; name: string; counselling_code: string }>
-  >([]);
+  // Super admins see all institutions + an "All" option; normal users see
+  // only their own and are auto-selected into one (no "All" option).
+  const {
+    institutions,
+    loading: institutionsLoading,
+    isSuperAdmin
+  } = useScopedInstitutionFilter({
+    selectedInstitutionId: searchParams.institution_id,
+    onFilterChange
+  });
   const [degrees, setDegrees] = useState<
     Array<{ id: string; degree_name: string }>
   >([]);
@@ -66,10 +73,6 @@ export function SectionFilters({
     async function loadAllData() {
       try {
         setLoading(true);
-
-        // Load institutions
-        const institutionsData = await OrganizationService.getInstitutionNames(true, undefined, 'all');
-        setInstitutions(institutionsData);
 
         // Load ALL degrees (no filter)
         const { data: degreesData } = await DegreeService.getDegrees({
@@ -308,15 +311,21 @@ export function SectionFilters({
             <Select
               value={searchParams.institution_id || 'all'}
               onValueChange={handleInstitutionChange}
-              disabled={loading}
+              disabled={loading || institutionsLoading}
             >
               <SelectTrigger className='w-full'>
                 <SelectValue
-                  placeholder={loading ? 'Loading...' : 'All Institutions'}
+                  placeholder={
+                    loading || institutionsLoading
+                      ? 'Loading...'
+                      : 'All Institutions'
+                  }
                 />
               </SelectTrigger>
               <SelectContent className='max-h-60 overflow-y-auto'>
-                <SelectItem value='all'>All Institutions</SelectItem>
+                {isSuperAdmin && (
+                  <SelectItem value='all'>All Institutions</SelectItem>
+                )}
                 {institutions.map((inst) => (
                   <SelectItem key={inst.id} value={inst.id}>
                     {inst.name} ({inst.counselling_code})

@@ -1,22 +1,25 @@
+'use client';
+
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import { CourseMappingsDataTable } from './_components/course-mappings-data-table';
 import { CourseMappingFiltersClient } from './_components/course-mapping-filters-client';
 import { courseMappingsSearchParamsSchema } from './_components/data-table-schema';
 import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
+import { useSearchParams } from 'next/navigation';
 
-interface CourseMappingsPageProps {
-  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
-}
+export default function CourseMappingsPage() {
+  const adapt = useAdaptiveLabels();
+  const rawSearchParams = useSearchParams();
 
-export default async function CourseMappingsPage({ searchParams }: CourseMappingsPageProps) {
-  // Note: useAdaptiveLabels is a client hook, so we can't use it directly in this async server component.
-  // The labels will be adapted in the child components that are client-side.
-  const params = await searchParams;
+  // Convert URLSearchParams to object for schema parsing
+  const params = Object.fromEntries(rawSearchParams.entries());
   const search = courseMappingsSearchParamsSchema.parse(params);
 
+  const courseLabel = adapt('Course');
+
   return (
-    <ContentLayout title='Course Mappings'>
+    <ContentLayout title={`${courseLabel} Mappings`}>
       <PageBreadcrumb
         items={[
           { label: 'Home', href: '/' },
@@ -26,26 +29,17 @@ export default async function CourseMappingsPage({ searchParams }: CourseMapping
         ]}
       />
       <div className='space-y-6 mt-4'>
-        <CourseMappingPageContent />
-
+        <div>
+          <h1 className='text-2xl font-bold py-1'>{courseLabel} Mappings</h1>
+          <p className='text-sm sm:text-base text-muted-foreground'>
+            Manage {adapt('course').toLowerCase()} mappings and prerequisites
+          </p>
+        </div>
 
         <CourseMappingFiltersClient searchParams={search} />
 
         <CourseMappingsDataTable search={search} />
       </div>
     </ContentLayout>
-  );
-}
-
-// Client component for adaptive labels
-function CourseMappingPageContent() {
-  const adapt = useAdaptiveLabels();
-  return (
-    <div>
-      <h1 className='text-2xl font-bold py-1'>{adapt('Course')} Mappings</h1>
-      <p className='text-sm sm:text-base text-muted-foreground'>
-        Manage {adapt('course').toLowerCase()} mappings and prerequisites
-      </p>
-    </div>
   );
 }

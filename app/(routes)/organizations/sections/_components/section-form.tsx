@@ -177,8 +177,13 @@ export function SectionForm({ section, isEditing }: SectionFormProps) {
     const fetchInstitutions = async () => {
       try {
         setLoadingInstitutions(true);
+        // entityType:'all' → include schools/all entity types so the school
+        // appears in the super-admin dropdown AND the non-super-admin read-only
+        // display resolves correctly.
         const institutionNames = await OrganizationService.getInstitutionNames(
-          true
+          true,
+          undefined,
+          'all'
         );
         setInstitutions(institutionNames);
 

@@ -12,6 +12,9 @@ import { NotificationBell } from '../notifications/notification-bell';
 import { HeaderConnectionBadge } from '../whatsapp/header-connection-badge';
 import { FavoriteStar } from '../Favorites/FavoriteStar';
 import { derivePageInfo } from '@/lib/navigation/derive-page-info';
+import { useInstitutionType } from '@/hooks/use-institution-type';
+import { adaptLabel } from '@/lib/utils/school-label-adapter';
+
 
 interface NavbarProps {
   title?: string;
@@ -20,6 +23,9 @@ interface NavbarProps {
 export function Navbar({ title }: NavbarProps) {
   const { profile } = useAuth();
   const pathname = usePathname();
+  // Adapt the header title to the institution type (e.g. "Degrees" → "Streams"
+  // for schools), keeping the navbar consistent with the sidebar and page body.
+  const { institutionType } = useInstitutionType();
 
   // Look up OR derive — every real app route gets a star, even if it's
   // a dynamic [id] route, a deep-link, or a page added after the static
@@ -32,7 +38,7 @@ export function Navbar({ title }: NavbarProps) {
     }
   })();
 
-  const resolvedTitle = title ?? currentPage?.title ?? '';
+  const resolvedTitle = adaptLabel(title ?? currentPage?.title ?? '', institutionType);
 
   const handleLogout = async () => {
     try {

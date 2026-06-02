@@ -217,7 +217,9 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
             academicYearsData,
             coursesData
           ] = await Promise.all([
-            OrganizationService.getInstitutionNames(true, institutionUserId),
+            // entityType:'all' → include schools (entity_type='school'); the
+            // userId scoping still restricts to the user's accessible institutions.
+            OrganizationService.getInstitutionNames(true, institutionUserId, 'all'),
             DegreeService.getDegreesByInstitution(staffPlan.institution_id),
             DepartmentService.getDepartmentsByDegree(staffPlan.degree_id),
             ProgramService.getProgramsByDepartment(staffPlan.department_id),
@@ -318,8 +320,9 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
             // HODs and other scoped roles pass their userId so only their accessible
             // institutions are returned via UserInstitutionAccessService. [BUG-002452]
             const institutionUserId = isSuperAdmin ? undefined : (userProfile?.id ?? undefined);
+            // entityType:'all' → include schools; userId scoping still applies.
             const institutionsData =
-              await OrganizationService.getInstitutionNames(true, institutionUserId);
+              await OrganizationService.getInstitutionNames(true, institutionUserId, 'all');
             logger.dev(
               'academic/staff-planning',
               'Loaded institution dropdown',
