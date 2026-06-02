@@ -101,24 +101,8 @@ export async function seedTransportServiceType(userId: string) {
     throw new Error(`Failed to create transport fields: ${fieldsError.message}`);
   }
 
-  // Step 3: Insert approval step
-  const { error: stepError } = await supabase
-    .from('service_request_approval_steps')
-    .insert({
-      service_type_id: serviceType.id,
-      step_order: 1,
-      step_name: 'Transport Head Review',
-      approver_role: 'transport_head',
-      is_required: true,
-    });
-
-  if (stepError) {
-    console.error('[service-requests/seed] Failed to create approval step:', stepError);
-    // Rollback
-    await supabase.from('service_type_fields').delete().eq('service_type_id', serviceType.id);
-    await supabase.from('service_types').delete().eq('id', serviceType.id);
-    throw new Error(`Failed to create transport approval step: ${stepError.message}`);
-  }
+  // No approval step — Bus Pass Request is instant self-service (auto-fulfilled
+  // on submit because auto_fulfill_on_approval=true and there are zero steps).
 
   console.log('[service-requests/seed] Transport service type created:', serviceType.id);
 
