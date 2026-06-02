@@ -44,6 +44,7 @@ import { DegreeService } from '@/lib/services/organization/degree-service';
 // Fee structure constants removed 2026-04-15 — replaced by dynamic fee_items flow.
 
 import { useQuotaName } from '@/hooks/admission/use-quota-name';
+import { useCommunityName } from '@/hooks/admission/use-community-name';
 
 interface LearnerDetailProps {
   learner: LearnerProfile;
@@ -52,6 +53,7 @@ interface LearnerDetailProps {
 export function LearnerDetail({ learner }: LearnerDetailProps) {
   const [activeSection, setActiveSection] = useState('personal');
   const quotaName = useQuotaName((learner as { quota_id?: string }).quota_id);
+  const communityName = useCommunityName((learner as { community_category_id?: string }).community_category_id);
   const {
     canAccess,
     isSuperAdmin,
@@ -255,7 +257,7 @@ export function LearnerDetail({ learner }: LearnerDetailProps) {
                       <h4 className="text-sm font-medium text-muted-foreground">
                         Community
                       </h4>
-                      <p className="text-sm">{learner.community || 'Not specified'}</p>
+                      <p className="text-sm">{communityName || 'Not specified'}</p>
                     </div>
                     <div className="space-y-1">
                       <h4 className="text-sm font-medium text-muted-foreground">Caste</h4>

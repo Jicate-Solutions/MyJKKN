@@ -148,7 +148,7 @@ function transformLearnerForExport(learner: any): Record<string, any> {
     date_of_birth: learner.date_of_birth || '',
     gender: learner.gender || '',
     religion: learner.religion || '',
-    community: learner.community || '',
+    community: learner.community_ref?.code || '',
     caste: learner.caste || '',
     aadhar_number: learner.aadhar_number || '',
     blood_group: learner.blood_group || '',

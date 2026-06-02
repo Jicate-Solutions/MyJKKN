@@ -850,6 +850,14 @@ export async function POST(request: NextRequest): Promise<NextResponse<ImportRes
       const { buildQuotaResolver } = await import('@/lib/utils/quota-name-resolver');
       return buildQuotaResolver(supabase as any);
     })();
+    const resolveCommunity = await (async () => {
+      const { buildCommunityResolver } = await import('@/lib/utils/community-name-resolver');
+      return buildCommunityResolver(supabase as any);
+    })();
+    const resolveCaste = await (async () => {
+      const { buildCasteResolver } = await import('@/lib/utils/caste-name-resolver');
+      return buildCasteResolver(supabase as any);
+    })();
 
     // ============================================================
     // 6. INSERT VALID ROWS (BATCH INSERT)
@@ -861,8 +869,8 @@ export async function POST(request: NextRequest): Promise<NextResponse<ImportRes
       date_of_birth: data.date_of_birth,
       gender: data.gender,
       religion: data.religion,
-      community: data.community,
-      caste: data.caste,
+      community_category_id: resolveCommunity(data.community),
+      caste_id: resolveCaste(data.caste, resolveCommunity(data.community)),
       aadhar_number: data.aadhar_number,
       blood_group: data.blood_group,
 

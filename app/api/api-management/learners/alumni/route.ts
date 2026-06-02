@@ -85,7 +85,7 @@ export async function GET(request: NextRequest) {
     // of legacy admission_year integer. Integer derived in response shape.
     const selectFields = `
       id, application_id, lifecycle_status, first_name, last_name, date_of_birth,
-      gender, religion, community, caste, father_name, father_occupation, father_mobile,
+      gender, religion, caste, father_name, father_occupation, father_mobile,
       mother_name, mother_occupation, mother_mobile, annual_income, last_school,
       board_of_study, tenth_marks, twelfth_marks, medical_cutoff_marks,
       engineering_cutoff_marks, neet_roll_number, neet_score, counseling_applied,
@@ -97,9 +97,10 @@ export async function GET(request: NextRequest) {
       academic_year_id, regulation_id, batch_id, roll_number, register_number,
       college_email, student_photo_url, is_profile_complete, created_at, updated_at,
       created_by, updated_by, aadhar_number, enquiry_date, blood_group,
-      admission_year_id, quota_id,
+      admission_year_id, quota_id, community_category_id,
       admission_year_obj:admission_years!admission_year_id(program_start_year),
-      quota_obj:quotas!quota_id(name)
+      quota_obj:quotas!quota_id(name),
+      community_obj:community_categories!community_category_id(code)
     `.trim();
 
     let query = (supabase as any)
@@ -141,8 +142,9 @@ export async function GET(request: NextRequest) {
     const alumni = (alumniRaw ?? []).map((row: any) => {
       const ayObj = row.admission_year_obj as { program_start_year?: number } | null;
       const quotaObj = row.quota_obj as { name?: string } | null;
-      const { admission_year_obj: _ay, quota_obj: _q, ...rest } = row;
-      return { ...rest, admission_year: ayObj?.program_start_year ?? null, quota: quotaObj?.name ?? null };
+      const communityObj = row.community_obj as { code?: string } | null;
+      const { admission_year_obj: _ay, quota_obj: _q, community_obj: _c, ...rest } = row;
+      return { ...rest, admission_year: ayObj?.program_start_year ?? null, quota: quotaObj?.name ?? null, community: communityObj?.code ?? null };
     });
 
     // Expand related data if requested

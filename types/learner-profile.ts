@@ -93,7 +93,7 @@ export interface LearnerProfile {
   date_of_birth: string;
   gender: string;
   religion: string;
-  community: string;
+  community_category_id?: string | null;
   caste?: string;
   aadhar_number?: string;
   blood_group?: string;
@@ -294,7 +294,7 @@ export const learnerProfileSchema = z.object({
   date_of_birth: z.string().min(1, 'Date of birth is required'),
   gender: z.string().min(1, 'Gender is required'),
   religion: z.string().min(1, 'Religion is required'),
-  community: z.string().min(1, 'Community is required'),
+  community_category_id: z.string().uuid('Community is required'),
   caste: z.string().optional(),
   blood_group: z.string().optional(),
   admission_year: z.number().optional(),
@@ -415,7 +415,7 @@ export interface UpdateLearnerProfileDto {
   date_of_birth?: string;
   gender?: string;
   religion?: string;
-  community?: string;
+  community_category_id?: string | null;
   caste?: string | null;
   aadhar_number?: string | null;
   blood_group?: string | null;
@@ -572,7 +572,7 @@ export interface LearnerProfileFilters {
   // Demographics
   gender?: string;
   religion?: string;
-  community?: string;
+  community_category_id?: string | null;
   entry_type?: string;
   accommodation_type?: string;
 
@@ -734,7 +734,7 @@ export const REQUIRED_FIELDS_BY_STATUS: Record<LifecycleStatus, string[]> = {
   // 2026-05-20: Entry-point requirements minimal (same fields the bridge-convert API already populates).
   enquiry: ['first_name', 'student_mobile'],
   // Learner-completed self-fill form provides personal + academic + contact sections.
-  enquiry_submitted: ['first_name', 'date_of_birth', 'gender', 'religion', 'community', 'student_mobile', 'student_email'],
+  enquiry_submitted: ['first_name', 'date_of_birth', 'gender', 'religion', 'community_category_id', 'student_mobile', 'student_email'],
   pending: ['first_name', 'father_name', 'mother_name', 'date_of_birth', 'tenth_marks', 'twelfth_marks'],
   approved: ['institution_id', 'degree_id', 'department_id', 'program_id'],
   account: ['institution_id', 'degree_id', 'department_id', 'program_id'],

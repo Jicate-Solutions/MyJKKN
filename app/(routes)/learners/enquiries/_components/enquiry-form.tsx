@@ -102,8 +102,6 @@ export const enquiryFormSchema = z.object({
   caste_id: z.string().uuid().optional().or(z.literal('')),
   // Legacy TEXT shadows — kept optional for back-compat; the DB trigger keeps
   // them in sync from the FK ids above, so the UI no longer writes them.
-  community: z.string().optional().or(z.literal('')),
-  caste: z.string().optional().or(z.literal('')),
   aadhar_number: z.string().nullable().optional(),
   blood_group: z.string().nullable().optional(),
   student_photo_url: z.string().nullable().optional(),
@@ -425,8 +423,6 @@ const fieldToTabMap: Record<string, string> = {
   date_of_birth: 'basic-details',
   gender: 'basic-details',
   religion: 'basic-details',
-  community: 'basic-details',
-  caste: 'basic-details',
   aadhar_number: 'basic-details',
   blood_group: 'basic-details',
   student_photo_url: 'basic-details',
@@ -740,8 +736,6 @@ export function EnquiryForm({
           date_of_birth: learner.date_of_birth || '',
           gender: learner.gender?.toUpperCase() as 'MALE' | 'FEMALE' | 'OTHER' | undefined,
           religion: learner.religion || '',
-          community: learner.community || '',
-          caste: learner.caste || '',
           community_category_id: learner.community_category_id || '',
           caste_id: learner.caste_id || '',
           aadhar_number: learner.aadhar_number || '',
@@ -898,8 +892,6 @@ export function EnquiryForm({
           date_of_birth: '',
           gender: undefined,
           religion: '',
-          community: '',
-          caste: '',
           community_category_id: '',
           caste_id: '',
           aadhar_number: '',
@@ -1736,32 +1728,18 @@ export function EnquiryForm({
         // live form value, fall back to the loaded learner prop.
         const resolvedQuotaId =
           formatUUID((values as { quota_id?: string }).quota_id) || learnerLike.quota_id;
-        let resolvedCommunityId =
+        const resolvedCommunityId =
           formatUUID((values as { community_category_id?: string }).community_category_id) ||
           learnerLike.community_category_id;
         let resolvedAccommodationId = learnerLike.accommodation_type_id;
 
-        // Community + accommodation are still TEXT fields on the form — resolve
-        // TEXT→FK for the matrix preview when their FK isn't already known.
-        if (!resolvedCommunityId || !resolvedAccommodationId) {
+        // Accommodation is still a TEXT field on the form — resolve TEXT→FK for
+        // the matrix preview when its FK isn't already known. (Quota + community
+        // are FKs on the form directly.)
+        if (!resolvedAccommodationId && values.institution_id) {
           try {
-            const [communities, accommodations] = await Promise.all([
-              !resolvedCommunityId
-                ? LookupService.listCommunityCategories(true)
-                : Promise.resolve([]),
-              !resolvedAccommodationId && values.institution_id
-                ? LookupService.listAccommodationTypes(values.institution_id, true)
-                : Promise.resolve([]),
-            ]);
-            if (!resolvedCommunityId) {
-              resolvedCommunityId = resolveLookupId(values.community, communities);
-            }
-            if (!resolvedAccommodationId) {
-              resolvedAccommodationId = resolveLookupId(
-                values.accommodation_type,
-                accommodations,
-              );
-            }
+            const accommodations = await LookupService.listAccommodationTypes(values.institution_id, true);
+            resolvedAccommodationId = resolveLookupId(values.accommodation_type, accommodations);
           } catch (err) {
             console.error('[enquiry-form] TEXT→FK lookup failed:', err);
           }

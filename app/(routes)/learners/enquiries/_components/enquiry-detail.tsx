@@ -122,6 +122,7 @@ function resolveTalukName(
 }
 
 import { useQuotaName } from '@/hooks/admission/use-quota-name';
+import { useCommunityName } from '@/hooks/admission/use-community-name';
 
 interface EnquiryDetailProps {
   enquiry: LearnerProfile;
@@ -129,6 +130,7 @@ interface EnquiryDetailProps {
 
 export function EnquiryDetail({ enquiry }: EnquiryDetailProps) {
   const quotaName = useQuotaName((enquiry as { quota_id?: string }).quota_id);
+  const communityName = useCommunityName((enquiry as { community_category_id?: string }).community_category_id);
   const [activeSection, setActiveSection] = useState('personal');
   const { canAccess, isSuperAdmin, isAdmissionGlobalUser } = usePermissions();
 
@@ -321,7 +323,7 @@ export function EnquiryDetail({ enquiry }: EnquiryDetailProps) {
                       <h4 className='text-sm font-medium text-muted-foreground'>
                         Community
                       </h4>
-                      <p className='text-sm'>{enquiry.community}</p>
+                      <p className='text-sm'>{communityName || 'Not specified'}</p>
                     </div>
                     <div className='space-y-1'>
                       <h4 className='text-sm font-medium text-muted-foreground'>

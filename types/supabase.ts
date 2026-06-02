@@ -58348,7 +58348,6 @@ export type Database = {
           caste: string | null
           caste_id: string | null
           college_email: string | null
-          community: string
           community_category_id: string | null
           counseling_applied: boolean | null
           counseling_number: string | null
@@ -58457,7 +58456,6 @@ export type Database = {
           caste?: string | null
           caste_id?: string | null
           college_email?: string | null
-          community: string
           community_category_id?: string | null
           counseling_applied?: boolean | null
           counseling_number?: string | null
@@ -58566,7 +58564,6 @@ export type Database = {
           caste?: string | null
           caste_id?: string | null
           college_email?: string | null
-          community?: string
           community_category_id?: string | null
           counseling_applied?: boolean | null
           counseling_number?: string | null

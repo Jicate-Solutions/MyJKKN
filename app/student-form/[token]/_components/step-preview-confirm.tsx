@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Loader2, Pencil, CheckCircle2, AlertCircle } from 'lucide-react';
 import type { Language } from './language-toggle';
+import { LookupService } from '@/lib/services/admission/lookup-service';
 
 interface Props {
   lang: Language;
@@ -109,6 +110,20 @@ export function StepPreviewConfirm({
   const [courseNames, setCourseNames] = useState<CourseNames>({});
   const [coursesLoading, setCoursesLoading] = useState(false);
 
+  // Community is stored as community_category_id (FK); resolve its code for the
+  // preview (the legacy `community` text column is retired). RLS on
+  // community_categories is open to anon, so this works on the public form.
+  const [communityCode, setCommunityCode] = useState<string | undefined>(undefined);
+  useEffect(() => {
+    let alive = true;
+    const id = (data as { community_category_id?: string }).community_category_id;
+    if (!id) return;
+    LookupService.listCommunityCategories(true)
+      .then((rows) => { if (alive) setCommunityCode(rows.find((r) => r.id === id)?.code); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [data.community_category_id]);
+
   useEffect(() => {
     const ids = {
       institution_id: data.institution_id,
@@ -200,7 +215,7 @@ export function StepPreviewConfirm({
             label="Religion / Community / Caste"
             value={[
               RELIGION_LABELS[data.religion] ?? data.religion,
-              data.community,
+              communityCode,
               data.caste,
             ]
               .filter(looksFilled)

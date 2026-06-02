@@ -10,6 +10,8 @@
 import { createClient } from '@supabase/supabase-js';
 import { LearnerValidationService, ValidationResult } from './learner-validation-service';
 import { buildQuotaResolver } from '@/lib/utils/quota-name-resolver';
+import { buildCommunityResolver } from '@/lib/utils/community-name-resolver';
+import { buildCasteResolver } from '@/lib/utils/caste-name-resolver';
 
 // Create admin client for database operations
 const supabaseAdmin = createClient(
@@ -276,6 +278,8 @@ export class BulkLearnerEditService {
     // before each update. Storage is quota_id only; the `quota` TEXT column is
     // being retired.
     const resolveQuota = await buildQuotaResolver(supabaseAdmin);
+    const resolveCommunity = await buildCommunityResolver(supabaseAdmin);
+    const resolveCaste = await buildCasteResolver(supabaseAdmin);
 
     for (const row of rows) {
       try {
@@ -356,6 +360,32 @@ export class BulkLearnerEditService {
           if (qid) {
             updateData.quota_id = qid;
             fieldsUpdated.push('quota_id');
+          }
+        }
+
+        // Community arrives as a readable label; persist the FK
+        // (community_category_id), not the legacy TEXT column.
+        if (updateData.community !== undefined) {
+          const cid = resolveCommunity(updateData.community);
+          delete updateData.community;
+          const ci = fieldsUpdated.indexOf('community');
+          if (ci !== -1) fieldsUpdated.splice(ci, 1);
+          if (cid) {
+            updateData.community_category_id = cid;
+            fieldsUpdated.push('community_category_id');
+          }
+        }
+
+        // Caste arrives as a readable label; persist the FK (caste_id), not the
+        // legacy TEXT column. Resolution is community-scoped (ambiguous names).
+        if (updateData.caste !== undefined) {
+          const cstId = resolveCaste(updateData.caste, updateData.community_category_id);
+          delete updateData.caste;
+          const xi = fieldsUpdated.indexOf('caste');
+          if (xi !== -1) fieldsUpdated.splice(xi, 1);
+          if (cstId) {
+            updateData.caste_id = cstId;
+            fieldsUpdated.push('caste_id');
           }
         }
 
@@ -477,7 +507,8 @@ export class BulkLearnerEditService {
           regulation:regulations(id, regulation_year, regulation_code),
           batch:batches(id, batch_name),
           admission_year_obj:admission_years!admission_year_id(program_start_year),
-          quota_ref:quotas!quota_id(name)
+          quota_ref:quotas!quota_id(name),
+          community_ref:community_categories!community_category_id(code)
         `)
         .eq('lifecycle_status', 'active');
 

@@ -8,6 +8,8 @@
 import { createClient } from '@supabase/supabase-js';
 import { LearnerValidationService, ValidationResult } from './learner-validation-service';
 import { buildQuotaResolver } from '@/lib/utils/quota-name-resolver';
+import { buildCommunityResolver } from '@/lib/utils/community-name-resolver';
+import { buildCasteResolver } from '@/lib/utils/caste-name-resolver';
 import type { LearnerProfile } from '@/types/learner-profile';
 import { randomUUID } from 'crypto';
 
@@ -429,15 +431,22 @@ export class BulkLearnerUploadService {
     // Resolve the readable quota label (Excel "Quota" column) → quota_id (FK).
     // Storage is quota_id only; the legacy `quota` TEXT column is being retired.
     const resolveQuota = await buildQuotaResolver(supabaseAdmin);
+    const resolveCommunity = await buildCommunityResolver(supabaseAdmin);
+    const resolveCaste = await buildCasteResolver(supabaseAdmin);
 
     // STEP 3: Batch insert new learners
     const learnerData = newLearners.map(row => {
       // FIX: Keep scholarship_type as text (no longer converting to boolean first_graduate)
-      // The database now has scholarship_type column as TEXT
-      const { quota, ...rest } = row.data as Record<string, any>;
+      // The database now has scholarship_type column as TEXT.
+      // Resolve readable quota/community/caste labels → FK ids; the legacy TEXT
+      // columns are retired. Caste resolution is community-scoped (ambiguous names).
+      const { quota, community, caste, ...rest } = row.data as Record<string, any>;
+      const communityCategoryId = resolveCommunity(community) ?? (row.data as any).community_category_id ?? null;
       return {
         ...rest,
         quota_id: resolveQuota(quota) ?? (row.data as any).quota_id ?? null,
+        community_category_id: communityCategoryId,
+        caste_id: resolveCaste(caste, communityCategoryId) ?? (row.data as any).caste_id ?? null,
         lifecycle_status: 'active',
         is_profile_complete: isProfileComplete(row.data)
       };

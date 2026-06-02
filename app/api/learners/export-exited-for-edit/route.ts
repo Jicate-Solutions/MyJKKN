@@ -170,7 +170,7 @@ export async function GET(request: NextRequest) {
       'Date of Birth': learner.date_of_birth || '',
       'Gender': learner.gender || '',
       'Religion': learner.religion || '',
-      'Community': learner.community || '',
+      'Community': learner.community_ref?.code || '',
       'Caste': learner.caste || '',
       'Aadhar Number': learner.aadhar_number || '',
       'Blood Group': learner.blood_group || '',
