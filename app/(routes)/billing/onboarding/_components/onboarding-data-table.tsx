@@ -92,8 +92,8 @@ export function OnboardingDataTable() {
   };
 
   const handleFilterChange = useCallback(
-    (key: OnboardingFilterKey, value: string | undefined) => {
-      updateParams({ [key]: value, page: '1' });
+    (updates: Partial<Record<OnboardingFilterKey, string | undefined>>) => {
+      updateParams({ ...updates, page: '1' });
     },
     [updateParams]
   );
