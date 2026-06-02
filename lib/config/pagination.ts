@@ -58,6 +58,10 @@ export const QUERY_TIMEOUTS = {
   normal: 15000,
   slow: 30000,
   report: 60000,
+  // Dashboard aggregate RPCs (executeDashboardRPC). Required — without it the
+  // timeout is `undefined`, which setTimeout coerces to ~0ms and aborts every
+  // dashboard query on the next tick.
+  DASHBOARD: 30000,
 } as const;
 
 /**

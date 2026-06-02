@@ -273,7 +273,7 @@ export abstract class BaseService {
         throw new Error(`Dashboard function failed: ${error.message}`);
       }
 
-      logSlowQuery(`${functionName}.rpc`, startTime, PERFORMANCE_THRESHOLDS.DASHBOARD);
+      logSlowQuery(`${functionName}.rpc`, performance.now() - startTime);
 
       return data as T;
     } catch (error) {
