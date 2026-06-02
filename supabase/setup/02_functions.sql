@@ -15451,14 +15451,16 @@ DECLARE
   v_requester_id uuid;
   v_learner_id   uuid;
   v_staff_id     uuid;
+  v_type_id      uuid;
+  v_has_steps    boolean;
   v_form         jsonb;
   v_slug         text;
   v_status       text;
   v_route_id     uuid;
   v_stop_id      uuid;
 BEGIN
-  SELECT sr.requester_id, sr.form_data, st.slug, sr.status::text
-    INTO v_requester_id, v_form, v_slug, v_status
+  SELECT sr.requester_id, sr.form_data, sr.service_type_id, st.slug, sr.status::text
+    INTO v_requester_id, v_form, v_type_id, v_slug, v_status
     FROM service_requests sr
     JOIN service_types st ON st.id = sr.service_type_id
    WHERE sr.id = p_request_id;
@@ -15473,15 +15475,22 @@ BEGIN
     RETURN;
   END IF;
 
-  -- AUTHORIZATION: only an approver (or super admin) may trigger the sync, and
-  -- only for a request that has actually been approved/fulfilled. Blocks a
-  -- requester from self-approving their own bus pass by calling the RPC directly.
-  IF NOT (public.is_super_admin() OR public.user_has_permission('service_requests.approve')) THEN
-    RAISE EXCEPTION 'sync_bus_pass: not authorized' USING ERRCODE = '42501';
-  END IF;
+  v_has_steps := EXISTS (SELECT 1 FROM service_request_approval_steps WHERE service_type_id = v_type_id);
 
-  IF v_status NOT IN ('approved', 'fulfilled') THEN
-    RAISE EXCEPTION 'sync_bus_pass: request % is not approved (status=%)', p_request_id, v_status;
+  -- Authorization. Approver path: a privileged approver on an approved/fulfilled
+  -- request. Self path: the requester finalizing their OWN request for a type with
+  -- NO approval steps (instant self-service). The no-steps gate prevents bypassing
+  -- approval on a review-required type; auth.uid()=requester prevents acting on
+  -- someone else's request.
+  IF (public.is_super_admin() OR public.user_has_permission('service_requests.approve')) THEN
+    IF v_status NOT IN ('approved', 'fulfilled') THEN
+      RAISE EXCEPTION 'sync_bus_pass: request % is not approved (status=%)', p_request_id, v_status;
+    END IF;
+  ELSIF v_requester_id = auth.uid() AND NOT v_has_steps
+        AND v_status IN ('submitted', 'approved', 'fulfilled') THEN
+    NULL; -- self-service no-approval path
+  ELSE
+    RAISE EXCEPTION 'sync_bus_pass: not authorized' USING ERRCODE = '42501';
   END IF;
 
   -- form_data holds UUID strings for the live lookup fields.
