@@ -186,11 +186,13 @@ export const POLICY_KEYS = {
   HR_DASHBOARD_ROLE_GROUPS: 'hr.dashboard.role_groups',
 
   // Nav landing pages (super-admin-tunable redirect targets for /admin module roots).
-  // Consumed by app/(routes)/admin/page.tsx, /admin/lti/page.tsx, /admin/pde/page.tsx.
+  // Consumed by app/(routes)/admin/page.tsx, /admin/lti/page.tsx, /admin/pde/page.tsx,
+  // app/(routes)/learn/pde/page.tsx.
   // Editable via /admin/landing-pages — zero-deploy redirect retargeting.
   NAV_ADMIN_DEFAULT_LANDING: 'nav.admin.default_landing',
   NAV_ADMIN_LTI_DEFAULT_LANDING: 'nav.admin.lti.default_landing',
   NAV_ADMIN_PDE_DEFAULT_LANDING: 'nav.admin.pde.default_landing',
+  NAV_LEARN_PDE_DEFAULT_LANDING: 'nav.learn.pde.default_landing',
 
   // HR Recruitment approvals — viewer-scope enforcement.
   // Consumed by lib/services/hr/recruitment-service.ts (resolveViewerScope).
