@@ -143,7 +143,7 @@ export class ServiceRequestService {
     }
 
     // 4. Build requester context
-    let requesterContext: Record<string, any> = {
+    const requesterContext: Record<string, any> = {
       role: profile.role,
       email: profile.email,
     };
