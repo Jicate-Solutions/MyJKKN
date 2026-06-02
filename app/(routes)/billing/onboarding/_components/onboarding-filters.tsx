@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Select,
   SelectContent,
@@ -85,6 +85,14 @@ export function OnboardingFilters({
 
   const hasMultiInstitutionAccess = institutions.length > 1;
 
+  // Keep a stable ref so the auto-pin effect can always call the latest
+  // onFilterChange without including it in deps. Including it would cause
+  // the effect to re-run on every URL update (onFilterChange is recreated
+  // whenever searchParams changes), which is unnecessary and can cause
+  // timing issues with concurrent URL writes.
+  const onFilterChangeRef = useRef(onFilterChange);
+  onFilterChangeRef.current = onFilterChange;
+
   // Auto-pin institution for single-institution users.
   useEffect(() => {
     if (
@@ -92,14 +100,10 @@ export function OnboardingFilters({
       institutions.length === 1 &&
       !filters.institution_id
     ) {
-      onFilterChange({ institution_id: institutions[0].id });
+      onFilterChangeRef.current({ institution_id: institutions[0].id });
     }
-  }, [
-    institutions,
-    filters.institution_id,
-    onFilterChange,
-    loadingInstitutions,
-  ]);
+  }, [institutions, filters.institution_id, loadingInstitutions]);
+  // onFilterChange intentionally excluded — ref above keeps it current
 
   // Cascade loaders — each dropdown's options depend on its parent.
   useEffect(() => {

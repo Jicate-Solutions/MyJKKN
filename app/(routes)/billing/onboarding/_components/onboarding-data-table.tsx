@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useMemo, useRef } from 'react';
+import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Receipt, X, Loader2 } from 'lucide-react';
 import {
@@ -24,6 +24,7 @@ import type {
 } from '@/lib/services/billing/onboarding/onboarding-service';
 
 const DEFAULT_PAGE_SIZE = 20;
+const FILTER_STORAGE_KEY = 'billing-onboarding-filters';
 
 type TabValue = 'all' | PaymentStatus;
 
@@ -83,6 +84,35 @@ export function OnboardingDataTable() {
     },
     [router, searchParams]
   );
+
+  // Persist filter params to sessionStorage so they survive sidebar navigation.
+  // Page/pageSize are intentionally excluded — always start fresh at page 1.
+  useEffect(() => {
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete('page');
+    params.delete('pageSize');
+    const qs = params.toString();
+    if (qs) {
+      sessionStorage.setItem(FILTER_STORAGE_KEY, qs);
+    } else {
+      sessionStorage.removeItem(FILTER_STORAGE_KEY);
+    }
+  }, [searchParams]);
+
+  // On mount: if the URL has no filter params (e.g. user arrived via sidebar),
+  // restore the last-used filters from sessionStorage.
+  const didRestoreRef = useRef(false);
+  useEffect(() => {
+    if (didRestoreRef.current) return;
+    didRestoreRef.current = true;
+    if (!searchParams.toString()) {
+      const saved = sessionStorage.getItem(FILTER_STORAGE_KEY);
+      if (saved) {
+        router.replace(`/billing/onboarding?${saved}`, { scroll: false });
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // intentionally mount-only
 
   const filters: OnboardingFilters = {
     page,
