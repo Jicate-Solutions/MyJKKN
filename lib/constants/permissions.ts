@@ -520,6 +520,8 @@ export const PERMISSION_CATEGORIES = [
       { key: 'billing.onboarding.view', label: 'View Learner Onboarding' },
       { key: 'billing.onboarding.approve', label: 'Approve Learner Onboarding' },
       { key: 'billing.reports.view', label: 'View Billing Reports' },
+      { key: 'billing.analytics.view', label: 'View Billing Analytics' },
+      { key: 'billing.analytics.export', label: 'Export Billing Analytics' },
       { key: 'billing.payment.view', label: 'View Payments' },
       { key: 'billing.payment.create', label: 'Record Payments' },
       { key: 'billing.payment.edit', label: 'Edit Payments' },
