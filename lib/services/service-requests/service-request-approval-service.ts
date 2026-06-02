@@ -198,6 +198,23 @@ export class ServiceRequestApprovalService {
           console.error('[service-requests/approvals] Webhook notification failed:', err)
         );
       }
+
+      // Bus Pass Request: write the approved route/stop onto the learner's
+      // profile so the TMS app can read who needs a bus. Privileged cross-table
+      // write → SECURITY DEFINER RPC. Failure is logged, not thrown: the
+      // approval status change already committed above.
+      if (request.service_type?.slug === 'transport-request') {
+        const { error: busPassSyncError } = await supabase.rpc(
+          'sync_bus_pass_to_learner_profile',
+          { p_request_id: request.id }
+        );
+        if (busPassSyncError) {
+          console.error(
+            '[service-requests/approvals] Bus-pass profile sync failed:',
+            busPassSyncError
+          );
+        }
+      }
     } else {
       // Advance to next step
       const nextStepOrder = currentStep.step_order + 1;
