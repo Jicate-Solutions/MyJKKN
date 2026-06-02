@@ -17,6 +17,7 @@ import { useSeatAnalytics, useSeatDailyPivot } from '@/hooks/admission/use-group
 import type { SeatAnalyticsRow, SeatPivotRow } from '@/types/admission-workflow-config';
 import { SeatDetailsTable } from './seat-details-table';
 import { SeatPivotGrid } from './seat-pivot-grid';
+import { YoYTrajectoryChart } from './yoy-trajectory-chart';
 import { getDashboardDrilldownDestination } from '@/lib/policies/get-policy-client';
 import type { DrilldownMetric } from '@/lib/policies/dashboard-drilldown-keys';
 import { appendDashboardScope } from '@/lib/dashboard/drilldown-scope';
@@ -291,6 +292,7 @@ export function SeatAnalyticsDashboard({ institutionIds, programStartYear }: Sea
         <TabsList className="h-9">
           <TabsTrigger value="summary" className="text-xs">Summary</TabsTrigger>
           <TabsTrigger value="daily-pivot" className="text-xs">Daily Pivot</TabsTrigger>
+          <TabsTrigger value="yoy" className="text-xs">Year over Year</TabsTrigger>
         </TabsList>
 
         {/* Summary — existing dashboard */}
@@ -470,6 +472,16 @@ export function SeatAnalyticsDashboard({ institutionIds, programStartYear }: Sea
           ) : (
             <SeatPivotGrid rows={pivotRows} dateFrom={dateFrom} dateTo={dateTo} />
           )}
+        </TabsContent>
+
+        {/* Year over Year — cumulative trajectory for current cycle + 2 prior */}
+        <TabsContent value="yoy" className="space-y-3">
+          <YoYTrajectoryChart
+            institutionId={
+              institutionIds && institutionIds.length === 1 ? institutionIds[0] : undefined
+            }
+            hasInstitutionScope={Boolean(institutionIds && institutionIds.length === 1)}
+          />
         </TabsContent>
       </Tabs>
     </div>
