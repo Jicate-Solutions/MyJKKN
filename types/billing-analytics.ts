@@ -82,7 +82,8 @@ export interface BillingInstitutionAnalytics {
   total_outstanding: number; // snapshot
   collection_rate: number;
   bill_count: number;
-  student_count: number;
+  student_count: number; // distinct students billed in range
+  students_with_dues: number; // distinct students with balance > 0 (fees pending, snapshot)
 }
 
 export type AgingBucket = 'not_due' | '0-30' | '31-60' | '61-90' | '90+';

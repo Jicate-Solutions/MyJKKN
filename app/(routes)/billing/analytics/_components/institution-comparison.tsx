@@ -56,6 +56,7 @@ export function InstitutionComparison({
                   <th className='px-2 py-2 text-right font-medium'>Billed</th>
                   <th className='px-2 py-2 text-right font-medium'>Collected</th>
                   <th className='px-2 py-2 text-right font-medium'>Outstanding</th>
+                  <th className='px-2 py-2 text-right font-medium'>Pending Students</th>
                   <th className='px-2 py-2 text-right font-medium'>Rate</th>
                   <th className='w-6' />
                 </tr>
@@ -93,6 +94,15 @@ export function InstitutionComparison({
                       </td>
                       <td className='px-2 py-2 text-right font-medium text-red-700'>
                         {formatINRCompact(outstanding)}
+                      </td>
+                      <td className='px-2 py-2 text-right'>
+                        <span className='font-medium text-red-700'>
+                          {num(r.students_with_dues).toLocaleString('en-IN')}
+                        </span>
+                        <span className='text-muted-foreground text-xs'>
+                          {' '}
+                          of {num(r.student_count).toLocaleString('en-IN')}
+                        </span>
                       </td>
                       <td className='px-2 py-2 text-right'>
                         <Badge
