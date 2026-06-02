@@ -23,6 +23,7 @@ import {
   ChevronRight,
 } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
+import { SuperAdminOnly } from '@/components/auth/admin-permission-guard';
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -87,6 +88,15 @@ const COUNSELOR_ADMIN_MODULES: ModuleCard[] = [
 
 export default function CounselorsAdminLandingPage() {
   return (
+    <SuperAdminOnly
+      fallback={
+        <ContentLayout title="Counselors">
+          <div className="rounded-md border border-border bg-muted/30 p-6 text-sm text-muted-foreground">
+            This page is restricted to super administrators.
+          </div>
+        </ContentLayout>
+      }
+    >
     <ContentLayout title="Counselor Administration">
       <Breadcrumb>
         <BreadcrumbList>
@@ -149,5 +159,6 @@ export default function CounselorsAdminLandingPage() {
         </div>
       </div>
     </ContentLayout>
+    </SuperAdminOnly>
   );
 }

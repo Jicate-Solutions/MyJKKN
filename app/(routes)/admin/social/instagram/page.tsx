@@ -4,6 +4,7 @@ import { useState, useMemo } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { RefreshCw, Search } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
+import { SuperAdminOnly } from '@/components/auth/admin-permission-guard';
 import { PageBreadcrumb } from '@/components/navigation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -93,6 +94,15 @@ export default function InstagramAdminPage() {
   };
 
   return (
+    <SuperAdminOnly
+      fallback={
+        <ContentLayout title="Instagram Monitoring">
+          <div className="rounded-md border border-border bg-muted/30 p-6 text-sm text-muted-foreground">
+            This page is restricted to super administrators.
+          </div>
+        </ContentLayout>
+      }
+    >
     <ContentLayout title="Instagram Monitoring">
       <PageBreadcrumb items={breadcrumbItems} />
 
@@ -282,5 +292,6 @@ export default function InstagramAdminPage() {
         <SubscribedAssetsPanel filter="ig" />
       </div>
     </ContentLayout>
+    </SuperAdminOnly>
   );
 }
