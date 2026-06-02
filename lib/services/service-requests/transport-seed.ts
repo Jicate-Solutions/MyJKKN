@@ -41,7 +41,7 @@ export async function seedTransportServiceType(userId: string) {
       icon: 'Bus',
       color: '#3B82F6',
       is_system_default: true,
-      allowed_roles: ['super_admin', 'student'],
+      allowed_roles: ['super_admin', 'student', 'staff', 'faculty', 'hod', 'principal', 'office_assistant'],
       max_active_requests: 1,
       auto_fulfill_on_approval: true,
       enable_priority: false,
@@ -61,6 +61,15 @@ export async function seedTransportServiceType(userId: string) {
 
   // Step 2: Insert fields
   const fields = [
+    {
+      service_type_id: serviceType.id,
+      field_key: 'passenger_type',
+      field_label: 'Passenger Type',
+      field_type: 'passenger_type',
+      is_required: false,
+      display_order: 0,
+      help_text: 'Detected automatically from your account',
+    },
     {
       service_type_id: serviceType.id,
       field_key: 'bus_route',
