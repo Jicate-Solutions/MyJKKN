@@ -18,6 +18,7 @@ import {
 } from '@/components/ui/select';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { useTmsRoutes, useTmsRouteStops } from '@/hooks/service-requests/use-tms-lookups';
+import { useAuth } from '@/hooks/use-auth';
 import type { ServiceTypeField } from '@/types/service-request';
 
 interface DynamicRequestFormProps {
@@ -72,6 +73,9 @@ function buildDynamicSchema(fields: ServiceTypeField[]) {
         schema = field.is_required
           ? z.string().min(1, `${field.field_label} is required`)
           : z.string().optional();
+        break;
+      case 'passenger_type':
+        schema = z.string().optional();
         break;
       default:
         schema = z.any();
@@ -240,6 +244,36 @@ function TmsRouteStopFieldControl({
         <p className="text-xs text-muted-foreground">{field.help_text}</p>
       )}
       {error && <p className="text-xs text-red-500">{error}</p>}
+    </div>
+  );
+}
+
+function PassengerTypeFieldControl({
+  field,
+  value,
+  onChange,
+}: {
+  field: ServiceTypeField;
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  const { profile } = useAuth() as any;
+  const detected = profile?.learner_id ? 'learner' : 'staff';
+  useEffect(() => {
+    if (value !== detected) onChange(detected);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [detected]);
+  return (
+    <div className="space-y-2">
+      <Label>{field.field_label}</Label>
+      <div>
+        <span className="inline-flex items-center rounded-md bg-muted px-2.5 py-1 text-sm font-medium capitalize">
+          {detected === 'learner' ? 'Learner' : 'Staff'}
+        </span>
+      </div>
+      {field.help_text && (
+        <p className="text-xs text-muted-foreground">{field.help_text}</p>
+      )}
     </div>
   );
 }
@@ -520,6 +554,16 @@ export function DynamicRequestForm({
             value={(allValues[field.field_key] as string) || ''}
             onChange={(v) => setValue(field.field_key, v)}
             error={errorMessage}
+          />
+        );
+
+      case 'passenger_type':
+        return (
+          <PassengerTypeFieldControl
+            key={field.field_key}
+            field={field}
+            value={(allValues[field.field_key] as string) || ''}
+            onChange={(v) => setValue(field.field_key, v)}
           />
         );
 
