@@ -1,8 +1,10 @@
 'use client';
 
-import { useCallback, useMemo } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { toast } from 'react-hot-toast';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
+import { usePermissions } from '@/hooks/use-permissions';
 import {
   useBillingOverview,
   useTodayCollections,
@@ -27,6 +29,7 @@ import { AgingChart } from './aging-chart';
 import { CategoryBreakdownChart } from './category-breakdown-chart';
 import { InstitutionComparison } from './institution-comparison';
 import { UserActivityLeaderboard } from './user-activity-leaderboard';
+import { exportAnalyticsWorkbook } from './export-analytics';
 import { presetRange, type DatePreset } from './_utils';
 
 const VALID_PRESETS: DatePreset[] = ['today', 'month', 'year', 'all', 'custom'];
@@ -46,6 +49,10 @@ export function AnalyticsDashboard() {
   const { institutions, loading: loadingInstitutions } =
     useInstitutionsWithAccess({ isActive: true });
   const multiInstitution = institutions.length > 1;
+
+  const { isSuperAdmin, canAccess } = usePermissions();
+  const canExport = isSuperAdmin || canAccess('billing.analytics', 'export');
+  const [exporting, setExporting] = useState(false);
 
   const updateParams = useCallback(
     (updates: Record<string, string | null | undefined>) => {
@@ -108,6 +115,32 @@ export function AnalyticsDashboard() {
     userActivity.refetch();
   }, [overview, today, trend, byInstitution, aging, byCategory, userActivity]);
 
+  const handleExport = useCallback(async () => {
+    setExporting(true);
+    try {
+      await exportAnalyticsWorkbook({
+        overview: overview.data,
+        byInstitution: byInstitution.data,
+        byCategory: byCategory.data,
+        aging: aging.data,
+        userActivity: userActivity.data,
+        range: { from: filters.date_from, to: filters.date_to },
+      });
+    } catch {
+      toast.error('Export failed. Please try again.');
+    } finally {
+      setExporting(false);
+    }
+  }, [
+    overview.data,
+    byInstitution.data,
+    byCategory.data,
+    aging.data,
+    userActivity.data,
+    filters.date_from,
+    filters.date_to,
+  ]);
+
   return (
     <div className='space-y-6'>
       <AnalyticsFilters
@@ -121,6 +154,9 @@ export function AnalyticsDashboard() {
         onChange={handleChange}
         onRefresh={refetchAll}
         isFetching={overview.isFetching || today.isFetching}
+        canExport={canExport}
+        onExport={handleExport}
+        exporting={exporting}
       />
 
       <KpiCards data={overview.data} loading={overview.isLoading} />

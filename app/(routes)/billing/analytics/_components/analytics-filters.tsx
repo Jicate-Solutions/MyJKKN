@@ -9,7 +9,7 @@ import {
 } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { RefreshCw } from 'lucide-react';
+import { RefreshCw, Download } from 'lucide-react';
 import { DATE_PRESETS, type DatePreset } from './_utils';
 
 export interface AnalyticsFilterChange {
@@ -30,6 +30,9 @@ interface Props {
   onChange: (change: AnalyticsFilterChange) => void;
   onRefresh: () => void;
   isFetching?: boolean;
+  canExport?: boolean;
+  onExport?: () => void;
+  exporting?: boolean;
 }
 
 export function AnalyticsFilters({
@@ -43,6 +46,9 @@ export function AnalyticsFilters({
   onChange,
   onRefresh,
   isFetching,
+  canExport,
+  onExport,
+  exporting,
 }: Props) {
   return (
     <div className='flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between'>
@@ -114,18 +120,32 @@ export function AnalyticsFilters({
         )}
       </div>
 
-      <Button
-        variant='outline'
-        size='sm'
-        onClick={onRefresh}
-        disabled={isFetching}
-        className='shrink-0'
-      >
-        <RefreshCw
-          className={`mr-2 h-4 w-4 ${isFetching ? 'animate-spin' : ''}`}
-        />
-        Refresh
-      </Button>
+      <div className='flex items-center gap-2'>
+        {canExport && (
+          <Button
+            variant='outline'
+            size='sm'
+            onClick={onExport}
+            disabled={exporting}
+            className='shrink-0'
+          >
+            <Download className='mr-2 h-4 w-4' />
+            Export
+          </Button>
+        )}
+        <Button
+          variant='outline'
+          size='sm'
+          onClick={onRefresh}
+          disabled={isFetching}
+          className='shrink-0'
+        >
+          <RefreshCw
+            className={`mr-2 h-4 w-4 ${isFetching ? 'animate-spin' : ''}`}
+          />
+          Refresh
+        </Button>
+      </div>
     </div>
   );
 }
