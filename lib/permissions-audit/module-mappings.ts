@@ -139,6 +139,13 @@ export const ROUTE_PREFIX_TO_MODULE: ReadonlyArray<readonly [string, string]> = 
   ['/campus-living', 'Campus Living'],
   ['/accreditation', 'System'],
   ['/audit-trail', 'System'],
+  // Clinical internships module (super_admin-gated "Internship Module" sidebar
+  // group: cycles, sites/hospitals, preceptors, vehicles). No dedicated
+  // permission catalog or table-module entry yet, so it rolls up to System like
+  // /accreditation and /bos. Distinct from /cdc/internships (CDC career
+  // placements, gated by cdc.internships.*) — different first URL segment, so
+  // this prefix can't swallow it.
+  ['/internships', 'System'],
   ['/work-pulse', 'Work Pulse'],
   ['/ai-pulse', 'AI Pulse'],
   ['/my-bug-reports', 'Bug Reports'],
