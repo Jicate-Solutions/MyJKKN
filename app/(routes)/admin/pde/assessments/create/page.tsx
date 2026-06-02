@@ -3,6 +3,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
+import { SuperAdminOnly } from '@/components/auth/admin-permission-guard';
 import { PageBreadcrumb } from '@/components/navigation/Breadcrumbs';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -297,6 +298,15 @@ export default function AssessmentCreatePage() {
   }
 
   return (
+    <SuperAdminOnly
+      fallback={
+        <ContentLayout title="Assessment Editor">
+          <div className="rounded-md border border-border bg-muted/30 p-6 text-sm text-muted-foreground">
+            This page is restricted to super administrators.
+          </div>
+        </ContentLayout>
+      }
+    >
     <ContentLayout title={isEditing ? 'Edit Assessment' : 'Create Assessment'}>
       <PageBreadcrumb
         items={[
@@ -671,5 +681,6 @@ export default function AssessmentCreatePage() {
         </div>
       </div>
     </ContentLayout>
+    </SuperAdminOnly>
   );
 }

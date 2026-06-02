@@ -24,6 +24,7 @@ import {
 } from 'recharts';
 
 import { ContentLayout } from '@/components/layout/content-layout';
+import { SuperAdminOnly } from '@/components/auth/admin-permission-guard';
 import { PageBreadcrumb } from '@/components/navigation';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -147,6 +148,15 @@ export default function InstagramAccountDetailPage({ params }: PageProps) {
     }));
 
   return (
+    <SuperAdminOnly
+      fallback={
+        <ContentLayout title="Instagram Account">
+          <div className="rounded-md border border-border bg-muted/30 p-6 text-sm text-muted-foreground">
+            This page is restricted to super administrators.
+          </div>
+        </ContentLayout>
+      }
+    >
     <ContentLayout title={`@${account.username}`}>
       <PageBreadcrumb items={breadcrumbItems} />
 
@@ -425,5 +435,6 @@ export default function InstagramAccountDetailPage({ params }: PageProps) {
         </Card>
       </div>
     </ContentLayout>
+    </SuperAdminOnly>
   );
 }

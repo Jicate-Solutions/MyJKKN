@@ -12,6 +12,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
+import { PermissionGuard } from '@/components/auth/permission-guard';
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -101,6 +102,7 @@ export default function AdminTrainingPage() {
   }, [statusFilter, categoryFilter]);
 
   return (
+    <PermissionGuard module="users" action="manage">
     <ContentLayout title="HR — Training Programs">
       <Breadcrumb>
         <BreadcrumbList>
@@ -249,5 +251,6 @@ export default function AdminTrainingPage() {
         </Card>
       </div>
     </ContentLayout>
+    </PermissionGuard>
   );
 }

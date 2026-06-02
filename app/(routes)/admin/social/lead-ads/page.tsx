@@ -14,6 +14,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { RefreshCw, FlaskConical, Settings2 } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
+import { SuperAdminOnly } from '@/components/auth/admin-permission-guard';
 import { PageBreadcrumb } from '@/components/navigation';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -149,6 +150,15 @@ export default function LeadAdsAdminPage() {
   }, [qc]);
 
   return (
+    <SuperAdminOnly
+      fallback={
+        <ContentLayout title="Lead Ads">
+          <div className="rounded-md border border-border bg-muted/30 p-6 text-sm text-muted-foreground">
+            This page is restricted to super administrators.
+          </div>
+        </ContentLayout>
+      }
+    >
     <ContentLayout title="Meta Lead Ads">
       <PageBreadcrumb items={breadcrumbItems} />
 
@@ -182,6 +192,7 @@ export default function LeadAdsAdminPage() {
         />
       )}
     </ContentLayout>
+    </SuperAdminOnly>
   );
 }
 

@@ -10,6 +10,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { ChevronRight, Inbox } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
+import { PermissionGuard } from '@/components/auth/permission-guard';
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -99,6 +100,7 @@ export default function PromotionReviewQueuePage() {
   );
 
   return (
+    <PermissionGuard module="users" action="manage">
     <ContentLayout title="HR Promotion Review Queue">
       <Breadcrumb>
         <BreadcrumbList>
@@ -144,6 +146,7 @@ export default function PromotionReviewQueuePage() {
         />
       </div>
     </ContentLayout>
+    </PermissionGuard>
   );
 }
 

@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { ContentLayout } from '@/components/layout/content-layout';
+import { SuperAdminOnly } from '@/components/auth/admin-permission-guard';
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -182,6 +183,15 @@ export default function EngagementDashboardPage() {
   const { data: events, isLoading: eventsLoading } = useRecentEvents(courseFilter);
 
   return (
+    <SuperAdminOnly
+      fallback={
+        <ContentLayout title="Engagement Dashboard">
+          <div className="rounded-md border border-border bg-muted/30 p-6 text-sm text-muted-foreground">
+            This page is restricted to super administrators.
+          </div>
+        </ContentLayout>
+      }
+    >
     <ContentLayout title="Engagement Dashboard">
       <div className="space-y-6">
         {/* Breadcrumb */}
@@ -307,5 +317,6 @@ export default function EngagementDashboardPage() {
         </Card>
       </div>
     </ContentLayout>
+    </SuperAdminOnly>
   );
 }

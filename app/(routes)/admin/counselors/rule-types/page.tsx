@@ -12,6 +12,8 @@
 
 'use client';
 
+import { ContentLayout } from '@/components/layout/content-layout';
+import { SuperAdminOnly } from '@/components/auth/admin-permission-guard';
 import {
   LookupTable,
   PolicyPageShell,
@@ -255,6 +257,15 @@ export default function CounselorRuleTypesPage() {
   });
 
   return (
+    <SuperAdminOnly
+      fallback={
+        <ContentLayout title="Assignment Rule Types">
+          <div className="rounded-md border border-border bg-muted/30 p-6 text-sm text-muted-foreground">
+            This page is restricted to super administrators.
+          </div>
+        </ContentLayout>
+      }
+    >
     <PolicyPageShell title={config.title} explainer={config.explainer}>
       <LookupTable
         config={config}
@@ -263,5 +274,6 @@ export default function CounselorRuleTypesPage() {
         rowToFormValues={rowToFormValues}
       />
     </PolicyPageShell>
+    </SuperAdminOnly>
   );
 }
