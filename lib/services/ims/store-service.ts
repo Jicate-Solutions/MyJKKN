@@ -25,22 +25,20 @@ export class ImsStoreService {
     metadata: { total: number; page: number; limit: number; totalPages: number };
   }> {
     try {
-      // Ensure auth session is established before querying.
-      // useImsStores fires with enabled:true on mount — before the Supabase
-      // client restores JWT from cookies. Without a valid JWT the request
-      // goes as 'anon' and the TO authenticated RLS policy returns 0 rows.
+      // Guard: if the Supabase browser client hasn't yet restored the session
+      // from cookies (race on cold mount), getSession() returns null and the
+      // query would run as 'anon', silently returning 0 rows due to RLS.
+      // Throwing here lets React Query retry with backoff until the session
+      // is available — without making an extra HTTP round-trip to /auth/v1/user.
       const { data: { session } } = await this.supabase.auth.getSession();
       if (!session) {
-        const { data: { user }, error: userError } = await this.supabase.auth.getUser();
-        if (userError || !user) {
-          throw new Error('[ImsStoreService] No authenticated session for store query');
-        }
+        throw new Error('[ImsStoreService] Session not yet available — will retry');
       }
 
       let query = this.supabase
         .from('ims_stores')
         .select(
-          '*, manager:profiles!ims_stores_manager_id_fkey(id, full_name)',
+          '*, institution:institutions(id, name), manager:profiles!ims_stores_manager_id_fkey(id, full_name)',
           { count: 'exact' }
         );
 
@@ -83,7 +81,15 @@ export class ImsStoreService {
         },
       };
     } catch (error) {
-      console.error('[ImsStoreService] Error in getStores:', error);
+      const e = error as { message?: string; code?: string; details?: string; hint?: string };
+      console.error(
+        '[ImsStoreService] Error in getStores:',
+        e?.message ?? String(error),
+        '| code:', e?.code,
+        '| details:', e?.details,
+        '| hint:', e?.hint,
+        '| raw:', JSON.stringify(error, Object.getOwnPropertyNames(error ?? {}))
+      );
       throw error;
     }
   }
@@ -105,7 +111,15 @@ export class ImsStoreService {
 
       return data as ImsStoreWithRelations;
     } catch (error) {
-      console.error('[ImsStoreService] Error in getStore:', error);
+      const e = error as { message?: string; code?: string; details?: string; hint?: string };
+      console.error(
+        '[ImsStoreService] Error in getStore:',
+        e?.message ?? String(error),
+        '| code:', e?.code,
+        '| details:', e?.details,
+        '| hint:', e?.hint,
+        '| raw:', JSON.stringify(error, Object.getOwnPropertyNames(error ?? {}))
+      );
       throw error;
     }
   }
@@ -232,18 +246,14 @@ export class ImsStoreService {
     isSuperAdmin?: boolean
   ): Promise<{ id: string; name: string; code: string; institution_id: string | null }[]> {
     try {
-      // Ensure auth session is established before querying.
-      // On page refresh, React may resolve cached userProfile before
-      // the Supabase HTTP client has restored session from cookies.
-      // Without a valid JWT, the request goes as 'anon' and RLS
-      // policies targeting 'authenticated' return 0 rows.
+      // Guard: if the Supabase browser client hasn't yet restored the session
+      // from cookies (race on cold mount), getSession() returns null and the
+      // query would run as 'anon', silently returning 0 rows due to RLS.
+      // Throwing here lets React Query retry with backoff until the session
+      // is available — without making an extra HTTP round-trip to /auth/v1/user.
       const { data: { session } } = await this.supabase.auth.getSession();
       if (!session) {
-        // Fallback: getUser() validates via HTTP cookies (more reliable with SSR)
-        const { data: { user }, error: userError } = await this.supabase.auth.getUser();
-        if (userError || !user) {
-          throw new Error('[ImsStoreService] No authenticated session for store query');
-        }
+        throw new Error('[ImsStoreService] Session not yet available — will retry');
       }
 
       let query = this.supabase
@@ -300,6 +310,11 @@ export class ImsStoreService {
     institutionId: string
   ): Promise<ImsStore[]> {
     try {
+      const { data: { session } } = await this.supabase.auth.getSession();
+      if (!session) {
+        throw new Error('[ImsStoreService] Session not yet available — will retry');
+      }
+
       const { data, error } = await this.supabase
         .from('ims_stores')
         .select('*')

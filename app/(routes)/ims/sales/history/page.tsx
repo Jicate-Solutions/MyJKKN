@@ -42,6 +42,7 @@ import {
   ChevronRight,
 } from 'lucide-react';
 import { BeatLoader } from 'react-spinners';
+import { ImsPageGuard } from '@/components/ims/ims-page-guard';
 
 const formatCurrency = (value: number) =>
   new Intl.NumberFormat('en-IN', {
@@ -75,6 +76,14 @@ const CUSTOMER_TYPE_LABELS: Record<ImsCustomerType, string> = {
 };
 
 export default function SalesHistoryPage() {
+  return (
+    <ImsPageGuard module="ims.sales" action="view">
+      <SalesHistoryPageInner />
+    </ImsPageGuard>
+  );
+}
+
+function SalesHistoryPageInner() {
   const router = useRouter();
   const { storeId, institutionId } = useImsStoreContext();
 

@@ -44,7 +44,12 @@ export interface ImsItemWithRelations extends ImsItem {
   purchase_unit?: { id: string; name: string; abbreviation: string } | null;
   sale_unit?: { id: string; name: string; abbreviation: string } | null;
   indent_unit?: { id: string; name: string; abbreviation: string } | null;
-  stock?: { current_quantity: number; available_quantity: number } | null;
+  stock?: {
+    current_quantity: number;
+    available_quantity: number;
+    /** Quantity at item creation ("Opening stock"). 0 when no opening batch exists. */
+    opening_quantity: number;
+  } | null;
 }
 
 export interface ImsItemFilters {
