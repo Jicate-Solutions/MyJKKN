@@ -15,6 +15,7 @@ import { YoYDrillSheet } from './yoy/yoy-drill-sheet';
 import { YoYExcludedCollapsible } from './yoy/yoy-excluded-collapsible';
 import { YoYInstitutionPicker } from './yoy/yoy-institution-picker';
 import { YoYHealthStoplight } from './yoy/yoy-health-stoplight';
+import { YoYDaysToCatchUp } from './yoy/yoy-days-to-catchup';
 import { YoYDepositsWorklist } from './yoy/yoy-deposits-worklist';
 import { YoYCounselorGrid } from './yoy/yoy-counselor-grid';
 import { YoYFirstTouchSLA } from './yoy/yoy-first-touch-sla';
@@ -134,6 +135,9 @@ export function YoYTrajectoryChart({ institutionId }: Props) {
 
       {/* Zone 1.5: 8-College Health Stoplight — which Principals to call today */}
       <YoYHealthStoplight institutionId={effectiveInstitutionId} />
+
+      {/* Zone 1.6: Days-to-Catch-Up Countdown — at this pace, will each college reach LY total? */}
+      <YoYDaysToCatchUp institutionId={effectiveInstitutionId} />
 
       {/* Zone 2: Chart card */}
       <div

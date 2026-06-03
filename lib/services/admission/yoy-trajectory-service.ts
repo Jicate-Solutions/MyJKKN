@@ -88,6 +88,24 @@ export type YoYFirstTouchBreach = {
   breachCount: number;
 };
 
+export type YoYDaysToCatchUp = {
+  institutionId: string;
+  institutionName: string;
+  currentAdmitted: number;
+  priorFinal: number;
+  /** priorFinal - currentAdmitted. Positive = behind LY; negative = past LY. */
+  gap: number;
+  /** Average admissions/day over the last 7 days for this institution. Min-clamped at 0.1. */
+  dailyPaceLast7d: number;
+  /** Days needed at current pace to close `gap`. null when gap <= 0 (already at/past LY). */
+  daysToCatchUp: number | null;
+  /** Days remaining until the cycle window end date (default Aug 31). */
+  daysRemaining: number;
+  signal: 'RED' | 'AMBER' | 'GREEN' | 'NA';
+  /** currentAdmitted + ROUND(dailyPaceLast7d × daysRemaining). */
+  projectedFinal: number;
+};
+
 export class YoYTrajectoryService {
   /**
    * Fetch the default group-wide YoY trajectory + excluded-courses metadata.
@@ -303,6 +321,49 @@ export class YoYTrajectoryService {
       counselorId: r.out_counselor_id,
       counselorName: r.out_counselor_name,
       breachCount: Number(r.out_breach_count),
+    }));
+  }
+
+  /** Per-institution days-to-catch-up countdown. Powers the 5th actionable view. */
+  static async getDaysToCatchUp(
+    institutionId?: string,
+    windowEndMonth = 8,
+    windowEndDay = 31,
+  ): Promise<YoYDaysToCatchUp[]> {
+    const supabase = createClientSupabaseClient();
+    const params: Record<string, unknown> = {
+      p_window_end_month: windowEndMonth,
+      p_window_end_day: windowEndDay,
+    };
+    if (institutionId) params.p_institution_id = institutionId;
+    const result = await supabase.rpc(
+      'fn_yoy_days_to_catchup_per_institution' as never,
+      params as never,
+    );
+    if (result.error) throw new Error(`Days-to-catchup RPC failed: ${result.error.message}`);
+    type Raw = {
+      out_institution_id: string;
+      out_institution_name: string;
+      out_current_admitted: number;
+      out_prior_final: number;
+      out_gap: number;
+      out_daily_pace_last_7d: string | number;
+      out_days_to_catchup: number | null;
+      out_days_remaining: number;
+      out_signal: 'RED' | 'AMBER' | 'GREEN' | 'NA';
+      out_projected_final: number;
+    };
+    return (result.data as unknown as Raw[]).map((r) => ({
+      institutionId: r.out_institution_id,
+      institutionName: r.out_institution_name,
+      currentAdmitted: Number(r.out_current_admitted),
+      priorFinal: Number(r.out_prior_final),
+      gap: Number(r.out_gap),
+      dailyPaceLast7d: Number(r.out_daily_pace_last_7d),
+      daysToCatchUp: r.out_days_to_catchup === null ? null : Number(r.out_days_to_catchup),
+      daysRemaining: Number(r.out_days_remaining),
+      signal: r.out_signal,
+      projectedFinal: Number(r.out_projected_final),
     }));
   }
 
