@@ -137,13 +137,13 @@ export async function GET(
         'student_mobile, student_email, ' +
         'permanent_address_street, permanent_address_taluk, permanent_address_district, ' +
         'permanent_address_pin_code, permanent_address_state, ' +
-        'accommodation_type, bus_required, transport_route_id, transport_stop_id, ' +
+        'accommodation_type_id, bus_required, transport_route_id, transport_stop_id, ' +
         'institution_id, degree_id, department_id, program_id, semester_id, section_id, ' +
         'academic_year_id, regulation_id, batch_id, roll_number, register_number, ' +
         'college_email, student_photo_url, is_profile_complete, ' +
         'admission_year_id, community_category_id, caste_id, ' +
         'admission_year_obj:admission_years!admission_year_id(program_start_year), ' +
-        'community_obj:community_categories!community_category_id(code), caste_obj:castes!caste_id(name), ' +
+        'community_obj:community_categories!community_category_id(code), caste_obj:castes!caste_id(name), accommodation_obj:accommodation_types!accommodation_type_id(name), ' +
         'blood_group, scholarship_type, industry_readiness_score, portfolio_url, ' +
         'created_at, updated_at'
       )
@@ -176,14 +176,17 @@ export async function GET(
       const ayObj = raw.admission_year_obj as { program_start_year?: number } | null;
       const communityObj = raw.community_obj as { code?: string } | null;
       const casteObj = raw.caste_obj as { name?: string } | null;
+      const accommodationObj = raw.accommodation_obj as { name?: string } | null;
       delete raw.admission_year_obj;
       delete raw.community_obj;
       delete raw.caste_obj;
+      delete raw.accommodation_obj;
       record = {
         ...raw,
         admission_year: ayObj?.program_start_year ?? null,
         community: communityObj?.code ?? null,
         caste: casteObj?.name ?? null,
+        accommodation_type: accommodationObj?.name ?? null,
       } as LearnerDetail;
     }
   } catch {

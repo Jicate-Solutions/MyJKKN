@@ -120,6 +120,19 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
   }
 
+  // accommodation_type TEXT is retired — convert defaults a lead to day-scholar,
+  // so resolve the institution's 'dayscholar' accommodation_types FK to persist.
+  let accommodationTypeId: string | null = null;
+  if (lead.institution_id) {
+    const { data: accRow } = await (svc as any)
+      .from('accommodation_types')
+      .select('id')
+      .eq('institution_id', lead.institution_id)
+      .eq('code', 'dayscholar')
+      .maybeSingle();
+    accommodationTypeId = accRow?.id ?? null;
+  }
+
   // ── 5. Map fields ────────────────────────────────────────────────────────────
   const profileData = {
     // Name
@@ -168,14 +181,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // the same migration. The new meaning of 'admitted' is post-threshold
     // (auto-set by evaluate_learner_status_after_payment when fees clear 50%).
     lifecycle_status: 'enquiry',
-    accommodation_type: 'DAY SCHOLAR',
+    // accommodation_type TEXT retired — write the resolved 'dayscholar' FK.
+    accommodation_type_id: accommodationTypeId,
     entry_type: 'FIRST YEAR',
     last_school: '',
     board_of_study: '',
     tenth_marks: {},
     twelfth_marks: {},
     religion: '',
-    community: '',
     // Audit
     created_by: user.id,
   };

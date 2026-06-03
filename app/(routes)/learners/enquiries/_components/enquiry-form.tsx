@@ -1027,7 +1027,7 @@ export function EnquiryForm({
   // ============================================
 
   // Format form data with default values for required fields
-  const formatFormDataForAPI = (values: EnquiryFormValues) => {
+  const formatFormDataForAPI = async (values: EnquiryFormValues) => {
     // Helper to handle UUID fields - return null if empty string so the DB
     // column is explicitly cleared. Returning undefined would cause
     // JSON.stringify to strip the key, leaving the old stale value in place.
@@ -1069,6 +1069,25 @@ export function EnquiryForm({
       // Convert location names to uppercase for consistency
       return name ? name.toUpperCase() : undefined;
     };
+
+    // accommodation_type TEXT is retired — resolve the HOSTEL/DAY SCHOLAR choice
+    // to the institution-scoped accommodation_types FK and persist that instead.
+    let accommodationTypeId: string | null = null;
+    if (values.institution_id && values.accommodation_type) {
+      try {
+        const accommodations = await LookupService.listAccommodationTypes(
+          values.institution_id,
+          true,
+        );
+        const norm = String(values.accommodation_type).trim().toLowerCase();
+        accommodationTypeId =
+          accommodations.find(
+            (a) => a.code.toLowerCase() === norm || a.name.toLowerCase() === norm,
+          )?.id ?? null;
+      } catch (err) {
+        console.error('[enquiry-form] accommodation TEXT→FK resolution failed:', err);
+      }
+    }
 
     return {
       // Basic Details (string fields - NOT NULL) - Convert to UPPERCASE
@@ -1167,8 +1186,9 @@ export function EnquiryForm({
         'state'
       ) || '',
 
-      // Accommodation Preferences (NOT NULL for accommodation_type)
-      accommodation_type: values.accommodation_type || '',
+      // Accommodation Preferences — accommodation_type TEXT retired; persist the
+      // resolved institution-scoped FK only.
+      accommodation_type_id: accommodationTypeId,
       // Nullable UUID FKs — normalize '' → null so an unset dropdown doesn't
       // send the empty string as a uuid param (Postgres 22P02).
       hostel_category_id: values.hostel_category_id || null,
@@ -1221,7 +1241,7 @@ export function EnquiryForm({
     setIsSavingDraft(true);
     try {
       const values = form.getValues();
-      const data = formatFormDataForAPI(values);
+      const data = await formatFormDataForAPI(values);
 
       let result: LearnerProfile;
 
@@ -1259,7 +1279,7 @@ export function EnquiryForm({
     setIsSavingDraft(true);
     try {
       const values = form.getValues();
-      const data = formatFormDataForAPI(values);
+      const data = await formatFormDataForAPI(values);
 
       let result: LearnerProfile;
 
@@ -1390,7 +1410,7 @@ export function EnquiryForm({
         }
       }
 
-      const data = formatFormDataForAPI(values);
+      const data = await formatFormDataForAPI(values);
 
       // Allow overriding submission logic (e.g. for change requests)
       if (onSubmitProp) {

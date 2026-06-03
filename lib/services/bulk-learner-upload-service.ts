@@ -10,6 +10,7 @@ import { LearnerValidationService, ValidationResult } from './learner-validation
 import { buildQuotaResolver } from '@/lib/utils/quota-name-resolver';
 import { buildCommunityResolver } from '@/lib/utils/community-name-resolver';
 import { buildCasteResolver } from '@/lib/utils/caste-name-resolver';
+import { buildAccommodationTypeResolverMulti } from '@/lib/utils/accommodation-type-resolver';
 import type { LearnerProfile } from '@/types/learner-profile';
 import { randomUUID } from 'crypto';
 
@@ -433,20 +434,29 @@ export class BulkLearnerUploadService {
     const resolveQuota = await buildQuotaResolver(supabaseAdmin);
     const resolveCommunity = await buildCommunityResolver(supabaseAdmin);
     const resolveCaste = await buildCasteResolver(supabaseAdmin);
+    // accommodation_type TEXT is retired — resolve the Excel label → the
+    // institution-scoped accommodation_types FK (rows span institutions).
+    const resolveAccommodation = await buildAccommodationTypeResolverMulti(supabaseAdmin);
 
     // STEP 3: Batch insert new learners
     const learnerData = newLearners.map(row => {
       // FIX: Keep scholarship_type as text (no longer converting to boolean first_graduate)
       // The database now has scholarship_type column as TEXT.
-      // Resolve readable quota/community/caste labels → FK ids; the legacy TEXT
-      // columns are retired. Caste resolution is community-scoped (ambiguous names).
-      const { quota, community, caste, ...rest } = row.data as Record<string, any>;
+      // Resolve readable quota/community/caste/accommodation labels → FK ids; the
+      // legacy TEXT columns are retired. Caste resolution is community-scoped
+      // (ambiguous names); accommodation is institution-scoped.
+      const { quota, community, caste, accommodation_type, ...rest } = row.data as Record<string, any>;
       const communityCategoryId = resolveCommunity(community) ?? (row.data as any).community_category_id ?? null;
+      const institutionId = (row.data as any).institution_id ?? null;
       return {
         ...rest,
         quota_id: resolveQuota(quota) ?? (row.data as any).quota_id ?? null,
         community_category_id: communityCategoryId,
         caste_id: resolveCaste(caste, communityCategoryId) ?? (row.data as any).caste_id ?? null,
+        accommodation_type_id:
+          resolveAccommodation(accommodation_type, institutionId) ??
+          (row.data as any).accommodation_type_id ??
+          null,
         lifecycle_status: 'active',
         is_profile_complete: isProfileComplete(row.data)
       };

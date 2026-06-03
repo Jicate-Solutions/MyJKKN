@@ -12,6 +12,7 @@ import { LearnerValidationService, ValidationResult } from './learner-validation
 import { buildQuotaResolver } from '@/lib/utils/quota-name-resolver';
 import { buildCommunityResolver } from '@/lib/utils/community-name-resolver';
 import { buildCasteResolver } from '@/lib/utils/caste-name-resolver';
+import { buildAccommodationTypeResolverMulti } from '@/lib/utils/accommodation-type-resolver';
 
 // Create admin client for database operations
 const supabaseAdmin = createClient(
@@ -280,6 +281,8 @@ export class BulkLearnerEditService {
     const resolveQuota = await buildQuotaResolver(supabaseAdmin);
     const resolveCommunity = await buildCommunityResolver(supabaseAdmin);
     const resolveCaste = await buildCasteResolver(supabaseAdmin);
+    // accommodation_type TEXT retired — resolve the label → institution-scoped FK.
+    const resolveAccommodation = await buildAccommodationTypeResolverMulti(supabaseAdmin);
 
     for (const row of rows) {
       try {
@@ -386,6 +389,23 @@ export class BulkLearnerEditService {
           if (cstId) {
             updateData.caste_id = cstId;
             fieldsUpdated.push('caste_id');
+          }
+        }
+
+        // Accommodation arrives as a readable label; persist the FK
+        // (accommodation_type_id), not the legacy TEXT column. Resolution is
+        // scoped to the learner's institution.
+        if (updateData.accommodation_type !== undefined) {
+          const aid = resolveAccommodation(
+            updateData.accommodation_type,
+            learnerCheck.learner.institution_id,
+          );
+          delete updateData.accommodation_type;
+          const ai = fieldsUpdated.indexOf('accommodation_type');
+          if (ai !== -1) fieldsUpdated.splice(ai, 1);
+          if (aid) {
+            updateData.accommodation_type_id = aid;
+            fieldsUpdated.push('accommodation_type_id');
           }
         }
 
@@ -508,7 +528,9 @@ export class BulkLearnerEditService {
           batch:batches(id, batch_name),
           admission_year_obj:admission_years!admission_year_id(program_start_year),
           quota_ref:quotas!quota_id(name),
-          community_ref:community_categories!community_category_id(code)
+          community_ref:community_categories!community_category_id(code),
+          caste_ref:castes!caste_id(name),
+          accommodation_ref:accommodation_types!accommodation_type_id(name)
         `)
         .eq('lifecycle_status', 'active');
 

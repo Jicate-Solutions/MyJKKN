@@ -126,10 +126,10 @@ export async function GET(
         'last_school, board_of_study, entry_type, quota_id, ' +
         'permanent_address_street, permanent_address_taluk, permanent_address_district, ' +
         'permanent_address_pin_code, permanent_address_state, ' +
-        'accommodation_type, bus_required, transport_route_id, transport_stop_id, reference_type, reference_name, reference_contact, ' +
+        'accommodation_type_id, bus_required, transport_route_id, transport_stop_id, reference_type, reference_name, reference_contact, ' +
         'counseling_applied, counseling_number, first_graduate, ' +
         'degree_id, department_id, program_id, institution_id, ' +
-        'created_at, updated_at, quota_obj:quotas!quota_id(name), community_obj:community_categories!community_category_id(code), caste_obj:castes!caste_id(name)'
+        'created_at, updated_at, quota_obj:quotas!quota_id(name), community_obj:community_categories!community_category_id(code), caste_obj:castes!caste_id(name), accommodation_obj:accommodation_types!accommodation_type_id(name)'
       )
       .eq('id', id);
 
@@ -157,12 +157,13 @@ export async function GET(
     } else {
       // Flatten the quota FK join back to a readable `quota` string so the
       // B2A response shape is unchanged (quota TEXT column retired).
-      const { quota_obj, community_obj, caste_obj, ...restData } = data as any;
+      const { quota_obj, community_obj, caste_obj, accommodation_obj, ...restData } = data as any;
       record = {
         ...restData,
         quota: (quota_obj as { name?: string } | null)?.name ?? null,
         community: (community_obj as { code?: string } | null)?.code ?? null,
         caste: (caste_obj as { name?: string } | null)?.name ?? null,
+        accommodation_type: (accommodation_obj as { name?: string } | null)?.name ?? null,
       } as unknown as AdmissionDetail;
     }
   } catch {

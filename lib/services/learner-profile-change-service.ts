@@ -360,6 +360,32 @@ export class LearnerProfileChangeService {
         }
       }
 
+      // quota / accommodation_type TEXT columns are retired too. quota resolves
+      // globally; accommodation_type is institution-scoped, so look up the
+      // learner's institution to resolve the FK. Drop the text key either way.
+      if ('quota' in updateData) {
+        const { buildQuotaResolver } = await import('@/lib/utils/quota-name-resolver');
+        const resolveQuota = await buildQuotaResolver(supabase);
+        const qid = resolveQuota(updateData.quota);
+        delete updateData.quota;
+        if (qid) updateData.quota_id = qid;
+      }
+      if ('accommodation_type' in updateData) {
+        const accText = updateData.accommodation_type;
+        delete updateData.accommodation_type;
+        const { data: lp } = await supabase
+          .from('learners_profiles')
+          .select('institution_id')
+          .eq('id', request.learner_id)
+          .maybeSingle();
+        if (lp?.institution_id && accText) {
+          const { buildAccommodationTypeResolver } = await import('@/lib/utils/accommodation-type-resolver');
+          const resolveAccommodation = await buildAccommodationTypeResolver(supabase, lp.institution_id);
+          const aid = resolveAccommodation(accText);
+          if (aid) updateData.accommodation_type_id = aid;
+        }
+      }
+
       const { error: updateError } = await supabase
         .from('learners_profiles')
         .update(updateData)

@@ -1,6 +1,7 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { logger } from '@/lib/utils/enhanced-logger';
 import { HostelYearService } from '@/lib/services/campus-living/hostel-year-service';
+import { accommodationLegacyFromCode } from '@/lib/utils/accommodation-type-resolver';
 
 export interface MyHostelSummary {
   learnerId: string;
@@ -20,7 +21,8 @@ export class MyHostelService {
     const { data, error } = await supabase
       .from('learners_profiles')
       .select(
-        'id, accommodation_type, hostel_fee, institution_id, ' +
+        'id, accommodation_type_id, hostel_fee, institution_id, ' +
+        'accommodation_ref:accommodation_types!accommodation_type_id(code, name), ' +
         'hostelCategory:hostel_category_id(id, name, type), ' +
         'messCategory:mess_category_id(id, name)'
       )
@@ -29,9 +31,10 @@ export class MyHostelService {
     if (error) { logger.error('campus-living/my-hostel', 'getMySummary', error); throw error; }
     if (!data) return null;
     const row = data as any;
+    // accommodation_type TEXT retired — derive legacy 'HOSTEL'/'DAY SCHOLAR' from FK.
     return {
       learnerId: row.id,
-      accommodationType: row.accommodation_type ?? null,
+      accommodationType: accommodationLegacyFromCode(row.accommodation_ref?.code) || null,
       hostelCategory: row.hostelCategory ?? null,
       messCategory: row.messCategory ?? null,
       hostelFee: row.hostel_fee ?? null,

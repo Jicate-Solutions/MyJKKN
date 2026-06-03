@@ -194,8 +194,8 @@ function transformLearnerForExport(learner: any): Record<string, any> {
     medical_cutoff_marks: learner.medical_cutoff_marks || '',
     engineering_cutoff_marks: learner.engineering_cutoff_marks || '',
     scholarship_type: learner.scholarship_type || '',
-    // Accommodation
-    accommodation_type: learner.accommodation_type || '',
+    // Accommodation — accommodation_type TEXT retired; read the FK's name.
+    accommodation_type: learner.accommodation_ref?.name || '',
     bus_required: learner.bus_required === true ? 'Yes' : learner.bus_required === false ? 'No' : '',
     // System
     roll_number: learner.roll_number || '',

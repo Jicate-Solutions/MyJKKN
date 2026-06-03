@@ -58326,7 +58326,6 @@ export type Database = {
         Row: {
           aadhar_number: string | null
           academic_year_id: string | null
-          accommodation_type: string
           accommodation_type_id: string | null
           account_verification_notes: string | null
           account_verified_at: string | null
@@ -58433,7 +58432,6 @@ export type Database = {
         Insert: {
           aadhar_number?: string | null
           academic_year_id?: string | null
-          accommodation_type: string
           accommodation_type_id?: string | null
           account_verification_notes?: string | null
           account_verified_at?: string | null
@@ -58540,7 +58538,6 @@ export type Database = {
         Update: {
           aadhar_number?: string | null
           academic_year_id?: string | null
-          accommodation_type?: string
           accommodation_type_id?: string | null
           account_verification_notes?: string | null
           account_verified_at?: string | null

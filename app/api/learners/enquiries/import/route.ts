@@ -858,6 +858,11 @@ export async function POST(request: NextRequest): Promise<NextResponse<ImportRes
       const { buildCasteResolver } = await import('@/lib/utils/caste-name-resolver');
       return buildCasteResolver(supabase as any);
     })();
+    // accommodation_type TEXT retired — resolve the label → institution-scoped FK.
+    const resolveAccommodation = await (async () => {
+      const { buildAccommodationTypeResolverMulti } = await import('@/lib/utils/accommodation-type-resolver');
+      return buildAccommodationTypeResolverMulti(supabase as any);
+    })();
 
     // ============================================================
     // 6. INSERT VALID ROWS (BATCH INSERT)
@@ -913,8 +918,8 @@ export async function POST(request: NextRequest): Promise<NextResponse<ImportRes
       entry_type: data.entry_type,
       scholarship_type: data.scholarship_type,
 
-      // Accommodation
-      accommodation_type: data.accommodation_type,
+      // Accommodation — accommodation_type TEXT retired; persist the FK only.
+      accommodation_type_id: resolveAccommodation(data.accommodation_type, institutionId),
 
       // Education
       last_school: data.last_school,
