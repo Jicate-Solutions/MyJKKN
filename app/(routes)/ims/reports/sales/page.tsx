@@ -30,6 +30,7 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import type { ImsItemProfitSummary } from '@/types/ims';
+import { ImsPageGuard } from '@/components/ims/ims-page-guard';
 
 const formatCurrency = (value: number) =>
   new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 2 }).format(value);
@@ -64,6 +65,14 @@ function getDateRange(preset: string): { from: string; to: string } {
 }
 
 export default function SalesReportPage() {
+  return (
+    <ImsPageGuard module="ims.reports" action="view">
+      <SalesReportPageInner />
+    </ImsPageGuard>
+  );
+}
+
+function SalesReportPageInner() {
   const [activePreset, setActivePreset] = useState('month');
   const [dateFrom, setDateFrom] = useState(() => getDateRange('month').from);
   const [dateTo, setDateTo] = useState(() => getDateRange('month').to);

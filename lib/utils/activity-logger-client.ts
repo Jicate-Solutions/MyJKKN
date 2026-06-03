@@ -47,8 +47,9 @@ export async function logActivityForCurrentUser(
 ): Promise<void> {
   try {
     const supabase = createClientSupabaseClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user?.id) return;
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.user?.id) return;
+    const user = session.user;
     await logActivityClient({ ...params, userId: user.id });
   } catch (error) {
     console.error('[activity-logger-client] Failed to log activity (current user):', error);

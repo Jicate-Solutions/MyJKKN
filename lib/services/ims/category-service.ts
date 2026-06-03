@@ -182,7 +182,10 @@ export class ImsCategoryService {
         .order('name');
 
       if (storeId) {
-        query = query.eq('store_id', storeId);
+        // Include this store's categories AND global (store_id IS NULL) categories.
+        // Without the IS NULL branch, items using global categories show blank in
+        // the edit dialog because the selected category_id has no matching option.
+        query = query.or(`store_id.eq.${storeId},store_id.is.null`);
       }
 
       const { data, error } = await query;

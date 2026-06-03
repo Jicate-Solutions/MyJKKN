@@ -45,11 +45,23 @@ import {
 } from 'lucide-react';
 import { BeatLoader } from 'react-spinners';
 import { toast } from 'sonner';
+import { ImsPageGuard } from '@/components/ims/ims-page-guard';
+import { usePermissions } from '@/hooks/use-permissions';
 
 export default function PendingIndentsPage() {
+  return (
+    <ImsPageGuard module="ims.indents" action="approve">
+      <PendingIndentsPageInner />
+    </ImsPageGuard>
+  );
+}
+
+function PendingIndentsPageInner() {
   const router = useRouter();
   const { profile } = useAuth();
   const { storeId, institutionId } = useImsStoreContext();
+  const { canAccess, isSuperAdmin } = usePermissions();
+  const canApprove = isSuperAdmin || canAccess('ims.indents', 'approve');
 
   const [rejectId, setRejectId] = useState<string | null>(null);
   const [rejectReason, setRejectReason] = useState('');
@@ -206,25 +218,29 @@ export default function PendingIndentsPage() {
                             className="flex items-center justify-end gap-2"
                             onClick={(e) => e.stopPropagation()}
                           >
-                            <Button
-                              size="sm"
-                              variant="default"
-                              className="bg-green-600 hover:bg-green-700"
-                              onClick={() => handleApprove(indent.id)}
-                              disabled={approveIndent.isPending}
-                            >
-                              <CheckCircle className="mr-1 h-4 w-4" />
-                              Approve
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="destructive"
-                              onClick={() => setRejectId(indent.id)}
-                              disabled={rejectIndent.isPending}
-                            >
-                              <XCircle className="mr-1 h-4 w-4" />
-                              Reject
-                            </Button>
+                            {canApprove && (
+                              <>
+                                <Button
+                                  size="sm"
+                                  variant="default"
+                                  className="bg-green-600 hover:bg-green-700"
+                                  onClick={() => handleApprove(indent.id)}
+                                  disabled={approveIndent.isPending}
+                                >
+                                  <CheckCircle className="mr-1 h-4 w-4" />
+                                  Approve
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="destructive"
+                                  onClick={() => setRejectId(indent.id)}
+                                  disabled={rejectIndent.isPending}
+                                >
+                                  <XCircle className="mr-1 h-4 w-4" />
+                                  Reject
+                                </Button>
+                              </>
+                            )}
                           </div>
                         </TableCell>
                       </TableRow>

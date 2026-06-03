@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { ContentLayout } from '@/components/layout/content-layout';
+import { ImsPageGuard } from '@/components/ims/ims-page-guard';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useImsStoreContext } from '@/hooks/ims/use-ims-store-context';
 import {
@@ -106,6 +107,14 @@ function getTransactionTypeBadge(type: ImsTransactionType) {
 }
 
 export default function FinancialOverviewPage() {
+  return (
+    <ImsPageGuard module="ims.financial" action="view">
+      <FinancialOverviewPageInner />
+    </ImsPageGuard>
+  );
+}
+
+function FinancialOverviewPageInner() {
   const [activeTab, setActiveTab] = useState('transactions');
   const [activePreset, setActivePreset] = useState('month');
   const [dateFrom, setDateFrom] = useState(() => getDateRange('month').from);

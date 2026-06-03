@@ -138,10 +138,11 @@ export function useNotifications() {
 
     const setupRealtimeSubscription = async () => {
       try {
-        // Get current user
+        // Get current user from local session cache (avoids HTTP round-trip)
         const {
-          data: { user }
-        } = await supabase.auth.getUser();
+          data: { session }
+        } = await supabase.auth.getSession();
+        const user = session?.user;
 
         if (!user) return;
 

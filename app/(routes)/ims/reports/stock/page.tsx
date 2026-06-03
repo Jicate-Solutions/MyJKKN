@@ -31,6 +31,7 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import type { ImsStockValuation } from '@/types/ims';
+import { ImsPageGuard } from '@/components/ims/ims-page-guard';
 
 function getStockStatusBadge(quantity: number, reorderLevel: number, maxLevel?: number) {
   if (quantity <= 0) {
@@ -62,6 +63,14 @@ const formatCurrency = (value: number) =>
   new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 2 }).format(value);
 
 export default function StockReportPage() {
+  return (
+    <ImsPageGuard module="ims.reports" action="view">
+      <StockReportPageInner />
+    </ImsPageGuard>
+  );
+}
+
+function StockReportPageInner() {
   const [activeTab, setActiveTab] = useState('levels');
   const [expiryDays, setExpiryDays] = useState(60);
 

@@ -706,12 +706,7 @@ CREATE POLICY "learners_profiles_insert_policy" ON learners_profiles
         )
     );
 
--- UPDATE: super/admin or any learners.* edit permission + institution scope.
--- NOTE (2026-06-01): students intentionally have NO direct UPDATE on their own
--- profile. Self-service edits go through the admin-approved change-request flow
--- (profile_change_requests). The former "self-update by email" clauses and the
--- students_update_own_learner_profile policy were removed
--- (migration 20260704120000_revoke_student_learner_profile_direct_edit.sql).
+-- UPDATE: super/admin, any learners.* edit permission + institution scope, or self-update by email
 CREATE POLICY "learners_profiles_update_policy" ON learners_profiles
     FOR UPDATE USING (
         is_super_admin() OR is_admin()
@@ -723,6 +718,8 @@ CREATE POLICY "learners_profiles_update_policy" ON learners_profiles
                 OR user_has_permission('learners.edit')
             )
         )
+        OR student_email = (SELECT email FROM profiles WHERE id = auth.uid())
+        OR college_email = (SELECT email FROM profiles WHERE id = auth.uid())
     );
 
 -- DELETE: super/admin or user with delete permission + institution scope
@@ -750,12 +747,24 @@ CREATE POLICY "students_view_own_learner_profile" ON learners_profiles
         )
     );
 
--- Student self-access: UPDATE intentionally removed (2026-06-01).
--- Students are view-only on their own profile; edits flow through the
--- admin-approved change-request workflow. Their VIEW access is preserved by
--- students_view_own_learner_profile (above) plus the email-match clause on
--- learners_profiles_select_policy.
--- Removed by migration 20260704120000_revoke_student_learner_profile_direct_edit.sql.
+-- Student self-access: Update own profile via profiles.learner_id linkage
+CREATE POLICY "students_update_own_learner_profile" ON learners_profiles
+    FOR UPDATE USING (
+        EXISTS (
+            SELECT 1 FROM profiles p
+            WHERE p.id = auth.uid()
+            AND p.learner_id = learners_profiles.id
+            AND p.role = 'student'
+        )
+    )
+    WITH CHECK (
+        EXISTS (
+            SELECT 1 FROM profiles p
+            WHERE p.id = auth.uid()
+            AND p.learner_id = learners_profiles.id
+            AND p.role = 'student'
+        )
+    );
 
 -- INTAKE_HISTORY TABLE (Added: 2025-01-31)
 -- Purpose: Capacity analytics and 3-year stability index tracking
@@ -1488,31 +1497,34 @@ CREATE POLICY "refunds_all_billing" ON billing_refunds
 
 -- BILLING CATEGORIES (4 policies)
 -- Updated: 2026-04-15 - Consolidated 3-tier (parent/sub/item) hierarchy into flat billing_categories.
--- Updated: 2026-04-28 - Removed role_has_institution_access(); categories are global, permission-only check.
 ALTER TABLE billing_categories ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "billing_categories_select" ON billing_categories
     FOR SELECT USING (
         is_super_admin() OR is_admin()
-        OR user_has_permission('billing.categories.view')
+        OR (user_has_permission('billing.categories.view')
+            AND role_has_institution_access(institution_id))
     );
 
 CREATE POLICY "billing_categories_insert" ON billing_categories
     FOR INSERT WITH CHECK (
         is_super_admin() OR is_admin()
-        OR user_has_permission('billing.categories.create')
+        OR (user_has_permission('billing.categories.create')
+            AND role_has_institution_access(institution_id))
     );
 
 CREATE POLICY "billing_categories_update" ON billing_categories
     FOR UPDATE USING (
         is_super_admin() OR is_admin()
-        OR user_has_permission('billing.categories.edit')
+        OR (user_has_permission('billing.categories.edit')
+            AND role_has_institution_access(institution_id))
     );
 
 CREATE POLICY "billing_categories_delete" ON billing_categories
     FOR DELETE USING (
         is_super_admin() OR is_admin()
-        OR user_has_permission('billing.categories.delete')
+        OR (user_has_permission('billing.categories.delete')
+            AND role_has_institution_access(institution_id))
     );
 
 -- ================================================================================
@@ -1590,13 +1602,8 @@ CREATE POLICY "email_logs_select_admin" ON bug_report_email_logs
 -- SECTION 11: RESOURCE MANAGEMENT MODULE TABLES
 -- ================================================================================
 
--- RESOURCES TABLE (4 policies)
--- Updated: 2026-05-08 - Migrated INSERT/UPDATE/DELETE to canonical permission +
---                       role_has_institution_access() pattern (see migration
---                       20260509153000_resources_perm_based_rls.sql) so any
---                       role granted resources.resources.* in the role catalog
---                       can write within its institutional scope without
---                       hardcoding profile.role values in policy SQL.
+-- RESOURCES TABLE (2 policies)
+-- Updated: 2025-01-30 - Fixed to use profiles.institution_id instead of user_institution_access
 ALTER TABLE resources ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "resources_select_institution" ON resources
@@ -1607,45 +1614,13 @@ CREATE POLICY "resources_select_institution" ON resources
         )
     );
 
-CREATE POLICY "resources_insert_perm" ON resources
-    FOR INSERT
-    WITH CHECK (
-        is_super_admin()
-        OR is_admin(auth.uid())
-        OR (
-            role_has_institution_access(institution_id)
-            AND user_has_permission('resources.resources.create')
+CREATE POLICY "resources_all_admin" ON resources
+    FOR ALL USING (
+        institution_id IN (
+            SELECT institution_id FROM profiles
+            WHERE id = auth.uid() AND institution_id IS NOT NULL
         )
-    );
-
-CREATE POLICY "resources_update_perm" ON resources
-    FOR UPDATE
-    USING (
-        is_super_admin()
-        OR is_admin(auth.uid())
-        OR (
-            role_has_institution_access(institution_id)
-            AND user_has_permission('resources.resources.edit')
-        )
-    )
-    WITH CHECK (
-        is_super_admin()
-        OR is_admin(auth.uid())
-        OR (
-            role_has_institution_access(institution_id)
-            AND user_has_permission('resources.resources.edit')
-        )
-    );
-
-CREATE POLICY "resources_delete_perm" ON resources
-    FOR DELETE
-    USING (
-        is_super_admin()
-        OR is_admin(auth.uid())
-        OR (
-            role_has_institution_access(institution_id)
-            AND user_has_permission('resources.resources.delete')
-        )
+        AND user_has_permission('resources.manage')
     );
 
 -- RESOURCE_RESERVATIONS TABLE (4 policies)
@@ -1771,18 +1746,14 @@ ALTER TABLE resource_parent_categories ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "parent_cat_select_all" ON resource_parent_categories
     FOR SELECT USING (true);
 
--- Permission-driven write policies (see migration
--- 20260509110001_resource_categories_perm_based_rls.sql).
--- user_has_permission() bypasses for super_admin via is_super_admin=true,
--- so no separate is_super_admin() OR clause is required.
-CREATE POLICY "parent_cat_insert_perm" ON resource_parent_categories
-    FOR INSERT WITH CHECK (user_has_permission('resources.categories.create'));
+CREATE POLICY "parent_cat_insert_admin" ON resource_parent_categories
+    FOR INSERT WITH CHECK (is_super_admin());
 
-CREATE POLICY "parent_cat_update_perm" ON resource_parent_categories
-    FOR UPDATE USING (user_has_permission('resources.categories.edit'));
+CREATE POLICY "parent_cat_update_admin" ON resource_parent_categories
+    FOR UPDATE USING (is_super_admin());
 
-CREATE POLICY "parent_cat_delete_perm" ON resource_parent_categories
-    FOR DELETE USING (user_has_permission('resources.categories.delete'));
+CREATE POLICY "parent_cat_delete_admin" ON resource_parent_categories
+    FOR DELETE USING (is_super_admin());
 
 CREATE POLICY "parent_cat_select_active" ON resource_parent_categories
     FOR SELECT USING (status = 'active');
@@ -1792,14 +1763,14 @@ ALTER TABLE resource_sub_categories ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "sub_cat_select_all" ON resource_sub_categories
     FOR SELECT USING (true);
 
-CREATE POLICY "sub_cat_insert_perm" ON resource_sub_categories
-    FOR INSERT WITH CHECK (user_has_permission('resources.subcategories.create'));
+CREATE POLICY "sub_cat_insert_admin" ON resource_sub_categories
+    FOR INSERT WITH CHECK (is_super_admin());
 
-CREATE POLICY "sub_cat_update_perm" ON resource_sub_categories
-    FOR UPDATE USING (user_has_permission('resources.subcategories.edit'));
+CREATE POLICY "sub_cat_update_admin" ON resource_sub_categories
+    FOR UPDATE USING (is_super_admin());
 
-CREATE POLICY "sub_cat_delete_perm" ON resource_sub_categories
-    FOR DELETE USING (user_has_permission('resources.subcategories.delete'));
+CREATE POLICY "sub_cat_delete_admin" ON resource_sub_categories
+    FOR DELETE USING (is_super_admin());
 
 ALTER TABLE resource_attribute_definitions ENABLE ROW LEVEL SECURITY;
 
@@ -2404,26 +2375,6 @@ CREATE POLICY "lead_scores_delete" ON admission_lead_scores FOR DELETE USING (
     AND cr.role_key = 'admission'
   )
 );
-
--- ============================================================================
--- ADMISSION STATUSES (funnel-stage / lifecycle reference catalog)
--- Global lookup data, no institution_id. SELECT is open to any authenticated
--- user (consumed by the lead "Move to:" dropdown + LifecycleStatusBadge across
--- learners/billing); writes stay gated on the settings-admin permission.
--- See migration 20260529000002_admission_statuses_select_open_to_authenticated.
--- ============================================================================
-CREATE POLICY admission_statuses_select ON admission_statuses FOR SELECT
-  USING (auth.uid() IS NOT NULL);
-
-CREATE POLICY admission_statuses_insert ON admission_statuses FOR INSERT
-  WITH CHECK (is_super_admin() OR is_admin() OR user_has_permission('admission.settings.statuses.manage'));
-
-CREATE POLICY admission_statuses_update ON admission_statuses FOR UPDATE
-  USING (is_super_admin() OR is_admin() OR user_has_permission('admission.settings.statuses.manage'))
-  WITH CHECK (is_super_admin() OR is_admin() OR user_has_permission('admission.settings.statuses.manage'));
-
-CREATE POLICY admission_statuses_delete ON admission_statuses FOR DELETE
-  USING (is_super_admin() OR is_admin());
 
 -- ============================================================================
 -- 2. ADMISSION TASKS
@@ -3484,106 +3435,92 @@ CREATE POLICY "case_studies_delete_admin"
 
 -- ═══════════════════════════════════════════════════════════════════════════
 -- EXPO MODULE RLS POLICIES
--- Updated: 2026-04-28 — Migrated to dynamic permission pattern (user_has_permission +
---                       role_has_institution_access). Replaces hardcoded 'admission'
---                       role_key whitelist so admission_staff and any other custom
---                       role granted 'admission.marketing.expos.*' via Role Management
---                       UI gain access automatically. Pattern matches expo_event_stalls
---                       (BUG-003146) and CLAUDE.md "Standardized RLS Policy Pattern".
--- Preserved: expo_events_select_team_member, expo_reports_select_team_member,
---            expo_reports_insert_team_member (defined in their own migrations).
+-- Updated: 2026-03-14 - Expos are global (not institution-scoped), all authenticated users have full access
 -- ═══════════════════════════════════════════════════════════════════════════
 
--- expo_masters --------------------------------------------------------------
+-- Updated: 2026-03-26 — Added super_admin + admission role bypass to all expo policies
 CREATE POLICY "expo_masters_select" ON expo_masters FOR SELECT USING (
-  is_super_admin() OR is_admin()
-  OR (user_has_permission('admission.marketing.expos.view')
-      AND role_has_institution_access(institution_id))
+  institution_id IN (SELECT institution_id FROM user_institution_access WHERE user_id = auth.uid())
+  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+  OR EXISTS (SELECT 1 FROM user_roles ur JOIN custom_roles cr ON ur.role_id = cr.id WHERE ur.user_id = auth.uid() AND cr.role_key = 'admission')
 );
 CREATE POLICY "expo_masters_insert" ON expo_masters FOR INSERT WITH CHECK (
-  is_super_admin() OR is_admin()
-  OR (user_has_permission('admission.marketing.expos.create')
-      AND role_has_institution_access(institution_id))
+  institution_id IN (SELECT institution_id FROM user_institution_access WHERE user_id = auth.uid())
+  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+  OR EXISTS (SELECT 1 FROM user_roles ur JOIN custom_roles cr ON ur.role_id = cr.id WHERE ur.user_id = auth.uid() AND cr.role_key = 'admission')
 );
 CREATE POLICY "expo_masters_update" ON expo_masters FOR UPDATE USING (
-  is_super_admin() OR is_admin()
-  OR (user_has_permission('admission.marketing.expos.edit')
-      AND role_has_institution_access(institution_id))
+  institution_id IN (SELECT institution_id FROM user_institution_access WHERE user_id = auth.uid())
+  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+  OR EXISTS (SELECT 1 FROM user_roles ur JOIN custom_roles cr ON ur.role_id = cr.id WHERE ur.user_id = auth.uid() AND cr.role_key = 'admission')
 );
 CREATE POLICY "expo_masters_delete" ON expo_masters FOR DELETE USING (
-  is_super_admin() OR is_admin()
-  OR (user_has_permission('admission.marketing.expos.delete')
-      AND role_has_institution_access(institution_id))
+  institution_id IN (SELECT institution_id FROM user_institution_access WHERE user_id = auth.uid())
+  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+  OR EXISTS (SELECT 1 FROM user_roles ur JOIN custom_roles cr ON ur.role_id = cr.id WHERE ur.user_id = auth.uid() AND cr.role_key = 'admission')
 );
 
--- expo_events ---------------------------------------------------------------
 CREATE POLICY "expo_events_select" ON expo_events FOR SELECT USING (
-  is_super_admin() OR is_admin()
-  OR (user_has_permission('admission.marketing.expos.view')
-      AND role_has_institution_access(institution_id))
+  institution_id IN (SELECT institution_id FROM user_institution_access WHERE user_id = auth.uid())
+  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+  OR EXISTS (SELECT 1 FROM user_roles ur JOIN custom_roles cr ON ur.role_id = cr.id WHERE ur.user_id = auth.uid() AND cr.role_key = 'admission')
 );
 CREATE POLICY "expo_events_insert" ON expo_events FOR INSERT WITH CHECK (
-  is_super_admin() OR is_admin()
-  OR (user_has_permission('admission.marketing.expos.create')
-      AND role_has_institution_access(institution_id))
+  institution_id IN (SELECT institution_id FROM user_institution_access WHERE user_id = auth.uid())
+  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+  OR EXISTS (SELECT 1 FROM user_roles ur JOIN custom_roles cr ON ur.role_id = cr.id WHERE ur.user_id = auth.uid() AND cr.role_key = 'admission')
 );
 CREATE POLICY "expo_events_update" ON expo_events FOR UPDATE USING (
-  is_super_admin() OR is_admin()
-  OR (user_has_permission('admission.marketing.expos.edit')
-      AND role_has_institution_access(institution_id))
+  institution_id IN (SELECT institution_id FROM user_institution_access WHERE user_id = auth.uid())
+  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+  OR EXISTS (SELECT 1 FROM user_roles ur JOIN custom_roles cr ON ur.role_id = cr.id WHERE ur.user_id = auth.uid() AND cr.role_key = 'admission')
 );
 CREATE POLICY "expo_events_delete" ON expo_events FOR DELETE USING (
-  is_super_admin() OR is_admin()
-  OR (user_has_permission('admission.marketing.expos.delete')
-      AND role_has_institution_access(institution_id))
+  institution_id IN (SELECT institution_id FROM user_institution_access WHERE user_id = auth.uid())
+  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+  OR EXISTS (SELECT 1 FROM user_roles ur JOIN custom_roles cr ON ur.role_id = cr.id WHERE ur.user_id = auth.uid() AND cr.role_key = 'admission')
 );
 
--- expo_event_team_members (no direct institution_id; scope via parent event) -
 CREATE POLICY "expo_team_select" ON expo_event_team_members FOR SELECT USING (
-  is_super_admin() OR is_admin()
-  OR (user_has_permission('admission.marketing.expos.view')
-      AND role_has_institution_access(_expo_event_institution_id(expo_event_id)))
-  OR expo_event_id IN (SELECT get_my_expo_team_event_ids())
+  expo_event_id IN (SELECT id FROM expo_events WHERE institution_id IN (SELECT institution_id FROM user_institution_access WHERE user_id = auth.uid()))
+  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+  OR EXISTS (SELECT 1 FROM user_roles ur JOIN custom_roles cr ON ur.role_id = cr.id WHERE ur.user_id = auth.uid() AND cr.role_key = 'admission')
 );
 CREATE POLICY "expo_team_insert" ON expo_event_team_members FOR INSERT WITH CHECK (
-  is_super_admin() OR is_admin()
-  OR (user_has_permission('admission.marketing.expos.create')
-      AND role_has_institution_access(_expo_event_institution_id(expo_event_id)))
-  OR expo_event_id IN (SELECT get_my_expo_team_event_ids())
+  expo_event_id IN (SELECT id FROM expo_events WHERE institution_id IN (SELECT institution_id FROM user_institution_access WHERE user_id = auth.uid()))
+  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+  OR EXISTS (SELECT 1 FROM user_roles ur JOIN custom_roles cr ON ur.role_id = cr.id WHERE ur.user_id = auth.uid() AND cr.role_key = 'admission')
 );
 CREATE POLICY "expo_team_update" ON expo_event_team_members FOR UPDATE USING (
-  is_super_admin() OR is_admin()
-  OR (user_has_permission('admission.marketing.expos.edit')
-      AND role_has_institution_access(_expo_event_institution_id(expo_event_id)))
-  OR expo_event_id IN (SELECT get_my_expo_team_event_ids())
+  expo_event_id IN (SELECT id FROM expo_events WHERE institution_id IN (SELECT institution_id FROM user_institution_access WHERE user_id = auth.uid()))
+  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+  OR EXISTS (SELECT 1 FROM user_roles ur JOIN custom_roles cr ON ur.role_id = cr.id WHERE ur.user_id = auth.uid() AND cr.role_key = 'admission')
 );
 CREATE POLICY "expo_team_delete" ON expo_event_team_members FOR DELETE USING (
-  is_super_admin() OR is_admin()
-  OR (user_has_permission('admission.marketing.expos.delete')
-      AND role_has_institution_access(_expo_event_institution_id(expo_event_id)))
-  OR expo_event_id IN (SELECT get_my_expo_team_event_ids())
+  expo_event_id IN (SELECT id FROM expo_events WHERE institution_id IN (SELECT institution_id FROM user_institution_access WHERE user_id = auth.uid()))
+  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+  OR EXISTS (SELECT 1 FROM user_roles ur JOIN custom_roles cr ON ur.role_id = cr.id WHERE ur.user_id = auth.uid() AND cr.role_key = 'admission')
 );
 
--- expo_daily_reports --------------------------------------------------------
 CREATE POLICY "expo_reports_select" ON expo_daily_reports FOR SELECT USING (
-  is_super_admin() OR is_admin()
-  OR (user_has_permission('admission.marketing.expos.view')
-      AND role_has_institution_access(institution_id))
+  institution_id IN (SELECT institution_id FROM user_institution_access WHERE user_id = auth.uid())
+  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+  OR EXISTS (SELECT 1 FROM user_roles ur JOIN custom_roles cr ON ur.role_id = cr.id WHERE ur.user_id = auth.uid() AND cr.role_key = 'admission')
 );
 CREATE POLICY "expo_reports_insert" ON expo_daily_reports FOR INSERT WITH CHECK (
-  is_super_admin() OR is_admin()
-  OR (user_has_permission('admission.marketing.expos.create')
-      AND role_has_institution_access(institution_id))
+  institution_id IN (SELECT institution_id FROM user_institution_access WHERE user_id = auth.uid())
+  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+  OR EXISTS (SELECT 1 FROM user_roles ur JOIN custom_roles cr ON ur.role_id = cr.id WHERE ur.user_id = auth.uid() AND cr.role_key = 'admission')
 );
 CREATE POLICY "expo_reports_update" ON expo_daily_reports FOR UPDATE USING (
-  is_super_admin() OR is_admin()
-  OR (user_has_permission('admission.marketing.expos.edit')
-      AND role_has_institution_access(institution_id))
+  institution_id IN (SELECT institution_id FROM user_institution_access WHERE user_id = auth.uid())
+  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+  OR EXISTS (SELECT 1 FROM user_roles ur JOIN custom_roles cr ON ur.role_id = cr.id WHERE ur.user_id = auth.uid() AND cr.role_key = 'admission')
 );
 CREATE POLICY "expo_reports_delete" ON expo_daily_reports FOR DELETE USING (
-  is_super_admin() OR is_admin()
-  OR (user_has_permission('admission.marketing.expos.delete')
-      AND role_has_institution_access(institution_id))
+  institution_id IN (SELECT institution_id FROM user_institution_access WHERE user_id = auth.uid())
+  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+  OR EXISTS (SELECT 1 FROM user_roles ur JOIN custom_roles cr ON ur.role_id = cr.id WHERE ur.user_id = auth.uid() AND cr.role_key = 'admission')
 );
 
 -- =============================================================================
@@ -3595,12 +3532,10 @@ CREATE POLICY "expo_reports_delete" ON expo_daily_reports FOR DELETE USING (
 
 ALTER TABLE expo_wa_message_queue ENABLE ROW LEVEL SECURITY;
 
--- Updated: 2026-04-28 — Migrated to dynamic permission pattern (matches expo module sweep)
 CREATE POLICY "expo_wa_queue_select" ON expo_wa_message_queue FOR SELECT USING (
-  is_super_admin() OR is_admin()
-  OR (user_has_permission('admission.marketing.expos.view')
-      AND role_has_institution_access(_expo_event_institution_id(expo_event_id)))
-  OR expo_event_id = ANY(get_my_expo_event_ids())
+  expo_event_id = ANY(get_my_expo_event_ids())
+  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+  OR EXISTS (SELECT 1 FROM user_roles ur JOIN custom_roles cr ON ur.role_id = cr.id WHERE ur.user_id = auth.uid() AND cr.role_key = 'admission')
 );
 
 -- =============================================================================
@@ -4592,36 +4527,21 @@ CREATE POLICY "events_reg_public_event_read" ON public.events_registrations
 CREATE POLICY "events_reg_self_read" ON public.events_registrations
   FOR SELECT TO authenticated USING (profile_id = auth.uid());
 
--- ── payment_transactions (billing module) ────────────────────────────────────
--- Razorpay migration (2026-05-22): tighten UPDATE on payment_transactions to service_role only.
--- This replaces the legacy "System can update payment transactions" policy that allowed any
--- authenticated user to UPDATE; webhook handlers run under the service role.
-DROP POLICY IF EXISTS "System can update payment transactions" ON public.payment_transactions;
-DROP POLICY IF EXISTS "Service role can update payment transactions" ON public.payment_transactions;
-CREATE POLICY "Service role can update payment transactions" ON public.payment_transactions
-  FOR UPDATE
-  USING (auth.role() = 'service_role')
-  WITH CHECK (auth.role() = 'service_role');
-
 -- ── event_payment_transactions ────────────────────────────────────────────────
 
 ALTER TABLE public.event_payment_transactions ENABLE ROW LEVEL SECURITY;
 
--- Tightened 2026-05-22 for Razorpay migration: writes must come from service_role
--- (webhook handler / server-side API routes). Legacy permissive policies removed.
-DROP POLICY IF EXISTS "event_payments_public_insert" ON public.event_payment_transactions;
-DROP POLICY IF EXISTS "event_payments_public_read" ON public.event_payment_transactions;
-DROP POLICY IF EXISTS "event_payments_public_update" ON public.event_payment_transactions;
+-- Anyone can insert (payment gateway initiates transactions)
+CREATE POLICY "event_payments_public_insert" ON public.event_payment_transactions
+  FOR INSERT WITH CHECK (true);
 
--- Service role inserts payment rows (server-side API routes only)
-CREATE POLICY "Service role can insert event payments" ON public.event_payment_transactions
-  FOR INSERT WITH CHECK (auth.role() = 'service_role');
+-- Public read needed for status checks by external app and payers
+CREATE POLICY "event_payments_public_read" ON public.event_payment_transactions
+  FOR SELECT USING (true);
 
--- Service role updates payment rows (webhook handler only)
-CREATE POLICY "Service role can update event payments" ON public.event_payment_transactions
-  FOR UPDATE
-  USING (auth.role() = 'service_role')
-  WITH CHECK (auth.role() = 'service_role');
+-- Public update needed for gateway webhooks to update status
+CREATE POLICY "event_payments_public_update" ON public.event_payment_transactions
+  FOR UPDATE USING (true);
 
 -- Authenticated users can read all payment transactions for their institution
 CREATE POLICY "event_payments_auth_read" ON public.event_payment_transactions
@@ -4630,25 +4550,6 @@ CREATE POLICY "event_payments_auth_read" ON public.event_payment_transactions
       SELECT institution_id FROM public.profiles WHERE id = auth.uid()
     )
   );
-
--- ── payment_disputes (Razorpay chargebacks) ───────────────────────────────────
-
-ALTER TABLE public.payment_disputes ENABLE ROW LEVEL SECURITY;
-
-DROP POLICY IF EXISTS "Admins can view all disputes" ON public.payment_disputes;
-CREATE POLICY "Admins can view all disputes" ON public.payment_disputes
-  FOR SELECT
-  USING (auth.role() = 'service_role' OR EXISTS (
-    SELECT 1 FROM public.profiles
-    WHERE profiles.id = auth.uid()
-      AND profiles.role IN ('super_admin','admin','institution_admin')
-  ));
-
-DROP POLICY IF EXISTS "Service role can write disputes" ON public.payment_disputes;
-CREATE POLICY "Service role can write disputes" ON public.payment_disputes
-  FOR ALL
-  USING (auth.role() = 'service_role')
-  WITH CHECK (auth.role() = 'service_role');
 
 -- ── marathon_sponsors ─────────────────────────────────────────────────────────
 
@@ -4826,53 +4727,29 @@ ALTER TABLE admission_form_templates ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "admission_form_templates_select" ON admission_form_templates
   FOR SELECT USING (is_system = true OR auth.uid() IS NOT NULL);
 
--- Forms: gated by the dedicated admission.settings.forms.* namespace
--- (migrated 2026-05-13 from admission.applications.* — see migration
--- 20260513140000_admission_forms_namespace_and_role_seeds.sql for the
--- rationale and the per-role seed matrix).
-CREATE POLICY adm_forms_select ON admission_forms
+-- Forms: institution-scoped CRUD via profiles.institution_id
+CREATE POLICY "admission_forms_select" ON admission_forms
   FOR SELECT USING (
-    is_super_admin()
-    OR is_admin()
-    OR (
-      user_has_permission('admission.settings.forms.view')
-      AND role_has_institution_access(institution_id)
-    )
+    institution_id IN (SELECT institution_id FROM profiles WHERE id = auth.uid())
+    OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
   );
 
-CREATE POLICY adm_forms_insert ON admission_forms
+CREATE POLICY "admission_forms_insert" ON admission_forms
   FOR INSERT WITH CHECK (
-    is_super_admin()
-    OR is_admin()
-    OR user_has_permission('admission.settings.forms.manage')
+    institution_id IN (SELECT institution_id FROM profiles WHERE id = auth.uid())
+    OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
   );
 
-CREATE POLICY adm_forms_update ON admission_forms
+CREATE POLICY "admission_forms_update" ON admission_forms
   FOR UPDATE USING (
-    is_super_admin()
-    OR is_admin()
-    OR (
-      user_has_permission('admission.settings.forms.manage')
-      AND role_has_institution_access(institution_id)
-    )
-  )
-  WITH CHECK (
-    is_super_admin()
-    OR is_admin()
-    OR (
-      user_has_permission('admission.settings.forms.manage')
-      AND role_has_institution_access(institution_id)
-    )
+    institution_id IN (SELECT institution_id FROM profiles WHERE id = auth.uid())
+    OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
   );
 
-CREATE POLICY adm_forms_delete ON admission_forms
+CREATE POLICY "admission_forms_delete" ON admission_forms
   FOR DELETE USING (
-    is_super_admin()
-    OR is_admin()
-    OR (
-      user_has_permission('admission.settings.forms.manage')
-      AND role_has_institution_access(institution_id)
-    )
+    institution_id IN (SELECT institution_id FROM profiles WHERE id = auth.uid())
+    OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
   );
 
 -- Sections & Fields: cascade from form access
@@ -4950,86 +4827,34 @@ CREATE POLICY dashboard_config_modify ON dashboard_config FOR ALL USING (
 -- =============================================================================
 
 -- ---- staff -------------------------------------------------------------------
--- Updated: 2026-05-11 - Staff module scope lockdown.
--- Replaces the prior staff_*_permission set (2026-04) with scope-aware policies
--- that branch on get_user_module_scope('staff'):
---   all_institutions -> any row (super_admin, hr_admin)
---   own_institution  -> rows in accessible institutions (hod, principal)
---   own_records      -> single row where staff.profile_id = auth.uid()
--- See migration: supabase/migrations/20260511_staff_module_scope_lockdown.sql
-DROP POLICY IF EXISTS "staff_select_permission" ON staff;
-DROP POLICY IF EXISTS "staff_insert_permission" ON staff;
-DROP POLICY IF EXISTS "staff_update_permission" ON staff;
-DROP POLICY IF EXISTS "staff_delete_permission" ON staff;
--- Belt-and-braces: also drop older policy names in case they linger in dev/staging
 DROP POLICY IF EXISTS "staff_select_by_institution_access" ON staff;
 DROP POLICY IF EXISTS "staff_select_event_coordinator"     ON staff;
 DROP POLICY IF EXISTS "staff_insert_by_access_type"        ON staff;
 DROP POLICY IF EXISTS "staff_update_by_access_type"        ON staff;
 DROP POLICY IF EXISTS "staff_delete_by_admin_access"       ON staff;
 
-CREATE POLICY "staff_select_scope_aware" ON staff
-FOR SELECT USING (
-  is_super_admin()
-  OR (
-    user_has_permission('staff.view')
-    AND (
-      CASE get_user_module_scope('staff')
-        WHEN 'all_institutions' THEN TRUE
-        WHEN 'own_institution'  THEN role_has_institution_access(staff.institution_id)
-        WHEN 'own_records'      THEN staff.profile_id = auth.uid()
-        ELSE FALSE
-      END
-    )
-  )
+CREATE POLICY "staff_select_permission" ON staff FOR SELECT USING (
+  is_super_admin() OR is_admin()
+  OR (user_has_permission('staff.view')
+      AND role_has_module_access('staff', institution_id, institution_email))
+  OR institution_email = (SELECT auth.email())  -- self-view by institution_email
 );
-
-CREATE POLICY "staff_insert_scope_aware" ON staff
-FOR INSERT WITH CHECK (
-  is_super_admin()
-  OR (
-    user_has_permission('staff.create')
-    AND (
-      CASE get_user_module_scope('staff')
-        WHEN 'all_institutions' THEN TRUE
-        WHEN 'own_institution'  THEN role_has_institution_access(staff.institution_id)
-        -- own_records can never INSERT (their row should already exist via HR)
-        ELSE FALSE
-      END
-    )
-  )
+-- INSERT keeps institution-only check: 'own_records' doesn't apply to creation
+-- (the row doesn't exist yet, so there's no owner_email to compare against).
+CREATE POLICY "staff_insert_permission" ON staff FOR INSERT WITH CHECK (
+  is_super_admin() OR is_admin()
+  OR (user_has_permission('staff.create') AND role_has_institution_access(institution_id))
 );
-
-CREATE POLICY "staff_update_scope_aware" ON staff
-FOR UPDATE USING (
-  is_super_admin()
-  OR (
-    user_has_permission('staff.edit')
-    AND (
-      CASE get_user_module_scope('staff')
-        WHEN 'all_institutions' THEN TRUE
-        WHEN 'own_institution'  THEN role_has_institution_access(staff.institution_id)
-        WHEN 'own_records'      THEN staff.profile_id = auth.uid()
-        ELSE FALSE
-      END
-    )
-  )
+CREATE POLICY "staff_update_permission" ON staff FOR UPDATE USING (
+  is_super_admin() OR is_admin()
+  OR (user_has_permission('staff.edit')
+      AND role_has_module_access('staff', institution_id, institution_email))
+  OR institution_email = (SELECT auth.email())  -- self-update by institution_email
 );
-
-CREATE POLICY "staff_delete_scope_aware" ON staff
-FOR DELETE USING (
-  is_super_admin()
-  OR (
-    user_has_permission('staff.delete')
-    AND (
-      CASE get_user_module_scope('staff')
-        WHEN 'all_institutions' THEN TRUE
-        WHEN 'own_institution'  THEN role_has_institution_access(staff.institution_id)
-        -- own_records never deletes
-        ELSE FALSE
-      END
-    )
-  )
+CREATE POLICY "staff_delete_permission" ON staff FOR DELETE USING (
+  is_super_admin() OR is_admin()
+  OR (user_has_permission('staff.delete')
+      AND role_has_module_access('staff', institution_id, institution_email))
 );
 
 -- ---- employment_categories ---------------------------------------------------
@@ -5569,882 +5394,806 @@ CREATE POLICY notifications_delete_admins ON notifications FOR DELETE USING (
   is_super_admin() OR is_admin(auth.uid())
 );
 
--- =====================================================
--- 2026-04-27 — admission_lead_source_captures policies
--- Mirror admission_leads RLS shape. Counselor branch in SELECT lets an
--- assigned counselor read captures for their lead even without an
--- explicit admission.leads.view perm.
--- =====================================================
-CREATE POLICY alsc_select_permission
-ON public.admission_lead_source_captures
-FOR SELECT
-USING (
-  public.is_super_admin()
-  OR public.is_admin()
-  OR (
-    public.user_has_permission('admission.leads.view')
-    AND public.role_has_institution_access(institution_id)
-  )
-  OR EXISTS (
-    SELECT 1 FROM public.admission_leads l
-    WHERE l.id = admission_lead_source_captures.lead_id
-      AND l.assigned_counselor_id = auth.uid()
-  )
-);
+-- ================================================================================
+-- IMS (Inventory Management System) RLS POLICIES
+-- ================================================================================
+-- Added 2026-04-28 — wires the IMS module into MyJKKN's canonical role-based
+-- access. Replaces the legacy raw-role pattern
+--   USING (institution_id = (SELECT profiles.institution_id ...) OR get_current_user_role() = 'super_admin')
+-- with the standard pattern enforced project-wide:
+--   is_super_admin() OR is_admin(auth.uid())
+--   OR (user_has_permission('key') AND role_has_institution_access(institution_id))
+--
+-- Closes the two known security holes flagged in
+--   docs/modules/ims/2026-04-27-MODULE-supabase-database-schema.md §8:
+--     - ims_supply_shipments       previously USING (true)
+--     - ims_supply_shipment_items  previously USING (true)
+-- Both now require ims.transfers.{view,dispatch,receive} + institution access.
+--
+-- IMS table inventory (25 tables):
+--   13 institution-scoped root tables  (institution_id column on row)
+--    4 institution-scoped counter tables (atomic sequence increments)
+--    4 global reference tables          (no institution_id — units, suppliers, …)
+--    4 child / junction tables          (FK-scoped — RLS via parent EXISTS)
+--
+-- Guarded by `to_regclass('public.ims_stores')`. If IMS migrations have not
+-- been applied to the target database (e.g. a fresh staging cut), this entire
+-- block emits a NOTICE and exits — no error. Re-run after IMS DDL lands.
+--
+-- Why pg_temp helper functions: 25 tables × 4 policies = 100 near-identical
+-- DDL statements. The helpers compress this to one template + per-table call,
+-- which is auditable AND drops itself at session end (no permanent schema
+-- pollution). Permission keys are passed as arguments so per-table policy
+-- targets remain explicit and greppable.
+-- ================================================================================
 
-CREATE POLICY alsc_insert_permission
-ON public.admission_lead_source_captures
-FOR INSERT
-WITH CHECK (
-  public.is_super_admin()
-  OR public.is_admin()
-  OR public.user_has_permission('admission.leads.create')
-);
+DO $$
+BEGIN
+  IF to_regclass('public.ims_stores') IS NULL THEN
+    RAISE NOTICE '[ims-rls] ims_* tables not present in this database — skipping IMS RLS section. Apply IMS table migration first, then re-run 03_policies.sql.';
+    RETURN;
+  END IF;
 
-CREATE POLICY alsc_update_permission
-ON public.admission_lead_source_captures
-FOR UPDATE
-USING (
-  public.is_super_admin()
-  OR public.is_admin()
-  OR (
-    public.user_has_permission('admission.leads.edit')
-    AND public.role_has_institution_access(institution_id)
-  )
-)
-WITH CHECK (
-  public.is_super_admin()
-  OR public.is_admin()
-  OR (
-    public.user_has_permission('admission.leads.edit')
-    AND public.role_has_institution_access(institution_id)
-  )
-);
+  -- ── Helper #1: institution-scoped tables (13 root + 4 counters = 17) ─────────
+  -- Tables with an institution_id column directly on the row. Reads gated by
+  -- p_view, writes by p_write. Both also require role_has_institution_access
+  -- on the row's institution_id for non-admins.
+  CREATE OR REPLACE FUNCTION pg_temp.ims_apply_inst_policies(
+    p_table TEXT, p_view TEXT, p_write TEXT
+  ) RETURNS void AS $fn$
+  BEGIN
+    EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY', p_table);
+    EXECUTE format('DROP POLICY IF EXISTS %I ON public.%I', p_table || '_select', p_table);
+    EXECUTE format('DROP POLICY IF EXISTS %I ON public.%I', p_table || '_insert', p_table);
+    EXECUTE format('DROP POLICY IF EXISTS %I ON public.%I', p_table || '_update', p_table);
+    EXECUTE format('DROP POLICY IF EXISTS %I ON public.%I', p_table || '_delete', p_table);
 
-CREATE POLICY alsc_delete_permission
-ON public.admission_lead_source_captures
-FOR DELETE
-USING (
-  public.is_super_admin()
-  OR public.is_admin()
-  OR (
-    public.user_has_permission('admission.leads.delete')
-    AND public.role_has_institution_access(institution_id)
-  )
-);
+    EXECUTE format(
+      'CREATE POLICY %I ON public.%I FOR SELECT TO authenticated USING ('
+      'is_super_admin() OR is_admin(auth.uid()) '
+      'OR (user_has_permission(%L) AND role_has_institution_access(institution_id)))',
+      p_table || '_select', p_table, p_view);
 
--- ════════════════════════════════════════════════════════════════════════════
--- Updated: 2026-04-28 — Attention Bar Phase 1 — RLS Policies
--- 7 tables × 15 policies. All follow CLAUDE.md standardized pattern:
---   (is_super_admin OR is_admin) OR (user_has_permission AND institution_access)
--- Permission keys: attention_bar.{rules.view, rules.manage, audit.view, config.manage, test_sandbox.use}
--- Applied to prod via Supabase MCP 2026-04-28.
--- ════════════════════════════════════════════════════════════════════════════
+    EXECUTE format(
+      'CREATE POLICY %I ON public.%I FOR INSERT TO authenticated WITH CHECK ('
+      'is_super_admin() OR is_admin(auth.uid()) '
+      'OR (user_has_permission(%L) AND role_has_institution_access(institution_id)))',
+      p_table || '_insert', p_table, p_write);
 
-ALTER TABLE public.quick_action_rules         ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.quick_action_state_queries ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.quick_action_taps          ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.quick_action_user_consent  ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.quick_action_ai_cache      ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.quick_action_audit         ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.quick_action_config        ENABLE ROW LEVEL SECURITY;
+    EXECUTE format(
+      'CREATE POLICY %I ON public.%I FOR UPDATE TO authenticated '
+      'USING ('
+      'is_super_admin() OR is_admin(auth.uid()) '
+      'OR (user_has_permission(%L) AND role_has_institution_access(institution_id))) '
+      'WITH CHECK ('
+      'is_super_admin() OR is_admin(auth.uid()) '
+      'OR (user_has_permission(%L) AND role_has_institution_access(institution_id)))',
+      p_table || '_update', p_table, p_write, p_write);
 
--- quick_action_rules
-DROP POLICY IF EXISTS qar_select ON public.quick_action_rules;
-CREATE POLICY qar_select ON public.quick_action_rules
-    FOR SELECT USING (
-        is_super_admin() OR is_admin()
-        OR (user_has_permission('attention_bar.rules.view')
-            AND (institution_id IS NULL OR role_has_institution_access(institution_id)))
-    );
-DROP POLICY IF EXISTS qar_modify ON public.quick_action_rules;
-CREATE POLICY qar_modify ON public.quick_action_rules
-    FOR ALL USING (
-        is_super_admin()
-        OR user_has_permission('attention_bar.rules.manage')
-    );
+    EXECUTE format(
+      'CREATE POLICY %I ON public.%I FOR DELETE TO authenticated USING ('
+      'is_super_admin() OR is_admin(auth.uid()) '
+      'OR (user_has_permission(%L) AND role_has_institution_access(institution_id)))',
+      p_table || '_delete', p_table, p_write);
+  END;
+  $fn$ LANGUAGE plpgsql;
 
--- quick_action_state_queries
-DROP POLICY IF EXISTS qasq_select ON public.quick_action_state_queries;
-CREATE POLICY qasq_select ON public.quick_action_state_queries
-    FOR SELECT USING (
-        is_super_admin() OR is_admin()
-        OR user_has_permission('attention_bar.rules.view')
-    );
-DROP POLICY IF EXISTS qasq_modify ON public.quick_action_state_queries;
-CREATE POLICY qasq_modify ON public.quick_action_state_queries
-    FOR ALL USING (is_super_admin());
+  -- ── Helper #2: global reference tables (no institution_id) ───────────────────
+  -- Read open to any user with ims.view; writes restricted to settings keys.
+  CREATE OR REPLACE FUNCTION pg_temp.ims_apply_global_policies(
+    p_table TEXT, p_write TEXT
+  ) RETURNS void AS $fn$
+  BEGIN
+    EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY', p_table);
+    EXECUTE format('DROP POLICY IF EXISTS %I ON public.%I', p_table || '_select', p_table);
+    EXECUTE format('DROP POLICY IF EXISTS %I ON public.%I', p_table || '_insert', p_table);
+    EXECUTE format('DROP POLICY IF EXISTS %I ON public.%I', p_table || '_update', p_table);
+    EXECUTE format('DROP POLICY IF EXISTS %I ON public.%I', p_table || '_delete', p_table);
 
--- quick_action_taps (user reads/inserts/deletes own; admin reads all)
-DROP POLICY IF EXISTS qat_self_read ON public.quick_action_taps;
-CREATE POLICY qat_self_read ON public.quick_action_taps
-    FOR SELECT USING (user_id = auth.uid() OR is_super_admin() OR is_admin());
-DROP POLICY IF EXISTS qat_self_insert ON public.quick_action_taps;
-CREATE POLICY qat_self_insert ON public.quick_action_taps
-    FOR INSERT WITH CHECK (user_id = auth.uid());
-DROP POLICY IF EXISTS qat_self_delete ON public.quick_action_taps;
-CREATE POLICY qat_self_delete ON public.quick_action_taps
-    FOR DELETE USING (user_id = auth.uid() OR is_super_admin());
+    EXECUTE format(
+      'CREATE POLICY %I ON public.%I FOR SELECT TO authenticated USING ('
+      'is_super_admin() OR is_admin(auth.uid()) OR user_has_permission(%L))',
+      p_table || '_select', p_table, 'ims.view');
 
--- quick_action_user_consent (user owns their row)
-DROP POLICY IF EXISTS qauc_self ON public.quick_action_user_consent;
-CREATE POLICY qauc_self ON public.quick_action_user_consent
-    FOR ALL USING (user_id = auth.uid() OR is_super_admin());
+    EXECUTE format(
+      'CREATE POLICY %I ON public.%I FOR INSERT TO authenticated WITH CHECK ('
+      'is_super_admin() OR is_admin(auth.uid()) OR user_has_permission(%L))',
+      p_table || '_insert', p_table, p_write);
 
--- quick_action_ai_cache
-DROP POLICY IF EXISTS qac_select ON public.quick_action_ai_cache;
-CREATE POLICY qac_select ON public.quick_action_ai_cache
-    FOR SELECT USING (auth.uid() IS NOT NULL);
-DROP POLICY IF EXISTS qac_modify ON public.quick_action_ai_cache;
-CREATE POLICY qac_modify ON public.quick_action_ai_cache
-    FOR ALL USING (is_super_admin());
+    EXECUTE format(
+      'CREATE POLICY %I ON public.%I FOR UPDATE TO authenticated '
+      'USING (is_super_admin() OR is_admin(auth.uid()) OR user_has_permission(%L)) '
+      'WITH CHECK (is_super_admin() OR is_admin(auth.uid()) OR user_has_permission(%L))',
+      p_table || '_update', p_table, p_write, p_write);
 
--- quick_action_audit (admin reads via permission, self reads/deletes own)
-DROP POLICY IF EXISTS qau_admin_read ON public.quick_action_audit;
-CREATE POLICY qau_admin_read ON public.quick_action_audit
-    FOR SELECT USING (
-        is_super_admin() OR is_admin()
-        OR user_has_permission('attention_bar.audit.view')
-    );
-DROP POLICY IF EXISTS qau_self_read ON public.quick_action_audit;
-CREATE POLICY qau_self_read ON public.quick_action_audit
-    FOR SELECT USING (user_id = auth.uid());
-DROP POLICY IF EXISTS qau_self_delete ON public.quick_action_audit;
-CREATE POLICY qau_self_delete ON public.quick_action_audit
-    FOR DELETE USING (user_id = auth.uid() OR is_super_admin());
+    EXECUTE format(
+      'CREATE POLICY %I ON public.%I FOR DELETE TO authenticated USING ('
+      'is_super_admin() OR is_admin(auth.uid()) OR user_has_permission(%L))',
+      p_table || '_delete', p_table, p_write);
+  END;
+  $fn$ LANGUAGE plpgsql;
 
--- quick_action_config (admin reads via permission, super_admin writes)
-DROP POLICY IF EXISTS qaconf_read ON public.quick_action_config;
-CREATE POLICY qaconf_read ON public.quick_action_config
-    FOR SELECT USING (
-        is_super_admin() OR is_admin()
-        OR user_has_permission('attention_bar.config.manage')
-    );
-DROP POLICY IF EXISTS qaconf_write ON public.quick_action_config;
-CREATE POLICY qaconf_write ON public.quick_action_config
-    FOR ALL USING (is_super_admin());
+  -- ── Helper #3: child tables (FK-scoped via parent EXISTS) ────────────────────
+  -- Child rows do not carry institution_id; instead, the parent does. Policy
+  -- joins to parent and checks role_has_institution_access(parent.institution_id).
+  -- p_fk = name of the FK column on the child pointing at the parent's id.
+  CREATE OR REPLACE FUNCTION pg_temp.ims_apply_child_policies(
+    p_table TEXT, p_fk TEXT, p_parent TEXT, p_view TEXT, p_write TEXT
+  ) RETURNS void AS $fn$
+  BEGIN
+    EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY', p_table);
+    EXECUTE format('DROP POLICY IF EXISTS %I ON public.%I', p_table || '_select', p_table);
+    EXECUTE format('DROP POLICY IF EXISTS %I ON public.%I', p_table || '_insert', p_table);
+    EXECUTE format('DROP POLICY IF EXISTS %I ON public.%I', p_table || '_update', p_table);
+    EXECUTE format('DROP POLICY IF EXISTS %I ON public.%I', p_table || '_delete', p_table);
 
--- =====================================================
--- 2026-04-29: HR Sprint 5 Attendance — RLS policies
--- (per specs/hrapp-sprint-5-attendance-spec.md)
--- =====================================================
+    EXECUTE format(
+      'CREATE POLICY %I ON public.%I FOR SELECT TO authenticated USING ('
+      'is_super_admin() OR is_admin(auth.uid()) OR EXISTS ('
+      '  SELECT 1 FROM public.%I p WHERE p.id = %I.%I '
+      '  AND user_has_permission(%L) AND role_has_institution_access(p.institution_id)))',
+      p_table || '_select', p_table, p_parent, p_table, p_fk, p_view);
 
-ALTER TABLE hr_attendance_status_types ENABLE ROW LEVEL SECURITY;
-ALTER TABLE hr_regularization_reasons ENABLE ROW LEVEL SECURITY;
-ALTER TABLE hr_attendance_records ENABLE ROW LEVEL SECURITY;
-ALTER TABLE hr_attendance_regularizations ENABLE ROW LEVEL SECURITY;
-ALTER TABLE hr_attendance_exceptions ENABLE ROW LEVEL SECURITY;
-ALTER TABLE hr_attendance_audit_log ENABLE ROW LEVEL SECURITY;
-ALTER TABLE hr_biometric_devices ENABLE ROW LEVEL SECURITY;
-ALTER TABLE hr_biometric_punches ENABLE ROW LEVEL SECURITY;
+    EXECUTE format(
+      'CREATE POLICY %I ON public.%I FOR INSERT TO authenticated WITH CHECK ('
+      'is_super_admin() OR is_admin(auth.uid()) OR EXISTS ('
+      '  SELECT 1 FROM public.%I p WHERE p.id = %I.%I '
+      '  AND user_has_permission(%L) AND role_has_institution_access(p.institution_id)))',
+      p_table || '_insert', p_table, p_parent, p_table, p_fk, p_write);
 
--- ---------- hr_attendance_status_types ----------
-DROP POLICY IF EXISTS hr_status_types_select ON hr_attendance_status_types;
-CREATE POLICY hr_status_types_select ON hr_attendance_status_types
-  FOR SELECT USING (
-    is_super_admin() OR is_admin()
-    OR is_system = TRUE
-    OR (user_has_permission('hr.attendance.view_all') AND (institution_id IS NULL OR role_has_institution_access(institution_id)))
-    OR (user_has_permission('hr.attendance.view_self') AND (institution_id IS NULL OR role_has_institution_access(institution_id)))
-  );
-DROP POLICY IF EXISTS hr_status_types_insert ON hr_attendance_status_types;
-CREATE POLICY hr_status_types_insert ON hr_attendance_status_types
-  FOR INSERT WITH CHECK (
-    is_super_admin() OR is_admin()
-    OR (user_has_permission('hr.attendance.override') AND role_has_institution_access(institution_id))
-  );
-DROP POLICY IF EXISTS hr_status_types_update ON hr_attendance_status_types;
-CREATE POLICY hr_status_types_update ON hr_attendance_status_types
-  FOR UPDATE USING (
-    is_super_admin() OR is_admin()
-    OR (user_has_permission('hr.attendance.override') AND role_has_institution_access(institution_id))
-  );
-DROP POLICY IF EXISTS hr_status_types_delete ON hr_attendance_status_types;
-CREATE POLICY hr_status_types_delete ON hr_attendance_status_types
-  FOR DELETE USING (is_super_admin() OR (is_admin() AND is_system = FALSE));
+    EXECUTE format(
+      'CREATE POLICY %I ON public.%I FOR UPDATE TO authenticated '
+      'USING (is_super_admin() OR is_admin(auth.uid()) OR EXISTS ('
+      '  SELECT 1 FROM public.%I p WHERE p.id = %I.%I '
+      '  AND user_has_permission(%L) AND role_has_institution_access(p.institution_id))) '
+      'WITH CHECK (is_super_admin() OR is_admin(auth.uid()) OR EXISTS ('
+      '  SELECT 1 FROM public.%I p WHERE p.id = %I.%I '
+      '  AND user_has_permission(%L) AND role_has_institution_access(p.institution_id)))',
+      p_table || '_update', p_table,
+      p_parent, p_table, p_fk, p_write,
+      p_parent, p_table, p_fk, p_write);
 
--- ---------- hr_regularization_reasons ----------
-DROP POLICY IF EXISTS hr_reg_reasons_select ON hr_regularization_reasons;
-CREATE POLICY hr_reg_reasons_select ON hr_regularization_reasons
-  FOR SELECT USING (
-    is_super_admin() OR is_admin()
-    OR is_system = TRUE
-    OR ((user_has_permission('hr.attendance.view_self') OR user_has_permission('hr.attendance.view_all'))
-        AND (institution_id IS NULL OR role_has_institution_access(institution_id)))
-  );
-DROP POLICY IF EXISTS hr_reg_reasons_insert ON hr_regularization_reasons;
-CREATE POLICY hr_reg_reasons_insert ON hr_regularization_reasons
-  FOR INSERT WITH CHECK (
-    is_super_admin() OR is_admin()
-    OR (user_has_permission('hr.attendance.override') AND role_has_institution_access(institution_id))
-  );
-DROP POLICY IF EXISTS hr_reg_reasons_update ON hr_regularization_reasons;
-CREATE POLICY hr_reg_reasons_update ON hr_regularization_reasons
-  FOR UPDATE USING (
-    is_super_admin() OR is_admin()
-    OR (user_has_permission('hr.attendance.override') AND role_has_institution_access(institution_id))
-  );
-DROP POLICY IF EXISTS hr_reg_reasons_delete ON hr_regularization_reasons;
-CREATE POLICY hr_reg_reasons_delete ON hr_regularization_reasons
-  FOR DELETE USING (is_super_admin() OR (is_admin() AND is_system = FALSE));
+    EXECUTE format(
+      'CREATE POLICY %I ON public.%I FOR DELETE TO authenticated USING ('
+      'is_super_admin() OR is_admin(auth.uid()) OR EXISTS ('
+      '  SELECT 1 FROM public.%I p WHERE p.id = %I.%I '
+      '  AND user_has_permission(%L) AND role_has_institution_access(p.institution_id)))',
+      p_table || '_delete', p_table, p_parent, p_table, p_fk, p_write);
+  END;
+  $fn$ LANGUAGE plpgsql;
 
--- ---------- hr_attendance_records ----------
-DROP POLICY IF EXISTS hr_attendance_records_select ON hr_attendance_records;
-CREATE POLICY hr_attendance_records_select ON hr_attendance_records
-  FOR SELECT USING (
-    is_super_admin() OR is_admin()
-    OR (user_has_permission('hr.attendance.view_all') AND role_has_institution_access(institution_id))
-    OR (user_has_permission('hr.attendance.view_self') AND auth.uid() = (SELECT user_id FROM hr_employees WHERE id = employee_id))
-  );
-DROP POLICY IF EXISTS hr_attendance_records_insert ON hr_attendance_records;
-CREATE POLICY hr_attendance_records_insert ON hr_attendance_records
-  FOR INSERT WITH CHECK (
-    is_super_admin() OR is_admin()
-    OR (user_has_permission('hr.attendance.override') AND role_has_institution_access(institution_id))
-    OR (user_has_permission('hr.attendance.mark_self') AND auth.uid() = (SELECT user_id FROM hr_employees WHERE id = employee_id))
-  );
-DROP POLICY IF EXISTS hr_attendance_records_update ON hr_attendance_records;
-CREATE POLICY hr_attendance_records_update ON hr_attendance_records
-  FOR UPDATE USING (
-    is_super_admin() OR is_admin()
-    OR (user_has_permission('hr.attendance.override') AND role_has_institution_access(institution_id))
-  );
-DROP POLICY IF EXISTS hr_attendance_records_delete ON hr_attendance_records;
-CREATE POLICY hr_attendance_records_delete ON hr_attendance_records
-  FOR DELETE USING (is_super_admin() OR (is_admin() AND user_has_permission('hr.attendance.override')));
+  -- ── Apply: institution-scoped root tables (13) ───────────────────────────────
+  PERFORM pg_temp.ims_apply_inst_policies('ims_stores',                  'ims.view',                'ims.settings.stores.manage');
+  PERFORM pg_temp.ims_apply_inst_policies('ims_items',                   'ims.inventory.view',      'ims.inventory.edit');
+  PERFORM pg_temp.ims_apply_inst_policies('ims_stock_summary',           'ims.stock.view',          'ims.stock.adjust');
+  PERFORM pg_temp.ims_apply_inst_policies('ims_stock_batches',           'ims.stock.view',          'ims.stock.adjust');
+  PERFORM pg_temp.ims_apply_inst_policies('ims_stock_issues',            'ims.stock.view',          'ims.stock.adjust');
+  PERFORM pg_temp.ims_apply_inst_policies('ims_department_consumption',  'ims.stock.view',          'ims.stock.adjust');
+  PERFORM pg_temp.ims_apply_inst_policies('ims_goods_received_notes',    'ims.stock.grn.view',      'ims.stock.grn.create');
+  PERFORM pg_temp.ims_apply_inst_policies('ims_indent_requests',         'ims.indents.view',        'ims.indents.edit');
+  -- ims_supply_shipments: handled in dedicated DO block below (no institution_id column;
+  -- scope is via source_store.institution_id and destination_institution_id).
+  -- Helper would crash on missing column. See "ims_supply_shipments hand-written" block.
+  PERFORM pg_temp.ims_apply_inst_policies('ims_sales',                   'ims.sales.view',          'ims.sales.create');
+  PERFORM pg_temp.ims_apply_inst_policies('ims_shifts',                  'ims.sales.view',          'ims.sales.create');
+  PERFORM pg_temp.ims_apply_inst_policies('ims_upi_qr_payments',         'ims.sales.view',          'ims.sales.create');
+  -- Financial transactions: read-only at user level. Writes happen via DB
+  -- triggers as side-effects of sales/grn posting. Gate the write path behind
+  -- a synthetic key no role grants — only super_admin / is_admin can mutate.
+  --
+  -- DESIGN NOTE (rls-reviewer BUG #10, 2026-05-02): 'ims.financial.write_admin_only'
+  -- is intentionally NOT in lib/constants/permissions.ts and intentionally
+  -- not grantable to any role. The only legitimate write paths are:
+  --   1) SECURITY DEFINER trigger/RPC functions (which run as table owner
+  --      and bypass RLS by design), and
+  --   2) service_role connections (also bypass RLS).
+  -- A normal user cannot mutate this table — by design. Do NOT add this key
+  -- to PERMISSION_CATEGORIES; that would defeat the safety net.
+  PERFORM pg_temp.ims_apply_inst_policies('ims_financial_transactions',  'ims.financial.view',      'ims.financial.write_admin_only');
 
--- ---------- hr_attendance_regularizations ----------
-DROP POLICY IF EXISTS hr_attendance_regs_select ON hr_attendance_regularizations;
-CREATE POLICY hr_attendance_regs_select ON hr_attendance_regularizations
-  FOR SELECT USING (
-    is_super_admin() OR is_admin()
-    OR user_has_permission('hr.attendance.view_all')
-    OR user_has_permission('hr.attendance.regularize_approve')
-    OR user_has_permission('hr.attendance.approve_team')
-    OR (user_has_permission('hr.attendance.regularize_self') AND auth.uid() = (SELECT user_id FROM hr_employees WHERE id = employee_id))
-  );
-DROP POLICY IF EXISTS hr_attendance_regs_insert ON hr_attendance_regularizations;
-CREATE POLICY hr_attendance_regs_insert ON hr_attendance_regularizations
-  FOR INSERT WITH CHECK (
-    is_super_admin() OR is_admin()
-    OR user_has_permission('hr.attendance.override')
-    OR (user_has_permission('hr.attendance.regularize_self') AND auth.uid() = (SELECT user_id FROM hr_employees WHERE id = employee_id))
-  );
-DROP POLICY IF EXISTS hr_attendance_regs_update ON hr_attendance_regularizations;
-CREATE POLICY hr_attendance_regs_update ON hr_attendance_regularizations
-  FOR UPDATE USING (
-    is_super_admin() OR is_admin()
-    OR user_has_permission('hr.attendance.regularize_approve')
-    OR user_has_permission('hr.attendance.approve_team')
-    OR user_has_permission('hr.attendance.override')
-  );
-DROP POLICY IF EXISTS hr_attendance_regs_delete ON hr_attendance_regularizations;
-CREATE POLICY hr_attendance_regs_delete ON hr_attendance_regularizations
-  FOR DELETE USING (is_super_admin() OR (is_admin() AND user_has_permission('hr.attendance.override')));
+  -- ── Apply: institution-scoped counter tables (4) ─────────────────────────────
+  -- Counters carry store_id only (no institution_id column). Live policies scope
+  -- via EXISTS-join through ims_stores. Helper ims_apply_inst_policies would
+  -- reference a non-existent column and crash, so these are handled in a
+  -- hand-written DO block below ("counter tables hand-written").
 
--- ---------- hr_attendance_exceptions ----------
-DROP POLICY IF EXISTS hr_attendance_excs_select ON hr_attendance_exceptions;
-CREATE POLICY hr_attendance_excs_select ON hr_attendance_exceptions
-  FOR SELECT USING (
-    is_super_admin() OR is_admin()
-    OR (user_has_permission('hr.attendance.view_all') AND role_has_institution_access(institution_id))
-  );
-DROP POLICY IF EXISTS hr_attendance_excs_insert ON hr_attendance_exceptions;
-CREATE POLICY hr_attendance_excs_insert ON hr_attendance_exceptions
-  FOR INSERT WITH CHECK (is_super_admin() OR is_admin() OR user_has_permission('hr.attendance.override'));
-DROP POLICY IF EXISTS hr_attendance_excs_update ON hr_attendance_exceptions;
-CREATE POLICY hr_attendance_excs_update ON hr_attendance_exceptions
-  FOR UPDATE USING (
-    is_super_admin() OR is_admin()
-    OR (user_has_permission('hr.attendance.override') AND role_has_institution_access(institution_id))
-  );
-DROP POLICY IF EXISTS hr_attendance_excs_delete ON hr_attendance_exceptions;
-CREATE POLICY hr_attendance_excs_delete ON hr_attendance_exceptions
-  FOR DELETE USING (is_super_admin() OR (is_admin() AND user_has_permission('hr.attendance.override')));
+  -- ── Apply: global reference tables (2) ───────────────────────────────────────
+  -- Truly global tables with NO scoping column: ims_units only.
+  -- (ims_unit_conversions, ims_item_categories, ims_suppliers are scoped — see
+  -- their hand-written blocks below.)
+  PERFORM pg_temp.ims_apply_global_policies('ims_units',             'ims.settings.units.manage');
 
--- ---------- hr_attendance_audit_log ----------
-DROP POLICY IF EXISTS hr_attendance_audit_select ON hr_attendance_audit_log;
-CREATE POLICY hr_attendance_audit_select ON hr_attendance_audit_log
-  FOR SELECT USING (
-    is_super_admin() OR is_admin()
-    OR ((user_has_permission('hr.attendance.view_all') OR user_has_permission('hr.attendance.audit_export'))
-        AND (institution_id IS NULL OR role_has_institution_access(institution_id)))
-  );
-DROP POLICY IF EXISTS hr_attendance_audit_insert ON hr_attendance_audit_log;
-CREATE POLICY hr_attendance_audit_insert ON hr_attendance_audit_log
-  FOR INSERT WITH CHECK (
-    is_super_admin() OR is_admin()
-    OR user_has_permission('hr.attendance.override')
-    OR user_has_permission('hr.attendance.mark_self')
-    OR user_has_permission('hr.attendance.regularize_approve')
-    OR user_has_permission('hr.attendance.approve_team')
-  );
-DROP POLICY IF EXISTS hr_attendance_audit_delete ON hr_attendance_audit_log;
-CREATE POLICY hr_attendance_audit_delete ON hr_attendance_audit_log
-  FOR DELETE USING (is_super_admin());
+  -- ── ims_unit_conversions: child of ims_items (scoped via item.institution_id) ─
+  -- Live DB scopes via EXISTS-join on ims_items. Setup script previously declared
+  -- it as a global table — re-applying would loosen scope. Use child helper.
+  PERFORM pg_temp.ims_apply_child_policies(
+    'ims_unit_conversions',  'item_id',
+    'ims_items',             'ims.view',  'ims.settings.units.manage');
 
--- ---------- hr_biometric_devices ----------
-DROP POLICY IF EXISTS hr_biometric_devices_select ON hr_biometric_devices;
-CREATE POLICY hr_biometric_devices_select ON hr_biometric_devices
-  FOR SELECT USING (
-    is_super_admin() OR is_admin()
-    OR (user_has_permission('hr.attendance.view_all') AND role_has_institution_access(institution_id))
-  );
-DROP POLICY IF EXISTS hr_biometric_devices_insert ON hr_biometric_devices;
-CREATE POLICY hr_biometric_devices_insert ON hr_biometric_devices
-  FOR INSERT WITH CHECK (
-    is_super_admin() OR is_admin()
-    OR (user_has_permission('hr.attendance.override') AND role_has_institution_access(institution_id))
-  );
-DROP POLICY IF EXISTS hr_biometric_devices_update ON hr_biometric_devices;
-CREATE POLICY hr_biometric_devices_update ON hr_biometric_devices
-  FOR UPDATE USING (
-    is_super_admin() OR is_admin()
-    OR (user_has_permission('hr.attendance.override') AND role_has_institution_access(institution_id))
-  );
-DROP POLICY IF EXISTS hr_biometric_devices_delete ON hr_biometric_devices;
-CREATE POLICY hr_biometric_devices_delete ON hr_biometric_devices
-  FOR DELETE USING (is_super_admin() OR (is_admin() AND user_has_permission('hr.attendance.override')));
+  -- ── ims_suppliers: institution-scoped (has institution_id column) ─────────────
+  -- Setup script previously declared it as global — re-applying would loosen scope.
+  PERFORM pg_temp.ims_apply_inst_policies('ims_suppliers', 'ims.view', 'ims.settings.suppliers.manage');
 
--- ---------- hr_biometric_punches ----------
-DROP POLICY IF EXISTS hr_biometric_punches_select ON hr_biometric_punches;
-CREATE POLICY hr_biometric_punches_select ON hr_biometric_punches
-  FOR SELECT USING (
-    is_super_admin() OR is_admin()
-    OR user_has_permission('hr.attendance.view_all')
-    OR (user_has_permission('hr.attendance.view_self') AND auth.uid() = (SELECT user_id FROM hr_employees WHERE id = employee_id))
-  );
-DROP POLICY IF EXISTS hr_biometric_punches_insert ON hr_biometric_punches;
-CREATE POLICY hr_biometric_punches_insert ON hr_biometric_punches
-  FOR INSERT WITH CHECK (is_super_admin() OR is_admin() OR user_has_permission('hr.attendance.override'));
-DROP POLICY IF EXISTS hr_biometric_punches_update ON hr_biometric_punches;
-CREATE POLICY hr_biometric_punches_update ON hr_biometric_punches
-  FOR UPDATE USING (is_super_admin() OR is_admin() OR user_has_permission('hr.attendance.override'));
-DROP POLICY IF EXISTS hr_biometric_punches_delete ON hr_biometric_punches;
-CREATE POLICY hr_biometric_punches_delete ON hr_biometric_punches
-  FOR DELETE USING (is_super_admin());
+  -- ims_item_categories: handled in dedicated DO block below
+  -- (has store_id but NO institution_id; scope must be via ims_stores EXISTS-join).
 
+  -- ── Apply: child / junction tables (4) — RLS via parent EXISTS ───────────────
+  -- FK column names follow the convention <parent_singular>_id. If a child
+  -- table uses a different FK name, update the second arg here AND verify
+  -- against information_schema.columns before applying in production.
+  PERFORM pg_temp.ims_apply_child_policies(
+    'ims_grn_items',             'grn_id',
+    'ims_goods_received_notes',  'ims.stock.grn.view',  'ims.stock.grn.create');
+  PERFORM pg_temp.ims_apply_child_policies(
+    'ims_indent_request_items',  'indent_id',
+    'ims_indent_requests',       'ims.indents.view',    'ims.indents.edit');
+  -- ims_supply_shipment_items: parent (ims_supply_shipments) has NO institution_id.
+  -- Generic child helper joins parent.institution_id and would crash. Hand-written
+  -- block below ("ims_supply_shipment_items hand-written") joins parent then
+  -- nests an EXISTS on ims_stores for source-side institution access.
+  PERFORM pg_temp.ims_apply_child_policies(
+    'ims_sale_items',            'sale_id',
+    'ims_sales',                 'ims.sales.view',      'ims.sales.create');
 
--- ============================================================================
--- 2026-04-29: platform_policies RLS (Phase 1.5a)
--- Read: any authenticated. Write: super_admin/admin only.
--- (Policies queried at runtime via SECURITY DEFINER fn_get_policy.)
--- ============================================================================
-ALTER TABLE platform_policies ENABLE ROW LEVEL SECURITY;
-
-DROP POLICY IF EXISTS platform_policies_select ON platform_policies;
-CREATE POLICY platform_policies_select ON platform_policies
-  FOR SELECT USING (auth.uid() IS NOT NULL);
-
-DROP POLICY IF EXISTS platform_policies_insert ON platform_policies;
-CREATE POLICY platform_policies_insert ON platform_policies
-  FOR INSERT WITH CHECK (is_super_admin() OR is_admin());
-
-DROP POLICY IF EXISTS platform_policies_update ON platform_policies;
-CREATE POLICY platform_policies_update ON platform_policies
-  FOR UPDATE USING (is_super_admin() OR is_admin())
-  WITH CHECK (is_super_admin() OR is_admin());
-
-DROP POLICY IF EXISTS platform_policies_delete ON platform_policies;
-CREATE POLICY platform_policies_delete ON platform_policies
-  FOR DELETE USING (is_super_admin() OR is_admin());
+  RAISE NOTICE '[ims-rls] Applied canonical role-based RLS to 25 ims_* tables.';
+END $$;
 
 -- =====================================================================
--- Updated: 2026-04-29 - Wave B.1 — Notification Generator Policy RLS.
--- Reuses attention_bar.rules.manage permission (per spec §5 — adding a new
--- permission key would create test-account churn for zero security gain).
--- Audit table: read-only for users; writes go through SECURITY DEFINER trigger.
+-- IMS Hand-Written RLS — tables that don't fit the helper template
+-- (added 2026-05-02 by rls-fixer; resolves scope-reviewer BUGs #2, #3, #6)
 -- =====================================================================
-ALTER TABLE public.notification_generator_config ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.notification_generator_config_audit ENABLE ROW LEVEL SECURITY;
+-- Some IMS tables do NOT carry an institution_id column directly. Routing
+-- them through the generic `ims_apply_inst_policies` helper would either
+-- crash (column missing) or, worse, generate policies with no institution
+-- scope (helper #2). These hand-written blocks match the live DB shape:
+--
+--   ims_item_categories        — store_id only, scope via ims_stores join
+--   ims_supply_shipments       — source_store_id + destination_institution_id
+--   ims_supply_shipment_items  — child of ims_supply_shipments
+--   ims_*_number_counters (4)  — store_id only, scope via ims_stores join
+--
+-- These run AFTER the helper-driven block, so DROP POLICY IF EXISTS clears
+-- any helper-generated artifacts before re-creating with the correct shape.
+-- =====================================================================
 
-DROP POLICY IF EXISTS notif_gen_cfg_select ON public.notification_generator_config;
-CREATE POLICY notif_gen_cfg_select ON public.notification_generator_config
-FOR SELECT USING (
-  is_super_admin() OR is_admin() OR user_has_permission('attention_bar.rules.manage')
-);
+-- ── ims_item_categories: store-scoped (no institution_id) ───────────────────
+-- BUG #2 FIX (HIGH): live policies were globally readable/writable across
+-- stores. Now reads any user with ims.view scoped to their store's institution;
+-- writes any user with ims.inventory.categories.manage on the row's store.
+DO $$
+BEGIN
+  IF to_regclass('public.ims_item_categories') IS NULL THEN
+    RAISE NOTICE '[ims-rls/item-categories] Skipped: table not present.';
+    RETURN;
+  END IF;
 
-DROP POLICY IF EXISTS notif_gen_cfg_insert ON public.notification_generator_config;
-CREATE POLICY notif_gen_cfg_insert ON public.notification_generator_config
-FOR INSERT WITH CHECK (
-  is_super_admin() OR user_has_permission('attention_bar.rules.manage')
-);
+  ALTER TABLE public.ims_item_categories ENABLE ROW LEVEL SECURITY;
 
-DROP POLICY IF EXISTS notif_gen_cfg_update ON public.notification_generator_config;
-CREATE POLICY notif_gen_cfg_update ON public.notification_generator_config
-FOR UPDATE USING (
-  is_super_admin() OR user_has_permission('attention_bar.rules.manage')
-);
+  DROP POLICY IF EXISTS ims_item_categories_select ON public.ims_item_categories;
+  CREATE POLICY ims_item_categories_select ON public.ims_item_categories
+    FOR SELECT TO authenticated USING (
+      is_super_admin() OR is_admin(auth.uid())
+      OR EXISTS (
+        SELECT 1 FROM public.ims_stores s
+        WHERE s.id = ims_item_categories.store_id
+          AND user_has_permission('ims.view')
+          AND role_has_institution_access(s.institution_id))
+    );
 
-DROP POLICY IF EXISTS notif_gen_cfg_delete ON public.notification_generator_config;
-CREATE POLICY notif_gen_cfg_delete ON public.notification_generator_config
-FOR DELETE USING (
-  is_super_admin() OR user_has_permission('attention_bar.rules.manage')
-);
+  DROP POLICY IF EXISTS ims_item_categories_insert ON public.ims_item_categories;
+  CREATE POLICY ims_item_categories_insert ON public.ims_item_categories
+    FOR INSERT TO authenticated WITH CHECK (
+      is_super_admin() OR is_admin(auth.uid())
+      OR EXISTS (
+        SELECT 1 FROM public.ims_stores s
+        WHERE s.id = ims_item_categories.store_id
+          AND user_has_permission('ims.inventory.categories.manage')
+          AND role_has_institution_access(s.institution_id))
+    );
 
-DROP POLICY IF EXISTS notif_gen_cfg_audit_select ON public.notification_generator_config_audit;
-CREATE POLICY notif_gen_cfg_audit_select ON public.notification_generator_config_audit
-FOR SELECT USING (
-  is_super_admin() OR is_admin() OR user_has_permission('attention_bar.rules.manage')
-);
+  DROP POLICY IF EXISTS ims_item_categories_update ON public.ims_item_categories;
+  CREATE POLICY ims_item_categories_update ON public.ims_item_categories
+    FOR UPDATE TO authenticated
+    USING (
+      is_super_admin() OR is_admin(auth.uid())
+      OR EXISTS (
+        SELECT 1 FROM public.ims_stores s
+        WHERE s.id = ims_item_categories.store_id
+          AND user_has_permission('ims.inventory.categories.manage')
+          AND role_has_institution_access(s.institution_id))
+    )
+    WITH CHECK (
+      is_super_admin() OR is_admin(auth.uid())
+      OR EXISTS (
+        SELECT 1 FROM public.ims_stores s
+        WHERE s.id = ims_item_categories.store_id
+          AND user_has_permission('ims.inventory.categories.manage')
+          AND role_has_institution_access(s.institution_id))
+    );
+
+  DROP POLICY IF EXISTS ims_item_categories_delete ON public.ims_item_categories;
+  CREATE POLICY ims_item_categories_delete ON public.ims_item_categories
+    FOR DELETE TO authenticated USING (
+      is_super_admin() OR is_admin(auth.uid())
+      OR EXISTS (
+        SELECT 1 FROM public.ims_stores s
+        WHERE s.id = ims_item_categories.store_id
+          AND user_has_permission('ims.inventory.categories.manage')
+          AND role_has_institution_access(s.institution_id))
+    );
+
+  RAISE NOTICE '[ims-rls/item-categories] Store-scoped policies applied (BUG #2 fix).';
+END $$;
+
+-- ── ims_supply_shipments: dual-side scoping (no institution_id) ──────────────
+-- BUG #3 FIX (HIGH): table has source_store_id + destination_institution_id.
+-- BUG #1 FIX (HIGH): UPDATE/DELETE narrowed to source-side only via
+-- ims.transfers.dispatch. Receive-side updates are handled by the additive
+-- ims_supply_shipments_update_receive policy (in granular overrides block).
+-- INSERT only by source store's institution; SELECT visible to either side.
+DO $$
+BEGIN
+  IF to_regclass('public.ims_supply_shipments') IS NULL THEN
+    RAISE NOTICE '[ims-rls/supply-shipments] Skipped: table not present.';
+    RETURN;
+  END IF;
+
+  ALTER TABLE public.ims_supply_shipments ENABLE ROW LEVEL SECURITY;
+
+  DROP POLICY IF EXISTS ims_supply_shipments_select ON public.ims_supply_shipments;
+  CREATE POLICY ims_supply_shipments_select ON public.ims_supply_shipments
+    FOR SELECT TO authenticated USING (
+      is_super_admin() OR is_admin(auth.uid())
+      OR (user_has_permission('ims.transfers.view')
+          AND (
+            role_has_institution_access(destination_institution_id)
+            OR EXISTS (
+              SELECT 1 FROM public.ims_stores s
+              WHERE s.id = ims_supply_shipments.source_store_id
+                AND role_has_institution_access(s.institution_id))
+          ))
+    );
+
+  DROP POLICY IF EXISTS ims_supply_shipments_insert ON public.ims_supply_shipments;
+  CREATE POLICY ims_supply_shipments_insert ON public.ims_supply_shipments
+    FOR INSERT TO authenticated WITH CHECK (
+      is_super_admin() OR is_admin(auth.uid())
+      OR (user_has_permission('ims.transfers.dispatch')
+          AND EXISTS (
+            SELECT 1 FROM public.ims_stores s
+            WHERE s.id = ims_supply_shipments.source_store_id
+              AND role_has_institution_access(s.institution_id)))
+    );
+
+  -- BUG #1 cross-tenant fix: UPDATE narrowed to source-side. Destination side
+  -- updates flow through ims_supply_shipments_update_receive (additive policy
+  -- gated on ims.transfers.receive in the granular-overrides block below).
+  DROP POLICY IF EXISTS ims_supply_shipments_update ON public.ims_supply_shipments;
+  CREATE POLICY ims_supply_shipments_update ON public.ims_supply_shipments
+    FOR UPDATE TO authenticated
+    USING (
+      is_super_admin() OR is_admin(auth.uid())
+      OR (user_has_permission('ims.transfers.dispatch')
+          AND EXISTS (
+            SELECT 1 FROM public.ims_stores s
+            WHERE s.id = ims_supply_shipments.source_store_id
+              AND role_has_institution_access(s.institution_id)))
+    )
+    WITH CHECK (
+      is_super_admin() OR is_admin(auth.uid())
+      OR (user_has_permission('ims.transfers.dispatch')
+          AND EXISTS (
+            SELECT 1 FROM public.ims_stores s
+            WHERE s.id = ims_supply_shipments.source_store_id
+              AND role_has_institution_access(s.institution_id)))
+    );
+
+  -- DELETE: source-side only (matches narrowed UPDATE).
+  DROP POLICY IF EXISTS ims_supply_shipments_delete ON public.ims_supply_shipments;
+  CREATE POLICY ims_supply_shipments_delete ON public.ims_supply_shipments
+    FOR DELETE TO authenticated USING (
+      is_super_admin() OR is_admin(auth.uid())
+      OR (user_has_permission('ims.transfers.dispatch')
+          AND EXISTS (
+            SELECT 1 FROM public.ims_stores s
+            WHERE s.id = ims_supply_shipments.source_store_id
+              AND role_has_institution_access(s.institution_id)))
+    );
+
+  RAISE NOTICE '[ims-rls/supply-shipments] Source/destination-scoped policies applied (BUG #1 + #3 fix).';
+END $$;
+
+-- ── ims_supply_shipment_items: child of ims_supply_shipments ─────────────────
+-- BUG #3 FIX (HIGH): generic child helper would join parent.institution_id
+-- (does not exist on parent). Hand-written: SELECT visible to either side;
+-- INSERT only by source-side (dispatch); UPDATE/DELETE narrowed to source-side
+-- (BUG #1 alignment — receive-side covered by additive _update_receive policy).
+DO $$
+BEGIN
+  IF to_regclass('public.ims_supply_shipment_items') IS NULL THEN
+    RAISE NOTICE '[ims-rls/supply-shipment-items] Skipped: table not present.';
+    RETURN;
+  END IF;
+
+  ALTER TABLE public.ims_supply_shipment_items ENABLE ROW LEVEL SECURITY;
+
+  DROP POLICY IF EXISTS ims_supply_shipment_items_select ON public.ims_supply_shipment_items;
+  CREATE POLICY ims_supply_shipment_items_select ON public.ims_supply_shipment_items
+    FOR SELECT TO authenticated USING (
+      is_super_admin() OR is_admin(auth.uid())
+      OR EXISTS (
+        SELECT 1 FROM public.ims_supply_shipments ss
+        WHERE ss.id = ims_supply_shipment_items.shipment_id
+          AND user_has_permission('ims.transfers.view')
+          AND (
+            role_has_institution_access(ss.destination_institution_id)
+            OR EXISTS (
+              SELECT 1 FROM public.ims_stores s
+              WHERE s.id = ss.source_store_id
+                AND role_has_institution_access(s.institution_id))
+          ))
+    );
+
+  DROP POLICY IF EXISTS ims_supply_shipment_items_insert ON public.ims_supply_shipment_items;
+  CREATE POLICY ims_supply_shipment_items_insert ON public.ims_supply_shipment_items
+    FOR INSERT TO authenticated WITH CHECK (
+      is_super_admin() OR is_admin(auth.uid())
+      OR EXISTS (
+        SELECT 1 FROM public.ims_supply_shipments ss
+        WHERE ss.id = ims_supply_shipment_items.shipment_id
+          AND user_has_permission('ims.transfers.dispatch')
+          AND EXISTS (
+            SELECT 1 FROM public.ims_stores s
+            WHERE s.id = ss.source_store_id
+              AND role_has_institution_access(s.institution_id)))
+    );
+
+  -- BUG #1 cross-tenant alignment: UPDATE narrowed to source-side.
+  -- Destination-side handled by ims_supply_shipment_items_update_receive (additive).
+  DROP POLICY IF EXISTS ims_supply_shipment_items_update ON public.ims_supply_shipment_items;
+  CREATE POLICY ims_supply_shipment_items_update ON public.ims_supply_shipment_items
+    FOR UPDATE TO authenticated
+    USING (
+      is_super_admin() OR is_admin(auth.uid())
+      OR EXISTS (
+        SELECT 1 FROM public.ims_supply_shipments ss
+        WHERE ss.id = ims_supply_shipment_items.shipment_id
+          AND user_has_permission('ims.transfers.dispatch')
+          AND EXISTS (
+            SELECT 1 FROM public.ims_stores s
+            WHERE s.id = ss.source_store_id
+              AND role_has_institution_access(s.institution_id)))
+    )
+    WITH CHECK (
+      is_super_admin() OR is_admin(auth.uid())
+      OR EXISTS (
+        SELECT 1 FROM public.ims_supply_shipments ss
+        WHERE ss.id = ims_supply_shipment_items.shipment_id
+          AND user_has_permission('ims.transfers.dispatch')
+          AND EXISTS (
+            SELECT 1 FROM public.ims_stores s
+            WHERE s.id = ss.source_store_id
+              AND role_has_institution_access(s.institution_id)))
+    );
+
+  DROP POLICY IF EXISTS ims_supply_shipment_items_delete ON public.ims_supply_shipment_items;
+  CREATE POLICY ims_supply_shipment_items_delete ON public.ims_supply_shipment_items
+    FOR DELETE TO authenticated USING (
+      is_super_admin() OR is_admin(auth.uid())
+      OR EXISTS (
+        SELECT 1 FROM public.ims_supply_shipments ss
+        WHERE ss.id = ims_supply_shipment_items.shipment_id
+          AND user_has_permission('ims.transfers.dispatch')
+          AND EXISTS (
+            SELECT 1 FROM public.ims_stores s
+            WHERE s.id = ss.source_store_id
+              AND role_has_institution_access(s.institution_id)))
+    );
+
+  RAISE NOTICE '[ims-rls/supply-shipment-items] Parent-joined source/destination policies applied (BUG #1 + #3 fix).';
+END $$;
+
+-- ── ims_*_number_counters: store-scoped via ims_stores join ─────────────────
+-- BUG #6 FIX (MED): counter tables carry only store_id (no institution_id).
+-- Helper would crash. Hand-written block creates 4 policies × 4 tables.
+DO $$
+DECLARE
+  v_counter RECORD;
+BEGIN
+  FOR v_counter IN
+    SELECT t.table_name, t.view_perm, t.write_perm
+    FROM (VALUES
+      ('ims_grn_number_counters',    'ims.stock.grn.view', 'ims.stock.grn.create'),
+      ('ims_indent_number_counters', 'ims.indents.view',   'ims.indents.create'),
+      ('ims_sale_number_counters',   'ims.sales.view',     'ims.sales.create'),
+      ('ims_batch_number_counters',  'ims.stock.view',     'ims.stock.adjust')
+    ) AS t(table_name, view_perm, write_perm)
+  LOOP
+    IF to_regclass('public.' || v_counter.table_name) IS NULL THEN
+      CONTINUE;
+    END IF;
+
+    EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY', v_counter.table_name);
+    EXECUTE format('DROP POLICY IF EXISTS %I ON public.%I', v_counter.table_name || '_select', v_counter.table_name);
+    EXECUTE format('DROP POLICY IF EXISTS %I ON public.%I', v_counter.table_name || '_insert', v_counter.table_name);
+    EXECUTE format('DROP POLICY IF EXISTS %I ON public.%I', v_counter.table_name || '_update', v_counter.table_name);
+    EXECUTE format('DROP POLICY IF EXISTS %I ON public.%I', v_counter.table_name || '_delete', v_counter.table_name);
+
+    EXECUTE format(
+      'CREATE POLICY %I ON public.%I FOR SELECT TO authenticated USING ('
+      'is_super_admin() OR is_admin(auth.uid()) OR EXISTS ('
+      '  SELECT 1 FROM public.ims_stores s '
+      '  WHERE s.id = %I.store_id '
+      '  AND user_has_permission(%L) '
+      '  AND role_has_institution_access(s.institution_id)))',
+      v_counter.table_name || '_select', v_counter.table_name, v_counter.table_name, v_counter.view_perm);
+
+    EXECUTE format(
+      'CREATE POLICY %I ON public.%I FOR INSERT TO authenticated WITH CHECK ('
+      'is_super_admin() OR is_admin(auth.uid()) OR EXISTS ('
+      '  SELECT 1 FROM public.ims_stores s '
+      '  WHERE s.id = %I.store_id '
+      '  AND user_has_permission(%L) '
+      '  AND role_has_institution_access(s.institution_id)))',
+      v_counter.table_name || '_insert', v_counter.table_name, v_counter.table_name, v_counter.write_perm);
+
+    EXECUTE format(
+      'CREATE POLICY %I ON public.%I FOR UPDATE TO authenticated '
+      'USING (is_super_admin() OR is_admin(auth.uid()) OR EXISTS ('
+      '  SELECT 1 FROM public.ims_stores s '
+      '  WHERE s.id = %I.store_id '
+      '  AND user_has_permission(%L) '
+      '  AND role_has_institution_access(s.institution_id))) '
+      'WITH CHECK (is_super_admin() OR is_admin(auth.uid()) OR EXISTS ('
+      '  SELECT 1 FROM public.ims_stores s '
+      '  WHERE s.id = %I.store_id '
+      '  AND user_has_permission(%L) '
+      '  AND role_has_institution_access(s.institution_id)))',
+      v_counter.table_name || '_update', v_counter.table_name,
+      v_counter.table_name, v_counter.write_perm,
+      v_counter.table_name, v_counter.write_perm);
+
+    EXECUTE format(
+      'CREATE POLICY %I ON public.%I FOR DELETE TO authenticated USING ('
+      'is_super_admin() OR is_admin(auth.uid()) OR EXISTS ('
+      '  SELECT 1 FROM public.ims_stores s '
+      '  WHERE s.id = %I.store_id '
+      '  AND user_has_permission(%L) '
+      '  AND role_has_institution_access(s.institution_id)))',
+      v_counter.table_name || '_delete', v_counter.table_name, v_counter.table_name, v_counter.write_perm);
+  END LOOP;
+
+  RAISE NOTICE '[ims-rls/counters] Store-scoped policies applied to 4 counter tables (BUG #6 fix).';
+END $$;
 
 -- =====================================================================
--- staff_import_unmatched RLS
+-- IMS Granular Permission Overrides — wires previously-dead keys
+-- (added 2026-05-02 by ims-permission-audit team review;
+--  extended 2026-05-02 by rls-fixer for BUGs #7/#8)
 -- =====================================================================
--- Service role inserts during import runs; users with the
--- staff.manage_imports permission read/update for manual reconciliation.
--- (super_admin role and is_super_admin = true users get bypass at the
---  user_has_permission() function level.)
+-- Seven permission keys declared in lib/constants/permissions.ts had NO DB
+-- enforcement: the canonical helper above maps a single write key to
+-- INSERT/UPDATE/DELETE per table, so granular keys never gated the verbs
+-- they advertised. This block adds *additive* permissive policies so each
+-- key starts working without narrowing existing role authority:
+--
+--   ims.indents.create        → INSERT on ims_indent_requests
+--   ims.indents.delete        → DELETE on ims_indent_requests
+--   ims.indents.approve       → UPDATE on ims_indent_requests when status
+--                               transitions to 'approved'/'rejected'
+--   ims.sales.refund          → UPDATE on ims_sales when status='cancelled'
+--   ims.transfers.receive     → UPDATE on ims_supply_shipments &
+--                               ims_supply_shipment_items when status
+--                               transitions to 'received' or
+--                               'received_with_variance'
+--   ims.inventory.create      → INSERT on ims_items
+--   ims.inventory.delete      → DELETE on ims_items
+--   ims.stock.grn.receive     → UPDATE on ims_goods_received_notes when
+--                               status transitions to 'received'/'verified'
+--
+-- NOT wired here (intentional):
+--   ims.inventory.bulk_import → no per-row RLS signal; service-layer concern
+--   ims.audit.write           → deferred (requires new permission key in
+--                               lib/constants/permissions.ts; UI-layer task)
+--
+-- Postgres ORs multiple permissive policies for the same verb. Existing
+-- roles relying on ims.indents.edit / ims.sales.create / ims.inventory.edit
+-- keep their access. A follow-up hardening pass (audit who actually has
+-- *.edit-only and migrate them to granular grants) is recommended once
+-- role configs are reviewed via the Permissions Audit dashboard.
+--
+-- Note: ims_supply_shipments has NO institution_id column — scope is via
+-- destination_institution_id (receive side) and source_store.institution_id
+-- (dispatch side, EXISTS-join through ims_stores). The base UPDATE/DELETE
+-- policies on this table were narrowed to source-side-only in the preceding
+-- hand-written block (BUG #1 cross-tenant fix).
+-- =====================================================================
 
-ALTER TABLE public.staff_import_unmatched ENABLE ROW LEVEL SECURITY;
+DO $$
+BEGIN
+  IF to_regclass('public.ims_indent_requests') IS NOT NULL THEN
+    DROP POLICY IF EXISTS ims_indent_requests_insert_create ON public.ims_indent_requests;
+    CREATE POLICY ims_indent_requests_insert_create ON public.ims_indent_requests
+      FOR INSERT TO authenticated WITH CHECK (
+        is_super_admin() OR is_admin(auth.uid())
+        OR (user_has_permission('ims.indents.create')
+            AND role_has_institution_access(institution_id))
+      );
 
-DROP POLICY IF EXISTS "super_admin_full_access" ON public.staff_import_unmatched;
-DROP POLICY IF EXISTS "staff_imports_manage_access" ON public.staff_import_unmatched;
-CREATE POLICY "staff_imports_manage_access"
-  ON public.staff_import_unmatched
-  FOR ALL
-  TO authenticated
-  USING (user_has_permission('staff.manage_imports'))
-  WITH CHECK (user_has_permission('staff.manage_imports'));
+    DROP POLICY IF EXISTS ims_indent_requests_delete_specific ON public.ims_indent_requests;
+    CREATE POLICY ims_indent_requests_delete_specific ON public.ims_indent_requests
+      FOR DELETE TO authenticated USING (
+        is_super_admin() OR is_admin(auth.uid())
+        OR (user_has_permission('ims.indents.delete')
+            AND role_has_institution_access(institution_id))
+      );
 
-DROP POLICY IF EXISTS "service_role_bypass" ON public.staff_import_unmatched;
-CREATE POLICY "service_role_bypass"
-  ON public.staff_import_unmatched
-  FOR ALL
-  TO service_role
-  USING (true)
-  WITH CHECK (true);
+    DROP POLICY IF EXISTS ims_indent_requests_update_approve ON public.ims_indent_requests;
+    CREATE POLICY ims_indent_requests_update_approve ON public.ims_indent_requests
+      FOR UPDATE TO authenticated
+      USING (
+        is_super_admin() OR is_admin(auth.uid())
+        OR (user_has_permission('ims.indents.approve')
+            AND role_has_institution_access(institution_id))
+      )
+      WITH CHECK (
+        is_super_admin() OR is_admin(auth.uid())
+        OR (user_has_permission('ims.indents.approve')
+            AND role_has_institution_access(institution_id)
+            AND status IN ('approved', 'rejected'))
+      );
+  END IF;
 
--- Seed: grant staff.manage_imports to administrator role so the policy is
--- not dead. Mirrors migration 20260503100004_staff_import_unmatched_amendments.sql.
-UPDATE custom_roles
-SET permissions = permissions || '{"staff.manage_imports": true}'::jsonb,
-    updated_at = now()
-WHERE role_key = 'administrator'
-  AND COALESCE((permissions->>'staff.manage_imports')::boolean, false) = false;
+  IF to_regclass('public.ims_sales') IS NOT NULL THEN
+    DROP POLICY IF EXISTS ims_sales_update_refund ON public.ims_sales;
+    CREATE POLICY ims_sales_update_refund ON public.ims_sales
+      FOR UPDATE TO authenticated
+      USING (
+        is_super_admin() OR is_admin(auth.uid())
+        OR (user_has_permission('ims.sales.refund')
+            AND role_has_institution_access(institution_id))
+      )
+      WITH CHECK (
+        is_super_admin() OR is_admin(auth.uid())
+        OR (user_has_permission('ims.sales.refund')
+            AND role_has_institution_access(institution_id)
+            AND status = 'cancelled')
+      );
+  END IF;
 
--- =====================================================
--- SECTION: ADMISSION FEE STRUCTURE - LOOKUP + SETTINGS RLS
--- Added: 2026-05-05 — RLS for foundation lookup tables + per-institution settings
--- Migration: supabase/migrations/20260505100006_lookup_tables_rls_policies.sql
--- Spec: §10.2
--- =====================================================
+  IF to_regclass('public.ims_supply_shipments') IS NOT NULL THEN
+    DROP POLICY IF EXISTS ims_supply_shipments_update_receive ON public.ims_supply_shipments;
+    CREATE POLICY ims_supply_shipments_update_receive ON public.ims_supply_shipments
+      FOR UPDATE TO authenticated
+      USING (
+        is_super_admin() OR is_admin(auth.uid())
+        OR (user_has_permission('ims.transfers.receive')
+            AND role_has_institution_access(destination_institution_id))
+      )
+      WITH CHECK (
+        is_super_admin() OR is_admin(auth.uid())
+        OR (user_has_permission('ims.transfers.receive')
+            AND role_has_institution_access(destination_institution_id)
+            AND status IN ('received', 'received_with_variance'))
+      );
+  END IF;
 
-ALTER TABLE public.quotas ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.community_categories ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.accommodation_types ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.admission_settings_per_institution ENABLE ROW LEVEL SECURITY;
+  IF to_regclass('public.ims_supply_shipment_items') IS NOT NULL THEN
+    DROP POLICY IF EXISTS ims_supply_shipment_items_update_receive ON public.ims_supply_shipment_items;
+    CREATE POLICY ims_supply_shipment_items_update_receive ON public.ims_supply_shipment_items
+      FOR UPDATE TO authenticated
+      USING (
+        is_super_admin() OR is_admin(auth.uid())
+        OR EXISTS (
+          SELECT 1 FROM public.ims_supply_shipments p
+          WHERE p.id = ims_supply_shipment_items.shipment_id
+            AND user_has_permission('ims.transfers.receive')
+            AND role_has_institution_access(p.destination_institution_id))
+      )
+      WITH CHECK (
+        is_super_admin() OR is_admin(auth.uid())
+        OR EXISTS (
+          SELECT 1 FROM public.ims_supply_shipments p
+          WHERE p.id = ims_supply_shipment_items.shipment_id
+            AND user_has_permission('ims.transfers.receive')
+            AND role_has_institution_access(p.destination_institution_id))
+      );
+  END IF;
 
--- quotas — global read, gated write
-DROP POLICY IF EXISTS quotas_read ON public.quotas;
-CREATE POLICY quotas_read
-    ON public.quotas FOR SELECT
-    USING (auth.role() = 'authenticated');
+  -- ── BUG #7 (rls-reviewer, MED): ims.inventory.create / .delete dead keys ──
+  -- Helper-generated ims_items_* policies use ims.inventory.edit for all writes,
+  -- so granular .create / .delete keys never gated anything. Add additive
+  -- permissive policies. Note: ims.inventory.bulk_import has NO per-row signal
+  -- expressible at the RLS layer (the row inserted by a bulk import is
+  -- indistinguishable from a single-row insert) — bulk_import gating must be
+  -- enforced at the service layer (see lib/services/ims/items-service.ts and
+  -- the bulk-import API route). This policy block intentionally does NOT
+  -- include a bulk_import policy; document upstream if anything tries to
+  -- enforce that key here.
+  IF to_regclass('public.ims_items') IS NOT NULL THEN
+    DROP POLICY IF EXISTS ims_items_insert_create ON public.ims_items;
+    CREATE POLICY ims_items_insert_create ON public.ims_items
+      FOR INSERT TO authenticated WITH CHECK (
+        is_super_admin() OR is_admin(auth.uid())
+        OR (user_has_permission('ims.inventory.create')
+            AND role_has_institution_access(institution_id))
+      );
 
-DROP POLICY IF EXISTS quotas_write ON public.quotas;
-CREATE POLICY quotas_write
-    ON public.quotas FOR ALL
-    USING (public.user_has_permission('admission_fees.manage'))
-    WITH CHECK (public.user_has_permission('admission_fees.manage'));
+    DROP POLICY IF EXISTS ims_items_delete_specific ON public.ims_items;
+    CREATE POLICY ims_items_delete_specific ON public.ims_items
+      FOR DELETE TO authenticated USING (
+        is_super_admin() OR is_admin(auth.uid())
+        OR (user_has_permission('ims.inventory.delete')
+            AND role_has_institution_access(institution_id))
+      );
+  END IF;
 
--- community_categories — same pattern
-DROP POLICY IF EXISTS community_categories_read ON public.community_categories;
-CREATE POLICY community_categories_read
-    ON public.community_categories FOR SELECT
-    USING (auth.role() = 'authenticated');
+  -- ── BUG #8 (rls-reviewer, MED): ims.stock.grn.receive dead key ──────────
+  -- Helper uses ims.stock.grn.create for INSERT/UPDATE/DELETE. .edit is the
+  -- general write key (already covered by .create-gated policy; no new policy
+  -- needed — the key is documented as a synonym at the constants layer).
+  -- .receive gates UPDATE when status transitions to 'received'/'verified'.
+  -- Verified live: status column is text; service code transitions it through
+  -- 'received' → 'verified' → 'approved' (see reports-service.ts, grn-service.ts).
+  IF to_regclass('public.ims_goods_received_notes') IS NOT NULL THEN
+    DROP POLICY IF EXISTS ims_goods_received_notes_update_receive ON public.ims_goods_received_notes;
+    CREATE POLICY ims_goods_received_notes_update_receive ON public.ims_goods_received_notes
+      FOR UPDATE TO authenticated
+      USING (
+        is_super_admin() OR is_admin(auth.uid())
+        OR (user_has_permission('ims.stock.grn.receive')
+            AND role_has_institution_access(institution_id))
+      )
+      WITH CHECK (
+        is_super_admin() OR is_admin(auth.uid())
+        OR (user_has_permission('ims.stock.grn.receive')
+            AND role_has_institution_access(institution_id)
+            AND status IN ('received', 'verified'))
+      );
+  END IF;
 
-DROP POLICY IF EXISTS community_categories_write ON public.community_categories;
-CREATE POLICY community_categories_write
-    ON public.community_categories FOR ALL
-    USING (public.user_has_permission('admission_fees.manage'))
-    WITH CHECK (public.user_has_permission('admission_fees.manage'));
+  -- ── BUG #7 (scope-reviewer, LOW, DEFERRED): ims_activity_log INSERT key ──
+  -- TODO(2026-05-02): The append-only INSERT policy at the bottom of this file
+  -- gates on 'ims.view' (any IMS user can write audit rows). Reviewer recommends
+  -- a dedicated 'ims.audit.write' permission. Deferred because adding that key
+  -- requires updating lib/constants/permissions.ts (UI-layer concern owned by
+  -- a different agent in this team). When that key lands, change the
+  -- ims_activity_log_insert policy below to gate on 'ims.audit.write'.
 
--- accommodation_types — institution-scoped
-DROP POLICY IF EXISTS accommodation_types_read ON public.accommodation_types;
-CREATE POLICY accommodation_types_read
-    ON public.accommodation_types FOR SELECT
-    USING (public.role_has_institution_access(institution_id));
+  RAISE NOTICE '[ims-rls] Granular permission overrides applied: 7 keys wired (indents.create/delete/approve, sales.refund, transfers.receive, inventory.create/delete, stock.grn.receive)';
+END $$;
 
-DROP POLICY IF EXISTS accommodation_types_write ON public.accommodation_types;
-CREATE POLICY accommodation_types_write
-    ON public.accommodation_types FOR ALL
-    USING (
-        public.user_has_permission('admission_fees.manage')
-        AND public.role_has_institution_access(institution_id)
-    )
-    WITH CHECK (
-        public.user_has_permission('admission_fees.manage')
-        AND public.role_has_institution_access(institution_id)
+-- =====================================================================
+-- IMS Activity Log RLS — Phase F (2026-04-28)
+-- Append-only audit trail for IMS workflow transitions.
+-- SELECT + INSERT only; intentionally NO UPDATE / DELETE policies so rows
+-- are tamper-resistant via RLS-respecting clients (compliance property).
+-- Service-role connections (used by SECURITY DEFINER functions) still
+-- bypass RLS — those don't run from the browser.
+-- =====================================================================
+
+DO $$
+BEGIN
+  IF to_regclass('public.ims_activity_log') IS NULL THEN
+    RAISE NOTICE '[ims-activity-log-rls] Skipped: ims_activity_log table not present.';
+    RETURN;
+  END IF;
+
+  ALTER TABLE public.ims_activity_log ENABLE ROW LEVEL SECURITY;
+
+  DROP POLICY IF EXISTS ims_activity_log_select ON public.ims_activity_log;
+  CREATE POLICY ims_activity_log_select ON public.ims_activity_log
+    FOR SELECT TO authenticated USING (
+      is_super_admin() OR is_admin(auth.uid())
+      OR (user_has_permission('ims.view') AND role_has_institution_access(institution_id))
     );
 
--- admission_settings_per_institution — institution-scoped
-DROP POLICY IF EXISTS admission_settings_read ON public.admission_settings_per_institution;
-CREATE POLICY admission_settings_read
-    ON public.admission_settings_per_institution FOR SELECT
-    USING (public.role_has_institution_access(institution_id));
-
-DROP POLICY IF EXISTS admission_settings_write ON public.admission_settings_per_institution;
-CREATE POLICY admission_settings_write
-    ON public.admission_settings_per_institution FOR ALL
-    USING (
-        public.user_has_permission('admission.settings.manage')
-        AND public.role_has_institution_access(institution_id)
-    )
-    WITH CHECK (
-        public.user_has_permission('admission.settings.manage')
-        AND public.role_has_institution_access(institution_id)
-    );
--- ============================================================================
--- 20260506100002 — RLS policies for admission_fee_structures + items
--- ============================================================================
-ALTER TABLE public.admission_fee_structures ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.admission_fee_structure_items ENABLE ROW LEVEL SECURITY;
-
-DROP POLICY IF EXISTS fee_structures_read ON public.admission_fee_structures;
-CREATE POLICY fee_structures_read
-    ON public.admission_fee_structures FOR SELECT
-    USING (
-      public.user_has_permission('admission_fees.read')
-      AND public.role_has_institution_access(institution_id)
+  DROP POLICY IF EXISTS ims_activity_log_insert ON public.ims_activity_log;
+  CREATE POLICY ims_activity_log_insert ON public.ims_activity_log
+    FOR INSERT TO authenticated WITH CHECK (
+      is_super_admin() OR is_admin(auth.uid())
+      OR (user_has_permission('ims.view') AND role_has_institution_access(institution_id))
     );
 
-DROP POLICY IF EXISTS fee_structures_write ON public.admission_fee_structures;
-CREATE POLICY fee_structures_write
-    ON public.admission_fee_structures FOR ALL
-    USING (
-      public.user_has_permission('admission_fees.manage')
-      AND public.role_has_institution_access(institution_id)
-    )
-    WITH CHECK (
-      public.user_has_permission('admission_fees.manage')
-      AND public.role_has_institution_access(institution_id)
-    );
-
--- Items inherit via the parent's institution_id
-DROP POLICY IF EXISTS fee_structure_items_read ON public.admission_fee_structure_items;
-CREATE POLICY fee_structure_items_read
-    ON public.admission_fee_structure_items FOR SELECT
-    USING (
-      EXISTS (
-        SELECT 1 FROM public.admission_fee_structures fs
-         WHERE fs.id = admission_fee_structure_items.fee_structure_id
-           AND public.user_has_permission('admission_fees.read')
-           AND public.role_has_institution_access(fs.institution_id)
-      )
-    );
-
-DROP POLICY IF EXISTS fee_structure_items_write ON public.admission_fee_structure_items;
-CREATE POLICY fee_structure_items_write
-    ON public.admission_fee_structure_items FOR ALL
-    USING (
-      EXISTS (
-        SELECT 1 FROM public.admission_fee_structures fs
-         WHERE fs.id = admission_fee_structure_items.fee_structure_id
-           AND public.user_has_permission('admission_fees.manage')
-           AND public.role_has_institution_access(fs.institution_id)
-      )
-    )
-    WITH CHECK (
-      EXISTS (
-        SELECT 1 FROM public.admission_fee_structures fs
-         WHERE fs.id = admission_fee_structure_items.fee_structure_id
-           AND public.user_has_permission('admission_fees.manage')
-           AND public.role_has_institution_access(fs.institution_id)
-      )
-    );
-
--- ============================================================================
--- admission_fee_adjustments RLS (Plan 3 Task 2)
--- ============================================================================
--- Read: admission_fees.read + access to the parent learner's institution
--- Write: admission_fees.manage_adjustments + same institution access
--- Spec: §10.2
--- ============================================================================
-
-ALTER TABLE public.admission_fee_adjustments ENABLE ROW LEVEL SECURITY;
-
-DROP POLICY IF EXISTS fee_adjustments_read ON public.admission_fee_adjustments;
-CREATE POLICY fee_adjustments_read
-    ON public.admission_fee_adjustments FOR SELECT
-    USING (
-      EXISTS (
-        SELECT 1 FROM public.learners_profiles lp
-         WHERE lp.id = admission_fee_adjustments.learner_id
-           AND public.user_has_permission('admission_fees.read')
-           AND public.role_has_institution_access(lp.institution_id)
-      )
-    );
-
-DROP POLICY IF EXISTS fee_adjustments_write ON public.admission_fee_adjustments;
-CREATE POLICY fee_adjustments_write
-    ON public.admission_fee_adjustments FOR ALL
-    USING (
-      EXISTS (
-        SELECT 1 FROM public.learners_profiles lp
-         WHERE lp.id = admission_fee_adjustments.learner_id
-           AND public.user_has_permission('admission_fees.manage_adjustments')
-           AND public.role_has_institution_access(lp.institution_id)
-      )
-    )
-    WITH CHECK (
-      EXISTS (
-        SELECT 1 FROM public.learners_profiles lp
-         WHERE lp.id = admission_fee_adjustments.learner_id
-           AND public.user_has_permission('admission_fees.manage_adjustments')
-           AND public.role_has_institution_access(lp.institution_id)
-      )
-    );
-
--- ============================================================================
--- learner_admission_documents RLS (Plan 4 Task 2)
--- ============================================================================
--- Spec §10.2. Read: admission_fees.read OR admission_documents.manage with
--- institution access to parent learner. Write: admission_documents.manage only.
--- ============================================================================
-
-ALTER TABLE public.learner_admission_documents ENABLE ROW LEVEL SECURITY;
-
-DROP POLICY IF EXISTS learner_admission_documents_read
-    ON public.learner_admission_documents;
-CREATE POLICY learner_admission_documents_read
-    ON public.learner_admission_documents FOR SELECT
-    USING (
-      EXISTS (
-        SELECT 1 FROM public.learners_profiles lp
-         WHERE lp.id = learner_admission_documents.learner_id
-           AND (
-             public.user_has_permission('admission_fees.read')
-             OR public.user_has_permission('admission_documents.manage')
-           )
-           AND public.role_has_institution_access(lp.institution_id)
-      )
-    );
-
-DROP POLICY IF EXISTS learner_admission_documents_write
-    ON public.learner_admission_documents;
-CREATE POLICY learner_admission_documents_write
-    ON public.learner_admission_documents FOR ALL
-    USING (
-      EXISTS (
-        SELECT 1 FROM public.learners_profiles lp
-         WHERE lp.id = learner_admission_documents.learner_id
-           AND public.user_has_permission('admission_documents.manage')
-           AND public.role_has_institution_access(lp.institution_id)
-      )
-    )
-    WITH CHECK (
-      EXISTS (
-        SELECT 1 FROM public.learners_profiles lp
-         WHERE lp.id = learner_admission_documents.learner_id
-           AND public.user_has_permission('admission_documents.manage')
-           AND public.role_has_institution_access(lp.institution_id)
-      )
-    );
-
--- ============================================================================
--- Plan 5 — RLS for fee_change_events, event_lines, student_credit_balances
--- Spec §10.2
--- ============================================================================
-
-ALTER TABLE public.admission_fee_change_events ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.admission_fee_change_event_lines ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.student_credit_balances ENABLE ROW LEVEL SECURITY;
-
-DROP POLICY IF EXISTS fee_change_events_read ON public.admission_fee_change_events;
-CREATE POLICY fee_change_events_read
-    ON public.admission_fee_change_events FOR SELECT
-    USING (
-      EXISTS (
-        SELECT 1 FROM public.learners_profiles lp
-         WHERE lp.id = admission_fee_change_events.learner_id
-           AND public.user_has_permission('admission_fees.read')
-           AND public.role_has_institution_access(lp.institution_id)
-      )
-    );
-
-DROP POLICY IF EXISTS fee_change_events_write ON public.admission_fee_change_events;
-CREATE POLICY fee_change_events_write
-    ON public.admission_fee_change_events FOR ALL
-    USING (
-      EXISTS (
-        SELECT 1 FROM public.learners_profiles lp
-         WHERE lp.id = admission_fee_change_events.learner_id
-           AND public.user_has_permission('admission_fees.approve_change_event')
-           AND public.role_has_institution_access(lp.institution_id)
-      )
-    )
-    WITH CHECK (
-      EXISTS (
-        SELECT 1 FROM public.learners_profiles lp
-         WHERE lp.id = admission_fee_change_events.learner_id
-           AND public.user_has_permission('admission_fees.approve_change_event')
-           AND public.role_has_institution_access(lp.institution_id)
-      )
-    );
-
-DROP POLICY IF EXISTS fee_change_event_lines_read ON public.admission_fee_change_event_lines;
-CREATE POLICY fee_change_event_lines_read
-    ON public.admission_fee_change_event_lines FOR SELECT
-    USING (
-      EXISTS (
-        SELECT 1 FROM public.admission_fee_change_events e
-         JOIN public.learners_profiles lp ON lp.id = e.learner_id
-         WHERE e.id = admission_fee_change_event_lines.event_id
-           AND public.user_has_permission('admission_fees.read')
-           AND public.role_has_institution_access(lp.institution_id)
-      )
-    );
-
-DROP POLICY IF EXISTS fee_change_event_lines_write ON public.admission_fee_change_event_lines;
-CREATE POLICY fee_change_event_lines_write
-    ON public.admission_fee_change_event_lines FOR ALL
-    USING (
-      EXISTS (
-        SELECT 1 FROM public.admission_fee_change_events e
-         JOIN public.learners_profiles lp ON lp.id = e.learner_id
-         WHERE e.id = admission_fee_change_event_lines.event_id
-           AND public.user_has_permission('admission_fees.approve_change_event')
-           AND public.role_has_institution_access(lp.institution_id)
-      )
-    )
-    WITH CHECK (
-      EXISTS (
-        SELECT 1 FROM public.admission_fee_change_events e
-         JOIN public.learners_profiles lp ON lp.id = e.learner_id
-         WHERE e.id = admission_fee_change_event_lines.event_id
-           AND public.user_has_permission('admission_fees.approve_change_event')
-           AND public.role_has_institution_access(lp.institution_id)
-      )
-    );
-
-DROP POLICY IF EXISTS student_credit_balances_read ON public.student_credit_balances;
-CREATE POLICY student_credit_balances_read
-    ON public.student_credit_balances FOR SELECT
-    USING (
-      EXISTS (
-        SELECT 1 FROM public.learners_profiles lp
-         WHERE lp.id = student_credit_balances.student_id
-           AND public.user_has_permission('admission_fees.read')
-           AND public.role_has_institution_access(lp.institution_id)
-      )
-    );
-
-DROP POLICY IF EXISTS student_credit_balances_write ON public.student_credit_balances;
-CREATE POLICY student_credit_balances_write
-    ON public.student_credit_balances FOR ALL
-    USING (
-      EXISTS (
-        SELECT 1 FROM public.learners_profiles lp
-         WHERE lp.id = student_credit_balances.student_id
-           AND public.user_has_permission('admission_fees.approve_change_event')
-           AND public.role_has_institution_access(lp.institution_id)
-      )
-    )
-    WITH CHECK (
-      EXISTS (
-        SELECT 1 FROM public.learners_profiles lp
-         WHERE lp.id = student_credit_balances.student_id
-           AND public.user_has_permission('admission_fees.approve_change_event')
-           AND public.role_has_institution_access(lp.institution_id)
-      )
-    );
-
--- ============================================================================
--- Campus Living — Resident own-row RLS (My Hostel feature)
--- Added: 2026-05-31 (migration: 20260531090100_my_hostel_resident_rls)
--- ============================================================================
-
--- ── hostel_leave_requests: residents READ own ────────────────────────
-DROP POLICY IF EXISTS hostel_leave_requests_select_permission ON public.hostel_leave_requests;
-CREATE POLICY hostel_leave_requests_select_permission ON public.hostel_leave_requests
-FOR SELECT USING (
-  is_super_admin() OR is_admin()
-  OR (user_has_permission('campus_living.leave.view') AND role_has_institution_access(institution_id) AND role_has_block_access(block_id))
-  OR (user_has_permission('campus_living.leave.view_own') AND learner_id = auth.uid())
-);
-
--- ── hostel_gate_passes: residents READ own ───────────────────────────
-DROP POLICY IF EXISTS hostel_gate_passes_select_permission ON public.hostel_gate_passes;
-CREATE POLICY hostel_gate_passes_select_permission ON public.hostel_gate_passes
-FOR SELECT USING (
-  is_super_admin() OR is_admin()
-  OR (user_has_permission('campus_living.gate_passes.view') AND role_has_institution_access(institution_id))
-  OR (user_has_permission('campus_living.gate_passes.view_own') AND learner_id = auth.uid())
-);
-
--- ── hostel_leave_requests: INSERT (staff + resident self) ────────────
--- Added: 2026-05-31 (migration: 20260531093000_resident_request_insert_rls)
-DROP POLICY IF EXISTS hostel_leave_requests_insert_permission ON public.hostel_leave_requests;
-CREATE POLICY hostel_leave_requests_insert_permission ON public.hostel_leave_requests
-FOR INSERT WITH CHECK (
-  is_super_admin() OR is_admin()
-  OR (user_has_permission('campus_living.leave.create') AND role_has_institution_access(institution_id) AND role_has_block_access(block_id))
-  OR (user_has_permission('campus_living.leave.request') AND learner_id = auth.uid())
-);
-
--- ── hostel_gate_passes: INSERT (staff + resident self) ───────────────
--- Added: 2026-05-31 (migration: 20260531093000_resident_request_insert_rls)
-DROP POLICY IF EXISTS hostel_gate_passes_insert_permission ON public.hostel_gate_passes;
-CREATE POLICY hostel_gate_passes_insert_permission ON public.hostel_gate_passes
-FOR INSERT WITH CHECK (
-  is_super_admin() OR is_admin()
-  OR (user_has_permission('campus_living.gate_passes.approve') AND role_has_institution_access(institution_id))
-  OR (user_has_permission('campus_living.gate_passes.create') AND learner_id = auth.uid())
-);
-
--- ── learner_hostel_profiles: residents read + upsert OWN ──────────────
-DROP POLICY IF EXISTS lhp_select_permission ON public.learner_hostel_profiles;
-CREATE POLICY lhp_select_permission ON public.learner_hostel_profiles
-FOR SELECT USING (
-  is_super_admin() OR is_admin()
-  OR EXISTS (SELECT 1 FROM learners_profiles lp
-             WHERE lp.id = learner_hostel_profiles.learner_id
-               AND user_has_permission('campus_living.residents.view')
-               AND role_has_institution_access(lp.institution_id))
-  OR (user_has_permission('campus_living.profile.view_own') AND learner_id = public.get_my_learner_id())
-);
-
-DROP POLICY IF EXISTS lhp_update_permission ON public.learner_hostel_profiles;
-CREATE POLICY lhp_update_permission ON public.learner_hostel_profiles
-FOR UPDATE USING (
-  is_super_admin() OR is_admin()
-  OR EXISTS (SELECT 1 FROM learners_profiles lp
-             WHERE lp.id = learner_hostel_profiles.learner_id
-               AND user_has_permission('campus_living.residents.edit')
-               AND role_has_institution_access(lp.institution_id))
-  OR (user_has_permission('campus_living.profile.edit_own') AND learner_id = public.get_my_learner_id())
-)
-WITH CHECK (
-  is_super_admin() OR is_admin()
-  OR EXISTS (SELECT 1 FROM learners_profiles lp
-             WHERE lp.id = learner_hostel_profiles.learner_id
-               AND user_has_permission('campus_living.residents.edit')
-               AND role_has_institution_access(lp.institution_id))
-  OR (user_has_permission('campus_living.profile.edit_own') AND learner_id = public.get_my_learner_id())
-);
-
-DROP POLICY IF EXISTS lhp_insert_permission ON public.learner_hostel_profiles;
-CREATE POLICY lhp_insert_permission ON public.learner_hostel_profiles
-FOR INSERT WITH CHECK (
-  is_super_admin() OR is_admin()
-  OR EXISTS (SELECT 1 FROM learners_profiles lp
-             WHERE lp.id = learner_hostel_profiles.learner_id
-               AND user_has_permission('campus_living.residents.edit')
-               AND role_has_institution_access(lp.institution_id))
-  OR (user_has_permission('campus_living.profile.edit_own') AND learner_id = public.get_my_learner_id())
-);
-
--- lhp_delete_permission predates this change; included here so the setup mirror
--- shows the table's complete RLS state (admin-only delete).
-DROP POLICY IF EXISTS lhp_delete_permission ON public.learner_hostel_profiles;
-CREATE POLICY lhp_delete_permission ON public.learner_hostel_profiles
-FOR DELETE USING (is_super_admin() OR is_admin());
-
--- ── hostel_allocations: residents READ own (table empty today) ────────
-DROP POLICY IF EXISTS hostel_allocations_select_permission ON public.hostel_allocations;
-CREATE POLICY hostel_allocations_select_permission ON public.hostel_allocations
-FOR SELECT USING (
-  is_super_admin() OR is_admin()
-  OR (user_has_permission('campus_living.allocations.view') AND role_has_institution_access(institution_id) AND role_has_block_access(block_id))
-  OR (user_has_permission('campus_living.allocations.view_own') AND learner_id = auth.uid())
-);
+  RAISE NOTICE '[ims-activity-log-rls] Applied SELECT + INSERT policies (append-only).';
+END $$;

@@ -35,10 +35,22 @@ import {
 } from 'lucide-react';
 import { BeatLoader } from 'react-spinners';
 import { toast } from 'sonner';
+import { ImsPageGuard } from '@/components/ims/ims-page-guard';
+import { usePermissions } from '@/hooks/use-permissions';
 
 export default function PointOfSalePage() {
+  return (
+    <ImsPageGuard module="ims.sales" action="create">
+      <PointOfSalePageInner />
+    </ImsPageGuard>
+  );
+}
+
+function PointOfSalePageInner() {
   const { profile } = useAuth();
   const { storeId, institutionId } = useImsStoreContext();
+  const { canAccess, isSuperAdmin } = usePermissions();
+  const canCheckout = isSuperAdmin || canAccess('ims.sales', 'create');
 
   // Zustand-backed cart
   const {
@@ -376,14 +388,16 @@ export default function PointOfSalePage() {
                         {formatCurrencyINR(total)}
                       </span>
                     </div>
-                    <Button
-                      className="w-full"
-                      size="lg"
-                      onClick={() => setShowPayment(true)}
-                    >
-                      <ShoppingCart className="mr-2 h-4 w-4" />
-                      Checkout - {formatCurrencyINR(total)}
-                    </Button>
+                    {canCheckout && (
+                      <Button
+                        className="w-full"
+                        size="lg"
+                        onClick={() => setShowPayment(true)}
+                      >
+                        <ShoppingCart className="mr-2 h-4 w-4" />
+                        Checkout - {formatCurrencyINR(total)}
+                      </Button>
+                    )}
                   </div>
                 )}
               </CardContent>

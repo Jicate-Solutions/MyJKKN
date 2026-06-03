@@ -11,19 +11,12 @@ import { useImsTransfers } from '@/hooks/ims/use-ims-transfers';
 import { INDENT_STATUS_CONFIG } from '@/types/ims';
 import type { ImsIndentStatus } from '@/types/ims';
 
-interface CollegeRequestViewProps {
+interface OutgoingRequestsViewProps {
   storeId: string;
   institutionId: string;
-  centralStoreId: string;
-  centralInstitutionId: string;
 }
 
-export function CollegeRequestView({
-  storeId,
-  institutionId,
-  centralStoreId,
-  centralInstitutionId,
-}: CollegeRequestViewProps) {
+export function OutgoingRequestsView({ storeId, institutionId }: OutgoingRequestsViewProps) {
   const [statusFilter, setStatusFilter] = useState<ImsIndentStatus | undefined>();
   const [slideoverOpen, setSlideoverOpen] = useState(false);
 
@@ -34,7 +27,7 @@ export function CollegeRequestView({
 
   const transfers = data?.data ?? [];
 
-  const pending = transfers.filter(t => t.status === 'pending_approval' || t.status === 'pending_local_approval').length;
+  const pending  = transfers.filter(t => t.status === 'pending_approval' || t.status === 'pending_local_approval').length;
   const approved = transfers.filter(t => t.status === 'approved').length;
   const inTransit = transfers.filter(t => t.status === 'shipped').length;
   const fulfilled = transfers.filter(t => t.status === 'received' || t.status === 'received_with_variance').length;
@@ -84,7 +77,7 @@ export function CollegeRequestView({
         </div>
       ) : transfers.length === 0 ? (
         <div className="text-center py-12 text-muted-foreground border rounded-lg">
-          No transfer requests found. Click &quot;New Request&quot; to get started.
+          No outgoing requests found. Click &quot;New Request&quot; to request supplies from another institution.
         </div>
       ) : (
         <div className="border rounded-lg divide-y">
@@ -98,7 +91,14 @@ export function CollegeRequestView({
               >
                 <div className="min-w-0">
                   <div className="font-medium text-sm">{t.indent_number}</div>
-                  <div className="text-xs text-muted-foreground truncate">{t.purpose}</div>
+                  <div className="text-xs text-muted-foreground truncate">
+                    {t.destination_store?.name
+                      ? `To: ${t.destination_store.name}`
+                      : t.destination_institution?.institution_name
+                        ? `To: ${t.destination_institution.institution_name}`
+                        : '—'}
+                    {' · '}{t.purpose}
+                  </div>
                 </div>
                 <Badge variant={cfg.variant} className="shrink-0 ml-4">{cfg.label}</Badge>
               </Link>
@@ -112,8 +112,6 @@ export function CollegeRequestView({
         onClose={() => setSlideoverOpen(false)}
         storeId={storeId}
         institutionId={institutionId}
-        centralStoreId={centralStoreId}
-        centralInstitutionId={centralInstitutionId}
       />
     </div>
   );
