@@ -13,6 +13,12 @@ import { createRoomColumns } from './_components/rooms-columns';
 import { RoomFormDialog } from './_components/room-form-dialog';
 import { BulkUploadRooms } from './_components/bulk-upload-rooms';
 import {
+  RoomFiltersPanel,
+  EMPTY_ROOM_FILTERS,
+  roomMatchesFilters,
+  type RoomAdvancedFilters,
+} from './_components/room-filters-panel';
+import {
   HostelRoomService,
   type HostelRoomWithBedsAndOccupancy,
 } from '@/lib/services/campus-living/hostel-room-service';
@@ -46,6 +52,8 @@ export default function BlockRoomsPage({ params }: { params: Promise<{ id: strin
   const [selectedFloor, setSelectedFloor] = useState<number | null>(
     floorParam !== null ? parseInt(floorParam) : null
   );
+  const [advancedFilters, setAdvancedFilters] =
+    useState<RoomAdvancedFilters>(EMPTY_ROOM_FILTERS);
   const [createOpen, setCreateOpen] = useState(false);
 
   const { data: rooms, isLoading, refetch } = useRoomsByBlockWithOccupancy(id);
@@ -60,9 +68,13 @@ export default function BlockRoomsPage({ params }: { params: Promise<{ id: strin
         const matchesStatus =
           statusFilter === 'all' || room.derived_status === statusFilter;
         const matchesFloor = selectedFloor === null || room.floor === selectedFloor;
-        return matchesStatus && matchesFloor;
+        return (
+          matchesStatus &&
+          matchesFloor &&
+          roomMatchesFilters(room, advancedFilters)
+        );
       }),
-    [rooms, statusFilter, selectedFloor]
+    [rooms, statusFilter, selectedFloor, advancedFilters]
   );
 
   const columns = useMemo(
@@ -188,6 +200,13 @@ export default function BlockRoomsPage({ params }: { params: Promise<{ id: strin
           searchPlaceholder="Search rooms..."
           globalFilterFn={roomGlobalFilter}
           getRowId={(row) => row.id}
+          tableTools={
+            <RoomFiltersPanel
+              rooms={rooms ?? []}
+              value={advancedFilters}
+              onChange={setAdvancedFilters}
+            />
+          }
           onRefresh={() => refetch()}
           onBulkAction={handleBulkDelete}
           bulkActionConfig={{
