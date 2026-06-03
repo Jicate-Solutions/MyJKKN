@@ -92,7 +92,6 @@ import {
   Stethoscope,
   LayoutDashboard,
   UsersRound,
-  Wallet,
   Users2,
   Factory,
   FileDown,

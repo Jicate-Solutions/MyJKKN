@@ -188,6 +188,8 @@ export default function ResourceDetailsPage({
         return <AlertCircle className='h-5 w-5 text-yellow-600' />;
       case 'retired':
         return <XCircle className='h-5 w-5 text-gray-600' />;
+      case 'inactive':
+        return <XCircle className='h-5 w-5 text-slate-500' />;
       default:
         return <Package className='h-5 w-5' />;
     }
@@ -203,6 +205,8 @@ export default function ResourceDetailsPage({
         return 'bg-yellow-100 text-yellow-800';
       case 'retired':
         return 'bg-gray-100 text-gray-800';
+      case 'inactive':
+        return 'bg-slate-200 text-slate-600';
       default:
         return 'bg-gray-100 text-gray-800';
     }
