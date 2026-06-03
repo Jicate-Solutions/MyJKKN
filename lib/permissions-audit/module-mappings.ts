@@ -175,6 +175,7 @@ export const ROUTE_PREFIX_TO_MODULE: ReadonlyArray<readonly [string, string]> = 
   ['/vac', 'VAC'],
   ['/bos', 'System'],
   ['/cdc', 'CDC'], // Career Development Centre — drives, placements, internships, idp, clubs, mentors, training, bulletin, exports, industry-mentors
+  ['/internships', 'Internship'], // Internship Module — operational cycles/sites/preceptors/vehicles routes (PR #1209)
   // Instagram monitoring substrate (Phase 1B, 2026-05-30): /social/instagram/*
   // sub-routes (accounts, posts, audits, dormant queue, alerts) all roll up
   // into the Instagram module. Listed before broader prefixes to be safe.

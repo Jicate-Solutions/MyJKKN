@@ -10,6 +10,7 @@ export const navMeta = { label: 'Routing Errors', icon: 'AlertTriangle' } as con
 
 import { useEffect, useMemo, useState } from 'react';
 import { ContentLayout } from '@/components/layout/content-layout';
+import { SuperAdminOnly } from '@/components/auth/admin-permission-guard';
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -90,6 +91,15 @@ export default function RoutingErrorsPage() {
   const unassignedCount = errors.filter((e) => e.resulted_in_unassigned).length;
 
   return (
+    <SuperAdminOnly
+      fallback={
+        <ContentLayout title="Routing Errors">
+          <div className="rounded-md border border-border bg-muted/30 p-6 text-sm text-muted-foreground">
+            This page is restricted to super administrators.
+          </div>
+        </ContentLayout>
+      }
+    >
     <ContentLayout title="Counselor Routing Errors">
       <Breadcrumb>
         <BreadcrumbList>
@@ -225,5 +235,6 @@ export default function RoutingErrorsPage() {
         }}
       />
     </ContentLayout>
+    </SuperAdminOnly>
   );
 }

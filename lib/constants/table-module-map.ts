@@ -72,6 +72,12 @@ export const MODULE_PREFIXES: [string, string][] = [
   ['mess_', 'Campus Living'],
   ['pde_', 'PDE Learning'],
   ['cdc_', 'CDC'],
+  // Internship Module — operational substrate for cycles, sites, preceptors,
+  // vehicles, assignments, logbook, evaluations, attendance, incidents,
+  // certificates. Distinct from CDC's `cdc_internship_*` substrate (which
+  // models placement-style internship records inside Career Development
+  // Centre). Catalog ships alongside PR #1209 sidebar wiring.
+  ['internship_', 'Internship'],
   ['chatbot_', 'Chatbot'],
   ['chat_', 'Chatbot'],
   ['expo_', 'Expo'],

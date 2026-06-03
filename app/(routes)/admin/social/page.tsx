@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { Instagram } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
+import { SuperAdminOnly } from '@/components/auth/admin-permission-guard';
 import { PageBreadcrumb } from '@/components/navigation';
 import {
   Card,
@@ -21,6 +22,15 @@ const breadcrumbItems = [
 
 export default function SocialAdminIndexPage() {
   return (
+    <SuperAdminOnly
+      fallback={
+        <ContentLayout title="Social">
+          <div className="rounded-md border border-border bg-muted/30 p-6 text-sm text-muted-foreground">
+            This page is restricted to super administrators.
+          </div>
+        </ContentLayout>
+      }
+    >
     <ContentLayout title="Social Media Admin">
       <PageBreadcrumb items={breadcrumbItems} />
 
@@ -63,5 +73,6 @@ export default function SocialAdminIndexPage() {
         </div>
       </div>
     </ContentLayout>
+    </SuperAdminOnly>
   );
 }

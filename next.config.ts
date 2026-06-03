@@ -161,6 +161,21 @@ const nextConfig: NextConfig = {
         source: '/admin/pde/naac-evidence',
         destination: '/admin/pde/accreditation-evidence/naac',
         permanent: true
+      },
+      // Internship URL migration (2026-06-02):
+      // /admin/internship-policy/* → /internships/policy/*
+      // Policy pages moved out of /admin/* into the internship module's own namespace
+      // for module cohesion. 307 (non-permanent) preserves bookmarks while the new
+      // canonical path stabilizes.
+      {
+        source: '/admin/internship-policy',
+        destination: '/internships/policy',
+        permanent: false
+      },
+      {
+        source: '/admin/internship-policy/:path*',
+        destination: '/internships/policy/:path*',
+        permanent: false
       }
     ];
   },

@@ -1,6 +1,6 @@
 'use client';
 
-// /admin/internship-policy/notifications
+// /internships/policy/notifications
 // Platform-wide notification cadence defaults + incident escalation timers.
 // Per-college notification overrides from internship_college_notification_overrides are Q3.
 
@@ -146,7 +146,7 @@ export default function NotificationsPolicyPage() {
       <PageBreadcrumb
         items={[
           { label: 'Admin', href: '/admin' },
-          { label: 'Internship Policies', href: '/admin/internship-policy' },
+          { label: 'Internship Policies', href: '/internships/policy' },
           { label: 'Notifications' },
         ]}
       />

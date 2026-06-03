@@ -1,15 +1,16 @@
 'use client';
 
-// /admin/internship-policy/eligibility
-// Fee compliance threshold, registration cutoff, GPA gate for posting allocation.
+// /internships/policy/attendance
+// GPS geofence strict-block toggle, attendance marking window, LOP-immunity wiring status.
 
 import { useEffect, useState } from 'react';
-import { ShieldAlert, RefreshCw } from 'lucide-react';
+import { ShieldAlert, RefreshCw, Info } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Badge } from '@/components/ui/badge';
 import { usePermissions } from '@/hooks/use-permissions';
 import {
   InternshipPolicyService,
@@ -19,36 +20,32 @@ import {
 import { PolicyField } from '../_components/PolicyField';
 
 const POLICY_KEYS = [
-  INTERNSHIP_POLICY_KEYS.FEE_COMPLIANCE_THRESHOLD,
-  INTERNSHIP_POLICY_KEYS.REGISTRATION_CUTOFF_DAYS,
+  INTERNSHIP_POLICY_KEYS.GPS_STRICT_MODE,
+  INTERNSHIP_POLICY_KEYS.ATTENDANCE_FLAG_BELOW_PCT,
 ];
 
 const FIELD_CONFIGS = [
   {
-    key: INTERNSHIP_POLICY_KEYS.FEE_COMPLIANCE_THRESHOLD,
-    label: 'Fee Compliance Threshold',
+    key: INTERNSHIP_POLICY_KEYS.GPS_STRICT_MODE,
+    label: 'GPS Geofence Strict Block',
     description:
-      'Minimum percentage of fee paid before a learner is eligible for posting allocation. Learners below this threshold are blocked from being assigned to a cycle. Default: 70%.',
+      'When enabled, learners outside the hospital geofence cannot mark attendance (submission is rejected with a clear error). When disabled, out-of-geofence submissions are flagged but not blocked. Spec locked: must stay enabled for data quality. Only disable temporarily with Director approval.',
+    type: 'boolean' as const,
+  },
+  {
+    key: INTERNSHIP_POLICY_KEYS.ATTENDANCE_FLAG_BELOW_PCT,
+    label: 'Attendance Auto-Flag Threshold',
+    description:
+      'Learners whose attendance falls below this percentage are automatically flagged for coordinator review. INC nursing standard is 90%; AICTE engineering is 75%. Default: 75%. Cascade-preview shows how many currently-active learners enter warning state.',
     type: 'number' as const,
     unit: '%',
-    min: 0,
+    min: 50,
     max: 100,
     step: 5,
   },
-  {
-    key: INTERNSHIP_POLICY_KEYS.REGISTRATION_CUTOFF_DAYS,
-    label: 'Registration Cutoff (days before cycle start)',
-    description:
-      'Number of days before a cycle starts after which new registrations are blocked. Coordinators cannot add learners after this window. Default: 7 days.',
-    type: 'number' as const,
-    unit: 'days',
-    min: 0,
-    max: 30,
-    step: 1,
-  },
 ];
 
-export default function EligibilityPolicyPage() {
+export default function AttendancePolicyPage() {
   const { isSuperAdmin, isLoading: permsLoading } = usePermissions();
   const [rows, setRows] = useState<Record<string, PolicyRow>>({});
   const [loading, setLoading] = useState(true);
@@ -66,7 +63,7 @@ export default function EligibilityPolicyPage() {
 
   if (permsLoading) {
     return (
-      <ContentLayout title="Eligibility Policies">
+      <ContentLayout title="Attendance Policies">
         <Skeleton className="h-32 w-full" />
       </ContentLayout>
     );
@@ -74,12 +71,12 @@ export default function EligibilityPolicyPage() {
 
   if (!isSuperAdmin) {
     return (
-      <ContentLayout title="Eligibility Policies">
+      <ContentLayout title="Attendance Policies">
         <Alert variant="destructive">
           <ShieldAlert className="h-4 w-4" />
           <AlertTitle>Super-admin only</AlertTitle>
           <AlertDescription>
-            Internship eligibility policy is restricted to super-admin users.
+            Attendance policy configuration is restricted to super-admin.
           </AlertDescription>
         </Alert>
       </ContentLayout>
@@ -87,21 +84,21 @@ export default function EligibilityPolicyPage() {
   }
 
   return (
-    <ContentLayout title="Eligibility Policies">
+    <ContentLayout title="Attendance Policies">
       <PageBreadcrumb
         items={[
           { label: 'Admin', href: '/admin' },
-          { label: 'Internship Policies', href: '/admin/internship-policy' },
-          { label: 'Eligibility' },
+          { label: 'Internship Policies', href: '/internships/policy' },
+          { label: 'Attendance' },
         ]}
       />
 
       <div className="mt-4 mb-6 flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold">Eligibility Policies</h1>
+          <h1 className="text-2xl font-semibold">Attendance Policies</h1>
           <p className="text-sm text-muted-foreground mt-1 max-w-2xl">
-            Controls who can be assigned to a posting cycle. Every save shows a cascade-preview
-            of which in-flight learners are affected before the change is applied.
+            Controls GPS geofence enforcement and attendance flag thresholds across all colleges.
+            Strict GPS block is the adoption-metric data quality control — spec locked on.
           </p>
         </div>
         <Button
@@ -115,6 +112,20 @@ export default function EligibilityPolicyPage() {
           Refresh
         </Button>
       </div>
+
+      {/* LOP-immunity status callout */}
+      <Alert className="mb-6 border-blue-200 bg-blue-50">
+        <Info className="h-4 w-4 text-blue-600" />
+        <AlertTitle className="text-blue-900">LOP-immunity wiring</AlertTitle>
+        <AlertDescription className="text-blue-800 text-sm">
+          Learners on active posting assignments are granted LOP-immunity in the faculty attendance
+          service, resolving the production bug from specs/hrapp-issues-capture.md line 2853.
+          This is wired via Agent A&apos;s migration (add{' '}
+          <code className="rounded bg-blue-100 px-1">on_clinical_posting</code> row to{' '}
+          <code className="rounded bg-blue-100 px-1">hr_attendance_status_types</code>).{' '}
+          <Badge variant="secondary" className="text-xs ml-1">Phase 1A</Badge>
+        </AlertDescription>
+      </Alert>
 
       {loading ? (
         <div className="space-y-4">

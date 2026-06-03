@@ -1,7 +1,7 @@
 'use client';
 
 // ============================================
-// /admin/internship-policy — Landing page
+// /internships/policy — Landing page
 // ============================================
 // Super-admin policy hub for the Internship Module.
 // Shows 6 category cards + last-edit timestamps.
@@ -45,7 +45,7 @@ interface CategoryCard {
 
 const CATEGORIES: CategoryCard[] = [
   {
-    href: '/admin/internship-policy/eligibility',
+    href: '/internships/policy/eligibility',
     title: 'Eligibility',
     description: 'Fee compliance threshold, registration cutoff, and GPA gate for posting allocation.',
     icon: GraduationCap,
@@ -53,7 +53,7 @@ const CATEGORIES: CategoryCard[] = [
     color: 'text-emerald-600 bg-emerald-50',
   },
   {
-    href: '/admin/internship-policy/fees',
+    href: '/internships/policy/fees',
     title: 'Fees',
     description: 'Fee compliance thresholds and penalty configuration per cycle.',
     icon: Banknote,
@@ -61,7 +61,7 @@ const CATEGORIES: CategoryCard[] = [
     color: 'text-amber-600 bg-amber-50',
   },
   {
-    href: '/admin/internship-policy/attendance',
+    href: '/internships/policy/attendance',
     title: 'Attendance',
     description: 'GPS geofence strictness, attendance marking window, and LOP-immunity wiring.',
     icon: MapPin,
@@ -69,7 +69,7 @@ const CATEGORIES: CategoryCard[] = [
     color: 'text-blue-600 bg-blue-50',
   },
   {
-    href: '/admin/internship-policy/evaluation',
+    href: '/internships/policy/evaluation',
     title: 'Evaluation',
     description: 'Dual-evaluation toggle, rubric editor links, and approval chain config.',
     icon: ClipboardCheck,
@@ -77,7 +77,7 @@ const CATEGORIES: CategoryCard[] = [
     color: 'text-purple-600 bg-purple-50',
   },
   {
-    href: '/admin/internship-policy/cycle',
+    href: '/internships/policy/cycle',
     title: 'Cycle',
     description: 'Min/max cycle duration, status labels, and blackout dates per college.',
     icon: CalendarRange,
@@ -85,7 +85,7 @@ const CATEGORIES: CategoryCard[] = [
     color: 'text-orange-600 bg-orange-50',
   },
   {
-    href: '/admin/internship-policy/notifications',
+    href: '/internships/policy/notifications',
     title: 'Notifications',
     description: 'Per-college notification override schedules and reminder cadences.',
     icon: Bell,

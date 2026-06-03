@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
+import { SuperAdminOnly } from '@/components/auth/admin-permission-guard';
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -79,6 +80,15 @@ export default function AtRiskLearnersPage() {
   const strugglingCount = (learners || []).filter(l => l.risk_level === 'struggling').length;
 
   return (
+    <SuperAdminOnly
+      fallback={
+        <ContentLayout title="At-Risk Learners">
+          <div className="rounded-md border border-border bg-muted/30 p-6 text-sm text-muted-foreground">
+            This page is restricted to super administrators.
+          </div>
+        </ContentLayout>
+      }
+    >
     <ContentLayout title="At-Risk Learners">
       <div className="space-y-6">
         {/* Breadcrumb */}
@@ -278,5 +288,6 @@ export default function AtRiskLearnersPage() {
         </Card>
       </div>
     </ContentLayout>
+    </SuperAdminOnly>
   );
 }

@@ -39,6 +39,8 @@ import { useSites } from '@/hooks/internships/useSites';
 import { useAssignments } from '@/hooks/internships/useAssignments';
 import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
 import type { PreceptorScopeType } from '@/lib/services/internships/types';
+import { PermissionGuard } from '@/components/auth/permission-guard';
+import { NoAccessAlert } from '../_components/no-access-alert';
 
 type ActiveFilter = 'all' | 'active' | 'inactive';
 type ScopeFilter = PreceptorScopeType | 'all';
@@ -102,6 +104,7 @@ export default function InternshipPreceptorsPage() {
   }, [preceptors, search, collegeFilter, siteFilter, scopeFilter, activeFilter]);
 
   return (
+    <PermissionGuard module="internship.preceptors" action="view" fallback={<NoAccessAlert />}>
     <ContentLayout title="Internships — Preceptors">
       <Breadcrumb>
         <BreadcrumbList>
@@ -350,5 +353,6 @@ export default function InternshipPreceptorsPage() {
         </Card>
       </div>
     </ContentLayout>
+    </PermissionGuard>
   );
 }
