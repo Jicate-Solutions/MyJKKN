@@ -9,7 +9,7 @@ import { EventPaymentService } from '@/lib/services/events/core/event-payment-se
 import { logger } from '@/lib/utils/enhanced-logger';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { getPaymentProvider } from '@/lib/services/payments/factory';
-import { dualInquiry } from '@/lib/services/payments/razorpay/get-status';
+import { RazorpayProvider } from '@/lib/services/payments/razorpay/razorpay-provider';
 
 /**
  * Common callback handler for both GET and POST.
@@ -65,7 +65,7 @@ async function handleCallback(request: NextRequest, paramsPromise: Promise<{ eve
 
         const { data: txn } = await (supabase as any)
           .from('event_payment_transactions')
-          .select('id, registration_id, amount_paise, total_amount, amount, status')
+          .select('id, registration_id, amount_paise, total_amount, amount, status, institution_id, razorpay_account_id')
           .eq('razorpay_order_id', rOrderId)
           .single();
 
@@ -74,7 +74,10 @@ async function handleCallback(request: NextRequest, paramsPromise: Promise<{ eve
           return NextResponse.redirect(new URL(`/events/marathon/${evId}/registrations?payment=failed&error=unknown_order`, appUrl), 303);
         }
 
-        const provider = getPaymentProvider('events');
+        const provider = await getPaymentProvider('events', {
+          accountId: txn.razorpay_account_id,
+          institutionId: txn.institution_id,
+        });
         const sigOk = provider.verifySignature({
           gatewayOrderId: rOrderId,
           gatewayPaymentId: rPaymentId,
@@ -90,7 +93,7 @@ async function handleCallback(request: NextRequest, paramsPromise: Promise<{ eve
           return NextResponse.redirect(new URL(`/events/marathon/${evId}/registrations?payment=failed&error=signature_invalid`, appUrl), 303);
         }
 
-        const status = await dualInquiry(rOrderId, rPaymentId);
+        const status = await (provider as RazorpayProvider).dualInquiry(rOrderId, rPaymentId);
         const expectedPaise = Number(txn.amount_paise ?? Math.round(Number(txn.amount ?? 0) * 100));
 
         if (status.amountPaise !== expectedPaise) {

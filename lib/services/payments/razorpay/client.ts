@@ -1,15 +1,14 @@
 // lib/services/payments/razorpay/client.ts
 import type { RazorpayError } from './types';
+import type { RazorpayApiAuth } from './credentials';
 
 const RAZORPAY_BASE_URL = 'https://api.razorpay.com/v1';
 
-function getRazorpayAuth(): string {
-  const keyId = process.env.RAZORPAY_KEY_ID;
-  const keySecret = process.env.RAZORPAY_KEY_SECRET;
-  if (!keyId || !keySecret) {
-    throw new Error('RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET must be set');
+function basicAuthHeader(auth: RazorpayApiAuth): string {
+  if (!auth?.keyId || !auth?.keySecret) {
+    throw new Error('Razorpay keyId and keySecret must be provided');
   }
-  return 'Basic ' + Buffer.from(`${keyId}:${keySecret}`).toString('base64');
+  return 'Basic ' + Buffer.from(`${auth.keyId}:${auth.keySecret}`).toString('base64');
 }
 
 export class RazorpayApiError extends Error {
@@ -56,11 +55,12 @@ async function retryOnTransient<T>(
 export async function razorpayRequest<T>(
   method: 'GET' | 'POST',
   path: string,
+  auth: RazorpayApiAuth,
   body?: Record<string, unknown> | URLSearchParams,
 ): Promise<T> {
   const url = `${RAZORPAY_BASE_URL}${path}`;
   const headers: Record<string, string> = {
-    Authorization: getRazorpayAuth(),
+    Authorization: basicAuthHeader(auth),
     Accept: 'application/json',
   };
   let serializedBody: string | undefined;

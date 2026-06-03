@@ -15537,3 +15537,129 @@ $$;
 
 REVOKE ALL ON FUNCTION public.sync_bus_pass_to_learner_profile(uuid) FROM public;
 GRANT EXECUTE ON FUNCTION public.sync_bus_pass_to_learner_profile(uuid) TO authenticated;
+
+-- ============================================================================
+-- Razorpay institution-wise accounts (migration 20260603130000)
+-- Table + pgcrypto vault RPCs. Secrets accessed only via these service_role RPCs.
+-- NOTE: pgcrypto lives in the `extensions` schema → functions use
+--       SET search_path = public, extensions.
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS public.razorpay_accounts (
+  id                        uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  institution_id            uuid NOT NULL REFERENCES public.institutions(id) ON DELETE RESTRICT,
+  key_id                    text NOT NULL,
+  key_secret_encrypted      bytea NOT NULL,
+  webhook_secret_encrypted  bytea NOT NULL,
+  webhook_ref               text NOT NULL UNIQUE,
+  account_label             text,
+  mode                      text NOT NULL DEFAULT 'live' CHECK (mode IN ('test','live')),
+  is_active                 boolean NOT NULL DEFAULT true,
+  created_at                timestamptz NOT NULL DEFAULT now(),
+  updated_at                timestamptz NOT NULL DEFAULT now(),
+  created_by                uuid REFERENCES public.profiles(id),
+  updated_by                uuid REFERENCES public.profiles(id)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS razorpay_accounts_active_institution_uidx
+  ON public.razorpay_accounts (institution_id) WHERE is_active;
+CREATE INDEX IF NOT EXISTS idx_razorpay_accounts_institution
+  ON public.razorpay_accounts (institution_id);
+
+-- razorpay_account_id pin on transaction tables (NULL = common env account)
+ALTER TABLE public.payment_transactions
+  ADD COLUMN IF NOT EXISTS razorpay_account_id uuid REFERENCES public.razorpay_accounts(id);
+ALTER TABLE public.event_payment_transactions
+  ADD COLUMN IF NOT EXISTS razorpay_account_id uuid REFERENCES public.razorpay_accounts(id);
+
+CREATE OR REPLACE FUNCTION public.update_razorpay_accounts_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN NEW.updated_at = now(); RETURN NEW; END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION public.fn_set_razorpay_account(
+  p_institution_id uuid, p_key_id text, p_key_secret text, p_webhook_secret text,
+  p_label text, p_mode text, p_webhook_ref text, p_master_secret text, p_actor uuid DEFAULT NULL
+)
+RETURNS TABLE(id uuid, webhook_ref text)
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, extensions AS $$
+DECLARE v_id uuid; v_ref text;
+BEGIN
+  IF p_institution_id IS NULL THEN RAISE EXCEPTION 'fn_set_razorpay_account: p_institution_id must not be NULL'; END IF;
+  IF p_key_id IS NULL OR length(trim(p_key_id)) = 0 THEN RAISE EXCEPTION 'fn_set_razorpay_account: p_key_id must not be NULL or empty'; END IF;
+  IF p_key_secret IS NULL OR length(trim(p_key_secret)) = 0 THEN RAISE EXCEPTION 'fn_set_razorpay_account: p_key_secret must not be NULL or empty'; END IF;
+  IF p_webhook_secret IS NULL OR length(trim(p_webhook_secret)) = 0 THEN RAISE EXCEPTION 'fn_set_razorpay_account: p_webhook_secret must not be NULL or empty'; END IF;
+  IF p_master_secret IS NULL OR length(trim(p_master_secret)) = 0 THEN RAISE EXCEPTION 'fn_set_razorpay_account: p_master_secret must not be NULL or empty'; END IF;
+  IF p_mode IS NULL OR p_mode NOT IN ('test','live') THEN RAISE EXCEPTION 'fn_set_razorpay_account: p_mode must be test or live'; END IF;
+  v_ref := COALESCE(NULLIF(trim(p_webhook_ref), ''), encode(gen_random_bytes(18), 'hex'));
+  UPDATE public.razorpay_accounts SET is_active = false, updated_at = now(), updated_by = p_actor
+    WHERE institution_id = p_institution_id AND is_active;
+  INSERT INTO public.razorpay_accounts (
+    institution_id, key_id, key_secret_encrypted, webhook_secret_encrypted,
+    webhook_ref, account_label, mode, is_active, created_by, updated_by
+  ) VALUES (
+    p_institution_id, p_key_id, pgp_sym_encrypt(p_key_secret, p_master_secret),
+    pgp_sym_encrypt(p_webhook_secret, p_master_secret), v_ref, p_label, p_mode, true, p_actor, p_actor
+  ) RETURNING razorpay_accounts.id, razorpay_accounts.webhook_ref INTO v_id, v_ref;
+  RETURN QUERY SELECT v_id, v_ref;
+END; $$;
+
+CREATE OR REPLACE FUNCTION public.fn_get_razorpay_account(p_institution_id uuid, p_master_secret text)
+RETURNS TABLE(id uuid, key_id text, key_secret text, webhook_secret text, mode text, webhook_ref text)
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, extensions AS $$
+BEGIN
+  IF p_institution_id IS NULL THEN RAISE EXCEPTION 'fn_get_razorpay_account: p_institution_id must not be NULL'; END IF;
+  IF p_master_secret IS NULL OR length(trim(p_master_secret)) = 0 THEN RAISE EXCEPTION 'fn_get_razorpay_account: p_master_secret must not be NULL or empty'; END IF;
+  RETURN QUERY SELECT a.id, a.key_id, pgp_sym_decrypt(a.key_secret_encrypted, p_master_secret),
+    pgp_sym_decrypt(a.webhook_secret_encrypted, p_master_secret), a.mode, a.webhook_ref
+  FROM public.razorpay_accounts a WHERE a.institution_id = p_institution_id AND a.is_active LIMIT 1;
+END; $$;
+
+CREATE OR REPLACE FUNCTION public.fn_get_razorpay_account_by_id(p_account_id uuid, p_master_secret text)
+RETURNS TABLE(id uuid, key_id text, key_secret text, webhook_secret text, mode text, webhook_ref text)
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, extensions AS $$
+BEGIN
+  IF p_account_id IS NULL THEN RAISE EXCEPTION 'fn_get_razorpay_account_by_id: p_account_id must not be NULL'; END IF;
+  IF p_master_secret IS NULL OR length(trim(p_master_secret)) = 0 THEN RAISE EXCEPTION 'fn_get_razorpay_account_by_id: p_master_secret must not be NULL or empty'; END IF;
+  RETURN QUERY SELECT a.id, a.key_id, pgp_sym_decrypt(a.key_secret_encrypted, p_master_secret),
+    pgp_sym_decrypt(a.webhook_secret_encrypted, p_master_secret), a.mode, a.webhook_ref
+  FROM public.razorpay_accounts a WHERE a.id = p_account_id LIMIT 1;
+END; $$;
+
+CREATE OR REPLACE FUNCTION public.fn_get_razorpay_account_by_webhook_ref(p_webhook_ref text, p_master_secret text)
+RETURNS TABLE(id uuid, institution_id uuid, webhook_secret text)
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, extensions AS $$
+BEGIN
+  IF p_webhook_ref IS NULL OR length(trim(p_webhook_ref)) = 0 THEN RAISE EXCEPTION 'fn_get_razorpay_account_by_webhook_ref: p_webhook_ref must not be NULL or empty'; END IF;
+  IF p_master_secret IS NULL OR length(trim(p_master_secret)) = 0 THEN RAISE EXCEPTION 'fn_get_razorpay_account_by_webhook_ref: p_master_secret must not be NULL or empty'; END IF;
+  RETURN QUERY SELECT a.id, a.institution_id, pgp_sym_decrypt(a.webhook_secret_encrypted, p_master_secret)
+  FROM public.razorpay_accounts a WHERE a.webhook_ref = p_webhook_ref LIMIT 1;
+END; $$;
+
+CREATE OR REPLACE FUNCTION public.fn_list_razorpay_accounts()
+RETURNS TABLE(id uuid, institution_id uuid, key_id text, account_label text, mode text, is_active boolean, webhook_ref text, created_at timestamptz)
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, extensions AS $$
+BEGIN
+  RETURN QUERY SELECT a.id, a.institution_id, a.key_id, a.account_label, a.mode, a.is_active, a.webhook_ref, a.created_at
+  FROM public.razorpay_accounts a ORDER BY a.created_at DESC;
+END; $$;
+
+CREATE OR REPLACE FUNCTION public.fn_deactivate_razorpay_account(p_institution_id uuid, p_actor uuid DEFAULT NULL)
+RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, extensions AS $$
+BEGIN
+  IF p_institution_id IS NULL THEN RAISE EXCEPTION 'fn_deactivate_razorpay_account: p_institution_id must not be NULL'; END IF;
+  UPDATE public.razorpay_accounts SET is_active = false, updated_at = now(), updated_by = p_actor
+    WHERE institution_id = p_institution_id AND is_active;
+END; $$;
+
+REVOKE ALL ON FUNCTION public.fn_set_razorpay_account(uuid, text, text, text, text, text, text, text, uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_set_razorpay_account(uuid, text, text, text, text, text, text, text, uuid) TO service_role;
+REVOKE ALL ON FUNCTION public.fn_get_razorpay_account(uuid, text) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_get_razorpay_account(uuid, text) TO service_role;
+REVOKE ALL ON FUNCTION public.fn_get_razorpay_account_by_id(uuid, text) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_get_razorpay_account_by_id(uuid, text) TO service_role;
+REVOKE ALL ON FUNCTION public.fn_get_razorpay_account_by_webhook_ref(text, text) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_get_razorpay_account_by_webhook_ref(text, text) TO service_role;
+REVOKE ALL ON FUNCTION public.fn_list_razorpay_accounts() FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_list_razorpay_accounts() TO service_role;
+REVOKE ALL ON FUNCTION public.fn_deactivate_razorpay_account(uuid, uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_deactivate_razorpay_account(uuid, uuid) TO service_role;

@@ -75562,6 +75562,62 @@ export type Database = {
           },
         ]
       }
+      razorpay_accounts: {
+        Row: {
+          account_label: string | null
+          created_at: string
+          created_by: string | null
+          id: string
+          institution_id: string
+          is_active: boolean
+          key_id: string
+          key_secret_encrypted: string
+          mode: string
+          updated_at: string
+          updated_by: string | null
+          webhook_ref: string
+          webhook_secret_encrypted: string
+        }
+        Insert: {
+          account_label?: string | null
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          institution_id: string
+          is_active?: boolean
+          key_id: string
+          key_secret_encrypted: string
+          mode?: string
+          updated_at?: string
+          updated_by?: string | null
+          webhook_ref: string
+          webhook_secret_encrypted: string
+        }
+        Update: {
+          account_label?: string | null
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          institution_id?: string
+          is_active?: boolean
+          key_id?: string
+          key_secret_encrypted?: string
+          mode?: string
+          updated_at?: string
+          updated_by?: string | null
+          webhook_ref?: string
+          webhook_secret_encrypted?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "razorpay_accounts_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       referral_categories: {
         Row: {
           created_at: string
@@ -102419,6 +102475,70 @@ export type Database = {
           p_master_secret: string
           p_user_id: string
         }
+        Returns: undefined
+      }
+      fn_set_razorpay_account: {
+        Args: {
+          p_institution_id: string
+          p_key_id: string
+          p_key_secret: string
+          p_webhook_secret: string
+          p_label: string | null
+          p_mode: string
+          p_webhook_ref: string | null
+          p_master_secret: string
+          p_actor?: string | null
+        }
+        Returns: {
+          id: string
+          webhook_ref: string
+        }[]
+      }
+      fn_get_razorpay_account: {
+        Args: { p_institution_id: string; p_master_secret: string }
+        Returns: {
+          id: string
+          key_id: string
+          key_secret: string
+          webhook_secret: string
+          mode: string
+          webhook_ref: string
+        }[]
+      }
+      fn_get_razorpay_account_by_id: {
+        Args: { p_account_id: string; p_master_secret: string }
+        Returns: {
+          id: string
+          key_id: string
+          key_secret: string
+          webhook_secret: string
+          mode: string
+          webhook_ref: string
+        }[]
+      }
+      fn_get_razorpay_account_by_webhook_ref: {
+        Args: { p_webhook_ref: string; p_master_secret: string }
+        Returns: {
+          id: string
+          institution_id: string
+          webhook_secret: string
+        }[]
+      }
+      fn_list_razorpay_accounts: {
+        Args: never
+        Returns: {
+          id: string
+          institution_id: string
+          key_id: string
+          account_label: string | null
+          mode: string
+          is_active: boolean
+          webhook_ref: string
+          created_at: string
+        }[]
+      }
+      fn_deactivate_razorpay_account: {
+        Args: { p_institution_id: string; p_actor?: string | null }
         Returns: undefined
       }
       fn_set_referral_eligibility: {

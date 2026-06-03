@@ -2,6 +2,7 @@
 import type { PaymentProvider, PaymentProviderName, PaymentModule } from './provider';
 import { RazorpayProvider } from './razorpay/razorpay-provider';
 import { HdfcSmartGatewayProvider } from './hdfc-smartgateway-provider';
+import { resolveRazorpayCredentials, type ResolveContext } from './razorpay/resolve-credentials';
 
 function envVarForModule(module: PaymentModule): string {
   switch (module) {
@@ -18,10 +19,26 @@ export function getActiveProviderName(module: PaymentModule): PaymentProviderNam
   );
 }
 
-export function getPaymentProvider(module: PaymentModule): PaymentProvider {
+/**
+ * Resolve the active payment provider for a module.
+ *
+ * For Razorpay, `ctx` selects which institution's credentials to use (pinned
+ * accountId → institution's active account → common env account). Omitting `ctx`
+ * uses the common env account, preserving the original single-account behavior.
+ *
+ * Async because per-institution credential resolution is a DB call.
+ */
+export async function getPaymentProvider(
+  module: PaymentModule,
+  ctx?: ResolveContext,
+): Promise<PaymentProvider> {
   const name = getActiveProviderName(module);
   switch (name) {
-    case 'razorpay':          return new RazorpayProvider();
-    case 'hdfc_smartgateway': return new HdfcSmartGatewayProvider();
+    case 'razorpay': {
+      const creds = await resolveRazorpayCredentials(ctx ?? {});
+      return new RazorpayProvider(creds);
+    }
+    case 'hdfc_smartgateway':
+      return new HdfcSmartGatewayProvider();
   }
 }

@@ -405,3 +405,74 @@ HDFC_ENABLE_LOGGING=...
 - [Security-Audit-Checklist.md](./Security-Audit-Checklist.md) — Items the auditor verifies before go-live
 - [test-card-details.md](./test-card-details.md) — Test cards for UAT
 - [`docs/plans/2026-05-22-razorpay-migration-plan.md`](../plans/2026-05-22-razorpay-migration-plan.md) — Original 44-task implementation plan
+- [`docs/plans/2026-06-03-institution-wise-razorpay-accounts-plan.md`](../plans/2026-06-03-institution-wise-razorpay-accounts-plan.md) — Per-institution accounts design & plan
+- [Institution-Wise-Accounts.md](./Institution-Wise-Accounts.md) — **Per-institution accounts feature reference** (architecture, admin UI, env vars, activation, troubleshooting)
+
+---
+
+## 11. Institution-wise Razorpay accounts (added 2026-06-03)
+
+The single global account (`RAZORPAY_KEY_ID` / `_KEY_SECRET` / `_WEBHOOK_SECRET`) is now the
+**common fallback**. Each institution can settle into its **own** Razorpay merchant account,
+matched by `institution_id`. Institutions without their own account keep using the common one
+— so you migrate one institution at a time with zero disruption.
+
+### 11.1 How it works
+- Per-institution credentials live in `razorpay_accounts` (migration
+  `20260603130000_razorpay_institution_accounts.sql`). `key_id` is stored plaintext (public);
+  `key_secret` + `webhook_secret` are pgcrypto-encrypted (`pgp_sym_encrypt`) and accessed only
+  via `service_role` SECURITY DEFINER RPCs (`fn_get/set/..._razorpay_account`).
+- Credentials are resolved per payment by `resolveRazorpayCredentials({ accountId, institutionId })`
+  → pinned account → institution's active account → common env account.
+- Each transaction pins `razorpay_account_id`, so verify/status/refund/late-auth always use the
+  same account that created the order (rotation-safe).
+- Webhooks: each institution's account uses **`/api/webhooks/razorpay/<webhookRef>`** (the
+  `webhookRef` is generated when you seed the account). The common account keeps using
+  `/api/webhooks/razorpay`.
+
+### 11.2 New env var
+| Key | Value | Notes |
+|---|---|---|
+| `RAZORPAY_CREDENTIALS_MASTER_SECRET` | 32+ byte random hex | Encrypts/decrypts the per-institution secrets. Set in Vercel (production + preview). **Without it, per-institution accounts cannot be read/written** (the common env account still works). |
+
+### 11.3 Onboarding an institution (per institution)
+1. Create/obtain that institution's Razorpay account; get its `key_id` + `key_secret`.
+2. Decide a webhook secret string for it (you'll use it in both the seed file and the Razorpay dashboard).
+3. Add an entry to a **gitignored** `razorpay-accounts.seed.json` at the repo root:
+   ```json
+   [
+     {
+       "institutionId": "<institutions.id UUID>",
+       "keyId": "rzp_live_XXXX",
+       "keySecret": "<key secret>",
+       "webhookSecret": "<your chosen webhook secret>",
+       "label": "JKKN College of Arts and Science",
+       "mode": "live"
+     }
+   ]
+   ```
+4. Seed it: `npm run seed:razorpay` (runs `tsx --env-file=.env.local scripts/seed-razorpay-accounts.ts`).
+   The script prints the **webhook URL** to use for that account:
+   `https://<prod>/api/webhooks/razorpay/<webhookRef>`.
+5. In that institution's **Razorpay dashboard → Settings → Webhooks**, add a webhook with that URL,
+   the **same** webhook secret from step 2, and the same active events listed in §4.3.
+6. Verify with `npm run list:razorpay` (shows accounts + their webhook URLs; never prints secrets).
+7. Run one test transaction for a learner in that institution and confirm the row in
+   `payment_transactions` has the institution's `razorpay_account_id` and goes to `success`.
+
+### 11.4 Key rotation
+Re-run the seed for that institution with new keys. The old account row is kept (deactivated) so any
+in-flight payment still verifies via its old `webhook_ref`; new orders use the new account. Once the
+old account has drained, you can remove its webhook in the Razorpay dashboard.
+
+### 11.5 Prerequisite note
+The two base Razorpay migrations (`20260522120000`, `20260523120000`) were applied to the dev DB on
+2026-06-03 (they had not been recorded there previously). Ensure they are present on any environment
+before relying on Razorpay.
+
+### 11.6 Admin UI
+A management page ships at **`/billing/payment-accounts`** (sidebar: Billing → Payment Gateway Accounts),
+gated by `billing.payment_accounts.view` (page) and `billing.payment_accounts.manage` (mutations). It lists
+accounts (no secrets), supports add / rotate / deactivate / test-connection, and shows each account's webhook
+URL to copy. By default only **super admins** can access it; grant the keys to finance roles via Role
+Management when ready. The `npm run seed:razorpay` script remains available for bulk/scripted onboarding.

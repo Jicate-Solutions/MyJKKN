@@ -6448,3 +6448,13 @@ FOR SELECT USING (
   OR (user_has_permission('campus_living.allocations.view') AND role_has_institution_access(institution_id) AND role_has_block_access(block_id))
   OR (user_has_permission('campus_living.allocations.view_own') AND learner_id = auth.uid())
 );
+
+-- ============================================================================
+-- razorpay_accounts (migration 20260603130000) — service-role only; secrets here.
+-- ============================================================================
+ALTER TABLE public.razorpay_accounts ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Service role manages razorpay accounts" ON public.razorpay_accounts;
+CREATE POLICY "Service role manages razorpay accounts" ON public.razorpay_accounts
+  FOR ALL
+  USING (auth.role() = 'service_role')
+  WITH CHECK (auth.role() = 'service_role');

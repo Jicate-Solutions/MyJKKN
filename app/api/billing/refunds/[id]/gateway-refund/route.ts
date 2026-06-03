@@ -22,7 +22,7 @@ export async function POST(
     // Load refund + parent transaction via receipt FK chain
     const { data: refund, error: refundErr } = await (supabase as any)
       .from('billing_refunds')
-      .select('id, status, refund_amount, receipt:billing_receipts(id, transaction:payment_transactions(id, provider, razorpay_payment_id, transaction_ref))')
+      .select('id, status, refund_amount, receipt:billing_receipts(id, transaction:payment_transactions(id, provider, razorpay_payment_id, transaction_ref, institution_id, razorpay_account_id))')
       .eq('id', refundId)
       .single();
 
@@ -52,7 +52,10 @@ export async function POST(
       );
     }
 
-    const provider = getPaymentProvider('billing');
+    const provider = await getPaymentProvider('billing', {
+      accountId: txn.razorpay_account_id,
+      institutionId: txn.institution_id,
+    });
     const result = await provider.createRefund({
       gatewayPaymentId: txn.razorpay_payment_id,
       amountPaise: toPaise(Number(refund.refund_amount)),

@@ -95,6 +95,9 @@ public/swe-worker-*.js.map
 # Sentry Config File
 .env.sentry-build-plugin
 
+# Razorpay per-institution credential seed file (plaintext secrets — never commit)
+razorpay-accounts.seed.json
+
 # Agent worktrees (created by parallel sub-agent runs in interactive sessions)
 .claude/worktrees/
 

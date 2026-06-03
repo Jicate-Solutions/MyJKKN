@@ -34,7 +34,9 @@
     "import:website-faculty:dry": "tsx --env-file=.env.local scripts/import/website-faculty-to-staff.ts --dry-run",
     "backfill:cdc-idp": "tsx --env-file=.env.local scripts/backfill-cdc-idp.ts",
     "backfill:cdc-idp:dry": "tsx --env-file=.env.local scripts/backfill-cdc-idp.ts --dry-run",
-    "batch:autofill-schools": "tsx scripts/batch-autofill-school-learners.ts"
+    "batch:autofill-schools": "tsx scripts/batch-autofill-school-learners.ts",
+    "seed:razorpay": "tsx --env-file=.env.local scripts/seed-razorpay-accounts.ts",
+    "list:razorpay": "tsx --env-file=.env.local scripts/seed-razorpay-accounts.ts --list"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.68.0",

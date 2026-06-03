@@ -2380,6 +2380,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         ]
       },
       {
+        "path": "/billing/payment-accounts",
+        "label": "Payment Accounts",
+        "iconName": "Wallet",
+        "children": []
+      },
+      {
         "path": "/billing/receipts",
         "label": "Receipts",
         "iconName": "Wallet",
