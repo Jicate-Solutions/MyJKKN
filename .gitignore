@@ -116,3 +116,5 @@ razorpay-accounts.seed.json
 
 # MSYS/Cygwin bash crash dumps on Windows
 *.stackdump
+
+.playwright-mcp/
