@@ -10,14 +10,19 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { AlertCircle, Info } from 'lucide-react';
 import { YoYVerdictBanner } from './yoy/yoy-verdict-banner';
 import { YoYChartCanvas, type ViewMode, type HorizonMode } from './yoy/yoy-chart-canvas';
-import { YoYToolbar, type ScopeMode } from './yoy/yoy-toolbar';
+import { YoYToolbar } from './yoy/yoy-toolbar';
 import { YoYDrillSheet } from './yoy/yoy-drill-sheet';
 import { YoYExcludedCollapsible } from './yoy/yoy-excluded-collapsible';
+import { YoYInstitutionPicker } from './yoy/yoy-institution-picker';
 import { cycleLabel } from './yoy/_helpers/verdict-math';
 
 type Props = {
+  /**
+   * Optional initial institution_id. When provided, the picker starts on
+   * that institution. When omitted, the picker starts on "All institutions"
+   * (group view).
+   */
   institutionId?: string;
-  hasInstitutionScope?: boolean;
 };
 
 /**
@@ -35,8 +40,15 @@ type Props = {
  * Director-locked editorial aesthetic — cream background, terracotta accent,
  * DM Serif Display + IBM Plex Sans/Mono typography. No purple gradients.
  */
-export function YoYTrajectoryChart({ institutionId, hasInstitutionScope = false }: Props) {
-  const [scopeMode, setScopeMode] = useState<ScopeMode>('group');
+export function YoYTrajectoryChart({ institutionId }: Props) {
+  // Director-locked 2026-06-03: institution picker REPLACES the prior
+  // "Group / My institution" toggle. Lets the user pick ANY accessible
+  // institution and scopes EVERY view — trajectory, drill sheet, excluded
+  // panel, verdict banner, and the forthcoming actionable-insights cards —
+  // to that selection. null = "All institutions" group view.
+  const [selectedInstitutionId, setSelectedInstitutionId] = useState<string | null>(
+    institutionId ?? null,
+  );
   // Default to full-horizon so historical years' complete curves are visible.
   // Director-flagged 2026-06-03: in fair-race default he couldn't see the
   // June 2025+ admissions on the 2025-26 line because they're past day +63
@@ -47,7 +59,7 @@ export function YoYTrajectoryChart({ institutionId, hasInstitutionScope = false 
   const [expandedYear, setExpandedYear] = useState<number | null>(null);
   const [drillPoint, setDrillPoint] = useState<{ year: number; dayN: number } | null>(null);
 
-  const effectiveInstitutionId = scopeMode === 'mine' ? institutionId : undefined;
+  const effectiveInstitutionId = selectedInstitutionId ?? undefined;
   const trajectory = useYoYTrajectory(effectiveInstitutionId);
 
   const perInstitution = useYoYPerInstitutionTrajectory(expandedYear, effectiveInstitutionId);
@@ -118,20 +130,26 @@ export function YoYTrajectoryChart({ institutionId, hasInstitutionScope = false 
               {horizonMode === 'fair-race' && ' · historical lines clipped at current day for fair comparison'}
             </p>
           </div>
-          <YoYToolbar
-            scopeMode={scopeMode}
-            horizonMode={horizonMode}
-            viewMode={viewMode}
-            expandedYear={expandedYear}
-            hasInstitutionScope={hasInstitutionScope && Boolean(institutionId)}
-            onScopeChange={setScopeMode}
-            onHorizonChange={setHorizonMode}
-            onViewModeChange={(v) => {
-              setViewMode(v);
-              if (v === 'category') setExpandedYear(null);
-            }}
-            onCollapseExpansion={() => setExpandedYear(null)}
-          />
+          <div className="flex flex-wrap items-center gap-2">
+            <YoYInstitutionPicker
+              selectedInstitutionId={selectedInstitutionId}
+              onChange={(id) => {
+                setSelectedInstitutionId(id);
+                setExpandedYear(null); // reset expansion when scope changes
+              }}
+            />
+            <YoYToolbar
+              horizonMode={horizonMode}
+              viewMode={viewMode}
+              expandedYear={expandedYear}
+              onHorizonChange={setHorizonMode}
+              onViewModeChange={(v) => {
+                setViewMode(v);
+                if (v === 'category') setExpandedYear(null);
+              }}
+              onCollapseExpansion={() => setExpandedYear(null)}
+            />
+          </div>
         </div>
 
         <div className="px-4 py-4">

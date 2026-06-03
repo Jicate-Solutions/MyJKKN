@@ -2,15 +2,10 @@
 
 import type { ViewMode, HorizonMode } from './yoy-chart-canvas';
 
-export type ScopeMode = 'group' | 'mine';
-
 type Props = {
-  scopeMode: ScopeMode;
   horizonMode: HorizonMode;
   viewMode: ViewMode;
   expandedYear: number | null;
-  hasInstitutionScope: boolean;
-  onScopeChange: (m: ScopeMode) => void;
   onHorizonChange: (m: HorizonMode) => void;
   onViewModeChange: (m: ViewMode) => void;
   onCollapseExpansion: () => void;
@@ -23,12 +18,9 @@ type Props = {
  * editorial palette.
  */
 export function YoYToolbar({
-  scopeMode,
   horizonMode,
   viewMode,
   expandedYear,
-  hasInstitutionScope,
-  onScopeChange,
   onHorizonChange,
   onViewModeChange,
   onCollapseExpansion,
@@ -51,17 +43,6 @@ export function YoYToolbar({
         >
           ✕ Collapse {expandedYear}-{(expandedYear + 1) % 100} institutions
         </button>
-      )}
-
-      {hasInstitutionScope && (
-        <Segmented
-          options={[
-            { value: 'group', label: 'Group' },
-            { value: 'mine', label: 'My institution' },
-          ]}
-          value={scopeMode}
-          onChange={(v) => onScopeChange(v as ScopeMode)}
-        />
       )}
 
       <Segmented
