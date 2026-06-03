@@ -9,8 +9,9 @@ export const dynamic = 'force-dynamic';
 // Using the service role with manual auth/permission checks is the standard
 // pattern (same as marketing-leads-database-service).
 
-import { NextRequest, NextResponse, connection } from 'next/server';
+import { NextRequest, connection } from 'next/server';
 import { createServiceRoleClient, getAuthUser } from '@/lib/supabase/server';
+import { jsonNoStore } from '@/lib/api-helpers/no-store-response';
 import { sanitizeSearch } from '@/lib/config/pagination';
 import {
   getCounselorScope,
@@ -53,12 +54,12 @@ export async function GET(request: NextRequest) {
   try {
     const result = await retryOnFetchFailure(() => getAuthUser());
     if (result.error || !result.user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+      return jsonNoStore({ error: 'Unauthorized' }, { status: 401 });
     }
     user = result.user;
   } catch (err) {
     console.error('[admission/leads/list] Auth fetch failed:', err);
-    return NextResponse.json(
+    return jsonNoStore(
       { error: 'Authentication temporarily unavailable. Please retry.' },
       { status: 503 }
     );
@@ -79,7 +80,7 @@ export async function GET(request: NextRequest) {
   );
 
   if (!profile) {
-    return NextResponse.json({ error: 'Profile not found' }, { status: 403 });
+    return jsonNoStore({ error: 'Profile not found' }, { status: 403 });
   }
 
   const isSuperAdmin = !!profile.is_super_admin || profile.role === 'super_admin';
@@ -96,7 +97,7 @@ export async function GET(request: NextRequest) {
   }
 
   if (!canViewLeads) {
-    return NextResponse.json(
+    return jsonNoStore(
       { error: 'Forbidden: admission.leads.view permission required' },
       { status: 403 }
     );
@@ -114,7 +115,7 @@ export async function GET(request: NextRequest) {
       isUserInLeadViewAllowlist(supabase, user.id)
     );
     if (!inAllowlist) {
-      return NextResponse.json(
+      return jsonNoStore(
         { error: 'Forbidden: role is not permitted to view admission leads' },
         { status: 403 }
       );
@@ -195,7 +196,7 @@ export async function GET(request: NextRequest) {
       : null;
     if (scope.isStrictCounselor && !strictOrClause) {
       // Counselor has no admission_counselors row — strict-mode: nothing visible.
-      return NextResponse.json({
+      return jsonNoStore({
         data: [],
         metadata: { total: 0, page, limit, totalPages: 0 },
       });
@@ -207,7 +208,7 @@ export async function GET(request: NextRequest) {
       !profile.institution_id
     ) {
       // Non-strict, non-global user with no institution assigned.
-      return NextResponse.json({
+      return jsonNoStore({
         data: [],
         metadata: { total: 0, page, limit, totalPages: 0 },
       });
@@ -483,7 +484,7 @@ export async function GET(request: NextRequest) {
       return { ...r, interested_program_names: names };
     });
 
-    return NextResponse.json({
+    return jsonNoStore({
       data: enriched,
       metadata: {
         total: count || 0,
@@ -508,6 +509,6 @@ export async function GET(request: NextRequest) {
     // to retry, instead of treating it as a permanent 500 bug.
     const status = isTransientFetchError(err) ? 503 : 500;
 
-    return NextResponse.json({ error: message }, { status });
+    return jsonNoStore({ error: message }, { status });
   }
 }

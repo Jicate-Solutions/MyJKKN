@@ -18,8 +18,9 @@ export const dynamic = 'force-dynamic';
 // owns. Ownership is enforced per-row via getCounselorScope, so dropping the
 // referral exclusion does not widen visibility beyond the operator's own leads.
 
-import { NextResponse, connection } from 'next/server';
+import { connection } from 'next/server';
 import { createServiceRoleClient, getAuthUser } from '@/lib/supabase/server';
+import { jsonNoStore } from '@/lib/api-helpers/no-store-response';
 import {
   getCounselorScope,
   isUserInLeadViewAllowlist,
@@ -60,7 +61,7 @@ export async function GET(
 
   const { id } = await params;
   if (!id) {
-    return NextResponse.json({ error: 'Lead id is required' }, { status: 400 });
+    return jsonNoStore({ error: 'Lead id is required' }, { status: 400 });
   }
 
   // 1. Authenticate the user (wrapped so undici cold-start flakes auto-retry)
@@ -68,12 +69,12 @@ export async function GET(
   try {
     const result = await retryOnFetchFailure(() => getAuthUser());
     if (result.error || !result.user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+      return jsonNoStore({ error: 'Unauthorized' }, { status: 401 });
     }
     user = result.user;
   } catch (err) {
     console.error('[admission/leads/:id] Auth fetch failed:', err);
-    return NextResponse.json(
+    return jsonNoStore(
       { error: 'Authentication temporarily unavailable. Please retry.' },
       { status: 503 }
     );
@@ -91,7 +92,7 @@ export async function GET(
   );
 
   if (!profile) {
-    return NextResponse.json({ error: 'Profile not found' }, { status: 403 });
+    return jsonNoStore({ error: 'Profile not found' }, { status: 403 });
   }
 
   const isSuperAdmin = !!profile.is_super_admin || profile.role === 'super_admin';
@@ -108,7 +109,7 @@ export async function GET(
   }
 
   if (!canViewLeads) {
-    return NextResponse.json(
+    return jsonNoStore(
       { error: 'Forbidden: admission.leads.view permission required' },
       { status: 403 }
     );
@@ -120,7 +121,7 @@ export async function GET(
       isUserInLeadViewAllowlist(supabase, user.id)
     );
     if (!inAllowlist) {
-      return NextResponse.json(
+      return jsonNoStore(
         { error: 'Forbidden: role is not permitted to view admission leads' },
         { status: 403 }
       );
@@ -164,7 +165,7 @@ export async function GET(
 
     if (error) throw error;
     if (!lead) {
-      return NextResponse.json({ error: 'Lead not found' }, { status: 404 });
+      return jsonNoStore({ error: 'Lead not found' }, { status: 404 });
     }
 
     // 4. Per-row ownership / scope check — same model as the list route's
@@ -182,7 +183,7 @@ export async function GET(
         (lead as any).counselor_id === scope.myAdmissionCounselorId;
       const ownsByAssignment = (lead as any).assigned_counselor_id === user.id;
       if (!ownsByCounselorId && !ownsByAssignment) {
-        return NextResponse.json({ error: 'Lead not found' }, { status: 404 });
+        return jsonNoStore({ error: 'Lead not found' }, { status: 404 });
       }
     } else if (!isAdmissionGlobalUser) {
       // Non-strict, non-global users are clamped to their own institution,
@@ -191,12 +192,12 @@ export async function GET(
         !profile.institution_id ||
         (lead as any).institution_id !== profile.institution_id
       ) {
-        return NextResponse.json({ error: 'Lead not found' }, { status: 404 });
+        return jsonNoStore({ error: 'Lead not found' }, { status: 404 });
       }
     }
     // isAdmissionGlobalUser (incl. super_admin): institution-wide visibility.
 
-    return NextResponse.json({ data: lead });
+    return jsonNoStore({ data: lead });
   } catch (err) {
     console.error('[admission/leads/:id] API route error:', err);
     // Postgrest errors are plain objects (not Error instances).
@@ -208,6 +209,6 @@ export async function GET(
       (typeof err === 'string' ? err : null) ||
       'Internal server error';
     const status = isTransientFetchError(err) ? 503 : 500;
-    return NextResponse.json({ error: message }, { status });
+    return jsonNoStore({ error: message }, { status });
   }
 }
