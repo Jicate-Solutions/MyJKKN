@@ -1,283 +1,263 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import {
-  CartesianGrid,
-  Legend,
-  Line,
-  LineChart,
-  ReferenceLine,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from 'recharts';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
+  useYoYTrajectory,
+  useYoYPerInstitutionTrajectory,
+  useYoYPerCategoryTrajectory,
+} from '@/hooks/admission/use-yoy-trajectory';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { AlertCircle, Info } from 'lucide-react';
-import { useYoYTrajectory } from '@/hooks/admission/use-yoy-trajectory';
+import { YoYVerdictBanner } from './yoy/yoy-verdict-banner';
+import { YoYChartCanvas, type ViewMode, type HorizonMode } from './yoy/yoy-chart-canvas';
+import { YoYToolbar } from './yoy/yoy-toolbar';
+import { YoYDrillSheet } from './yoy/yoy-drill-sheet';
+import { YoYExcludedCollapsible } from './yoy/yoy-excluded-collapsible';
+import { YoYInstitutionPicker } from './yoy/yoy-institution-picker';
+import { YoYHealthStoplight } from './yoy/yoy-health-stoplight';
+import { YoYDepositsWorklist } from './yoy/yoy-deposits-worklist';
+import { YoYCounselorGrid } from './yoy/yoy-counselor-grid';
+import { YoYFirstTouchSLA } from './yoy/yoy-first-touch-sla';
+import { cycleLabel } from './yoy/_helpers/verdict-math';
 
 type Props = {
   /**
-   * Single institution_id when the parent scope resolves to one institution
-   * (e.g., counselor view). Pass undefined for group-wide.
+   * Optional initial institution_id. When provided, the picker starts on
+   * that institution. When omitted, the picker starts on "All institutions"
+   * (group view).
    */
   institutionId?: string;
-  /**
-   * Whether the caller has access to a single institution (for showing the
-   * "My institution only" toggle). When false, only group view is offered.
-   */
-  hasInstitutionScope?: boolean;
 };
 
-const YEAR_COLOURS: Record<string, string> = {
-  '0': '#6b7280', // oldest year — gray
-  '1': '#3b82f6', // middle year — blue
-  '2': '#10b981', // current year — green
-};
+/**
+ * Orchestrator for the Year-over-Year trajectory chart on the Seats sub-tab.
+ *
+ * Three zones (top to bottom):
+ *   Zone 1 — Verdict banner: "Are we lagging?" answered first
+ *   Zone 2 — Chart card: trajectory + toolbar
+ *   Zone 3 — Excluded programs (collapsible)
+ *
+ * Click-point drill-down opens a right-side Sheet with top contributors.
+ * Click-year-legend expands that year into 8 institutional sub-lines.
+ * "Show by category" toggle redraws chart with program-category grouping.
+ *
+ * Director-locked editorial aesthetic — cream background, terracotta accent,
+ * DM Serif Display + IBM Plex Sans/Mono typography. No purple gradients.
+ */
+export function YoYTrajectoryChart({ institutionId }: Props) {
+  // Director-locked 2026-06-03: institution picker REPLACES the prior
+  // "Group / My institution" toggle. Lets the user pick ANY accessible
+  // institution and scopes EVERY view — trajectory, drill sheet, excluded
+  // panel, verdict banner, and the forthcoming actionable-insights cards —
+  // to that selection. null = "All institutions" group view.
+  const [selectedInstitutionId, setSelectedInstitutionId] = useState<string | null>(
+    institutionId ?? null,
+  );
+  // Default to full-horizon so historical years' complete curves are visible.
+  // Director-flagged 2026-06-03: in fair-race default he couldn't see the
+  // June 2025+ admissions on the 2025-26 line because they're past day +63
+  // (the current cycle's progress). Full-horizon shows everything; counselors
+  // can switch to fair-race when they explicitly want the "same point" view.
+  const [horizonMode, setHorizonMode] = useState<HorizonMode>('full-horizon');
+  const [viewMode, setViewMode] = useState<ViewMode>('institution');
+  const [expandedYear, setExpandedYear] = useState<number | null>(null);
+  const [drillPoint, setDrillPoint] = useState<{ year: number; dayN: number } | null>(null);
 
-const X_AXIS_CLAMP = { min: -150, max: 400 };
+  const effectiveInstitutionId = selectedInstitutionId ?? undefined;
+  const trajectory = useYoYTrajectory(effectiveInstitutionId);
 
-export function YoYTrajectoryChart({ institutionId, hasInstitutionScope }: Props) {
-  const [scopeMode, setScopeMode] = useState<'group' | 'mine'>('group');
-  const [horizonMode, setHorizonMode] = useState<'fair-race' | 'full-horizon'>('fair-race');
+  const perInstitution = useYoYPerInstitutionTrajectory(expandedYear, effectiveInstitutionId);
+  const perCategory = useYoYPerCategoryTrajectory(effectiveInstitutionId);
 
-  const effectiveInstitutionId = scopeMode === 'mine' ? institutionId : undefined;
-  const { data, isLoading, error } = useYoYTrajectory(effectiveInstitutionId);
-
-  const { chartData, years, currentMaxDayN } = useMemo(() => {
-    if (!data?.trajectory.length) {
-      return { chartData: [], years: [] as number[], currentMaxDayN: 0 };
-    }
-    // Pivot from rows of {year, dayN, cumulativeAdmitted} into columns keyed by year
-    const yearsSet = new Set<number>();
-    const byDayN = new Map<number, Record<string, number | undefined>>();
-    for (const r of data.trajectory) {
-      yearsSet.add(r.year);
-      // Clip to display range to keep the X-axis readable
-      if (r.dayN < X_AXIS_CLAMP.min || r.dayN > X_AXIS_CLAMP.max) continue;
-      if (!byDayN.has(r.dayN)) byDayN.set(r.dayN, { dayN: r.dayN });
-      byDayN.get(r.dayN)![`y${r.year}`] = r.cumulativeAdmitted;
-    }
-    // Forward-fill within each year so the line is continuous between sparse data points
-    const sortedDays = Array.from(byDayN.keys()).sort((a, b) => a - b);
-    const lastSeen: Record<string, number | undefined> = {};
-    const sortedYears = Array.from(yearsSet).sort((a, b) => a - b);
-    for (const day of sortedDays) {
-      const point = byDayN.get(day)!;
-      for (const y of sortedYears) {
-        const key = `y${y}`;
-        if (point[key] !== undefined) {
-          lastSeen[key] = point[key] as number;
-        } else if (lastSeen[key] !== undefined) {
-          point[key] = lastSeen[key];
-        }
-      }
-    }
-    const points = sortedDays.map((d) => byDayN.get(d)!);
-    const currentYear = Math.max(...sortedYears);
-    const maxDayNForCurrent = data.trajectory
-      .filter((r) => r.year === currentYear)
-      .reduce((max, r) => Math.max(max, r.dayN), -Infinity);
-    return {
-      chartData: points,
-      years: sortedYears,
-      currentMaxDayN: Number.isFinite(maxDayNForCurrent) ? maxDayNForCurrent : 0,
-    };
-  }, [data]);
-
-  // Apply fair-race truncation: clip all years' lines at currentMaxDayN
-  const displayData = useMemo(() => {
-    if (horizonMode === 'full-horizon') return chartData;
-    return chartData.filter((p) => (p.dayN as number) <= currentMaxDayN);
-  }, [chartData, horizonMode, currentMaxDayN]);
-
-  const excludedByInstitution = useMemo(() => {
-    if (!data?.excludedCourses.length) return [];
-    const grouped = new Map<string, typeof data.excludedCourses>();
-    for (const c of data.excludedCourses) {
-      if (!grouped.has(c.institutionName)) grouped.set(c.institutionName, []);
-      grouped.get(c.institutionName)!.push(c);
-    }
-    return Array.from(grouped.entries()).map(([name, courses]) => ({ name, courses }));
-  }, [data]);
-
-  if (isLoading) {
-    return (
-      <Card>
-        <CardContent className="p-6 text-center text-sm text-muted-foreground">
-          Loading year-over-year trajectory…
-        </CardContent>
-      </Card>
-    );
-  }
-
-  if (error) {
+  if (trajectory.error) {
     return (
       <Alert variant="destructive">
         <AlertCircle className="h-4 w-4" />
         <AlertTitle>Could not load YoY trajectory</AlertTitle>
-        <AlertDescription>{(error as Error).message}</AlertDescription>
+        <AlertDescription>{(trajectory.error as Error).message}</AlertDescription>
       </Alert>
     );
   }
 
-  if (!data?.trajectory.length) {
+  if (!trajectory.isLoading && !trajectory.data?.trajectory.length) {
     return (
       <Alert>
         <Info className="h-4 w-4" />
-        <AlertTitle>No common-courses data yet</AlertTitle>
+        <AlertTitle>Not enough cycle data yet</AlertTitle>
         <AlertDescription>
-          The YoY chart needs courses with admission data in all 3 cycles. Once 2026-27 has
-          more programs that match historical years, the chart will populate.
+          The YoY chart needs admission data in at least 2 cycles. Once 2026-27
+          accumulates more learners that match historical years, the chart will
+          populate.
         </AlertDescription>
       </Alert>
     );
   }
 
+  const data = trajectory.data;
+
   return (
     <div className="space-y-4">
-      {/* Header strip — title, scope toggle, horizon toggle, common-courses badge */}
+      {/* Zone 0: Institution picker — visible at the top so scope is always obvious */}
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <h3 className="text-sm font-semibold">Year over Year</h3>
-          <Badge variant="secondary" className="text-xs">
-            Common courses only · {years.length} years overlaid
-          </Badge>
+        <div>
+          <h2
+            className="text-[18px] tracking-tight"
+            style={{
+              fontFamily: 'var(--font-dm-serif-display)',
+              color: '#2a2624',
+              fontWeight: 400,
+            }}
+          >
+            Year over Year
+          </h2>
+          <p
+            className="text-[11px]"
+            style={{ color: '#9a948a', fontFamily: 'var(--font-ibm-plex-sans)' }}
+          >
+            Decision-driver view · pick an institution to scope every panel below
+          </p>
         </div>
-        <div className="flex items-center gap-2">
-          {hasInstitutionScope && institutionId && (
-            <div className="inline-flex rounded-md border bg-muted p-0.5">
-              <Button
-                variant={scopeMode === 'group' ? 'default' : 'ghost'}
-                size="sm"
-                className="h-7 text-xs"
-                onClick={() => setScopeMode('group')}
-              >
-                Group
-              </Button>
-              <Button
-                variant={scopeMode === 'mine' ? 'default' : 'ghost'}
-                size="sm"
-                className="h-7 text-xs"
-                onClick={() => setScopeMode('mine')}
-              >
-                My institution
-              </Button>
-            </div>
-          )}
-          <div className="inline-flex rounded-md border bg-muted p-0.5">
-            <Button
-              variant={horizonMode === 'fair-race' ? 'default' : 'ghost'}
-              size="sm"
-              className="h-7 text-xs"
-              onClick={() => setHorizonMode('fair-race')}
-            >
-              Fair race
-            </Button>
-            <Button
-              variant={horizonMode === 'full-horizon' ? 'default' : 'ghost'}
-              size="sm"
-              className="h-7 text-xs"
-              onClick={() => setHorizonMode('full-horizon')}
-            >
-              Full horizon
-            </Button>
-          </div>
-        </div>
+        <YoYInstitutionPicker
+          selectedInstitutionId={selectedInstitutionId}
+          onChange={(id) => {
+            setSelectedInstitutionId(id);
+            setExpandedYear(null);
+          }}
+        />
       </div>
 
-      {/* Chart */}
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-xs text-muted-foreground font-normal">
-            Cumulative admitted vs. days since April 1 of each cohort&apos;s class-start year.
-            Days before April 1 (e.g. Feb–March pre-cycle admissions) appear as negative on the X-axis.
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="pt-2">
-          <ResponsiveContainer width="100%" height={360}>
-            <LineChart data={displayData} margin={{ top: 8, right: 16, left: 0, bottom: 8 }}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis
-                dataKey="dayN"
-                type="number"
-                domain={[X_AXIS_CLAMP.min, X_AXIS_CLAMP.max]}
-                tick={{ fontSize: 11 }}
-                label={{ value: 'Day-N (anchored at April 1)', position: 'bottom', fontSize: 11 }}
-              />
-              <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
-              <Tooltip
-                formatter={(value: number, name: string) => [value, name.replace('y', '')]}
-                labelFormatter={(day) => {
-                  const dayNum = Number(day);
-                  if (dayNum < 0) return `Day ${dayNum} (pre-cycle, ${Math.abs(dayNum)} days before Apr 1)`;
-                  if (dayNum === 0) return 'Day 0 (April 1 — class start)';
-                  return `Day +${dayNum} (post-class-start)`;
-                }}
-              />
-              <Legend
-                wrapperStyle={{ fontSize: 11, paddingTop: 8 }}
-                formatter={(value: string) => `${value.replace('y', '')}-${Number(value.replace('y', '')) + 1}`}
-              />
-              <ReferenceLine
-                x={0}
-                stroke="#9ca3af"
-                strokeDasharray="3 3"
-                label={{ value: 'Apr 1', position: 'top', fontSize: 10, fill: '#6b7280' }}
-              />
-              {years.map((y, idx) => (
-                <Line
-                  key={y}
-                  type="monotone"
-                  dataKey={`y${y}`}
-                  name={`y${y}`}
-                  stroke={YEAR_COLOURS[String(idx)] ?? '#6b7280'}
-                  strokeWidth={idx === years.length - 1 ? 3 : 2}
-                  dot={false}
-                  connectNulls
-                />
-              ))}
-            </LineChart>
-          </ResponsiveContainer>
-        </CardContent>
-      </Card>
+      {/* Zone 1: Verdict banner — primary answer (4 cards: vs prior years × 2 + projection + week-pace) */}
+      <YoYVerdictBanner
+        trajectory={data?.trajectory ?? []}
+        isLoading={trajectory.isLoading}
+      />
 
-      {/* Excluded courses — BDS-style placeholder explainer */}
-      {excludedByInstitution.length > 0 && (
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm">Programs not in trajectory</CardTitle>
-            <p className="text-xs text-muted-foreground">
-              These programs are filtered out of the YoY chart because they don&apos;t have
-              admission data across all 3 cycles in MyJKKN. Some (like BDS) are tracked via
-              external systems such as TN MCC state counselling and could be backfilled in a
-              follow-up sprint.
+      {/* Zone 1.5: 8-College Health Stoplight — which Principals to call today */}
+      <YoYHealthStoplight institutionId={effectiveInstitutionId} />
+
+      {/* Zone 2: Chart card */}
+      <div
+        className="rounded-lg border overflow-hidden"
+        style={{
+          backgroundColor: '#fafaf8',
+          borderColor: '#e7e2d8',
+          fontFamily: 'var(--font-ibm-plex-sans)',
+        }}
+      >
+        <div
+          className="flex flex-wrap items-center justify-between gap-3 px-5 py-3.5 border-b"
+          style={{ borderColor: '#e7e2d8' }}
+        >
+          <div>
+            <h3
+              className="text-[15px] tracking-tight"
+              style={{
+                fontFamily: 'var(--font-dm-serif-display)',
+                color: '#2a2624',
+                fontWeight: 400,
+              }}
+            >
+              Year over Year trajectory
+            </h3>
+            <p className="text-[11.5px]" style={{ color: '#6e6760' }}>
+              Cumulative admitted vs. days since April 1 of each cohort's class-start year
+              {viewMode === 'category' && ' · grouped by program category'}
+              {expandedYear !== null && ` · ${cycleLabel(expandedYear)} expanded`}
+              {horizonMode === 'fair-race' && ' · historical lines clipped at current day for fair comparison'}
             </p>
-          </CardHeader>
-          <CardContent className="space-y-3 pt-2">
-            {excludedByInstitution.map(({ name, courses }) => (
-              <div key={name} className="text-xs">
-                <div className="font-medium">{name}</div>
-                <div className="mt-1 flex flex-wrap gap-1">
-                  {courses.map((c) => (
-                    <Badge
-                      key={c.programId}
-                      variant="outline"
-                      className="text-[10px] font-normal"
-                      title={`Data only in: ${c.yearsWithData.join(', ')} (${c.exclusionReason.replace(/_/g, ' ')})`}
-                    >
-                      {c.programName} · {c.yearsWithData.join('/')}
-                    </Badge>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-      )}
+          </div>
+          <YoYToolbar
+            horizonMode={horizonMode}
+            viewMode={viewMode}
+            expandedYear={expandedYear}
+            onHorizonChange={setHorizonMode}
+            onViewModeChange={(v) => {
+              setViewMode(v);
+              if (v === 'category') setExpandedYear(null);
+            }}
+            onCollapseExpansion={() => setExpandedYear(null)}
+          />
+        </div>
+
+        <div className="px-4 py-4">
+          {trajectory.isLoading ? (
+            <ChartSkeleton />
+          ) : (
+            <YoYChartCanvas
+              trajectory={data?.trajectory ?? []}
+              perInstitution={perInstitution.data ?? null}
+              perCategory={perCategory.data ?? null}
+              expandedYear={expandedYear}
+              viewMode={viewMode}
+              horizonMode={horizonMode}
+              onPointClick={(year, dayN) => setDrillPoint({ year, dayN })}
+            />
+          )}
+        </div>
+
+        {/* Mini legend — clickable year chips for expand interaction */}
+        {viewMode === 'institution' && !trajectory.isLoading && data && (
+          <div
+            className="flex flex-wrap items-center gap-1.5 px-5 py-3 border-t text-[11px]"
+            style={{
+              borderColor: '#e7e2d8',
+              backgroundColor: '#f4efe3',
+              fontFamily: 'var(--font-ibm-plex-mono)',
+            }}
+          >
+            <span style={{ color: '#9a948a' }}>Click a year to drill:</span>
+            {Array.from(new Set(data.trajectory.map((r) => r.year)))
+              .sort((a, b) => a - b)
+              .map((y) => {
+                const isExpanded = expandedYear === y;
+                return (
+                  <button
+                    key={y}
+                    type="button"
+                    onClick={() => setExpandedYear(isExpanded ? null : y)}
+                    className="rounded-md border px-2 py-0.5 transition"
+                    style={{
+                      borderColor: isExpanded ? '#c8553d' : '#d8d3c8',
+                      backgroundColor: isExpanded ? 'rgba(200, 85, 61, 0.08)' : 'transparent',
+                      color: isExpanded ? '#a8453c' : '#2a2624',
+                      fontWeight: isExpanded ? 600 : 400,
+                    }}
+                  >
+                    {cycleLabel(y)}
+                  </button>
+                );
+              })}
+          </div>
+        )}
+      </div>
+
+      {/* Zone 2.5: Excluded programs (always render — component handles empty state) */}
+      <YoYExcludedCollapsible excludedCourses={data?.excludedCourses ?? []} />
+
+      {/* Zone 3: Actionable insights panels — workflow-recommended (rank 2/3/4) */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <YoYDepositsWorklist institutionId={effectiveInstitutionId} />
+        <YoYFirstTouchSLA institutionId={effectiveInstitutionId} />
+      </div>
+      <YoYCounselorGrid institutionId={effectiveInstitutionId} />
+
+      {/* Drill-down Sheet */}
+      <YoYDrillSheet
+        open={drillPoint !== null}
+        onOpenChange={(o) => { if (!o) setDrillPoint(null); }}
+        year={drillPoint?.year ?? null}
+        dayN={drillPoint?.dayN ?? null}
+        institutionId={effectiveInstitutionId}
+      />
+    </div>
+  );
+}
+
+function ChartSkeleton() {
+  return (
+    <div className="space-y-3 py-6">
+      <div className="h-3 w-2/3 animate-pulse rounded bg-[#ece8de]" />
+      <div className="h-[340px] animate-pulse rounded bg-[#ece8de]" />
     </div>
   );
 }
