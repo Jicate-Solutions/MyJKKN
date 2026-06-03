@@ -9,6 +9,7 @@ import {
   type YoYDepositLeak,
   type YoYCounselorGridCell,
   type YoYFirstTouchBreach,
+  type YoYDaysToCatchUp,
 } from '@/lib/services/admission/yoy-trajectory-service';
 
 export const yoyTrajectoryKeys = {
@@ -29,6 +30,14 @@ export const yoyTrajectoryKeys = {
     [...yoyTrajectoryKeys.all, 'counselor-grid', institutionId ?? 'group'] as const,
   firstTouch: (institutionId?: string) =>
     [...yoyTrajectoryKeys.all, 'first-touch', institutionId ?? 'group'] as const,
+  daysToCatchUp: (institutionId?: string, m?: number, d?: number) =>
+    [
+      ...yoyTrajectoryKeys.all,
+      'days-to-catchup',
+      institutionId ?? 'group',
+      m ?? 8,
+      d ?? 31,
+    ] as const,
 };
 
 const FIVE_MIN = 5 * 60 * 1000;
@@ -115,6 +124,21 @@ export function useYoYFirstTouchBreaches(institutionId?: string, windowDays = 7)
   return useQuery<YoYFirstTouchBreach[]>({
     queryKey: [...yoyTrajectoryKeys.firstTouch(institutionId), windowDays],
     queryFn: () => YoYTrajectoryService.getFirstTouchBreaches(institutionId, windowDays),
+    staleTime: FIVE_MIN,
+    refetchOnWindowFocus: false,
+  });
+}
+
+/** Per-institution days-to-catch-up countdown vs LY final + window-end. */
+export function useYoYDaysToCatchUp(
+  institutionId?: string,
+  windowEndMonth = 8,
+  windowEndDay = 31,
+) {
+  return useQuery<YoYDaysToCatchUp[]>({
+    queryKey: yoyTrajectoryKeys.daysToCatchUp(institutionId, windowEndMonth, windowEndDay),
+    queryFn: () =>
+      YoYTrajectoryService.getDaysToCatchUp(institutionId, windowEndMonth, windowEndDay),
     staleTime: FIVE_MIN,
     refetchOnWindowFocus: false,
   });
