@@ -56,6 +56,29 @@ type FloorSummaryRow = {
   occupied: number;
 };
 
+type ExtendedFloorRow = FloorSummaryRow & {
+  available?: number;
+  studentRooms?: number;
+  specialRooms?: number;
+  attachedBathrooms?: number;
+  byType?: Record<string, number>;
+  byAC?: Record<string, number>;
+  byCategory?: Record<string, number>;
+};
+
+type BlockBreakdown = {
+  totalBeds: number;
+  occupiedBeds: number;
+  availableBeds: number;
+  studentRooms: number;
+  specialRooms: number;
+  byType: Record<string, number>;
+  byAC: Record<string, number>;
+  byCategory: Record<string, number>;
+};
+
+const AC_LABELS: Record<string, string> = { ac: 'AC', non_ac: 'Non-AC', cooler: 'Cooler' };
+
 type ActivityRow = {
   id: string;
   type: string;
@@ -132,6 +155,7 @@ export default function BlockDetailPage({ params }: { params: Promise<{ id: stri
     reserved: number;
   }>;
   const floorSummary = (block.floor_summary ?? []) as FloorSummaryRow[];
+  const blockBreakdown = (block.block_breakdown ?? null) as BlockBreakdown | null;
   const recentActivities = (block.recent_activities ?? []) as ActivityRow[];
 
   const formatDesignation = (value?: string | null) =>
@@ -396,6 +420,78 @@ export default function BlockDetailPage({ params }: { params: Promise<{ id: stri
 
           {/* Floors & Rooms Tab */}
           <TabsContent value="floors" className="space-y-4">
+            {/* Block-level summary strip */}
+            {blockBreakdown && (
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-base">Block Summary</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    <div className="p-3 bg-muted/50 rounded-lg text-center">
+                      <p className="text-xl font-bold">{blockBreakdown.totalBeds}</p>
+                      <p className="text-xs text-muted-foreground">Total Beds</p>
+                    </div>
+                    <div className="p-3 bg-muted/50 rounded-lg text-center">
+                      <p className="text-xl font-bold">{blockBreakdown.occupiedBeds}</p>
+                      <p className="text-xs text-muted-foreground">Occupied</p>
+                    </div>
+                    <div className="p-3 bg-green-50 text-green-700 rounded-lg text-center">
+                      <p className="text-xl font-bold">{blockBreakdown.availableBeds}</p>
+                      <p className="text-xs font-medium">Available Beds</p>
+                    </div>
+                    <div className="p-3 bg-muted/50 rounded-lg text-center">
+                      <p className="text-xl font-bold">{blockBreakdown.studentRooms}</p>
+                      <p className="text-xs text-muted-foreground">
+                        Student Rooms
+                        {blockBreakdown.specialRooms > 0 && (
+                          <span className="ml-1 text-amber-600">· {blockBreakdown.specialRooms} special</span>
+                        )}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Distribution rows */}
+                  <div className="space-y-2 pt-1 border-t">
+                    {Object.keys(blockBreakdown.byType).length > 0 && (
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                        <span className="text-xs font-medium text-muted-foreground w-20 shrink-0">By Type</span>
+                        {Object.entries(blockBreakdown.byType).map(([type, count]) => (
+                          <span key={type} className="inline-flex items-center gap-1 text-xs">
+                            <span className="capitalize">{type}</span>
+                            <Badge variant="secondary" className="h-4 px-1.5 text-xs font-semibold">{count}</Badge>
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    {Object.keys(blockBreakdown.byAC).length > 0 && (
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                        <span className="text-xs font-medium text-muted-foreground w-20 shrink-0">By AC</span>
+                        {Object.entries(blockBreakdown.byAC).map(([ac, count]) => (
+                          <span key={ac} className="inline-flex items-center gap-1 text-xs">
+                            <span>{AC_LABELS[ac] ?? ac}</span>
+                            <Badge variant="secondary" className="h-4 px-1.5 text-xs font-semibold">{count}</Badge>
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    {Object.keys(blockBreakdown.byCategory).length > 0 && (
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                        <span className="text-xs font-medium text-muted-foreground w-20 shrink-0">By Category</span>
+                        {Object.entries(blockBreakdown.byCategory).map(([cat, count]) => (
+                          <span key={cat} className="inline-flex items-center gap-1 text-xs">
+                            <span>{cat}</span>
+                            <Badge variant="secondary" className="h-4 px-1.5 text-xs font-semibold">{count}</Badge>
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Per-floor cards */}
             {floorSummary.length === 0 ? (
               <Card>
                 <CardContent className="p-6 text-center text-sm text-muted-foreground">
@@ -404,20 +500,32 @@ export default function BlockDetailPage({ params }: { params: Promise<{ id: stri
               </Card>
             ) : (
               floorSummary.map((floor) => {
-                const floorOccupancy =
-                  floor.capacity > 0 ? Math.round((floor.occupied / floor.capacity) * 100) : 0;
+                const pct = floor.capacity > 0 ? Math.round((floor.occupied / floor.capacity) * 100) : 0;
+                const ext = floor as ExtendedFloorRow;
+                const freeBeds = ext.available ?? Math.max(floor.capacity - floor.occupied, 0);
+                const hasBreakdown =
+                  Object.keys(ext.byType ?? {}).length > 0 ||
+                  Object.keys(ext.byAC ?? {}).length > 0 ||
+                  Object.keys(ext.byCategory ?? {}).length > 0;
+
                 return (
                   <Card key={floor.floor}>
-                    <CardContent className="p-4">
-                      <div className="flex items-center justify-between mb-2">
+                    <CardContent className="p-4 space-y-3">
+                      {/* Floor header */}
+                      <div className="flex items-start justify-between gap-2">
                         <div>
-                          <p className="font-medium">{floor.label}</p>
+                          <p className="font-semibold">{floor.label}</p>
                           <p className="text-sm text-muted-foreground">
-                            {floor.rooms} rooms, {floor.occupied} occupied of {floor.capacity} beds
+                            {floor.rooms} rooms · {floor.occupied}/{floor.capacity} beds occupied
                           </p>
                         </div>
-                        <div className="flex items-center gap-3">
-                          <span className="text-sm font-medium">{floorOccupancy}%</span>
+                        <div className="flex items-center gap-3 shrink-0">
+                          <span className={`text-sm font-bold tabular-nums ${
+                            pct >= 95 ? 'text-red-600' :
+                            pct >= 80 ? 'text-orange-600' :
+                            pct >= 50 ? 'text-green-600' :
+                            'text-blue-600'
+                          }`}>{pct}%</span>
                           <Button variant="outline" size="sm" asChild>
                             <Link href={`/campus-living/blocks/${id}/rooms?floor=${floor.floor}`}>
                               View Rooms
@@ -425,16 +533,86 @@ export default function BlockDetailPage({ params }: { params: Promise<{ id: stri
                           </Button>
                         </div>
                       </div>
+
+                      {/* Occupancy bar */}
                       <div className="h-2 w-full bg-muted rounded-full overflow-hidden">
                         <div
-                          className={`h-full rounded-full ${
-                            floorOccupancy >= 95 ? 'bg-red-500' :
-                            floorOccupancy >= 80 ? 'bg-green-500' :
-                            'bg-blue-500'
+                          className={`h-full rounded-full transition-all ${
+                            pct >= 95 ? 'bg-red-500' :
+                            pct >= 80 ? 'bg-orange-500' :
+                            pct >= 50 ? 'bg-green-500' :
+                            'bg-blue-400'
                           }`}
-                          style={{ width: `${floorOccupancy}%` }}
+                          style={{ width: `${pct}%` }}
                         />
                       </div>
+
+                      {/* Stat pills */}
+                      <div className="flex flex-wrap gap-1.5">
+                        <span className="inline-flex items-center gap-1 rounded bg-muted/60 px-2 py-0.5 text-xs">
+                          <BedDouble className="h-3 w-3 text-muted-foreground" />
+                          {freeBeds} free
+                        </span>
+                        {(ext.studentRooms ?? 0) > 0 && (
+                          <span className="inline-flex items-center gap-1 rounded bg-blue-50 px-2 py-0.5 text-xs text-blue-700">
+                            <Users className="h-3 w-3" />
+                            {ext.studentRooms} student
+                          </span>
+                        )}
+                        {(ext.specialRooms ?? 0) > 0 && (
+                          <span className="inline-flex items-center gap-1 rounded bg-amber-50 px-2 py-0.5 text-xs text-amber-700">
+                            <DoorOpen className="h-3 w-3" />
+                            {ext.specialRooms} special
+                          </span>
+                        )}
+                        {(ext.attachedBathrooms ?? 0) > 0 && (
+                          <span className="inline-flex items-center gap-1 rounded bg-muted/60 px-2 py-0.5 text-xs text-muted-foreground">
+                            {ext.attachedBathrooms} attached bath
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Category / type / AC breakdown grid */}
+                      {hasBreakdown && (
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 border-t">
+                          {Object.keys(ext.byType ?? {}).length > 0 && (
+                            <div>
+                              <p className="text-xs font-medium text-muted-foreground mb-1.5">By Type</p>
+                              <div className="flex flex-wrap gap-1.5">
+                                {Object.entries(ext.byType ?? {}).map(([type, count]) => (
+                                  <span key={type} className="inline-flex items-center gap-1 rounded bg-muted/60 px-2 py-0.5 text-xs capitalize">
+                                    {type} <span className="font-semibold">{count}</span>
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                          {Object.keys(ext.byAC ?? {}).length > 0 && (
+                            <div>
+                              <p className="text-xs font-medium text-muted-foreground mb-1.5">By AC</p>
+                              <div className="flex flex-wrap gap-1.5">
+                                {Object.entries(ext.byAC ?? {}).map(([ac, count]) => (
+                                  <span key={ac} className="inline-flex items-center gap-1 rounded bg-muted/60 px-2 py-0.5 text-xs">
+                                    {AC_LABELS[ac] ?? ac} <span className="font-semibold">{count}</span>
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                          {Object.keys(ext.byCategory ?? {}).length > 0 && (
+                            <div>
+                              <p className="text-xs font-medium text-muted-foreground mb-1.5">By Category</p>
+                              <div className="flex flex-wrap gap-1.5">
+                                {Object.entries(ext.byCategory ?? {}).map(([cat, count]) => (
+                                  <span key={cat} className="inline-flex items-center gap-1 rounded bg-muted/60 px-2 py-0.5 text-xs">
+                                    {cat} <span className="font-semibold">{count}</span>
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </CardContent>
                   </Card>
                 );
