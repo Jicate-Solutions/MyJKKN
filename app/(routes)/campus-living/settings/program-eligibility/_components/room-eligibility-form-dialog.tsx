@@ -135,25 +135,45 @@ export function RoomEligibilityFormDialog({
     [rooms]
   );
 
-  const roomsByFloor = useMemo(() => {
-    const map = new Map<number, typeof rooms>();
+  // Group the block's rooms by category, then by floor within each category, so
+  // the picker is identifiable both by category (AC Single, Non-AC Shared, …)
+  // and floor. Rooms with no category fall into an "Uncategorized" group rather
+  // than vanishing. Each level exposes its own room-id set for select-all.
+  const roomsByCategory = useMemo(() => {
+    const map = new Map<
+      string,
+      { name: string; rooms: typeof rooms; floors: Map<number, typeof rooms> }
+    >();
     for (const r of rooms) {
-      const list = map.get(r.floor) ?? [];
-      list.push(r);
-      map.set(r.floor, list);
+      const key = r.category_id ?? '__uncat__';
+      const group =
+        map.get(key) ??
+        { name: r.category_name ?? 'Uncategorized', rooms: [] as typeof rooms, floors: new Map() };
+      group.rooms.push(r);
+      const floorRooms = group.floors.get(r.floor) ?? ([] as typeof rooms);
+      floorRooms.push(r);
+      group.floors.set(r.floor, floorRooms);
+      map.set(key, group);
     }
-    return Array.from(map.entries()).sort((a, b) => a[0] - b[0]);
+    return Array.from(map.entries())
+      .sort((a, b) => a[1].name.localeCompare(b[1].name))
+      .map(([key, g]) => ({
+        key,
+        name: g.name,
+        rooms: g.rooms,
+        floors: Array.from(g.floors.entries()).sort((a, b) => a[0] - b[0]),
+      }));
   }, [rooms]);
 
   const toggleRoom = (id: string) =>
     setRoomIds((prev) =>
       prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
     );
-  const toggleFloorRooms = (floorRoomIds: string[], allSelected: boolean) =>
+  const toggleRoomGroup = (groupRoomIds: string[], allSelected: boolean) =>
     setRoomIds((prev) =>
       allSelected
-        ? prev.filter((id) => !floorRoomIds.includes(id))
-        : Array.from(new Set([...prev, ...floorRoomIds]))
+        ? prev.filter((id) => !groupRoomIds.includes(id))
+        : Array.from(new Set([...prev, ...groupRoomIds]))
     );
 
   const canSave =
@@ -278,27 +298,52 @@ export function RoomEligibilityFormDialog({
               ) : rooms.length === 0 ? (
                 <p className="text-sm text-muted-foreground">No student rooms in this block.</p>
               ) : (
-                <div className="space-y-3 max-h-[240px] overflow-y-auto rounded-md border p-3">
-                  {roomsByFloor.map(([f, frooms]) => {
-                    const fIds = frooms.map((r) => r.id);
-                    const allSelected = fIds.every((id) => roomIds.includes(id));
+                <div className="space-y-4 max-h-[280px] overflow-y-auto rounded-md border p-3">
+                  {roomsByCategory.map((cat) => {
+                    const catIds = cat.rooms.map((r) => r.id);
+                    const catAllSelected = catIds.every((id) => roomIds.includes(id));
                     return (
-                      <div key={f} className="space-y-1.5">
-                        <button
-                          type="button"
-                          className="text-xs font-medium text-primary hover:underline"
-                          onClick={() => toggleFloorRooms(fIds, allSelected)}
-                        >
-                          {f === 0 ? 'Ground floor' : `Floor ${f}`} — {allSelected ? 'clear' : 'select all'}
-                        </button>
-                        <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
-                          {frooms.map((r) => (
-                            <label key={r.id} className="flex items-center gap-1.5 text-sm cursor-pointer">
-                              <Checkbox checked={roomIds.includes(r.id)} onCheckedChange={() => toggleRoom(r.id)} />
-                              {r.room_number}
-                            </label>
-                          ))}
+                      <div key={cat.key} className="space-y-2">
+                        {/* Category header — select-all across every floor in this category */}
+                        <div className="flex items-center justify-between border-b pb-1">
+                          <span className="text-sm font-semibold text-foreground">
+                            {cat.name}{' '}
+                            <span className="font-normal text-muted-foreground">
+                              ({cat.rooms.length})
+                            </span>
+                          </span>
+                          <button
+                            type="button"
+                            className="text-xs font-medium text-primary hover:underline"
+                            onClick={() => toggleRoomGroup(catIds, catAllSelected)}
+                          >
+                            {catAllSelected ? 'clear all' : 'select all'}
+                          </button>
                         </div>
+                        {/* Floor sub-groups within the category */}
+                        {cat.floors.map(([f, frooms]) => {
+                          const fIds = frooms.map((r) => r.id);
+                          const fAllSelected = fIds.every((id) => roomIds.includes(id));
+                          return (
+                            <div key={f} className="space-y-1 pl-2">
+                              <button
+                                type="button"
+                                className="text-xs font-medium text-primary hover:underline"
+                                onClick={() => toggleRoomGroup(fIds, fAllSelected)}
+                              >
+                                {f === 0 ? 'Ground floor' : `Floor ${f}`} — {fAllSelected ? 'clear' : 'select all'}
+                              </button>
+                              <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
+                                {frooms.map((r) => (
+                                  <label key={r.id} className="flex items-center gap-1.5 text-sm cursor-pointer">
+                                    <Checkbox checked={roomIds.includes(r.id)} onCheckedChange={() => toggleRoom(r.id)} />
+                                    {r.room_number}
+                                  </label>
+                                ))}
+                              </div>
+                            </div>
+                          );
+                        })}
                       </div>
                     );
                   })}

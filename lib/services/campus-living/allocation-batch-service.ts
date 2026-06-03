@@ -45,6 +45,7 @@ export class AllocationBatchService {
       no_profile: 0,
       already_allocated: 0,
       available_beds: 0,
+      rules_set: false,
     }) as AllocatePreview;
   }
 

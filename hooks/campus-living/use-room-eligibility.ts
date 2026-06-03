@@ -114,3 +114,14 @@ export function useEligibilityRooms(blockId: string | null) {
   });
   return { rooms: query.data ?? [], loading: query.isLoading };
 }
+
+// Auto-allocation is rule-driven: the Auto-Allocate page uses this to guard a
+// block with no active physical-room rule (show "set rules first" + disable).
+export function useBlockHasEligibilityRules(blockId: string | null) {
+  const query = useQuery({
+    queryKey: [...KEY, 'block-has-rules', blockId],
+    queryFn: () => RoomEligibilityService.hasRulesForBlock(blockId!),
+    enabled: !!blockId,
+  });
+  return { hasRules: query.data ?? false, loading: query.isLoading };
+}

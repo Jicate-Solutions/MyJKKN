@@ -235,19 +235,39 @@ export class RoomEligibilityService {
     }));
   }
 
+  // Does a block have any ACTIVE physical-room rule? Auto-allocation is
+  // rule-driven (2026-06-03) and refuses to run on a block with no rule, so
+  // the Auto-Allocate page checks this on block-select to guard + guide.
+  static async hasRulesForBlock(blockId: string): Promise<boolean> {
+    const { count, error } = await this.supabase
+      .from('hostel_room_eligibility_rules')
+      .select('id', { count: 'exact', head: true })
+      .eq('block_id', blockId)
+      .eq('is_active', true);
+    if (error) throw new Error(error.message || 'Failed to check block rules');
+    return (count ?? 0) > 0;
+  }
+
   static async getRoomsForBlock(blockId: string): Promise<RoomOption[]> {
+    // Left-join the category (no !inner) so a room missing a category still
+    // appears — it lands in the "Uncategorized" group rather than vanishing.
     const { data, error } = await this.supabase
       .from('hostel_rooms')
-      .select('id, room_number, floor')
+      .select('id, room_number, floor, category_id, hostel_categories(name)')
       .eq('block_id', blockId)
       .eq('room_purpose', 'student')
       .order('floor', { ascending: true })
       .order('room_number', { ascending: true });
     if (error) throw new Error(error.message || 'Failed to load rooms');
-    return (data ?? []).map((r: Record<string, unknown>) => ({
-      id: r.id as string,
-      room_number: r.room_number as string,
-      floor: r.floor as number,
-    }));
+    return (data ?? []).map((r: Record<string, unknown>) => {
+      const category = r.hostel_categories as { name?: string } | null;
+      return {
+        id: r.id as string,
+        room_number: r.room_number as string,
+        floor: r.floor as number,
+        category_id: (r.category_id as string) ?? null,
+        category_name: category?.name ?? null,
+      };
+    });
   }
 }

@@ -75,4 +75,6 @@ export interface RoomOption {
   id: string;
   room_number: string;
   floor: number;
+  category_id: string | null;
+  category_name: string | null;
 }
