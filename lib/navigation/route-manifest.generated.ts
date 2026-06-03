@@ -3089,12 +3089,6 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "children": []
       },
       {
-        "path": "/campus-living/rooms",
-        "label": "Rooms",
-        "iconName": "BedDouble",
-        "children": []
-      },
-      {
         "path": "/campus-living/safety",
         "label": "Safety",
         "iconName": "ShieldAlert",

@@ -1,6 +1,8 @@
 // hostel-rooms-v2 PR 2 (2026-05-26): institution_id + status + current_occupancy
 // dropped from hostel_rooms. Occupancy now derives from v_hostel_room_occupancy.
-// College access flows through room_institution_access (RLS handles scope).
+// College access flows through the block→institution junction
+// (hostel_block_institutions); the per-room room_institution_access junction
+// was retired 2026-06-03. RLS handles scope.
 //
 // hostel-rooms-v2 PR 3 (2026-05-26): added enriched read methods
 // (getRoomsByBlockWithOccupancy / getRoomWithOccupancy) that join the view's
@@ -109,22 +111,23 @@ export class HostelRoomService {
         .select('*, hostel_beds(*)', { count: 'exact' });
 
       if (institutionId) {
-        // Narrow to rooms granted to this institution via the new junction.
-        const { data: roomIds, error: junctionErr } = await supabase
-          .from('room_institution_access')
-          .select('room_id')
-          .eq('institution_id', institutionId)
-          .eq('is_active', true);
+        // Narrow to rooms in blocks that serve this institution via the
+        // block→institution junction (hostel_block_institutions). Single
+        // institution gate since 2026-06-03; room_institution_access retired.
+        const { data: blockRows, error: junctionErr } = await supabase
+          .from('hostel_block_institutions')
+          .select('block_id')
+          .eq('institution_id', institutionId);
 
         if (junctionErr) {
           logger.error('campus-living/rooms', 'Failed to filter rooms by institution', junctionErr);
           throw junctionErr;
         }
-        const ids = (roomIds ?? []).map((r) => r.room_id);
-        if (ids.length === 0) {
+        const blockIds = (blockRows ?? []).map((b) => b.block_id);
+        if (blockIds.length === 0) {
           return { data: [] as (HostelRoom & { hostel_beds: unknown[] })[], count: 0 };
         }
-        query = query.in('id', ids);
+        query = query.in('block_id', blockIds);
       }
       if (filters?.block_id) query = query.eq('block_id', filters.block_id);
       if (filters?.room_type) query = query.eq('room_type', filters.room_type);
@@ -201,42 +204,6 @@ export class HostelRoomService {
       }));
     } catch (error) {
       logger.error('campus-living/rooms', 'Unexpected error in getRoomsByBlockWithOccupancy', error);
-      throw error;
-    }
-  }
-
-  // ── All rooms with block + live occupancy (PR 4a) ─────────────────
-  // Powers /admin/hostel/rooms — Director-facing room catalog. Pulls every
-  // hostel_rooms row + a join into hostel_blocks for the block name, then
-  // zip-merges with v_hostel_room_occupancy for active_residents +
-  // beds_available + derived_status. No pagination (146 rows today; safe
-  // client-side). RLS handles institution scoping at the view level — for
-  // super_admin this surfaces the full catalog.
-  static async getAllRoomsWithOccupancy(): Promise<
-    (HostelRoomWithOccupancy & { hostel_blocks: { id: string; name: string; code: string | null } | null })[]
-  > {
-    try {
-      const supabase = createClientSupabaseClient();
-      const { data, error } = await supabase
-        .from('hostel_rooms')
-        .select('*, hostel_blocks(id, name, code)')
-        .order('room_number');
-
-      if (error) {
-        logger.error('campus-living/rooms', 'Failed to fetch all rooms (with occupancy)', error);
-        throw error;
-      }
-      const rooms = (data ?? []) as (HostelRoom & {
-        hostel_blocks: { id: string; name: string; code: string | null } | null;
-      })[];
-      const ids = rooms.map((r) => r.id);
-      const occMap = await fetchOccupancyMap(supabase, ids);
-      return rooms.map((r) => ({
-        ...r,
-        ...(occMap.get(r.id) ?? EMPTY_OCCUPANCY),
-      }));
-    } catch (error) {
-      logger.error('campus-living/rooms', 'Unexpected error in getAllRoomsWithOccupancy', error);
       throw error;
     }
   }

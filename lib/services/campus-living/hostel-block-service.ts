@@ -419,4 +419,101 @@ export class HostelBlockService {
       throw error;
     }
   }
+
+  // ── Block ↔ institution junction (which colleges share this block) ──
+  // Single institution-access surface since 2026-06-03: a learner can be
+  // allocated to any room in a block linked to their college here. Replaces
+  // the retired per-room room_institution_access "Manage Access" dialog.
+  static async getBlockInstitutions(blockId: string): Promise<
+    { institution_id: string; is_primary: boolean; institution_name: string | null }[]
+  > {
+    const supabase = createClientSupabaseClient();
+    const { data, error } = await supabase
+      .from('hostel_block_institutions')
+      .select('institution_id, is_primary, institution:institutions(name)')
+      .eq('block_id', blockId)
+      .order('is_primary', { ascending: false });
+    if (error) {
+      logger.error('campus-living/blocks', 'Failed to fetch block institutions', error);
+      throw error;
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return (data ?? []).map((r: any) => ({
+      institution_id: r.institution_id as string,
+      is_primary: Boolean(r.is_primary),
+      institution_name: (r.institution?.name as string) ?? null,
+    }));
+  }
+
+  // Add a college to a block. The block's FIRST college is made primary so a
+  // freshly-linked block always has exactly one primary (the bed-attribution
+  // and legacy "owning college" semantics rely on a primary existing).
+  static async addBlockInstitution(
+    blockId: string,
+    institutionId: string,
+  ): Promise<void> {
+    const supabase = createClientSupabaseClient();
+    const { count, error: countErr } = await supabase
+      .from('hostel_block_institutions')
+      .select('block_id', { count: 'exact', head: true })
+      .eq('block_id', blockId);
+    if (countErr) {
+      logger.error('campus-living/blocks', 'Failed to count block institutions', countErr);
+      throw countErr;
+    }
+    const isPrimary = (count ?? 0) === 0;
+    const { error } = await supabase
+      .from('hostel_block_institutions')
+      .upsert(
+        { block_id: blockId, institution_id: institutionId, is_primary: isPrimary },
+        { onConflict: 'block_id,institution_id' },
+      );
+    if (error) {
+      logger.error('campus-living/blocks', 'Failed to add block institution', error);
+      throw error;
+    }
+  }
+
+  static async removeBlockInstitution(
+    blockId: string,
+    institutionId: string,
+  ): Promise<void> {
+    const supabase = createClientSupabaseClient();
+    const { error } = await supabase
+      .from('hostel_block_institutions')
+      .delete()
+      .eq('block_id', blockId)
+      .eq('institution_id', institutionId);
+    if (error) {
+      logger.error('campus-living/blocks', 'Failed to remove block institution', error);
+      throw error;
+    }
+  }
+
+  // Promote one college to primary. Two writes because the partial unique index
+  // (at most one is_primary=true per block) rejects a single bulk flip.
+  static async setPrimaryBlockInstitution(
+    blockId: string,
+    institutionId: string,
+  ): Promise<void> {
+    const supabase = createClientSupabaseClient();
+    const { error: clearErr } = await supabase
+      .from('hostel_block_institutions')
+      .update({ is_primary: false })
+      .eq('block_id', blockId)
+      .eq('is_primary', true);
+    if (clearErr) {
+      logger.error('campus-living/blocks', 'Failed to clear primary block institution', clearErr);
+      throw clearErr;
+    }
+    const { error: setErr } = await supabase
+      .from('hostel_block_institutions')
+      .update({ is_primary: true })
+      .eq('block_id', blockId)
+      .eq('institution_id', institutionId);
+    if (setErr) {
+      logger.error('campus-living/blocks', 'Failed to set primary block institution', setErr);
+      throw setErr;
+    }
+  }
 }

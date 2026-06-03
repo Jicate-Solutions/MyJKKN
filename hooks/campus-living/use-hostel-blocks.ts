@@ -101,3 +101,63 @@ export function useDeleteHostelBlock() {
     },
   });
 }
+
+// --- Block ↔ institution junction (which colleges share this block) ---
+// Single institution-access surface (replaces the retired per-room
+// room_institution_access "Manage Access" dialog). All three mutations share
+// the same query cache key so the colleges list refreshes in place.
+const blockInstitutionsKey = (blockId: string) =>
+  [...hostelBlockKeys.detail(blockId), 'institutions'] as const;
+
+export function useBlockInstitutions(blockId: string) {
+  return useQuery({
+    queryKey: blockInstitutionsKey(blockId),
+    queryFn: () => HostelBlockService.getBlockInstitutions(blockId),
+    enabled: !!blockId,
+  });
+}
+
+export function useAddBlockInstitution(blockId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (institutionId: string) =>
+      HostelBlockService.addBlockInstitution(blockId, institutionId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: blockInstitutionsKey(blockId) });
+      toast.success('College added to block');
+    },
+    onError: (error: Error) => {
+      toast.error(`Failed to add college: ${error.message}`);
+    },
+  });
+}
+
+export function useRemoveBlockInstitution(blockId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (institutionId: string) =>
+      HostelBlockService.removeBlockInstitution(blockId, institutionId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: blockInstitutionsKey(blockId) });
+      toast.success('College removed from block');
+    },
+    onError: (error: Error) => {
+      toast.error(`Failed to remove college: ${error.message}`);
+    },
+  });
+}
+
+export function useSetPrimaryBlockInstitution(blockId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (institutionId: string) =>
+      HostelBlockService.setPrimaryBlockInstitution(blockId, institutionId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: blockInstitutionsKey(blockId) });
+      toast.success('Primary college updated');
+    },
+    onError: (error: Error) => {
+      toast.error(`Failed to set primary college: ${error.message}`);
+    },
+  });
+}
