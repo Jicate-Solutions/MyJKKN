@@ -19,7 +19,37 @@ type Props = {
 export function YoYExcludedCollapsible({ excludedCourses }: Props) {
   const [open, setOpen] = useState(false);
 
-  if (!excludedCourses.length) return null;
+  // Render even when empty — Director-flagged 2026-06-03 07:22 IST: the panel
+  // silently disappearing when scope filter returned 0 excluded looked like a
+  // regression. Empty state shows "all clear" so the user never wonders where
+  // the section went.
+  if (!excludedCourses.length) {
+    return (
+      <div
+        className="rounded-lg border px-5 py-3.5 flex items-center justify-between"
+        style={{
+          backgroundColor: '#fafaf8',
+          borderColor: '#e7e2d8',
+          fontFamily: 'var(--font-ibm-plex-sans)',
+        }}
+      >
+        <div className="flex items-baseline gap-3">
+          <span className="text-[13px] font-medium" style={{ color: '#2a2624' }}>
+            All programs in trajectory
+          </span>
+          <span className="text-[11.5px]" style={{ color: '#9a948a' }}>
+            no excluded programs for this scope
+          </span>
+        </div>
+        <span
+          className="text-[10px] uppercase tracking-[0.18em]"
+          style={{ color: '#5a7548' }}
+        >
+          ✓ Clear
+        </span>
+      </div>
+    );
+  }
 
   const grouped = groupByInstitution(excludedCourses);
   const count = excludedCourses.length;
