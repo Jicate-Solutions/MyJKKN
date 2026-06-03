@@ -122,33 +122,59 @@ export function LeadsDataTable() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [refetchKey, setRefetchKey] = useState(0);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  // Timestamp of the last successful list fetch — gates the visibility refetch
+  // below so a trivial alt-tab within VISIBILITY_STALE_MS is a no-op instead of
+  // re-running the (heavy) service-role list endpoint on every refocus.
+  const lastFetchedAtRef = useRef(0);
+  // Debounce handle so rapid multi-filter changes coalesce into ONE refetch
+  // instead of one heavy round-trip per dropdown click.
+  const refetchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Filter changes need to (a) bump refetchKey so the DataTable refetches AND
   // (b) reset the URL's ?page= param to 1. Without the page reset, switching
   // a filter while on page 5 of unfiltered results lands the user on page 5
   // of the filtered set — which is usually beyond the new last page, so the
   // API returns an empty page and the table looks broken/unfiltered.
+  // Debounced (~300ms): the filter Select state updates immediately (UI stays
+  // responsive); only the network refetch is coalesced, so adjusting 3 filters
+  // costs one round-trip, not three.
   const bumpRefetchAndResetPage = useCallback(() => {
-    setRefetchKey((prev) => prev + 1);
-    // Use replaceState (not router.replace) to avoid a Next.js navigation
-    // round-trip — we just want to drop `page` from the URL bar; the
-    // DataTable's URL-state hook will pick up page=1 on its next read.
-    if (typeof window !== 'undefined') {
-      const url = new URL(window.location.href);
-      if (url.searchParams.has('page')) {
-        url.searchParams.delete('page');
-        window.history.replaceState(null, '', url.toString());
+    if (refetchDebounceRef.current) clearTimeout(refetchDebounceRef.current);
+    refetchDebounceRef.current = setTimeout(() => {
+      // Use replaceState (not router.replace) to avoid a Next.js navigation
+      // round-trip — we just want to drop `page` from the URL bar; the
+      // DataTable's URL-state hook will pick up page=1 on its next read.
+      if (typeof window !== 'undefined') {
+        const url = new URL(window.location.href);
+        if (url.searchParams.has('page')) {
+          url.searchParams.delete('page');
+          window.history.replaceState(null, '', url.toString());
+        }
       }
-    }
+      setRefetchKey((prev) => prev + 1);
+    }, 300);
+  }, []);
+
+  // Clear any pending debounced refetch on unmount.
+  useEffect(() => {
+    return () => {
+      if (refetchDebounceRef.current) clearTimeout(refetchDebounceRef.current);
+    };
   }, []);
 
   // Auto-refetch when the tab becomes visible again (e.g., user navigates back from lead
-  // detail/create). Uses visibilitychange instead of window.focus so that Radix UI
-  // dropdown portals (which briefly shift window focus) don't trigger a mid-interaction
-  // data refetch that races against the user's filter selection.
+  // detail/create) — but ONLY if the data is stale (older than VISIBILITY_STALE_MS), so a
+  // trivial alt-tab no longer re-runs the heavy service-role list endpoint on every refocus.
+  // Still uses visibilitychange instead of window.focus so that Radix UI dropdown portals
+  // (which briefly shift window focus) don't trigger a mid-interaction refetch that races
+  // against the user's filter selection.
   useEffect(() => {
+    const VISIBILITY_STALE_MS = 60_000;
     const handleVisibility = () => {
-      if (document.visibilityState === 'visible') {
+      if (
+        document.visibilityState === 'visible' &&
+        Date.now() - lastFetchedAtRef.current > VISIBILITY_STALE_MS
+      ) {
         setRefetchKey((prev) => prev + 1);
       }
     };
@@ -384,6 +410,9 @@ export function LeadsDataTable() {
       });
 
       const leads = result.data || [];
+      // Mark the time of this successful fetch so the visibilitychange handler
+      // can skip refetching on a quick alt-tab (see VISIBILITY_STALE_MS above).
+      lastFetchedAtRef.current = Date.now();
 
       // Best-effort: batch-fetch primary consultant for each lead on this page.
       // Only update attributionsMap once (when async fetch completes) to avoid

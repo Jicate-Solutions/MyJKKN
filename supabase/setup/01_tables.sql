@@ -4872,3 +4872,19 @@ ALTER TABLE public.ims_activity_log ENABLE ROW LEVEL SECURITY;
 
 COMMENT ON TABLE public.ims_activity_log IS
 'Phase F (2026-04-28): per-IMS-entity transition history + comments. Append-only. Mirrors attendance_audit_log pattern. Each row = one user action on one entity (indent/grn/shipment/adjustment/sale).';
+
+-- admission_leads strict-counselor visibility indexes (2026-06-03): make
+-- (counselor_id = X OR assigned_counselor_id = Y) AND source <> 'referral'
+-- ORDER BY created_at DESC, id sargable via BitmapOr. assigned_counselor_id was
+-- previously an unindexed FK, forcing the pagination count(*) to Seq Scan.
+CREATE INDEX IF NOT EXISTS idx_admission_leads_assigned_counselor_created
+  ON public.admission_leads (assigned_counselor_id, created_at DESC, id)
+  WHERE assigned_counselor_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_admission_leads_counselor_created
+  ON public.admission_leads (counselor_id, created_at DESC, id)
+  WHERE counselor_id IS NOT NULL;
+
+-- admission_lead_activities per-lead timeline index (2026-06-03): pure index scan
+-- for the per-lead, created_at-ordered activity/timeline/stats fetch.
+CREATE INDEX IF NOT EXISTS idx_admission_lead_activities_lead_created
+  ON public.admission_lead_activities (lead_id, created_at DESC);

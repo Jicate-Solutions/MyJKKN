@@ -3357,6 +3357,7 @@ $$;
 CREATE OR REPLACE FUNCTION public.user_has_permission(permission_name text)
 RETURNS boolean
 LANGUAGE plpgsql
+STABLE  -- 2026-06-03: read-only; lets the planner InitPlan-cache it per statement in the many RLS policies that call it
 SECURITY DEFINER
 SET search_path = public
 AS $$
@@ -13225,5 +13226,99 @@ REVOKE ALL ON FUNCTION public.fn_list_razorpay_accounts() FROM PUBLIC, anon, aut
 GRANT EXECUTE ON FUNCTION public.fn_list_razorpay_accounts() TO service_role;
 REVOKE ALL ON FUNCTION public.fn_deactivate_razorpay_account(uuid, uuid) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.fn_deactivate_razorpay_account(uuid, uuid) TO service_role;
+
+-- fn_admission_lead_scope (2026-06-03): single-round-trip lead-access resolver
+-- for the service-role admission leads list + [id] detail routes. Delegates to
+-- the SAME helpers adm_leads_select RLS uses so API and RLS stay in lockstep.
+-- Consumed by lib/api-helpers/admission-lead-visibility.ts.
+CREATE OR REPLACE FUNCTION public.fn_admission_lead_scope(p_user_id uuid)
+RETURNS TABLE (
+  profile_exists      boolean,
+  is_super            boolean,
+  has_view_permission boolean,
+  in_allowlist        boolean,
+  is_strict_counselor boolean,
+  has_global_role     boolean,
+  my_counselor_id     uuid,
+  institution_id      uuid
+)
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+  SELECT
+    EXISTS (SELECT 1 FROM profiles p WHERE p.id = p_user_id),
+    COALESCE((SELECT (p.is_super_admin = true OR p.role = 'super_admin')
+              FROM profiles p WHERE p.id = p_user_id), false),
+    public.user_has_permission(p_user_id, 'admission.leads.view'),
+    public._user_in_admission_lead_allowlist(p_user_id),
+    public._user_is_strict_counselor(p_user_id),
+    EXISTS (
+      SELECT 1 FROM user_roles ur
+      JOIN custom_roles cr ON cr.id = ur.role_id
+      WHERE ur.user_id = p_user_id
+        AND (cr.institution_scope = 'all'
+             OR (cr.module_scopes ->> 'admission') = 'all_institutions')
+    ),
+    (SELECT ac.id FROM admission_counselors ac
+      WHERE ac.user_id = p_user_id ORDER BY ac.id LIMIT 1),
+    (SELECT p.institution_id FROM profiles p WHERE p.id = p_user_id);
+$function$;
+
+REVOKE ALL ON FUNCTION public.fn_admission_lead_scope(uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.fn_admission_lead_scope(uuid) FROM anon;
+REVOKE ALL ON FUNCTION public.fn_admission_lead_scope(uuid) FROM authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_admission_lead_scope(uuid) TO service_role;
+
+-- create_lead_activity (2026-06-03): single-round-trip activity writer for the
+-- admission lead detail page (INSERT + last_activity_at bump in one call).
+-- SECURITY DEFINER bypasses the heavy adm_leads_update RLS for the timestamp
+-- bump, but re-checks authorization (mirrors adm_lead_activities_all).
+CREATE OR REPLACE FUNCTION public.create_lead_activity(
+  p_lead_id uuid,
+  p_activity_type text,
+  p_subject text DEFAULT NULL,
+  p_description text DEFAULT NULL,
+  p_outcome text DEFAULT NULL,
+  p_scheduled_at timestamptz DEFAULT NULL
+)
+RETURNS public.admission_lead_activities
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_uid uuid := auth.uid();
+  v_now timestamptz := now();
+  v_row public.admission_lead_activities;
+BEGIN
+  IF NOT (public.is_super_admin() OR public.is_admin()
+          OR public.user_has_permission('admission.leads.view')) THEN
+    RAISE EXCEPTION 'not authorized to log lead activities'
+      USING ERRCODE = '42501';
+  END IF;
+
+  INSERT INTO public.admission_lead_activities
+    (lead_id, activity_type, subject, description, outcome, scheduled_at, created_by)
+  VALUES
+    (p_lead_id, p_activity_type, p_subject, p_description, p_outcome, p_scheduled_at, v_uid)
+  RETURNING * INTO v_row;
+
+  UPDATE public.admission_leads
+     SET last_activity_at = v_now,
+         updated_at       = v_now,
+         last_contact_at  = CASE
+           WHEN p_activity_type IN ('call','email','meeting','sms','whatsapp') THEN v_now
+           ELSE last_contact_at
+         END
+   WHERE id = p_lead_id;
+
+  RETURN v_row;
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION public.create_lead_activity(uuid, text, text, text, text, timestamptz) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.create_lead_activity(uuid, text, text, text, text, timestamptz) TO authenticated, service_role;
 
 NOTIFY pgrst, 'reload schema';

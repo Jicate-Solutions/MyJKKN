@@ -146,49 +146,35 @@ export class ActivityService {
   }
 
   /**
-   * Create a new activity and update last_activity_at on the lead
+   * Create a new activity and bump last_activity_at on the lead — in ONE
+   * round-trip via the create_lead_activity SECURITY DEFINER RPC. Replaces the
+   * former 3 serial calls (auth.getUser + INSERT under RLS + a separate
+   * admission_leads UPDATE through the heavy adm_leads_update RLS cascade). The
+   * RPC captures auth.uid() server-side for created_by, re-checks authorization
+   * (mirrors the activity-table RLS), and sets last_contact_at only for genuine
+   * contact activity types.
    */
   static async createActivity(input: CreateActivityInput): Promise<LeadActivity> {
-    // Get current user
-    const { data: { user } } = await this.supabase.auth.getUser();
+    const subject =
+      input.title ||
+      input.activity_type
+        .replace(/_/g, ' ')
+        .replace(/\b\w/g, (l: string) => l.toUpperCase());
 
     const { data, error } = await this.supabase
-      .from('admission_lead_activities')
-      .insert({
-        lead_id: input.lead_id,
-        activity_type: input.activity_type,
-        subject: input.title || input.activity_type.replace(/_/g, ' ').replace(/\b\w/g, (l: string) => l.toUpperCase()),
-        description: input.description || null,
-        outcome: input.outcome || null,
-        scheduled_at: input.scheduled_at || null,
-        created_by: user?.id || null,
+      .rpc('create_lead_activity', {
+        p_lead_id: input.lead_id,
+        p_activity_type: input.activity_type,
+        p_subject: subject,
+        p_description: input.description ?? null,
+        p_outcome: input.outcome ?? null,
+        p_scheduled_at: input.scheduled_at ?? null,
       })
-      .select()
       .single();
 
     if (error) {
       console.error('[admission/activities] Failed to create activity:', error);
       throw new Error('Failed to create activity');
-    }
-
-    // Update last_activity_at on the lead (best-effort, don't throw if this fails)
-    const now = new Date().toISOString();
-    const contactTypes = new Set(['call', 'email', 'meeting', 'sms', 'whatsapp']);
-    const leadUpdate: Record<string, string> = {
-      last_activity_at: now,
-      updated_at: now,
-    };
-    // Only set last_contact_at for actual contact activities, not notes/tasks/stage_changes
-    if (contactTypes.has(input.activity_type)) {
-      leadUpdate.last_contact_at = now;
-    }
-    const { error: leadError } = await this.supabase
-      .from('admission_leads')
-      .update(leadUpdate)
-      .eq('id', input.lead_id);
-
-    if (leadError) {
-      console.warn('[admission/activities] Could not update last_activity_at on lead:', leadError.message);
     }
 
     return this.normalizeActivity(data);
@@ -262,6 +248,33 @@ export class ActivityService {
   // ============================================================================
 
   /**
+   * Map a LeadActivity to a TimelineEntry. Shared by getEnhancedTimeline and the
+   * optimistic create in hooks/admission/use-activities.ts so an optimistically
+   * inserted note renders with the exact same shape/icon/color as the server
+   * version (and reconciles seamlessly on refetch).
+   */
+  static activityToTimelineEntry(
+    activity: LeadActivity,
+    author: TimelineEntry['author'] = null,
+  ): TimelineEntry {
+    return {
+      id: activity.id,
+      type: 'activity',
+      timestamp: activity.created_at,
+      title: activity.subject || this.getActivityTitle(activity.activity_type),
+      description: activity.description,
+      metadata: {
+        activity_type: activity.activity_type,
+        outcome: activity.outcome || null,
+        scheduled_at: activity.scheduled_at || null,
+      },
+      icon: this.getActivityIcon(activity.activity_type),
+      color: this.getActivityColor(activity.activity_type),
+      author,
+    };
+  }
+
+  /**
    * Get combined timeline (activities + stage changes)
    */
   static async getEnhancedTimeline(leadId: string): Promise<TimelineEntry[]> {
@@ -313,23 +326,11 @@ export class ActivityService {
     const authorFor = (uid: string | null) =>
       uid ? profileById[uid] ?? { id: uid, full_name: null, email: null } : null;
 
-    // Transform activities to timeline entries.
-    // Use stored title first (e.g. 'Follow-up Scheduled'), fall back to computed type label.
-    const activityEntries: TimelineEntry[] = activities.map((activity) => ({
-      id: activity.id,
-      type: 'activity' as const,
-      timestamp: activity.created_at,
-      title: activity.subject || this.getActivityTitle(activity.activity_type),
-      description: activity.description,
-      metadata: {
-        activity_type: activity.activity_type,
-        outcome: activity.outcome || null,
-        scheduled_at: activity.scheduled_at || null,
-      },
-      icon: this.getActivityIcon(activity.activity_type),
-      color: this.getActivityColor(activity.activity_type),
-      author: authorFor(activity.created_by),
-    }));
+    // Transform activities to timeline entries via the shared mapper (also used
+    // by the optimistic insert in use-activities.ts so shapes stay identical).
+    const activityEntries: TimelineEntry[] = activities.map((activity) =>
+      this.activityToTimelineEntry(activity, authorFor(activity.created_by)),
+    );
 
     // Transform stage changes to timeline entries
     const stageEntries: TimelineEntry[] = stageHistory.map((entry) => ({

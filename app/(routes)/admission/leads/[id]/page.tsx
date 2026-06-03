@@ -177,6 +177,27 @@ function LeadDetailPageContent() {
   const router = useRouter();
   const leadId = params.id as string;
 
+  // Active detail tab — controlled + persisted to ?tab= so (a) inactive tabs are
+  // NOT mounted: Radix mounts every TabsContent's children eagerly, firing each
+  // tab's data hooks on load (Calls + Journey both call useLeadCallLogs, plus the
+  // heavy VoiceMemoPanel / journey aggregation), and (b) the chosen tab survives
+  // a tab-refocus / back-navigation instead of snapping back to Activity.
+  const [activeTab, setActiveTab] = useState<string>(() => {
+    if (typeof window === 'undefined') return 'activity';
+    const t = new URLSearchParams(window.location.search).get('tab');
+    return t && ['activity', 'calls', 'communication', 'details', 'journey'].includes(t)
+      ? t
+      : 'activity';
+  });
+  const handleTabChange = (value: string) => {
+    setActiveTab(value);
+    if (typeof window !== 'undefined') {
+      const url = new URL(window.location.href);
+      url.searchParams.set('tab', value);
+      window.history.replaceState(null, '', url.toString());
+    }
+  };
+
   const [newTag, setNewTag] = useState('');
   const [showTagDialog, setShowTagDialog] = useState(false);
   const [showActivityDialog, setShowActivityDialog] = useState(false);
@@ -333,9 +354,25 @@ function LeadDetailPageContent() {
     };
   }, [lead, timeline, communicationHistory]);
 
-  // Write computed scores back to DB for list page display
+  // Write computed scores back to DB for the list / work-kanban / AI score badges
+  // — but ONLY when a value actually changed (dirty-check). Previously this fired
+  // an admission_leads UPDATE through the heavy adm_leads_update RLS on EVERY
+  // detail view, and again after every comment/activity add (a new timeline entry
+  // recomputes the score), even when nothing changed. The dirty-check skips the
+  // redundant write, removing a per-view / per-comment RLS round-trip (Bugs 2/3).
   useEffect(() => {
-    if (!lead?.id || computedScores.score === 0 && computedScores.engagement === 0 && computedScores.quality === 0) return;
+    if (!lead?.id || (computedScores.score === 0 && computedScores.engagement === 0 && computedScores.quality === 0)) return;
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const l = lead as any;
+    if (
+      l.score === computedScores.score &&
+      l.engagement_score === computedScores.engagement &&
+      l.quality_score === computedScores.quality &&
+      l.score_category === computedScores.category
+    ) {
+      return; // already current — no write needed
+    }
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const supabase: any = createClientSupabaseClient();
@@ -805,10 +842,20 @@ function LeadDetailPageContent() {
     institutionId: lead?.institution_id ?? null,
   });
 
-  // Consultants for dropdown (referral leads) — global across all institutions
-  const { data: consultantsDropdown = [] } = useConsultantsForDropdown();
-  const { data: studentsDropdown = [] } = useStudentsForDropdown(lead?.institution_id || undefined);
-  const { data: facultyDropdown = [] } = useFacultyForDropdown(lead?.institution_id || undefined);
+  // Consultants / students / faculty for the referral dropdowns — only needed
+  // inside the Edit dialog. Gated on showEditDialog by passing '' when closed,
+  // which trips each hook's `enabled: institutionId !== ''` guard, so the two
+  // 1000-row student/faculty fetches (and the consultants fetch) no longer fire
+  // on every detail-page load (Bug 4 mount storm). They load when the dialog opens.
+  const { data: consultantsDropdown = [] } = useConsultantsForDropdown(
+    showEditDialog ? undefined : ''
+  );
+  const { data: studentsDropdown = [] } = useStudentsForDropdown(
+    showEditDialog ? (lead?.institution_id || undefined) : ''
+  );
+  const { data: facultyDropdown = [] } = useFacultyForDropdown(
+    showEditDialog ? (lead?.institution_id || undefined) : ''
+  );
 
   // Consultant attributions for this lead (used in Details tab assignment section)
   const { attributions: leadAttributions } = useLeadAttributions(leadId);
@@ -1372,7 +1419,7 @@ function LeadDetailPageContent() {
               />
 
               {/* Tabs */}
-              <Tabs defaultValue="activity" className="w-full">
+              <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
                 <div className="overflow-x-auto">
                   <TabsList className="w-max min-w-full">
                     <TabsTrigger value="activity">Activity</TabsTrigger>
@@ -1383,61 +1430,78 @@ function LeadDetailPageContent() {
                   </TabsList>
                 </div>
 
+                {/* Render ONLY the active tab's children. Radix mounts every
+                    TabsContent's children eagerly otherwise, so Calls + Journey
+                    would each fire useLeadCallLogs and render VoiceMemoPanel /
+                    the journey aggregation on first paint for tabs the user
+                    never opened. The TabsContent wrappers stay mounted (Radix
+                    handles visibility); only their data-bearing children are
+                    deferred until the tab is active. */}
                 <TabsContent value="activity" className="mt-4">
-                  <ActivityTab timeline={timeline} timelineLoading={timelineLoading} />
+                  {activeTab === 'activity' && (
+                    <ActivityTab timeline={timeline} timelineLoading={timelineLoading} />
+                  )}
                 </TabsContent>
 
                 <TabsContent value="calls" className="mt-4">
-                  <CallsTab
-                    leadId={lead.id}
-                    institutionId={lead.institution_id || userInstitutionId || ''}
-                  />
+                  {activeTab === 'calls' && (
+                    <CallsTab
+                      leadId={lead.id}
+                      institutionId={lead.institution_id || userInstitutionId || ''}
+                    />
+                  )}
                 </TabsContent>
 
                 <TabsContent value="communication" className="mt-4">
-                  <CommunicationTab
-                    leadFullName={lead?.full_name}
-                    leadPhone={lead?.phone}
-                    leadEmail={lead?.email}
-                    leadFirstNamePart={lead?.full_name?.split(' ')[0] || ''}
-                    leadLastNamePart={lead?.full_name?.split(' ').slice(1).join(' ') || ''}
-                    leadProgramName={lead?.program?.program_name || ''}
-                    waConnected={!!waStatus?.connected}
-                    commLoading={commLoading}
-                    communicationHistory={communicationHistory}
-                    templateAttachment={templateAttachment}
-                    setTemplateAttachment={setTemplateAttachment}
-                    channelTemplates={channelTemplates}
-                    selectedTemplateId={selectedTemplateId}
-                    setSelectedTemplateId={setSelectedTemplateId}
-                    setSendChannel={setSendChannel}
-                    setSendMessage={setSendMessage}
-                    sendMessage={sendMessage}
-                    isSending={isSending}
-                    handleSendPersonalWA={handleSendPersonalWA}
-                    replaceVariables={replaceVariables}
-                  />
+                  {activeTab === 'communication' && (
+                    <CommunicationTab
+                      leadFullName={lead?.full_name}
+                      leadPhone={lead?.phone}
+                      leadEmail={lead?.email}
+                      leadFirstNamePart={lead?.full_name?.split(' ')[0] || ''}
+                      leadLastNamePart={lead?.full_name?.split(' ').slice(1).join(' ') || ''}
+                      leadProgramName={lead?.program?.program_name || ''}
+                      waConnected={!!waStatus?.connected}
+                      commLoading={commLoading}
+                      communicationHistory={communicationHistory}
+                      templateAttachment={templateAttachment}
+                      setTemplateAttachment={setTemplateAttachment}
+                      channelTemplates={channelTemplates}
+                      selectedTemplateId={selectedTemplateId}
+                      setSelectedTemplateId={setSelectedTemplateId}
+                      setSendChannel={setSendChannel}
+                      setSendMessage={setSendMessage}
+                      sendMessage={sendMessage}
+                      isSending={isSending}
+                      handleSendPersonalWA={handleSendPersonalWA}
+                      replaceVariables={replaceVariables}
+                    />
+                  )}
                 </TabsContent>
 
                 <TabsContent value="details" className="mt-4 space-y-4">
-                  <DetailsTab
-                    lead={lead}
-                    institutionName={institutionName}
-                    primaryProgramName={primaryProgramName}
-                    alternativeProgramNames={alternativeProgramNames}
-                    programsLoading={programsLoading}
-                    gateEntryByName={gateEntryByName}
-                    leadAttributions={leadAttributions}
-                    openEditDialog={openEditDialog}
-                    setShowAssignCounselorDialog={setShowAssignCounselorDialog}
-                  />
+                  {activeTab === 'details' && (
+                    <DetailsTab
+                      lead={lead}
+                      institutionName={institutionName}
+                      primaryProgramName={primaryProgramName}
+                      alternativeProgramNames={alternativeProgramNames}
+                      programsLoading={programsLoading}
+                      gateEntryByName={gateEntryByName}
+                      leadAttributions={leadAttributions}
+                      openEditDialog={openEditDialog}
+                      setShowAssignCounselorDialog={setShowAssignCounselorDialog}
+                    />
+                  )}
                 </TabsContent>
 
                 <TabsContent value="journey" className="mt-4">
-                  <JourneyTab
-                    leadId={lead.id}
-                    institutionId={lead.institution_id || userInstitutionId || ''}
-                  />
+                  {activeTab === 'journey' && (
+                    <JourneyTab
+                      leadId={lead.id}
+                      institutionId={lead.institution_id || userInstitutionId || ''}
+                    />
+                  )}
                 </TabsContent>
               </Tabs>
             </div>

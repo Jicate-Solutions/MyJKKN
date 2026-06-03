@@ -14,10 +14,10 @@ import { createServiceRoleClient, getAuthUser } from '@/lib/supabase/server';
 import { jsonNoStore } from '@/lib/api-helpers/no-store-response';
 import { sanitizeSearch } from '@/lib/config/pagination';
 import {
-  getCounselorScope,
-  buildLeadVisibilityOr,
-  isUserInLeadViewAllowlist,
-} from '@/lib/api-helpers/admission-counselor-scope';
+  resolveLeadAccess,
+  applyLeadVisibility,
+  leadViewDenialReason,
+} from '@/lib/api-helpers/admission-lead-visibility';
 
 // Retry only on undici / Node fetch transient failures (cold-start flakes on
 // Windows + Turbopack). Postgres errors should surface immediately without retry.
@@ -65,82 +65,36 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  // 2. Check the user has admission lead view access via the dynamic
-  //    permission system. Replaces the previous hardcoded allowlist
-  //    (super_admin / institution_scope='all' / role_key in admission/counselor)
-  //    so any custom role granted admission.leads.view works.
+  // 2. Resolve the caller's lead-access scope in a SINGLE round-trip.
+  //    fn_admission_lead_scope (SECURITY DEFINER) folds the former 5-query
+  //    prelude — profiles + user_has_permission + allowlist + global-flag +
+  //    admission_counselors — into one DB call, delegating to the same SQL
+  //    helpers adm_leads_select RLS uses (single source of truth). The shared
+  //    applyLeadVisibility() then scopes the query identically to the [id]
+  //    detail route so the two can never diverge (BUG-003956).
+  //    See lib/api-helpers/admission-lead-visibility.ts.
   const supabase = createServiceRoleClient();
 
-  const { data: profile } = await retryOnFetchFailure(() =>
-    supabase
-      .from('profiles')
-      .select('id, role, institution_id, is_super_admin')
-      .eq('id', user.id)
-      .single()
-  );
+  let access;
+  try {
+    access = await resolveLeadAccess(supabase, user.id);
+  } catch (err) {
+    console.error('[admission/leads/list] Scope resolution failed:', err);
+    return jsonNoStore(
+      { error: 'Authentication temporarily unavailable. Please retry.' },
+      { status: 503 }
+    );
+  }
 
-  if (!profile) {
+  if (!access.profileExists) {
     return jsonNoStore({ error: 'Profile not found' }, { status: 403 });
   }
 
-  const isSuperAdmin = !!profile.is_super_admin || profile.role === 'super_admin';
-
-  let canViewLeads = isSuperAdmin;
-  if (!canViewLeads) {
-    const { data: permResult } = await retryOnFetchFailure(() =>
-      supabase.rpc('user_has_permission', {
-        user_id: user.id,
-        permission_key: 'admission.leads.view'
-      })
-    );
-    canViewLeads = !!permResult;
-  }
-
-  if (!canViewLeads) {
-    return jsonNoStore(
-      { error: 'Forbidden: admission.leads.view permission required' },
-      { status: 403 }
-    );
-  }
-
-  // Defense-in-depth role allowlist (2026-05-11). The permission gate above
-  // only checks admission.leads.view, which is grantable via Role Management
-  // UI to ANY role. faculty/hod/principal/student all held it in production
-  // and were seeing the full leads list. This check mirrors the SQL helper
-  // _user_in_admission_lead_allowlist(uuid) used by adm_leads_select RLS, so
-  // the API (service-role) and RLS (authenticated) enforce the same gate.
-  // super_admin bypasses via isSuperAdmin already.
-  if (!isSuperAdmin) {
-    const inAllowlist = await retryOnFetchFailure(() =>
-      isUserInLeadViewAllowlist(supabase, user.id)
-    );
-    if (!inAllowlist) {
-      return jsonNoStore(
-        { error: 'Forbidden: role is not permitted to view admission leads' },
-        { status: 403 }
-      );
-    }
-  }
-
-  // Cross-institution access flag drives the "show all institutions vs scope
-  // to own" branch below. True when super_admin OR any of the user's roles is
-  // institution_scope='all' OR the user's effective admission module scope is
-  // 'all_institutions' (per-module override).
-  let isAdmissionGlobalUser = isSuperAdmin;
-  if (!isAdmissionGlobalUser) {
-    const { data: scopedRoles } = await retryOnFetchFailure(() =>
-      supabase
-        .from('user_roles')
-        .select('custom_roles!inner(institution_scope, module_scopes)')
-        .eq('user_id', user.id)
-    );
-    isAdmissionGlobalUser = (scopedRoles || []).some((ur: any) => {
-      const cr = ur.custom_roles;
-      if (!cr) return false;
-      if (cr.institution_scope === 'all') return true;
-      const moduleScope = (cr.module_scopes ?? {})['admission'];
-      return moduleScope === 'all_institutions';
-    });
+  // Permission + defense-in-depth role allowlist gate (2026-05-11 lockdown):
+  // needs admission.leads.view AND the role allowlist; super-admin bypasses both.
+  const denial = leadViewDenialReason(access);
+  if (denial) {
+    return jsonNoStore({ error: denial }, { status: 403 });
   }
 
   // 3. Parse query parameters
@@ -178,41 +132,11 @@ export async function GET(request: NextRequest) {
   const staleMinDays = staleMinDaysRaw ? Math.max(1, Math.min(365, parseInt(staleMinDaysRaw, 10))) : undefined;
 
   try {
-    // 4. Compute counselor scope + empty-result guards ONCE, before building
-    //    the query, so the buildQuery() factory below contains no awaits or
-    //    early returns and can be safely re-issued for the page clamp.
-    //
-    //    Compute counselor scope FIRST so its strict-counselor decision can
-    //    override the role-level institution_scope='all' flag. That flag was
-    //    originally for admission OFFICE staff; strict counselors (counselor
-    //    role with no admin/admission override) must NEVER inherit
-    //    cross-institution visibility — only their directly-assigned leads.
-    const scope = await getCounselorScope(supabase, user.id);
-
-    // Strict-counselor OR clause + the two empty-result short-circuits, hoisted
-    // out of the (formerly inline) query-building flow.
-    const strictOrClause = scope.isStrictCounselor
-      ? buildLeadVisibilityOr(scope, user.id)
-      : null;
-    if (scope.isStrictCounselor && !strictOrClause) {
-      // Counselor has no admission_counselors row — strict-mode: nothing visible.
-      return jsonNoStore({
-        data: [],
-        metadata: { total: 0, page, limit, totalPages: 0 },
-      });
-    }
-    if (
-      !institutionId &&
-      !scope.isStrictCounselor &&
-      !isAdmissionGlobalUser &&
-      !profile.institution_id
-    ) {
-      // Non-strict, non-global user with no institution assigned.
-      return jsonNoStore({
-        data: [],
-        metadata: { total: 0, page, limit, totalPages: 0 },
-      });
-    }
+    // Visibility scope was resolved above (access) in one round-trip;
+    // applyLeadVisibility() inside buildQuery applies it identically to the
+    // [id] detail route. No per-request scope queries or empty-result guards
+    // are needed here — applyLeadVisibility fails closed (a non-strict,
+    // non-global user with no institution matches a sentinel UUID = zero rows).
 
     // Query factory — produces a fresh, identically-filtered query each call so
     // it can be re-issued for the out-of-range page clamp (PostgREST 416, see
@@ -255,48 +179,15 @@ export async function GET(request: NextRequest) {
           institution:institutions(id, name)
         `, { count: 'exact' });
 
-      // 5a. Institution scoping.
-      //
-      // Two flavours:
-      //   - EXPLICIT (user picked an institution from the College dropdown):
-      //     always honored, regardless of strict-counselor status. The user
-      //     wants to narrow further to that one institution.
-      //   - IMPLICIT (no UI selection): only applied for non-strict-counselor
-      //     non-global users — clamps them to their own profile.institution_id.
-      //     Strict counselors' visibility is governed entirely by the OR clause
-      //     in 5b (counselor_id / assigned_counselor_id), since they may
-      //     legitimately own leads across institutions if assigned that way.
-      //
-      // 2026-05-11: previously the EXPLICIT branch was nested inside
-      // `if (!scope.isStrictCounselor)`, so a counselor's College dropdown
-      // selection was silently dropped — they saw their full cross-institution
-      // scope despite picking one institution. Moved out so user intent wins.
-      if (institutionId) {
-        query = query.eq('institution_id', institutionId);
-      } else if (!scope.isStrictCounselor && !isAdmissionGlobalUser) {
-        query = query.eq('institution_id', profile.institution_id);
-      }
-
-      // 5b. Counselor visibility — mirrors the RLS in
-      // supabase/migrations/20260510210000_admission_leads_strict_counselor_visibility.sql
-      // and 20260510220000_admission_leads_exclude_referral_for_counselors.sql.
-      // For users who hold one of the 4 counselor role_keys without a broader
-      // admission/admin role, restrict visibility to:
-      //   - leads where counselor_id = user's admission_counselors.id, OR
-      //   - leads where assigned_counselor_id = user.id
-      // AND
-      //   - source <> 'referral' (referrals belong to consultants, not counselors)
-      //
-      // CRITICAL: this branch is taken regardless of isAdmissionGlobalUser
-      // because admission_counselor role is configured institution_scope='all'
-      // in custom_roles — that flag is for admission OFFICE staff to see all
-      // institutions, NOT for counselors to bypass strict-visibility.
-      if (scope.isStrictCounselor && strictOrClause) {
-        // Apply OR (assigned_counselor_id OR counselor_id matches) AND
-        // source <> 'referral'. PostgREST's chained .or().neq() builds
-        // exactly that conjunction.
-        query = query.or(strictOrClause).neq('source', 'referral');
-      }
+      // Visibility scoping — institution clamp (additive) + strict-counselor
+      // ownership OR + referral exclusion — all centralised in applyLeadVisibility
+      // (lib/api-helpers/admission-lead-visibility.ts) so the LIST and the [id]
+      // DETAIL route can never diverge (BUG-003956). excludeReferral=true: the
+      // list hides referral leads from counselors; detail keeps owned referrals.
+      query = applyLeadVisibility(query, access, {
+        explicitInstitutionId: institutionId,
+        excludeReferral: true,
+      });
 
       // 6. Apply filters
       if (funnelStage) {
