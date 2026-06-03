@@ -1,30 +1,70 @@
 'use client';
 
-import { useState } from 'react';
-import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
+import { useEffect, useState } from 'react';
 import { ChevronDown, Check, Building2 } from 'lucide-react';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
+
+type Institution = { id: string; name: string };
 
 type Props = {
-  /** Currently selected institution_id, or null/undefined for "All institutions" (group view). */
+  /** Currently selected institution_id, or null for "All institutions" (group view). */
   selectedInstitutionId: string | null;
   onChange: (institutionId: string | null) => void;
 };
 
 /**
- * Institution dropdown picker for the YoY chart. When a specific institution
- * is chosen, ALL views (trajectory, drill-down sheet, excluded panel, verdict
- * banner, future actionable-insights cards) scope to that institution's data.
+ * Institution dropdown for the YoY chart. Lists ONLY the 8 JKKN colleges
+ * involved in admissions — excludes Main Office, Testing, Incubation Forum,
+ * Matric School, Jicate Solutions (none of which are part of the admission
+ * cycle YoY story).
  *
- * Super-admins see all 8 colleges + "All institutions" option.
- * Counsellors/principals with restricted scope see only their accessible
- * institutions in the list (the access hook handles RLS filtering upstream).
+ * Director-flagged 2026-06-03 07:25 IST: the prior version used
+ * useUserInstitutionAccess which returned a mix of irrelevant institutions
+ * AND was missing key colleges (Allied Health Sciences, Arts & Sci Self/Aided)
+ * for super-admins. This version queries the institutions table directly with
+ * a name-pattern filter, then RLS handles per-user visibility downstream
+ * (counsellors at one institution will see only their accessible ones).
  */
 export function YoYInstitutionPicker({ selectedInstitutionId, onChange }: Props) {
-  const { institutions, loading } = useUserInstitutionAccess();
+  const [institutions, setInstitutions] = useState<Institution[]>([]);
+  const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
 
-  const selected = institutions.find((i) => i.institution_id === selectedInstitutionId);
-  const label = selected ? shortenInstitutionName(selected.institution_name) : 'All institutions';
+  useEffect(() => {
+    let cancelled = false;
+    const supabase = createClientSupabaseClient();
+    (async () => {
+      const { data, error } = await supabase
+        .from('institutions')
+        .select('id, name')
+        .like('name', 'JKKN%')
+        .order('name');
+      if (cancelled) return;
+      if (error) {
+        setInstitutions([]);
+      } else {
+        // Exclude non-admission entities by name pattern
+        const filtered = (data ?? []).filter((i) => {
+          const n = i.name;
+          return (
+            !n.includes('Main Office') &&
+            !n.includes('Testing') &&
+            !n.includes('Nattraja') &&
+            !n.includes('Matric') &&
+            !n.includes('Jicate')
+          );
+        });
+        setInstitutions(filtered);
+      }
+      setLoading(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const selected = institutions.find((i) => i.id === selectedInstitutionId);
+  const label = selected ? shortenInstitutionName(selected.name) : 'All institutions';
 
   if (loading) {
     return (
@@ -75,14 +115,9 @@ export function YoYInstitutionPicker({ selectedInstitutionId, onChange }: Props)
 
       {open && (
         <>
-          {/* click-away overlay */}
+          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} aria-hidden="true" />
           <div
-            className="fixed inset-0 z-10"
-            onClick={() => setOpen(false)}
-            aria-hidden="true"
-          />
-          <div
-            className="absolute right-0 z-20 mt-1 w-[280px] overflow-hidden rounded-md border shadow-lg"
+            className="absolute right-0 z-20 mt-1 w-[300px] overflow-hidden rounded-md border shadow-lg"
             style={{
               backgroundColor: '#fafaf8',
               borderColor: '#d8d3c8',
@@ -102,12 +137,12 @@ export function YoYInstitutionPicker({ selectedInstitutionId, onChange }: Props)
             <div className="border-t" style={{ borderColor: '#e7e2d8' }} />
             {institutions.map((i) => (
               <PickerItem
-                key={i.institution_id}
-                label={shortenInstitutionName(i.institution_name)}
-                sublabel={i.institution_name}
-                active={selectedInstitutionId === i.institution_id}
+                key={i.id}
+                label={shortenInstitutionName(i.name)}
+                sublabel={i.name}
+                active={selectedInstitutionId === i.id}
                 onClick={() => {
-                  onChange(i.institution_id);
+                  onChange(i.id);
                   setOpen(false);
                 }}
               />
@@ -167,10 +202,6 @@ function PickerItem({
   );
 }
 
-/**
- * Strip "JKKN College of" / "JKKN " prefix for compact pill label display.
- * Full name stays in the sublabel for disambiguation.
- */
 function shortenInstitutionName(name: string): string {
   return name
     .replace(/^JKKN College of /i, '')
