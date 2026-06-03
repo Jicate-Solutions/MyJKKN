@@ -231,17 +231,17 @@ export function YoYTrajectoryChart({ institutionId }: Props) {
         )}
       </div>
 
+      {/* Zone 2.5: Excluded programs (right under the chart — where Director's eye expects it) */}
+      {data?.excludedCourses && data.excludedCourses.length > 0 && (
+        <YoYExcludedCollapsible excludedCourses={data.excludedCourses} />
+      )}
+
       {/* Zone 3: Actionable insights panels — workflow-recommended (rank 2/3/4) */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <YoYDepositsWorklist institutionId={effectiveInstitutionId} />
         <YoYFirstTouchSLA institutionId={effectiveInstitutionId} />
       </div>
       <YoYCounselorGrid institutionId={effectiveInstitutionId} />
-
-      {/* Zone 4: Excluded programs (collapsed by default) */}
-      {data?.excludedCourses && data.excludedCourses.length > 0 && (
-        <YoYExcludedCollapsible excludedCourses={data.excludedCourses} />
-      )}
 
       {/* Drill-down Sheet */}
       <YoYDrillSheet
