@@ -1,7 +1,8 @@
 'use client';
 
 import { useYoYDepositsLeaking } from '@/hooks/admission/use-yoy-trajectory';
-import { Phone } from 'lucide-react';
+import { ChevronRight } from 'lucide-react';
+import { useRouter } from 'next/navigation';
 import { formatIndianNumber } from './_helpers/chart-formatters';
 import type { YoYDepositLeak } from '@/lib/services/admission/yoy-trajectory-service';
 
@@ -58,11 +59,26 @@ export function YoYDepositsWorklist({ institutionId }: Props) {
 }
 
 function WorklistRow({ row, rank, max }: { row: YoYDepositLeak; rank: number; max: number }) {
+  const router = useRouter();
   const pct = max > 0 ? (row.reservedCount / max) * 100 : 0;
   const instShort = row.institutionName
     .replace(/^JKKN College of /i, '')
     .replace(/^JKKN /i, '');
   const isHotStall = row.stale14dCount > 5 || row.avgStaleDays > 14;
+
+  // The worklist row represents a PROGRAM with N reserved learners. The action
+  // "Call" can't be fired against a program — it has to land on the individual
+  // learners. Drill into /admission/leads filtered to this program, where the
+  // existing per-row Call CTA (PR #821 — Exotel + admission_call_logs) handles
+  // the actual per-learner call. funnel_stage=token_paid is the CRM-side
+  // closest match for "deposit paid, not yet admitted"; the YoY worklist
+  // counts the lifecycle_status='reserved' side of the taxonomy (different
+  // table), but token_paid is the right narrowing on /admission/leads.
+  const handleWorkList = () => {
+    router.push(
+      `/admission/leads?program_id=${encodeURIComponent(row.programId)}&funnel_stage=token_paid`
+    );
+  };
 
   return (
     <div className="px-5 py-3.5 transition hover:bg-[#f4efe3]">
@@ -85,6 +101,7 @@ function WorklistRow({ row, rank, max }: { row: YoYDepositLeak; rank: number; ma
         </div>
         <button
           type="button"
+          onClick={handleWorkList}
           className="inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-[11px] font-medium transition hover:opacity-90"
           style={{
             borderColor: '#c8553d',
@@ -93,8 +110,8 @@ function WorklistRow({ row, rank, max }: { row: YoYDepositLeak; rank: number; ma
             fontFamily: 'var(--font-ibm-plex-mono)',
           }}
         >
-          <Phone size={11} />
-          Call
+          Work this list
+          <ChevronRight size={11} />
         </button>
       </div>
 
