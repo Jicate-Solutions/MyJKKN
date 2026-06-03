@@ -23,6 +23,15 @@ function ScopeCell({ programName }: { programName: string | null }) {
 
 export const createRoomColumns = (): ColumnDef<ProgramRoomEligibilityRow>[] => [
   {
+    accessorKey: 'institution_name',
+    header: 'Institution',
+    cell: ({ row }) => (
+      <span className='text-sm font-medium'>
+        {row.original.institution_name || '—'}
+      </span>
+    ),
+  },
+  {
     accessorKey: 'program_name',
     header: 'Scope',
     cell: ({ row }) => <ScopeCell programName={row.original.program_name} />,
@@ -60,6 +69,15 @@ export const createRoomColumns = (): ColumnDef<ProgramRoomEligibilityRow>[] => [
 ];
 
 export const createMessColumns = (): ColumnDef<ProgramMessEligibilityRow>[] => [
+  {
+    accessorKey: 'institution_name',
+    header: 'Institution',
+    cell: ({ row }) => (
+      <span className='text-sm font-medium'>
+        {row.original.institution_name || '—'}
+      </span>
+    ),
+  },
   {
     accessorKey: 'program_name',
     header: 'Scope',

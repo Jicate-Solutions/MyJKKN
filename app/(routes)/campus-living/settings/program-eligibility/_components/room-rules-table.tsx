@@ -41,9 +41,9 @@ const predicateParts = (r: RoomEligibilityRuleRow) =>
     Boolean
   ) as string[];
 
-export function RoomRulesTable({ institutionId }: { institutionId: string }) {
-  const { rows, loading, error, deleteRule } =
-    useRoomEligibilityRules(institutionId);
+export function RoomRulesTable() {
+  // null => list rules across ALL institutions; each rule carries its own.
+  const { rows, loading, error, deleteRule } = useRoomEligibilityRules(null);
   const [editing, setEditing] = useState<RoomEligibilityRuleRow | null>(null);
   const [editOpen, setEditOpen] = useState(false);
   const [pendingDelete, setPendingDelete] =
@@ -92,9 +92,10 @@ export function RoomRulesTable({ institutionId }: { institutionId: string }) {
       <Table>
         <TableHeader>
           <TableRow>
+            <TableHead>Institution</TableHead>
             <TableHead>Block</TableHead>
             <TableHead>Scope</TableHead>
-            <TableHead>Cohort (Institution → …)</TableHead>
+            <TableHead>Cohort</TableHead>
             <TableHead>Status</TableHead>
             <TableHead className="text-right">Actions</TableHead>
           </TableRow>
@@ -104,6 +105,9 @@ export function RoomRulesTable({ institutionId }: { institutionId: string }) {
             const parts = predicateParts(r);
             return (
               <TableRow key={r.id}>
+                <TableCell className="font-medium">
+                  {r.institution_name ?? '—'}
+                </TableCell>
                 <TableCell className="font-medium">
                   {r.block_name ?? '—'}
                   {r.rule_name ? (
@@ -169,7 +173,6 @@ export function RoomRulesTable({ institutionId }: { institutionId: string }) {
             if (!o) setEditing(null);
           }}
           mode="edit"
-          institutionId={institutionId}
           rule={editing}
         />
       )}

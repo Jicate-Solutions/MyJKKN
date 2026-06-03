@@ -21,6 +21,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { SearchableSelect } from '@/components/ui/searchable-select';
 import { Loader2 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import {
@@ -32,6 +33,7 @@ import {
   useEligibilityBlocks,
   useEligibilityRooms,
 } from '@/hooks/campus-living/use-room-eligibility';
+import { useEligibilityInstitutions } from '@/hooks/campus-living/use-program-eligibility';
 import type { RoomEligibilityRuleRow } from '@/types/room-eligibility';
 
 type Scope = 'block' | 'floor' | 'rooms';
@@ -41,7 +43,8 @@ interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   mode: 'create' | 'edit';
-  institutionId: string;
+  // Optional prefill. Edit mode locks institution to the rule's institution.
+  institutionId?: string;
   rule?: RoomEligibilityRuleRow | null;
 }
 
@@ -52,8 +55,11 @@ export function RoomEligibilityFormDialog({
   institutionId,
   rule,
 }: Props) {
-  const { createRule, updateRule } = useRoomEligibilityRules(institutionId);
+  // Mutations are institution-agnostic; subscribe to the page's "all" cache.
+  const { createRule, updateRule } = useRoomEligibilityRules(null);
+  const { institutions, loading: instLoading } = useEligibilityInstitutions();
 
+  const [selectedInstitution, setSelectedInstitution] = useState('');
   const [blockId, setBlockId] = useState('');
   const [scope, setScope] = useState<Scope>('block');
   const [floor, setFloor] = useState<string>('');
@@ -66,21 +72,26 @@ export function RoomEligibilityFormDialog({
   const [isActive, setIsActive] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
+  const isEdit = mode === 'edit';
+
+  // Blocks are physical targets (global), but the cohort predicate (degree
+  // cascade) is institution-scoped — both follow the picked institution.
   const { options: blocks, loading: blocksLoading } = useEligibilityBlocks(
-    open ? institutionId : null
+    open ? selectedInstitution || null : null
   );
-  const { options: degrees } = useEligibilityDegrees(open ? institutionId : null);
+  const { options: degrees } = useEligibilityDegrees(
+    open ? selectedInstitution || null : null
+  );
   const { options: departments } = useEligibilityDepartments(degreeId || null);
   const { options: programs } = useEligibilityPrograms(departmentId || null);
   const { options: semesters } = useEligibilitySemesters(programId || null);
   const { rooms, loading: roomsLoading } = useEligibilityRooms(blockId || null);
 
-  const isEdit = mode === 'edit';
-
   // Reset on open.
   useEffect(() => {
     if (!open) return;
     if (isEdit && rule) {
+      setSelectedInstitution(rule.institution_id);
       setBlockId(rule.block_id);
       setFloor(rule.floor != null ? String(rule.floor) : '');
       setRoomIds(rule.room_ids ?? []);
@@ -94,6 +105,7 @@ export function RoomEligibilityFormDialog({
       setRuleName(rule.rule_name ?? '');
       setIsActive(rule.is_active);
     } else {
+      setSelectedInstitution(institutionId ?? '');
       setBlockId('');
       setScope('block');
       setFloor('');
@@ -105,7 +117,17 @@ export function RoomEligibilityFormDialog({
       setRuleName('');
       setIsActive(true);
     }
-  }, [open, isEdit, rule]);
+  }, [open, isEdit, rule, institutionId]);
+
+  // Switching institution clears the cohort predicate (degree/department/program/
+  // semester are institution-scoped); the physical block target stays.
+  const onInstitutionChange = (value: string) => {
+    setSelectedInstitution(value);
+    setDegreeId('');
+    setDepartmentId('');
+    setProgramId('');
+    setSemesterId('');
+  };
 
   // Distinct floors in the chosen block (for the 'floor' scope dropdown).
   const floorsInBlock = useMemo(
@@ -135,6 +157,7 @@ export function RoomEligibilityFormDialog({
     );
 
   const canSave =
+    !!selectedInstitution &&
     !!blockId &&
     (scope !== 'floor' || floor !== '') &&
     (scope !== 'rooms' || roomIds.length > 0);
@@ -156,7 +179,7 @@ export function RoomEligibilityFormDialog({
         await updateRule(rule.id, payload);
         toast.success('Room eligibility rule updated');
       } else {
-        await createRule({ institution_id: institutionId, block_id: blockId, ...payload });
+        await createRule({ institution_id: selectedInstitution, block_id: blockId, ...payload });
         toast.success('Room eligibility rule added');
       }
       onOpenChange(false);
@@ -182,11 +205,25 @@ export function RoomEligibilityFormDialog({
         </DialogHeader>
 
         <div className="space-y-4">
+          {/* Institution — the rule belongs to one institution; it scopes the cohort. */}
+          <div className="space-y-2">
+            <Label>Institution</Label>
+            <SearchableSelect
+              value={selectedInstitution}
+              onValueChange={onInstitutionChange}
+              options={institutions.map((i) => ({ value: i.id, label: i.name }))}
+              placeholder="Select an institution"
+              loading={instLoading}
+              disabled={isEdit}
+              modal
+            />
+          </div>
+
           {/* Physical target */}
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <Label>Block</Label>
-              <Select value={blockId} onValueChange={(v) => { setBlockId(v); setRoomIds([]); setFloor(''); }} disabled={isEdit}>
+              <Select value={blockId} onValueChange={(v) => { setBlockId(v); setRoomIds([]); setFloor(''); }} disabled={isEdit || !selectedInstitution}>
                 <SelectTrigger>
                   <SelectValue placeholder={blocksLoading ? 'Loading…' : 'Select block'} />
                 </SelectTrigger>

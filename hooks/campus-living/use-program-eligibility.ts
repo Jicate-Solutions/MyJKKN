@@ -18,10 +18,11 @@ const ELIG_KEY = ['campus-living', 'program-eligibility'] as const;
 export function useRoomEligibility(institutionId: string | null) {
   const queryClient = useQueryClient();
 
+  // institutionId === null => list across ALL institutions (page-level view).
   const query = useQuery({
-    queryKey: [...ELIG_KEY, 'room', institutionId],
-    queryFn: () => ProgramEligibilityService.getRoomEligibility(institutionId!),
-    enabled: !!institutionId,
+    queryKey: [...ELIG_KEY, 'room', institutionId ?? 'all'],
+    queryFn: () =>
+      ProgramEligibilityService.getRoomEligibility(institutionId ?? undefined),
   });
 
   const invalidate = useCallback(
@@ -69,10 +70,11 @@ export function useRoomEligibility(institutionId: string | null) {
 export function useMessEligibility(institutionId: string | null) {
   const queryClient = useQueryClient();
 
+  // institutionId === null => list across ALL institutions (page-level view).
   const query = useQuery({
-    queryKey: [...ELIG_KEY, 'mess', institutionId],
-    queryFn: () => ProgramEligibilityService.getMessEligibility(institutionId!),
-    enabled: !!institutionId,
+    queryKey: [...ELIG_KEY, 'mess', institutionId ?? 'all'],
+    queryFn: () =>
+      ProgramEligibilityService.getMessEligibility(institutionId ?? undefined),
   });
 
   const invalidate = useCallback(

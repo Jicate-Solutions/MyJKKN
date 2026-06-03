@@ -13,10 +13,10 @@ const KEY = ['campus-living', 'room-eligibility'] as const;
 
 export function useRoomEligibilityRules(institutionId: string | null) {
   const qc = useQueryClient();
+  // institutionId === null => list rules across ALL institutions (page-level view).
   const query = useQuery({
-    queryKey: [...KEY, 'rules', institutionId],
-    queryFn: () => RoomEligibilityService.getRules(institutionId!),
-    enabled: !!institutionId,
+    queryKey: [...KEY, 'rules', institutionId ?? 'all'],
+    queryFn: () => RoomEligibilityService.getRules(institutionId ?? undefined),
   });
 
   const invalidate = useCallback(
