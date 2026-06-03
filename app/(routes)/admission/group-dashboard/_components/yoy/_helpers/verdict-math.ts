@@ -81,3 +81,111 @@ export function computeVerdicts(trajectory: YoYTrajectoryRow[]): Verdict[] {
 export function cycleLabel(year: number): string {
   return `${year}-${String((year + 1) % 100).padStart(2, '0')}`;
 }
+
+export type ProjectionVerdict = {
+  /** Projected final cumulative for the current cycle */
+  projected: number;
+  /** Prior cycle's actual final cumulative */
+  priorFinal: number;
+  /** projected - priorFinal */
+  delta: number;
+  /** % delta */
+  deltaPct: number;
+  /** Direction based on delta */
+  direction: 'behind' | 'on-par' | 'ahead';
+};
+
+/**
+ * Project current cycle's final cumulative by scaling current value by the
+ * prior cycle's full-cycle / same-day-N ratio. This assumes current cycle
+ * follows a similar shape to last cycle from this point forward.
+ *
+ * Returns null if we don't have enough data to project.
+ */
+export function computeProjectionVerdict(trajectory: YoYTrajectoryRow[]): ProjectionVerdict | null {
+  if (!trajectory.length) return null;
+  const yearsSet = new Set<number>();
+  for (const r of trajectory) yearsSet.add(r.year);
+  const years = Array.from(yearsSet).sort((a, b) => a - b);
+  if (years.length < 2) return null;
+  const currentYear = years[years.length - 1];
+  const priorYear = years[years.length - 2];
+
+  const currentRows = trajectory.filter((r) => r.year === currentYear);
+  if (!currentRows.length) return null;
+  const currentMaxDayN = currentRows.reduce((m, r) => Math.max(m, r.dayN), -Infinity);
+  const currentValue = currentRows
+    .filter((r) => r.dayN === currentMaxDayN)
+    .reduce((m, r) => Math.max(m, r.cumulativeAdmitted), 0);
+
+  const priorRows = trajectory.filter((r) => r.year === priorYear);
+  if (!priorRows.length) return null;
+  const priorAtSameDay = priorRows
+    .filter((r) => r.dayN <= currentMaxDayN)
+    .sort((a, b) => b.dayN - a.dayN)[0]?.cumulativeAdmitted ?? 0;
+  const priorFinal = priorRows.reduce((m, r) => Math.max(m, r.cumulativeAdmitted), 0);
+
+  if (priorAtSameDay <= 0 || priorFinal <= 0) return null;
+
+  const projected = Math.round(currentValue * (priorFinal / priorAtSameDay));
+  const delta = projected - priorFinal;
+  const deltaPct = priorFinal > 0 ? (delta / priorFinal) * 100 : 0;
+
+  let direction: ProjectionVerdict['direction'];
+  if (Math.abs(deltaPct) < 2) direction = 'on-par';
+  else if (deltaPct < 0) direction = 'behind';
+  else direction = 'ahead';
+
+  return { projected, priorFinal, delta, deltaPct, direction };
+}
+
+export type WeekPaceVerdict = {
+  /** Admissions in the last 7 days of the current cycle */
+  thisWeek: number;
+  /** Admissions in the matching window last year */
+  sameWeekLastYear: number;
+  delta: number;
+  deltaPct: number;
+  direction: 'behind' | 'on-par' | 'ahead';
+};
+
+/**
+ * Compare admissions/day pace in the last 7 days of current cycle vs the
+ * matching day-N window of the prior cycle.
+ *
+ * Returns null if either window has no data.
+ */
+export function computeWeekPaceVerdict(trajectory: YoYTrajectoryRow[]): WeekPaceVerdict | null {
+  if (!trajectory.length) return null;
+  const yearsSet = new Set<number>();
+  for (const r of trajectory) yearsSet.add(r.year);
+  const years = Array.from(yearsSet).sort((a, b) => a - b);
+  if (years.length < 2) return null;
+  const currentYear = years[years.length - 1];
+  const priorYear = years[years.length - 2];
+
+  const currentRows = trajectory.filter((r) => r.year === currentYear);
+  if (!currentRows.length) return null;
+  const currentMaxDayN = currentRows.reduce((m, r) => Math.max(m, r.dayN), -Infinity);
+  const weekStartDayN = currentMaxDayN - 7;
+
+  const cumAt = (year: number, dayN: number): number => {
+    const rows = trajectory
+      .filter((r) => r.year === year && r.dayN <= dayN)
+      .sort((a, b) => b.dayN - a.dayN);
+    return rows[0]?.cumulativeAdmitted ?? 0;
+  };
+
+  const thisWeek = cumAt(currentYear, currentMaxDayN) - cumAt(currentYear, weekStartDayN);
+  const sameWeekLastYear = cumAt(priorYear, currentMaxDayN) - cumAt(priorYear, weekStartDayN);
+
+  const delta = thisWeek - sameWeekLastYear;
+  const deltaPct = sameWeekLastYear > 0 ? (delta / sameWeekLastYear) * 100 : 0;
+
+  let direction: WeekPaceVerdict['direction'];
+  if (Math.abs(deltaPct) < 5) direction = 'on-par';
+  else if (deltaPct < 0) direction = 'behind';
+  else direction = 'ahead';
+
+  return { thisWeek, sameWeekLastYear, delta, deltaPct, direction };
+}

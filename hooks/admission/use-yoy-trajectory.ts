@@ -5,6 +5,10 @@ import {
   type YoYInstitutionRow,
   type YoYDrillRow,
   type YoYCategoryRow,
+  type YoYHealthSignal,
+  type YoYDepositLeak,
+  type YoYCounselorGridCell,
+  type YoYFirstTouchBreach,
 } from '@/lib/services/admission/yoy-trajectory-service';
 
 export const yoyTrajectoryKeys = {
@@ -17,6 +21,14 @@ export const yoyTrajectoryKeys = {
     [...yoyTrajectoryKeys.all, 'drill', year, dayN, institutionId ?? 'group'] as const,
   perCategory: (institutionId?: string) =>
     [...yoyTrajectoryKeys.all, 'per-category', institutionId ?? 'group'] as const,
+  health: (institutionId?: string) =>
+    [...yoyTrajectoryKeys.all, 'health-signals', institutionId ?? 'group'] as const,
+  deposits: (institutionId?: string) =>
+    [...yoyTrajectoryKeys.all, 'deposits-leaking', institutionId ?? 'group'] as const,
+  counselorGrid: (institutionId?: string) =>
+    [...yoyTrajectoryKeys.all, 'counselor-grid', institutionId ?? 'group'] as const,
+  firstTouch: (institutionId?: string) =>
+    [...yoyTrajectoryKeys.all, 'first-touch', institutionId ?? 'group'] as const,
 };
 
 const FIVE_MIN = 5 * 60 * 1000;
@@ -63,6 +75,46 @@ export function useYoYPerCategoryTrajectory(institutionId?: string) {
   return useQuery<YoYCategoryRow[]>({
     queryKey: yoyTrajectoryKeys.perCategory(institutionId),
     queryFn: () => YoYTrajectoryService.getPerCategoryTrajectory(institutionId),
+    staleTime: FIVE_MIN,
+    refetchOnWindowFocus: false,
+  });
+}
+
+/** 8-college Stoplight health signals. */
+export function useYoYInstitutionHealth(institutionId?: string) {
+  return useQuery<YoYHealthSignal[]>({
+    queryKey: yoyTrajectoryKeys.health(institutionId),
+    queryFn: () => YoYTrajectoryService.getInstitutionHealth(institutionId),
+    staleTime: FIVE_MIN,
+    refetchOnWindowFocus: false,
+  });
+}
+
+/** Top N programs leaking deposits. */
+export function useYoYDepositsLeaking(institutionId?: string, topN = 5) {
+  return useQuery<YoYDepositLeak[]>({
+    queryKey: [...yoyTrajectoryKeys.deposits(institutionId), topN],
+    queryFn: () => YoYTrajectoryService.getDepositsLeaking(institutionId, topN),
+    staleTime: FIVE_MIN,
+    refetchOnWindowFocus: false,
+  });
+}
+
+/** institution × counsellor matrix of stale leads. */
+export function useYoYCounselorGrid(institutionId?: string) {
+  return useQuery<YoYCounselorGridCell[]>({
+    queryKey: yoyTrajectoryKeys.counselorGrid(institutionId),
+    queryFn: () => YoYTrajectoryService.getCounselorGrid(institutionId),
+    staleTime: FIVE_MIN,
+    refetchOnWindowFocus: false,
+  });
+}
+
+/** First-touch SLA breaches (leads not worked within 48h). */
+export function useYoYFirstTouchBreaches(institutionId?: string, windowDays = 7) {
+  return useQuery<YoYFirstTouchBreach[]>({
+    queryKey: [...yoyTrajectoryKeys.firstTouch(institutionId), windowDays],
+    queryFn: () => YoYTrajectoryService.getFirstTouchBreaches(institutionId, windowDays),
     staleTime: FIVE_MIN,
     refetchOnWindowFocus: false,
   });

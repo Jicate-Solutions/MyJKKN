@@ -1,7 +1,15 @@
 'use client';
 
-import { TrendingDown, TrendingUp, Minus } from 'lucide-react';
-import { computeVerdicts, cycleLabel, type Verdict } from './_helpers/verdict-math';
+import { TrendingDown, TrendingUp, Minus, Target, Zap } from 'lucide-react';
+import {
+  computeVerdicts,
+  computeProjectionVerdict,
+  computeWeekPaceVerdict,
+  cycleLabel,
+  type Verdict,
+  type ProjectionVerdict,
+  type WeekPaceVerdict,
+} from './_helpers/verdict-math';
 import { formatIndianNumber, formatDeltaPct } from './_helpers/chart-formatters';
 import type { YoYTrajectoryRow } from '@/lib/services/admission/yoy-trajectory-service';
 
@@ -28,6 +36,8 @@ const DIRECTION_STYLE: Record<
  */
 export function YoYVerdictBanner({ trajectory, isLoading }: Props) {
   const verdicts = computeVerdicts(trajectory);
+  const projection = computeProjectionVerdict(trajectory);
+  const weekPace = computeWeekPaceVerdict(trajectory);
 
   if (isLoading) {
     return <VerdictSkeleton />;
@@ -49,6 +59,8 @@ export function YoYVerdictBanner({ trajectory, isLoading }: Props) {
   }
 
   const currentCycle = cycleLabel(verdicts[0]?.priorYear + 1);
+  // Reverse so newer prior year (more relevant) appears first
+  const sortedVerdicts = verdicts.slice().reverse();
 
   return (
     <div
@@ -66,10 +78,105 @@ export function YoYVerdictBanner({ trajectory, isLoading }: Props) {
         Cycle {currentCycle} · day {verdicts[0]?.comparedAtDayN >= 0 ? '+' : ''}{verdicts[0]?.comparedAtDayN ?? 0} since April 1
       </div>
 
-      <div className="grid divide-y sm:grid-cols-2 sm:divide-x sm:divide-y-0" style={{ borderColor: '#e7e2d8' }}>
-        {verdicts.slice().reverse().map((v) => (
+      <div className="grid divide-y sm:grid-cols-2 lg:grid-cols-4 lg:divide-x lg:divide-y-0" style={{ borderColor: '#e7e2d8' }}>
+        {sortedVerdicts.map((v) => (
           <VerdictCard key={v.priorYear} verdict={v} />
         ))}
+        {projection && <ProjectionCard verdict={projection} priorCycleLabel={cycleLabel(sortedVerdicts[0]?.priorYear ?? 0)} />}
+        {weekPace && <WeekPaceCard verdict={weekPace} priorCycleLabel={cycleLabel(sortedVerdicts[0]?.priorYear ?? 0)} />}
+      </div>
+    </div>
+  );
+}
+
+function ProjectionCard({ verdict, priorCycleLabel }: { verdict: ProjectionVerdict; priorCycleLabel: string }) {
+  const style = DIRECTION_STYLE[verdict.direction];
+  return (
+    <div className="px-6 py-5">
+      <div className="flex items-baseline gap-2">
+        <Target size={14} style={{ color: style.fg }} aria-hidden="true" className="self-center" />
+        <span
+          className="text-[13px] tracking-wide"
+          style={{ color: '#9a948a', fontFamily: 'var(--font-ibm-plex-sans)' }}
+        >
+          Projected final
+        </span>
+      </div>
+
+      <div
+        className="mt-1.5 leading-[1.1] tabular-nums"
+        style={{
+          fontFamily: 'var(--font-dm-serif-display)',
+          fontSize: 'clamp(1.5rem, 2.2vw, 2rem)',
+          color: '#2a2624',
+        }}
+      >
+        ≈ <span style={{ color: style.fg }}>{formatIndianNumber(verdict.projected)}</span>
+      </div>
+
+      <div
+        className="mt-3 flex items-baseline gap-3"
+        style={{ fontFamily: 'var(--font-ibm-plex-mono)' }}
+      >
+        <div
+          className="rounded-md px-2 py-1 text-[12px] font-medium tabular-nums"
+          style={{ backgroundColor: style.bg, color: style.fg }}
+        >
+          {verdict.direction === 'behind' && `▼ ${formatIndianNumber(Math.abs(verdict.delta))} below`}
+          {verdict.direction === 'ahead' && `▲ ${formatIndianNumber(Math.abs(verdict.delta))} above`}
+          {verdict.direction === 'on-par' && `≈ on par`}
+        </div>
+        <div className="text-[11px] tabular-nums" style={{ color: '#6e6760' }}>
+          vs {priorCycleLabel} ended at {formatIndianNumber(verdict.priorFinal)}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function WeekPaceCard({ verdict, priorCycleLabel }: { verdict: WeekPaceVerdict; priorCycleLabel: string }) {
+  const style = DIRECTION_STYLE[verdict.direction];
+  const thisWeekRate = (verdict.thisWeek / 7).toFixed(1);
+  const lyWeekRate = (verdict.sameWeekLastYear / 7).toFixed(1);
+  return (
+    <div className="px-6 py-5">
+      <div className="flex items-baseline gap-2">
+        <Zap size={14} style={{ color: style.fg }} aria-hidden="true" className="self-center" />
+        <span
+          className="text-[13px] tracking-wide"
+          style={{ color: '#9a948a', fontFamily: 'var(--font-ibm-plex-sans)' }}
+        >
+          This week pace
+        </span>
+      </div>
+
+      <div
+        className="mt-1.5 leading-[1.1] tabular-nums"
+        style={{
+          fontFamily: 'var(--font-dm-serif-display)',
+          fontSize: 'clamp(1.5rem, 2.2vw, 2rem)',
+          color: '#2a2624',
+        }}
+      >
+        <span style={{ color: style.fg }}>{thisWeekRate}</span>
+        <span style={{ color: '#9a948a', fontSize: '0.8em' }}>/day</span>
+      </div>
+
+      <div
+        className="mt-3 flex items-baseline gap-3"
+        style={{ fontFamily: 'var(--font-ibm-plex-mono)' }}
+      >
+        <div
+          className="rounded-md px-2 py-1 text-[12px] font-medium tabular-nums"
+          style={{ backgroundColor: style.bg, color: style.fg }}
+        >
+          {verdict.direction === 'behind' && `▼ ${formatDeltaPct(verdict.deltaPct)}`}
+          {verdict.direction === 'ahead' && `▲ ${formatDeltaPct(verdict.deltaPct)}`}
+          {verdict.direction === 'on-par' && `≈ same`}
+        </div>
+        <div className="text-[11px] tabular-nums" style={{ color: '#6e6760' }}>
+          vs {lyWeekRate}/day same week {priorCycleLabel}
+        </div>
       </div>
     </div>
   );

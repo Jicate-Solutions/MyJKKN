@@ -14,6 +14,10 @@ import { YoYToolbar } from './yoy/yoy-toolbar';
 import { YoYDrillSheet } from './yoy/yoy-drill-sheet';
 import { YoYExcludedCollapsible } from './yoy/yoy-excluded-collapsible';
 import { YoYInstitutionPicker } from './yoy/yoy-institution-picker';
+import { YoYHealthStoplight } from './yoy/yoy-health-stoplight';
+import { YoYDepositsWorklist } from './yoy/yoy-deposits-worklist';
+import { YoYCounselorGrid } from './yoy/yoy-counselor-grid';
+import { YoYFirstTouchSLA } from './yoy/yoy-first-touch-sla';
 import { cycleLabel } from './yoy/_helpers/verdict-math';
 
 type Props = {
@@ -93,11 +97,43 @@ export function YoYTrajectoryChart({ institutionId }: Props) {
 
   return (
     <div className="space-y-4">
-      {/* Zone 1: Verdict banner — primary answer */}
+      {/* Zone 0: Institution picker — visible at the top so scope is always obvious */}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h2
+            className="text-[18px] tracking-tight"
+            style={{
+              fontFamily: 'var(--font-dm-serif-display)',
+              color: '#2a2624',
+              fontWeight: 400,
+            }}
+          >
+            Year over Year
+          </h2>
+          <p
+            className="text-[11px]"
+            style={{ color: '#9a948a', fontFamily: 'var(--font-ibm-plex-sans)' }}
+          >
+            Decision-driver view · pick an institution to scope every panel below
+          </p>
+        </div>
+        <YoYInstitutionPicker
+          selectedInstitutionId={selectedInstitutionId}
+          onChange={(id) => {
+            setSelectedInstitutionId(id);
+            setExpandedYear(null);
+          }}
+        />
+      </div>
+
+      {/* Zone 1: Verdict banner — primary answer (4 cards: vs prior years × 2 + projection + week-pace) */}
       <YoYVerdictBanner
         trajectory={data?.trajectory ?? []}
         isLoading={trajectory.isLoading}
       />
+
+      {/* Zone 1.5: 8-College Health Stoplight — which Principals to call today */}
+      <YoYHealthStoplight institutionId={effectiveInstitutionId} />
 
       {/* Zone 2: Chart card */}
       <div
@@ -130,26 +166,17 @@ export function YoYTrajectoryChart({ institutionId }: Props) {
               {horizonMode === 'fair-race' && ' · historical lines clipped at current day for fair comparison'}
             </p>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <YoYInstitutionPicker
-              selectedInstitutionId={selectedInstitutionId}
-              onChange={(id) => {
-                setSelectedInstitutionId(id);
-                setExpandedYear(null); // reset expansion when scope changes
-              }}
-            />
-            <YoYToolbar
-              horizonMode={horizonMode}
-              viewMode={viewMode}
-              expandedYear={expandedYear}
-              onHorizonChange={setHorizonMode}
-              onViewModeChange={(v) => {
-                setViewMode(v);
-                if (v === 'category') setExpandedYear(null);
-              }}
-              onCollapseExpansion={() => setExpandedYear(null)}
-            />
-          </div>
+          <YoYToolbar
+            horizonMode={horizonMode}
+            viewMode={viewMode}
+            expandedYear={expandedYear}
+            onHorizonChange={setHorizonMode}
+            onViewModeChange={(v) => {
+              setViewMode(v);
+              if (v === 'category') setExpandedYear(null);
+            }}
+            onCollapseExpansion={() => setExpandedYear(null)}
+          />
         </div>
 
         <div className="px-4 py-4">
@@ -204,7 +231,14 @@ export function YoYTrajectoryChart({ institutionId }: Props) {
         )}
       </div>
 
-      {/* Zone 3: Excluded programs (collapsed by default) */}
+      {/* Zone 3: Actionable insights panels — workflow-recommended (rank 2/3/4) */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <YoYDepositsWorklist institutionId={effectiveInstitutionId} />
+        <YoYFirstTouchSLA institutionId={effectiveInstitutionId} />
+      </div>
+      <YoYCounselorGrid institutionId={effectiveInstitutionId} />
+
+      {/* Zone 4: Excluded programs (collapsed by default) */}
       {data?.excludedCourses && data.excludedCourses.length > 0 && (
         <YoYExcludedCollapsible excludedCourses={data.excludedCourses} />
       )}
