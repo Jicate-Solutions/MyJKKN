@@ -24,16 +24,9 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Plus, Edit, Trash2, Loader2 } from 'lucide-react';
 import { useHostelFees } from '@/hooks/campus-living/use-hostel-fees';
-import { useActiveHostelCategories } from '@/hooks/campus-living/use-hostel-categories';
-import { useActiveMessCategories } from '@/hooks/campus-living/use-mess-categories';
-import {
-  FEE_TARGET_LABELS,
-  FEE_FREQUENCY_LABELS,
-  getFeeTargetId,
-  getFeeTargetKind,
-  type HostelFee,
-} from '@/types/hostel-fees';
-import { CategoryFeeDialog } from './category-fee-dialog';
+import { useAdmissionPackages } from '@/hooks/campus-living/use-admission-packages';
+import { FEE_FREQUENCY_LABELS, type HostelFee } from '@/types/hostel-fees';
+import { PackageFeeDialog } from './package-fee-dialog';
 
 const formatCurrency = (amount: number) =>
   amount.toLocaleString('en-IN', {
@@ -47,24 +40,18 @@ interface Props {
   canEdit: boolean;
 }
 
-export function CategoryFeesSection({ hostelYearId, canEdit }: Props) {
+export function PackageFeesSection({ hostelYearId, canEdit }: Props) {
   const { fees: allFees, loading, error, deleteFee } = useHostelFees(hostelYearId);
-  // This section manages room/mess category fees only; package fees live in their own tab.
-  const fees = allFees.filter((f) => !f.package_id);
-  const { hostelCategories } = useActiveHostelCategories();
-  const { messCategories } = useActiveMessCategories();
+  const { packages } = useAdmissionPackages({ is_active: true, limit: 1000 });
+  const fees = allFees.filter((f) => f.package_id);
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<HostelFee | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<HostelFee | null>(null);
 
-  const nameFor = (fee: HostelFee) => {
-    const kind = getFeeTargetKind(fee);
-    const id = getFeeTargetId(fee);
-    const list = kind === 'hostel_room' ? hostelCategories : messCategories;
-    return list.find((c) => c.id === id)?.name ?? '—';
-  };
+  const nameFor = (fee: HostelFee) =>
+    (packages ?? []).find((p) => p.id === fee.package_id)?.name ?? '—';
 
   const handleAdd = () => {
     setEditing(null);
@@ -92,13 +79,13 @@ export function CategoryFeesSection({ hostelYearId, canEdit }: Props) {
     <div className="space-y-4">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <p className="text-sm text-muted-foreground">
-          Individual fees per hostel room / mess category. A learner&apos;s hostel
-          total is the sum of their selected categories. Shared across all institutions.
+          A single flat all-in fee per package (bundled room + mess). For a learner assigned
+          to a package, this replaces summing the individual room/mess category fees.
         </p>
         {canEdit ? (
           <Button onClick={handleAdd} className="shrink-0">
             <Plus className="mr-2 h-4 w-4" />
-            Add Category Fee
+            Add Package Fee
           </Button>
         ) : null}
       </div>
@@ -106,24 +93,23 @@ export function CategoryFeesSection({ hostelYearId, canEdit }: Props) {
       {loading ? (
         <div className="flex items-center justify-center py-10 text-muted-foreground">
           <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-          Loading category fees...
+          Loading package fees...
         </div>
       ) : error ? (
         <Alert variant="destructive">
-          <AlertTitle>Failed to load category fees</AlertTitle>
+          <AlertTitle>Failed to load package fees</AlertTitle>
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       ) : fees.length === 0 ? (
         <div className="text-center py-10 text-muted-foreground">
-          No category fees for this hostel year yet.
-          {canEdit ? ' Click "Add Category Fee" to add the first one.' : ''}
+          No package fees for this hostel year yet.
+          {canEdit ? ' Click "Add Package Fee" to add the first one.' : ''}
         </div>
       ) : (
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Type</TableHead>
-              <TableHead>Category</TableHead>
+              <TableHead>Package</TableHead>
               <TableHead>Amount</TableHead>
               <TableHead>Frequency</TableHead>
               <TableHead>Status</TableHead>
@@ -133,9 +119,6 @@ export function CategoryFeesSection({ hostelYearId, canEdit }: Props) {
           <TableBody>
             {fees.map((fee) => (
               <TableRow key={fee.id}>
-                <TableCell>
-                  <Badge variant="outline">{FEE_TARGET_LABELS[getFeeTargetKind(fee)]}</Badge>
-                </TableCell>
                 <TableCell className="font-medium">{nameFor(fee)}</TableCell>
                 <TableCell>{formatCurrency(fee.amount)}</TableCell>
                 <TableCell>{FEE_FREQUENCY_LABELS[fee.frequency]}</TableCell>
@@ -167,7 +150,7 @@ export function CategoryFeesSection({ hostelYearId, canEdit }: Props) {
         </Table>
       )}
 
-      <CategoryFeeDialog
+      <PackageFeeDialog
         open={dialogOpen}
         onOpenChange={setDialogOpen}
         mode={editing ? 'edit' : 'create'}
@@ -183,7 +166,7 @@ export function CategoryFeesSection({ hostelYearId, canEdit }: Props) {
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete category fee?</AlertDialogTitle>
+            <AlertDialogTitle>Delete package fee?</AlertDialogTitle>
             <AlertDialogDescription>
               {pendingDelete ? (
                 <>

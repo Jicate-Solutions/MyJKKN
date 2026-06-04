@@ -21,18 +21,19 @@ import {
 } from '@/components/ui/select';
 import { Loader2 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
-import { useHostelCategoryFees } from '@/hooks/campus-living/use-hostel-category-fees';
+import { useHostelFees } from '@/hooks/campus-living/use-hostel-fees';
 import { useActiveHostelCategories } from '@/hooks/campus-living/use-hostel-categories';
 import { useActiveMessCategories } from '@/hooks/campus-living/use-mess-categories';
 import {
-  CATEGORY_KIND_LABELS,
+  CATEGORY_FEE_KINDS,
+  FEE_TARGET_LABELS,
   FEE_FREQUENCY_LABELS,
-  getCategoryId,
-  getCategoryKind,
-  type CategoryKind,
+  getFeeTargetId,
+  getFeeTargetKind,
+  type FeeTargetKind,
   type FeeFrequency,
-  type HostelCategoryFee,
-} from '@/types/hostel-category-fees';
+  type HostelFee,
+} from '@/types/hostel-fees';
 
 type GenderType = 'boys' | 'girls';
 
@@ -46,17 +47,17 @@ interface Props {
   onOpenChange: (open: boolean) => void;
   mode: 'create' | 'edit';
   hostelYearId: string;
-  fee?: HostelCategoryFee | null;
+  fee?: HostelFee | null;
 }
 
 export function CategoryFeeDialog({ open, onOpenChange, mode, hostelYearId, fee }: Props) {
   const isEdit = mode === 'edit';
-  const { createFee, updateFee } = useHostelCategoryFees(hostelYearId);
+  const { createFee, updateFee } = useHostelFees(hostelYearId);
 
   const { hostelCategories } = useActiveHostelCategories();
   const { messCategories } = useActiveMessCategories();
 
-  const [kind, setKind] = useState<CategoryKind>('hostel_room');
+  const [kind, setKind] = useState<FeeTargetKind>('hostel_room');
   const [categoryId, setCategoryId] = useState<string>('');
   const [genderType, setGenderType] = useState<GenderType>('boys');
   const [amount, setAmount] = useState<number>(0);
@@ -69,8 +70,8 @@ export function CategoryFeeDialog({ open, onOpenChange, mode, hostelYearId, fee 
   useEffect(() => {
     if (!open) return;
     if (isEdit && fee) {
-      setKind(getCategoryKind(fee));
-      setCategoryId(getCategoryId(fee) ?? '');
+      setKind(getFeeTargetKind(fee));
+      setCategoryId(getFeeTargetId(fee) ?? '');
       setAmount(fee.amount);
       setFrequency(fee.frequency);
     } else {
@@ -143,7 +144,7 @@ export function CategoryFeeDialog({ open, onOpenChange, mode, hostelYearId, fee 
             <Select
               value={kind}
               onValueChange={(v) => {
-                setKind(v as CategoryKind);
+                setKind(v as FeeTargetKind);
                 setCategoryId('');
               }}
               disabled={isEdit}
@@ -152,13 +153,11 @@ export function CategoryFeeDialog({ open, onOpenChange, mode, hostelYearId, fee 
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {(Object.entries(CATEGORY_KIND_LABELS) as [CategoryKind, string][]).map(
-                  ([value, label]) => (
-                    <SelectItem key={value} value={value}>
-                      {label}
-                    </SelectItem>
-                  )
-                )}
+                {CATEGORY_FEE_KINDS.map((value) => (
+                  <SelectItem key={value} value={value}>
+                    {FEE_TARGET_LABELS[value]}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>

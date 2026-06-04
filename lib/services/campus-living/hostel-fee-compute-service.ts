@@ -13,7 +13,7 @@
  *   mess_fee   = chosen mess category annual rate, FLAT per learner       (decision 10)
  *   total      = base_share + ac_share + mess_fee
  *
- * FEE BASIS DISCOVERY: hostel_category_fees.amount (for a hostel_category) is the
+ * FEE BASIS DISCOVERY: hostel_fees.amount (for a hostel_category) is the
  * PER-BED annual rate — confirmed by fractional_occupancy.multiplier_cap policy
  * ("sole occupant of a 6-bed room pays 6× the per-bed base rate"). So the full
  * room cost = per_bed × capacity, recovered by the room and split among active
@@ -217,7 +217,7 @@ export async function quoteUpfrontFee(
 
   // 3. PER-BED annual rate for the room's hostel category (additive fee row).
   const { data: baseFee } = await supabase
-    .from('hostel_category_fees')
+    .from('hostel_fees')
     .select('amount, frequency')
     .eq('hostel_year_id', input.hostelYearId)
     .eq('hostel_category_id', input.roomCategoryId)
@@ -225,11 +225,11 @@ export async function quoteUpfrontFee(
     .maybeSingle();
   const perBedAnnualRate = baseFee ? annualize(Number(baseFee.amount), baseFee.frequency) : 0;
 
-  // 4. Mess category annual fee (flat per learner) — same hostel_category_fees table.
+  // 4. Mess category annual fee (flat per learner) — same hostel_fees table.
   let messAnnualFee = 0;
   if (input.messCategoryId) {
     const { data: messFee } = await supabase
-      .from('hostel_category_fees')
+      .from('hostel_fees')
       .select('amount, frequency')
       .eq('hostel_year_id', input.hostelYearId)
       .eq('mess_category_id', input.messCategoryId)

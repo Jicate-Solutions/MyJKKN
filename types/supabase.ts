@@ -31776,7 +31776,7 @@ export type Database = {
         }
         Relationships: []
       }
-      hostel_category_fees: {
+      hostel_fees: {
         Row: {
           amount: number
           created_at: string
@@ -31786,6 +31786,7 @@ export type Database = {
           id: string
           is_active: boolean
           mess_category_id: string | null
+          package_id: string | null
           updated_at: string
         }
         Insert: {
@@ -31797,6 +31798,7 @@ export type Database = {
           id?: string
           is_active?: boolean
           mess_category_id?: string | null
+          package_id?: string | null
           updated_at?: string
         }
         Update: {
@@ -31808,28 +31810,36 @@ export type Database = {
           id?: string
           is_active?: boolean
           mess_category_id?: string | null
+          package_id?: string | null
           updated_at?: string
         }
         Relationships: [
           {
-            foreignKeyName: "hostel_category_fees_hostel_category_id_fkey"
+            foreignKeyName: "hostel_fees_hostel_category_id_fkey"
             columns: ["hostel_category_id"]
             isOneToOne: false
             referencedRelation: "hostel_categories"
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "hostel_category_fees_hostel_year_id_fkey"
+            foreignKeyName: "hostel_fees_hostel_year_id_fkey"
             columns: ["hostel_year_id"]
             isOneToOne: false
             referencedRelation: "hostel_years"
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "hostel_category_fees_mess_category_id_fkey"
+            foreignKeyName: "hostel_fees_mess_category_id_fkey"
             columns: ["mess_category_id"]
             isOneToOne: false
             referencedRelation: "mess_categories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_fees_package_id_fkey"
+            columns: ["package_id"]
+            isOneToOne: false
+            referencedRelation: "admission_packages"
             referencedColumns: ["id"]
           },
         ]

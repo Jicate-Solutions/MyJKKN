@@ -50,7 +50,7 @@ export class MyHostelService {
     const year = await HostelYearService.getCurrentYear();
     if (!year) return [];
     const { data, error } = await supabase
-      .from('hostel_category_fees')
+      .from('hostel_fees')
       .select('id, amount, frequency, mess_category_id, is_active')
       .eq('hostel_year_id', year.id)
       .eq('hostel_category_id', hostelCategoryId)
