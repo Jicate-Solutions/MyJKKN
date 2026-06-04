@@ -13321,4 +13321,221 @@ $function$;
 REVOKE ALL ON FUNCTION public.create_lead_activity(uuid, text, text, text, text, timestamptz) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.create_lead_activity(uuid, text, text, text, text, timestamptz) TO authenticated, service_role;
 
+-- get_counselor_assigned_lead_counts — aggregates assigned-lead counts per
+-- counselor id in one round-trip, replacing the per-counselor N+1 COUNT(*) on
+-- the Team → Members data table. SECURITY DEFINER + scope-once: the original
+-- SECURITY INVOKER version re-ran admission_leads RLS per row (~14.7s timeout).
+-- Persona scoping mirrors the RLS. See migration
+-- 20260604190002_counselor_assigned_lead_counts_security_definer_scope.sql.
+CREATE OR REPLACE FUNCTION public.get_counselor_assigned_lead_counts(p_ids uuid[])
+RETURNS TABLE(assigned_counselor_id uuid, lead_count bigint)
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_uid             uuid    := auth.uid();
+  v_is_admin        boolean := public.is_super_admin() OR public.is_admin(auth.uid());
+  v_is_strict       boolean := public._user_is_strict_counselor(auth.uid());
+  v_can_view        boolean := public.user_has_permission(auth.uid(), 'admission.leads.view');
+  v_in_allowlist    boolean := public._user_in_admission_lead_allowlist(auth.uid());
+  v_my_counselor_id uuid;
+  v_accessible      uuid[];
+BEGIN
+  IF NOT v_is_admin AND NOT v_is_strict AND NOT (v_can_view AND v_in_allowlist) THEN
+    RETURN;
+  END IF;
+
+  IF v_is_admin THEN
+    RETURN QUERY
+      SELECT al.assigned_counselor_id, COUNT(*)
+      FROM admission_leads al
+      WHERE al.assigned_counselor_id = ANY(p_ids)
+      GROUP BY al.assigned_counselor_id;
+    RETURN;
+  END IF;
+
+  IF v_is_strict THEN
+    SELECT ac.id INTO v_my_counselor_id
+      FROM admission_counselors ac WHERE ac.user_id = v_uid ORDER BY ac.id LIMIT 1;
+    RETURN QUERY
+      SELECT al.assigned_counselor_id, COUNT(*)
+      FROM admission_leads al
+      WHERE al.assigned_counselor_id = ANY(p_ids)
+        AND (al.assigned_counselor_id = v_uid OR al.assigned_counselor_id = v_my_counselor_id)
+      GROUP BY al.assigned_counselor_id;
+    RETURN;
+  END IF;
+
+  v_accessible := public._user_accessible_institutions();
+  RETURN QUERY
+    SELECT al.assigned_counselor_id, COUNT(*)
+    FROM admission_leads al
+    WHERE al.assigned_counselor_id = ANY(p_ids)
+      AND (al.institution_id IS NULL OR al.institution_id = ANY(v_accessible))
+    GROUP BY al.assigned_counselor_id;
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION public.get_counselor_assigned_lead_counts(uuid[]) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.get_counselor_assigned_lead_counts(uuid[]) TO authenticated, service_role;
+
+-- get_lead_counts_by_source — per-source lead/assigned/unassigned/conversion
+-- counts for the allocation/sources KPI strip. SECURITY DEFINER: resolves the
+-- caller's scope ONCE then filters on a local array, instead of letting RLS
+-- re-evaluate _user_accessible_institutions() per row (which caused a 15s /
+-- statement-timeout full scan). Persona scoping mirrors the admission_leads
+-- RLS. See migration 20260604190000_get_lead_counts_by_source_security_definer_scope.sql.
+CREATE OR REPLACE FUNCTION public.get_lead_counts_by_source(p_institution_id uuid DEFAULT NULL)
+RETURNS TABLE(source lead_source, lead_count bigint, assigned_count bigint, unassigned_count bigint, conversions bigint)
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_uid             uuid := auth.uid();
+  v_my_counselor_id uuid;
+  v_accessible      uuid[];
+BEGIN
+  IF public.is_super_admin() OR public.is_admin(v_uid) THEN
+    RETURN QUERY
+      SELECT al.source,
+             COUNT(*),
+             COUNT(*) FILTER (WHERE al.counselor_id IS NOT NULL),
+             COUNT(*) FILTER (WHERE al.counselor_id IS NULL),
+             COUNT(*) FILTER (WHERE al.funnel_stage IN ('enrolled','confirmed'))
+      FROM admission_leads al
+      WHERE p_institution_id IS NULL OR al.institution_id = p_institution_id
+      GROUP BY al.source;
+    RETURN;
+  END IF;
+
+  IF public._user_is_strict_counselor(v_uid) THEN
+    SELECT ac.id INTO v_my_counselor_id
+      FROM admission_counselors ac
+     WHERE ac.user_id = v_uid
+     ORDER BY ac.id LIMIT 1;
+    RETURN QUERY
+      SELECT al.source,
+             COUNT(*),
+             COUNT(*) FILTER (WHERE al.counselor_id IS NOT NULL),
+             COUNT(*) FILTER (WHERE al.counselor_id IS NULL),
+             COUNT(*) FILTER (WHERE al.funnel_stage IN ('enrolled','confirmed'))
+      FROM admission_leads al
+      WHERE al.source <> 'referral'::lead_source
+        AND (al.assigned_counselor_id = v_uid OR al.assigned_counselor_id = v_my_counselor_id)
+        AND (p_institution_id IS NULL OR al.institution_id = p_institution_id)
+      GROUP BY al.source;
+    RETURN;
+  END IF;
+
+  IF public.user_has_permission(v_uid, 'admission.leads.view')
+     AND public._user_in_admission_lead_allowlist(v_uid) THEN
+    v_accessible := public._user_accessible_institutions();
+    RETURN QUERY
+      SELECT al.source,
+             COUNT(*),
+             COUNT(*) FILTER (WHERE al.counselor_id IS NOT NULL),
+             COUNT(*) FILTER (WHERE al.counselor_id IS NULL),
+             COUNT(*) FILTER (WHERE al.funnel_stage IN ('enrolled','confirmed'))
+      FROM admission_leads al
+      WHERE (al.institution_id IS NULL OR al.institution_id = ANY(v_accessible))
+        AND (p_institution_id IS NULL OR al.institution_id = p_institution_id)
+      GROUP BY al.source;
+    RETURN;
+  END IF;
+
+  RETURN;
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION public.get_lead_counts_by_source(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.get_lead_counts_by_source(uuid) TO authenticated, service_role;
+
+-- get_source_distribution — per-counselor distribution for one source. Same
+-- SECURITY DEFINER scope-once rewrite as get_lead_counts_by_source (the prior
+-- invoker version re-ran admission_leads RLS per row → 15.8s timeout). See
+-- migration 20260604190001_get_source_distribution_security_definer_scope.sql.
+CREATE OR REPLACE FUNCTION public.get_source_distribution(
+  p_source lead_source,
+  p_from timestamptz DEFAULT NULL,
+  p_to timestamptz DEFAULT NULL,
+  p_institution_id uuid DEFAULT NULL
+)
+RETURNS TABLE(
+  counselor_id uuid, user_id uuid, counselor_name text, counselor_email text,
+  counselor_designation text, total_leads bigint, new_leads bigint,
+  progressed_leads bigint, conversions bigint, lost_leads bigint,
+  last_assigned_at timestamptz
+)
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_uid             uuid    := auth.uid();
+  v_is_admin        boolean := public.is_super_admin() OR public.is_admin(auth.uid());
+  v_is_strict       boolean := public._user_is_strict_counselor(auth.uid());
+  v_can_view        boolean := public.user_has_permission(auth.uid(), 'admission.leads.view');
+  v_in_allowlist    boolean := public._user_in_admission_lead_allowlist(auth.uid());
+  v_my_counselor_id uuid;
+  v_accessible      uuid[];
+BEGIN
+  IF NOT v_is_admin AND NOT v_is_strict AND NOT (v_can_view AND v_in_allowlist) THEN
+    RETURN;
+  END IF;
+
+  IF v_is_strict AND NOT v_is_admin THEN
+    SELECT ac.id INTO v_my_counselor_id
+      FROM admission_counselors ac WHERE ac.user_id = v_uid ORDER BY ac.id LIMIT 1;
+  END IF;
+
+  IF NOT v_is_admin AND NOT v_is_strict THEN
+    v_accessible := public._user_accessible_institutions();
+  END IF;
+
+  RETURN QUERY
+  WITH window_leads AS (
+    SELECT *
+    FROM admission_leads al
+    WHERE al.source = p_source
+      AND (p_from IS NULL OR al.created_at >= p_from)
+      AND (p_to   IS NULL OR al.created_at <= p_to)
+      AND (p_institution_id IS NULL OR al.institution_id = p_institution_id)
+      AND (
+        v_is_admin
+        OR (v_is_strict
+            AND al.source <> 'referral'::lead_source
+            AND (al.assigned_counselor_id = v_uid OR al.assigned_counselor_id = v_my_counselor_id))
+        OR (NOT v_is_admin AND NOT v_is_strict
+            AND (al.institution_id IS NULL OR al.institution_id = ANY(v_accessible)))
+      )
+  )
+  SELECT
+    ac.id,
+    wl.assigned_counselor_id,
+    ac.name,
+    ac.email,
+    ac.designation,
+    COUNT(*),
+    COUNT(*) FILTER (WHERE wl.funnel_stage = 'new'),
+    COUNT(*) FILTER (
+      WHERE wl.funnel_stage IS NOT NULL
+        AND wl.funnel_stage NOT IN ('new','lost','not_reachable','enrolled','confirmed')
+    ),
+    COUNT(*) FILTER (WHERE wl.funnel_stage IN ('enrolled','confirmed')),
+    COUNT(*) FILTER (WHERE wl.funnel_stage IN ('lost','not_reachable')),
+    MAX(wl.assigned_at)
+  FROM window_leads wl
+  LEFT JOIN admission_counselors ac ON ac.user_id = wl.assigned_counselor_id
+  GROUP BY ac.id, wl.assigned_counselor_id, ac.name, ac.email, ac.designation;
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION public.get_source_distribution(lead_source, timestamptz, timestamptz, uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.get_source_distribution(lead_source, timestamptz, timestamptz, uuid) TO authenticated, service_role;
+
 NOTIFY pgrst, 'reload schema';

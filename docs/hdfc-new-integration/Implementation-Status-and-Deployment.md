@@ -247,7 +247,7 @@ When UAT screenshots are approved by Razorpay:
 2. Trigger a redeploy (Vercel does this automatically on env-var change, but verify).
 3. Monitor for 1 hour: live transactions on the production billing page should show the Razorpay modal. Check `payment_transactions` for new rows with `provider='razorpay'`.
 4. Confirm webhook delivery from Razorpay dashboard → Webhooks → Recent deliveries. All should be 200 OK.
-5. Spot-check a few `webhook_logs` rows for `provider='razorpay'`.
+5. Spot-check a few `razorpay_webhook_events` rows (the inbound webhook audit log — see §12.2).
 
 ### 4.8 Step 7 — Events cutover (1 week after billing)
 
@@ -294,7 +294,7 @@ This puts all Razorpay code behind a one-commit-revert. The DB columns stay (ide
 ## 6. Monitoring after cutover
 
 **First 24 hours:**
-- Watch `webhook_logs` for `provider='razorpay'` rows. Volume should match live billing volume.
+- Watch `razorpay_webhook_events` for new rows (§12.2). Volume should match live billing volume.
 - Watch Razorpay dashboard → Payments for `failed` payments; the dashboard shows the reason.
 - Run this query hourly:
   ```sql
@@ -476,3 +476,59 @@ gated by `billing.payment_accounts.view` (page) and `billing.payment_accounts.ma
 accounts (no secrets), supports add / rotate / deactivate / test-connection, and shows each account's webhook
 URL to copy. By default only **super admins** can access it; grant the keys to finance roles via Role
 Management when ready. The `npm run seed:razorpay` script remains available for bulk/scripted onboarding.
+
+---
+
+## 12. HDFC decommission (safe subset) + inbound webhook log fix — 2026-06-04 (PR #1220)
+
+Shipped after the env cutover. **This section supersedes the HDFC "keep until decommission" notes in
+§8.2 and the `webhook_logs` monitoring references in §4.7 / §6.**
+
+### 12.1 HDFC removed at the config + safe-subset code layers
+- **`.env`:** all `HDFC_*` credentials deleted. **`.env.example`** providers set to `razorpay`.
+- **`lib/services/payments/factory.ts`:** Razorpay is the only provider. `getActiveProviderName()` now
+  **throws** on `hdfc_smartgateway`, and an unset `BILLING_PAYMENT_PROVIDER` / `EVENTS_PAYMENT_PROVIDER`
+  **defaults to `razorpay`** (previously defaulted to `hdfc_smartgateway`).
+  ⚠️ A stale `=hdfc_smartgateway` value (e.g. left in Vercel) now hard-fails the first payment — remove it everywhere.
+- **Deleted:** `lib/services/payments/hdfc-smartgateway-provider.ts` (throw-only adapter) and the two
+  legacy HDFC webhook routes `app/api/billing/payment/webhook/route.ts` and
+  `app/api/events/marathon/[eventId]/payment/webhook/route.ts`. The debug `app/api/debug/env-check/route.ts`
+  now reports `RAZORPAY_*` presence instead of `HDFC_*`.
+- **Deferred (NOT yet done):** the deeper cleanup — stripping the now-unreachable HDFC code from
+  `payment-gateway-service.ts`, `event-payment-service.ts`, `hdfc-event-client.ts`, and the HDFC types in
+  `types/payment-gateway.ts`. That code is dead (the factory only ever returns `razorpay`) but still
+  physically present. **There is no env-flip rollback anymore** — backing out means a `git revert` + redeploy
+  and re-adding the `HDFC_*` env vars.
+
+### 12.2 Inbound webhook audit log — table fix
+`dispatchRazorpayWebhook` logged inbound events into `webhook_logs`, but that table is the unrelated
+**outbound** user/application sync log (`table_name` / `record_id` / `http_status`, all `NOT NULL`,
+created by migration `20251003033901`). Every insert failed **silently** (non-fatal `catch` → route still
+returns 200), so there was no inbound audit trail. Payments were unaffected because anti-replay keys off the
+transaction row's `status`, not this log.
+- **Fix:** new table **`razorpay_webhook_events`** (`id`, `provider`, `event_type`, `raw_payload`,
+  `received_at`; service-role-only RLS) via migration `20260604200000_razorpay_webhook_events.sql`; the
+  handler was repointed at it.
+- **Corrected monitoring query:**
+  ```sql
+  select event_type, received_at from razorpay_webhook_events order by received_at desc limit 20;
+  ```
+
+### 12.3 Webhook configuration recap (common env account)
+- **URL:** `https://<domain>/api/webhooks/razorpay` (per-institution accounts use
+  `/api/webhooks/razorpay/[webhookRef]`).
+- **Secret:** `RAZORPAY_WEBHOOK_SECRET` — a value you choose, entered **identically** in the Razorpay
+  dashboard and the env. The route fail-fast **500s** if it is unset; **401** on signature mismatch.
+- **Active events (11):** `order.paid`, `payment.captured`, `payment.authorized`, `payment.failed`,
+  `refund.created`, `refund.processed`, `refund.failed`,
+  `payment.dispute.created`, `payment.dispute.lost`, `payment.dispute.won`, `payment.dispute.closed`.
+- **Test and Live are separate** on Razorpay — configure a webhook in each mode with that mode's keys/secret.
+
+### 12.4 Local test harness
+`scripts/test-razorpay-webhook.mjs` signs a sample event with `RAZORPAY_WEBHOOK_SECRET` and POSTs it to the
+running dev server, verifying route + signature + logging **without** a public tunnel:
+```bash
+node --env-file=.env scripts/test-razorpay-webhook.mjs [order_id] [event]
+```
+A dummy order id proves endpoint/signature/log; pass a real `razorpay_order_id` to also exercise the
+status-update path.

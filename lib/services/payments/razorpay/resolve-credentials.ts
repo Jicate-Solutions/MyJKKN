@@ -45,7 +45,12 @@ export async function resolveRazorpayCredentials(ctx: ResolveContext): Promise<R
     // Pinned account vanished (deleted) — fall through to institution/env.
   }
 
-  if (ctx.institutionId) {
+  // Per-institution lookup only when the vault is configured. Without the master
+  // secret no per-institution account can exist, so fall through to the common
+  // env account rather than letting the vault throw (documented common-account
+  // behavior). A pinned accountId above still requires the secret — a per-inst
+  // transaction can't be served by the env account.
+  if (ctx.institutionId && RazorpayAccountVault.isConfigured()) {
     const active = await RazorpayAccountVault.getForInstitution(ctx.institutionId);
     if (active) return active;
   }

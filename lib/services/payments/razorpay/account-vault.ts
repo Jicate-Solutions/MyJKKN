@@ -63,6 +63,17 @@ export interface SetRazorpayAccountInput {
 }
 
 export class RazorpayAccountVault {
+  /**
+   * True when RAZORPAY_CREDENTIALS_MASTER_SECRET is configured. When false, the
+   * per-institution vault is unavailable — no per-institution accounts can have
+   * been written — so callers should fall back to the common env account instead
+   * of invoking a vault method (which would throw on the missing master secret).
+   */
+  static isConfigured(): boolean {
+    const s = process.env[MASTER_SECRET_ENV];
+    return !!s && s.trim().length > 0;
+  }
+
   /** Active account credentials for an institution, or null if none configured. */
   static async getForInstitution(institutionId: string): Promise<RazorpayCredentials | null> {
     const supabase = createServiceRoleClient();
