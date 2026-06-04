@@ -4888,3 +4888,22 @@ CREATE INDEX IF NOT EXISTS idx_admission_leads_counselor_created
 -- for the per-lead, created_at-ordered activity/timeline/stats fetch.
 CREATE INDEX IF NOT EXISTS idx_admission_lead_activities_lead_created
   ON public.admission_lead_activities (lead_id, created_at DESC);
+
+-- razorpay_webhook_events (2026-06-04): INBOUND Razorpay webhook audit log,
+-- written by dispatchRazorpayWebhook() via the service-role client. Kept separate
+-- from public.webhook_logs (the unrelated OUTBOUND user/application sync log).
+CREATE TABLE IF NOT EXISTS public.razorpay_webhook_events (
+  id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  provider     text NOT NULL DEFAULT 'razorpay',
+  event_type   text NOT NULL,
+  raw_payload  jsonb NOT NULL,
+  received_at  timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_razorpay_webhook_events_received_at
+  ON public.razorpay_webhook_events (received_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_razorpay_webhook_events_event_type
+  ON public.razorpay_webhook_events (event_type);
+
+ALTER TABLE public.razorpay_webhook_events ENABLE ROW LEVEL SECURITY;
