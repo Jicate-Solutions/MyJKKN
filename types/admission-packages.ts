@@ -37,7 +37,6 @@ export interface AdmissionPackage {
    */
   community_category_ids: string[];
   // ── package contents ────────────────────────────────────────────────────
-  hostel_year_id: string | null;
   name: string;
   description: string | null;
   room_category_id: string;
@@ -52,7 +51,6 @@ export interface AdmissionPackage {
   updated_by: string | null;
   // ── optional joined display fields (populated by service select embeds) ──
   room_category_name?: string | null;
-  hostel_year_name?: string | null;
   mess_category_name?: string | null;
   degree_name?: string | null;
   department_name?: string | null;
@@ -75,7 +73,6 @@ export interface CreateAdmissionPackageDto {
   /** Community UUIDs from community_categories. Empty = all communities. */
   community_category_ids?: string[];
   // contents
-  hostel_year_id?: string | null;
   name: string;
   description?: string | null;
   room_category_id: string;
@@ -94,7 +91,6 @@ export interface UpdateAdmissionPackageDto {
   gender?: 'MALE' | 'FEMALE' | null;
   community_category_ids?: string[];
   // contents
-  hostel_year_id?: string | null;
   name?: string;
   description?: string | null;
   room_category_id?: string;
@@ -110,7 +106,6 @@ export interface AdmissionPackageFilters {
   department_id?: string;
   programme_id?: string;
   quota_id?: string;
-  hostel_year_id?: string;
   gender?: 'MALE' | 'FEMALE';
   package_type?: 'package' | 'non_package';
   is_active?: boolean;

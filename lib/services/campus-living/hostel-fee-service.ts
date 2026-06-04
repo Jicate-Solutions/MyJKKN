@@ -26,6 +26,20 @@ export class HostelFeeService {
     return (data ?? []) as HostelFee[];
   }
 
+  /** All package-targeted fee rows across every hostel year (Package Fees tab). */
+  static async getPackageFees(): Promise<HostelFee[]> {
+    const { data, error } = await this.supabase
+      .from('hostel_fees')
+      .select('*')
+      .not('package_id', 'is', null)
+      .order('created_at', { ascending: true });
+    if (error) {
+      logger.error('campus-living/hostel-fees', 'Database error listing package fees', error);
+      throw new Error(error.message || 'Failed to fetch package fees');
+    }
+    return (data ?? []) as HostelFee[];
+  }
+
   static async createFee(dto: CreateHostelFeeDto): Promise<HostelFee> {
     const { data, error } = await this.supabase
       .from('hostel_fees')

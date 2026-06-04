@@ -23,7 +23,8 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { Plus, Edit, Trash2, Loader2 } from 'lucide-react';
-import { useHostelFees } from '@/hooks/campus-living/use-hostel-fees';
+import { usePackageFees } from '@/hooks/campus-living/use-hostel-fees';
+import { useActiveHostelYears } from '@/hooks/campus-living/use-hostel-years';
 import { useAdmissionPackages } from '@/hooks/campus-living/use-admission-packages';
 import { FEE_FREQUENCY_LABELS, type HostelFee } from '@/types/hostel-fees';
 import { PackageFeeDialog } from './package-fee-dialog';
@@ -36,22 +37,25 @@ const formatCurrency = (amount: number) =>
   });
 
 interface Props {
+  /** Default hostel year for new fees (from the page's year selector). */
   hostelYearId: string;
   canEdit: boolean;
 }
 
 export function PackageFeesSection({ hostelYearId, canEdit }: Props) {
-  const { fees: allFees, loading, error, deleteFee } = useHostelFees(hostelYearId);
+  const { fees, loading, error, deleteFee } = usePackageFees();
   const { packages } = useAdmissionPackages({ is_active: true, limit: 1000 });
-  const fees = allFees.filter((f) => f.package_id);
+  const { hostelYears } = useActiveHostelYears();
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<HostelFee | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<HostelFee | null>(null);
 
-  const nameFor = (fee: HostelFee) =>
+  const packageNameFor = (fee: HostelFee) =>
     (packages ?? []).find((p) => p.id === fee.package_id)?.name ?? '—';
+  const yearNameFor = (fee: HostelFee) =>
+    (hostelYears ?? []).find((y) => y.id === fee.hostel_year_id)?.name ?? '—';
 
   const handleAdd = () => {
     setEditing(null);
@@ -79,8 +83,8 @@ export function PackageFeesSection({ hostelYearId, canEdit }: Props) {
     <div className="space-y-4">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <p className="text-sm text-muted-foreground">
-          A single flat all-in fee per package (bundled room + mess). For a learner assigned
-          to a package, this replaces summing the individual room/mess category fees.
+          A single flat all-in fee per package (bundled room + mess), per hostel year. For a
+          learner assigned to a package, this replaces summing the individual category fees.
         </p>
         {canEdit ? (
           <Button onClick={handleAdd} className="shrink-0">
@@ -102,7 +106,7 @@ export function PackageFeesSection({ hostelYearId, canEdit }: Props) {
         </Alert>
       ) : fees.length === 0 ? (
         <div className="text-center py-10 text-muted-foreground">
-          No package fees for this hostel year yet.
+          No package fees yet.
           {canEdit ? ' Click "Add Package Fee" to add the first one.' : ''}
         </div>
       ) : (
@@ -110,6 +114,7 @@ export function PackageFeesSection({ hostelYearId, canEdit }: Props) {
           <TableHeader>
             <TableRow>
               <TableHead>Package</TableHead>
+              <TableHead>Hostel Year</TableHead>
               <TableHead>Amount</TableHead>
               <TableHead>Frequency</TableHead>
               <TableHead>Status</TableHead>
@@ -119,7 +124,8 @@ export function PackageFeesSection({ hostelYearId, canEdit }: Props) {
           <TableBody>
             {fees.map((fee) => (
               <TableRow key={fee.id}>
-                <TableCell className="font-medium">{nameFor(fee)}</TableCell>
+                <TableCell className="font-medium">{packageNameFor(fee)}</TableCell>
+                <TableCell>{yearNameFor(fee)}</TableCell>
                 <TableCell>{formatCurrency(fee.amount)}</TableCell>
                 <TableCell>{FEE_FREQUENCY_LABELS[fee.frequency]}</TableCell>
                 <TableCell>
@@ -171,8 +177,8 @@ export function PackageFeesSection({ hostelYearId, canEdit }: Props) {
               {pendingDelete ? (
                 <>
                   This will permanently remove the{' '}
-                  <span className="font-medium text-foreground">{nameFor(pendingDelete)}</span>{' '}
-                  fee of{' '}
+                  <span className="font-medium text-foreground">{packageNameFor(pendingDelete)}</span>{' '}
+                  fee (<span className="font-medium text-foreground">{yearNameFor(pendingDelete)}</span>) of{' '}
                   <span className="font-medium text-foreground">
                     {formatCurrency(pendingDelete.amount)}
                   </span>

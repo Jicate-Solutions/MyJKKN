@@ -408,17 +408,11 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/admin/lti/launches': 'lti.launches.view',
 
   // Billing Management - Admin/Staff Views
-  // 3-tier categories. RLS uses 4 keys (billing.categories.{view,create,edit,delete})
-  // for all 3 tables, so all 9 paths below check the same 4 keys.
-  '/billing/categories/parent-categories': 'billing.categories.view',
-  '/billing/categories/parent-categories/new': 'billing.categories.create',
-  '/billing/categories/parent-categories/[id]/edit': 'billing.categories.edit',
-  '/billing/categories/sub-categories': 'billing.categories.view',
-  '/billing/categories/sub-categories/new': 'billing.categories.create',
-  '/billing/categories/sub-categories/[id]/edit': 'billing.categories.edit',
-  '/billing/categories/item-categories': 'billing.categories.view',
-  '/billing/categories/item-categories/new': 'billing.categories.create',
-  '/billing/categories/item-categories/[id]/edit': 'billing.categories.edit',
+  // Single unified Billing Categories page (the old parent/sub/item 3-tier
+  // routes never shipped as pages; consolidated into /billing/categories).
+  '/billing/categories': 'billing.categories.view',
+  '/billing/categories/new': 'billing.categories.create',
+  '/billing/categories/[id]/edit': 'billing.categories.edit',
   '/billing/schedule': 'billing.schedule.view',
   '/billing/schedule/new': 'billing.schedule.create',
   '/billing/schedule/bulk-create': 'billing.schedule.create',
@@ -1596,9 +1590,7 @@ export function GetPages(pathname: string): MenuGroup[] {
           active: pathname === '/billing' || pathname.startsWith('/billing/'),
           icon: Wallet,
           submenus: [
-            { href: '/billing/categories/parent-categories', label: 'Categories · Parents', active: pathname === '/billing/categories/parent-categories' },
-            { href: '/billing/categories/sub-categories', label: 'Categories · Subs', active: pathname === '/billing/categories/sub-categories' },
-            { href: '/billing/categories/item-categories', label: 'Categories · Items', active: pathname === '/billing/categories/item-categories' },
+            { href: '/billing/categories', label: 'Categories', active: pathname.startsWith('/billing/categories') },
             { href: '/billing/schedule', label: 'Schedule · All Bills', active: pathname === '/billing/schedule' },
             { href: '/billing/schedule/students', label: 'Schedule · Student Search', active: pathname.startsWith('/billing/schedule/students') },
             { href: '/billing/onboarding', label: 'Learner Onboarding', active: pathname.startsWith('/billing/onboarding') },

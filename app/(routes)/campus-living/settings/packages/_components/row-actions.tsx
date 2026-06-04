@@ -59,7 +59,6 @@ function PackageDetails({ entity }: { entity: AdmissionPackage }) {
       {row('Community', communities)}
       {row('Room', entity.room_category_name)}
       {row('Mess', entity.mess_category_name ?? 'None')}
-      {row('Hostel Year', entity.hostel_year_name ?? 'All years')}
       {row('Status', entity.is_active ? 'Active' : 'Inactive')}
       {row('Description', entity.description)}
     </div>

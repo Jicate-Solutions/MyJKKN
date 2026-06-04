@@ -7659,7 +7659,6 @@ export type Database = {
           department_id: string | null
           description: string | null
           gender: string | null
-          hostel_year_id: string | null
           id: string
           institution_id: string
           is_active: boolean
@@ -7680,7 +7679,6 @@ export type Database = {
           department_id?: string | null
           description?: string | null
           gender?: string | null
-          hostel_year_id?: string | null
           id?: string
           institution_id: string
           is_active?: boolean
@@ -7701,7 +7699,6 @@ export type Database = {
           department_id?: string | null
           description?: string | null
           gender?: string | null
-          hostel_year_id?: string | null
           id?: string
           institution_id?: string
           is_active?: boolean
@@ -7741,13 +7738,6 @@ export type Database = {
             columns: ["created_by"]
             isOneToOne: false
             referencedRelation: "users_profiles"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "admission_packages_hostel_year_id_fkey"
-            columns: ["hostel_year_id"]
-            isOneToOne: false
-            referencedRelation: "hostel_years"
             referencedColumns: ["id"]
           },
           {

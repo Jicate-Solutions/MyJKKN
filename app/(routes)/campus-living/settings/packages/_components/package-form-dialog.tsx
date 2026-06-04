@@ -44,7 +44,6 @@ import { cn } from '@/lib/utils';
 import { toast } from 'react-hot-toast';
 
 import { useAdmissionPackages } from '@/hooks/campus-living/use-admission-packages';
-import { useActiveHostelYears } from '@/hooks/campus-living/use-hostel-years';
 import { useActiveHostelCategories } from '@/hooks/campus-living/use-hostel-categories';
 import { useActiveMessCategories } from '@/hooks/campus-living/use-mess-categories';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
@@ -81,7 +80,6 @@ const formSchema = z.object({
   description:           z.string().max(500).optional().or(z.literal('')),
   room_category_id:      z.string().uuid('Select a room category'),
   mess_category_id:      z.string().optional().or(z.literal('')),
-  hostel_year_id:        z.string().optional().or(z.literal('')),
   package_type:          z.enum(['package', 'non_package']),
   is_active:             z.boolean(),
 });
@@ -106,7 +104,6 @@ export function PackageFormDialog({
   institutionId,
 }: PackageFormDialogProps) {
   const { createPackage, updatePackage } = useAdmissionPackages();
-  const { hostelYears } = useActiveHostelYears();
   const { institutions } = useInstitutionsWithAccess();
 
   const [submitting, setSubmitting] = useState(false);
@@ -149,7 +146,6 @@ export function PackageFormDialog({
       description:           '',
       room_category_id:      '',
       mess_category_id:      '',
-      hostel_year_id:        '',
       package_type:          'package',
       is_active:             true,
     },
@@ -268,7 +264,6 @@ export function PackageFormDialog({
         description:            pkg.description ?? '',
         room_category_id:       pkg.room_category_id,
         mess_category_id:       pkg.mess_category_id ?? '',
-        hostel_year_id:         pkg.hostel_year_id ?? '',
         package_type:           pkg.package_type,
         is_active:              pkg.is_active,
       });
@@ -286,7 +281,6 @@ export function PackageFormDialog({
         description:            '',
         room_category_id:       '',
         mess_category_id:       '',
-        hostel_year_id:         '',
         package_type:           'package',
         is_active:              true,
       });
@@ -309,7 +303,6 @@ export function PackageFormDialog({
         description:            data.description?.trim() || null,
         room_category_id:       data.room_category_id,
         mess_category_id:       data.mess_category_id || null,
-        hostel_year_id:         data.hostel_year_id || null,
         package_type:           data.package_type,
         is_active:              data.is_active,
       };
@@ -753,31 +746,6 @@ export function PackageFormDialog({
                           <SelectItem value={ANY}>None</SelectItem>
                           {(messCategories ?? []).map((m) => (
                             <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                {/* Hostel Year */}
-                <FormField
-                  control={form.control}
-                  name='hostel_year_id'
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Hostel Year</FormLabel>
-                      <Select onValueChange={(v) => field.onChange(toField(v))} value={fromField(field.value)}>
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue placeholder='All years' />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          <SelectItem value={ANY}>All years</SelectItem>
-                          {(hostelYears ?? []).map((y) => (
-                            <SelectItem key={y.id} value={y.id}>{y.name}</SelectItem>
                           ))}
                         </SelectContent>
                       </Select>

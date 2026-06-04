@@ -42,7 +42,6 @@ export class AdmissionPackageService {
         [
           '*',
           'room_category:hostel_categories(name)',
-          'hostel_year:hostel_years(name)',
           'mess_category:mess_categories(name)',
           'degree:degrees(degree_name)',
           'department:departments(department_name)',
@@ -62,7 +61,6 @@ export class AdmissionPackageService {
     if (filters.department_id)    query = query.eq('department_id', filters.department_id);
     if (filters.programme_id)     query = query.eq('programme_id', filters.programme_id);
     if (filters.quota_id)         query = query.eq('quota_id', filters.quota_id);
-    if (filters.hostel_year_id)   query = query.eq('hostel_year_id', filters.hostel_year_id);
     if (filters.gender)           query = query.eq('gender', filters.gender);
     if (filters.package_type)     query = query.eq('package_type', filters.package_type);
     if (filters.is_active !== undefined) query = query.eq('is_active', filters.is_active);
@@ -76,7 +74,6 @@ export class AdmissionPackageService {
 
     const rows = (data ?? []).map((r: Record<string, unknown>) => {
       const rc  = r.room_category   as { name?: string } | null;
-      const hy  = r.hostel_year     as { name?: string } | null;
       const mc  = r.mess_category   as { name?: string } | null;
       const deg = r.degree          as { degree_name?: string } | null;
       const dep = r.department      as { department_name?: string } | null;
@@ -90,7 +87,6 @@ export class AdmissionPackageService {
       return {
         ...r,
         room_category_name:       rc?.name ?? null,
-        hostel_year_name:         hy?.name ?? null,
         mess_category_name:       mc?.name ?? null,
         degree_name:              deg?.degree_name ?? null,
         department_name:          dep?.department_name ?? null,
@@ -140,7 +136,6 @@ export class AdmissionPackageService {
       programme_id:      rest.programme_id ?? null,
       quota_id:          rest.quota_id ?? null,
       gender:            rest.gender ?? null,
-      hostel_year_id:    rest.hostel_year_id ?? null,
       name:              rest.name,
       description:       rest.description?.trim() || null,
       room_category_id:  rest.room_category_id,

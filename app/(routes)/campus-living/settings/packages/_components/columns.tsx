@@ -94,15 +94,6 @@ export const createColumns = (): ColumnDef<AdmissionPackage>[] => [
     ),
   },
   {
-    accessorKey: 'hostel_year_name',
-    header: 'Hostel Year',
-    cell: ({ row }) => (
-      <span className='text-muted-foreground text-sm'>
-        {row.original.hostel_year_name || 'All years'}
-      </span>
-    ),
-  },
-  {
     accessorKey: 'is_active',
     header: 'Status',
     cell: ({ row }) => (
