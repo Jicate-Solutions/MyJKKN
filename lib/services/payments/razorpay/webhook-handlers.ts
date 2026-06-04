@@ -34,14 +34,14 @@ export async function dispatchRazorpayWebhook(
   // Idempotency log. Failures here MUST NOT block — a failed insert (e.g. missing
   // columns) would otherwise cause unbounded Razorpay retries.
   try {
-    await (supabase as any).from('webhook_logs').insert({
+    await (supabase as any).from('razorpay_webhook_events').insert({
       provider: 'razorpay',
       event_type: eventType,
       raw_payload: payload,
       received_at: new Date().toISOString(),
     });
   } catch (err) {
-    logger.warn('webhook/razorpay', 'webhook_logs insert failed (non-fatal)', err);
+    logger.warn('webhook/razorpay', 'razorpay_webhook_events insert failed (non-fatal)', err);
   }
 
   switch (eventType) {
