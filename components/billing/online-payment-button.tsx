@@ -21,7 +21,7 @@ import {
 import { RazorpayCheckoutLauncher } from './razorpay-checkout-launcher';
 import type { CreatePaymentSessionDto } from '@/types/payment-gateway';
 
-interface RazorpayLaunchProps {
+export interface RazorpayLaunchProps {
   razorpayKeyId: string;
   razorpayOrderId: string;
   amountPaise: number;
@@ -41,6 +41,11 @@ interface OnlinePaymentButtonProps {
   variant?: 'default' | 'outline' | 'secondary' | 'ghost' | 'link';
   size?: 'default' | 'sm' | 'lg' | 'icon';
   onSuccess?: () => void;  // Optional: Callback after successful payment initiation
+  // When provided, a Razorpay session is handed to the parent to launch the
+  // checkout OUTSIDE this (closable) subtree. Required when this button lives
+  // inside a dialog that closes on success — otherwise the launcher unmounts
+  // before the Razorpay modal can open.
+  onRazorpaySession?: (props: RazorpayLaunchProps) => void;
 }
 
 export function OnlinePaymentButton({
@@ -53,6 +58,7 @@ export function OnlinePaymentButton({
   variant = 'default',
   size = 'default',
   onSuccess,
+  onRazorpaySession,
 }: OnlinePaymentButtonProps) {
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
   const [razorpayLaunchProps, setRazorpayLaunchProps] = useState<RazorpayLaunchProps | null>(null);
@@ -73,10 +79,9 @@ export function OnlinePaymentButton({
 
     const session = await openPaymentGateway(paymentData);
 
-    // Razorpay flow: mount the launcher with the session details. Checkout
-    // modal opens once checkout.js loads.
+    // Razorpay flow: hand the launch details up (or mount locally if standalone).
     if (session?.provider === 'razorpay' && session.razorpay_key_id && session.razorpay_order_id) {
-      setRazorpayLaunchProps({
+      const launch: RazorpayLaunchProps = {
         razorpayKeyId: session.razorpay_key_id,
         razorpayOrderId: session.razorpay_order_id,
         amountPaise: session.amount_paise ?? Math.round(session.amount * 100),
@@ -84,12 +89,24 @@ export function OnlinePaymentButton({
         transactionId: session.transaction_id,
         customer: session.customer ?? {},
         description: `Bill payment for ${billIds.length} ${billIds.length === 1 ? 'bill' : 'bills'}`,
-      });
+      };
+
+      if (onRazorpaySession) {
+        // Parent owns the launcher (renders it above any closable dialog) and
+        // decides when to close. It calls onSuccess/handleClose itself.
+        onRazorpaySession(launch);
+      } else {
+        setRazorpayLaunchProps(launch);
+      }
+
+      // IMPORTANT: do NOT call onSuccess() on the Razorpay path. When this button
+      // is inside a dialog, onSuccess closes it — which would unmount the launcher
+      // before checkout.js opens the modal. The Razorpay flow navigates away on
+      // success (callback POST) or dismiss (failed page).
+      return;
     }
 
-    // HDFC flow: window.location.href already happened inside the hook.
-
-    // Call onSuccess callback if provided
+    // HDFC flow: window.location.href already happened inside the hook. Safe to close.
     if (onSuccess) {
       onSuccess();
     }
@@ -133,7 +150,7 @@ export function OnlinePaymentButton({
                   for {billIds.length} {billIds.length === 1 ? 'bill' : 'bills'}
                 </p>
                 <p className="text-sm">
-                  You will be redirected to HDFC SmartGateway to complete the payment securely.
+                  A secure payment window will open to complete your payment.
                 </p>
               </div>
             </AlertDialogDescription>

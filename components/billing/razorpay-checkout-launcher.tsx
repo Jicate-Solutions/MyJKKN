@@ -9,6 +9,7 @@
 import { useEffect, useRef, useState } from 'react';
 import Script from 'next/script';
 import { useRouter } from 'next/navigation';
+import toast from 'react-hot-toast';
 
 declare global {
   interface Window {
@@ -34,8 +35,13 @@ export function RazorpayCheckoutLauncher(props: Props) {
 
   useEffect(() => {
     if (launched.current) return;
-    if (typeof window === 'undefined' || !window.Razorpay) return;
-    if (!scriptReady) return;
+    // Open as soon as the Razorpay SDK global is available. We accept EITHER the
+    // <Script> reporting ready OR window.Razorpay already existing — because
+    // next/script keeps the tag in the DOM across mounts, so onLoad/onReady may
+    // not refire on a 2nd attempt even though the SDK is already loaded.
+    const sdkAvailable = typeof window !== 'undefined' && !!window.Razorpay;
+    if (!scriptReady && !sdkAvailable) return;
+    if (!sdkAvailable) return;
     launched.current = true;
 
     const rzp = new window.Razorpay({
@@ -86,7 +92,16 @@ export function RazorpayCheckoutLauncher(props: Props) {
     <Script
       src="https://checkout.razorpay.com/v1/checkout.js"
       strategy="afterInteractive"
-      onLoad={() => setScriptReady(true)}
+      // onReady (not onLoad) fires after load AND on every remount — so a 2nd
+      // payment attempt with the script already cached still triggers the modal.
+      onReady={() => setScriptReady(true)}
+      onError={() => {
+        toast.error(
+          'Could not load the payment gateway. Disable any ad/script blocker for ' +
+            'checkout.razorpay.com and try again.',
+        );
+        props.onClose?.();
+      }}
     />
   );
 }
