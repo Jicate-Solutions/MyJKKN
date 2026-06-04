@@ -37,13 +37,18 @@ export const createColumns = (): ColumnDef<AdmissionPackage>[] => [
   {
     accessorKey: 'name',
     header: 'Package',
+    cell: ({ row }) => <p className='font-medium'>{row.original.name}</p>,
+  },
+  {
+    accessorKey: 'package_type',
+    header: 'Type',
     cell: ({ row }) => (
-      <div className='space-y-0.5'>
-        <p className='font-medium'>{row.original.name}</p>
-        <Badge variant='outline' className='text-xs font-normal'>
-          {row.original.package_type === 'package' ? 'Bundled' : 'Non-Package'}
-        </Badge>
-      </div>
+      <Badge
+        variant={row.original.package_type === 'package' ? 'secondary' : 'outline'}
+        className='font-normal'
+      >
+        {row.original.package_type === 'package' ? 'Bundled Package' : 'Non-Package'}
+      </Badge>
     ),
   },
   {
@@ -66,7 +71,7 @@ export const createColumns = (): ColumnDef<AdmissionPackage>[] => [
     header: 'Adm. Year',
     cell: ({ row }) => (
       <span className='text-sm text-muted-foreground'>
-        {row.original.admission_year_name || '—'}
+        {row.original.admission_year_name || 'Any'}
       </span>
     ),
   },
