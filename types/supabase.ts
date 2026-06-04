@@ -7530,6 +7530,52 @@ export type Database = {
           },
         ]
       }
+      admission_package_communities: {
+        Row: {
+          community_category_id: string
+          created_at: string
+          created_by: string | null
+          id: string
+          package_id: string
+        }
+        Insert: {
+          community_category_id: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          package_id: string
+        }
+        Update: {
+          community_category_id?: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          package_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "admission_package_communities_community_category_id_fkey"
+            columns: ["community_category_id"]
+            isOneToOne: false
+            referencedRelation: "community_categories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "admission_package_communities_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "admission_package_communities_package_id_fkey"
+            columns: ["package_id"]
+            isOneToOne: false
+            referencedRelation: "admission_packages"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       admission_package_program_eligibility: {
         Row: {
           created_at: string
@@ -7606,44 +7652,65 @@ export type Database = {
       }
       admission_packages: {
         Row: {
+          admission_year_id: string | null
           created_at: string
           created_by: string | null
+          degree_id: string | null
+          department_id: string | null
           description: string | null
+          gender: string | null
           hostel_year_id: string | null
           id: string
           institution_id: string
           is_active: boolean
+          mess_category_id: string | null
           name: string
+          package_type: string
+          programme_id: string | null
+          quota_id: string | null
           room_category_id: string
-          total_price_inr: number
           updated_at: string
           updated_by: string | null
         }
         Insert: {
+          admission_year_id?: string | null
           created_at?: string
           created_by?: string | null
+          degree_id?: string | null
+          department_id?: string | null
           description?: string | null
+          gender?: string | null
           hostel_year_id?: string | null
           id?: string
           institution_id: string
           is_active?: boolean
+          mess_category_id?: string | null
           name: string
+          package_type?: string
+          programme_id?: string | null
+          quota_id?: string | null
           room_category_id: string
-          total_price_inr: number
           updated_at?: string
           updated_by?: string | null
         }
         Update: {
+          admission_year_id?: string | null
           created_at?: string
           created_by?: string | null
+          degree_id?: string | null
+          department_id?: string | null
           description?: string | null
+          gender?: string | null
           hostel_year_id?: string | null
           id?: string
           institution_id?: string
           is_active?: boolean
+          mess_category_id?: string | null
           name?: string
+          package_type?: string
+          programme_id?: string | null
+          quota_id?: string | null
           room_category_id?: string
-          total_price_inr?: number
           updated_at?: string
           updated_by?: string | null
         }
@@ -7717,6 +7784,48 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "v_institutions_needing_admission_counselors"
             referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "admission_packages_admission_year_id_fkey"
+            columns: ["admission_year_id"]
+            isOneToOne: false
+            referencedRelation: "admission_years"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "admission_packages_degree_id_fkey"
+            columns: ["degree_id"]
+            isOneToOne: false
+            referencedRelation: "degrees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "admission_packages_department_id_fkey"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "departments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "admission_packages_mess_category_id_fkey"
+            columns: ["mess_category_id"]
+            isOneToOne: false
+            referencedRelation: "mess_categories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "admission_packages_programme_id_fkey"
+            columns: ["programme_id"]
+            isOneToOne: false
+            referencedRelation: "programs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "admission_packages_quota_id_fkey"
+            columns: ["quota_id"]
+            isOneToOne: false
+            referencedRelation: "quotas"
+            referencedColumns: ["id"]
           },
           {
             foreignKeyName: "admission_packages_room_category_id_fkey"

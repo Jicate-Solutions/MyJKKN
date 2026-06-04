@@ -5,10 +5,6 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
 import type { AdmissionPackage } from '@/types/admission-packages';
 import { PackageRowActions } from './row-actions';
-import { PackageProgramsCell } from './programs-cell';
-
-const inr = (n: number) =>
-  new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(n);
 
 export const createColumns = (): ColumnDef<AdmissionPackage>[] => [
   {
@@ -41,21 +37,54 @@ export const createColumns = (): ColumnDef<AdmissionPackage>[] => [
   {
     accessorKey: 'name',
     header: 'Package',
-    cell: ({ row }) => <span className='font-medium'>{row.original.name}</span>,
+    cell: ({ row }) => (
+      <div className='space-y-0.5'>
+        <p className='font-medium'>{row.original.name}</p>
+        <Badge variant='outline' className='text-xs font-normal'>
+          {row.original.package_type === 'package' ? 'Bundled' : 'Non-Package'}
+        </Badge>
+      </div>
+    ),
   },
   {
-    accessorKey: 'total_price_inr',
-    header: 'Price',
+    id: 'programme',
+    header: 'Degree / Programme',
+    cell: ({ row }) => {
+      const deg = row.original.degree_name;
+      const prg = row.original.programme_name;
+      if (!deg && !prg) return <span className='text-muted-foreground text-sm'>Any</span>;
+      return (
+        <div className='text-sm'>
+          {deg && <p className='text-muted-foreground'>{deg}</p>}
+          {prg && <p className='font-medium'>{prg}</p>}
+        </div>
+      );
+    },
+  },
+  {
+    accessorKey: 'admission_year_name',
+    header: 'Adm. Year',
     cell: ({ row }) => (
-      <span className='tabular-nums'>{inr(row.original.total_price_inr)}</span>
+      <span className='text-sm text-muted-foreground'>
+        {row.original.admission_year_name || '—'}
+      </span>
     ),
   },
   {
     accessorKey: 'room_category_name',
-    header: 'Room (Classic)',
+    header: 'Room',
     cell: ({ row }) => (
       <span className='text-muted-foreground text-sm'>
         {row.original.room_category_name || '—'}
+      </span>
+    ),
+  },
+  {
+    accessorKey: 'mess_category_name',
+    header: 'Mess',
+    cell: ({ row }) => (
+      <span className='text-muted-foreground text-sm'>
+        {row.original.mess_category_name || '—'}
       </span>
     ),
   },
@@ -67,11 +96,6 @@ export const createColumns = (): ColumnDef<AdmissionPackage>[] => [
         {row.original.hostel_year_name || 'All years'}
       </span>
     ),
-  },
-  {
-    id: 'programs',
-    header: 'Programs',
-    cell: ({ row }) => <PackageProgramsCell pkg={row.original} />,
   },
   {
     accessorKey: 'is_active',

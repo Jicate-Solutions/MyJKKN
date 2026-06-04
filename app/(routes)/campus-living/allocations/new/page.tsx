@@ -360,9 +360,9 @@ export default function NewAllocationPage() {
                         </span>
                       </p>
                       <p className="text-muted-foreground">
-                        Flat price:{' '}
+                        Bundled mess:{' '}
                         <span className="text-foreground">
-                          {inr(learnerPackage.pkg.total_price_inr)}
+                          {learnerPackage.pkg.mess_category_name ?? 'Not specified'}
                         </span>
                       </p>
                       <p className="text-muted-foreground">

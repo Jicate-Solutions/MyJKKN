@@ -83,10 +83,9 @@ export function useAdmissionPackages(
   };
 }
 
-// ── learner → package resolver (allocation pre-fill) ──────────────────────
+// ── learner → package resolver (allocation pre-fill) ────────────────────────
 // Read-only handoff: given a learner + hostel year, resolve their assigned
-// package, the bundled room category, and their chosen mess. The allocation
-// flow consumes this to surface a hint card and pre-fill the mess select.
+// package, the bundled room category, and their chosen mess override.
 export function usePackageForLearner(
   learnerId: string | null,
   hostelYearId?: string | null
@@ -105,58 +104,4 @@ export function usePackageForLearner(
       ),
     enabled: !!learnerId,
   });
-}
-
-// ── per-program availability (package-restriction admin UI) ───────────────
-const PKG_PROGRAM_ELIG_KEY = [
-  'campus-living',
-  'package-program-eligibility',
-] as const;
-
-export function usePackageProgramEligibility(packageId: string | null) {
-  const queryClient = useQueryClient();
-
-  const query = useQuery({
-    queryKey: [...PKG_PROGRAM_ELIG_KEY, packageId],
-    queryFn: () => AdmissionPackageService.getProgramEligibility(packageId!),
-    enabled: !!packageId,
-  });
-
-  const invalidate = useCallback(
-    () =>
-      queryClient.invalidateQueries({
-        queryKey: [...PKG_PROGRAM_ELIG_KEY, packageId],
-      }),
-    [queryClient, packageId]
-  );
-
-  // program_id = null → "available to all programs"; a concrete id restricts.
-  const addProgram = useCallback(
-    async (programId: string | null) => {
-      const result = await AdmissionPackageService.addProgramEligibility({
-        package_id: packageId!,
-        program_id: programId,
-      });
-      await invalidate();
-      return result;
-    },
-    [packageId, invalidate]
-  );
-
-  const removeProgram = useCallback(
-    async (id: string) => {
-      await AdmissionPackageService.removeProgramEligibility(id);
-      await invalidate();
-    },
-    [invalidate]
-  );
-
-  return {
-    rows: query.data ?? [],
-    loading: query.isLoading,
-    error: query.error ? (query.error as Error).message : null,
-    addProgram,
-    removeProgram,
-    refresh: invalidate,
-  };
 }

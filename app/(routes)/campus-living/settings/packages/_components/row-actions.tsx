@@ -5,9 +5,6 @@ import { CrudRowActions } from '@/components/shared/crud-master/crud-row-actions
 import { PackageFormDialog } from './package-form-dialog';
 import type { AdmissionPackage } from '@/types/admission-packages';
 
-const inr = (n: number) =>
-  new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(n);
-
 function PackageEditDialogAdapter({
   open,
   onOpenChange,
@@ -30,23 +27,41 @@ function PackageEditDialogAdapter({
   );
 }
 
+function row(label: string, value: string | null | undefined) {
+  return (
+    <>
+      <div className='text-muted-foreground'>{label}:</div>
+      <div className='font-medium'>{value || '—'}</div>
+    </>
+  );
+}
+
 function PackageDetails({ entity }: { entity: AdmissionPackage }) {
+  // A blank dimension is stored as NULL = "applies to all", so show "Any"
+  // (not "—") to make clear the value was saved and is intentionally unscoped.
+  const communities = entity.community_category_names?.length
+    ? entity.community_category_names.join(', ')
+    : 'Any';
+  const gender =
+    entity.gender === 'MALE' ? 'Male'
+    : entity.gender === 'FEMALE' ? 'Female'
+    : 'Any';
   return (
     <div className='grid grid-cols-2 gap-2 text-sm'>
-      <div className='text-muted-foreground'>Name:</div>
-      <div className='font-medium'>{entity.name}</div>
-
-      <div className='text-muted-foreground'>Price:</div>
-      <div>{inr(entity.total_price_inr)}</div>
-
-      <div className='text-muted-foreground'>Room (Classic):</div>
-      <div>{entity.room_category_name || '—'}</div>
-
-      <div className='text-muted-foreground'>Hostel Year:</div>
-      <div>{entity.hostel_year_name || 'All years'}</div>
-
-      <div className='text-muted-foreground'>Status:</div>
-      <div>{entity.is_active ? 'Active' : 'Inactive'}</div>
+      {row('Name', entity.name)}
+      {row('Type', entity.package_type === 'package' ? 'Bundled Package' : 'Non-Package')}
+      {row('Admission Year', entity.admission_year_name ?? 'Any')}
+      {row('Degree', entity.degree_name ?? 'Any')}
+      {row('Department', entity.department_name ?? 'Any')}
+      {row('Programme', entity.programme_name ?? 'Any')}
+      {row('Quota', entity.quota_name ?? 'Any')}
+      {row('Gender', gender)}
+      {row('Community', communities)}
+      {row('Room', entity.room_category_name)}
+      {row('Mess', entity.mess_category_name ?? 'None')}
+      {row('Hostel Year', entity.hostel_year_name ?? 'All years')}
+      {row('Status', entity.is_active ? 'Active' : 'Inactive')}
+      {row('Description', entity.description)}
     </div>
   );
 }
