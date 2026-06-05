@@ -11164,12 +11164,22 @@ REVOKE ALL ON FUNCTION public.admission_resolve_fee_items_readonly(uuid, int)
 --   balance_amount, status, remarks, created_by
 -- Other billing_student_bills columns (is_recurring, recurrence_pattern,
 -- number_of_recurrences, payment_date) keep their table defaults.
+--
+-- CUTOVER (migration 20260606102000): the bill-generation block is skipped for
+-- hostellers (accommodation_types.code='hostel'); they are billed via the
+-- Campus Living generation run (campus_living_generate_hostel_year_bills,
+-- hostel_year-stamped). This prevents the academic portion from double-billing
+-- — the dedup index can't bridge a NULL hostel_year here vs a set one there.
+-- Day scholars are unaffected. Signature mirrors production (5-arg, idempotency
+-- + verification audit columns).
 -- ============================================================================
 
 CREATE OR REPLACE FUNCTION public.admission_account_transition_with_bills(
     p_learner_id          uuid,
     p_required_documents  jsonb,
-    p_received_documents  jsonb
+    p_received_documents  jsonb,
+    p_idempotency_key     uuid DEFAULT NULL::uuid,
+    p_notes               text DEFAULT NULL::text
 )
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -11188,13 +11198,29 @@ DECLARE
     v_item              jsonb;
     v_due_date          date;
     v_caller            uuid := auth.uid();
+    v_existing_result   jsonb;
+    v_pending_event_id  uuid;
+    v_result            jsonb;
+    v_is_hosteller      boolean := false;
 BEGIN
+    -- Idempotency short-circuit
+    IF p_idempotency_key IS NOT NULL THEN
+        SELECT result INTO v_existing_result
+          FROM public.admission_account_transition_log
+         WHERE idempotency_key = p_idempotency_key;
+        IF v_existing_result IS NOT NULL THEN
+            RETURN v_existing_result;
+        END IF;
+    END IF;
+
+    -- Permission check
     IF NOT public.user_has_permission('admission_documents.manage') THEN
         RAISE EXCEPTION 'permission_denied: admission_documents.manage required'
             USING ERRCODE = '42501';
     END IF;
 
-    SELECT id, institution_id, lifecycle_status, fee_items, legacy_fee_mode
+    -- Load + lock learner row
+    SELECT id, institution_id, lifecycle_status, fee_items, legacy_fee_mode, accommodation_type_id
       INTO v_lead
       FROM public.learners_profiles
      WHERE id = p_learner_id
@@ -11203,6 +11229,17 @@ BEGIN
     IF NOT FOUND THEN
         RAISE EXCEPTION 'learner_not_found: %', p_learner_id USING ERRCODE = 'P0002';
     END IF;
+
+    -- CUTOVER guard: hostellers are billed via the Campus Living generation run
+    -- (campus_living_generate_hostel_year_bills, hostel_year-stamped). Skipping
+    -- bill INSERTs here prevents the academic portion from double-billing — the
+    -- dedup index can't bridge a NULL hostel_year (here) vs a set one (there).
+    v_is_hosteller := EXISTS (
+        SELECT 1
+          FROM public.accommodation_types a
+         WHERE a.id = v_lead.accommodation_type_id
+           AND a.code = 'hostel'
+    );
 
     -- Allow-list extended 2026-05-20 to include the renamed entry-point
     -- statuses ('enquiry', 'enquiry_submitted'). Pre-realignment statuses
@@ -11213,6 +11250,17 @@ BEGIN
     ) THEN
         RAISE EXCEPTION 'invalid_status_for_account_transition: current=%, allowed=enquiry/enquiry_submitted/admitted/pending/approved',
             v_lead.lifecycle_status;
+    END IF;
+
+    -- Block if a pending fee-change event exists
+    SELECT id INTO v_pending_event_id
+      FROM public.admission_fee_change_events
+     WHERE learner_id = p_learner_id
+       AND status = 'pending_review'
+     LIMIT 1;
+    IF v_pending_event_id IS NOT NULL THEN
+        RAISE EXCEPTION 'pending_fee_change_event: cannot transition while a fee-change event is pending review (event_id=%)',
+            v_pending_event_id USING ERRCODE = 'P0001';
     END IF;
 
     IF v_lead.legacy_fee_mode = false THEN
@@ -11271,16 +11319,28 @@ BEGIN
     END LOOP;
 
     UPDATE public.learners_profiles
-       SET lifecycle_status = 'account',
-           updated_at = now(),
-           updated_by = v_caller
+       SET lifecycle_status               = 'account',
+           updated_at                     = now(),
+           updated_by                     = v_caller,
+           account_verified_at            = CASE
+                                              WHEN p_idempotency_key IS NOT NULL
+                                              THEN now()
+                                              ELSE account_verified_at
+                                            END,
+           account_verified_by            = CASE
+                                              WHEN p_idempotency_key IS NOT NULL
+                                              THEN v_caller
+                                              ELSE account_verified_by
+                                            END,
+           account_verification_notes     = COALESCE(p_notes, account_verification_notes)
      WHERE id = p_learner_id;
 
     SELECT count(*) INTO v_bills_existing
       FROM public.billing_student_bills
      WHERE student_id = p_learner_id;
 
-    IF v_bills_existing = 0 THEN
+    -- CUTOVER: bill generation skipped for hostellers (billed via Campus Living).
+    IF v_bills_existing = 0 AND NOT v_is_hosteller THEN
         v_due_date := (now() + interval '30 days')::date;
 
         FOR v_item IN SELECT * FROM jsonb_array_elements(v_fee_items)
@@ -11312,23 +11372,34 @@ BEGIN
         END LOOP;
     END IF;
 
-    RETURN jsonb_build_object(
+    v_result := jsonb_build_object(
         'success', true,
         'learner_id', p_learner_id,
         'lifecycle_status', 'account',
         'documents_recorded', jsonb_array_length(p_received_documents),
         'bills_existing', v_bills_existing,
         'bills_generated', v_bills_inserted,
-        'fee_items_count', jsonb_array_length(v_fee_items)
+        'fee_items_count', jsonb_array_length(v_fee_items),
+        'verified', (p_idempotency_key IS NOT NULL)
     );
+
+    IF p_idempotency_key IS NOT NULL THEN
+        INSERT INTO public.admission_account_transition_log
+            (idempotency_key, learner_id, result, created_by)
+        VALUES
+            (p_idempotency_key, p_learner_id, v_result, v_caller)
+        ON CONFLICT (idempotency_key) DO NOTHING;
+    END IF;
+
+    RETURN v_result;
 EXCEPTION
     WHEN OTHERS THEN
         RAISE;
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.admission_account_transition_with_bills(uuid, jsonb, jsonb) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.admission_account_transition_with_bills(uuid, jsonb, jsonb) TO authenticated;
+REVOKE ALL ON FUNCTION public.admission_account_transition_with_bills(uuid, jsonb, jsonb, uuid, text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.admission_account_transition_with_bills(uuid, jsonb, jsonb, uuid, text) TO authenticated;
 -- ============================================================================
 -- 20260509100007 — admission_approve_fee_change_event RPC
 -- ============================================================================
