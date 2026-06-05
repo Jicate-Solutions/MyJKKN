@@ -130,7 +130,7 @@ export function AdmissionYearForm({
   useEffect(() => {
     if (nameManuallyEdited) return;
     if (!watchedYear) return;
-    const suggested = `${watchedYear} Admissions`;
+    const suggested = `${watchedYear}-${watchedYear + 1}`;
     if (watchedName !== suggested) {
       form.setValue('admission_year_name', suggested);
     }
@@ -305,7 +305,7 @@ export function AdmissionYearForm({
                     <FormLabel>Admission Year Name</FormLabel>
                     <FormControl>
                       <Input
-                        placeholder='e.g. 2024 Admissions'
+                        placeholder='e.g. 2024-2025'
                         {...field}
                         onChange={(e) => {
                           setNameManuallyEdited(true);
