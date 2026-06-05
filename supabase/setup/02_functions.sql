@@ -11165,7 +11165,7 @@ REVOKE ALL ON FUNCTION public.admission_resolve_fee_items_readonly(uuid, int)
 -- Other billing_student_bills columns (is_recurring, recurrence_pattern,
 -- number_of_recurrences, payment_date) keep their table defaults.
 -- ============================================================================
--- NOTE: the hosteller-skip guard ships in migration 20260606102000 (CUTOVER — apply at go-live); intentionally NOT reflected here until applied.
+-- Hosteller-skip guard (migration 20260606102000): hostellers are billed via Campus Living (campus_living_generate_hostel_year_bills), so the academic-bill INSERTs here are skipped for them to avoid double-billing.
 
 CREATE OR REPLACE FUNCTION public.admission_account_transition_with_bills(
     p_learner_id          uuid,
@@ -11194,6 +11194,7 @@ DECLARE
     v_existing_result   jsonb;
     v_pending_event_id  uuid;
     v_result            jsonb;
+    v_is_hosteller      boolean := false;
 BEGIN
     -- Idempotency short-circuit
     IF p_idempotency_key IS NOT NULL THEN
@@ -11212,7 +11213,7 @@ BEGIN
     END IF;
 
     -- Load + lock learner row
-    SELECT id, institution_id, lifecycle_status, fee_items, legacy_fee_mode
+    SELECT id, institution_id, lifecycle_status, fee_items, legacy_fee_mode, accommodation_type_id
       INTO v_lead
       FROM public.learners_profiles
      WHERE id = p_learner_id
@@ -11221,6 +11222,17 @@ BEGIN
     IF NOT FOUND THEN
         RAISE EXCEPTION 'learner_not_found: %', p_learner_id USING ERRCODE = 'P0002';
     END IF;
+
+    -- CUTOVER guard: hostellers are billed via the Campus Living generation run
+    -- (campus_living_generate_hostel_year_bills, hostel_year-stamped). Skipping
+    -- bill INSERTs here prevents the academic portion from double-billing — the
+    -- dedup index can't bridge a NULL hostel_year (here) vs a set one (there).
+    v_is_hosteller := EXISTS (
+        SELECT 1
+          FROM public.accommodation_types a
+         WHERE a.id = v_lead.accommodation_type_id
+           AND a.code = 'hostel'
+    );
 
     -- Allow-list extended 2026-05-20 to include the renamed entry-point
     -- statuses ('enquiry', 'enquiry_submitted'). Pre-realignment statuses
@@ -11316,11 +11328,13 @@ BEGIN
            account_verification_notes     = COALESCE(p_notes, account_verification_notes)
      WHERE id = p_learner_id;
 
+    -- Generate bills (idempotent — skips if bills already exist).
+    -- CUTOVER: also skipped entirely for hostellers (billed via Campus Living).
     SELECT count(*) INTO v_bills_existing
       FROM public.billing_student_bills
      WHERE student_id = p_learner_id;
 
-    IF v_bills_existing = 0 THEN
+    IF v_bills_existing = 0 AND NOT v_is_hosteller THEN
         v_due_date := (now() + interval '30 days')::date;
 
         FOR v_item IN SELECT * FROM jsonb_array_elements(v_fee_items)
