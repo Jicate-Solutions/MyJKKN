@@ -333,8 +333,19 @@ export class OnboardingService {
   /**
    * Creates billing_student_bills rows from learner.fee_items (or legacy fields).
    * Returns the number of bills inserted (0 if learner already has bills,
-   * or 0 if no fee data exists). Idempotent — calling twice is a no-op the
-   * second time because the bill-existence guard skips already-billed learners.
+   * 0 if no fee data exists, or 0 for hostellers — see below). Idempotent —
+   * calling twice is a no-op the second time because the bill-existence guard
+   * skips already-billed learners.
+   *
+   * CUTOVER (hostel billing → Campus Living): hostellers
+   * (accommodation_types.code='hostel') are billed via the Campus Living
+   * generation run (campus_living_generate_hostel_year_bills, hostel_year-
+   * stamped). This method returns 0 for them WITHOUT inserting academic bills,
+   * mirroring the `admission_account_transition_with_bills` RPC guard — otherwise
+   * the academic portion double-bills (the dedup index can't bridge a NULL
+   * hostel_year here vs a set one there). A returned 0 is counted as `skipped`
+   * by the bulk-generate caller (hooks/billing/use-onboarding.ts), exactly like
+   * an already-billed or no-fee learner. Day scholars are unaffected.
    */
   static async createBillsFromProfile(learnerId: string): Promise<number> {
     try {
@@ -349,6 +360,23 @@ export class OnboardingService {
 
       if (fetchError) throw fetchError;
       if (!learner) throw new Error(`Learner ${learnerId} not found`);
+
+      // CUTOVER guard — hostellers are billed via Campus Living, not here.
+      // Skip academic bill insertion entirely (return 0 → counted as skipped).
+      if (learner.accommodation_type_id) {
+        const { data: accType, error: accError } = await supabase
+          .from('accommodation_types')
+          .select('code')
+          .eq('id', learner.accommodation_type_id)
+          .single();
+        if (accError) throw accError;
+        if (accType?.code === 'hostel') {
+          console.info(
+            `[billing/onboarding] createBillsFromProfile skipped learner ${learnerId}: hosteller — billed via campus living`
+          );
+          return 0;
+        }
+      }
 
       // Idempotency guard — if learner already has bills, do nothing.
       // Bulk-generate flows rely on this to skip already-billed learners.

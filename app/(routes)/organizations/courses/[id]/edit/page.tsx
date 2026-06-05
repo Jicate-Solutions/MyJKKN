@@ -106,7 +106,7 @@ export default function EditCoursePage({ params }: EditCoursePageProps) {
         <div>
           <h1 className='text-2xl font-bold py-1'>{pageTitle}</h1>
           <p className='text-sm sm:text-base text-muted-foreground'>
-            Update course details
+            Update {adapt('course')} details
           </p>
         </div>
 

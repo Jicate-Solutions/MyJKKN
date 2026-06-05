@@ -1,7 +1,7 @@
 'use client';
 
 import { DataTable } from '@/components/data-table/data-table';
-import { columns } from './columns';
+import { getCourseColumns } from './columns';
 import type { CoursesSearchParams } from './data-table-schema';
 import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 import { Button } from '@/components/ui/button';
@@ -190,7 +190,7 @@ export function CoursesDataTable({ search }: CoursesDataTableProps) {
       a.click();
       document.body.removeChild(a);
       window.URL.revokeObjectURL(url);
-      toast.success('Courses exported successfully');
+      toast.success(`${adapt('Courses')} exported successfully`);
     } catch (error) {
       console.error('Export error:', error);
       toast.error('Failed to export courses');
@@ -209,7 +209,7 @@ export function CoursesDataTable({ search }: CoursesDataTableProps) {
       a.click();
       document.body.removeChild(a);
       window.URL.revokeObjectURL(url);
-      toast.success('Courses exported successfully');
+      toast.success(`${adapt('Courses')} exported successfully`);
     } catch (error) {
       console.error('Export error:', error);
       toast.error('Failed to export courses');
@@ -228,7 +228,7 @@ export function CoursesDataTable({ search }: CoursesDataTableProps) {
       a.click();
       document.body.removeChild(a);
       window.URL.revokeObjectURL(url);
-      toast.success('Courses exported successfully');
+      toast.success(`${adapt('Courses')} exported successfully`);
     } catch (error) {
       console.error('Export error:', error);
       toast.error('Failed to export courses');
@@ -319,7 +319,7 @@ export function CoursesDataTable({ search }: CoursesDataTableProps) {
       <DataTable
         key={refreshTrigger}
         fetchDataFn={fetchData}
-        getColumns={() => columns as any}
+        getColumns={() => getCourseColumns(adapt) as any}
         exportConfig={{
           entityName: 'courses',
           columnMapping: {},

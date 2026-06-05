@@ -1552,15 +1552,54 @@ export function GetPages(pathname: string): MenuGroup[] {
       groupLabel: 'Learners',
       menus: [
         {
-          // Single module row — portal pages (my-*, leave-onduty) + admin
-          // pages (profiles, alumni, analytics, enquiries, change-requests)
-          // all collapse into `submenus[]`. GetRoleBasedPages still gates
-          // student-only portal entries (the `/learners/my-` / leave-onduty
-          // check at line ~2189 operates on the submenus array intact).
-          href: '/learners',
-          label: 'Learners',
-          active: pathname === '/learners' || pathname.startsWith('/learners/'),
+          href: '/learners/my-timetable',
+          label: 'My Timetable',
+          active: pathname === '/learners/my-timetable',
+          icon: CalendarClock,
+          submenus: []
+        },
+        {
+          href: '/learners/my-attendance',
+          label: 'My Attendance',
+          active: pathname.startsWith('/learners/my-attendance'),
+          icon: ClipboardCheck,
+          submenus: []
+        },
+        {
+          href: '/learners/my-profile',
+          label: 'My Profile',
+          active: pathname === '/learners/my-profile',
+          icon: Users,
+          submenus: []
+        },
+        {
+          href: '/learners/my-marks',
+          label: 'My Marks',
+          active: pathname.startsWith('/learners/my-marks'),
           icon: GraduationCap,
+          submenus: []
+        },
+        {
+          href: '/learners/leave-onduty/my-applications',
+          label: 'Leave/OnDuty',
+          active: pathname.startsWith('/learners/leave-onduty'),
+          icon: Briefcase,
+          submenus: []
+        },
+
+        // Admin Features
+        {
+          href: '/learners/analytics',
+          label: 'Analytics Dashboard',
+          active: pathname.startsWith('/learners/analytics'),
+          icon: BarChart,
+          submenus: []
+        },
+        {
+          href: '/learners/enquiries',
+          label: 'Admission Management',
+          active: pathname.startsWith('/learners/enquiries') || pathname.startsWith('/learners/applications'),
+          icon: ClipboardCheck,
           submenus: [
             // Student portal (role=student — filtered downstream)
             { href: '/learners/my-timetable', label: 'My Timetable', active: pathname === '/learners/my-timetable' },
