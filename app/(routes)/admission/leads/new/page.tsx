@@ -897,13 +897,11 @@ function NewLeadPageContent() {
                       )}
                     </div>
 
-                    {/* Admission Year — shared cascading picker (2026-04-23) */}
+                    {/* Admission Year — shared institution-scoped picker (2026-04-23) */}
                     <AdmissionYearSelect
                       institutionId={institutionId}
-                      programId={selectedProgramId}
                       value={formData.admission_year_id}
                       onChange={(value) => handleChange('admission_year_id', value)}
-                      placeholderNoProgram="Select the Interested Program first"
                     />
                   </CardContent>
                 </Card>

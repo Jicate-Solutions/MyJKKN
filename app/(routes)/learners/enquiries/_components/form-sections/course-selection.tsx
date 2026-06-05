@@ -728,15 +728,13 @@ export function CourseSelectionSection({ form, showLearnerType = false }: Course
             <FormItem>
               <AdmissionYearSelect
                 institutionId={watchedInstitutionId}
-                programId={watchedProgramId}
                 value={field.value || ''}
                 onChange={(id, row) => {
                   field.onChange(id);
                   // Sync the legacy integer column for B2A back-compat.
-                  form.setValue('admission_year', row?.program_start_year ?? null);
+                  form.setValue('admission_year', row?.year ?? null);
                 }}
                 label="Admission Year"
-                placeholderNoProgram="Select program first"
               />
               <FormMessage />
             </FormItem>

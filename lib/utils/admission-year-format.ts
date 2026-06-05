@@ -16,13 +16,16 @@
 // transient form-state consumers (enquiry-form.tsx keeps it in memory while
 // the user is still picking a cohort) but DB-loaded rows only populate
 // admission_year_obj going forward.
+//
+// 2026-06-05: admission_years is now institution-wide — program_start_year /
+// program_end_year are gone, replaced by a single `year`. Render the name plus
+// the single year.
 
 export interface AdmissionYearLike {
   admission_year?: number | null;
   admission_year_obj?: {
     admission_year_name?: string | null;
-    program_start_year?: number | null;
-    program_end_year?: number | null;
+    year?: number | null;
   } | null;
 }
 
@@ -31,8 +34,8 @@ export function formatAdmissionYear(profile: AdmissionYearLike | null | undefine
 
   const obj = profile.admission_year_obj;
   if (obj?.admission_year_name) {
-    if (obj.program_start_year != null && obj.program_end_year != null) {
-      return `${obj.admission_year_name} (${obj.program_start_year}–${obj.program_end_year})`;
+    if (obj.year != null) {
+      return `${obj.admission_year_name} (${obj.year})`;
     }
     return obj.admission_year_name;
   }

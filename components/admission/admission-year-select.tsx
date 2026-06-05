@@ -2,13 +2,12 @@
 
 // components/admission/admission-year-select.tsx
 //
-// Shared cascading admission-year picker for ANY surface that needs to attach
-// a learner (or lead, or seat allocation) to a specific (institution, program,
-// cohort) tuple. Handles all four placeholder states symmetrically:
+// Shared admission-year picker for ANY surface that needs to attach a learner
+// (or lead, or seat allocation) to a specific (institution, cohort) pair.
+// Handles the three placeholder states symmetrically:
 //   1. no institution selected
-//   2. no program selected
-//   3. loading
-//   4. no admission_years exist for the pair
+//   2. loading
+//   3. no admission_years exist for the institution
 //
 // Extracted 2026-04-23 from 3 copy-pasted call sites:
 //   - admission/leads/new/page.tsx:929-960
@@ -16,9 +15,9 @@
 //   - learners/enquiries/_components/form-sections/course-selection.tsx (PR-3)
 //
 // Why a shared component (not just the hook): the placeholder copy and the
-// "rich label with year-range muted text" rendering were identical across
-// sites. Centralizing here means one place to fix UX copy or add the inline
-// "+ Create new admission year" affordance later.
+// label rendering were identical across sites. Centralizing here means one
+// place to fix UX copy or add the inline "+ Create new admission year"
+// affordance later.
 
 import { Label } from '@/components/ui/label';
 import {
@@ -34,20 +33,18 @@ import {
 } from '@/hooks/use-admission-years';
 
 export interface AdmissionYearSelectProps {
-  /** Institution scope. Required for the cascade — null/empty disables the field. */
+  /** Institution scope. Required — null/empty disables the field. */
   institutionId: string | null | undefined;
-  /** Program scope. Required for the cascade — null/empty disables the field. */
-  programId: string | null | undefined;
   /** Currently selected admission_year UUID (or empty string for "none"). */
   value: string | null | undefined;
   /**
    * Called when the user picks a different admission year. Receives both the
    * new FK id and the full row — callers that also need to sync derived
-   * fields (e.g. the legacy `admission_year` integer = program_start_year)
-   * can read them off the row without re-querying.
+   * fields (e.g. the legacy `admission_year` integer = year) can read them
+   * off the row without re-querying.
    */
   onChange: (admissionYearId: string, row?: AdmissionYearOption) => void;
-  /** Force-disable regardless of cascade state (e.g. read-only post-admit). */
+  /** Force-disable regardless of state (e.g. read-only post-admit). */
   disabled?: boolean;
   /** Optional id for the trigger element (and matching label htmlFor). */
   id?: string;
@@ -57,13 +54,10 @@ export interface AdmissionYearSelectProps {
   className?: string;
   /** Override placeholder when no institution is picked yet. */
   placeholderNoInstitution?: string;
-  /** Override placeholder when no program is picked yet. */
-  placeholderNoProgram?: string;
 }
 
 export function AdmissionYearSelect({
   institutionId,
-  programId,
   value,
   onChange,
   disabled = false,
@@ -71,18 +65,15 @@ export function AdmissionYearSelect({
   label = 'Admission Year',
   className,
   placeholderNoInstitution = 'Select institution first',
-  placeholderNoProgram = 'Select program first',
 }: AdmissionYearSelectProps) {
-  const { admissionYears, loading } = useAdmissionYears(institutionId, programId);
+  const { admissionYears, loading } = useAdmissionYears(institutionId);
 
   const placeholder = !institutionId
     ? placeholderNoInstitution
-    : !programId
-    ? placeholderNoProgram
     : loading
     ? 'Loading...'
     : admissionYears.length === 0
-    ? 'No admission years for this program'
+    ? 'No admission years for this institution'
     : 'Select admission year';
 
   // Empty-string sentinel from radix Select needs to round-trip cleanly.
@@ -98,7 +89,7 @@ export function AdmissionYearSelect({
       <Select
         value={value || ''}
         onValueChange={handleValueChange}
-        disabled={disabled || loading || !institutionId || !programId}
+        disabled={disabled || loading || !institutionId}
       >
         <SelectTrigger id={id}>
           <SelectValue placeholder={placeholder} />
@@ -106,16 +97,16 @@ export function AdmissionYearSelect({
         <SelectContent>
           {admissionYears.length === 0 ? (
             <SelectItem value="_none" disabled>
-              {institutionId && programId
-                ? 'No admission years for this program'
-                : 'Pick institution and program first'}
+              {institutionId
+                ? 'No admission years for this institution'
+                : 'Pick an institution first'}
             </SelectItem>
           ) : (
             admissionYears.map((y: AdmissionYearOption) => (
               <SelectItem key={y.id} value={y.id}>
                 {y.admission_year_name}
                 <span className="ml-2 text-xs text-muted-foreground">
-                  ({y.program_start_year}–{y.program_end_year})
+                  ({y.year})
                 </span>
               </SelectItem>
             ))
