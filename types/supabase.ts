@@ -8933,113 +8933,6 @@ export type Database = {
           },
         ]
       }
-      admission_year_quota_seats: {
-        Row: {
-          admission_year_id: string
-          created_at: string
-          created_by: string | null
-          id: string
-          notes: string | null
-          quota_id: string
-          sanctioned_intake: number
-          updated_at: string
-          updated_by: string | null
-        }
-        Insert: {
-          admission_year_id: string
-          created_at?: string
-          created_by?: string | null
-          id?: string
-          notes?: string | null
-          quota_id: string
-          sanctioned_intake?: number
-          updated_at?: string
-          updated_by?: string | null
-        }
-        Update: {
-          admission_year_id?: string
-          created_at?: string
-          created_by?: string | null
-          id?: string
-          notes?: string | null
-          quota_id?: string
-          sanctioned_intake?: number
-          updated_at?: string
-          updated_by?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "admission_year_quota_seats_admission_year_id_fkey"
-            columns: ["admission_year_id"]
-            isOneToOne: false
-            referencedRelation: "admission_years"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "admission_year_quota_seats_created_by_fkey"
-            columns: ["created_by"]
-            isOneToOne: false
-            referencedRelation: "bug_reporters_leaderboard"
-            referencedColumns: ["user_id"]
-          },
-          {
-            foreignKeyName: "admission_year_quota_seats_created_by_fkey"
-            columns: ["created_by"]
-            isOneToOne: false
-            referencedRelation: "mv_cluster_leaderboard_hods"
-            referencedColumns: ["hod_user_id"]
-          },
-          {
-            foreignKeyName: "admission_year_quota_seats_created_by_fkey"
-            columns: ["created_by"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "admission_year_quota_seats_created_by_fkey"
-            columns: ["created_by"]
-            isOneToOne: false
-            referencedRelation: "users_profiles"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "admission_year_quota_seats_quota_id_fkey"
-            columns: ["quota_id"]
-            isOneToOne: false
-            referencedRelation: "quotas"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "admission_year_quota_seats_updated_by_fkey"
-            columns: ["updated_by"]
-            isOneToOne: false
-            referencedRelation: "bug_reporters_leaderboard"
-            referencedColumns: ["user_id"]
-          },
-          {
-            foreignKeyName: "admission_year_quota_seats_updated_by_fkey"
-            columns: ["updated_by"]
-            isOneToOne: false
-            referencedRelation: "mv_cluster_leaderboard_hods"
-            referencedColumns: ["hod_user_id"]
-          },
-          {
-            foreignKeyName: "admission_year_quota_seats_updated_by_fkey"
-            columns: ["updated_by"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "admission_year_quota_seats_updated_by_fkey"
-            columns: ["updated_by"]
-            isOneToOne: false
-            referencedRelation: "users_profiles"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       admission_years: {
         Row: {
           admission_year_name: string
@@ -9048,11 +8941,8 @@ export type Database = {
           id: string
           institution_id: string
           is_active: boolean
-          program_end_year: number
-          program_id: string
-          program_start_year: number
-          sanctioned_intake: number
           updated_at: string
+          year: number
         }
         Insert: {
           admission_year_name: string
@@ -9061,11 +8951,8 @@ export type Database = {
           id?: string
           institution_id: string
           is_active?: boolean
-          program_end_year: number
-          program_id: string
-          program_start_year: number
-          sanctioned_intake?: number
           updated_at?: string
+          year: number
         }
         Update: {
           admission_year_name?: string
@@ -9074,11 +8961,8 @@ export type Database = {
           id?: string
           institution_id?: string
           is_active?: boolean
-          program_end_year?: number
-          program_id?: string
-          program_start_year?: number
-          sanctioned_intake?: number
           updated_at?: string
+          year?: number
         }
         Relationships: [
           {
@@ -9115,20 +8999,6 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "v_institutions_needing_admission_counselors"
             referencedColumns: ["institution_id"]
-          },
-          {
-            foreignKeyName: "admission_years_program_id_fkey"
-            columns: ["program_id"]
-            isOneToOne: false
-            referencedRelation: "case_graduation_readiness"
-            referencedColumns: ["programme_id"]
-          },
-          {
-            foreignKeyName: "admission_years_program_id_fkey"
-            columns: ["program_id"]
-            isOneToOne: false
-            referencedRelation: "programs"
-            referencedColumns: ["id"]
           },
         ]
       }

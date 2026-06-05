@@ -613,7 +613,6 @@ export class LearnerProfileService {
       dto.admission_year_id = await resolveAdmissionYearId(supabase, {
         year: Number(dto.admission_year),
         institutionId,
-        programId,
       });
     }
     delete dto.community;
