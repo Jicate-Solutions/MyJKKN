@@ -10894,6 +10894,7 @@ DECLARE
     v_base_items        jsonb;
     v_adjustments       jsonb;
     v_global_deltas_sum numeric(15,2) := 0;
+    v_year              int := COALESCE(public.fn_learner_year_of_study(p_learner_id), 1);
 BEGIN
     SELECT institution_id, degree_id, department_id, program_id,
            quota_id, community_category_id, accommodation_type_id, admission_year_id,
@@ -10942,7 +10943,12 @@ BEGIN
       INTO v_base_items
       FROM public.admission_fee_structure_items fsi
       JOIN public.billing_categories bc ON bc.id = fsi.billing_category_id
-     WHERE fsi.fee_structure_id = v_structure_id;
+     WHERE fsi.fee_structure_id = v_structure_id
+       AND (
+             fsi.applies_to = 'every_year'
+          OR (fsi.applies_to = 'first_year_only' AND v_year = 1)
+          OR (fsi.applies_to = 'specific_year'  AND fsi.applies_year_of_study = v_year)
+       );
 
     IF v_base_items IS NULL THEN
         v_base_items := '[]'::jsonb;
