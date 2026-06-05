@@ -118,6 +118,11 @@ export interface CreateStudentBillDto {
   is_recurring?: boolean;
   recurrence_pattern?: RecurrencePattern;
   number_of_recurrences?: number;
+  // Hostel-billing provenance (columns on billing_student_bills). 'ad_hoc'
+  // bills are exempt from the hostel-year generation dedup indexes.
+  fee_source?: string;
+  hostel_year_id?: string | null;
+  applies_year_of_study?: number | null;
 }
 
 export interface UpdateStudentBillDto extends Partial<CreateStudentBillDto> {

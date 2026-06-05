@@ -21,7 +21,10 @@ import {
   useActiveHostelYears,
   useCurrentHostelYear,
 } from '@/hooks/campus-living/use-hostel-years';
-import { useHostelBillDryRun } from '@/hooks/campus-living/use-hostel-bill-generation';
+import {
+  useHostelBillDryRun,
+  useGenerateHostelBills,
+} from '@/hooks/campus-living/use-hostel-bill-generation';
 import { DataTable } from '@/components/data-table/data-table';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -34,7 +37,26 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { AlertCircle, Loader2, Receipt } from 'lucide-react';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import {
+  AlertCircle,
+  Loader2,
+  Receipt,
+  Eye,
+  MoreHorizontal,
+  PlusCircle,
+} from 'lucide-react';
+import { toast } from 'sonner';
 import type { ColumnDef } from '@tanstack/react-table';
 import { DataTableColumnHeader } from '@/components/data-table/column-header';
 import { LearnerHosteliteService } from '@/lib/services/campus-living/learner-hostelite-service';
@@ -44,6 +66,9 @@ import type {
   LearnerHostelitesFilters,
 } from '@/types/campus-living';
 import { getErrorMessage } from '@/lib/utils';
+import { ResidentFeeDetail } from './resident-fee-detail';
+import { GenerateBillsWarningDialog } from './generate-bills-warning-dialog';
+import { AddAdditionalBillDialog } from './add-additional-bill-dialog';
 
 function fullName(l: LearnerHostelite): string {
   const parts = [l.first_name, l.last_name].filter(Boolean).map((s) => s!.trim());
@@ -96,6 +121,7 @@ export function GenerateBillsTab() {
   const { currentYear, loading: currentLoading } = useCurrentHostelYear();
 
   const dryRun = useHostelBillDryRun();
+  const gen = useGenerateHostelBills();
 
   // ── State exposed for Task 6 (Generate action + per-row detail) ──────────
   // selectedHostelYearId : explicit operator pick (null → fall back to current).
@@ -110,6 +136,12 @@ export function GenerateBillsTab() {
     () => new Map(),
   );
   const [previewError, setPreviewError] = useState<string | null>(null);
+
+  // ── Task 6 / 7 UI state ──────────────────────────────────────────────────
+  // warningOpen   : the generate-confirmation dialog.
+  // adHocLearner  : the learner whose "Add additional bill" dialog is open.
+  const [warningOpen, setWarningOpen] = useState(false);
+  const [adHocLearner, setAdHocLearner] = useState<LearnerHostelite | null>(null);
 
   // Default the selector to the current hostel year once it resolves, unless
   // the operator already picked one.
@@ -239,12 +271,69 @@ export function GenerateBillsTab() {
       size: 150,
     };
 
+    // Per-row plan detail — a "View" popover surfacing the proposed/skipped
+    // breakdown. The DataTable has no native expandable-row API, so a popover
+    // gives the same inline-detail affordance per row.
+    const detailCol: ColumnDef<LearnerHostelite> = {
+      id: 'detail',
+      header: '',
+      cell: ({ row }) => {
+        const plan = plans.get(row.original.id);
+        if (!plan) {
+          return <span className='text-xs text-muted-foreground'>—</span>;
+        }
+        return (
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button variant='ghost' size='sm' className='h-8 px-2'>
+                <Eye className='mr-1 h-4 w-4' />
+                View
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className='w-80' align='end'>
+              <ResidentFeeDetail plan={plan} />
+            </PopoverContent>
+          </Popover>
+        );
+      },
+      enableSorting: false,
+      enableHiding: false,
+      size: 110,
+    };
+
+    // Row menu — "Add additional bill" (Task 7).
+    const actionsCol: ColumnDef<LearnerHostelite> = {
+      id: 'actions',
+      header: '',
+      cell: ({ row }) => (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant='ghost' size='sm' className='h-8 w-8 p-0'>
+              <span className='sr-only'>Open menu</span>
+              <MoreHorizontal className='h-4 w-4' />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align='end'>
+            <DropdownMenuItem onClick={() => setAdHocLearner(row.original)}>
+              <PlusCircle className='mr-2 h-4 w-4' />
+              Add additional bill
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      ),
+      enableSorting: false,
+      enableHiding: false,
+      maxSize: 50,
+    };
+
     return [
       selectCol,
       nameCol,
       ...(isSuperAdmin ? [institutionCol] : []),
       yearCol,
       statusCol,
+      detailCol,
+      actionsCol,
     ];
   }, [plans, instName, isSuperAdmin]);
 
@@ -268,6 +357,37 @@ export function GenerateBillsTab() {
       }
     },
     [effectiveYearId, dryRun],
+  );
+
+  // Commit generation for the previewed learners, then re-run the dry-run so
+  // the per-row status badges flip to Fully/Partially.
+  const handleGenerate = useCallback(async () => {
+    if (gen.isPending) return; // double-submit guard
+    if (!effectiveYearId || previewedIds.length === 0) return;
+    try {
+      const result = await gen.mutateAsync({
+        hostelYearId: effectiveYearId,
+        learnerIds: previewedIds,
+      });
+      const totalNew = result.reduce((sum, p) => sum + p.new_count, 0);
+      toast.success(
+        `${totalNew} bill${totalNew === 1 ? '' : 's'} generated.`,
+      );
+      setWarningOpen(false);
+      // Refresh statuses — re-preview the same set (now mostly already-billed).
+      await runPreview(previewedIds);
+    } catch (err) {
+      toast.error(getErrorMessage(err));
+    }
+  }, [gen, effectiveYearId, previewedIds, runPreview]);
+
+  // Plans for the previewed learners — feeds the warning dialog totals.
+  const previewedPlans = useMemo(
+    () =>
+      previewedIds
+        .map((id) => plans.get(id))
+        .filter((p): p is LearnerGenerationPlan => !!p),
+    [previewedIds, plans],
   );
 
   // ── Render ───────────────────────────────────────────────────────────────
@@ -354,35 +474,54 @@ export function GenerateBillsTab() {
               (r) => r.id,
             );
             return (
-              <Button
-                size='sm'
-                className='h-8'
-                onClick={() => runPreview(ids)}
-                disabled={ids.length === 0 || dryRun.isPending}
-              >
-                {dryRun.isPending ? (
-                  <Loader2 className='mr-2 h-4 w-4 animate-spin' />
-                ) : (
-                  <Receipt className='mr-2 h-4 w-4' />
-                )}
-                Preview selected
-                {ids.length > 0 ? ` (${ids.length})` : ''}
-              </Button>
+              <div className='flex items-center gap-2'>
+                <Button
+                  size='sm'
+                  variant='outline'
+                  className='h-8'
+                  onClick={() => runPreview(ids)}
+                  disabled={ids.length === 0 || dryRun.isPending}
+                >
+                  {dryRun.isPending ? (
+                    <Loader2 className='mr-2 h-4 w-4 animate-spin' />
+                  ) : (
+                    <Receipt className='mr-2 h-4 w-4' />
+                  )}
+                  Preview selected
+                  {ids.length > 0 ? ` (${ids.length})` : ''}
+                </Button>
+                <Button
+                  size='sm'
+                  className='h-8'
+                  onClick={() => setWarningOpen(true)}
+                  disabled={previewedIds.length === 0 || gen.isPending}
+                >
+                  {gen.isPending ? (
+                    <Loader2 className='mr-2 h-4 w-4 animate-spin' />
+                  ) : (
+                    <Receipt className='mr-2 h-4 w-4' />
+                  )}
+                  Generate bills
+                </Button>
+              </div>
             );
           }}
         />
       )}
 
-      {/* ──────────────────────────────────────────────────────────────────
-          TASK 6 PLACEHOLDER — Generate action + warning dialog + row detail.
-          State available here for Task 6:
-            • effectiveYearId  (selected hostel year id, string | null)
-            • previewedIds     (string[] of learner ids the last preview covered)
-            • plans            (Map<learner_id, LearnerGenerationPlan>)
-          Task 6 should add the "Generate bills" button + confirmation dialog
-          (useGenerateHostelBills) and the per-row plan detail (proposed /
-          skipped lines) using these values.
-         ────────────────────────────────────────────────────────────────── */}
+      <GenerateBillsWarningDialog
+        open={warningOpen}
+        onOpenChange={setWarningOpen}
+        plans={previewedPlans}
+        onConfirm={handleGenerate}
+        pending={gen.isPending}
+      />
+
+      <AddAdditionalBillDialog
+        learner={adHocLearner}
+        hostelYearId={effectiveYearId}
+        onClose={() => setAdHocLearner(null)}
+      />
     </div>
   );
 }
