@@ -10,7 +10,6 @@ const FEE_DIM_LABELS: Record<string, string> = {
   program_id: 'Program',
   admission_year_id: 'Admission Year',
   quota_id: 'Quota',
-  accommodation_type_id: 'Accommodation',
   community_category_id: 'Community',
 };
 
@@ -20,7 +19,6 @@ const FEE_DIM_ORDER: Array<keyof typeof FEE_DIM_LABELS> = [
   'degree_id',
   'department_id',
   'quota_id',
-  'accommodation_type_id',
   'community_category_id',
   'institution_id',
 ];
@@ -44,7 +42,7 @@ interface IncompleteFeeBannerProps {
  *   - lifecycle_status IN ('enquiry', 'enquiry_submitted')
  *   - legacy_fee_mode  = true
  *
- * Shows which fee-matrix dimensions are missing. When all 8 dims are filled,
+ * Shows which fee-matrix dimensions are missing. When all 7 dims are filled,
  * the banner stays visible but flips to a "ready to apply" message — saving
  * then triggers admission_adopt_structure_for_lead via the form's commitSubmit.
  *
