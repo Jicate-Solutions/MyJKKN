@@ -36,6 +36,8 @@ export interface GateEntryInput {
   institution_id: string;
   last_name?: string | null;
   program_id?: string | null;
+  /** FK to admission_years — the institution's current cohort, pre-filled but editable. */
+  admission_year_id?: string | null;
   /** UI radio: 'walk_in' = direct, 'referral' = show consultant picker. */
   source: 'walk_in' | 'referral';
   /** Only when source='referral' and a referrer was picked. */
@@ -164,8 +166,7 @@ export interface AdmissionLead {
   admission_year?: {
     id: string;
     admission_year_name: string;
-    program_start_year: number;
-    program_end_year: number;
+    year: number;
   } | null;
 
   // Application fields (merged from admission_applications)
@@ -1394,45 +1395,28 @@ export interface FormDeviceBreakdown {
 export interface AdmissionYear {
   id: string;
   institution_id: string;
-  program_id: string;
   admission_year_name: string;
-  program_start_year: number;
-  program_end_year: number;
-  sanctioned_intake: number;
+  year: number;
   is_active: boolean;
   created_by?: string | null;
   created_at: string;
   updated_at: string;
-  institution?: {
-    id: string;
-    name: string;
-    counselling_code: string;
-  };
-  program?: {
-    id: string;
-    program_id: string;
-    program_name: string;
-    program_duration_yrs?: number | null;
-  };
+  institution?: { id: string; name: string; counselling_code: string } | null;
 }
 
 export interface CreateAdmissionYearDto {
   institution_id: string;
-  program_id: string;
   admission_year_name: string;
-  program_start_year: number;
-  program_end_year: number;
-  sanctioned_intake?: number;
+  year: number;
   is_active?: boolean;
 }
 
-export interface UpdateAdmissionYearDto extends Partial<CreateAdmissionYearDto> {}
+export type UpdateAdmissionYearDto = Partial<Omit<CreateAdmissionYearDto, 'institution_id'>>;
 
 export interface AdmissionYearFilters {
   search?: string;
   institution_id?: string;
-  program_id?: string;
-  program_start_year?: number;
+  year?: number;
   isActive?: boolean;
   page?: number;
   limit?: number;

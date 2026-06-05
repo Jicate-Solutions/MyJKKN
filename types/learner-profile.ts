@@ -108,8 +108,7 @@ export interface LearnerProfile {
   admission_year_obj?: {
     id: string;
     admission_year_name: string;
-    program_start_year: number;
-    program_end_year: number;
+    year: number;
   } | null;
   learner_type?: 'regular' | 'irregular' | 'intern';
 

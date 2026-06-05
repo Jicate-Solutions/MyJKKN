@@ -9,9 +9,6 @@ interface AdmissionYearDetailsProps {
 export function AdmissionYearDetails({
   admissionYear
 }: AdmissionYearDetailsProps) {
-  const duration =
-    admissionYear.program_end_year - admissionYear.program_start_year;
-
   return (
     <Card>
       <CardHeader>
@@ -28,29 +25,9 @@ export function AdmissionYearDetails({
             </p>
           </div>
           <div>
-            <p className='font-medium'>Program</p>
+            <p className='font-medium'>Year</p>
             <p className='text-base text-muted-foreground'>
-              {admissionYear.program?.program_name}
-              {admissionYear.program?.program_id &&
-                ` (${admissionYear.program.program_id})`}
-            </p>
-          </div>
-          <div>
-            <p className='font-medium'>Program Start Year</p>
-            <p className='text-base text-muted-foreground'>
-              {admissionYear.program_start_year}
-            </p>
-          </div>
-          <div>
-            <p className='font-medium'>Program End Year</p>
-            <p className='text-base text-muted-foreground'>
-              {admissionYear.program_end_year}
-            </p>
-          </div>
-          <div>
-            <p className='font-medium'>Duration</p>
-            <p className='text-base text-muted-foreground'>
-              {duration} {duration === 1 ? 'year' : 'years'}
+              {admissionYear.year}
             </p>
           </div>
           <div>

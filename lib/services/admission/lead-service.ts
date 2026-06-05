@@ -268,6 +268,7 @@ export class LeadService {
       p_institution_id:   input.institution_id,
       p_last_name:        input.last_name ?? null,
       p_program_id:       input.program_id ?? null,
+      p_admission_year_id: input.admission_year_id ?? null,
       p_referral_type:    input.source === 'referral' ? input.referral_type ?? null : null,
       p_referred_by_id:   input.source === 'referral' ? input.referred_by_id ?? null : null,
       p_referred_by_name: input.source === 'referral' ? input.referred_by_name ?? null : null,

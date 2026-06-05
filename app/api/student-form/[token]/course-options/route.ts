@@ -205,10 +205,9 @@ export async function POST(
         const currentYear = new Date().getFullYear();
         const { data, error } = await (svc as any)
           .from('admission_years')
-          .select('id, admission_year_name, program_start_year, program_end_year')
+          .select('id, admission_year_name, year')
           .eq('institution_id', filters.institution_id)
-          .eq('program_id', filters.program_id)
-          .eq('program_start_year', currentYear)
+          .eq('year', currentYear)
           .eq('is_active', true)
           .maybeSingle();
         if (error) throw error;

@@ -2342,11 +2342,9 @@ function LeadDetailPageContent() {
                     <div>
                       <AdmissionYearSelect
                         institutionId={editProgramsInstitutionId}
-                        programId={editPrimaryProgramId}
                         value={editForm.admission_year_id}
                         onChange={(v) => handleEditChange('admission_year_id', v)}
                         id="edit-admission_year"
-                        placeholderNoProgram="Select the Interested Program first"
                       />
                     </div>
                     <div>

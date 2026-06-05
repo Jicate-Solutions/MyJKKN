@@ -105,16 +105,16 @@ export function FeesStructureDimensionSelector({ selectedDims, onChange }: Props
       .catch(() => setProgrammes([]));
   }, [selectedDims.department_id]);
 
-  // Programme change → load admission years (filtered by program — fixed in commit 7b9774120)
+  // Institution change → load admission years (institution-wide now)
   useEffect(() => {
-    if (!selectedDims.programme_id) {
+    if (!selectedDims.institution_id) {
       setYears([]);
       return;
     }
-    AdmissionYearService.getAdmissionYearsByProgram(selectedDims.programme_id)
+    AdmissionYearService.getAdmissionYearsByInstitution(selectedDims.institution_id)
       .then((rows) => setYears(rows.map((y) => ({ id: y.id, name: y.admission_year_name }))))
       .catch(() => setYears([]));
-  }, [selectedDims.programme_id]);
+  }, [selectedDims.institution_id]);
 
   // Cascading change handlers — picking a parent resets the affected descendants
   const setInstitution = (id: string) =>
@@ -299,21 +299,21 @@ export function FeesStructureDimensionSelector({ selectedDims, onChange }: Props
           </Select>
         </div>
 
-        {/* 5. Admission Year (filtered by programme) */}
+        {/* 5. Admission Year (institution-wide) */}
         <div className="space-y-1">
           <Label className="text-xs">5. Admission Year</Label>
           <Select
             value={selectedDims.admission_year_id ?? ''}
             onValueChange={setYear}
-            disabled={!selectedDims.programme_id}
+            disabled={!selectedDims.institution_id}
           >
             <SelectTrigger className="w-full">
               <SelectValue
                 placeholder={
-                  !selectedDims.programme_id
-                    ? 'Pick programme first'
+                  !selectedDims.institution_id
+                    ? 'Pick institution first'
                     : years.length === 0
-                    ? 'No admission years for this programme'
+                    ? 'No admission years for this institution'
                     : 'Select admission year'
                 }
               />

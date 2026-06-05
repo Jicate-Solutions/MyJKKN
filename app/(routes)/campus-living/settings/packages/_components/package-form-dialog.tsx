@@ -234,16 +234,15 @@ export function PackageFormDialog({
     setAdmYears([]);
   }, [watchedDepId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // programme change → load admission years (per programme, not institution)
+  // institution change → load admission years (institution-wide now)
   useEffect(() => {
-    if (!watchedProgId) { setAdmYears([]); return; }
-    AdmissionYearService.getAdmissionYearsByProgram(watchedProgId)
+    if (!watchedInstId) { setAdmYears([]); return; }
+    AdmissionYearService.getAdmissionYearsByInstitution(watchedInstId)
       .then((rows) =>
         setAdmYears(rows.map((y) => ({ id: y.id, name: y.admission_year_name })))
       )
       .catch(() => setAdmYears([]));
-    form.setValue('admission_year_id', '');
-  }, [watchedProgId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [watchedInstId]); // eslint-disable-line react-hooks/exhaustive-deps
 
 
   // populate form when editing

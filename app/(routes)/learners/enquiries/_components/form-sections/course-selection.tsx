@@ -719,7 +719,7 @@ export function CourseSelectionSection({ form, showLearnerType = false }: Course
             Added here 2026-04-23 to sit next to Institution/Program where it
             belongs semantically. Replaces the disconnected hardcoded year
             dropdown that lived in Basic Details. The picker also writes the
-            legacy `admission_year` integer (= program_start_year) on the form
+            legacy `admission_year` integer (= admission_years.year) on the form
             so the 6 B2A endpoints that still expose it keep working. */}
         <FormField
           control={form.control}
@@ -728,15 +728,13 @@ export function CourseSelectionSection({ form, showLearnerType = false }: Course
             <FormItem>
               <AdmissionYearSelect
                 institutionId={watchedInstitutionId}
-                programId={watchedProgramId}
                 value={field.value || ''}
                 onChange={(id, row) => {
                   field.onChange(id);
                   // Sync the legacy integer column for B2A back-compat.
-                  form.setValue('admission_year', row?.program_start_year ?? null);
+                  form.setValue('admission_year', row?.year ?? null);
                 }}
                 label="Admission Year"
-                placeholderNoProgram="Select program first"
               />
               <FormMessage />
             </FormItem>

@@ -94,7 +94,7 @@ export async function GET(
       college_email, student_photo_url, is_profile_complete, created_at, updated_at,
       created_by, updated_by, aadhar_number, enquiry_date, blood_group,
       admission_year_id, quota_id, community_category_id, caste_id, accommodation_type_id,
-      admission_year_obj:admission_years!admission_year_id(program_start_year),
+      admission_year_obj:admission_years!admission_year_id(year),
       quota_obj:quotas!quota_id(name),
       community_obj:community_categories!community_category_id(code),
       caste_obj:castes!caste_id(name),
@@ -115,7 +115,7 @@ export async function GET(
     }
 
     // 2026-05-02 (Phase C-8): Derive legacy admission_year integer from FK join.
-    const ayObj = (learnerRaw as any).admission_year_obj as { program_start_year?: number } | null;
+    const ayObj = (learnerRaw as any).admission_year_obj as { year?: number } | null;
     const quotaObj = (learnerRaw as any).quota_obj as { name?: string } | null;
     const communityObj = (learnerRaw as any).community_obj as { code?: string } | null;
     const casteObj = (learnerRaw as any).caste_obj as { name?: string } | null;
@@ -123,7 +123,7 @@ export async function GET(
     const { admission_year_obj: _ay, quota_obj: _q, community_obj: _c, caste_obj: _cs, accommodation_obj: _acc, ...learnerRest } = learnerRaw as any;
     const learner = {
       ...learnerRest,
-      admission_year: ayObj?.program_start_year ?? null,
+      admission_year: ayObj?.year ?? null,
       quota: quotaObj?.name ?? null,
       community: communityObj?.code ?? null,
       caste: casteObj?.name ?? null,

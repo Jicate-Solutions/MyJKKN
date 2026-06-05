@@ -201,7 +201,6 @@ export class StudentFormService {
     // later — same recovery flow the convert route uses on initial conversion.
     if (section === 'course') {
       const newInst = (allowedFields.institution_id ?? null) as string | null;
-      const newProg = (allowedFields.program_id ?? null) as string | null;
 
       const { data: current } = await (svc as any)
         .from('learners_profiles')
@@ -214,19 +213,18 @@ export class StudentFormService {
         // institution/program columns — those might already be stale.
         const { data: ay } = await (svc as any)
           .from('admission_years')
-          .select('institution_id, program_id')
+          .select('institution_id')
           .eq('id', current.admission_year_id)
           .maybeSingle();
 
-        // Effective values after this UPDATE: incoming fields override
-        // existing row values.
+        // admission_years is now institution-wide (program dimension dropped),
+        // so the scope check is institution-only — mirrors the
+        // validate_learner_admission_year_scope trigger.
         const effInst = newInst ?? current.institution_id;
-        const effProg = newProg ?? current.program_id;
 
         const instMismatch = ay && ay.institution_id !== effInst;
-        const progMismatch = ay && effProg && ay.program_id && ay.program_id !== effProg;
 
-        if (instMismatch || progMismatch) {
+        if (instMismatch) {
           (allowedFields as Record<string, unknown>).admission_year_id = null;
         }
       }
