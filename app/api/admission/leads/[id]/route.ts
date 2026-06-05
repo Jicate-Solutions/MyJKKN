@@ -114,7 +114,7 @@ export async function GET(
           *,
           counselor:admission_counselors(id, name, email),
           program:programs!program_id(id, program_name, program_id),
-          admission_year:admission_years(id, admission_year_name, program_start_year, program_end_year)
+          admission_year:admission_years(id, admission_year_name, year)
         `)
         .eq('id', id)
         .maybeSingle()

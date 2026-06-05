@@ -175,7 +175,7 @@ export async function GET(request: NextRequest) {
       'Aadhar Number': learner.aadhar_number || '',
       'Blood Group': learner.blood_group || '',
       'Admission Year':
-        (learner as any).admission_year_obj?.program_start_year ?? learner.admission_year ?? '',
+        (learner as any).admission_year_obj?.year ?? learner.admission_year ?? '',
 
       // SECTION 2: Parent/Guardian Information
       'Father Name': learner.father_name || '',

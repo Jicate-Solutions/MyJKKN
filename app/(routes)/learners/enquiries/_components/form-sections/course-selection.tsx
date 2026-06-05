@@ -719,7 +719,7 @@ export function CourseSelectionSection({ form, showLearnerType = false }: Course
             Added here 2026-04-23 to sit next to Institution/Program where it
             belongs semantically. Replaces the disconnected hardcoded year
             dropdown that lived in Basic Details. The picker also writes the
-            legacy `admission_year` integer (= program_start_year) on the form
+            legacy `admission_year` integer (= admission_years.year) on the form
             so the 6 B2A endpoints that still expose it keep working. */}
         <FormField
           control={form.control}

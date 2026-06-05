@@ -120,12 +120,12 @@ export const enquiryColumns: ColumnDef<LearnerProfile>[] = [
     // Admission cohort column. Renders ONLY the cohort name (no year-range
     // period) per 2026-05-19 product call — the table is dense and the period
     // adds clutter. Other surfaces (lead detail, learner detail, my-profile)
-    // still use formatAdmissionYear() for the full "Name (start–end)" label.
-    // Sort uses program_start_year from the FK join so the column stays
-    // meaningful after Phase D drops the legacy admission_year integer column.
+    // still use formatAdmissionYear() for the full "Name (year)" label.
+    // Sort uses year from the FK join so the column stays meaningful after
+    // Phase D drops the legacy admission_year integer column.
     id: 'admission_year',
     accessorFn: (row) =>
-      (row as any).admission_year_obj?.program_start_year ?? row.admission_year ?? null,
+      (row as any).admission_year_obj?.year ?? row.admission_year ?? null,
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Admission Year" />
     ),

@@ -45,7 +45,7 @@ export async function getEnquiry(id: string): Promise<LearnerProfile | null> {
       accommodation_ref:accommodation_types!accommodation_type_id(code, name),
       created_by_user:profiles!learners_profiles_created_by_fkey(id, email, full_name),
       updated_by_user:profiles!learners_profiles_updated_by_fkey(id, email, full_name),
-      admission_year_obj:admission_years!admission_year_id(id, admission_year_name, program_start_year, program_end_year)
+      admission_year_obj:admission_years!admission_year_id(id, admission_year_name, year)
     `
     )
     .eq('id', id)
