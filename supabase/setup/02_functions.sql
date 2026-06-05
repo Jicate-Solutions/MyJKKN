@@ -11147,6 +11147,10 @@ BEGIN
 END;
 $function$;
 
+-- Security: owner-only execute — SECURITY DEFINER read fn must not be directly callable by untrusted roles (IDOR); only the gated generation RPC calls it as owner.
+REVOKE ALL ON FUNCTION public.admission_resolve_fee_items_readonly(uuid, int)
+  FROM PUBLIC, anon, authenticated, service_role;
+
 -- ============================================================================
 -- admission_account_transition_with_bills (Plan 4 Task 4)
 -- ============================================================================
