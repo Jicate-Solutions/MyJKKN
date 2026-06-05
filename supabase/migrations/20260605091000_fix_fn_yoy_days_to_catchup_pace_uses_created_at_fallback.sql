@@ -157,11 +157,13 @@ BEGIN
   LEFT JOIN current_admitted_per_inst cap ON cap.institution_id = i.id
   LEFT JOIN prior_final pf ON pf.institution_id = i.id
   LEFT JOIN pace_per_inst ppi ON ppi.institution_id = i.id
-  WHERE i.name LIKE 'JKKN%'
-    AND i.name NOT LIKE 'JKKN Main Office%'
-    AND i.name NOT LIKE 'JKKN Testing%'
-    AND i.name NOT LIKE 'JKKN Nattraja Incubation%'
-    AND i.name NOT LIKE 'Jicate Solutions%'
+  -- Institution filter: canonical helper from PR #1222
+  -- (20260605083000_yoy_canonical_institution_filter.sql). MUST be applied
+  -- before this migration. The helper mirrors the picker rule from
+  -- yoy-institution-picker.tsx — single source of truth across all 5 actionable
+  -- RPCs. This migration includes it explicitly so apply-order doesn't matter:
+  -- whichever of PR #1222 or this PR applies last, the picker rule is preserved.
+  WHERE public._yoy_admission_institution(i.name)
     AND (p_institution_id IS NULL OR i.id = p_institution_id)
   ORDER BY
     -- RED (1) → AMBER (2) → GREEN (3) → NA (4)
