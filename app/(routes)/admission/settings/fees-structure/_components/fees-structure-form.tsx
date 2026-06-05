@@ -1345,11 +1345,15 @@ function ItemsEditor({
                       onApplicabilityChange(
                         index,
                         v as FeeItemAppliesTo,
-                        v === 'specific_year' ? item.applies_year_of_study ?? 1 : null,
+                        // Leave the year BLANK when switching to specific_year
+                        // (preserve a value the operator already typed). Forcing
+                        // a default of 1 would silently satisfy the Zod refine
+                        // and attach the fee to year 1 unintentionally.
+                        v === 'specific_year' ? item.applies_year_of_study ?? null : null,
                       )
                     }
                   >
-                    <SelectTrigger className="h-8 w-44">
+                    <SelectTrigger className="h-8 w-44" aria-label="Fee applies to">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -1366,6 +1370,7 @@ function ItemsEditor({
                         min={1}
                         max={10}
                         step={1}
+                        aria-label="Applies to year of study"
                         value={item.applies_year_of_study ?? ''}
                         onChange={(e) => {
                           const raw = e.target.value;
