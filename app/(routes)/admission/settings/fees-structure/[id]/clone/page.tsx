@@ -34,7 +34,7 @@ import { FeeStructureService } from '@/lib/services/admission/fee-structure-serv
 import { BillingCategoryService } from '@/lib/services/billing/categories/billing-category-service';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { getErrorMessage } from '@/lib/utils';
-import type { FeeStructureMatrixDimensions } from '@/types/admission';
+import type { FeeStructureMatrixDimensions, FeeItemAppliesTo } from '@/types/admission';
 import type { BillingCategory } from '@/types/billing';
 
 interface RouteProps {
@@ -52,6 +52,8 @@ interface FormItem {
   billing_category_id: string;
   amount: number;
   is_optional: boolean;
+  applies_to: FeeItemAppliesTo;
+  applies_year_of_study: number | null;
 }
 
 // Local prefill shape — matches the optional `initialValues` prop on
@@ -162,6 +164,8 @@ function CloneFeeStructurePageContent({ id }: { id: string }) {
               billing_category_id: it.billing_category_id,
               amount: Number(it.amount),
               is_optional: it.is_optional,
+              applies_to: it.applies_to ?? 'every_year',
+              applies_year_of_study: it.applies_year_of_study ?? null,
             })),
         });
         setLoading(false);

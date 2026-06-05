@@ -10894,6 +10894,7 @@ DECLARE
     v_base_items        jsonb;
     v_adjustments       jsonb;
     v_global_deltas_sum numeric(15,2) := 0;
+    v_year              int := COALESCE(public.fn_learner_year_of_study(p_learner_id), 1);
 BEGIN
     SELECT institution_id, degree_id, department_id, program_id,
            quota_id, community_category_id, accommodation_type_id, admission_year_id,
@@ -10942,7 +10943,12 @@ BEGIN
       INTO v_base_items
       FROM public.admission_fee_structure_items fsi
       JOIN public.billing_categories bc ON bc.id = fsi.billing_category_id
-     WHERE fsi.fee_structure_id = v_structure_id;
+     WHERE fsi.fee_structure_id = v_structure_id
+       AND (
+             fsi.applies_to = 'every_year'
+          OR (fsi.applies_to = 'first_year_only' AND v_year = 1)
+          OR (fsi.applies_to = 'specific_year'  AND fsi.applies_year_of_study = v_year)
+       );
 
     IF v_base_items IS NULL THEN
         v_base_items := '[]'::jsonb;
@@ -12468,6 +12474,46 @@ AS $$
   );
 $$;
 
+-- fn_learner_year_of_study: canonical "current year of study" for ANY learner,
+-- mirroring the 3-tier derivation in v_learner_hostelites:
+--   Tier 1: admission_years.year + programs.program_duration_yrs   (preferred)
+--   Tier 2: batches.start_date / end_date                          (fallback)
+--   Tier 3: learners_profiles.enquiry_date                         (last resort)
+-- Upper-clamp via LEAST keeps the value within the programme length.
+-- Lower-clamp via GREATEST(1, …) prevents negative / zero values.
+-- 2026-06-05: re-pointed off admission_years.program_start_year/end_year (dropped by the
+-- admission-year institution-wide collapse) to admission_years.year + programs.program_duration_yrs.
+CREATE OR REPLACE FUNCTION public.fn_learner_year_of_study(p_learner_id uuid)
+RETURNS int
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+  SELECT
+    CASE
+      WHEN lp.admission_year_id IS NOT NULL AND ay.year IS NOT NULL
+        THEN GREATEST(1, LEAST(
+               EXTRACT(year FROM CURRENT_DATE)::integer - ay.year + 1,
+               pr.program_duration_yrs::integer + 1
+             ))
+      WHEN lp.batch_id IS NOT NULL AND b.start_date IS NOT NULL
+        THEN GREATEST(1, LEAST(
+               EXTRACT(year FROM CURRENT_DATE)::integer - EXTRACT(year FROM b.start_date)::integer + 1,
+               EXTRACT(year FROM b.end_date)::integer - EXTRACT(year FROM b.start_date)::integer + 1
+             ))
+      WHEN lp.enquiry_date IS NOT NULL
+        THEN GREATEST(1, EXTRACT(year FROM CURRENT_DATE)::integer - EXTRACT(year FROM lp.enquiry_date)::integer + 1)
+      ELSE NULL
+    END
+  FROM learners_profiles lp
+  LEFT JOIN admission_years ay ON ay.id = lp.admission_year_id
+  LEFT JOIN batches b ON b.id = lp.batch_id
+  LEFT JOIN programs pr ON pr.id = lp.program_id
+  WHERE lp.id = p_learner_id;
+$$;
+
+COMMENT ON FUNCTION public.fn_learner_year_of_study(uuid) IS
+  'Returns the current year of study for a learner using the same 3-tier derivation '
+  'as v_learner_hostelites: admission_year → batch → enquiry_date. '
+  'Clamps to [1, program_duration] so result is always ≥ 1 and never exceeds the programme length.';
+
 -- admission_bulk_upsert_fee_structure: atomic per-row upsert for bulk fee-structure import
 CREATE OR REPLACE FUNCTION public.admission_bulk_upsert_fee_structure(p_payload jsonb)
 RETURNS jsonb
@@ -13537,5 +13583,83 @@ $function$;
 
 REVOKE ALL ON FUNCTION public.get_source_distribution(lead_source, timestamptz, timestamptz, uuid) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.get_source_distribution(lead_source, timestamptz, timestamptz, uuid) TO authenticated, service_role;
+
+-- Resolve a hosteller's hostel/mess fee for a given hostel year.
+-- Returns jsonb array: [{fee_source, package_id, category_id, category_name, amount}].
+CREATE OR REPLACE FUNCTION public.campus_living_resolve_hostel_fee(
+  p_learner_id uuid,
+  p_hostel_year_id uuid
+)
+RETURNS jsonb
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public AS $$
+DECLARE
+  lp           learners_profiles%ROWTYPE;
+  v_package_id uuid;
+  v_flat       numeric;
+  v_items      jsonb := '[]'::jsonb;
+BEGIN
+  SELECT * INTO lp FROM learners_profiles WHERE id = p_learner_id;
+  IF NOT FOUND THEN RETURN v_items; END IF;
+
+  -- 1) Explicit assignment overrides matching.
+  SELECT lpa.package_id INTO v_package_id
+  FROM learner_package_assignment lpa
+  WHERE lpa.learner_id = p_learner_id AND lpa.hostel_year_id = p_hostel_year_id
+  LIMIT 1;
+
+  -- 2) Else match an active package by the learner's fixed dims (NULL package dim = wildcard).
+  IF v_package_id IS NULL THEN
+    SELECT p.id INTO v_package_id
+    FROM admission_packages p
+    WHERE p.is_active
+      AND p.institution_id   = lp.institution_id
+      AND (p.admission_year_id IS NULL OR p.admission_year_id = lp.admission_year_id)
+      AND (p.degree_id        IS NULL OR p.degree_id        = lp.degree_id)
+      AND (p.department_id     IS NULL OR p.department_id     = lp.department_id)
+      AND (p.programme_id      IS NULL OR p.programme_id      = lp.program_id)
+      AND (p.quota_id          IS NULL OR p.quota_id          = lp.quota_id)
+      AND (p.gender            IS NULL OR upper(p.gender)      = upper(lp.gender))
+      AND (p.room_category_id  IS NULL OR p.room_category_id  = lp.hostel_category_id)
+      AND (p.mess_category_id  IS NULL OR p.mess_category_id  = lp.mess_category_id)
+    ORDER BY
+      (p.admission_year_id IS NOT NULL)::int + (p.programme_id IS NOT NULL)::int
+      + (p.quota_id IS NOT NULL)::int + (p.gender IS NOT NULL)::int DESC
+    LIMIT 1;
+  END IF;
+
+  IF v_package_id IS NULL THEN RETURN v_items; END IF;
+
+  -- 3) Prefer a flat package fee for (package, hostel year).
+  SELECT hf.amount INTO v_flat
+  FROM hostel_fees hf
+  WHERE hf.package_id = v_package_id AND hf.hostel_year_id = p_hostel_year_id AND hf.is_active
+  LIMIT 1;
+
+  IF v_flat IS NOT NULL THEN
+    RETURN jsonb_build_array(jsonb_build_object(
+      'fee_source','hostel_package','package_id',v_package_id,
+      'category_id',NULL,'category_name','Hostel Package','amount',v_flat));
+  END IF;
+
+  -- 4) Else sum the learner's room + mess category fees for the hostel year.
+  SELECT jsonb_agg(jsonb_build_object(
+           'fee_source','hostel_category','package_id',v_package_id,
+           'category_id',cat_id,'category_name',cat_name,'amount',amount))
+  INTO v_items
+  FROM (
+    SELECT hc.id AS cat_id, hc.name AS cat_name, hf.amount
+    FROM hostel_fees hf JOIN hostel_categories hc ON hc.id = hf.hostel_category_id
+    WHERE hf.hostel_category_id = lp.hostel_category_id
+      AND hf.hostel_year_id = p_hostel_year_id AND hf.is_active
+    UNION ALL
+    SELECT mc.id, mc.name, hf.amount
+    FROM hostel_fees hf JOIN mess_categories mc ON mc.id = hf.mess_category_id
+    WHERE hf.mess_category_id = lp.mess_category_id
+      AND hf.mess_category_id IS NOT NULL
+      AND hf.hostel_year_id = p_hostel_year_id AND hf.is_active
+  ) rows;
+
+  RETURN COALESCE(v_items, '[]'::jsonb);
+END $$;
 
 NOTIFY pgrst, 'reload schema';
