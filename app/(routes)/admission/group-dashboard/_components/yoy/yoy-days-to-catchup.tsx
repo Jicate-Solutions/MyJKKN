@@ -138,20 +138,48 @@ function CountdownRow({ row }: { row: YoYDaysToCatchUpRow }) {
 
       {/* col 8-9 — days to catch up */}
       <div className="col-span-2 text-right tabular-nums" style={{ fontFamily: 'var(--font-ibm-plex-mono)' }}>
-        <div
-          className="text-[12.5px]"
-          style={{
-            color:
-              row.signal === 'RED'
-                ? '#a8453c'
-                : row.signal === 'AMBER'
-                  ? '#8b6c42'
-                  : '#2a2624',
-          }}
-        >
-          {row.daysToCatchUp === null ? '—' : `${formatIndianNumber(row.daysToCatchUp)} days`}
-        </div>
-        <div className="text-[10px]" style={{ color: '#9a948a' }}>to catch up</div>
+        {row.daysToCatchUp === null ? (
+          <>
+            <div
+              className="text-[12.5px]"
+              style={{
+                color:
+                  row.signal === 'RED'
+                    ? '#a8453c'
+                    : row.signal === 'AMBER'
+                      ? '#8b6c42'
+                      : '#2a2624',
+              }}
+            >
+              —
+            </div>
+            <div className="text-[10px]" style={{ color: '#9a948a' }}>to catch up</div>
+          </>
+        ) : row.daysToCatchUp > row.daysRemaining * 30 ? (
+          <>
+            <div className="text-[12.5px]" style={{ color: '#a8453c' }}>
+              pace stalled
+            </div>
+            <div className="text-[10px]" style={{ color: '#9a948a' }}>would take 30+ cycles</div>
+          </>
+        ) : (
+          <>
+            <div
+              className="text-[12.5px]"
+              style={{
+                color:
+                  row.signal === 'RED'
+                    ? '#a8453c'
+                    : row.signal === 'AMBER'
+                      ? '#8b6c42'
+                      : '#2a2624',
+              }}
+            >
+              {`${formatIndianNumber(row.daysToCatchUp)} days`}
+            </div>
+            <div className="text-[10px]" style={{ color: '#9a948a' }}>to catch up</div>
+          </>
+        )}
       </div>
 
       {/* col 10-12 — days remaining + projected */}
