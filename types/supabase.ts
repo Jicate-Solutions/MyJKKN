@@ -4971,6 +4971,8 @@ export type Database = {
       admission_fee_structure_items: {
         Row: {
           amount: number
+          applies_to: string
+          applies_year_of_study: number | null
           billing_category_id: string
           fee_structure_id: string
           id: string
@@ -4979,6 +4981,8 @@ export type Database = {
         }
         Insert: {
           amount: number
+          applies_to?: string
+          applies_year_of_study?: number | null
           billing_category_id: string
           fee_structure_id: string
           id?: string
@@ -4987,6 +4991,8 @@ export type Database = {
         }
         Update: {
           amount?: number
+          applies_to?: string
+          applies_year_of_study?: number | null
           billing_category_id?: string
           fee_structure_id?: string
           id?: string
