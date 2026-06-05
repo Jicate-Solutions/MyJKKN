@@ -405,6 +405,9 @@ export class FeeStructureService {
         amount: it.amount,
         is_optional: it.is_optional ?? false,
         sort_order: it.sort_order ?? idx,
+        applies_to: it.applies_to ?? 'every_year',
+        applies_year_of_study:
+          it.applies_to === 'specific_year' ? it.applies_year_of_study ?? null : null,
       }));
       const { error: itemError } = await supabase.from('admission_fee_structure_items').insert(rows);
       if (itemError) {
@@ -525,6 +528,9 @@ export class FeeStructureService {
       amount: it.amount,
       is_optional: it.is_optional ?? false,
       sort_order: it.sort_order ?? idx,
+      applies_to: it.applies_to ?? 'every_year',
+      applies_year_of_study:
+        it.applies_to === 'specific_year' ? it.applies_year_of_study ?? null : null,
     }));
     const { error } = await supabase
       .from('admission_fee_structure_items')
@@ -617,6 +623,8 @@ export class FeeStructureService {
         amount: it.amount,
         is_optional: it.is_optional,
         sort_order: it.sort_order,
+        applies_to: it.applies_to,
+        applies_year_of_study: it.applies_year_of_study,
       })),
     });
   }

@@ -108,6 +108,7 @@ import { FeesStructureDimensionSelector } from './fees-structure-dimension-selec
 import type {
   AdmissionFeeStructureWithItems,
   FeeStructureMatrixDimensions,
+  FeeItemAppliesTo,
 } from '@/types/admission';
 import type { BillingCategory, BillingCategoryKind } from '@/types/billing';
 
@@ -296,13 +297,23 @@ function hasSevenDims(d: DimsWithLeafCommunity): boolean {
 // ===========================================================================
 // NewStructureForm — create flow
 // ===========================================================================
-const itemSchema = z.object({
-  billing_category_id: z.string().min(1),
-  amount: z
-    .number({ invalid_type_error: 'Amount required' })
-    .min(0, 'Amount must be ≥ 0'),
-  is_optional: z.boolean(),
-});
+const itemSchema = z
+  .object({
+    billing_category_id: z.string().min(1),
+    amount: z
+      .number({ invalid_type_error: 'Amount required' })
+      .min(0, 'Amount must be ≥ 0'),
+    is_optional: z.boolean(),
+    applies_to: z.enum(['first_year_only', 'every_year', 'specific_year']),
+    applies_year_of_study: z.number().int().min(1).max(10).nullable(),
+  })
+  .refine(
+    (v) => v.applies_to !== 'specific_year' || v.applies_year_of_study != null,
+    {
+      message: 'Pick a year of study',
+      path: ['applies_year_of_study'],
+    },
+  );
 
 const newSchema = z
   .object({
@@ -424,6 +435,8 @@ export function NewStructureForm({
         billing_category_id: cat.id,
         amount: amount ?? cat.amount ?? 0,
         is_optional: false,
+        applies_to: 'every_year',
+        applies_year_of_study: null,
       },
     ]);
   };
@@ -438,6 +451,23 @@ export function NewStructureForm({
     const next = [...items];
     next[index] = { ...next[index], amount: value };
     form.setValue('items', next);
+  };
+
+  const updateItemApplicability = (
+    index: number,
+    applies_to: FeeItemAppliesTo,
+    applies_year_of_study: number | null,
+  ) => {
+    const next = [...items];
+    next[index] = {
+      ...next[index],
+      applies_to,
+      // Year only meaningful for specific_year; null it out otherwise so a
+      // stale value can't leak through to the insert.
+      applies_year_of_study:
+        applies_to === 'specific_year' ? applies_year_of_study : null,
+    };
+    form.setValue('items', next, { shouldValidate: true });
   };
 
   const onSubmit = async (values: NewFormValues) => {
@@ -459,6 +489,9 @@ export function NewStructureForm({
           amount: it.amount,
           is_optional: it.is_optional,
           sort_order: i,
+          applies_to: it.applies_to,
+          applies_year_of_study:
+            it.applies_to === 'specific_year' ? it.applies_year_of_study : null,
         })),
       });
       toast.success(
@@ -574,6 +607,7 @@ export function NewStructureForm({
           onAdd={addItem}
           onRemove={removeItem}
           onAmountChange={updateItemAmount}
+          onApplicabilityChange={updateItemApplicability}
         />
 
         {form.formState.errors.items?.message && (
@@ -659,6 +693,8 @@ interface DraftItem {
   amount: number;
   is_optional: boolean;
   sort_order: number;
+  applies_to: FeeItemAppliesTo;
+  applies_year_of_study: number | null;
 }
 
 function ExistingStructureEditor({
@@ -681,6 +717,8 @@ function ExistingStructureEditor({
         amount: Number(it.amount),
         is_optional: it.is_optional,
         sort_order: it.sort_order,
+        applies_to: it.applies_to ?? 'every_year',
+        applies_year_of_study: it.applies_year_of_study ?? null,
       }))
       .sort((a, b) => a.sort_order - b.sort_order),
   );
@@ -716,6 +754,8 @@ function ExistingStructureEditor({
           amount: Number(it.amount),
           is_optional: it.is_optional,
           sort_order: it.sort_order,
+          applies_to: it.applies_to ?? 'every_year',
+          applies_year_of_study: it.applies_year_of_study ?? null,
         }))
         .sort((a, b) => a.sort_order - b.sort_order),
     );
@@ -798,8 +838,27 @@ function ExistingStructureEditor({
         amount: amount ?? cat.amount ?? 0,
         is_optional: false,
         sort_order: prev.length,
+        applies_to: 'every_year',
+        applies_year_of_study: null,
       },
     ]);
+  };
+
+  const updateItemApplicability = (
+    index: number,
+    applies_to: FeeItemAppliesTo,
+    applies_year_of_study: number | null,
+  ) => {
+    setItems((prev) => {
+      const next = [...prev];
+      next[index] = {
+        ...next[index],
+        applies_to,
+        applies_year_of_study:
+          applies_to === 'specific_year' ? applies_year_of_study : null,
+      };
+      return next;
+    });
   };
 
   const removeItem = async (index: number) => {
@@ -904,6 +963,9 @@ function ExistingStructureEditor({
           amount: it.amount,
           is_optional: it.is_optional,
           sort_order: i,
+          applies_to: it.applies_to,
+          applies_year_of_study:
+            it.applies_to === 'specific_year' ? it.applies_year_of_study : null,
         })),
       );
 
@@ -1152,6 +1214,7 @@ function ExistingStructureEditor({
           onAdd={addItem}
           onRemove={removeItem}
           onAmountChange={updateItemAmount}
+          onApplicabilityChange={updateItemApplicability}
         />
 
         <div className="flex items-center justify-between border-t pt-3">
@@ -1178,13 +1241,24 @@ function ItemsEditor({
   onAdd,
   onRemove,
   onAmountChange,
+  onApplicabilityChange,
 }: {
-  items: ReadonlyArray<{ billing_category_id?: string; amount?: number }>;
+  items: ReadonlyArray<{
+    billing_category_id?: string;
+    amount?: number;
+    applies_to?: FeeItemAppliesTo;
+    applies_year_of_study?: number | null;
+  }>;
   categories: BillingCategory[];
   remainingCategories: BillingCategory[];
   onAdd: (categoryId: string, amount?: number) => void;
   onRemove: (index: number) => void;
   onAmountChange: (index: number, value: number) => void;
+  onApplicabilityChange: (
+    index: number,
+    applies_to: FeeItemAppliesTo,
+    applies_year_of_study: number | null,
+  ) => void;
 }) {
   // Bottom add-row state — picked-but-not-yet-added category + amount.
   // When the category is picked, the amount input pre-fills with the
@@ -1227,39 +1301,85 @@ function ItemsEditor({
         <div className="rounded-md border divide-y">
           {items.map((item, index) => {
             const cat = categories.find((c) => c.id === item.billing_category_id);
+            const appliesTo = item.applies_to ?? 'every_year';
             return (
               <div
                 key={`${item.billing_category_id ?? index}-${index}`}
-                className="flex items-center gap-3 p-2"
+                className="p-2 space-y-2"
               >
-                <div className="flex-1 min-w-0">
-                  <div className="text-sm font-medium truncate">
-                    {cat?.category_name ?? 'Unknown category'}
+                <div className="flex items-center gap-3">
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-medium truncate">
+                      {cat?.category_name ?? 'Unknown category'}
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      {cat?.frequency}
+                    </div>
                   </div>
-                  <div className="text-xs text-muted-foreground">
-                    {cat?.frequency}
+                  <div className="flex items-center gap-1">
+                    <span className="text-xs text-muted-foreground">₹</span>
+                    <Input
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      value={item.amount ?? 0}
+                      onChange={(e) => onAmountChange(index, Number(e.target.value) || 0)}
+                      className="w-32"
+                    />
                   </div>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => onRemove(index)}
+                    title="Remove"
+                  >
+                    <Trash2 className="h-4 w-4 text-destructive" />
+                  </Button>
                 </div>
-                <div className="flex items-center gap-1">
-                  <span className="text-xs text-muted-foreground">₹</span>
-                  <Input
-                    type="number"
-                    min={0}
-                    step="0.01"
-                    value={item.amount ?? 0}
-                    onChange={(e) => onAmountChange(index, Number(e.target.value) || 0)}
-                    className="w-32"
-                  />
+                <div className="flex items-center gap-2 flex-wrap pl-0.5">
+                  <span className="text-xs text-muted-foreground">Applies</span>
+                  <Select
+                    value={appliesTo}
+                    onValueChange={(v) =>
+                      onApplicabilityChange(
+                        index,
+                        v as FeeItemAppliesTo,
+                        v === 'specific_year' ? item.applies_year_of_study ?? 1 : null,
+                      )
+                    }
+                  >
+                    <SelectTrigger className="h-8 w-44">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="first_year_only">First year only</SelectItem>
+                      <SelectItem value="every_year">Every year</SelectItem>
+                      <SelectItem value="specific_year">Specific year</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {appliesTo === 'specific_year' && (
+                    <div className="flex items-center gap-1">
+                      <span className="text-xs text-muted-foreground">Year</span>
+                      <Input
+                        type="number"
+                        min={1}
+                        max={10}
+                        step={1}
+                        value={item.applies_year_of_study ?? ''}
+                        onChange={(e) => {
+                          const raw = e.target.value;
+                          onApplicabilityChange(
+                            index,
+                            'specific_year',
+                            raw === '' ? null : Number(raw),
+                          );
+                        }}
+                        className="h-8 w-20"
+                      />
+                    </div>
+                  )}
                 </div>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => onRemove(index)}
-                  title="Remove"
-                >
-                  <Trash2 className="h-4 w-4 text-destructive" />
-                </Button>
               </div>
             );
           })}

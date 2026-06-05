@@ -1641,6 +1641,14 @@ export interface AdmissionFeeStructure {
   community_category_ids: string[];
 }
 
+/**
+ * Per-year applicability of a fee line item. Hostel fees moved to campus-living,
+ * so admission fee structures cover only academic fees — but some fees are
+ * one-time at admission (first_year_only) while most recur annually
+ * (every_year), and a few apply only in a specific year of study.
+ */
+export type FeeItemAppliesTo = 'first_year_only' | 'every_year' | 'specific_year';
+
 export interface AdmissionFeeStructureItem {
   id: string;
   fee_structure_id: string;
@@ -1648,6 +1656,10 @@ export interface AdmissionFeeStructureItem {
   amount: number;
   is_optional: boolean;
   sort_order: number;
+  /** When this fee item is charged across the years of study. */
+  applies_to: FeeItemAppliesTo;
+  /** Required (1..10) only when applies_to === 'specific_year', else null. */
+  applies_year_of_study: number | null;
 }
 
 export interface AdmissionFeeStructureWithItems extends AdmissionFeeStructure {
@@ -1669,7 +1681,7 @@ export type CreateAdmissionFeeStructureInput =
     /** N communities this structure applies to. Must contain at least one. */
     community_category_ids: string[];
     items: Array<Pick<AdmissionFeeStructureItem, 'billing_category_id' | 'amount'> &
-      Partial<Pick<AdmissionFeeStructureItem, 'is_optional' | 'sort_order'>>>;
+      Partial<Pick<AdmissionFeeStructureItem, 'is_optional' | 'sort_order' | 'applies_to' | 'applies_year_of_study'>>>;
   };
 
 export type UpdateAdmissionFeeStructureInput =
