@@ -101197,6 +101197,10 @@ export type Database = {
         Returns: boolean
       }
       can_user_manage_staff: { Args: never; Returns: boolean }
+      campus_living_generate_hostel_year_bills: {
+        Args: { p_hostel_year_id: string; p_learner_ids: string[]; p_dry_run?: boolean }
+        Returns: Json
+      }
       campus_living_resolve_hostel_fee: {
         Args: { p_learner_id: string; p_hostel_year_id: string }
         Returns: Json
