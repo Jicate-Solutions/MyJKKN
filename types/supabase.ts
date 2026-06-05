@@ -12991,17 +12991,21 @@ export type Database = {
       }
       billing_student_bills: {
         Row: {
+          applies_year_of_study: number | null
           balance_amount: number | null
           bill_description: string | null
           created_at: string | null
           created_by: string | null
           due_date: string
+          fee_source: string
           final_amount: number
+          hostel_year_id: string | null
           id: string
           institution_id: string
           is_recurring: boolean | null
           item_category_id: string | null
           number_of_recurrences: number | null
+          package_id: string | null
           payment_date: string | null
           quantity: number | null
           recurrence_pattern: string | null
@@ -13015,17 +13019,21 @@ export type Database = {
           updated_at: string | null
         }
         Insert: {
+          applies_year_of_study?: number | null
           balance_amount?: number | null
           bill_description?: string | null
           created_at?: string | null
           created_by?: string | null
           due_date: string
+          fee_source?: string
           final_amount: number
+          hostel_year_id?: string | null
           id?: string
           institution_id: string
           is_recurring?: boolean | null
           item_category_id?: string | null
           number_of_recurrences?: number | null
+          package_id?: string | null
           payment_date?: string | null
           quantity?: number | null
           recurrence_pattern?: string | null
@@ -13039,17 +13047,21 @@ export type Database = {
           updated_at?: string | null
         }
         Update: {
+          applies_year_of_study?: number | null
           balance_amount?: number | null
           bill_description?: string | null
           created_at?: string | null
           created_by?: string | null
           due_date?: string
+          fee_source?: string
           final_amount?: number
+          hostel_year_id?: string | null
           id?: string
           institution_id?: string
           is_recurring?: boolean | null
           item_category_id?: string | null
           number_of_recurrences?: number | null
+          package_id?: string | null
           payment_date?: string | null
           quantity?: number | null
           recurrence_pattern?: string | null
