@@ -13859,7 +13859,7 @@ BEGIN
       SELECT EXISTS(SELECT 1 FROM billing_student_bills b
         WHERE b.student_id = v_learner AND b.hostel_year_id = p_hostel_year_id
           AND b.item_category_id = v_cat AND b.fee_source IN ('academic','hostel_category')
-          AND b.status <> 'cancelled') INTO v_exists;
+          AND b.status NOT IN ('cancelled','superseded')) INTO v_exists;
       IF v_exists THEN v_skipped := v_skipped || v_item;
       ELSE
         v_proposed := v_proposed || (v_item || jsonb_build_object('fee_source',v_src));
@@ -13884,11 +13884,11 @@ BEGIN
       IF v_src = 'hostel_package' THEN
         SELECT EXISTS(SELECT 1 FROM billing_student_bills b WHERE b.student_id=v_learner
           AND b.hostel_year_id=p_hostel_year_id AND b.package_id=v_pkg
-          AND b.fee_source='hostel_package' AND b.status<>'cancelled') INTO v_exists;
+          AND b.fee_source='hostel_package' AND b.status NOT IN ('cancelled','superseded')) INTO v_exists;
       ELSE
         SELECT EXISTS(SELECT 1 FROM billing_student_bills b WHERE b.student_id=v_learner
           AND b.hostel_year_id=p_hostel_year_id AND b.item_category_id=v_cat
-          AND b.fee_source IN ('academic','hostel_category') AND b.status<>'cancelled') INTO v_exists;
+          AND b.fee_source IN ('academic','hostel_category') AND b.status NOT IN ('cancelled','superseded')) INTO v_exists;
       END IF;
       IF v_exists THEN v_skipped := v_skipped || v_item;
       ELSE
@@ -13916,6 +13916,7 @@ BEGIN
 END $$;
 
 REVOKE ALL ON FUNCTION public.campus_living_generate_hostel_year_bills(uuid, uuid[], boolean) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.campus_living_generate_hostel_year_bills(uuid, uuid[], boolean) FROM anon;
 GRANT EXECUTE ON FUNCTION public.campus_living_generate_hostel_year_bills(uuid, uuid[], boolean) TO authenticated;
 
 NOTIFY pgrst, 'reload schema';
