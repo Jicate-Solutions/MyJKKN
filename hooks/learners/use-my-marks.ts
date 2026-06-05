@@ -26,6 +26,9 @@ export const myMarksKeys = {
       programCode,
     ] as const,
   internalFinal: () => [...myMarksKeys.all, 'internal-final'] as const,
+  result: (examSessionId: string) =>
+    [...myMarksKeys.all, 'result', examSessionId] as const,
+  gradeSystem: () => [...myMarksKeys.all, 'grade-system'] as const,
 };
 
 export function useMyMarksRegistrations() {
@@ -83,6 +86,26 @@ export function useMyMarksInternalFinal() {
   return useQuery({
     queryKey: myMarksKeys.internalFinal(),
     queryFn: () => MyMarksService.getInternalFinal(),
+    ...QUERY_CONFIG.STABLE_DATA,
+  });
+}
+
+export function useMyMarksResult(examSessionId: string | undefined) {
+  return useQuery({
+    queryKey: myMarksKeys.result(examSessionId ?? ''),
+    queryFn: () => MyMarksService.getResult({ examSessionId: examSessionId! }),
+    enabled: !!examSessionId,
+    // Published results are stable; before publish the empty response is cheap
+    // to re-check, so semi-stable strikes the right balance.
+    ...QUERY_CONFIG.SEMI_STABLE_DATA,
+  });
+}
+
+export function useMyMarksGradeSystem() {
+  return useQuery({
+    queryKey: myMarksKeys.gradeSystem(),
+    queryFn: () => MyMarksService.getGradeSystem(),
+    // Grade bands are institution reference data — they almost never change.
     ...QUERY_CONFIG.STABLE_DATA,
   });
 }

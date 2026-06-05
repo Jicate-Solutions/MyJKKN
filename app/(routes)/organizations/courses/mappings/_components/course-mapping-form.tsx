@@ -345,7 +345,7 @@ export function CourseMappingForm({
           course_id: values.course_ids[0],
           is_active: values.is_active
         });
-        toast.success('Course mapping updated successfully');
+        toast.success(`${adapt('Course')} mapping updated successfully`);
       } else {
         await CourseMappingService.bulkCreateCourseMappings(
           values.course_ids.map((course_id) => ({
@@ -359,7 +359,7 @@ export function CourseMappingForm({
           }))
         );
         toast.success(
-          `${values.course_ids.length} course mappings created successfully`
+          `${values.course_ids.length} ${adapt('course')} mappings created successfully`
         );
       }
       await queryClient.invalidateQueries({

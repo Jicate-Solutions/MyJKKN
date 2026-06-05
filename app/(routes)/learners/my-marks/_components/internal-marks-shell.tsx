@@ -129,11 +129,11 @@ export function InternalMarksShell({
   }
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-2 min-w-0 max-w-full pb-24 sm:pb-6">
       <MarksViewTabs />
 
       {/* Sticky semester selector — premium feel on mobile */}
-      <div className="sticky top-0 z-10 -mx-4 sm:mx-0 px-4 sm:px-0 py-1 sm:py-0 bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/60 sm:bg-transparent sm:backdrop-blur-none">
+      <div className="sticky top-0 z-10 py-1 bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/60 sm:bg-transparent sm:backdrop-blur-none">
         <SemesterTabs
           semesters={data.semesters}
           activeCode={activeSemesterCode}

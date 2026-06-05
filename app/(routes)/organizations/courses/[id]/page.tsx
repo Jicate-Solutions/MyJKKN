@@ -138,7 +138,7 @@ export default function CourseDetailsPage({ params }: CourseDetailsPageProps) {
           <CardContent className='grid gap-6'>
             <div className='grid gap-4 md:grid-cols-2'>
               <div>
-                <p className='font-medium'>Course Code</p>
+                <p className='font-medium'>{adapt('Course')} Code</p>
                 <p className='text-base text-muted-foreground'>
                   {course.course_code}
                 </p>
@@ -156,7 +156,7 @@ export default function CourseDetailsPage({ params }: CourseDetailsPageProps) {
 
         <Card>
           <CardHeader>
-            <CardTitle>Program Information</CardTitle>
+            <CardTitle>{adapt('Program')} Information</CardTitle>
           </CardHeader>
           <CardContent className='grid gap-4 md:grid-cols-2'>
             <div>

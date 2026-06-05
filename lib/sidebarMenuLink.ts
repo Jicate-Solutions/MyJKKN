@@ -1341,6 +1341,13 @@ export function GetPages(pathname: string): MenuGroup[] {
           submenus: []
         },
         {
+          href: '/learners/my-marks',
+          label: 'My Marks',
+          active: pathname.startsWith('/learners/my-marks'),
+          icon: GraduationCap,
+          submenus: []
+        },
+        {
           href: '/learners/leave-onduty/my-applications',
           label: 'Leave/OnDuty',
           active: pathname.startsWith('/learners/leave-onduty'),

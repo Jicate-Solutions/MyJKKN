@@ -49,7 +49,7 @@ export default async function InternalMarksPage({ searchParams }: PageProps) {
   }
 
   return (
-    <ContentLayout title="Marks">
+    <ContentLayout title="Marks" fullWidth>
       <PageBreadcrumb
         items={[
           { label: 'Home', href: '/' },

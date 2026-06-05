@@ -136,3 +136,87 @@ export interface MyMarksInternalFinalResponse {
   semester_code?: string;
   rows?: MyMarksInternalFinalRow[];
 }
+
+// ============================================================================
+// Semester Result (published final marks)
+// ============================================================================
+
+/**
+ * One published-result row scoped to the calling student, sourced from the
+ * COE `/api/v1/results` endpoint.
+ *
+ * COE only returns a row once BOTH conditions hold: `result_status =
+ * 'Published'` AND the session's `result_declaration_date` has arrived. So a
+ * row existing here already means "officially declared".
+ *
+ * `course_code` / `course_name` are NOT part of the COE results row — they are
+ * filled in client-side by joining `course_offering_id` to the semester's
+ * registration index (which carries those labels).
+ */
+export interface MyMarksResultRow {
+  /** Join key back to the registration index for course label resolution */
+  course_offering_id: string | null;
+  course_id: string | null;
+  /** Filled client-side via the course_offering_id join */
+  course_code?: string;
+  /** Filled client-side via the course_offering_id join */
+  course_name?: string;
+  /** Human grade description (e.g. "Outstanding") resolved from the grade system */
+  grade_description?: string | null;
+  program_code: string | null;
+  register_number: string;
+  internal_obtained: number | null;
+  internal_max: number | null;
+  external_obtained: number | null;
+  external_max: number | null;
+  total_obtained: number | null;
+  total_max: number | null;
+  percentage: number | null;
+  letter_grade: string | null;
+  grade_points: number | null;
+  credit: number | null;
+  total_grade_points: number | null;
+  is_pass: boolean | null;
+  pass_status: string | null;
+  result_status: string | null;
+  result_declaration_date: string | null;
+  session_status: string | null;
+}
+
+/**
+ * Full response from /api/learners/my-marks/result for a single exam session.
+ * `declared` is a convenience flag: true when COE returned at least one row
+ * (which by COE's contract means the session result has been declared).
+ */
+export interface MyMarksResultResponse {
+  results: MyMarksResultRow[];
+  declared: boolean;
+}
+
+// ============================================================================
+// Grade System (read-only grade bands — points, mark ranges, descriptions)
+// ============================================================================
+
+/**
+ * One grade band from the COE `/api/v1/grade-system` endpoint. Used to
+ * decorate published result rows with a grade point + human description
+ * (e.g. "O" → 10 pts → "Outstanding").
+ */
+export interface MyMarksGradeBand {
+  grade: string;
+  grade_point: number | null;
+  min_mark: number | null;
+  max_mark: number | null;
+  description: string | null;
+  is_active?: boolean;
+}
+
+/**
+ * Grade system payload for the calling student. `grade_system_code` is the
+ * student's resolved level ("UG" / "PG"), used to scope the band set; null
+ * when the level couldn't be determined.
+ */
+export interface MyMarksGradeSystemResponse {
+  bands: MyMarksGradeBand[];
+  grade_system_code: string | null;
+}

@@ -13,6 +13,8 @@ import type {
   MyMarksReportRow,
   MyMarksCiaSetting,
   MyMarksInternalFinalResponse,
+  MyMarksResultResponse,
+  MyMarksGradeSystemResponse,
 } from '@/types/my-marks';
 export type { MyMarksReportRow } from '@/types/my-marks';
 import type { CiaReportCourse, CiaRound } from '@/types/internal-marks';
@@ -119,6 +121,43 @@ export class MyMarksService {
     }
     const json = await res.json();
     return json.data;
+  }
+
+  /**
+   * Published semester result for a single exam session. Returns the caller's
+   * own result rows only (server-side filtered). Empty `results` means the
+   * institution hasn't declared the result for that session yet.
+   */
+  static async getResult(params: {
+    examSessionId: string;
+  }): Promise<MyMarksResultResponse> {
+    const search = new URLSearchParams({ examSessionId: params.examSessionId });
+    const res = await fetch(
+      `/api/learners/my-marks/result?${search.toString()}`
+    );
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Failed to load result' }));
+      throw new Error(err.error ?? 'Failed to load result');
+    }
+    const json = await res.json();
+    return json.data;
+  }
+
+  /**
+   * Institution grade bands (grade letter, point, mark range, description).
+   * Reference data used to decorate result rows with a human grade label.
+   */
+  static async getGradeSystem(): Promise<MyMarksGradeSystemResponse> {
+    const res = await fetch('/api/learners/my-marks/grade-system');
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Failed to load grade system' }));
+      throw new Error(err.error ?? 'Failed to load grade system');
+    }
+    const json = await res.json();
+    return {
+      bands: json.data?.bands ?? [],
+      grade_system_code: json.data?.grade_system_code ?? null,
+    };
   }
 
   /**
