@@ -25,6 +25,7 @@ export interface RoomEligibilityRule {
 
 /** Rule enriched with display names + targeted room ids (for table/form). */
 export interface RoomEligibilityRuleRow extends RoomEligibilityRule {
+  institution_name: string | null;
   block_name: string | null;
   degree_name: string | null;
   department_name: string | null;
@@ -74,4 +75,6 @@ export interface RoomOption {
   id: string;
   room_number: string;
   floor: number;
+  category_id: string | null;
+  category_name: string | null;
 }

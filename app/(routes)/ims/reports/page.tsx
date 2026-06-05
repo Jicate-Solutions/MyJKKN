@@ -6,6 +6,7 @@ import { ContentLayout } from '@/components/layout/content-layout';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useImsStoreContext } from '@/hooks/ims/use-ims-store-context';
 import { useImsDashboardStats } from '@/hooks/ims/use-ims-reports';
+import { ImsPageGuard } from '@/components/ims/ims-page-guard';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -24,12 +25,22 @@ import {
 } from 'lucide-react';
 
 export default function ImsReportsPage() {
+  return (
+    <ImsPageGuard module="ims.reports" action="view">
+      <ImsReportsPageInner />
+    </ImsPageGuard>
+  );
+}
+
+function ImsReportsPageInner() {
   const router = useRouter();
   const {
     canAccess,
     isLoading: permissionsLoading,
+    isSuperAdmin: permsIsSuperAdmin,
   } = usePermissions();
   const { storeId, institutionId, isSuperAdmin } = useImsStoreContext();
+  const canViewReports = permsIsSuperAdmin || canAccess('ims.reports', 'view');
 
   const { data: stats, isLoading: statsLoading } = useImsDashboardStats(storeId || '', institutionId);
 

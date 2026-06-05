@@ -844,6 +844,26 @@ export async function POST(request: NextRequest): Promise<NextResponse<ImportRes
       );
     })();
 
+    // Resolve the readable quota label (Excel "Quota" column) → quota_id (FK).
+    // Storage is quota_id only; the legacy `quota` TEXT column is being retired.
+    const resolveQuota = await (async () => {
+      const { buildQuotaResolver } = await import('@/lib/utils/quota-name-resolver');
+      return buildQuotaResolver(supabase as any);
+    })();
+    const resolveCommunity = await (async () => {
+      const { buildCommunityResolver } = await import('@/lib/utils/community-name-resolver');
+      return buildCommunityResolver(supabase as any);
+    })();
+    const resolveCaste = await (async () => {
+      const { buildCasteResolver } = await import('@/lib/utils/caste-name-resolver');
+      return buildCasteResolver(supabase as any);
+    })();
+    // accommodation_type TEXT retired — resolve the label → institution-scoped FK.
+    const resolveAccommodation = await (async () => {
+      const { buildAccommodationTypeResolverMulti } = await import('@/lib/utils/accommodation-type-resolver');
+      return buildAccommodationTypeResolverMulti(supabase as any);
+    })();
+
     // ============================================================
     // 6. INSERT VALID ROWS (BATCH INSERT)
     // ============================================================
@@ -854,8 +874,8 @@ export async function POST(request: NextRequest): Promise<NextResponse<ImportRes
       date_of_birth: data.date_of_birth,
       gender: data.gender,
       religion: data.religion,
-      community: data.community,
-      caste: data.caste,
+      community_category_id: resolveCommunity(data.community),
+      caste_id: resolveCaste(data.caste, resolveCommunity(data.community)),
       aadhar_number: data.aadhar_number,
       blood_group: data.blood_group,
 
@@ -898,8 +918,8 @@ export async function POST(request: NextRequest): Promise<NextResponse<ImportRes
       entry_type: data.entry_type,
       scholarship_type: data.scholarship_type,
 
-      // Accommodation
-      accommodation_type: data.accommodation_type,
+      // Accommodation — accommodation_type TEXT retired; persist the FK only.
+      accommodation_type_id: resolveAccommodation(data.accommodation_type, institutionId),
 
       // Education
       last_school: data.last_school,
@@ -915,7 +935,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<ImportRes
 
       // Counseling
       counseling_applied: data.counseling_applied,
-      quota: data.quota,
+      quota_id: resolveQuota(data.quota),
 
       // Reference
       reference_type: data.reference_type,

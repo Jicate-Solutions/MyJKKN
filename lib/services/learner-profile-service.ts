@@ -1,5 +1,6 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { getErrorMessage } from '@/lib/utils';
+import { accommodationLegacyFromCode } from '@/lib/utils/accommodation-type-resolver';
 import { trackUsage } from '@/lib/utils/track-usage';
 import { logActivityClient, LearnerActivityTemplates } from '@/lib/utils/activity-logger-client';
 import { SchoolDefaultsService } from '@/lib/services/school-defaults-service';
@@ -410,6 +411,7 @@ export class LearnerProfileService {
         academic_year:academic_years(id, academic_year_name, start_date, end_date, is_active),
         regulation:regulations(id, regulation_code, regulation_year),
         batch:batches(id, batch_name, batch_code),
+        accommodation_ref:accommodation_types!accommodation_type_id(code, name),
         created_by_user:profiles!created_by(id, email, full_name),
         updated_by_user:profiles!updated_by(id, email, full_name)
       `
@@ -422,8 +424,19 @@ export class LearnerProfileService {
       throw error;
     }
 
+    // accommodation_type TEXT column is retired — derive the legacy 'HOSTEL'/
+    // 'DAY SCHOLAR' value from the FK so display + form-load + conditional
+    // checks keep working off learner.accommodation_type.
+    const row = data as Record<string, unknown> | null;
+    if (row) {
+      row.accommodation_type = accommodationLegacyFromCode(
+        (row.accommodation_ref as { code?: string } | null)?.code,
+      );
+      delete row.accommodation_ref;
+    }
+
     // Type assertion: migration_source is stored as string but should be typed as MigrationSource
-    return data as LearnerProfile;
+    return row as LearnerProfile;
   }
 
   /**
@@ -485,7 +498,11 @@ export class LearnerProfileService {
         program:programs(id, program_name),
         semester:semesters(id, semester_name, semester_code),
         section:sections(id, section_name),
-        academic_year:academic_years(id, academic_year_name, is_active)
+        academic_year:academic_years(id, academic_year_name, is_active),
+        quota_ref:quotas!quota_id(name),
+        community_ref:community_categories!community_category_id(code),
+        caste_ref:castes!caste_id(name),
+        accommodation_ref:accommodation_types!accommodation_type_id(code, name)
       `,
         { count: 'exact' }
       );
@@ -558,6 +575,54 @@ export class LearnerProfileService {
    * Create new learner profile
    * Updated: 2026-05-26 - Enforce school defaults for K-12 auto-fill
    */
+  // ── Retired-column defense ──────────────────────────────────────────────
+  // community / caste / quota / accommodation_type TEXT and admission_year INT
+  // columns on learners_profiles are dropped (FK-only). create/update do a
+  // pass-through .insert/.update({ ...dto }), so a caller still sending a retired
+  // key would 400 on a non-existent column. Resolve each present value to its FK
+  // (when the FK isn't already set) and strip the dead key. For partial UPDATEs
+  // the payload may lack institution_id/program_id; the caller passes the current
+  // learner's values via `ctx` so the institution-scoped resolvers still work.
+  private static async normalizeRetiredColumns(
+    supabase: any,
+    dto: Record<string, any>,
+    ctx?: { institution_id?: string | null; program_id?: string | null },
+  ): Promise<void> {
+    const institutionId = dto.institution_id ?? ctx?.institution_id ?? null;
+    const programId = dto.program_id ?? ctx?.program_id ?? null;
+
+    if (dto.community != null && dto.community !== '' && !dto.community_category_id) {
+      const { buildCommunityResolver } = await import('@/lib/utils/community-name-resolver');
+      dto.community_category_id = (await buildCommunityResolver(supabase))(dto.community) ?? null;
+    }
+    if (dto.caste != null && dto.caste !== '' && !dto.caste_id) {
+      const { buildCasteResolver } = await import('@/lib/utils/caste-name-resolver');
+      dto.caste_id = (await buildCasteResolver(supabase))(dto.caste, dto.community_category_id) ?? null;
+    }
+    if (dto.quota != null && dto.quota !== '' && !dto.quota_id) {
+      const { buildQuotaResolver } = await import('@/lib/utils/quota-name-resolver');
+      dto.quota_id = (await buildQuotaResolver(supabase))(dto.quota) ?? null;
+    }
+    if (dto.accommodation_type != null && dto.accommodation_type !== '' && !dto.accommodation_type_id && institutionId) {
+      const { buildAccommodationTypeResolver } = await import('@/lib/utils/accommodation-type-resolver');
+      dto.accommodation_type_id =
+        (await buildAccommodationTypeResolver(supabase, institutionId))(dto.accommodation_type) ?? null;
+    }
+    if (dto.admission_year != null && dto.admission_year !== '' && !dto.admission_year_id && institutionId && programId) {
+      const { resolveAdmissionYearId } = await import('@/lib/services/admission/resolve-admission-year');
+      dto.admission_year_id = await resolveAdmissionYearId(supabase, {
+        year: Number(dto.admission_year),
+        institutionId,
+        programId,
+      });
+    }
+    delete dto.community;
+    delete dto.caste;
+    delete dto.quota;
+    delete dto.accommodation_type;
+    delete dto.admission_year;
+  }
+
   static async createLearnerProfile(dto: CreateLearnerProfileDto): Promise<LearnerProfile> {
     const supabase = createClientSupabaseClient();
 
@@ -586,6 +651,12 @@ export class LearnerProfileService {
 
     // Calculate is_profile_complete from the actual data instead of relying on the DTO flag
     const isComplete = this.calculateProfileCompleteness(enforcedDto);
+
+    // Retired-column defense: resolve any legacy community/caste/quota/
+    // accommodation_type TEXT or admission_year INT still on the payload to its
+    // FK and strip the dead key (this method is a pass-through insert). dto
+    // carries institution_id/program_id for the scoped resolvers.
+    await this.normalizeRetiredColumns(supabase, enforcedDto as Record<string, any>);
 
     const insertQuery: any = supabase.from('learners_profiles');
     const { data, error } = await insertQuery
@@ -746,6 +817,25 @@ export class LearnerProfileService {
       institution?.entity_type,
       dto as Record<string, any>
     );
+
+    // Retired-column defense (see normalizeRetiredColumns). Partial updates may
+    // omit institution_id/program_id, so fetch the learner's current values to
+    // scope the accommodation/admission-year resolvers when a retired key is set.
+    const retiredKeys = ['community', 'caste', 'quota', 'accommodation_type', 'admission_year'];
+    const hasRetired = retiredKeys.some(
+      (k) => (enforcedDto as Record<string, any>)[k] != null && (enforcedDto as Record<string, any>)[k] !== '',
+    );
+    if (hasRetired) {
+      const { data: cur } = await supabase
+        .from('learners_profiles')
+        .select('institution_id, program_id')
+        .eq('id', id)
+        .maybeSingle() as { data: { institution_id?: string; program_id?: string } | null; error: any };
+      await this.normalizeRetiredColumns(supabase, enforcedDto as Record<string, any>, {
+        institution_id: cur?.institution_id,
+        program_id: cur?.program_id,
+      });
+    }
 
     // First update with provided DTO (using enforcedDto for schools)
     const updateQuery: any = supabase.from('learners_profiles');
@@ -2618,13 +2708,18 @@ export class LearnerProfileService {
     filters: import('@/types/learner-dashboard').LearnerDashboardFilters,
     supabaseClient?: any
   ): Promise<import('@/types/learner-dashboard').DistributionItem[]> {
-    // Fetch ALL records with chunked pagination (fixes 1000-row limit)
-    const profiles = await this.fetchAllRecordsChunked('learners_profiles', 'community', filters, supabaseClient);
+    // community TEXT retired — read the FK's code via embed and group on it.
+    const profiles = await this.fetchAllRecordsChunked(
+      'learners_profiles',
+      'community_ref:community_categories!community_category_id(code)',
+      filters,
+      supabaseClient,
+    );
     const total = profiles.length;
 
     // Group by community
     const groups = profiles.reduce((acc, p) => {
-      const community = p.community;
+      const community = p.community_ref?.code;
       if (community) {
         if (!acc[community]) {
           acc[community] = {
@@ -2686,13 +2781,18 @@ export class LearnerProfileService {
     filters: import('@/types/learner-dashboard').LearnerDashboardFilters,
     supabaseClient?: any
   ): Promise<import('@/types/learner-dashboard').DistributionItem[]> {
-    // Fetch ALL records with chunked pagination (fixes 1000-row limit)
-    const profiles = await this.fetchAllRecordsChunked('learners_profiles', 'accommodation_type', filters, supabaseClient);
+    // accommodation_type TEXT retired — read the FK's name via embed and group on it.
+    const profiles = await this.fetchAllRecordsChunked(
+      'learners_profiles',
+      'accommodation_ref:accommodation_types!accommodation_type_id(name)',
+      filters,
+      supabaseClient,
+    );
     const total = profiles.length;
 
     // Group by accommodation type
     const groups = profiles.reduce((acc, p) => {
-      const accType = p.accommodation_type;
+      const accType = p.accommodation_ref?.name;
       if (accType) {
         if (!acc[accType]) {
           acc[accType] = {

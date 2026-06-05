@@ -23,16 +23,16 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { Plus, Edit, Trash2, Loader2 } from 'lucide-react';
-import { useHostelCategoryFees } from '@/hooks/campus-living/use-hostel-category-fees';
+import { useHostelFees } from '@/hooks/campus-living/use-hostel-fees';
 import { useActiveHostelCategories } from '@/hooks/campus-living/use-hostel-categories';
 import { useActiveMessCategories } from '@/hooks/campus-living/use-mess-categories';
 import {
-  CATEGORY_KIND_LABELS,
+  FEE_TARGET_LABELS,
   FEE_FREQUENCY_LABELS,
-  getCategoryId,
-  getCategoryKind,
-  type HostelCategoryFee,
-} from '@/types/hostel-category-fees';
+  getFeeTargetId,
+  getFeeTargetKind,
+  type HostelFee,
+} from '@/types/hostel-fees';
 import { CategoryFeeDialog } from './category-fee-dialog';
 
 const formatCurrency = (amount: number) =>
@@ -48,18 +48,20 @@ interface Props {
 }
 
 export function CategoryFeesSection({ hostelYearId, canEdit }: Props) {
-  const { fees, loading, error, deleteFee } = useHostelCategoryFees(hostelYearId);
+  const { fees: allFees, loading, error, deleteFee } = useHostelFees(hostelYearId);
+  // This section manages room/mess category fees only; package fees live in their own tab.
+  const fees = allFees.filter((f) => !f.package_id);
   const { hostelCategories } = useActiveHostelCategories();
   const { messCategories } = useActiveMessCategories();
 
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [editing, setEditing] = useState<HostelCategoryFee | null>(null);
+  const [editing, setEditing] = useState<HostelFee | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
-  const [pendingDelete, setPendingDelete] = useState<HostelCategoryFee | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<HostelFee | null>(null);
 
-  const nameFor = (fee: HostelCategoryFee) => {
-    const kind = getCategoryKind(fee);
-    const id = getCategoryId(fee);
+  const nameFor = (fee: HostelFee) => {
+    const kind = getFeeTargetKind(fee);
+    const id = getFeeTargetId(fee);
     const list = kind === 'hostel_room' ? hostelCategories : messCategories;
     return list.find((c) => c.id === id)?.name ?? '—';
   };
@@ -68,7 +70,7 @@ export function CategoryFeesSection({ hostelYearId, canEdit }: Props) {
     setEditing(null);
     setDialogOpen(true);
   };
-  const handleEdit = (fee: HostelCategoryFee) => {
+  const handleEdit = (fee: HostelFee) => {
     setEditing(fee);
     setDialogOpen(true);
   };
@@ -132,7 +134,7 @@ export function CategoryFeesSection({ hostelYearId, canEdit }: Props) {
             {fees.map((fee) => (
               <TableRow key={fee.id}>
                 <TableCell>
-                  <Badge variant="outline">{CATEGORY_KIND_LABELS[getCategoryKind(fee)]}</Badge>
+                  <Badge variant="outline">{FEE_TARGET_LABELS[getFeeTargetKind(fee)]}</Badge>
                 </TableCell>
                 <TableCell className="font-medium">{nameFor(fee)}</TableCell>
                 <TableCell>{formatCurrency(fee.amount)}</TableCell>

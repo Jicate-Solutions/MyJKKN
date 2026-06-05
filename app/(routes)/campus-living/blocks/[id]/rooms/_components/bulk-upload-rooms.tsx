@@ -38,9 +38,15 @@ import { useActiveHostelCategories } from '@/hooks/campus-living/use-hostel-cate
 import { hostelRoomKeys } from '@/hooks/campus-living/use-hostel-rooms';
 import { HostelRoomService } from '@/lib/services/campus-living/hostel-room-service';
 import type { RoomType, AcStatus, CreateHostelRoomDTO } from '@/types/campus-living';
+import { ROOM_PURPOSE_OPTIONS, TIER_ACCESS_OPTIONS } from './room-meta';
 
 const ROOM_TYPES: RoomType[] = ['single', 'double', 'triple', 'quad', 'dormitory'];
 const AC_STATUSES: AcStatus[] = ['non_ac', 'ac', 'cooler'];
+const TIER_VALUES = TIER_ACCESS_OPTIONS.map((t) => t.value);
+const PURPOSE_VALUES = ROOM_PURPOSE_OPTIONS.map((p) => p.value);
+// Lossless normalization: "OFFICE ROOM" / "Mess Staff" → office_room / mess_staff.
+const normalizePurpose = (v: unknown) =>
+  String(v ?? '').trim().toLowerCase().replace(/\s+/g, '_');
 const DEFAULT_CAPACITY: Record<RoomType, number> = {
   single: 1,
   double: 2,
@@ -58,6 +64,8 @@ interface PreviewRow {
   floor: string;
   room_type: string;
   ac_status: string;
+  room_purpose: string;
+  tier_access: string;
   category: string;
   capacity: string;
   isValid: boolean;
@@ -101,9 +109,14 @@ export function BulkUploadRooms({ blockId, blockType }: BulkUploadRoomsProps) {
       floor: 1,
       room_type: 'double',
       ac_status: 'non_ac',
+      room_purpose: 'student',
+      tier_access: 'classic',
       category: categories[0]?.name ?? 'Boys Hostel',
       capacity: 2,
+      actual_capacity: 2,
       annual_fee: 60000,
+      renovated: '',
+      painting: '',
       attached_bathroom: 'yes',
       accessible: 'no',
     };
@@ -117,9 +130,19 @@ export function BulkUploadRooms({ blockId, blockType }: BulkUploadRoomsProps) {
     const ref = XLSX.utils.json_to_sheet([
       { field: 'room_type', accepted_values: ROOM_TYPES.join(' | ') },
       { field: 'ac_status', accepted_values: AC_STATUSES.join(' | ') },
+      { field: 'room_purpose', accepted_values: PURPOSE_VALUES.join(' | ') },
+      { field: 'tier_access', accepted_values: TIER_VALUES.join(' | ') },
       {
-        field: 'category',
+        field: 'category (student rooms only)',
         accepted_values: acceptedNames || '(no categories defined for this block)',
+      },
+      {
+        field: 'renovated / painting',
+        accepted_values: 'free text, e.g. DONE PROPERLY | RENOVATED | PENDING | FINISHED (blank = N/A)',
+      },
+      {
+        field: 'actual_capacity',
+        accepted_values: 'optional whole number — real bed count, may exceed capacity (blank = N/A)',
       },
       { field: 'attached_bathroom / accessible', accepted_values: 'yes | no' },
     ]);
@@ -152,13 +175,33 @@ export function BulkUploadRooms({ blockId, blockType }: BulkUploadRoomsProps) {
       errors.push(`AC status must be one of: ${AC_STATUSES.join(', ')}`);
     }
 
+    // Purpose is lossless (default 'student'); any value is accepted so the
+    // hostel's real vocabulary (accounts, warden, mess_staff, …) round-trips.
+    let room_purpose = normalizePurpose(raw.room_purpose);
+    if (!room_purpose) room_purpose = 'student';
+
+    let tier_access = String(raw.tier_access ?? '').trim().toLowerCase();
+    if (!tier_access) tier_access = 'classic';
+    if (!TIER_VALUES.includes(tier_access)) {
+      errors.push(`Tier must be one of: ${TIER_VALUES.join(', ')}`);
+    }
+
+    // Category is required for student rooms only; special-purpose rooms
+    // (Accounts, Warden, …) carry no category.
     const categoryName = String(raw.category ?? '').trim();
-    const category_id = categoryByName.get(categoryName.toLowerCase());
+    const category_id = categoryName
+      ? categoryByName.get(categoryName.toLowerCase())
+      : undefined;
     if (!categoryName) {
-      errors.push('Category is required');
+      if (room_purpose === 'student') {
+        errors.push('Category is required for student rooms');
+      }
     } else if (!category_id) {
       errors.push(`Unknown category "${categoryName}". Accepted: ${acceptedNames || 'none'}`);
     }
+
+    const renovated = String(raw.renovated ?? '').trim() || null;
+    const painting = String(raw.painting ?? '').trim() || null;
 
     const capRaw = String(raw.capacity ?? '').trim();
     let capacity = Number(capRaw);
@@ -166,6 +209,18 @@ export function BulkUploadRooms({ blockId, blockType }: BulkUploadRoomsProps) {
       capacity = ROOM_TYPES.includes(room_type) ? DEFAULT_CAPACITY[room_type] : 1;
     } else if (!Number.isInteger(capacity) || capacity < 1 || capacity > 20) {
       errors.push('Capacity must be a whole number 1–20');
+    }
+
+    // Real bed count — optional, may exceed sanctioned capacity.
+    const actualCapRaw = String(raw.actual_capacity ?? '').trim();
+    let actual_capacity: number | null = null;
+    if (actualCapRaw !== '') {
+      const ac = Number(actualCapRaw);
+      if (!Number.isInteger(ac) || ac < 1 || ac > 30) {
+        errors.push('Actual capacity must be a whole number 1–30');
+      } else {
+        actual_capacity = ac;
+      }
     }
 
     const feeRaw = String(raw.annual_fee ?? '').trim();
@@ -186,6 +241,8 @@ export function BulkUploadRooms({ blockId, blockType }: BulkUploadRoomsProps) {
       floor: floorRaw,
       room_type,
       ac_status,
+      room_purpose,
+      tier_access,
       category: categoryName,
       capacity: capRaw || String(capacity),
       isValid,
@@ -196,9 +253,14 @@ export function BulkUploadRooms({ blockId, blockType }: BulkUploadRoomsProps) {
             floor,
             room_type,
             ac_status,
-            category_id,
+            room_purpose,
+            tier_access,
+            category_id: category_id ?? null,
             capacity,
+            actual_capacity,
             annual_fee,
+            renovated,
+            painting,
             has_attached_bathroom: truthy(raw.attached_bathroom),
             is_accessible: truthy(raw.accessible),
           }
@@ -357,6 +419,8 @@ export function BulkUploadRooms({ blockId, blockType }: BulkUploadRoomsProps) {
                       <TableHead>Floor</TableHead>
                       <TableHead>Type</TableHead>
                       <TableHead>AC</TableHead>
+                      <TableHead>Purpose</TableHead>
+                      <TableHead>Tier</TableHead>
                       <TableHead>Category</TableHead>
                       <TableHead>Capacity</TableHead>
                       <TableHead>Status</TableHead>
@@ -371,6 +435,10 @@ export function BulkUploadRooms({ blockId, blockType }: BulkUploadRoomsProps) {
                         <TableCell>{row.floor || '—'}</TableCell>
                         <TableCell className="capitalize">{row.room_type}</TableCell>
                         <TableCell>{row.ac_status}</TableCell>
+                        <TableCell className="capitalize">
+                          {row.room_purpose.replace(/_/g, ' ')}
+                        </TableCell>
+                        <TableCell className="capitalize">{row.tier_access}</TableCell>
                         <TableCell>{row.category || '—'}</TableCell>
                         <TableCell>{row.capacity || '—'}</TableCell>
                         <TableCell>

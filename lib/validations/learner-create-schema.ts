@@ -13,11 +13,9 @@ import { z } from 'zod';
 import {
   GENDER_VALUES,
   RELIGION_VALUES,
-  COMMUNITY_VALUES,
   BLOOD_GROUP_VALUES,
   ENTRY_TYPE_VALUES,
   ACCOMMODATION_VALUES,
-  QUOTA_VALUES,
   SCHOLARSHIP_TYPE_VALUES,
 } from '@/lib/constants/learner-dropdown-values';
 
@@ -41,10 +39,8 @@ export const createLearnerSchema = z
     religion: z.enum(asTuple(RELIGION_VALUES), {
       errorMap: () => ({ message: 'Select a valid religion' }),
     }),
-    community: z.enum(asTuple(COMMUNITY_VALUES), {
-      errorMap: () => ({ message: 'Select a valid community' }),
-    }),
-    caste: z.string().trim().min(1, 'Caste is required'),
+    community_category_id: z.string().uuid('Community is required'),
+    caste_id: z.string().uuid().optional().or(z.literal('')),
 
     // ---- Required: Parent / Guardian (4 fields)
     father_name: z.string().trim().min(1, 'Father name is required'),
@@ -123,7 +119,7 @@ export const createLearnerSchema = z
     neet_score: z.string().optional(),
     counseling_applied: z.union([z.boolean(), z.string()]).optional(),
     counseling_number: z.string().optional(),
-    quota: z.enum(asTuple(QUOTA_VALUES)).optional().or(z.literal('')),
+    quota_id: z.string().uuid().optional().or(z.literal('')),
     reference_type: z.string().optional(),
     reference_name: z.string().optional(),
     reference_contact: z.string().optional(),

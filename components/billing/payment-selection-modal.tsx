@@ -16,7 +16,8 @@ import {
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
-import { OnlinePaymentButton } from './online-payment-button';
+import { OnlinePaymentButton, type RazorpayLaunchProps } from './online-payment-button';
+import { RazorpayCheckoutLauncher } from './razorpay-checkout-launcher';
 import { OnlinePaymentAmountSelector } from './online-payment-amount-selector';
 import { format } from 'date-fns';
 import type { StudentBill } from '@/types/billing-schedule';
@@ -38,6 +39,9 @@ export function PaymentSelectionModal({
   const [selectedBillIds, setSelectedBillIds] = useState<Set<string>>(new Set());
   const [step, setStep] = useState<'select' | 'amount'>('select');
   const [billAmounts, setBillAmounts] = useState<Record<string, number>>({});
+  // Razorpay launcher lives OUTSIDE the <Dialog> so closing the dialog (handleClose)
+  // doesn't unmount it before checkout.js opens the modal.
+  const [razorpayLaunch, setRazorpayLaunch] = useState<RazorpayLaunchProps | null>(null);
 
   // Filter only unpaid bills
   const unpaidBills = useMemo(() => {
@@ -111,6 +115,7 @@ export function PaymentSelectionModal({
   };
 
   return (
+    <>
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-4xl max-h-[85vh] overflow-y-auto">
         <DialogHeader>
@@ -263,11 +268,25 @@ export function PaymentSelectionModal({
                 totalAmount={totalAmount}
                 disabled={selectedBillIds.size === 0 || Object.keys(billAmounts).length === 0}
                 onSuccess={handleClose}
+                onRazorpaySession={(p) => {
+                  // Mount the launcher (sibling of this Dialog) FIRST, then close
+                  // the dialog. The launcher survives the close and opens the modal.
+                  setRazorpayLaunch(p);
+                  handleClose();
+                }}
               />
             </>
           )}
         </DialogFooter>
       </DialogContent>
     </Dialog>
+
+    {razorpayLaunch && (
+      <RazorpayCheckoutLauncher
+        {...razorpayLaunch}
+        onClose={() => setRazorpayLaunch(null)}
+      />
+    )}
+    </>
   );
 }

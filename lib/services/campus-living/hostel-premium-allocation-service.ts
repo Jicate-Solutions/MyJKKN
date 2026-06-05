@@ -89,33 +89,33 @@ export async function listAvailableRoomsForPremium(
   institutionId: string,
 ): Promise<PremiumAvailableRoom[]> {
   // hostel-rooms-v2 PR 2 (2026-05-26): hostel_rooms.institution_id +
-  // .status + .current_occupancy all dropped. Narrow via the
-  // room_institution_access junction; read live occupancy from
+  // .status + .current_occupancy all dropped. Institution scope flows through
+  // the block→institution junction (hostel_block_institutions) since 2026-06-03
+  // (room_institution_access retired); read live occupancy from
   // v_hostel_room_occupancy.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const supabase = createClientSupabaseClient() as any;
 
-  // 1) Find rooms granted to the caller's institution.
-  const { data: grants, error: grantsErr } = await supabase
-    .from('room_institution_access')
-    .select('room_id')
-    .eq('institution_id', institutionId)
-    .eq('is_active', true);
-  if (grantsErr) {
-    console.error('[premium-allocation] listAvailableRoomsForPremium grants error:', grantsErr);
-    throw new Error(grantsErr.message || 'Failed to list available premium rooms');
+  // 1) Find blocks that serve the caller's institution.
+  const { data: blockRows, error: blocksErr } = await supabase
+    .from('hostel_block_institutions')
+    .select('block_id')
+    .eq('institution_id', institutionId);
+  if (blocksErr) {
+    console.error('[premium-allocation] listAvailableRoomsForPremium blocks error:', blocksErr);
+    throw new Error(blocksErr.message || 'Failed to list available premium rooms');
   }
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const grantedRoomIds = ((grants ?? []) as any[]).map((g) => g.room_id);
-  if (grantedRoomIds.length === 0) return [];
+  const blockIds = ((blockRows ?? []) as any[]).map((b) => b.block_id);
+  if (blockIds.length === 0) return [];
 
-  // 2) Pull room details for premium-eligible rooms.
+  // 2) Pull room details for premium-eligible rooms in those blocks.
   const { data, error } = await supabase
     .from('hostel_rooms')
     .select(
       'id, block_id, room_number, floor, capacity, ac_status, has_attached_bathroom, tier_access, hostel_blocks(name)',
     )
-    .in('id', grantedRoomIds)
+    .in('block_id', blockIds)
     .in('tier_access', ['premium_only', 'either']);
   if (error) {
     console.error('[premium-allocation] listAvailableRoomsForPremium rooms error:', error);

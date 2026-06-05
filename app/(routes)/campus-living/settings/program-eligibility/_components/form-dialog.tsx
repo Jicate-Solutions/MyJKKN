@@ -18,6 +18,7 @@ import { toast } from 'react-hot-toast';
 import {
   useRoomEligibility,
   useMessEligibility,
+  useEligibilityInstitutions,
   useProgramsForInstitution,
   useActiveRoomCategories,
   useActiveMessCategories,
@@ -35,7 +36,8 @@ interface FormDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   kind: Kind;
-  institutionId: string;
+  // Optional prefill. Edit mode locks institution to the row's institution.
+  institutionId?: string;
   // edit mode: pass the existing row; create mode: leave undefined
   roomRow?: ProgramRoomEligibilityRow;
   messRow?: ProgramMessEligibilityRow;
@@ -51,23 +53,30 @@ export function ProgramEligibilityFormDialog({
 }: FormDialogProps) {
   const isEdit = Boolean(roomRow || messRow);
 
-  const roomHook = useRoomEligibility(institutionId);
-  const messHook = useMessEligibility(institutionId);
-  const { programs } = useProgramsForInstitution(institutionId);
-  const { categories: roomCategories } = useActiveRoomCategories();
-  const { categories: messCategories } = useActiveMessCategories();
+  // Mutations are institution-agnostic; subscribe to the page's "all" cache so
+  // a create/edit here invalidates the same list (no redundant scoped fetch).
+  const roomHook = useRoomEligibility(null);
+  const messHook = useMessEligibility(null);
+  const { institutions, loading: instLoading } = useEligibilityInstitutions();
 
   const [submitting, setSubmitting] = useState(false);
+  const [selectedInstitution, setSelectedInstitution] = useState<string>('');
   const [scope, setScope] = useState<string>(INSTITUTION_DEFAULT); // program id or default
   const [categoryId, setCategoryId] = useState<string>('');
   const [isActive, setIsActive] = useState(true);
   const [isMonthlyMessAllowed, setIsMonthlyMessAllowed] = useState(false);
   const [effectiveFrom, setEffectiveFrom] = useState<string>('');
 
+  // Programs are institution-specific; the scope dropdown follows the picked institution.
+  const { programs } = useProgramsForInstitution(selectedInstitution || null);
+  const { categories: roomCategories } = useActiveRoomCategories();
+  const { categories: messCategories } = useActiveMessCategories();
+
   useEffect(() => {
     if (!open) return;
     if (isEdit) {
       const row = kind === 'room' ? roomRow : messRow;
+      setSelectedInstitution(row?.institution_id ?? institutionId ?? '');
       setScope(row?.program_id ?? INSTITUTION_DEFAULT);
       setCategoryId(
         kind === 'room'
@@ -78,14 +87,26 @@ export function ProgramEligibilityFormDialog({
       setIsMonthlyMessAllowed(messRow?.is_monthly_mess_allowed ?? false);
       setEffectiveFrom(row?.effective_from ?? '');
     } else {
+      setSelectedInstitution(institutionId ?? '');
       setScope(INSTITUTION_DEFAULT);
       setCategoryId('');
       setIsActive(true);
       setIsMonthlyMessAllowed(false);
       setEffectiveFrom('');
     }
-  }, [open, isEdit, kind, roomRow, messRow]);
+  }, [open, isEdit, kind, roomRow, messRow, institutionId]);
 
+  // Switching institution (create mode) clears the program scope so a stale
+  // program from another institution can't be submitted.
+  const onInstitutionChange = (value: string) => {
+    setSelectedInstitution(value);
+    setScope(INSTITUTION_DEFAULT);
+  };
+
+  const institutionOptions = institutions.map((i) => ({
+    value: i.id,
+    label: i.name,
+  }));
   const programOptions = [
     { value: INSTITUTION_DEFAULT, label: 'All programs — institution default' },
     ...programs.map((p) => ({ value: p.id, label: p.program_name })),
@@ -95,6 +116,10 @@ export function ProgramEligibilityFormDialog({
   );
 
   const onSubmit = async () => {
+    if (!isEdit && !selectedInstitution) {
+      toast.error('Please select an institution');
+      return;
+    }
     if (!isEdit && !categoryId) {
       toast.error('Please select a category');
       return;
@@ -113,7 +138,7 @@ export function ProgramEligibilityFormDialog({
           toast.success('Room eligibility updated');
         } else {
           await roomHook.createRoomEligibility({
-            institution_id: institutionId,
+            institution_id: selectedInstitution,
             program_id: programId,
             room_category_id: categoryId,
             is_active: isActive,
@@ -131,7 +156,7 @@ export function ProgramEligibilityFormDialog({
           toast.success('Mess eligibility updated');
         } else {
           await messHook.createMessEligibility({
-            institution_id: institutionId,
+            institution_id: selectedInstitution,
             program_id: programId,
             mess_category_id: categoryId,
             is_active: isActive,
@@ -167,13 +192,28 @@ export function ProgramEligibilityFormDialog({
 
         <div className='space-y-4'>
           <div className='space-y-2'>
+            <Label>Institution</Label>
+            <SearchableSelect
+              value={selectedInstitution}
+              onValueChange={onInstitutionChange}
+              options={institutionOptions}
+              placeholder='Select an institution'
+              loading={instLoading}
+              disabled={isEdit}
+              modal
+            />
+          </div>
+
+          <div className='space-y-2'>
             <Label>Scope</Label>
             <SearchableSelect
               value={scope}
               onValueChange={setScope}
               options={programOptions}
-              placeholder='Select scope'
-              disabled={isEdit}
+              placeholder={
+                selectedInstitution ? 'Select scope' : 'Select an institution first'
+              }
+              disabled={isEdit || !selectedInstitution}
               modal
             />
             <p className='text-xs text-muted-foreground'>

@@ -73,7 +73,7 @@ const REQUIRED_BY_SECTION: Record<Section, Array<{ key: string; label: string }>
     { key: 'program_id',        label: 'Program' },
     { key: 'entry_type',        label: 'Entry Type' },
     { key: 'semester_id',       label: 'Semester' },
-    { key: 'quota',             label: 'Quota' },
+    { key: 'quota_id',          label: 'Quota' },
     { key: 'admission_year_id', label: 'Admission Year' },
   ],
   accommodation: [

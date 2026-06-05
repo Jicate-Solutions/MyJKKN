@@ -28,7 +28,7 @@ import crypto from 'crypto';
 import { logger } from '@/lib/utils/enhanced-logger';
 import { getActiveProviderName, getPaymentProvider } from '@/lib/services/payments/factory';
 import { toPaise } from '@/lib/services/payments/amount';
-import { dualInquiry } from '@/lib/services/payments/razorpay/get-status';
+import { RazorpayProvider } from '@/lib/services/payments/razorpay/razorpay-provider';
 
 // ============================================================================
 // Configuration
@@ -225,7 +225,10 @@ export class PaymentGatewayService {
       // Otherwise, fall through to the existing HDFC SmartGateway flow below.
       // ----------------------------------------------------------------------
       if (getActiveProviderName('billing') === 'razorpay') {
-        const provider = getPaymentProvider('billing');
+        // Resolve the institution's Razorpay account (falls back to the common env
+        // account when this institution has none configured).
+        const provider = await getPaymentProvider('billing', { institutionId });
+        const rzpAccountId = (provider as RazorpayProvider).accountId ?? null;
         const amountPaise = toPaise(totalAmount);
 
         const customerEmail = student.student_email || student.college_email || 'noreply@jkkn.ai';
@@ -267,6 +270,7 @@ export class PaymentGatewayService {
             status: 'initiated',
             provider: 'razorpay',
             razorpay_order_id: order.gatewayOrderId,
+            razorpay_account_id: rzpAccountId,
             gateway_response: order.raw,
           })
           .select()
@@ -714,7 +718,10 @@ export class PaymentGatewayService {
       // Calls provider.getOrderStatus() and maps Razorpay status → our enum.
       // ------------------------------------------------------------------
       if (transaction.provider === 'razorpay') {
-        const provider = getPaymentProvider('billing');
+        const provider = await getPaymentProvider('billing', {
+          accountId: transaction.razorpay_account_id,
+          institutionId: transaction.institution_id,
+        });
         const rzpStatus = await provider.getOrderStatus(transaction.razorpay_order_id);
 
         let newStatus: PaymentStatus = transaction.status;
@@ -887,7 +894,10 @@ export class PaymentGatewayService {
           };
         }
 
-        const provider = getPaymentProvider('billing');
+        const provider = await getPaymentProvider('billing', {
+          accountId: transaction.razorpay_account_id,
+          institutionId: transaction.institution_id,
+        });
         const signatureValid = provider.verifySignature({
           gatewayOrderId: transaction.razorpay_order_id,
           gatewayPaymentId: razorpayCallback.paymentId,
@@ -915,7 +925,10 @@ export class PaymentGatewayService {
 
         // Dual inquiry: server-side fetch from BOTH /orders and /payments.
         // This is mandatory per the Razorpay security audit checklist.
-        const status = await dualInquiry(transaction.razorpay_order_id, razorpayCallback.paymentId);
+        const status = await (provider as RazorpayProvider).dualInquiry(
+          transaction.razorpay_order_id,
+          razorpayCallback.paymentId,
+        );
 
         // Amount mismatch check (compare paise, not rupees, for exactness)
         const expectedPaise = Number(transaction.amount_paise ?? 0);

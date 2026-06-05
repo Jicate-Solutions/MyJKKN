@@ -93,8 +93,8 @@ export interface LearnerProfile {
   date_of_birth: string;
   gender: string;
   religion: string;
-  community: string;
-  caste?: string;
+  community_category_id?: string | null;
+  caste_id?: string | null;
   aadhar_number?: string;
   blood_group?: string;
   // Legacy integer year (e.g. 2026). Kept for B2A endpoint back-compat —
@@ -153,7 +153,6 @@ export interface LearnerProfile {
   counseling_applied?: boolean;
   counseling_number?: string;
   scholarship_type?: string;
-  quota?: string;
   category?: string;
   entry_type: string;
 
@@ -295,8 +294,8 @@ export const learnerProfileSchema = z.object({
   date_of_birth: z.string().min(1, 'Date of birth is required'),
   gender: z.string().min(1, 'Gender is required'),
   religion: z.string().min(1, 'Religion is required'),
-  community: z.string().min(1, 'Community is required'),
-  caste: z.string().optional(),
+  community_category_id: z.string().uuid('Community is required'),
+  caste_id: z.string().uuid().optional().or(z.literal('')),
   blood_group: z.string().optional(),
   admission_year: z.number().optional(),
   learner_type: z.enum(['regular', 'irregular', 'intern']).optional(),
@@ -334,7 +333,6 @@ export const learnerProfileSchema = z.object({
   counseling_applied: z.boolean().default(false),
   counseling_number: z.string().optional(),
   scholarship_type: z.string().optional(),
-  quota: z.string().optional(),
   category: z.string().optional(),
 
   // Entry type
@@ -417,8 +415,8 @@ export interface UpdateLearnerProfileDto {
   date_of_birth?: string;
   gender?: string;
   religion?: string;
-  community?: string;
-  caste?: string | null;
+  community_category_id?: string | null;
+  caste_id?: string | null;
   aadhar_number?: string | null;
   blood_group?: string | null;
   admission_year?: number | null;
@@ -457,7 +455,6 @@ export interface UpdateLearnerProfileDto {
   counseling_applied?: boolean | null;
   counseling_number?: string | null;
   scholarship_type?: string | null;
-  quota?: string | null;
   category?: string | null;
   entry_type?: string;
 
@@ -575,7 +572,7 @@ export interface LearnerProfileFilters {
   // Demographics
   gender?: string;
   religion?: string;
-  community?: string;
+  community_category_id?: string | null;
   entry_type?: string;
   accommodation_type?: string;
 
@@ -737,7 +734,7 @@ export const REQUIRED_FIELDS_BY_STATUS: Record<LifecycleStatus, string[]> = {
   // 2026-05-20: Entry-point requirements minimal (same fields the bridge-convert API already populates).
   enquiry: ['first_name', 'student_mobile'],
   // Learner-completed self-fill form provides personal + academic + contact sections.
-  enquiry_submitted: ['first_name', 'date_of_birth', 'gender', 'religion', 'community', 'student_mobile', 'student_email'],
+  enquiry_submitted: ['first_name', 'date_of_birth', 'gender', 'religion', 'community_category_id', 'student_mobile', 'student_email'],
   pending: ['first_name', 'father_name', 'mother_name', 'date_of_birth', 'tenth_marks', 'twelfth_marks'],
   approved: ['institution_id', 'degree_id', 'department_id', 'program_id'],
   account: ['institution_id', 'degree_id', 'department_id', 'program_id'],

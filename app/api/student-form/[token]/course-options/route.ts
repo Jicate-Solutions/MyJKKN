@@ -26,6 +26,7 @@ import { StudentFormService } from '@/lib/services/admission/student-form-servic
 
 type Filters = {
   institution_id?: string;
+  quota_id?: string;
   degree_id?: string;
   department_id?: string;
   program_id?: string;
@@ -36,6 +37,7 @@ type Filters = {
 
 type Kind =
   | 'institutions'
+  | 'quotas'
   | 'degrees'
   | 'programs'
   | 'semesters'
@@ -89,6 +91,19 @@ export async function POST(
           .select('id, name, counselling_code')
           .eq('entity_type', 'institution')
           .eq('is_active', true)
+          .order('name', { ascending: true });
+        if (error) throw error;
+        return NextResponse.json({ data: data ?? [] });
+      }
+
+      case 'quotas': {
+        // Global admission quotas (not institution-scoped). The student picks
+        // one; the form stores quota_id (FK) directly — no free text.
+        const { data, error } = await (svc as any)
+          .from('quotas')
+          .select('id, name')
+          .eq('is_active', true)
+          .order('sort_order', { ascending: true })
           .order('name', { ascending: true });
         if (error) throw error;
         return NextResponse.json({ data: data ?? [] });
@@ -231,6 +246,7 @@ export async function POST(
         // / Program / Semester labels without N separate round-trips.
         const out: {
           institution?: string;
+          quota?: string;
           degree?: string;
           department?: string;
           program?: string;
@@ -239,6 +255,19 @@ export async function POST(
           stop?: string;
         } = {};
         const ops: Array<Promise<unknown>> = [];
+
+        if (filters.quota_id) {
+          ops.push(
+            (svc as any)
+              .from('quotas')
+              .select('name')
+              .eq('id', filters.quota_id)
+              .maybeSingle()
+              .then(({ data }: any) => {
+                if (data?.name) out.quota = data.name;
+              }),
+          );
+        }
 
         if (filters.institution_id) {
           ops.push(

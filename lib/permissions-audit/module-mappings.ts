@@ -139,6 +139,13 @@ export const ROUTE_PREFIX_TO_MODULE: ReadonlyArray<readonly [string, string]> = 
   ['/campus-living', 'Campus Living'],
   ['/accreditation', 'System'],
   ['/audit-trail', 'System'],
+  // Clinical internships module (super_admin-gated "Internship Module" sidebar
+  // group: cycles, sites/hospitals, preceptors, vehicles). No dedicated
+  // permission catalog or table-module entry yet, so it rolls up to System like
+  // /accreditation and /bos. Distinct from /cdc/internships (CDC career
+  // placements, gated by cdc.internships.*) — different first URL segment, so
+  // this prefix can't swallow it.
+  ['/internships', 'System'],
   ['/work-pulse', 'Work Pulse'],
   ['/ai-pulse', 'AI Pulse'],
   ['/my-bug-reports', 'Bug Reports'],
@@ -168,6 +175,7 @@ export const ROUTE_PREFIX_TO_MODULE: ReadonlyArray<readonly [string, string]> = 
   ['/vac', 'VAC'],
   ['/bos', 'System'],
   ['/cdc', 'CDC'], // Career Development Centre — drives, placements, internships, idp, clubs, mentors, training, bulletin, exports, industry-mentors
+  ['/internships', 'Internship'], // Internship Module — operational cycles/sites/preceptors/vehicles routes (PR #1209)
   // Instagram monitoring substrate (Phase 1B, 2026-05-30): /social/instagram/*
   // sub-routes (accounts, posts, audits, dormant queue, alerts) all roll up
   // into the Instagram module. Listed before broader prefixes to be safe.

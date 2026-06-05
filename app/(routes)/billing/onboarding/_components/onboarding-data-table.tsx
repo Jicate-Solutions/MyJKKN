@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useMemo, useRef } from 'react';
+import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Receipt, X, Loader2 } from 'lucide-react';
 import {
@@ -24,6 +24,7 @@ import type {
 } from '@/lib/services/billing/onboarding/onboarding-service';
 
 const DEFAULT_PAGE_SIZE = 20;
+const FILTER_STORAGE_KEY = 'billing-onboarding-filters';
 
 type TabValue = 'all' | PaymentStatus;
 
@@ -42,6 +43,7 @@ const HIERARCHY_KEYS: OnboardingFilterKey[] = [
   'bill_status',
   'lifecycle_status',
 ];
+
 
 export function OnboardingDataTable() {
   const router = useRouter();
@@ -83,6 +85,35 @@ export function OnboardingDataTable() {
     [router, searchParams]
   );
 
+  // Persist filter params to sessionStorage so they survive sidebar navigation.
+  // Page/pageSize are intentionally excluded — always start fresh at page 1.
+  useEffect(() => {
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete('page');
+    params.delete('pageSize');
+    const qs = params.toString();
+    if (qs) {
+      sessionStorage.setItem(FILTER_STORAGE_KEY, qs);
+    } else {
+      sessionStorage.removeItem(FILTER_STORAGE_KEY);
+    }
+  }, [searchParams]);
+
+  // On mount: if the URL has no filter params (e.g. user arrived via sidebar),
+  // restore the last-used filters from sessionStorage.
+  const didRestoreRef = useRef(false);
+  useEffect(() => {
+    if (didRestoreRef.current) return;
+    didRestoreRef.current = true;
+    if (!searchParams.toString()) {
+      const saved = sessionStorage.getItem(FILTER_STORAGE_KEY);
+      if (saved) {
+        router.replace(`/billing/onboarding?${saved}`, { scroll: false });
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // intentionally mount-only
+
   const filters: OnboardingFilters = {
     page,
     limit: pageSize,
@@ -92,8 +123,8 @@ export function OnboardingDataTable() {
   };
 
   const handleFilterChange = useCallback(
-    (key: OnboardingFilterKey, value: string | undefined) => {
-      updateParams({ [key]: value, page: '1' });
+    (updates: Partial<Record<OnboardingFilterKey, string | undefined>>) => {
+      updateParams({ ...updates, page: '1' });
     },
     [updateParams]
   );
@@ -138,6 +169,11 @@ export function OnboardingDataTable() {
 
   const clearSelection = useCallback(() => setSelectedIds(new Set()), []);
 
+  // Build the URL the user is currently on (with all active filters) so that
+  // any navigation away from this page (View Bills, student name click) can
+  // carry a returnTo param — enabling a redirect back here after billing.
+  const returnToUrl = `/billing/onboarding${searchParams.toString() ? `?${searchParams.toString()}` : ''}`;
+
   const columns = useMemo(
     () =>
       getOnboardingColumns({
@@ -146,8 +182,9 @@ export function OnboardingDataTable() {
         toggleAllOnPage,
         pageRowIds,
         generatingIds,
+        returnToUrl,
       }),
-    [selectedIds, toggleSelected, toggleAllOnPage, pageRowIds, generatingIds]
+    [selectedIds, toggleSelected, toggleAllOnPage, pageRowIds, generatingIds, returnToUrl]
   );
 
   // Ref to guard against the DataTable's spurious mount-time onSearch call

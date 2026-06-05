@@ -148,8 +148,8 @@ function transformLearnerForExport(learner: any): Record<string, any> {
     date_of_birth: learner.date_of_birth || '',
     gender: learner.gender || '',
     religion: learner.religion || '',
-    community: learner.community || '',
-    caste: learner.caste || '',
+    community: learner.community_ref?.code || '',
+    caste: learner.caste_ref?.name || '',
     aadhar_number: learner.aadhar_number || '',
     blood_group: learner.blood_group || '',
     // Family
@@ -174,7 +174,7 @@ function transformLearnerForExport(learner: any): Record<string, any> {
       ? `${learner.regulation.regulation_code} (${learner.regulation.regulation_year})`
       : '',
     batch_name: learner.batch?.batch_name || '',
-    quota: learner.quota || '',
+    quota: learner.quota_ref?.name || '',
     // Contact
     student_mobile: learner.student_mobile || '',
     college_email: learner.college_email || '',
@@ -194,8 +194,8 @@ function transformLearnerForExport(learner: any): Record<string, any> {
     medical_cutoff_marks: learner.medical_cutoff_marks || '',
     engineering_cutoff_marks: learner.engineering_cutoff_marks || '',
     scholarship_type: learner.scholarship_type || '',
-    // Accommodation
-    accommodation_type: learner.accommodation_type || '',
+    // Accommodation — accommodation_type TEXT retired; read the FK's name.
+    accommodation_type: learner.accommodation_ref?.name || '',
     bus_required: learner.bus_required === true ? 'Yes' : learner.bus_required === false ? 'No' : '',
     // System
     roll_number: learner.roll_number || '',

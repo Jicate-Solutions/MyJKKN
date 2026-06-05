@@ -649,12 +649,6 @@ const config: ModuleNavConfig = {
           href: '/campus-living/settings/curfew',
           matchPaths: ['/campus-living/settings/curfew'],
         },
-        {
-          label: 'Room Catalog & Access',
-          icon: 'BedDouble',
-          href: '/campus-living/rooms',
-          matchPaths: ['/campus-living/rooms'],
-        },
         // ── Premium Stay (admin surfaces, now in-module) ────────────
         // Relocated 2026-06-01 from /admin/campus-living/* into the Campus
         // Living module so there's no separate admin module. Access is gated

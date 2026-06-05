@@ -51,17 +51,6 @@ export function useRoomsByBlockWithOccupancy(blockId: string) {
   });
 }
 
-// hostel-rooms-v2 PR 4a (2026-05-26): /admin/hostel/rooms catalog feed.
-// Pulls every room with its block + live occupancy. 30s staleTime so
-// repeated dialog opens don't re-query. RLS scopes; super-admin sees all.
-export function useAllRoomsWithOccupancy() {
-  return useQuery({
-    queryKey: [...hostelRoomKeys.all, 'with-occupancy'] as const,
-    queryFn: () => HostelRoomService.getAllRoomsWithOccupancy(),
-    staleTime: 30_000,
-  });
-}
-
 export function useHostelRoom(id: string) {
   return useQuery({
     queryKey: hostelRoomKeys.detail(id),

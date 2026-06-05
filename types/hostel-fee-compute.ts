@@ -9,7 +9,7 @@
  *   mess_fee    = chosen mess category annual rate, FLAT per learner (NOT divided)
  *   total       = base_share + ac_share + mess_fee
  *
- * FEE BASIS (discovered, 2026-05-28): `hostel_category_fees.amount` for a
+ * FEE BASIS (discovered, 2026-05-28): `hostel_fees.amount` for a
  * hostel_category row is the PER-BED annual rate. Confirmed by policy rows:
  *   fractional_occupancy.multiplier_cap → "Sole occupant of a 6-bed room pays
  *     6× the per-bed base rate."
@@ -33,7 +33,7 @@ export interface AcConfig {
  * handles. This is what makes the core engine unit-testable.
  */
 export interface FeeComputeInput {
-  /** PER-BED annual rate for the room's hostel category (from hostel_category_fees.amount). */
+  /** PER-BED annual rate for the room's hostel category (from hostel_fees.amount). */
   perBedAnnualRate: number;
   /** Room bed count (hostel_rooms.capacity). full_room_annual = perBedAnnualRate × roomCapacity. */
   roomCapacity: number;
@@ -81,7 +81,7 @@ export interface ProRataResult {
 /** Async quote-endpoint input — IDs the fetch wrapper resolves to compute primitives. */
 export interface QuoteUpfrontFeeInput {
   roomId: string;
-  /** hostel_category_fees row's hostel_category to price the room base. */
+  /** hostel_fees row's hostel_category to price the room base. */
   roomCategoryId: string;
   activeOccupants: number;
   /** Optional mess category; if omitted, mess_fee = 0. */

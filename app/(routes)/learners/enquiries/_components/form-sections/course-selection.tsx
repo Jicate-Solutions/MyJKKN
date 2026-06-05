@@ -53,8 +53,9 @@ import { useRegulations } from '@/hooks/academic/use-regulations';
 import { useBatches } from '@/hooks/academic/use-batches';
 import type { Degree, Department, Program, Semester, Section } from '@/types/organizations';
 import type { AcademicYear, Regulation, Batch } from '@/types/academics';
-import { ENTRY_TYPE_OPTIONS, QUOTA_OPTIONS } from '@/lib/constants/learner-dropdown-values';
+import { ENTRY_TYPE_OPTIONS } from '@/lib/constants/learner-dropdown-values';
 import { AdmissionYearSelect } from '@/components/admission/admission-year-select';
+import { LookupService } from '@/lib/services/admission/lookup-service';
 
 interface CourseSelectionProps {
   form: UseFormReturn<any>;
@@ -101,6 +102,15 @@ export function CourseSelectionSection({ form, showLearnerType = false }: Course
   const { academicYears, loading: loadingAcademicYears } = useAcademicYearsByInstitution(watchedInstitutionId);
   const { regulations, loading: loadingRegulations, updateFilters: updateRegulationFilters } = useRegulations({ institution_id: watchedInstitutionId || undefined });
   const { batches, loading: loadingBatches, updateFilters: updateBatchFilters } = useBatches({ institution_id: watchedInstitutionId || undefined });
+
+  // Quotas — bound to the global quotas lookup so the form writes quota_id (the
+  // FK) directly, not free text. Migrated off the static QUOTA_VALUES enum
+  // 2026-06-02 to kill the text↔FK drift that mismatched fee structures.
+  const { data: quotasData } = useQuery({
+    queryKey: ['lookup', 'quotas', 'active'],
+    queryFn: () => LookupService.listQuotas(true),
+    staleTime: 5 * 60 * 1000,
+  });
 
   // Sync regulation/batch filters when institution changes (useState in hooks ignores prop updates after mount)
   useEffect(() => {
@@ -292,7 +302,7 @@ export function CourseSelectionSection({ form, showLearnerType = false }: Course
         <div className="grid gap-4 md:grid-cols-2">
           <FormField
             control={form.control}
-            name="quota"
+            name="quota_id"
             render={({ field }) => (
               <FormItem>
                 <FormLabel>Quota</FormLabel>
@@ -303,9 +313,9 @@ export function CourseSelectionSection({ form, showLearnerType = false }: Course
                     </SelectTrigger>
                   </FormControl>
                   <SelectContent>
-                    {QUOTA_OPTIONS.map((option) => (
-                      <SelectItem key={option.value} value={option.value}>
-                        {option.label}
+                    {(quotasData ?? []).map((q) => (
+                      <SelectItem key={q.id} value={q.id}>
+                        {q.name}
                       </SelectItem>
                     ))}
                   </SelectContent>

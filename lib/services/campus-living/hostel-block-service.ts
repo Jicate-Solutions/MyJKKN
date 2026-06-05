@@ -103,7 +103,7 @@ export class HostelBlockService {
       const supabase = createClientSupabaseClient();
       const { data, error } = await supabase
         .from('hostel_blocks')
-        .select(`*, hostel_rooms(*), hostel_wardens(*), ${BLOCK_AMENITY_EMBED}`)
+        .select(`*, hostel_rooms(*, hostel_categories(name)), hostel_wardens(*), ${BLOCK_AMENITY_EMBED}`)
         .eq('id', id)
         .maybeSingle();
 
@@ -138,33 +138,79 @@ export class HostelBlockService {
         floor?: number | null;
         capacity?: number | null;
         room_purpose?: string | null;
+        room_type?: string | null;
+        ac_status?: string | null;
+        tier_access?: string | null;
+        has_attached_bathroom?: boolean | null;
+        hostel_categories?: { name: string } | null;
       }>;
+
       const rooms_summary = { available: 0, partially_occupied: 0, full: 0, maintenance: 0, reserved: 0 };
+
+      // Block-level aggregates for the Floors & Rooms tab summary header.
+      // Computed in a single pass over rooms (no extra query).
+      const blkTypeMap: Record<string, number> = {};
+      const blkACMap: Record<string, number> = {};
+      const blkCatMap: Record<string, number> = {};
+      let blkStudentRooms = 0, blkSpecialRooms = 0, blkTotalBeds = 0, blkOccupiedBeds = 0;
+
       for (const room of rooms) {
-        if (room.room_purpose && room.room_purpose !== 'student') {
-          rooms_summary.reserved += 1;
-          continue;
-        }
+        const isStudent = !room.room_purpose || room.room_purpose === 'student';
+        blkTotalBeds += Number(room.capacity ?? 0);
+        blkOccupiedBeds += occupiedByRoom.get(room.id) ?? 0;
+        if (isStudent) blkStudentRooms += 1; else blkSpecialRooms += 1;
+        if (room.room_type) blkTypeMap[room.room_type] = (blkTypeMap[room.room_type] ?? 0) + 1;
+        if (room.ac_status) blkACMap[room.ac_status] = (blkACMap[room.ac_status] ?? 0) + 1;
+        const catName = room.hostel_categories?.name;
+        if (catName) blkCatMap[catName] = (blkCatMap[catName] ?? 0) + 1;
+
+        if (!isStudent) { rooms_summary.reserved += 1; continue; }
         const st = statusByRoom.get(room.id);
         if (st === 'full') rooms_summary.full += 1;
         else if (st === 'partially_occupied') rooms_summary.partially_occupied += 1;
         else rooms_summary.available += 1;
       }
 
-      // Derive the per-floor breakdown for the detail-page Floors & Rooms tab.
-      // The page reads `block.floor_summary` (FloorSummaryRow[]); without this
-      // it always fell back to [] and showed "No floor data available yet."
-      // even though hostel_rooms holds the floors. Totals reconcile to the
-      // header counters: every room contributes its capacity, occupancy comes
-      // from v_hostel_room_occupancy.active_residents.
-      const floorMap = new Map<number, { floor: number; rooms: number; capacity: number; occupied: number }>();
+      const block_breakdown = {
+        totalBeds: blkTotalBeds,
+        occupiedBeds: blkOccupiedBeds,
+        availableBeds: Math.max(blkTotalBeds - blkOccupiedBeds, 0),
+        studentRooms: blkStudentRooms,
+        specialRooms: blkSpecialRooms,
+        byType: blkTypeMap,
+        byAC: blkACMap,
+        byCategory: blkCatMap,
+      };
+
+      // Per-floor breakdown. One loop, no extra queries; each floor group
+      // carries all the category/type/AC/purpose/bathroom data the tab needs.
+      type FloorGroup = {
+        floor: number; rooms: number; capacity: number; occupied: number;
+        available: number; studentRooms: number; specialRooms: number;
+        attachedBathrooms: number;
+        byType: Record<string, number>;
+        byAC: Record<string, number>;
+        byCategory: Record<string, number>;
+      };
+      const floorMap = new Map<number, FloorGroup>();
       for (const room of rooms) {
         const floor = Number(room.floor ?? 0);
-        const group = floorMap.get(floor) ?? { floor, rooms: 0, capacity: 0, occupied: 0 };
-        group.rooms += 1;
-        group.capacity += Number(room.capacity ?? 0);
-        group.occupied += occupiedByRoom.get(room.id) ?? 0;
-        floorMap.set(floor, group);
+        const g: FloorGroup = floorMap.get(floor) ?? {
+          floor, rooms: 0, capacity: 0, occupied: 0, available: 0,
+          studentRooms: 0, specialRooms: 0, attachedBathrooms: 0,
+          byType: {}, byAC: {}, byCategory: {},
+        };
+        g.rooms += 1;
+        g.capacity += Number(room.capacity ?? 0);
+        g.occupied += occupiedByRoom.get(room.id) ?? 0;
+        const isStudent = !room.room_purpose || room.room_purpose === 'student';
+        if (isStudent) g.studentRooms += 1; else g.specialRooms += 1;
+        if (room.has_attached_bathroom) g.attachedBathrooms += 1;
+        if (room.room_type) g.byType[room.room_type] = (g.byType[room.room_type] ?? 0) + 1;
+        if (room.ac_status) g.byAC[room.ac_status] = (g.byAC[room.ac_status] ?? 0) + 1;
+        const cn = room.hostel_categories?.name;
+        if (cn) g.byCategory[cn] = (g.byCategory[cn] ?? 0) + 1;
+        floorMap.set(floor, g);
       }
       const floorLabel = (floor: number) => {
         if (floor === 0) return 'Ground Floor';
@@ -176,13 +222,14 @@ export class HostelBlockService {
       };
       const floor_summary = Array.from(floorMap.values())
         .sort((a, b) => a.floor - b.floor)
-        .map((g) => ({ ...g, label: floorLabel(g.floor) }));
+        .map((g) => ({ ...g, available: Math.max(g.capacity - g.occupied, 0), label: floorLabel(g.floor) }));
 
-      return { ...mapBlockAmenityTags(data), rooms_summary, floor_summary } as HostelBlock & {
+      return { ...mapBlockAmenityTags(data), rooms_summary, floor_summary, block_breakdown } as HostelBlock & {
         hostel_rooms: unknown[];
         hostel_wardens: unknown[];
         rooms_summary: typeof rooms_summary;
         floor_summary: typeof floor_summary;
+        block_breakdown: typeof block_breakdown;
       };
     } catch (error) {
       logger.error('campus-living/blocks', 'Unexpected error in getBlock', error);
@@ -417,6 +464,103 @@ export class HostelBlockService {
     } catch (error) {
       logger.error('campus-living/blocks', 'Unexpected error in getBlocksByType', error);
       throw error;
+    }
+  }
+
+  // ── Block ↔ institution junction (which colleges share this block) ──
+  // Single institution-access surface since 2026-06-03: a learner can be
+  // allocated to any room in a block linked to their college here. Replaces
+  // the retired per-room room_institution_access "Manage Access" dialog.
+  static async getBlockInstitutions(blockId: string): Promise<
+    { institution_id: string; is_primary: boolean; institution_name: string | null }[]
+  > {
+    const supabase = createClientSupabaseClient();
+    const { data, error } = await supabase
+      .from('hostel_block_institutions')
+      .select('institution_id, is_primary, institution:institutions(name)')
+      .eq('block_id', blockId)
+      .order('is_primary', { ascending: false });
+    if (error) {
+      logger.error('campus-living/blocks', 'Failed to fetch block institutions', error);
+      throw error;
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return (data ?? []).map((r: any) => ({
+      institution_id: r.institution_id as string,
+      is_primary: Boolean(r.is_primary),
+      institution_name: (r.institution?.name as string) ?? null,
+    }));
+  }
+
+  // Add a college to a block. The block's FIRST college is made primary so a
+  // freshly-linked block always has exactly one primary (the bed-attribution
+  // and legacy "owning college" semantics rely on a primary existing).
+  static async addBlockInstitution(
+    blockId: string,
+    institutionId: string,
+  ): Promise<void> {
+    const supabase = createClientSupabaseClient();
+    const { count, error: countErr } = await supabase
+      .from('hostel_block_institutions')
+      .select('block_id', { count: 'exact', head: true })
+      .eq('block_id', blockId);
+    if (countErr) {
+      logger.error('campus-living/blocks', 'Failed to count block institutions', countErr);
+      throw countErr;
+    }
+    const isPrimary = (count ?? 0) === 0;
+    const { error } = await supabase
+      .from('hostel_block_institutions')
+      .upsert(
+        { block_id: blockId, institution_id: institutionId, is_primary: isPrimary },
+        { onConflict: 'block_id,institution_id' },
+      );
+    if (error) {
+      logger.error('campus-living/blocks', 'Failed to add block institution', error);
+      throw error;
+    }
+  }
+
+  static async removeBlockInstitution(
+    blockId: string,
+    institutionId: string,
+  ): Promise<void> {
+    const supabase = createClientSupabaseClient();
+    const { error } = await supabase
+      .from('hostel_block_institutions')
+      .delete()
+      .eq('block_id', blockId)
+      .eq('institution_id', institutionId);
+    if (error) {
+      logger.error('campus-living/blocks', 'Failed to remove block institution', error);
+      throw error;
+    }
+  }
+
+  // Promote one college to primary. Two writes because the partial unique index
+  // (at most one is_primary=true per block) rejects a single bulk flip.
+  static async setPrimaryBlockInstitution(
+    blockId: string,
+    institutionId: string,
+  ): Promise<void> {
+    const supabase = createClientSupabaseClient();
+    const { error: clearErr } = await supabase
+      .from('hostel_block_institutions')
+      .update({ is_primary: false })
+      .eq('block_id', blockId)
+      .eq('is_primary', true);
+    if (clearErr) {
+      logger.error('campus-living/blocks', 'Failed to clear primary block institution', clearErr);
+      throw clearErr;
+    }
+    const { error: setErr } = await supabase
+      .from('hostel_block_institutions')
+      .update({ is_primary: true })
+      .eq('block_id', blockId)
+      .eq('institution_id', institutionId);
+    if (setErr) {
+      logger.error('campus-living/blocks', 'Failed to set primary block institution', setErr);
+      throw setErr;
     }
   }
 }

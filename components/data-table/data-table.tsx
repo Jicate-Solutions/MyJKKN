@@ -102,6 +102,11 @@ interface DataTableProps<TData extends ExportableData, TValue> {
     handleRowDeselection: ((rowId: string) => void) | null | undefined
   ) => ColumnDef<TData, TValue>[];
 
+  // Optional mobile card renderer — when provided, renders a card list on
+  // screens narrower than md (768 px) and hides the table. The table is still
+  // rendered (but hidden) so TanStack Table's pagination state is shared.
+  renderMobileRow?: (item: TData) => React.ReactNode;
+
   // Data fetching function
   fetchDataFn:
     | ((params: DataFetchParams) => Promise<DataFetchResult<TData>>)
@@ -155,6 +160,7 @@ export function DataTable<TData extends ExportableData, TValue>({
   idField = 'id' as keyof TData,
   pageSizeOptions,
   renderToolbarContent,
+  renderMobileRow,
   refetchKey = 0
 }: DataTableProps<TData, TValue>) {
   // Load table configuration with any overrides
@@ -865,9 +871,45 @@ export function DataTable<TData extends ExportableData, TValue>({
         />
       )}
 
+      {/* Mobile card list — visible on < md screens when renderMobileRow is provided */}
+      {renderMobileRow && (
+        <div className='md:hidden space-y-3'>
+          {isLoading ? (
+            Array.from({ length: Math.min(pageSize, 5) }).map((_, i) => (
+              <div key={i} className='rounded-lg border bg-card p-4 space-y-2.5'>
+                <div className='flex items-start justify-between gap-2'>
+                  <Skeleton className='h-4 w-1/2' />
+                  <Skeleton className='h-5 w-16 rounded-full' />
+                </div>
+                <Skeleton className='h-3.5 w-1/3' />
+                <Skeleton className='h-3.5 w-2/3' />
+                <div className='flex gap-1.5 pt-0.5'>
+                  <Skeleton className='h-5 w-20 rounded-full' />
+                  <Skeleton className='h-5 w-16 rounded-full' />
+                </div>
+                <div className='flex justify-between pt-1 border-t'>
+                  <Skeleton className='h-3.5 w-24' />
+                  <Skeleton className='h-3.5 w-20' />
+                </div>
+              </div>
+            ))
+          ) : dataItems.length > 0 ? (
+            dataItems.map((item) => (
+              <div key={String(item[idField])}>
+                {renderMobileRow(item)}
+              </div>
+            ))
+          ) : (
+            <div className='rounded-md border py-8 text-center text-sm text-muted-foreground'>
+              No results.
+            </div>
+          )}
+        </div>
+      )}
+
       <div
         ref={tableContainerRef}
-        className='overflow-y-auto rounded-md border table-container'
+        className={`overflow-x-auto overflow-y-auto rounded-md border table-container${renderMobileRow ? ' hidden md:block' : ''}`}
         aria-label='Data table'
         onKeyDown={
           tableConfig.enableKeyboardNavigation ? handleKeyDown : undefined

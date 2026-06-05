@@ -2,6 +2,8 @@
 
 import { useRouter } from 'next/navigation';
 import { LearnerProfile } from '@/types/learner-profile';
+import { useQuotaName } from '@/hooks/admission/use-quota-name';
+import { useCommunityName } from '@/hooks/admission/use-community-name';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -42,6 +44,8 @@ interface ProfileViewProps {
 }
 
 export function ProfileView({ learner, canEdit, onEdit }: ProfileViewProps) {
+  const quotaName = useQuotaName((learner as { quota_id?: string }).quota_id);
+  const communityName = useCommunityName((learner as { community_category_id?: string }).community_category_id);
   const router = useRouter();
 
   // Resolve the stored hostel/mess category FKs to display names.
@@ -206,7 +210,7 @@ export function ProfileView({ learner, canEdit, onEdit }: ProfileViewProps) {
               <InfoField label="Learner Type" value={learner.learner_type ? learner.learner_type.charAt(0).toUpperCase() + learner.learner_type.slice(1) : null} icon={User} />
               <Separator />
               <InfoField label="Religion" value={learner.religion} icon={BookOpen} />
-              <InfoField label="Community" value={learner.community} icon={Users} />
+              <InfoField label="Community" value={communityName} icon={Users} />
               <InfoField label="Caste" value={learner.caste} icon={Users} />
               <InfoField
                 label="Aadhar Number"
@@ -433,7 +437,7 @@ export function ProfileView({ learner, canEdit, onEdit }: ProfileViewProps) {
                 value={(learner as any).counseling_number}
                 icon={FileText}
               />
-              <InfoField label="Quota" value={(learner as any).quota} icon={Award} />
+              <InfoField label="Quota" value={quotaName} icon={Award} />
               <InfoField label="Category" value={(learner as any).category} icon={Users} />
               <InfoField
                 label="Scholarship Type"

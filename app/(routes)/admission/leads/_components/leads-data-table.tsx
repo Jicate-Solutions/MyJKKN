@@ -1,14 +1,18 @@
 'use client';
 
 import { DataTable } from '@/components/data-table/data-table';
-import { getLeadColumns, useLeadStageOptions } from './columns';
+import { getLeadColumns, LeadStageBadge, useLeadStageOptions } from './columns';
+import { SourceBadge, OverdueBadge } from './source-badge';
 import { ConsultantService } from '@/lib/services/admission/consultant-service';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import { Plus, TrashIcon, Flame, Star, Loader2, Filter, X, RefreshCw } from 'lucide-react';
+import Link from 'next/link';
+import { formatDateDMY } from '@/lib/utils/date-format';
+import type { AdmissionLead } from '@/types/admission';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { LeadService } from '@/lib/services/admission/lead-service';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
-import type { AdmissionLead } from '@/types/admission';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useAuth } from '@/hooks/use-auth';
 import { useExpoEvents, useCounselorsList } from '@/hooks/admission';
@@ -37,6 +41,62 @@ import toast from 'react-hot-toast';
 // Source dropdown options now come from useActiveLeadSources() — admin-curated
 // rows in admission_lead_sources_master replace this once-static list.
 
+function LeadMobileCard({ lead }: { lead: AdmissionLead }) {
+  return (
+    <Link
+      href={`/admission/leads/${lead.id}`}
+      className="block rounded-lg border bg-card hover:bg-accent/50 transition-colors"
+    >
+      <div className="p-4 space-y-2.5">
+        {/* Name row + stage badge */}
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex items-center gap-1.5 min-w-0">
+            <span className="font-semibold text-sm truncate">
+              {lead.full_name || 'Unknown'}
+            </span>
+            {lead.is_hot_lead && (
+              <Flame className="h-3.5 w-3.5 text-orange-500 shrink-0" />
+            )}
+            {lead.is_priority && !lead.is_hot_lead && (
+              <Star className="h-3.5 w-3.5 text-yellow-500 fill-yellow-500 shrink-0" />
+            )}
+          </div>
+          <LeadStageBadge stage={lead.funnel_stage} />
+        </div>
+
+        {/* Contact info */}
+        {(lead.phone || lead.email) && (
+          <div className="text-xs text-muted-foreground space-y-0.5">
+            {lead.phone && <div>{lead.phone}</div>}
+            {lead.email && <div className="truncate">{lead.email}</div>}
+          </div>
+        )}
+
+        {/* Programs + source + overdue badges */}
+        <div className="flex flex-wrap gap-1 items-center">
+          {lead.interested_program_names?.[0] && (
+            <Badge variant="outline" className="text-xs font-normal py-0">
+              {lead.interested_program_names[0]}
+              {(lead.interested_program_names.length ?? 0) > 1 &&
+                ` +${lead.interested_program_names.length - 1}`}
+            </Badge>
+          )}
+          <SourceBadge source={lead.source} />
+          <OverdueBadge nextFollowupAt={lead.next_followup_at} />
+        </div>
+
+        {/* Footer: assigned counselor + created date */}
+        <div className="flex items-center justify-between gap-2 pt-1.5 border-t text-xs text-muted-foreground">
+          <span className="truncate">
+            {lead.counselor?.name || 'Unassigned'}
+          </span>
+          <span className="shrink-0">{formatDateDMY(lead.created_at)}</span>
+        </div>
+      </div>
+    </Link>
+  );
+}
+
 export function LeadsDataTable() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -62,33 +122,59 @@ export function LeadsDataTable() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [refetchKey, setRefetchKey] = useState(0);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  // Timestamp of the last successful list fetch — gates the visibility refetch
+  // below so a trivial alt-tab within VISIBILITY_STALE_MS is a no-op instead of
+  // re-running the (heavy) service-role list endpoint on every refocus.
+  const lastFetchedAtRef = useRef(0);
+  // Debounce handle so rapid multi-filter changes coalesce into ONE refetch
+  // instead of one heavy round-trip per dropdown click.
+  const refetchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Filter changes need to (a) bump refetchKey so the DataTable refetches AND
   // (b) reset the URL's ?page= param to 1. Without the page reset, switching
   // a filter while on page 5 of unfiltered results lands the user on page 5
   // of the filtered set — which is usually beyond the new last page, so the
   // API returns an empty page and the table looks broken/unfiltered.
+  // Debounced (~300ms): the filter Select state updates immediately (UI stays
+  // responsive); only the network refetch is coalesced, so adjusting 3 filters
+  // costs one round-trip, not three.
   const bumpRefetchAndResetPage = useCallback(() => {
-    setRefetchKey((prev) => prev + 1);
-    // Use replaceState (not router.replace) to avoid a Next.js navigation
-    // round-trip — we just want to drop `page` from the URL bar; the
-    // DataTable's URL-state hook will pick up page=1 on its next read.
-    if (typeof window !== 'undefined') {
-      const url = new URL(window.location.href);
-      if (url.searchParams.has('page')) {
-        url.searchParams.delete('page');
-        window.history.replaceState(null, '', url.toString());
+    if (refetchDebounceRef.current) clearTimeout(refetchDebounceRef.current);
+    refetchDebounceRef.current = setTimeout(() => {
+      // Use replaceState (not router.replace) to avoid a Next.js navigation
+      // round-trip — we just want to drop `page` from the URL bar; the
+      // DataTable's URL-state hook will pick up page=1 on its next read.
+      if (typeof window !== 'undefined') {
+        const url = new URL(window.location.href);
+        if (url.searchParams.has('page')) {
+          url.searchParams.delete('page');
+          window.history.replaceState(null, '', url.toString());
+        }
       }
-    }
+      setRefetchKey((prev) => prev + 1);
+    }, 300);
+  }, []);
+
+  // Clear any pending debounced refetch on unmount.
+  useEffect(() => {
+    return () => {
+      if (refetchDebounceRef.current) clearTimeout(refetchDebounceRef.current);
+    };
   }, []);
 
   // Auto-refetch when the tab becomes visible again (e.g., user navigates back from lead
-  // detail/create). Uses visibilitychange instead of window.focus so that Radix UI
-  // dropdown portals (which briefly shift window focus) don't trigger a mid-interaction
-  // data refetch that races against the user's filter selection.
+  // detail/create) — but ONLY if the data is stale (older than VISIBILITY_STALE_MS), so a
+  // trivial alt-tab no longer re-runs the heavy service-role list endpoint on every refocus.
+  // Still uses visibilitychange instead of window.focus so that Radix UI dropdown portals
+  // (which briefly shift window focus) don't trigger a mid-interaction refetch that races
+  // against the user's filter selection.
   useEffect(() => {
+    const VISIBILITY_STALE_MS = 60_000;
     const handleVisibility = () => {
-      if (document.visibilityState === 'visible') {
+      if (
+        document.visibilityState === 'visible' &&
+        Date.now() - lastFetchedAtRef.current > VISIBILITY_STALE_MS
+      ) {
         setRefetchKey((prev) => prev + 1);
       }
     };
@@ -324,6 +410,9 @@ export function LeadsDataTable() {
       });
 
       const leads = result.data || [];
+      // Mark the time of this successful fetch so the visibilitychange handler
+      // can skip refetching on a quick alt-tab (see VISIBILITY_STALE_MS above).
+      lastFetchedAtRef.current = Date.now();
 
       // Best-effort: batch-fetch primary consultant for each lead on this page.
       // Only update attributionsMap once (when async fetch completes) to avoid
@@ -792,6 +881,7 @@ export function LeadsDataTable() {
           enableRowSelection: true
         }}
         renderToolbarContent={renderCustomToolbar}
+        renderMobileRow={(item) => <LeadMobileCard lead={item as AdmissionLead} />}
         refetchKey={refetchKey}
       />
 

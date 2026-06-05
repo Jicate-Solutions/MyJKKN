@@ -1,7 +1,7 @@
 'use client';
 // app/(routes)/resource-management/reservations/_components/resource-selector.tsx
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Search, Filter, MapPin, Users, Calendar } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -39,20 +39,25 @@ export function ResourceSelector({
     useInstitutionsWithAccess();
   const { categories, loading: loadingCategories } = useParentCategories();
 
-  // ResourceService.getResources defaults `limit` to 10 when omitted, which
-  // silently truncates this picker (e.g. 17 "Spaces & Venues" resources → 10
-  // visible cards). This is a picker, not a paginated list — request a high
-  // upper bound so every available resource shows up. List pages keep their
-  // own real pagination via `resources/page.tsx`.
-  const { resources, loading: loadingResources } = useResources({
-    status: (selectedStatus === 'all' ? undefined : selectedStatus) as any,
-    parent_category_id:
-      selectedCategory === 'all' ? undefined : selectedCategory,
-    institution_id:
-      selectedInstitution === 'all' ? undefined : selectedInstitution,
-    search: searchQuery || undefined,
+  // useResources uses useState(initialFilters) internally — React only reads
+  // that argument once on mount, so passing a new object on every render has
+  // no effect. We initialise with stable defaults and push changes through
+  // updateFilters (which calls setFilters) so the hook re-fetches correctly.
+  const { resources, loading: loadingResources, updateFilters } = useResources({
+    status: 'available',
     limit: 1000
   });
+
+  useEffect(() => {
+    updateFilters({
+      status: (selectedStatus === 'all' ? undefined : selectedStatus) as any,
+      parent_category_id:
+        selectedCategory === 'all' ? undefined : selectedCategory,
+      institution_id:
+        selectedInstitution === 'all' ? undefined : selectedInstitution,
+      search: searchQuery || undefined
+    });
+  }, [selectedStatus, selectedCategory, selectedInstitution, searchQuery, updateFilters]);
 
   // Filter resources
   const filteredResources = resources.filter((resource: any) => {

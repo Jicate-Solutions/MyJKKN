@@ -15,6 +15,7 @@ import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
+import { PermissionGuard } from '@/components/auth/permission-guard';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -153,6 +154,7 @@ export default function HrPerformanceReviewCycleDetailPage() {
   }
 
   return (
+    <PermissionGuard module="users" action="manage">
     <ContentLayout title={cycle ? `Cycle ${cycle.cycle_year}` : 'Loading cycle…'}>
       <div className="space-y-4">
         <div>
@@ -277,5 +279,6 @@ export default function HrPerformanceReviewCycleDetailPage() {
         </Card>
       </div>
     </ContentLayout>
+    </PermissionGuard>
   );
 }

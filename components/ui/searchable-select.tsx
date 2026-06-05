@@ -62,13 +62,34 @@ export function SearchableSelect({
   modal = false,
 }: SearchableSelectProps) {
   const [open, setOpen] = React.useState(false);
+  const triggerRef = React.useRef<HTMLButtonElement>(null);
+
+  // When opened inside a Radix Dialog (modal), portal the popover INTO the
+  // dialog instead of document.body. Otherwise the Dialog's focus-trap eats
+  // keystrokes (search input dead) and react-remove-scroll's scroll-lock eats
+  // wheel events (dropdown won't scroll) because the portaled content sits
+  // outside the dialog DOM subtree. Resolve the container in the open handler
+  // (not an effect) to avoid the set-state-in-effect cascade lint.
+  const [dialogContainer, setDialogContainer] = React.useState<HTMLElement | null>(null);
+
+  const handleOpenChange = (next: boolean) => {
+    if (next && modal) {
+      setDialogContainer(
+        (triggerRef.current?.closest(
+          '[role="dialog"],[role="alertdialog"]',
+        ) as HTMLElement | null) ?? null,
+      );
+    }
+    setOpen(next);
+  };
 
   const selectedLabel = options.find((o) => o.value === value)?.label;
 
   return (
-    <Popover open={open} onOpenChange={setOpen} modal={modal}>
+    <Popover open={open} onOpenChange={handleOpenChange} modal={modal}>
       <PopoverTrigger asChild>
         <Button
+          ref={triggerRef}
           variant='outline'
           role='combobox'
           aria-expanded={open}
@@ -91,6 +112,7 @@ export function SearchableSelect({
         </Button>
       </PopoverTrigger>
       <PopoverContent
+        container={modal ? dialogContainer : undefined}
         className='p-0 w-full'
         style={{ width: 'var(--radix-popover-trigger-width)', minWidth: '250px' }}
         align='start'

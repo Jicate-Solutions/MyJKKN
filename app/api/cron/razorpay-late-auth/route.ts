@@ -14,7 +14,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
-import { getPaymentProvider } from '@/lib/services/payments/factory';
+import { resolveRazorpayCredentials } from '@/lib/services/payments/razorpay/resolve-credentials';
+import { RazorpayProvider } from '@/lib/services/payments/razorpay/razorpay-provider';
 import { logger } from '@/lib/utils/enhanced-logger';
 
 const TABLES = ['payment_transactions', 'event_payment_transactions'] as const;
@@ -27,7 +28,34 @@ export async function GET(request: NextRequest) {
   }
 
   const supabase = createServiceRoleClient();
-  const provider = getPaymentProvider('billing'); // same Razorpay keys for both modules
+
+  // Per-institution credentials: resolve a Razorpay provider per pinned account /
+  // institution, cached so a sweep touching many institutions resolves each set of
+  // keys at most once. We build RazorpayProvider directly (not via the env-flag
+  // factory) because this cron only ever processes provider='razorpay' rows.
+  const providerCache = new Map<string, RazorpayProvider>();
+  async function providerFor(row: any): Promise<RazorpayProvider | null> {
+    const cacheKey = row.razorpay_account_id ?? row.institution_id ?? 'env';
+    const cached = providerCache.get(cacheKey);
+    if (cached) return cached;
+    try {
+      const creds = await resolveRazorpayCredentials({
+        accountId: row.razorpay_account_id,
+        institutionId: row.institution_id,
+      });
+      const p = new RazorpayProvider(creds);
+      providerCache.set(cacheKey, p);
+      return p;
+    } catch (err) {
+      logger.warn('cron/razorpay-late-auth', 'Could not resolve Razorpay credentials for row', {
+        id: row.id,
+        institutionId: row.institution_id,
+        accountId: row.razorpay_account_id,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return null;
+    }
+  }
 
   const now = Date.now();
   const fifteenMinutesAgo = new Date(now - 15 * 60 * 1000).toISOString();
@@ -40,7 +68,7 @@ export async function GET(request: NextRequest) {
 
     const { data: rows, error } = await (supabase as any)
       .from(table)
-      .select('id, razorpay_order_id, status, amount_paise, registration_id, created_at')
+      .select('id, razorpay_order_id, status, amount_paise, registration_id, created_at, institution_id, razorpay_account_id')
       .eq('provider', 'razorpay')
       .in('status', ['initiated', 'processing'])
       .lte('created_at', fifteenMinutesAgo)
@@ -56,6 +84,9 @@ export async function GET(request: NextRequest) {
     for (const row of rows ?? []) {
       if (!row.razorpay_order_id) continue;
       stat.scanned++;
+
+      const provider = await providerFor(row);
+      if (!provider) continue;
 
       try {
         const status = await provider.getOrderStatus(row.razorpay_order_id);

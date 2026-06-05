@@ -567,6 +567,17 @@ export interface HostelRoom {
   maintenance_notes: string | null;
   metadata: Record<string, unknown> | null;
   tier_access: string | null;
+  // ─── Inventory columns surfaced 2026-06-03 ───
+  // Long present on hostel_rooms + types/supabase.ts but absent from this
+  // hand-written interface, so the campus-living UI couldn't read them (the
+  // rows rendered as generic/blank). room_purpose is NOT NULL DEFAULT 'student';
+  // renovated/painting are free-text status strings.
+  room_purpose: string;
+  renovated: string | null;
+  painting: string | null;
+  actual_capacity: number | null;
+  ac_tonnage_tons: number | null;
+  ac_annual_cost_inr: number | null;
   created_at: string | null;
   updated_at: string | null;
 }
@@ -586,6 +597,14 @@ export interface CreateHostelRoomDTO {
   maintenance_notes?: string | null;
   metadata?: Record<string, unknown> | null;
   tier_access?: string | null;
+  // ─── Inventory columns (see HostelRoom) — all optional; DB supplies the
+  // defaults (room_purpose='student', tier_access='either'). ───
+  room_purpose?: string;
+  renovated?: string | null;
+  painting?: string | null;
+  actual_capacity?: number | null;
+  ac_tonnage_tons?: number | null;
+  ac_annual_cost_inr?: number | null;
 }
 
 export type UpdateHostelRoomDTO = Partial<CreateHostelRoomDTO>;

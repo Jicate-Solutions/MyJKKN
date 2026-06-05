@@ -19,6 +19,7 @@ export interface ProgramRoomEligibility {
 
 // Joined / display shape used by the data table (resolves names for UI).
 export interface ProgramRoomEligibilityRow extends ProgramRoomEligibility {
+  institution_name: string | null;
   program_name: string | null; // null => institution default
   room_category_name: string | null;
 }
@@ -52,6 +53,7 @@ export interface ProgramMessEligibility {
 }
 
 export interface ProgramMessEligibilityRow extends ProgramMessEligibility {
+  institution_name: string | null;
   program_name: string | null; // null => institution default
   mess_category_name: string | null;
 }

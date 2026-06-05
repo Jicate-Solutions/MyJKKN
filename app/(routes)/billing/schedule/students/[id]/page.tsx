@@ -67,6 +67,8 @@ export default function StudentBillingDetailPage() {
     return 'bills';
   })();
 
+  const returnTo = searchParams.get('returnTo') || undefined;
+
   // Check if user is a student
   const isStudent = profile?.role === 'student';
 
@@ -344,7 +346,7 @@ export default function StudentBillingDetailPage() {
           {/* Schedule Bill Button - Full width on mobile - Hidden for students */}
           {!isStudent && canCreateBills && (
             <Button asChild className='w-full sm:w-auto sm:self-start'>
-              <Link href={`/billing/schedule/new?student_id=${studentId}`}>
+              <Link href={`/billing/schedule/new?student_id=${studentId}${returnTo ? `&returnTo=${encodeURIComponent(returnTo)}` : ''}`}>
                 <Plus className='mr-2 h-4 w-4' />
                 Schedule Bill
               </Link>

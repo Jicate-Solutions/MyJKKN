@@ -13,6 +13,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
+import { PermissionGuard } from '@/components/auth/permission-guard';
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -61,6 +62,7 @@ export default function AdminFdpCatalogPage() {
   }, []);
 
   return (
+    <PermissionGuard module="users" action="manage">
     <ContentLayout title="HR — FDP Catalog">
       <Breadcrumb>
         <BreadcrumbList>
@@ -174,5 +176,6 @@ export default function AdminFdpCatalogPage() {
         </Card>
       </div>
     </ContentLayout>
+    </PermissionGuard>
   );
 }

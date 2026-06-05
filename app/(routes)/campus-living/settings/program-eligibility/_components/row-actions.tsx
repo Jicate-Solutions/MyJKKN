@@ -35,7 +35,7 @@ export function RoomEligibilityRowActions({
 }: {
   row: ProgramRoomEligibilityRow;
 }) {
-  const { deleteRoomEligibility } = useRoomEligibility(row.institution_id);
+  const { deleteRoomEligibility } = useRoomEligibility(null);
   const [editOpen, setEditOpen] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -115,7 +115,7 @@ export function MessEligibilityRowActions({
 }: {
   row: ProgramMessEligibilityRow;
 }) {
-  const { deleteMessEligibility } = useMessEligibility(row.institution_id);
+  const { deleteMessEligibility } = useMessEligibility(null);
   const [editOpen, setEditOpen] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);

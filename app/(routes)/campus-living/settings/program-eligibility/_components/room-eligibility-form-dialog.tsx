@@ -21,6 +21,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { SearchableSelect } from '@/components/ui/searchable-select';
 import { Loader2 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import {
@@ -32,6 +33,7 @@ import {
   useEligibilityBlocks,
   useEligibilityRooms,
 } from '@/hooks/campus-living/use-room-eligibility';
+import { useEligibilityInstitutions } from '@/hooks/campus-living/use-program-eligibility';
 import type { RoomEligibilityRuleRow } from '@/types/room-eligibility';
 
 type Scope = 'block' | 'floor' | 'rooms';
@@ -41,7 +43,8 @@ interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   mode: 'create' | 'edit';
-  institutionId: string;
+  // Optional prefill. Edit mode locks institution to the rule's institution.
+  institutionId?: string;
   rule?: RoomEligibilityRuleRow | null;
 }
 
@@ -52,8 +55,11 @@ export function RoomEligibilityFormDialog({
   institutionId,
   rule,
 }: Props) {
-  const { createRule, updateRule } = useRoomEligibilityRules(institutionId);
+  // Mutations are institution-agnostic; subscribe to the page's "all" cache.
+  const { createRule, updateRule } = useRoomEligibilityRules(null);
+  const { institutions, loading: instLoading } = useEligibilityInstitutions();
 
+  const [selectedInstitution, setSelectedInstitution] = useState('');
   const [blockId, setBlockId] = useState('');
   const [scope, setScope] = useState<Scope>('block');
   const [floor, setFloor] = useState<string>('');
@@ -66,21 +72,26 @@ export function RoomEligibilityFormDialog({
   const [isActive, setIsActive] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
+  const isEdit = mode === 'edit';
+
+  // Blocks are physical targets (global), but the cohort predicate (degree
+  // cascade) is institution-scoped — both follow the picked institution.
   const { options: blocks, loading: blocksLoading } = useEligibilityBlocks(
-    open ? institutionId : null
+    open ? selectedInstitution || null : null
   );
-  const { options: degrees } = useEligibilityDegrees(open ? institutionId : null);
+  const { options: degrees } = useEligibilityDegrees(
+    open ? selectedInstitution || null : null
+  );
   const { options: departments } = useEligibilityDepartments(degreeId || null);
   const { options: programs } = useEligibilityPrograms(departmentId || null);
   const { options: semesters } = useEligibilitySemesters(programId || null);
   const { rooms, loading: roomsLoading } = useEligibilityRooms(blockId || null);
 
-  const isEdit = mode === 'edit';
-
   // Reset on open.
   useEffect(() => {
     if (!open) return;
     if (isEdit && rule) {
+      setSelectedInstitution(rule.institution_id);
       setBlockId(rule.block_id);
       setFloor(rule.floor != null ? String(rule.floor) : '');
       setRoomIds(rule.room_ids ?? []);
@@ -94,6 +105,7 @@ export function RoomEligibilityFormDialog({
       setRuleName(rule.rule_name ?? '');
       setIsActive(rule.is_active);
     } else {
+      setSelectedInstitution(institutionId ?? '');
       setBlockId('');
       setScope('block');
       setFloor('');
@@ -105,7 +117,17 @@ export function RoomEligibilityFormDialog({
       setRuleName('');
       setIsActive(true);
     }
-  }, [open, isEdit, rule]);
+  }, [open, isEdit, rule, institutionId]);
+
+  // Switching institution clears the cohort predicate (degree/department/program/
+  // semester are institution-scoped); the physical block target stays.
+  const onInstitutionChange = (value: string) => {
+    setSelectedInstitution(value);
+    setDegreeId('');
+    setDepartmentId('');
+    setProgramId('');
+    setSemesterId('');
+  };
 
   // Distinct floors in the chosen block (for the 'floor' scope dropdown).
   const floorsInBlock = useMemo(
@@ -113,28 +135,49 @@ export function RoomEligibilityFormDialog({
     [rooms]
   );
 
-  const roomsByFloor = useMemo(() => {
-    const map = new Map<number, typeof rooms>();
+  // Group the block's rooms by category, then by floor within each category, so
+  // the picker is identifiable both by category (AC Single, Non-AC Shared, …)
+  // and floor. Rooms with no category fall into an "Uncategorized" group rather
+  // than vanishing. Each level exposes its own room-id set for select-all.
+  const roomsByCategory = useMemo(() => {
+    const map = new Map<
+      string,
+      { name: string; rooms: typeof rooms; floors: Map<number, typeof rooms> }
+    >();
     for (const r of rooms) {
-      const list = map.get(r.floor) ?? [];
-      list.push(r);
-      map.set(r.floor, list);
+      const key = r.category_id ?? '__uncat__';
+      const group =
+        map.get(key) ??
+        { name: r.category_name ?? 'Uncategorized', rooms: [] as typeof rooms, floors: new Map() };
+      group.rooms.push(r);
+      const floorRooms = group.floors.get(r.floor) ?? ([] as typeof rooms);
+      floorRooms.push(r);
+      group.floors.set(r.floor, floorRooms);
+      map.set(key, group);
     }
-    return Array.from(map.entries()).sort((a, b) => a[0] - b[0]);
+    return Array.from(map.entries())
+      .sort((a, b) => a[1].name.localeCompare(b[1].name))
+      .map(([key, g]) => ({
+        key,
+        name: g.name,
+        rooms: g.rooms,
+        floors: Array.from(g.floors.entries()).sort((a, b) => a[0] - b[0]),
+      }));
   }, [rooms]);
 
   const toggleRoom = (id: string) =>
     setRoomIds((prev) =>
       prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
     );
-  const toggleFloorRooms = (floorRoomIds: string[], allSelected: boolean) =>
+  const toggleRoomGroup = (groupRoomIds: string[], allSelected: boolean) =>
     setRoomIds((prev) =>
       allSelected
-        ? prev.filter((id) => !floorRoomIds.includes(id))
-        : Array.from(new Set([...prev, ...floorRoomIds]))
+        ? prev.filter((id) => !groupRoomIds.includes(id))
+        : Array.from(new Set([...prev, ...groupRoomIds]))
     );
 
   const canSave =
+    !!selectedInstitution &&
     !!blockId &&
     (scope !== 'floor' || floor !== '') &&
     (scope !== 'rooms' || roomIds.length > 0);
@@ -156,7 +199,7 @@ export function RoomEligibilityFormDialog({
         await updateRule(rule.id, payload);
         toast.success('Room eligibility rule updated');
       } else {
-        await createRule({ institution_id: institutionId, block_id: blockId, ...payload });
+        await createRule({ institution_id: selectedInstitution, block_id: blockId, ...payload });
         toast.success('Room eligibility rule added');
       }
       onOpenChange(false);
@@ -182,11 +225,25 @@ export function RoomEligibilityFormDialog({
         </DialogHeader>
 
         <div className="space-y-4">
+          {/* Institution — the rule belongs to one institution; it scopes the cohort. */}
+          <div className="space-y-2">
+            <Label>Institution</Label>
+            <SearchableSelect
+              value={selectedInstitution}
+              onValueChange={onInstitutionChange}
+              options={institutions.map((i) => ({ value: i.id, label: i.name }))}
+              placeholder="Select an institution"
+              loading={instLoading}
+              disabled={isEdit}
+              modal
+            />
+          </div>
+
           {/* Physical target */}
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <Label>Block</Label>
-              <Select value={blockId} onValueChange={(v) => { setBlockId(v); setRoomIds([]); setFloor(''); }} disabled={isEdit}>
+              <Select value={blockId} onValueChange={(v) => { setBlockId(v); setRoomIds([]); setFloor(''); }} disabled={isEdit || !selectedInstitution}>
                 <SelectTrigger>
                   <SelectValue placeholder={blocksLoading ? 'Loading…' : 'Select block'} />
                 </SelectTrigger>
@@ -241,27 +298,52 @@ export function RoomEligibilityFormDialog({
               ) : rooms.length === 0 ? (
                 <p className="text-sm text-muted-foreground">No student rooms in this block.</p>
               ) : (
-                <div className="space-y-3 max-h-[240px] overflow-y-auto rounded-md border p-3">
-                  {roomsByFloor.map(([f, frooms]) => {
-                    const fIds = frooms.map((r) => r.id);
-                    const allSelected = fIds.every((id) => roomIds.includes(id));
+                <div className="space-y-4 max-h-[280px] overflow-y-auto rounded-md border p-3">
+                  {roomsByCategory.map((cat) => {
+                    const catIds = cat.rooms.map((r) => r.id);
+                    const catAllSelected = catIds.every((id) => roomIds.includes(id));
                     return (
-                      <div key={f} className="space-y-1.5">
-                        <button
-                          type="button"
-                          className="text-xs font-medium text-primary hover:underline"
-                          onClick={() => toggleFloorRooms(fIds, allSelected)}
-                        >
-                          {f === 0 ? 'Ground floor' : `Floor ${f}`} — {allSelected ? 'clear' : 'select all'}
-                        </button>
-                        <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
-                          {frooms.map((r) => (
-                            <label key={r.id} className="flex items-center gap-1.5 text-sm cursor-pointer">
-                              <Checkbox checked={roomIds.includes(r.id)} onCheckedChange={() => toggleRoom(r.id)} />
-                              {r.room_number}
-                            </label>
-                          ))}
+                      <div key={cat.key} className="space-y-2">
+                        {/* Category header — select-all across every floor in this category */}
+                        <div className="flex items-center justify-between border-b pb-1">
+                          <span className="text-sm font-semibold text-foreground">
+                            {cat.name}{' '}
+                            <span className="font-normal text-muted-foreground">
+                              ({cat.rooms.length})
+                            </span>
+                          </span>
+                          <button
+                            type="button"
+                            className="text-xs font-medium text-primary hover:underline"
+                            onClick={() => toggleRoomGroup(catIds, catAllSelected)}
+                          >
+                            {catAllSelected ? 'clear all' : 'select all'}
+                          </button>
                         </div>
+                        {/* Floor sub-groups within the category */}
+                        {cat.floors.map(([f, frooms]) => {
+                          const fIds = frooms.map((r) => r.id);
+                          const fAllSelected = fIds.every((id) => roomIds.includes(id));
+                          return (
+                            <div key={f} className="space-y-1 pl-2">
+                              <button
+                                type="button"
+                                className="text-xs font-medium text-primary hover:underline"
+                                onClick={() => toggleRoomGroup(fIds, fAllSelected)}
+                              >
+                                {f === 0 ? 'Ground floor' : `Floor ${f}`} — {fAllSelected ? 'clear' : 'select all'}
+                              </button>
+                              <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
+                                {frooms.map((r) => (
+                                  <label key={r.id} className="flex items-center gap-1.5 text-sm cursor-pointer">
+                                    <Checkbox checked={roomIds.includes(r.id)} onCheckedChange={() => toggleRoom(r.id)} />
+                                    {r.room_number}
+                                  </label>
+                                ))}
+                              </div>
+                            </div>
+                          );
+                        })}
                       </div>
                     );
                   })}

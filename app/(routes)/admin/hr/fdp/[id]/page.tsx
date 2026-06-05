@@ -15,6 +15,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
+import { PermissionGuard } from '@/components/auth/permission-guard';
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -146,6 +147,7 @@ export default function AdminFdpDetailPage() {
   }
 
   return (
+    <PermissionGuard module="users" action="manage">
     <ContentLayout title="HR — FDP Detail">
       <Breadcrumb>
         <BreadcrumbList>
@@ -361,5 +363,6 @@ export default function AdminFdpDetailPage() {
         )}
       </div>
     </ContentLayout>
+    </PermissionGuard>
   );
 }

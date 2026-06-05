@@ -25,7 +25,8 @@ export const RESOURCE_STATUS = {
   OCCUPIED: 'occupied',
   MAINTENANCE: 'maintenance',
   OUT_OF_ORDER: 'out_of_order',
-  RETIRED: 'retired'
+  RETIRED: 'retired',
+  INACTIVE: 'inactive'
 } as const;
 
 export const RESERVATION_STATUS = {

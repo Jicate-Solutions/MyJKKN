@@ -33,18 +33,22 @@ export class ProgramEligibilityService {
   }
 
   // ─── Room eligibility ──────────────────────────────────────────────────
+  // institutionId omitted => list across ALL institutions (the settings page no
+  // longer gates on a single institution; each row carries its own).
   static async getRoomEligibility(
-    institutionId: string,
+    institutionId?: string,
     programId?: string | null
   ): Promise<ProgramRoomEligibilityRow[]> {
     let query = this.supabase
       .from('hostel_program_room_eligibility')
       .select(
-        '*, program:programs(program_name), room_category:hostel_categories(name)'
+        '*, institution:institutions(name), program:programs(program_name), room_category:hostel_categories(name)'
       )
-      .eq('institution_id', institutionId)
+      .order('institution_id', { ascending: true })
       .order('program_id', { ascending: true, nullsFirst: true })
       .order('created_at', { ascending: true });
+
+    if (institutionId) query = query.eq('institution_id', institutionId);
 
     // Explicit program filter: undefined => all rows; null => default rows only.
     if (programId !== undefined) {
@@ -60,11 +64,13 @@ export class ProgramEligibilityService {
     }
 
     return (data ?? []).map((r: Record<string, unknown>) => {
+      const institution = r.institution as { name?: string } | null;
       const program = r.program as { program_name?: string } | null;
       const category = r.room_category as { name?: string } | null;
-      const { program: _p, room_category: _c, ...rest } = r;
+      const { institution: _i, program: _p, room_category: _c, ...rest } = r;
       return {
         ...(rest as ProgramRoomEligibility),
+        institution_name: institution?.name ?? null,
         program_name: program?.program_name ?? null,
         room_category_name: category?.name ?? null,
       };
@@ -120,17 +126,19 @@ export class ProgramEligibilityService {
 
   // ─── Mess eligibility ──────────────────────────────────────────────────
   static async getMessEligibility(
-    institutionId: string,
+    institutionId?: string,
     programId?: string | null
   ): Promise<ProgramMessEligibilityRow[]> {
     let query = this.supabase
       .from('hostel_program_mess_eligibility')
       .select(
-        '*, program:programs(program_name), mess_category:mess_categories(name)'
+        '*, institution:institutions(name), program:programs(program_name), mess_category:mess_categories(name)'
       )
-      .eq('institution_id', institutionId)
+      .order('institution_id', { ascending: true })
       .order('program_id', { ascending: true, nullsFirst: true })
       .order('created_at', { ascending: true });
+
+    if (institutionId) query = query.eq('institution_id', institutionId);
 
     if (programId !== undefined) {
       query = programId === null
@@ -145,11 +153,13 @@ export class ProgramEligibilityService {
     }
 
     return (data ?? []).map((r: Record<string, unknown>) => {
+      const institution = r.institution as { name?: string } | null;
       const program = r.program as { program_name?: string } | null;
       const category = r.mess_category as { name?: string } | null;
-      const { program: _p, mess_category: _c, ...rest } = r;
+      const { institution: _i, program: _p, mess_category: _c, ...rest } = r;
       return {
         ...(rest as ProgramMessEligibility),
+        institution_name: institution?.name ?? null,
         program_name: program?.program_name ?? null,
         mess_category_name: category?.name ?? null,
       };

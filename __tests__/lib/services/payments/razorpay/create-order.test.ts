@@ -1,14 +1,11 @@
 // __tests__/lib/services/payments/razorpay/create-order.test.ts
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { createOrder } from '@/lib/services/payments/razorpay/create-order';
 import { toPaise } from '@/lib/services/payments/amount';
 
 describe('createOrder', () => {
   const origFetch = globalThis.fetch;
-  beforeEach(() => {
-    process.env.RAZORPAY_KEY_ID = 'rzp_test_KEY';
-    process.env.RAZORPAY_KEY_SECRET = 'SECRET';
-  });
+  const AUTH = { keyId: 'rzp_test_KEY', keySecret: 'SECRET' };
   afterEach(() => {
     globalThis.fetch = origFetch;
     vi.restoreAllMocks();
@@ -39,11 +36,14 @@ describe('createOrder', () => {
       currency: 'INR',
       module: 'billing',
       notes: { internal_id: 'abc' },
-    });
+    }, AUTH);
 
     expect(result.id).toBe('order_TESTID');
     expect(calls).toHaveLength(1);
     expect(calls[0].url).toBe('https://api.razorpay.com/v1/orders');
+    // Basic auth header is built from the injected credentials, not env.
+    const authHeader = (calls[0].init.headers as Record<string, string>).Authorization;
+    expect(authHeader).toBe('Basic ' + Buffer.from('rzp_test_KEY:SECRET').toString('base64'));
     const body = (calls[0].init.body as string);
     expect(body).toContain('amount=50000');
     expect(body).toContain('currency=INR');

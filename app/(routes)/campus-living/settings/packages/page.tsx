@@ -49,9 +49,8 @@ export default function AdmissionPackagesPage() {
                 <div>
                   <h2 className='text-lg font-semibold'>Admission Packages</h2>
                   <p className='text-sm text-muted-foreground'>
-                    A package bundles a Classic room for a single flat price.
-                    Premium is never bundled — it is always an opt-in upgrade.
-                    Learners pick their mess category separately at admission.
+                    Define eligibility dimensions (institution, degree, programme, quota, community, gender)
+                    and the bundled room + mess category for each package.
                   </p>
                 </div>
                 <Button onClick={() => setShowCreateDialog(true)}>

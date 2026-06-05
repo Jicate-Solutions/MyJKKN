@@ -11,6 +11,40 @@ import { Button } from '@/components/ui/button';
 import { ArrowUpDown, Users } from 'lucide-react';
 import type { HostelRoomWithBedsAndOccupancy } from '@/lib/services/campus-living/hostel-room-service';
 import { RoomRowActions } from './room-row-actions';
+import { RoomNumberCell } from './room-number-cell';
+import {
+  formatRoomPurpose,
+  formatTierAccess,
+  isSpecialPurpose,
+} from './room-meta';
+
+const tierBadgeVariant: Record<string, 'default' | 'secondary' | 'outline'> = {
+  premium: 'default',
+  deluxe: 'default',
+  classic: 'secondary',
+  either: 'outline',
+};
+
+// Painting / renovation status are free-text. Colour the common terminal
+// states (done/finished → green, pending → amber-ish) and fall back to a plain
+// badge for anything bespoke ("RENOVATED Pending (Window added)", etc.).
+function statusBadgeVariant(
+  value: string
+): 'default' | 'secondary' | 'outline' | 'success' {
+  const v = value.toUpperCase();
+  if (v.includes('FINISH') || v.includes('DONE') || v === 'RENOVATED') return 'success';
+  if (v.includes('PEND')) return 'outline';
+  return 'secondary';
+}
+
+function FreeTextStatusCell({ value }: { value: string | null | undefined }) {
+  if (!value) return <span className="text-muted-foreground">&mdash;</span>;
+  return (
+    <Badge variant={statusBadgeVariant(value)} className="font-normal">
+      {value}
+    </Badge>
+  );
+}
 
 const FLOOR_LABELS = ['Ground Floor', '1st Floor', '2nd Floor', '3rd Floor'];
 
@@ -65,7 +99,7 @@ export function createRoomColumns({
       accessorKey: 'room_number',
       header: ({ column }) => <SortHeader column={column} label="Room No." />,
       cell: ({ row }) => (
-        <span className="font-medium">{row.original.room_number}</span>
+        <RoomNumberCell room={row.original} blockId={blockId} />
       ),
     },
     {
@@ -98,6 +132,34 @@ export function createRoomColumns({
         ),
     },
     {
+      accessorKey: 'room_purpose',
+      header: 'Purpose',
+      cell: ({ row }) => {
+        const purpose = row.original.room_purpose;
+        const label = formatRoomPurpose(purpose);
+        return isSpecialPurpose(purpose) ? (
+          <Badge variant="outline" className="font-normal">
+            {label}
+          </Badge>
+        ) : (
+          <span className="text-muted-foreground">{label}</span>
+        );
+      },
+    },
+    {
+      accessorKey: 'tier_access',
+      header: 'Tier',
+      cell: ({ row }) => {
+        const tier = row.original.tier_access;
+        if (!tier) return <span className="text-muted-foreground">&mdash;</span>;
+        return (
+          <Badge variant={tierBadgeVariant[tier] ?? 'outline'}>
+            {formatTierAccess(tier)}
+          </Badge>
+        );
+      },
+    },
+    {
       id: 'occupancy',
       header: 'Occupancy',
       enableSorting: false,
@@ -109,6 +171,14 @@ export function createRoomColumns({
           </span>
         </div>
       ),
+    },
+    {
+      accessorKey: 'actual_capacity',
+      header: 'Actual Cap.',
+      cell: ({ row }) =>
+        row.original.actual_capacity ?? (
+          <span className="text-muted-foreground">&mdash;</span>
+        ),
     },
     {
       accessorKey: 'derived_status',
@@ -127,16 +197,18 @@ export function createRoomColumns({
       header: 'Bathroom',
       cell: ({ row }) => (row.original.has_attached_bathroom ? 'Yes' : 'No'),
     },
+    
     {
-      accessorKey: 'annual_fee',
-      header: ({ column }) => (
-        <div className="text-right">
-          <SortHeader column={column} label="Annual Fee" />
-        </div>
-      ),
-      cell: ({ row }) => (
-        <div className="text-right">{inr(row.original.annual_fee)}</div>
-      ),
+      accessorKey: 'renovated',
+      header: 'Renovated',
+      enableSorting: false,
+      cell: ({ row }) => <FreeTextStatusCell value={row.original.renovated} />,
+    },
+    {
+      accessorKey: 'painting',
+      header: 'Painting',
+      enableSorting: false,
+      cell: ({ row }) => <FreeTextStatusCell value={row.original.painting} />,
     },
     {
       id: 'actions',

@@ -7,15 +7,22 @@ import { isValidUuid } from '@/lib/api-keys/query-helpers';
 export const OPTIONS = () => new NextResponse(null, { headers: corsHeaders });
 
 // hostel-rooms-v2 PR 2 (2026-05-26): hostel_rooms.institution_id dropped.
-// Scope to caller's institution via the room_institution_access junction.
+// Scope to caller's institution via the block→institution junction
+// (hostel_block_institutions) since 2026-06-03; room_institution_access retired.
+// A room is accessible iff its block is linked to the caller's institution.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function callerHasRoomAccess(supabase: any, roomId: string, institutionId: string): Promise<boolean> {
+  const { data: room } = await supabase
+    .from('hostel_rooms')
+    .select('block_id')
+    .eq('id', roomId)
+    .maybeSingle();
+  if (!room?.block_id) return false;
   const { data } = await supabase
-    .from('room_institution_access')
-    .select('id')
-    .eq('room_id', roomId)
+    .from('hostel_block_institutions')
+    .select('block_id')
+    .eq('block_id', room.block_id)
     .eq('institution_id', institutionId)
-    .eq('is_active', true)
     .maybeSingle();
   return Boolean(data);
 }

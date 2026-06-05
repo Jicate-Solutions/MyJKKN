@@ -45,11 +45,24 @@ import {
 import { Plus, Eye, X, Search } from 'lucide-react';
 import { BeatLoader } from 'react-spinners';
 import { toast } from 'sonner';
+import { ImsPageGuard } from '@/components/ims/ims-page-guard';
+import { usePermissions } from '@/hooks/use-permissions';
 
 export default function IndentsPage() {
+  return (
+    <ImsPageGuard module="ims.indents" action="view">
+      <IndentsPageInner />
+    </ImsPageGuard>
+  );
+}
+
+function IndentsPageInner() {
   const router = useRouter();
   const { profile } = useAuth();
   const { storeId, institutionId } = useImsStoreContext();
+  const { canAccess, isSuperAdmin } = usePermissions();
+  const canCreate = isSuperAdmin || canAccess('ims.indents', 'create');
+  const canEditIndent = isSuperAdmin || canAccess('ims.indents', 'edit');
 
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
@@ -83,6 +96,7 @@ export default function IndentsPage() {
   };
 
   const canCancel = (indent: { status: string; requested_by: string }) => {
+    if (!canEditIndent) return false;
     return (
       (indent.status === 'draft' || indent.status === 'pending_approval') &&
       indent.requested_by === profile?.id
@@ -100,10 +114,12 @@ export default function IndentsPage() {
               Manage and track all indent requests
             </p>
           </div>
-          <Button onClick={() => router.push('/ims/indents/new')}>
-            <Plus className="mr-2 h-4 w-4" />
-            New Indent
-          </Button>
+          {canCreate && (
+            <Button onClick={() => router.push('/ims/indents/new')}>
+              <Plus className="mr-2 h-4 w-4" />
+              New Indent
+            </Button>
+          )}
         </div>
 
         {/* Filters */}

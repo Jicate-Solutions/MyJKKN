@@ -7530,6 +7530,52 @@ export type Database = {
           },
         ]
       }
+      admission_package_communities: {
+        Row: {
+          community_category_id: string
+          created_at: string
+          created_by: string | null
+          id: string
+          package_id: string
+        }
+        Insert: {
+          community_category_id: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          package_id: string
+        }
+        Update: {
+          community_category_id?: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          package_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "admission_package_communities_community_category_id_fkey"
+            columns: ["community_category_id"]
+            isOneToOne: false
+            referencedRelation: "community_categories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "admission_package_communities_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "admission_package_communities_package_id_fkey"
+            columns: ["package_id"]
+            isOneToOne: false
+            referencedRelation: "admission_packages"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       admission_package_program_eligibility: {
         Row: {
           created_at: string
@@ -7606,44 +7652,62 @@ export type Database = {
       }
       admission_packages: {
         Row: {
+          admission_year_id: string | null
           created_at: string
           created_by: string | null
+          degree_id: string | null
+          department_id: string | null
           description: string | null
-          hostel_year_id: string | null
+          gender: string | null
           id: string
           institution_id: string
           is_active: boolean
+          mess_category_id: string | null
           name: string
+          package_type: string
+          programme_id: string | null
+          quota_id: string | null
           room_category_id: string
-          total_price_inr: number
           updated_at: string
           updated_by: string | null
         }
         Insert: {
+          admission_year_id?: string | null
           created_at?: string
           created_by?: string | null
+          degree_id?: string | null
+          department_id?: string | null
           description?: string | null
-          hostel_year_id?: string | null
+          gender?: string | null
           id?: string
           institution_id: string
           is_active?: boolean
+          mess_category_id?: string | null
           name: string
+          package_type?: string
+          programme_id?: string | null
+          quota_id?: string | null
           room_category_id: string
-          total_price_inr: number
           updated_at?: string
           updated_by?: string | null
         }
         Update: {
+          admission_year_id?: string | null
           created_at?: string
           created_by?: string | null
+          degree_id?: string | null
+          department_id?: string | null
           description?: string | null
-          hostel_year_id?: string | null
+          gender?: string | null
           id?: string
           institution_id?: string
           is_active?: boolean
+          mess_category_id?: string | null
           name?: string
+          package_type?: string
+          programme_id?: string | null
+          quota_id?: string | null
           room_category_id?: string
-          total_price_inr?: number
           updated_at?: string
           updated_by?: string | null
         }
@@ -7674,13 +7738,6 @@ export type Database = {
             columns: ["created_by"]
             isOneToOne: false
             referencedRelation: "users_profiles"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "admission_packages_hostel_year_id_fkey"
-            columns: ["hostel_year_id"]
-            isOneToOne: false
-            referencedRelation: "hostel_years"
             referencedColumns: ["id"]
           },
           {
@@ -7717,6 +7774,48 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "v_institutions_needing_admission_counselors"
             referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "admission_packages_admission_year_id_fkey"
+            columns: ["admission_year_id"]
+            isOneToOne: false
+            referencedRelation: "admission_years"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "admission_packages_degree_id_fkey"
+            columns: ["degree_id"]
+            isOneToOne: false
+            referencedRelation: "degrees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "admission_packages_department_id_fkey"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "departments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "admission_packages_mess_category_id_fkey"
+            columns: ["mess_category_id"]
+            isOneToOne: false
+            referencedRelation: "mess_categories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "admission_packages_programme_id_fkey"
+            columns: ["programme_id"]
+            isOneToOne: false
+            referencedRelation: "programs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "admission_packages_quota_id_fkey"
+            columns: ["quota_id"]
+            isOneToOne: false
+            referencedRelation: "quotas"
+            referencedColumns: ["id"]
           },
           {
             foreignKeyName: "admission_packages_room_category_id_fkey"
@@ -31667,7 +31766,7 @@ export type Database = {
         }
         Relationships: []
       }
-      hostel_category_fees: {
+      hostel_fees: {
         Row: {
           amount: number
           created_at: string
@@ -31677,6 +31776,7 @@ export type Database = {
           id: string
           is_active: boolean
           mess_category_id: string | null
+          package_id: string | null
           updated_at: string
         }
         Insert: {
@@ -31688,6 +31788,7 @@ export type Database = {
           id?: string
           is_active?: boolean
           mess_category_id?: string | null
+          package_id?: string | null
           updated_at?: string
         }
         Update: {
@@ -31699,28 +31800,36 @@ export type Database = {
           id?: string
           is_active?: boolean
           mess_category_id?: string | null
+          package_id?: string | null
           updated_at?: string
         }
         Relationships: [
           {
-            foreignKeyName: "hostel_category_fees_hostel_category_id_fkey"
+            foreignKeyName: "hostel_fees_hostel_category_id_fkey"
             columns: ["hostel_category_id"]
             isOneToOne: false
             referencedRelation: "hostel_categories"
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "hostel_category_fees_hostel_year_id_fkey"
+            foreignKeyName: "hostel_fees_hostel_year_id_fkey"
             columns: ["hostel_year_id"]
             isOneToOne: false
             referencedRelation: "hostel_years"
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "hostel_category_fees_mess_category_id_fkey"
+            foreignKeyName: "hostel_fees_mess_category_id_fkey"
             columns: ["mess_category_id"]
             isOneToOne: false
             referencedRelation: "mess_categories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_fees_package_id_fkey"
+            columns: ["package_id"]
+            isOneToOne: false
+            referencedRelation: "admission_packages"
             referencedColumns: ["id"]
           },
         ]
@@ -58326,7 +58435,6 @@ export type Database = {
         Row: {
           aadhar_number: string | null
           academic_year_id: string | null
-          accommodation_type: string
           accommodation_type_id: string | null
           account_verification_notes: string | null
           account_verified_at: string | null
@@ -58345,10 +58453,8 @@ export type Database = {
           bus_required: boolean | null
           capabilities: Json | null
           career_aspirations: Json | null
-          caste: string | null
           caste_id: string | null
           college_email: string | null
-          community: string
           community_category_id: string | null
           counseling_applied: boolean | null
           counseling_number: string | null
@@ -58401,7 +58507,6 @@ export type Database = {
           placement_fee: number | null
           portfolio_url: string | null
           program_id: string | null
-          quota: string | null
           quota_id: string | null
           reference_contact: string | null
           reference_name: string | null
@@ -58436,7 +58541,6 @@ export type Database = {
         Insert: {
           aadhar_number?: string | null
           academic_year_id?: string | null
-          accommodation_type: string
           accommodation_type_id?: string | null
           account_verification_notes?: string | null
           account_verified_at?: string | null
@@ -58455,10 +58559,8 @@ export type Database = {
           bus_required?: boolean | null
           capabilities?: Json | null
           career_aspirations?: Json | null
-          caste?: string | null
           caste_id?: string | null
           college_email?: string | null
-          community: string
           community_category_id?: string | null
           counseling_applied?: boolean | null
           counseling_number?: string | null
@@ -58511,7 +58613,6 @@ export type Database = {
           placement_fee?: number | null
           portfolio_url?: string | null
           program_id?: string | null
-          quota?: string | null
           quota_id?: string | null
           reference_contact?: string | null
           reference_name?: string | null
@@ -58546,7 +58647,6 @@ export type Database = {
         Update: {
           aadhar_number?: string | null
           academic_year_id?: string | null
-          accommodation_type?: string
           accommodation_type_id?: string | null
           account_verification_notes?: string | null
           account_verified_at?: string | null
@@ -58565,10 +58665,8 @@ export type Database = {
           bus_required?: boolean | null
           capabilities?: Json | null
           career_aspirations?: Json | null
-          caste?: string | null
           caste_id?: string | null
           college_email?: string | null
-          community?: string
           community_category_id?: string | null
           counseling_applied?: boolean | null
           counseling_number?: string | null
@@ -58621,7 +58719,6 @@ export type Database = {
           placement_fee?: number | null
           portfolio_url?: string | null
           program_id?: string | null
-          quota?: string | null
           quota_id?: string | null
           reference_contact?: string | null
           reference_name?: string | null
@@ -75574,6 +75671,62 @@ export type Database = {
           },
         ]
       }
+      razorpay_accounts: {
+        Row: {
+          account_label: string | null
+          created_at: string
+          created_by: string | null
+          id: string
+          institution_id: string
+          is_active: boolean
+          key_id: string
+          key_secret_encrypted: string
+          mode: string
+          updated_at: string
+          updated_by: string | null
+          webhook_ref: string
+          webhook_secret_encrypted: string
+        }
+        Insert: {
+          account_label?: string | null
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          institution_id: string
+          is_active?: boolean
+          key_id: string
+          key_secret_encrypted: string
+          mode?: string
+          updated_at?: string
+          updated_by?: string | null
+          webhook_ref: string
+          webhook_secret_encrypted: string
+        }
+        Update: {
+          account_label?: string | null
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          institution_id?: string
+          is_active?: boolean
+          key_id?: string
+          key_secret_encrypted?: string
+          mode?: string
+          updated_at?: string
+          updated_by?: string | null
+          webhook_ref?: string
+          webhook_secret_encrypted?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "razorpay_accounts_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       referral_categories: {
         Row: {
           created_at: string
@@ -77933,92 +78086,6 @@ export type Database = {
           target_user_id?: string | null
         }
         Relationships: []
-      }
-      room_institution_access: {
-        Row: {
-          created_at: string
-          granted_at: string
-          granted_by: string | null
-          id: string
-          institution_id: string
-          is_active: boolean
-          notes: string | null
-          room_id: string
-          updated_at: string
-        }
-        Insert: {
-          created_at?: string
-          granted_at?: string
-          granted_by?: string | null
-          id?: string
-          institution_id: string
-          is_active?: boolean
-          notes?: string | null
-          room_id: string
-          updated_at?: string
-        }
-        Update: {
-          created_at?: string
-          granted_at?: string
-          granted_by?: string | null
-          id?: string
-          institution_id?: string
-          is_active?: boolean
-          notes?: string | null
-          room_id?: string
-          updated_at?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "room_institution_access_institution_id_fkey"
-            columns: ["institution_id"]
-            isOneToOne: false
-            referencedRelation: "case_graduation_readiness"
-            referencedColumns: ["institution_id"]
-          },
-          {
-            foreignKeyName: "room_institution_access_institution_id_fkey"
-            columns: ["institution_id"]
-            isOneToOne: false
-            referencedRelation: "institutions"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "room_institution_access_institution_id_fkey"
-            columns: ["institution_id"]
-            isOneToOne: false
-            referencedRelation: "mv_cluster_leaderboard_colleges"
-            referencedColumns: ["institution_id"]
-          },
-          {
-            foreignKeyName: "room_institution_access_institution_id_fkey"
-            columns: ["institution_id"]
-            isOneToOne: false
-            referencedRelation: "semester_hierarchy_health"
-            referencedColumns: ["institution_id"]
-          },
-          {
-            foreignKeyName: "room_institution_access_institution_id_fkey"
-            columns: ["institution_id"]
-            isOneToOne: false
-            referencedRelation: "v_institutions_needing_admission_counselors"
-            referencedColumns: ["institution_id"]
-          },
-          {
-            foreignKeyName: "room_institution_access_room_id_fkey"
-            columns: ["room_id"]
-            isOneToOne: false
-            referencedRelation: "hostel_rooms"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "room_institution_access_room_id_fkey"
-            columns: ["room_id"]
-            isOneToOne: false
-            referencedRelation: "v_hostel_room_occupancy"
-            referencedColumns: ["room_id"]
-          },
-        ]
       }
       saml_pending_requests: {
         Row: {
@@ -102517,6 +102584,70 @@ export type Database = {
           p_master_secret: string
           p_user_id: string
         }
+        Returns: undefined
+      }
+      fn_set_razorpay_account: {
+        Args: {
+          p_institution_id: string
+          p_key_id: string
+          p_key_secret: string
+          p_webhook_secret: string
+          p_label: string | null
+          p_mode: string
+          p_webhook_ref: string | null
+          p_master_secret: string
+          p_actor?: string | null
+        }
+        Returns: {
+          id: string
+          webhook_ref: string
+        }[]
+      }
+      fn_get_razorpay_account: {
+        Args: { p_institution_id: string; p_master_secret: string }
+        Returns: {
+          id: string
+          key_id: string
+          key_secret: string
+          webhook_secret: string
+          mode: string
+          webhook_ref: string
+        }[]
+      }
+      fn_get_razorpay_account_by_id: {
+        Args: { p_account_id: string; p_master_secret: string }
+        Returns: {
+          id: string
+          key_id: string
+          key_secret: string
+          webhook_secret: string
+          mode: string
+          webhook_ref: string
+        }[]
+      }
+      fn_get_razorpay_account_by_webhook_ref: {
+        Args: { p_webhook_ref: string; p_master_secret: string }
+        Returns: {
+          id: string
+          institution_id: string
+          webhook_secret: string
+        }[]
+      }
+      fn_list_razorpay_accounts: {
+        Args: never
+        Returns: {
+          id: string
+          institution_id: string
+          key_id: string
+          account_label: string | null
+          mode: string
+          is_active: boolean
+          webhook_ref: string
+          created_at: string
+        }[]
+      }
+      fn_deactivate_razorpay_account: {
+        Args: { p_institution_id: string; p_actor?: string | null }
         Returns: undefined
       }
       fn_set_referral_eligibility: {

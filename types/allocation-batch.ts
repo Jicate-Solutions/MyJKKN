@@ -31,7 +31,10 @@ export interface AllocatePreview {
   cohort_eligible: number;
   no_profile: number;
   already_allocated: number;
+  /** Beds in rooms covered by an active physical-room rule (auto-allocation is rule-driven). */
   available_beds: number;
+  /** Does the block have any active physical-room eligibility rule? Drives the "set rules first" guard. */
+  rules_set: boolean;
 }
 
 export interface ProposedAllocation {

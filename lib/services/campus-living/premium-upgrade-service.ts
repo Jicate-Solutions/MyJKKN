@@ -105,7 +105,7 @@ async function buildFeeContext(
   const activeOccupants = Number(occ?.active_residents) || 1;
 
   const { data: baseFee } = await supabase
-    .from('hostel_category_fees')
+    .from('hostel_fees')
     .select('amount, frequency')
     .eq('hostel_year_id', hostelYearId)
     .eq('hostel_category_id', roomCategoryId)

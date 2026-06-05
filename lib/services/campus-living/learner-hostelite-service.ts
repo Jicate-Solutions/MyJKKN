@@ -10,6 +10,7 @@
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { logger } from '@/lib/utils/enhanced-logger';
+import { accommodationLegacyFromCode } from '@/lib/utils/accommodation-type-resolver';
 import {
   UNASSIGNED_BLOCK,
   type LearnerHostelite,
@@ -59,6 +60,8 @@ const VIEW_SELECT = [
 
 // learners_profiles columns NOT exposed on the view (used by mutations and the
 // candidate search since those still need to read department_id/program_id).
+// accommodation_type TEXT is retired — embed accommodation_types and derive the
+// legacy 'HOSTEL'/'DAY SCHOLAR' value in JS (see searchCandidates).
 const LEARNER_TABLE_SELECT = [
   'id',
   'first_name',
@@ -69,7 +72,8 @@ const LEARNER_TABLE_SELECT = [
   'gender',
   'father_name',
   'mother_name',
-  'accommodation_type',
+  'accommodation_type_id',
+  'accommodation_ref:accommodation_types!accommodation_type_id(code,name)',
   'hostel_fee',
   'dayscholar_fee',
   'institution_id',
@@ -377,15 +381,48 @@ export class LearnerHosteliteService {
     }
   }
 
+  // ── Resolve the institution-scoped accommodation_types id for a learner ──
+  // accommodation_type TEXT is retired; the hostel/day-scholar flip now writes
+  // accommodation_type_id. The right row is institution-scoped, so derive the
+  // institution from the learner and look up (institution_id, code).
+  private static async accommodationIdForLearner(
+    supabase: ReturnType<typeof createClientSupabaseClient>,
+    learnerId: string,
+    code: 'hostel' | 'dayscholar',
+  ): Promise<string> {
+    const { data: lp, error: lpErr } = await supabase
+      .from('learners_profiles')
+      .select('institution_id')
+      .eq('id', learnerId)
+      .maybeSingle();
+    if (lpErr) throw lpErr;
+    if (!lp?.institution_id) {
+      throw new Error('Learner has no institution; cannot set accommodation type');
+    }
+    const { data: at, error: atErr } = await supabase
+      .from('accommodation_types')
+      .select('id')
+      .eq('institution_id', lp.institution_id)
+      .eq('code', code)
+      .maybeSingle();
+    if (atErr) throw atErr;
+    if (!at?.id) {
+      throw new Error(`No '${code}' accommodation type configured for this institution`);
+    }
+    return at.id;
+  }
+
   // ── Remove from hostel ────────────────────────────────────────────────
-  // Flips accommodation_type to 'DAY SCHOLAR' on the underlying table (NOT the
-  // view). Caller is responsible for cancelling/vacating any active allocation.
+  // Flips accommodation_type_id to the institution's 'dayscholar' row on the
+  // underlying table (NOT the view). Caller is responsible for
+  // cancelling/vacating any active allocation.
   static async removeFromHostel(learnerId: string): Promise<void> {
     try {
       const supabase = createClientSupabaseClient();
+      const accId = await this.accommodationIdForLearner(supabase, learnerId, 'dayscholar');
       const { error } = await supabase
         .from('learners_profiles')
-        .update({ accommodation_type: 'DAY SCHOLAR' })
+        .update({ accommodation_type_id: accId })
         .eq('id', learnerId);
       if (error) {
         logger.error('campus-living/learner-hostelite', 'removeFromHostel failed', error);
@@ -401,9 +438,10 @@ export class LearnerHosteliteService {
   static async addToHostel(learnerId: string): Promise<void> {
     try {
       const supabase = createClientSupabaseClient();
+      const accId = await this.accommodationIdForLearner(supabase, learnerId, 'hostel');
       const { error } = await supabase
         .from('learners_profiles')
-        .update({ accommodation_type: 'HOSTEL' })
+        .update({ accommodation_type_id: accId })
         .eq('id', learnerId);
       if (error) {
         logger.error('campus-living/learner-hostelite', 'addToHostel failed', error);
@@ -451,21 +489,47 @@ export class LearnerHosteliteService {
       const s = search.trim();
       if (s.length < 2) return [];
       const supabase = createClientSupabaseClient();
+
+      // Existing hostelers are excluded by FK now (accommodation_type TEXT
+      // retired). Gather the institution-scoped 'hostel' accommodation_type ids
+      // to exclude; null-FK learners (blank accommodation) stay valid candidates.
+      let hostelQuery = supabase
+        .from('accommodation_types')
+        .select('id')
+        .eq('code', 'hostel');
+      if (institutionId) hostelQuery = hostelQuery.eq('institution_id', institutionId);
+      const { data: hostelRows, error: hostelErr } = await hostelQuery;
+      if (hostelErr) {
+        logger.error('campus-living/learner-hostelite', 'searchCandidates hostel-id lookup failed', hostelErr);
+        throw hostelErr;
+      }
+      const hostelIds = (hostelRows ?? []).map((r: { id: string }) => r.id);
+
       let query = supabase
         .from('learners_profiles')
         .select(LEARNER_TABLE_SELECT)
-        .neq('accommodation_type', 'HOSTEL')
         .or(
           `roll_number.ilike.%${s}%,first_name.ilike.%${s}%,last_name.ilike.%${s}%,student_email.ilike.%${s}%`,
         )
         .limit(limit);
+      if (hostelIds.length > 0) {
+        query = query.or(
+          `accommodation_type_id.is.null,accommodation_type_id.not.in.(${hostelIds.join(',')})`,
+        );
+      }
       if (institutionId) query = query.eq('institution_id', institutionId);
       const { data, error } = await query;
       if (error) {
         logger.error('campus-living/learner-hostelite', 'searchCandidates failed', error);
         throw error;
       }
-      return (data ?? []) as LearnerHostelite[];
+      // Flatten accommodation_type from the embed (legacy 'HOSTEL'/'DAY SCHOLAR').
+      return (data ?? []).map((row: Record<string, unknown>) => {
+        const ref = row.accommodation_ref as { code?: string } | null;
+        delete row.accommodation_ref;
+        row.accommodation_type = accommodationLegacyFromCode(ref?.code);
+        return row;
+      }) as unknown as LearnerHostelite[];
     } catch (error) {
       logger.error('campus-living/learner-hostelite', 'Unexpected error in searchCandidates', error);
       throw error;

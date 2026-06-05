@@ -4,7 +4,7 @@
 // /campus-living/mess/policies — Mess Menu policy editor (relocated from /admin/mess 2026-06-01)
 // ============================================================================
 // Surfaces the 6 mess.menu.* platform_policies rows seeded in PR 1 as
-// English-consequence widgets. Pattern reference: /admin/internship-policy/*.
+// English-consequence widgets. Pattern reference: /internships/policy/*.
 //
 //   • mess.menu.edit_cutoff_minutes      → number input
 //   • mess.menu.seed_size_default        → number input

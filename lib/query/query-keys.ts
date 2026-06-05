@@ -22,4 +22,8 @@ export const queryKeys = {
         ['campus-living', 'my-hostel', 'fees', categoryId] as const,
     },
   },
+  razorpayAccounts: {
+    all: ['razorpay-accounts'] as const,
+    list: () => [...queryKeys.razorpayAccounts.all, 'list'] as const,
+  },
 } as const;

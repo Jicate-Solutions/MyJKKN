@@ -15,6 +15,7 @@ import {
 } from '@/hooks/campus-living/use-hostel-blocks';
 import { useAmenitiesByScope } from '@/hooks/campus-living/use-amenities';
 import { ArrowLeft, Save, Loader2 } from 'lucide-react';
+import { BlockCollegesCard } from './_components/block-colleges-card';
 
 /**
  * navMeta — invoked from the block detail page's Edit button and from the
@@ -332,6 +333,11 @@ export default function EditBlockPage({ params }: { params: Promise<{ id: string
               )}
             </CardContent>
           </Card>
+
+          {/* Colleges that use this block (hostel_block_institutions) — the
+              single institution-access surface; managed independently of the
+              form fields above via its own mutations. */}
+          <BlockCollegesCard blockId={id} />
 
           {/* Actions */}
           <div className="flex justify-end gap-3">

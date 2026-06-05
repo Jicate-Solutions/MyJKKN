@@ -1230,3 +1230,11 @@ DROP TRIGGER IF EXISTS trg_set_legacy_fee_mode_default ON public.learners_profil
 CREATE TRIGGER trg_set_legacy_fee_mode_default
     BEFORE INSERT ON public.learners_profiles
     FOR EACH ROW EXECUTE FUNCTION public.set_legacy_fee_mode_default();
+
+-- ============================================================================
+-- razorpay_accounts updated_at (migration 20260603130000)
+-- ============================================================================
+DROP TRIGGER IF EXISTS trigger_razorpay_accounts_updated_at ON public.razorpay_accounts;
+CREATE TRIGGER trigger_razorpay_accounts_updated_at
+BEFORE UPDATE ON public.razorpay_accounts
+FOR EACH ROW EXECUTE FUNCTION public.update_razorpay_accounts_updated_at();

@@ -170,8 +170,8 @@ export async function GET(request: NextRequest) {
       'Date of Birth': learner.date_of_birth || '',
       'Gender': learner.gender || '',
       'Religion': learner.religion || '',
-      'Community': learner.community || '',
-      'Caste': learner.caste || '',
+      'Community': learner.community_ref?.code || '',
+      'Caste': learner.caste_ref?.name || '',
       'Aadhar Number': learner.aadhar_number || '',
       'Blood Group': learner.blood_group || '',
       'Admission Year':
@@ -233,7 +233,7 @@ export async function GET(request: NextRequest) {
       'Counseling Number': learner.counseling_number || '',
 
       // SECTION 9: Accommodation Details
-      'Accommodation Type': learner.accommodation_type || '',
+      'Accommodation Type': learner.accommodation_ref?.name || '',
       'Bus Required': learner.bus_required === true ? 'Yes' : learner.bus_required === false ? 'No' : '',
       // SECTION 10: Reference Information
       'Reference Type': learner.reference_type || '',
@@ -243,7 +243,7 @@ export async function GET(request: NextRequest) {
       // SECTION 11: Student Specific
       'Roll Number': learner.roll_number || '',
       'Register Number': learner.register_number || '',
-      'Quota': learner.quota || '',
+      'Quota': learner.quota_ref?.name || '',
       'Photo URL': learner.student_photo_url || '',
     }));
 

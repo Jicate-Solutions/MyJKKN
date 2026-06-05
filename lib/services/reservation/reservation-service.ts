@@ -6,6 +6,12 @@ import {
   logActivityForCurrentUser,
   ResourceManagementActivityTemplates,
 } from '@/lib/utils/activity-logger-client';
+import {
+  notifyBookingSubmitted,
+  notifyApproversPendingBooking,
+  notifyBookingApproved,
+  notifyBookingRejected,
+} from '@/lib/services/reservation/reservation-notification-service';
 import type {
   Reservation,
   CreateReservationDto,
@@ -211,6 +217,25 @@ export class ReservationService {
 
     const reservation = data as Reservation;
     const resourceName = (reservation as any).resource?.name || '';
+
+    // Fire-and-forget notifications — never block the booking return path.
+    if (requiresApproval) {
+      const requesterName = (reservation as any).user?.full_name || 'A user';
+      const approverIds: string[] =
+        ((resource as any)?.approval_config?.approvers ?? []).map(
+          (a: any) => a.user_id
+        );
+      void notifyBookingSubmitted(reservation, resourceName).catch(console.error);
+      void notifyApproversPendingBooking(
+        approverIds,
+        reservation,
+        resourceName,
+        requesterName
+      ).catch(console.error);
+    } else {
+      void notifyBookingApproved(reservation, resourceName).catch(console.error);
+    }
+
     const tpl = ResourceManagementActivityTemplates.reservationCreated(
       resourceName,
       reservation.start_time
@@ -651,6 +676,9 @@ export class ReservationService {
 
     const reservation = data as Reservation;
     const resourceName = (reservation as any).resource?.name || '';
+
+    void notifyBookingApproved(reservation, resourceName).catch(console.error);
+
     const tpl = ResourceManagementActivityTemplates.reservationApproved(resourceName);
     await logActivityForCurrentUser({
       actionType: tpl.actionType,
@@ -711,6 +739,9 @@ export class ReservationService {
 
     const reservation = data as Reservation;
     const resourceName = (reservation as any).resource?.name || '';
+
+    void notifyBookingRejected(reservation, resourceName, dto.rejection_reason).catch(console.error);
+
     const tpl = ResourceManagementActivityTemplates.reservationRejected(
       resourceName,
       dto.rejection_reason
@@ -738,19 +769,32 @@ export class ReservationService {
    */
   static async cancelReservation(
     dto: CancelReservationDto,
-    userId: string
+    _userId: string
   ): Promise<Reservation> {
     const supabase = createClientSupabaseClient();
 
+    // Use the cancel_reservation SECURITY DEFINER RPC so that:
+    // 1. Admins with resources.manage can cancel any reservation (the direct
+    //    UPDATE policy only allowed the original booker).
+    // 2. The RPC returns the updated row via RETURNING * without going through
+    //    the institution-based SELECT RLS policy that caused PGRST116 errors
+    //    even when the cancellation itself succeeded.
+    const { error: rpcError } = await (supabase as any).rpc(
+      'cancel_reservation',
+      {
+        p_reservation_id: dto.reservation_id,
+        p_reason: dto.cancellation_reason ?? null
+      }
+    );
+
+    if (rpcError) {
+      console.error('Error cancelling reservation:', rpcError);
+      throw rpcError;
+    }
+
+    // Fetch the full joined row the UI expects (resource name, user details).
     const { data, error } = await (supabase
       .from('resource_reservations') as any)
-      .update({
-        status: 'cancelled',
-        cancelled_by: userId,
-        cancelled_at: new Date().toISOString(),
-        cancellation_reason: dto.cancellation_reason
-      })
-      .eq('id', dto.reservation_id)
       .select(
         `
         *,
@@ -758,10 +802,11 @@ export class ReservationService {
         user:profiles!resource_reservations_user_id_fkey(id, full_name, email)
       `
       )
+      .eq('id', dto.reservation_id)
       .single();
 
     if (error) {
-      console.error('Error cancelling reservation:', error);
+      console.error('Error fetching cancelled reservation:', error);
       throw error;
     }
 

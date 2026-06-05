@@ -4,6 +4,8 @@ import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Loader2, Pencil, CheckCircle2, AlertCircle } from 'lucide-react';
 import type { Language } from './language-toggle';
+import { LookupService } from '@/lib/services/admission/lookup-service';
+import { CasteService } from '@/lib/services/admission/caste-service';
 
 interface Props {
   lang: Language;
@@ -21,6 +23,7 @@ interface Props {
 
 interface CourseNames {
   institution?: string;
+  quota?: string;
   degree?: string;
   department?: string;
   program?: string;
@@ -108,9 +111,36 @@ export function StepPreviewConfirm({
   const [courseNames, setCourseNames] = useState<CourseNames>({});
   const [coursesLoading, setCoursesLoading] = useState(false);
 
+  // Community is stored as community_category_id (FK); resolve its code for the
+  // preview (the legacy `community` text column is retired). RLS on
+  // community_categories is open to anon, so this works on the public form.
+  const [communityCode, setCommunityCode] = useState<string | undefined>(undefined);
+  useEffect(() => {
+    let alive = true;
+    const id = (data as { community_category_id?: string }).community_category_id;
+    if (!id) return;
+    LookupService.listCommunityCategories(true)
+      .then((rows) => { if (alive) setCommunityCode(rows.find((r) => r.id === id)?.code); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [data.community_category_id]);
+
+  // Caste is stored as caste_id (FK); resolve its name for the preview.
+  const [casteName, setCasteName] = useState<string | undefined>(undefined);
+  useEffect(() => {
+    let alive = true;
+    const id = (data as { caste_id?: string }).caste_id;
+    if (!id) return;
+    CasteService.get(id)
+      .then((c) => { if (alive) setCasteName(c?.name); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [data.caste_id]);
+
   useEffect(() => {
     const ids = {
       institution_id: data.institution_id,
+      quota_id: data.quota_id,
       degree_id: data.degree_id,
       department_id: data.department_id,
       program_id: data.program_id,
@@ -137,13 +167,13 @@ export function StepPreviewConfirm({
     return () => {
       alive = false;
     };
-  }, [token, data.institution_id, data.degree_id, data.department_id, data.program_id, data.semester_id, data.transport_route_id, data.transport_stop_id]);
+  }, [token, data.institution_id, data.quota_id, data.degree_id, data.department_id, data.program_id, data.semester_id, data.transport_route_id, data.transport_stop_id]);
 
   const hasCourse =
     looksFilled(data.institution_id) ||
     looksFilled(data.degree_id) ||
     looksFilled(data.program_id) ||
-    looksFilled(data.quota) ||
+    looksFilled(data.quota_id) ||
     looksFilled(data.entry_type) ||
     looksFilled(data.semester_id);
 
@@ -198,8 +228,8 @@ export function StepPreviewConfirm({
             label="Religion / Community / Caste"
             value={[
               RELIGION_LABELS[data.religion] ?? data.religion,
-              data.community,
-              data.caste,
+              communityCode,
+              casteName,
             ]
               .filter(looksFilled)
               .join(' · ')}
@@ -336,7 +366,10 @@ export function StepPreviewConfirm({
         </SubGroup>
 
         <SubGroup title="Entry & Semester">
-          <Row label="Quota / ஒதுக்கீடு" value={data.quota} />
+          <Row
+            label="Quota / ஒதுக்கீடு"
+            value={courseNames.quota ?? (coursesLoading && data.quota_id ? 'Loading…' : undefined)}
+          />
           <Row label="Entry Type / சேர்க்கை வகை" value={data.entry_type} />
           <Row
             label="Semester / பருவம்"

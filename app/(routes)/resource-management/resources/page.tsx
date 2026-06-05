@@ -2,7 +2,7 @@
 // app/(routes)/resource-management/resources/page.tsx
 
 
-import { useEffect, useMemo, useCallback } from 'react';
+import { useMemo, useCallback } from 'react';
 import Link from 'next/link';
 import { Plus, Edit, Eye, Package, ImageIcon } from 'lucide-react';
 import { format } from 'date-fns';
@@ -66,10 +66,6 @@ export default function ResourcesPage() {
   const canDeleteResources =
     isSuperAdmin || canAccess('resources.resources', 'delete');
 
-  useEffect(() => {
-    fetchResources();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   // Handle search
   const handleSearch = useCallback(
@@ -119,7 +115,8 @@ export default function ResourcesPage() {
       available: 'bg-green-100 text-green-800',
       occupied: 'bg-blue-100 text-blue-800',
       maintenance: 'bg-yellow-100 text-yellow-800',
-      retired: 'bg-gray-100 text-gray-800'
+      retired: 'bg-gray-100 text-gray-800',
+      inactive: 'bg-slate-200 text-slate-600'
     };
     return colors[status as keyof typeof colors] || 'bg-gray-100 text-gray-800';
   };

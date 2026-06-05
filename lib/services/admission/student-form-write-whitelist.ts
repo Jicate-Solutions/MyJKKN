@@ -16,7 +16,8 @@
 export const STUDENT_WRITABLE_COLUMNS = {
   basic: [
     'first_name', 'last_name', 'date_of_birth', 'gender',
-    'religion', 'community', 'caste', 'community_category_id', 'caste_id', 'student_photo_url',
+    // community/caste TEXT columns are retired — only the FK ids are writable.
+    'religion', 'community_category_id', 'caste_id', 'student_photo_url',
     'father_name', 'father_occupation', 'father_mobile',
     'mother_name', 'mother_occupation', 'mother_mobile',
     'annual_income',
@@ -44,7 +45,7 @@ export const STUDENT_WRITABLE_COLUMNS = {
     // submitted with the rest of the course fields so the fee-structure
     // matrix lookup has the right cohort.
     'institution_id', 'degree_id', 'department_id', 'program_id', 'semester_id',
-    'quota', 'entry_type', 'admission_year_id',
+    'quota_id', 'entry_type', 'admission_year_id',
   ],
   accommodation: [
     // Accommodation step — added 2026-05-19. The "How did you hear about us?"
@@ -52,7 +53,11 @@ export const STUDENT_WRITABLE_COLUMNS = {
     // DELIBERATELY excluded per product spec: students fill the practical
     // accommodation choice; the reference channel is admin-tracked metadata
     // captured during lead intake, not by the student.
-    'accommodation_type',
+    //
+    // accommodation_type TEXT is retired — the student form still sends the
+    // HOSTEL/DAY SCHOLAR choice as `accommodation_type`, but saveSection resolves
+    // it to this institution-scoped FK before the write (see student-form-service).
+    'accommodation_type_id',
     // Gender-scoped campus-living category FKs (added 2026-05-29). Options are
     // filtered by the gender the student picked on the Basic Details step.
     'hostel_category_id', 'mess_category_id',

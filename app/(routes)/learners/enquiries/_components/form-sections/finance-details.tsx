@@ -105,13 +105,13 @@ export function FinanceDetailsSection({
     name: 'admission_year_id',
   });
 
-  // Form fields for the 3 demographic dims are TEXT (legacy schema):
-  // `quota`, `community`, `accommodation_type`. The matrix lookup needs FK
-  // IDs from quotas / community_categories / accommodation_types. We resolve
-  // TEXT → FK on the fly so net-new enquiries (pre-save) can hit the matrix.
-  // For loaded learners (edit mode), the parent `extraDims` prop carries the
-  // already-saved FK IDs and takes priority — avoids a redundant lookup.
-  const quotaText = useWatch({ control: form.control, name: 'quota' }) as string | null | undefined;
+  // Community + accommodation are still TEXT form fields (legacy schema); the
+  // matrix needs FK IDs, so we resolve TEXT → FK on the fly. Quota is now the
+  // FK directly on the form (quota_id). For loaded learners (edit mode) the
+  // parent `extraDims` prop carries already-saved FK IDs and takes priority.
+  // The lookup arrays below are still loaded for id→name display labels in the
+  // NoMatchEmptyState.
+  const quotaIdValue = useWatch({ control: form.control, name: 'quota_id' }) as string | null | undefined;
   const communityText = useWatch({ control: form.control, name: 'community' }) as string | null | undefined;
   const accommodationText = useWatch({ control: form.control, name: 'accommodation_type' }) as string | null | undefined;
   const genderValue = useWatch({ control: form.control, name: 'gender' }) as string | null | undefined;
@@ -164,9 +164,9 @@ export function FinanceDetailsSection({
   // a fallback for the case where the form text is empty (new enquiry
   // pre-fill, or edit-mode hydration before the lookup arrays load).
   const resolvedQuotaId = useMemo(() => {
-    const fromText = resolveLookupId(quotaText, quotaLookup);
-    return fromText ?? extraDims?.quota_id;
-  }, [extraDims?.quota_id, quotaText, quotaLookup]);
+    // Quota is now the FK on the form (quota_id); use it directly.
+    return quotaIdValue || extraDims?.quota_id;
+  }, [extraDims?.quota_id, quotaIdValue]);
   const resolvedCommunityId = useMemo(() => {
     const fromText = resolveLookupId(communityText, communityLookup);
     return fromText ?? extraDims?.community_category_id;

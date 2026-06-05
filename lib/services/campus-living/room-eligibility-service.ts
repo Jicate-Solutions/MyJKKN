@@ -18,11 +18,14 @@ export class RoomEligibilityService {
   }
 
   // ── Rules ────────────────────────────────────────────────────────────
-  static async getRules(institutionId: string): Promise<RoomEligibilityRuleRow[]> {
-    const { data, error } = await this.supabase
+  // institutionId omitted => list rules across ALL institutions (the settings
+  // page lists every institution; each rule carries its own institution_id).
+  static async getRules(institutionId?: string): Promise<RoomEligibilityRuleRow[]> {
+    let query = this.supabase
       .from('hostel_room_eligibility_rules')
       .select(
         `*,
+         institution:institutions(name),
          block:hostel_blocks(name),
          degree:degrees(degree_name),
          department:departments(department_name),
@@ -30,8 +33,12 @@ export class RoomEligibilityService {
          semester:semesters(semester_name),
          rooms:hostel_room_eligibility_rule_rooms(room_id)`
       )
-      .eq('institution_id', institutionId)
+      .order('institution_id', { ascending: true })
       .order('created_at', { ascending: true });
+
+    if (institutionId) query = query.eq('institution_id', institutionId);
+
+    const { data, error } = await query;
 
     if (error) {
       logger.error(LOG, 'Database error listing room eligibility rules', error);
@@ -39,6 +46,7 @@ export class RoomEligibilityService {
     }
 
     return (data ?? []).map((r: Record<string, unknown>) => {
+      const institution = r.institution as { name?: string } | null;
       const block = r.block as { name?: string } | null;
       const degree = r.degree as { degree_name?: string } | null;
       const department = r.department as { department_name?: string } | null;
@@ -46,6 +54,7 @@ export class RoomEligibilityService {
       const semester = r.semester as { semester_name?: string } | null;
       const rooms = (r.rooms as { room_id: string }[] | null) ?? [];
       const {
+        institution: _i,
         block: _b,
         degree: _d,
         department: _dept,
@@ -57,6 +66,7 @@ export class RoomEligibilityService {
       const roomIds = rooms.map((x) => x.room_id);
       return {
         ...(rest as RoomEligibilityRule),
+        institution_name: institution?.name ?? null,
         block_name: block?.name ?? null,
         degree_name: degree?.degree_name ?? null,
         department_name: department?.department_name ?? null,
@@ -225,19 +235,39 @@ export class RoomEligibilityService {
     }));
   }
 
+  // Does a block have any ACTIVE physical-room rule? Auto-allocation is
+  // rule-driven (2026-06-03) and refuses to run on a block with no rule, so
+  // the Auto-Allocate page checks this on block-select to guard + guide.
+  static async hasRulesForBlock(blockId: string): Promise<boolean> {
+    const { count, error } = await this.supabase
+      .from('hostel_room_eligibility_rules')
+      .select('id', { count: 'exact', head: true })
+      .eq('block_id', blockId)
+      .eq('is_active', true);
+    if (error) throw new Error(error.message || 'Failed to check block rules');
+    return (count ?? 0) > 0;
+  }
+
   static async getRoomsForBlock(blockId: string): Promise<RoomOption[]> {
+    // Left-join the category (no !inner) so a room missing a category still
+    // appears — it lands in the "Uncategorized" group rather than vanishing.
     const { data, error } = await this.supabase
       .from('hostel_rooms')
-      .select('id, room_number, floor')
+      .select('id, room_number, floor, category_id, hostel_categories(name)')
       .eq('block_id', blockId)
       .eq('room_purpose', 'student')
       .order('floor', { ascending: true })
       .order('room_number', { ascending: true });
     if (error) throw new Error(error.message || 'Failed to load rooms');
-    return (data ?? []).map((r: Record<string, unknown>) => ({
-      id: r.id as string,
-      room_number: r.room_number as string,
-      floor: r.floor as number,
-    }));
+    return (data ?? []).map((r: Record<string, unknown>) => {
+      const category = r.hostel_categories as { name?: string } | null;
+      return {
+        id: r.id as string,
+        room_number: r.room_number as string,
+        floor: r.floor as number,
+        category_id: (r.category_id as string) ?? null,
+        category_name: category?.name ?? null,
+      };
+    });
   }
 }

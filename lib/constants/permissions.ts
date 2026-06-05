@@ -263,7 +263,6 @@ export const PERMISSION_CATEGORIES = [
       { key: 'learners.my-attendance.view', label: 'View My Attendance (Students)' },
       { key: 'learners.my-profile.view', label: 'View My Profile (Students)' },
       { key: 'learners.my-profile.edit', label: 'Edit My Profile (Students)' },
-      { key: 'learners.my-marks.view', label: 'View My Marks (Students)' },
 
       // Legacy permissions (deprecated - use my-* versions above)
       { key: 'learners.attendance.view', label: 'View Own Attendance (Students) - DEPRECATED: Use learners.my-attendance.view' },
@@ -520,19 +519,21 @@ export const PERMISSION_CATEGORIES = [
       { key: 'billing.onboarding.view', label: 'View Learner Onboarding' },
       { key: 'billing.onboarding.approve', label: 'Approve Learner Onboarding' },
       { key: 'billing.reports.view', label: 'View Billing Reports' },
+      { key: 'billing.analytics.view', label: 'View Billing Analytics' },
+      { key: 'billing.analytics.export', label: 'Export Billing Analytics' },
       { key: 'billing.payment.view', label: 'View Payments' },
       { key: 'billing.payment.create', label: 'Record Payments' },
       { key: 'billing.payment.edit', label: 'Edit Payments' },
       { key: 'billing.payment.delete', label: 'Delete Payments' },
-      { key: 'billing.activities.view', label: 'View Billing Activities' }
+      { key: 'billing.activities.view', label: 'View Billing Activities' },
+      { key: 'billing.payment_accounts.view', label: 'View Payment Gateway Accounts' },
+      { key: 'billing.payment_accounts.manage', label: 'Manage Payment Gateway Accounts' }
     ]
   },
   {
     name: 'HR Management',
     key: 'hr',
     permissions: [
-      // Module-root visibility — gates the HR sidebar section.
-      { key: 'hr.view', label: 'View HR Module' },
       // Recruitment (Phase 1A+1B shipped 2026-04-15) —
       // RLS keys referenced in supabase/setup/03_policies.sql for hr_recruitment_*
       { key: 'hr.recruitment.view', label: 'View Recruitment Candidates' },
@@ -855,14 +856,7 @@ export const PERMISSION_CATEGORIES = [
       // Tier-2 chip-leak sweep 2026-04-27 — admin tools surfaced via
       // `/admin/*` chips that previously default-allowed for every role.
       { key: 'admin.reset_driver_passwords.manage', label: 'Bulk Reset Driver/Transport Passwords' },
-      { key: 'admin.saml.manage', label: 'Manage SAML SSO Service Providers & Sessions' },
-      // Director's STANDING RULE 2026-04-29 — every policy decision = config-table
-      // row + super_admin UI. /admin/whatsapp-limits backs the platform-wide
-      // WhatsApp daily-send cap (whatsapp_send_limits singleton). View permission
-      // gates the sidebar entry; edit permission gates the Save button. Write at
-      // the DB layer is enforced by RLS (super_admin only).
-      { key: 'admin.whatsapp_limits.view', label: 'View WhatsApp Send Limits Editor' },
-      { key: 'admin.whatsapp_limits.edit', label: 'Edit WhatsApp Daily Send Limit' }
+      { key: 'admin.saml.manage', label: 'Manage SAML SSO Service Providers & Sessions' }
     ]
   },
   {
@@ -880,9 +874,6 @@ export const PERMISSION_CATEGORIES = [
       { key: 'admission.leads.create', label: 'Create Leads' },
       { key: 'admission.leads.edit', label: 'Edit Leads' },
       { key: 'admission.leads.delete', label: 'Delete Leads' },
-      { key: 'admission.leads.student_form.generate', label: 'Generate Student Self-Fill QR' },
-      { key: 'admission.leads.student_form.revoke',   label: 'Revoke Active Student Form Token' },
-      { key: 'learners.profile.student_section.override', label: 'Override Student-Filled Sections' },
       { key: 'admission.leads.assign', label: 'Assign Leads to Counselors' },
       { key: 'admission.leads.bulk_upload', label: 'Bulk Upload Leads' },
       { key: 'admission.leads.bulk_status_update', label: 'Bulk Update Lead Status' },
@@ -906,14 +897,6 @@ export const PERMISSION_CATEGORIES = [
       { key: 'admission.counselors.edit', label: 'Edit Counselors' },
       { key: 'admission.counselors.delete', label: 'Delete Counselors' },
       { key: 'admission.counselors.performance.view', label: 'View Counselor Performance' },
-      // Counselor team management (per spec PR #537 — rules-engine substrate). Decision #20:
-      // Principal/HOD get .view (read-only on own institution via role_has_institution_access RLS).
-      // .manage gates schedule edits, source/institution mappings, reassignments, emergency-off forced toggles.
-      { key: 'admission.counselors.team.view', label: 'View Counselor Team Page' },
-      { key: 'admission.counselors.team.manage', label: 'Manage Counselor Team (reassign, schedule, allocate)' },
-      { key: 'admission.counselors.team.bulk_override', label: 'Override Pause/Cap When Bulk Assigning' },
-      { key: 'admission.counselors.director_pulse', label: 'View Director Pulse (live counselor activity dashboard)' },
-      { key: 'admission.counselors.lead_mood', label: 'View Lead Mood Digest (sentiment + anxious-lead drilldown)' },
 
       // Consultant Management
       { key: 'admission.consultants.view', label: 'View Education Consultants' },
@@ -952,8 +935,6 @@ export const PERMISSION_CATEGORIES = [
       { key: 'admission.settings.manage', label: 'Manage Admission Settings' },
       { key: 'admission.settings.templates.view', label: 'View Communication Templates' },
       { key: 'admission.settings.templates.manage', label: 'Manage Communication Templates' },
-      { key: 'admission.settings.forms.view', label: 'View Admission Forms (Form Builder)' },
-      { key: 'admission.settings.forms.manage', label: 'Manage Admission Forms (Form Builder)' },
       { key: 'admission.settings.workflows.view', label: 'View Workflows' },
       { key: 'admission.settings.workflows.manage', label: 'Manage Workflows & Configuration' },
       { key: 'admission.settings.assignment.view', label: 'View Assignment Rules' },
@@ -1210,8 +1191,6 @@ export const PERMISSION_CATEGORIES = [
     name: 'Solutions Hub',
     key: 'solutions',
     permissions: [
-      // Module-root visibility — gates the Solution Hub sidebar section.
-      { key: 'solutions.view', label: 'View Solution Hub Module' },
       // Dashboard
       { key: 'solutions.dashboard.view', label: 'View Solutions Dashboard' },
 
@@ -1555,8 +1534,6 @@ export const PERMISSION_CATEGORIES = [
     name: 'Value-Added Courses',
     key: 'vac',
     permissions: [
-      // Module-root visibility — gates the VAC sidebar section.
-      { key: 'vac.view', label: 'View Value-Added Courses Module' },
       // Learner-facing
       { key: 'vac.courses.view', label: 'View VAC Catalogue' },
       { key: 'vac.my_courses.view', label: 'View My Courses' },
@@ -1711,8 +1688,6 @@ export const PERMISSION_CATEGORIES = [
     name: 'Health & Wellness',
     key: 'health',
     permissions: [
-      // Module-root visibility — gates the Health & Wellness sidebar section.
-      { key: 'health.view', label: 'View Health & Wellness Module' },
       { key: 'health.dashboard.view', label: 'View Health Dashboard' },
       { key: 'health.profile.view', label: 'View My Health Profile' },
       { key: 'health.leaderboard.view', label: 'View Health Leaderboard' },
@@ -1724,41 +1699,9 @@ export const PERMISSION_CATEGORIES = [
       { key: 'health.counselor.view', label: 'View Counselor Dashboard' }
     ]
   },
-  {
-    name: 'Attention Bar',
-    key: 'attention_bar',
-    permissions: [
-      { key: 'attention_bar.rules.view', label: 'View Layer 2 Rules' },
-      { key: 'attention_bar.rules.manage', label: 'Manage Layer 2 Rules' },
-      { key: 'attention_bar.audit.view', label: 'View Audit Log + Aggregates' },
-      { key: 'attention_bar.config.manage', label: 'Manage System Config + Budgets' },
-      { key: 'attention_bar.test_sandbox.use', label: 'Use Test Sandbox' }
-    ]
-  },
-  {
-    // Added 2026-04-29 — HR Sprint 5 Phase 1
-    // Spec: specs/hrapp-sprint-5-attendance-spec.md Section 10
-    name: 'HR Attendance',
-    key: 'hr_attendance',
-    permissions: [
-      // Staff self-service
-      { key: 'hr.attendance.view_self', label: 'View own attendance' },
-      { key: 'hr.attendance.mark_self', label: 'Self-mark attendance (punch in/out)' },
-      { key: 'hr.attendance.regularize_self', label: 'Submit attendance regularization for self' },
-      // HOD / Principal team-level
-      { key: 'hr.attendance.view_team', label: 'View direct-report attendance' },
-      { key: 'hr.attendance.approve_team', label: 'Approve regularization for direct reports' },
-      // HR officer aggregate
-      { key: 'hr.attendance.view_all', label: 'View all attendance (HR officer)' },
-      { key: 'hr.attendance.override', label: 'Manual edit attendance records' },
-      { key: 'hr.attendance.export', label: 'Export attendance reports' },
-      { key: 'hr.attendance.regularize_approve', label: 'Approve regularization (HR officer)' },
-      // Compliance / audit
-      { key: 'hr.attendance.audit_export', label: 'Export attendance for audit/compliance' }
-    ]
-  },
-  // IMS (Inventory Management System) — Module-level granularity (~28 keys)
-  // following Admission CRM precedent, plus critical action keys for
+  // Added 2026-04-27 — IMS (Inventory Management System) module integration
+  // into MyJKKN role-based access. Taxonomy follows Admission CRM precedent
+  // (module-level granularity ~28 keys) plus critical action keys for
   // financial/audit separation: indents.approve, stock.adjust, sales.refund,
   // grn.receive, transfers.{dispatch,receive}. The lowercase 'ims' key maps
   // to module display name 'IMS' via module-mappings.ts derivation rule.
@@ -1773,7 +1716,7 @@ export const PERMISSION_CATEGORIES = [
       { key: 'ims.dashboard.view', label: 'View IMS Dashboard' },
       { key: 'ims.financial.view', label: 'View IMS Financial Audit' },
 
-      // Indents (request -> approval workflow)
+      // Indents (request → approval workflow)
       { key: 'ims.indents.view', label: 'View Indent Requests' },
       { key: 'ims.indents.create', label: 'Create Indent Requests' },
       { key: 'ims.indents.edit', label: 'Edit Indent Requests' },
@@ -2030,6 +1973,78 @@ export const PERMISSION_CATEGORIES = [
       // Reports & Exports (NAAC / AICTE / flex)
       { key: 'cdc.exports.view', label: 'View CDC Reports & Exports Page' },
       { key: 'cdc.exports.download', label: 'Download CDC Reports (NAAC / AICTE / CSV)' }
+    ]
+  },
+  // ======================================================================
+  // Internship Module — operational permissions for cycles, sites,
+  // preceptors, vehicles, and the learner journey (logbook, evaluations,
+  // attendance, incidents, certificates). Distinct from CDC's
+  // `cdc.internships.*` keys (which model placement-style internship records
+  // within Career Development Centre). The /internships/* route family
+  // shipped in PR #1209 used `super_admin` as a sidebar-permission stopgap;
+  // these keys (added with this catalog) replace it so role-managed access
+  // can scope cycles/sites/preceptors/vehicles per institution. The
+  // `/internships/policy/*` admin-tier routes (relocated from `/admin/internship-policy/*`)
+  // intentionally remain on `super_admin` (Director-only).
+  // ======================================================================
+  {
+    name: 'Internship Module',
+    key: 'internship',
+    permissions: [
+      // Internship Cycles (master scheduling period: dates, eligibility, capacity)
+      { key: 'internship.cycles.view', label: 'View Internship Cycles' },
+      { key: 'internship.cycles.create', label: 'Create Internship Cycle' },
+      { key: 'internship.cycles.edit', label: 'Edit Internship Cycle' },
+      { key: 'internship.cycles.delete', label: 'Delete Internship Cycle' },
+      { key: 'internship.cycles.activate', label: 'Activate / Close Internship Cycle' },
+
+      // Internship Sites (hospitals, clinics, industry partners hosting learners)
+      { key: 'internship.sites.view', label: 'View Internship Sites' },
+      { key: 'internship.sites.create', label: 'Create Internship Site' },
+      { key: 'internship.sites.edit', label: 'Edit Internship Site' },
+      { key: 'internship.sites.delete', label: 'Delete Internship Site' },
+
+      // Preceptors (clinical instructors / site supervisors)
+      { key: 'internship.preceptors.view', label: 'View Preceptors' },
+      { key: 'internship.preceptors.create', label: 'Create Preceptor' },
+      { key: 'internship.preceptors.edit', label: 'Edit Preceptor' },
+      { key: 'internship.preceptors.delete', label: 'Delete Preceptor' },
+
+      // Vehicles (transport allocation for internship rotations)
+      { key: 'internship.vehicles.view', label: 'View Internship Vehicles' },
+      { key: 'internship.vehicles.create', label: 'Create Internship Vehicle' },
+      { key: 'internship.vehicles.edit', label: 'Edit Internship Vehicle' },
+      { key: 'internship.vehicles.delete', label: 'Delete Internship Vehicle' },
+
+      // Assignments (learner → site / preceptor / vehicle for a cycle)
+      { key: 'internship.assignments.view', label: 'View Internship Assignments' },
+      { key: 'internship.assignments.create', label: 'Create Internship Assignment' },
+      { key: 'internship.assignments.edit', label: 'Edit Internship Assignment' },
+      { key: 'internship.assignments.delete', label: 'Delete Internship Assignment' },
+
+      // Logbook (learner-submitted daily / case-based entries)
+      { key: 'internship.logbook.view', label: 'View Internship Logbook' },
+      { key: 'internship.logbook.submit', label: 'Submit Logbook Entry' },
+      { key: 'internship.logbook.approve', label: 'Approve / Reject Logbook Entry' },
+
+      // Evaluations (preceptor / faculty evaluations of learner performance)
+      { key: 'internship.evaluations.view', label: 'View Internship Evaluations' },
+      { key: 'internship.evaluations.submit', label: 'Submit Internship Evaluation' },
+      { key: 'internship.evaluations.approve', label: 'Approve / Finalise Internship Evaluation' },
+
+      // Attendance (rotation attendance, with override for late corrections)
+      { key: 'internship.attendance.view', label: 'View Internship Attendance' },
+      { key: 'internship.attendance.mark', label: 'Mark Internship Attendance' },
+      { key: 'internship.attendance.override', label: 'Override Internship Attendance Record' },
+
+      // Incidents (site / safety / clinical incidents during rotations)
+      { key: 'internship.incidents.view', label: 'View Internship Incidents' },
+      { key: 'internship.incidents.report', label: 'Report Internship Incident' },
+      { key: 'internship.incidents.escalate', label: 'Escalate Internship Incident' },
+
+      // Certificates (completion certificates issued at end of internship)
+      { key: 'internship.certificates.view', label: 'View Internship Certificates' },
+      { key: 'internship.certificates.generate', label: 'Generate Internship Certificate' }
     ]
   }
 ];

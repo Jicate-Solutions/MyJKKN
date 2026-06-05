@@ -18,6 +18,7 @@
 // ============================================================================
 
 import { ContentLayout } from '@/components/layout/content-layout';
+import { PermissionGuard } from '@/components/auth/permission-guard';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
@@ -220,6 +221,7 @@ export default async function PayrollPreviewPage() {
   const policies = await loadPayrollPolicies(null);
 
   return (
+    <PermissionGuard module="users" action="manage">
     <ContentLayout title='Payroll Preview (read-only)'>
       <div className='space-y-6'>
         <Card>
@@ -310,5 +312,6 @@ export default async function PayrollPreviewPage() {
         </Card>
       </div>
     </ContentLayout>
+    </PermissionGuard>
   );
 }

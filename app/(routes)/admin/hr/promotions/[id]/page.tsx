@@ -17,6 +17,7 @@ import { useRouter } from 'next/navigation';
 import { CheckCircle2, XCircle, History } from 'lucide-react';
 import { toast } from 'sonner';
 import { ContentLayout } from '@/components/layout/content-layout';
+import { PermissionGuard } from '@/components/auth/permission-guard';
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -246,6 +247,7 @@ export default function PromotionDetailPage({
   const evidence = application.evidence_jsonb as PromotionEvidence;
 
   return (
+    <PermissionGuard module="users" action="manage">
     <ContentLayout title="Promotion Application">
       <Breadcrumb>
         <BreadcrumbList>
@@ -471,5 +473,6 @@ export default function PromotionDetailPage({
         </div>
       </div>
     </ContentLayout>
+    </PermissionGuard>
   );
 }

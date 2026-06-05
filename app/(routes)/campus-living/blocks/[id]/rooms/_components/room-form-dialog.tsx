@@ -51,6 +51,7 @@ import {
 } from '@/hooks/campus-living/use-hostel-rooms';
 import { useAmenitiesByScope } from '@/hooks/campus-living/use-amenities';
 import type { HostelRoom, RoomType, AcStatus } from '@/types/campus-living';
+import { ROOM_PURPOSE_OPTIONS, TIER_ACCESS_OPTIONS } from './room-meta';
 
 const ROOM_TYPES: { value: RoomType; label: string }[] = [
   { value: 'single', label: 'Single' },
@@ -66,23 +67,47 @@ const AC_STATUSES: { value: AcStatus; label: string }[] = [
   { value: 'cooler', label: 'Cooler' },
 ];
 
-const formSchema = z.object({
-  room_number: z
-    .string()
-    .trim()
-    .min(1, 'Room number is required')
-    .max(20, 'Room number is too long'),
-  floor: z.coerce.number().int().min(0, 'Floor must be 0 or greater').max(50),
-  room_type: z.enum(['single', 'double', 'triple', 'quad', 'dormitory']),
-  ac_status: z.enum(['non_ac', 'ac', 'cooler']),
-  category_id: z.string().min(1, 'Category is required'),
-  capacity: z.coerce.number().int().min(1, 'At least 1 bed').max(20),
-  // Kept as a string so an empty input round-trips to null (annual_fee is
-  // nullable). z.coerce.number() would turn '' into 0 and hide "no fee set".
-  annual_fee: z.string().optional(),
-  has_attached_bathroom: z.boolean(),
-  is_accessible: z.boolean(),
-});
+const formSchema = z
+  .object({
+    room_number: z
+      .string()
+      .trim()
+      .min(1, 'Room number is required')
+      .max(20, 'Room number is too long'),
+    floor: z.coerce.number().int().min(0, 'Floor must be 0 or greater').max(50),
+    room_type: z.enum(['single', 'double', 'triple', 'quad', 'dormitory']),
+    ac_status: z.enum(['non_ac', 'ac', 'cooler']),
+    room_purpose: z.string().min(1, 'Purpose is required'),
+    tier_access: z.string().min(1, 'Tier is required'),
+    // Optional at the field level — required for student rooms only (see
+    // superRefine). Special-purpose rooms (Accounts, Warden, …) have no category.
+    category_id: z.string().optional(),
+    capacity: z.coerce.number().int().min(1, 'At least 1 bed').max(20),
+    // Real bed-count; can differ from sanctioned capacity (a 6-bed dorm
+    // fitting 7). String round-trip so '' → null (nullable column).
+    actual_capacity: z.string().optional(),
+    // Kept as a string so an empty input round-trips to null (annual_fee is
+    // nullable). z.coerce.number() would turn '' into 0 and hide "no fee set".
+    annual_fee: z.string().optional(),
+    // Free-text status strings (e.g. "DONE PROPERLY", "RENOVATED Pending
+    // (Window added)", "LAST YEAR DONE") — no enum so nothing is lost.
+    renovated: z.string().optional(),
+    painting: z.string().optional(),
+    has_attached_bathroom: z.boolean(),
+    is_accessible: z.boolean(),
+  })
+  .superRefine((data, ctx) => {
+    // Student rooms drive fee/tier resolution, so they need a category. Special-
+    // purpose rooms legitimately have none — requiring it would make them
+    // uneditable (the bug that hid Accounts/Warden rooms from this form).
+    if (data.room_purpose === 'student' && !data.category_id) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['category_id'],
+        message: 'Category is required for student rooms',
+      });
+    }
+  });
 
 type FormValues = z.infer<typeof formSchema>;
 
@@ -91,9 +116,14 @@ const DEFAULTS: FormValues = {
   floor: 1,
   room_type: 'double',
   ac_status: 'non_ac',
+  room_purpose: 'student',
+  tier_access: 'classic',
   category_id: '',
   capacity: 2,
+  actual_capacity: '',
   annual_fee: '',
+  renovated: '',
+  painting: '',
   has_attached_bathroom: false,
   is_accessible: false,
 };
@@ -155,9 +185,15 @@ export function RoomFormDialog({
         floor: room.floor,
         room_type: room.room_type,
         ac_status: room.ac_status,
+        room_purpose: room.room_purpose ?? 'student',
+        tier_access: room.tier_access ?? 'classic',
         category_id: room.category_id ?? '',
         capacity: room.capacity,
+        actual_capacity:
+          room.actual_capacity != null ? String(room.actual_capacity) : '',
         annual_fee: room.annual_fee != null ? String(room.annual_fee) : '',
+        renovated: room.renovated ?? '',
+        painting: room.painting ?? '',
         has_attached_bathroom: !!room.has_attached_bathroom,
         is_accessible: !!room.is_accessible,
       });
@@ -180,11 +216,26 @@ export function RoomFormDialog({
         floor: data.floor,
         room_type: data.room_type,
         ac_status: data.ac_status,
-        category_id: data.category_id,
+        room_purpose: data.room_purpose,
+        tier_access: data.tier_access,
+        // '' → null: special-purpose rooms carry no category (nullable FK).
+        category_id: data.category_id ? data.category_id : null,
         capacity: data.capacity,
+        actual_capacity:
+          data.actual_capacity && data.actual_capacity.trim() !== ''
+            ? Number(data.actual_capacity)
+            : null,
         annual_fee:
           data.annual_fee && data.annual_fee.trim() !== ''
             ? Number(data.annual_fee)
+            : null,
+        renovated:
+          data.renovated && data.renovated.trim() !== ''
+            ? data.renovated.trim()
+            : null,
+        painting:
+          data.painting && data.painting.trim() !== ''
+            ? data.painting.trim()
             : null,
         has_attached_bathroom: data.has_attached_bathroom,
         is_accessible: data.is_accessible,
@@ -284,7 +335,15 @@ export function RoomFormDialog({
                 name="category_id"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Room Category</FormLabel>
+                    <FormLabel>
+                      Room Category
+                      {form.watch('room_purpose') !== 'student' && (
+                        <span className="text-muted-foreground font-normal">
+                          {' '}
+                          (Optional)
+                        </span>
+                      )}
+                    </FormLabel>
                     <Select
                       value={field.value}
                       onValueChange={field.onChange}
@@ -344,12 +403,87 @@ export function RoomFormDialog({
 
               <FormField
                 control={form.control}
+                name="room_purpose"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Purpose</FormLabel>
+                    <Select value={field.value} onValueChange={field.onChange}>
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select purpose" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {ROOM_PURPOSE_OPTIONS.map((p) => (
+                          <SelectItem key={p.value} value={p.value}>
+                            {p.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="tier_access"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Tier</FormLabel>
+                    <Select value={field.value} onValueChange={field.onChange}>
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select tier" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {TIER_ACCESS_OPTIONS.map((t) => (
+                          <SelectItem key={t.value} value={t.value}>
+                            {t.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
                 name="capacity"
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Capacity (beds)</FormLabel>
                     <FormControl>
                       <Input type="number" min={1} max={20} {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="actual_capacity"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>
+                      Actual Capacity{' '}
+                      <span className="text-muted-foreground font-normal">
+                        (Optional)
+                      </span>
+                    </FormLabel>
+                    <FormControl>
+                      <Input
+                        type="number"
+                        min={1}
+                        max={30}
+                        placeholder="real bed count"
+                        {...field}
+                      />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -374,6 +508,47 @@ export function RoomFormDialog({
                         placeholder="optional"
                         {...field}
                       />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="renovated"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>
+                      Renovation{' '}
+                      <span className="text-muted-foreground font-normal">
+                        (Optional)
+                      </span>
+                    </FormLabel>
+                    <FormControl>
+                      <Input
+                        placeholder="e.g., Done properly / Renovated"
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="painting"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>
+                      Painting{' '}
+                      <span className="text-muted-foreground font-normal">
+                        (Optional)
+                      </span>
+                    </FormLabel>
+                    <FormControl>
+                      <Input placeholder="e.g., Pending / Finished" {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>

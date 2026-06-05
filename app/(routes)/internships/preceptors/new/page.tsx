@@ -25,6 +25,8 @@ import {
   formValuesToCreatePayload,
   type PreceptorFormValues,
 } from '../../_components/preceptors/preceptor-form';
+import { PermissionGuard } from '@/components/auth/permission-guard';
+import { NoAccessAlert } from '../../_components/no-access-alert';
 
 export const navMeta = {
   invokedFrom: '/internships/preceptors',
@@ -83,6 +85,7 @@ function NewPreceptorContent() {
 
 export default function NewPreceptorPage() {
   return (
+    <PermissionGuard module="internship.preceptors" action="create" fallback={<NoAccessAlert />}>
     <ContentLayout title="Internships — New Preceptor">
       <Breadcrumb>
         <BreadcrumbList>
@@ -107,5 +110,6 @@ export default function NewPreceptorPage() {
         <NewPreceptorContent />
       </Suspense>
     </ContentLayout>
+    </PermissionGuard>
   );
 }

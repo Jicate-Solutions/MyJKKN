@@ -78,6 +78,11 @@ tmpclaude-*
 
 # git worktrees
 .worktrees/
+.claude/worktrees/
+
+# Build logs (test artifacts, not for commit)
+build.log
+build-*.log
 docs/features/mathswork/SAML_PRIVATE_KEY_B64.txt
 docs/features/mathswork/SAML_PUBLIC_CERTIFICATE_B64.txt
 docs/features/mathswork/myjkkn-saml-private.pem
@@ -95,6 +100,9 @@ public/swe-worker-*.js.map
 # Sentry Config File
 .env.sentry-build-plugin
 
+# Razorpay per-institution credential seed file (plaintext secrets — never commit)
+razorpay-accounts.seed.json
+
 # Agent worktrees (created by parallel sub-agent runs in interactive sessions)
 .claude/worktrees/
 
@@ -105,3 +113,8 @@ public/swe-worker-*.js.map
 
 # CodeGraph index (local, per-machine)
 .codegraph/
+
+# MSYS/Cygwin bash crash dumps on Windows
+*.stackdump
+
+.playwright-mcp/

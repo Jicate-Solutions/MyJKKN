@@ -1451,36 +1451,53 @@ export function CounselorList({ onRefresh, institutionId, isGlobalUser }: Counse
     }
 
     // Live assigned-lead counts. The denormalized current_leads counter on
-    // admission_counselors has a history of trigger drift — we query
-    // admission_leads.assigned_counselor_id directly. Different writers
-    // populate that column with either profiles.id (auth.uid()) or
-    // admission_counselors.id, so we match on both. count: 'exact', head: true
-    // is a HEAD request — no rows transferred, just COUNT(*).
-    await Promise.all(
-      records.map(async (c) => {
-        const ids: string[] = [];
-        if (c.user_id) ids.push(c.user_id);
-        if (!c.id.startsWith('role-')) ids.push(c.id);
-        if (ids.length === 0) {
-          c.assigned_lead_count = 0;
-          return;
-        }
-        const { count, error: countErr } = await supabase
-          .from('admission_leads')
-          .select('id', { count: 'exact', head: true })
-          .in('assigned_counselor_id', ids);
-        if (countErr) {
-          // Non-fatal: keep the row visible with a 0 fallback.
-          console.warn('[admission/counselors] assigned-lead count failed', {
-            counselor: c.id,
-            err: countErr,
-          });
-          c.assigned_lead_count = 0;
-        } else {
-          c.assigned_lead_count = count ?? 0;
-        }
-      }),
+    // admission_counselors has a history of trigger drift — we count
+    // admission_leads.assigned_counselor_id directly. Different writers populate
+    // that column with either profiles.id (auth.uid()) or admission_counselors.id,
+    // so each counselor contributes BOTH candidate ids and we sum the matching
+    // buckets. This previously fired one HEAD COUNT per counselor (N+1 — ~100
+    // serialized round-trips that left the table stuck on its loading skeleton);
+    // now a single get_counselor_assigned_lead_counts RPC aggregates the counts
+    // server-side in one round-trip. The RPC is SECURITY INVOKER so RLS on
+    // admission_leads still applies — visible counts are identical, just faster.
+    const assignedCandidateIds = Array.from(
+      new Set(
+        records.flatMap((c) => {
+          const ids: string[] = [];
+          if (c.user_id) ids.push(c.user_id);
+          if (!c.id.startsWith('role-')) ids.push(c.id);
+          return ids;
+        }),
+      ),
     );
+
+    if (assignedCandidateIds.length > 0) {
+      const { data: assignedRows, error: assignedErr } = await (supabase as any).rpc(
+        'get_counselor_assigned_lead_counts',
+        { p_ids: assignedCandidateIds },
+      );
+      if (assignedErr) {
+        // Non-fatal: keep rows visible with a 0 fallback.
+        console.warn('[admission/counselors] assigned-lead counts failed', assignedErr);
+        for (const c of records) c.assigned_lead_count = 0;
+      } else {
+        const countById = new Map<string, number>();
+        for (const row of (assignedRows ?? []) as Array<{
+          assigned_counselor_id: string;
+          lead_count: number | string;
+        }>) {
+          countById.set(row.assigned_counselor_id, Number(row.lead_count) || 0);
+        }
+        for (const c of records) {
+          let total = 0;
+          if (c.user_id) total += countById.get(c.user_id) ?? 0;
+          if (!c.id.startsWith('role-')) total += countById.get(c.id) ?? 0;
+          c.assigned_lead_count = total;
+        }
+      }
+    } else {
+      for (const c of records) c.assigned_lead_count = 0;
+    }
 
     // Live source-mapping counts. One batched query for all counselors —
     // admission_counselor_sources keys solely on counselor_id (no dual-FK

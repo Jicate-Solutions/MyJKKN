@@ -1,8 +1,8 @@
 import * as crypto from 'node:crypto';
 import type { VerifySignatureInput } from '../provider';
 
-export function verifySignature(input: VerifySignatureInput): boolean {
-  const secret = process.env.RAZORPAY_KEY_SECRET;
+export function verifySignature(input: VerifySignatureInput, keySecret: string): boolean {
+  const secret = keySecret;
   if (!secret) return false;
   if (!input.signature) return false;
   const expected = crypto

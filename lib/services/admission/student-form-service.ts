@@ -14,6 +14,7 @@ import {
   type StudentSection,
 } from './student-form-write-whitelist';
 import { signToken, hashRawToken } from './student-form-hmac';
+import { buildAccommodationTypeResolver } from '@/lib/utils/accommodation-type-resolver';
 
 // Token lifetime in seconds. Updated 2026-05-20 from 30 to 60 minutes per
 // product call — students at the counter often need more time to chase parent
@@ -161,10 +162,31 @@ export class StudentFormService {
 
     const allowedFields = filterToWhitelist(section, fields);
 
+    // accommodation_type TEXT is retired. The form still sends the HOSTEL/DAY
+    // SCHOLAR choice as `accommodation_type` (not whitelisted anymore), so
+    // resolve it to the institution-scoped accommodation_types FK here and write
+    // that. Read the raw `fields` (the text was filtered out of allowedFields).
+    if (
+      section === 'accommodation' &&
+      typeof fields.accommodation_type === 'string' &&
+      fields.accommodation_type.trim() !== ''
+    ) {
+      const { data: lp } = await (svc as any)
+        .from('learners_profiles')
+        .select('institution_id')
+        .eq('id', ctx.learner_profile_id)
+        .maybeSingle();
+      if (lp?.institution_id) {
+        const resolveAccommodation = await buildAccommodationTypeResolver(svc, lp.institution_id);
+        allowedFields.accommodation_type_id =
+          resolveAccommodation(fields.accommodation_type as string) ?? null;
+      }
+    }
+
     // Nullable UUID FKs must never reach the UPDATE as '' — Postgres rejects an
     // empty string cast to uuid with 22P02. Coerce blank → null for every
     // uuid-typed writable column the student form can submit.
-    for (const uuidCol of ['hostel_category_id', 'mess_category_id', 'community_category_id', 'caste_id']) {
+    for (const uuidCol of ['hostel_category_id', 'mess_category_id', 'community_category_id', 'caste_id', 'quota_id', 'accommodation_type_id']) {
       if (allowedFields[uuidCol] === '') allowedFields[uuidCol] = null;
     }
 

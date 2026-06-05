@@ -9,7 +9,6 @@ import { logger } from '@/lib/utils/enhanced-logger';
 import type { EventPaymentTransaction } from '@/types/events';
 import { getActiveProviderName, getPaymentProvider } from '@/lib/services/payments/factory';
 import { toPaise } from '@/lib/services/payments/amount';
-import { dualInquiry } from '@/lib/services/payments/razorpay/get-status';
 
 export interface EventInitiatePaymentResult {
   payment_url: string;
@@ -95,7 +94,12 @@ export class EventPaymentService {
     // existing HDFC SmartGateway flow runs below.
     // ----------------------------------------------------------------------
     if (getActiveProviderName('events') === 'razorpay') {
-      const provider = getPaymentProvider('events');
+      // Resolve the registration institution's Razorpay account (env fallback when
+      // none configured, incl. external participants with no institution_id).
+      const provider = await getPaymentProvider('events', {
+        institutionId: registration.institution_id ?? undefined,
+      });
+      const rzpAccountId = (provider as { accountId?: string }).accountId ?? null;
       const amountPaise = toPaise(params.amount);
 
       const order = await provider.createOrder({
@@ -135,6 +139,7 @@ export class EventPaymentService {
           institution_id: registration.institution_id,
           provider: 'razorpay',
           razorpay_order_id: order.gatewayOrderId,
+          razorpay_account_id: rzpAccountId,
           gateway_session_id: order.gatewayOrderId,
           gateway_response: order.raw,
         })
