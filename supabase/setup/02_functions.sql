@@ -11008,6 +11008,150 @@ REVOKE ALL ON FUNCTION public.admission_resolve_fee_items_for_lead(uuid) FROM PU
 GRANT EXECUTE ON FUNCTION public.admission_resolve_fee_items_for_lead(uuid) TO authenticated;
 
 -- ============================================================================
+-- admission_resolve_fee_items_readonly RPC (Phase 3 Task 1)
+-- ============================================================================
+-- Read-only twin of admission_resolve_fee_items_for_lead(uuid) for dry-run
+-- previews. Same matching + aggregation logic, but:
+--   * Signature (p_learner_id uuid, p_year_of_study int) — caller supplies the
+--     year-of-study used by the applicability predicate (no fn_learner_year_of_study).
+--   * RETURNs the resolved jsonb array WITHOUT writing learners_profiles.fee_items.
+--   * Each item carries billing_category_id (generation RPC dedup key), plus
+--     category_name, amount, applies_to, applies_year_of_study.
+-- ============================================================================
+
+CREATE OR REPLACE FUNCTION public.admission_resolve_fee_items_readonly(
+    p_learner_id uuid,
+    p_year_of_study int
+)
+    RETURNS jsonb
+    LANGUAGE plpgsql
+    STABLE
+    SECURITY DEFINER
+    SET search_path TO 'public'
+AS $function$
+DECLARE
+    v_lead              record;
+    v_structure_id      uuid;
+    v_resolved          jsonb;
+    v_base_items        jsonb;
+    v_global_deltas_sum numeric(15,2) := 0;
+    v_year              int := COALESCE(p_year_of_study, 1);
+BEGIN
+    SELECT institution_id, degree_id, department_id, program_id,
+           quota_id, community_category_id, accommodation_type_id, admission_year_id,
+           legacy_fee_mode, gender
+      INTO v_lead
+      FROM public.learners_profiles
+     WHERE id = p_learner_id;
+
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'learner_not_found: %', p_learner_id USING ERRCODE = 'P0002';
+    END IF;
+
+    IF v_lead.legacy_fee_mode = true THEN
+        RETURN COALESCE((SELECT fee_items FROM public.learners_profiles WHERE id = p_learner_id), '[]'::jsonb);
+    END IF;
+
+    SELECT afs.id INTO v_structure_id
+      FROM public.admission_fee_structures afs
+     WHERE afs.institution_id        = v_lead.institution_id
+       AND afs.degree_id             = v_lead.degree_id
+       AND afs.department_id         = v_lead.department_id
+       AND afs.programme_id          = v_lead.program_id
+       AND afs.quota_id              = v_lead.quota_id
+       AND afs.admission_year_id     = v_lead.admission_year_id
+       AND afs.status = 'active'
+       AND EXISTS (
+             SELECT 1 FROM public.admission_fee_structure_communities j
+              WHERE j.fee_structure_id      = afs.id
+                AND j.community_category_id = v_lead.community_category_id
+           )
+       AND (afs.gender = UPPER(v_lead.gender) OR afs.gender IS NULL)
+     ORDER BY afs.gender IS NOT NULL DESC
+     LIMIT 1;
+
+    IF v_structure_id IS NULL THEN
+        RETURN '[]'::jsonb;
+    END IF;
+
+    SELECT jsonb_agg(jsonb_build_object(
+                'category_id',           fsi.billing_category_id,
+                'billing_category_id',   fsi.billing_category_id,
+                'category_name',         bc.category_name,
+                'amount',                fsi.amount,
+                'applies_to',            fsi.applies_to,
+                'applies_year_of_study', fsi.applies_year_of_study,
+                'source',                'structure'))
+      INTO v_base_items
+      FROM public.admission_fee_structure_items fsi
+      JOIN public.billing_categories bc ON bc.id = fsi.billing_category_id
+     WHERE fsi.fee_structure_id = v_structure_id
+       AND (
+             fsi.applies_to = 'every_year'
+          OR (fsi.applies_to = 'first_year_only' AND v_year = 1)
+          OR (fsi.applies_to = 'specific_year'  AND fsi.applies_year_of_study = v_year)
+       );
+
+    IF v_base_items IS NULL THEN
+        v_base_items := '[]'::jsonb;
+    END IF;
+
+    WITH per_cat AS (
+        SELECT billing_category_id, SUM(delta_amount) AS delta_sum
+          FROM public.admission_fee_adjustments
+         WHERE learner_id = p_learner_id
+           AND status = 'active'
+           AND billing_category_id IS NOT NULL
+         GROUP BY billing_category_id
+    )
+    SELECT jsonb_agg(
+             jsonb_build_object(
+               'category_id',           item->>'category_id',
+               'billing_category_id',   item->>'billing_category_id',
+               'category_name',         item->>'category_name',
+               'amount',                GREATEST(0, (item->>'amount')::numeric
+                                          + COALESCE(pc.delta_sum, 0)),
+               'applies_to',            item->>'applies_to',
+               'applies_year_of_study', (item->>'applies_year_of_study')::int,
+               'source',                item->>'source'))
+      INTO v_resolved
+      FROM jsonb_array_elements(v_base_items) AS item
+      LEFT JOIN per_cat pc ON pc.billing_category_id = (item->>'category_id')::uuid;
+
+    IF v_resolved IS NULL THEN
+        v_resolved := '[]'::jsonb;
+    END IF;
+
+    SELECT COALESCE(SUM(delta_amount), 0)
+      INTO v_global_deltas_sum
+      FROM public.admission_fee_adjustments
+     WHERE learner_id = p_learner_id
+       AND status = 'active'
+       AND billing_category_id IS NULL;
+
+    IF v_global_deltas_sum <> 0 THEN
+        v_resolved := v_resolved || jsonb_build_array(
+            jsonb_build_object(
+                'category_id',           NULL,
+                'billing_category_id',   NULL,
+                'category_name',         'Global Adjustment',
+                'amount',                v_global_deltas_sum,
+                'applies_to',            NULL,
+                'applies_year_of_study', NULL,
+                'source',                'adjustment_global'
+            )
+        );
+    END IF;
+
+    RETURN v_resolved;
+END;
+$function$;
+
+-- Security: owner-only execute — SECURITY DEFINER read fn must not be directly callable by untrusted roles (IDOR); only the gated generation RPC calls it as owner.
+REVOKE ALL ON FUNCTION public.admission_resolve_fee_items_readonly(uuid, int)
+  FROM PUBLIC, anon, authenticated, service_role;
+
+-- ============================================================================
 -- admission_account_transition_with_bills (Plan 4 Task 4)
 -- ============================================================================
 -- Spec §8.3.1. Atomic: documents persistence + status update + bill generation.
@@ -11021,11 +11165,14 @@ GRANT EXECUTE ON FUNCTION public.admission_resolve_fee_items_for_lead(uuid) TO a
 -- Other billing_student_bills columns (is_recurring, recurrence_pattern,
 -- number_of_recurrences, payment_date) keep their table defaults.
 -- ============================================================================
+-- Hosteller-skip guard (migration 20260606102000): hostellers are billed via Campus Living (campus_living_generate_hostel_year_bills), so the academic-bill INSERTs here are skipped for them to avoid double-billing.
 
 CREATE OR REPLACE FUNCTION public.admission_account_transition_with_bills(
     p_learner_id          uuid,
     p_required_documents  jsonb,
-    p_received_documents  jsonb
+    p_received_documents  jsonb,
+    p_idempotency_key     uuid DEFAULT NULL::uuid,
+    p_notes               text DEFAULT NULL::text
 )
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -11044,13 +11191,29 @@ DECLARE
     v_item              jsonb;
     v_due_date          date;
     v_caller            uuid := auth.uid();
+    v_existing_result   jsonb;
+    v_pending_event_id  uuid;
+    v_result            jsonb;
+    v_is_hosteller      boolean := false;
 BEGIN
+    -- Idempotency short-circuit
+    IF p_idempotency_key IS NOT NULL THEN
+        SELECT result INTO v_existing_result
+          FROM public.admission_account_transition_log
+         WHERE idempotency_key = p_idempotency_key;
+        IF v_existing_result IS NOT NULL THEN
+            RETURN v_existing_result;
+        END IF;
+    END IF;
+
+    -- Permission check
     IF NOT public.user_has_permission('admission_documents.manage') THEN
         RAISE EXCEPTION 'permission_denied: admission_documents.manage required'
             USING ERRCODE = '42501';
     END IF;
 
-    SELECT id, institution_id, lifecycle_status, fee_items, legacy_fee_mode
+    -- Load + lock learner row
+    SELECT id, institution_id, lifecycle_status, fee_items, legacy_fee_mode, accommodation_type_id
       INTO v_lead
       FROM public.learners_profiles
      WHERE id = p_learner_id
@@ -11059,6 +11222,17 @@ BEGIN
     IF NOT FOUND THEN
         RAISE EXCEPTION 'learner_not_found: %', p_learner_id USING ERRCODE = 'P0002';
     END IF;
+
+    -- CUTOVER guard: hostellers are billed via the Campus Living generation run
+    -- (campus_living_generate_hostel_year_bills, hostel_year-stamped). Skipping
+    -- bill INSERTs here prevents the academic portion from double-billing — the
+    -- dedup index can't bridge a NULL hostel_year (here) vs a set one (there).
+    v_is_hosteller := EXISTS (
+        SELECT 1
+          FROM public.accommodation_types a
+         WHERE a.id = v_lead.accommodation_type_id
+           AND a.code = 'hostel'
+    );
 
     -- Allow-list extended 2026-05-20 to include the renamed entry-point
     -- statuses ('enquiry', 'enquiry_submitted'). Pre-realignment statuses
@@ -11069,6 +11243,17 @@ BEGIN
     ) THEN
         RAISE EXCEPTION 'invalid_status_for_account_transition: current=%, allowed=enquiry/enquiry_submitted/admitted/pending/approved',
             v_lead.lifecycle_status;
+    END IF;
+
+    -- Block if a pending fee-change event exists
+    SELECT id INTO v_pending_event_id
+      FROM public.admission_fee_change_events
+     WHERE learner_id = p_learner_id
+       AND status = 'pending_review'
+     LIMIT 1;
+    IF v_pending_event_id IS NOT NULL THEN
+        RAISE EXCEPTION 'pending_fee_change_event: cannot transition while a fee-change event is pending review (event_id=%)',
+            v_pending_event_id USING ERRCODE = 'P0001';
     END IF;
 
     IF v_lead.legacy_fee_mode = false THEN
@@ -11127,16 +11312,29 @@ BEGIN
     END LOOP;
 
     UPDATE public.learners_profiles
-       SET lifecycle_status = 'account',
-           updated_at = now(),
-           updated_by = v_caller
+       SET lifecycle_status               = 'account',
+           updated_at                     = now(),
+           updated_by                     = v_caller,
+           account_verified_at            = CASE
+                                              WHEN p_idempotency_key IS NOT NULL
+                                              THEN now()
+                                              ELSE account_verified_at
+                                            END,
+           account_verified_by            = CASE
+                                              WHEN p_idempotency_key IS NOT NULL
+                                              THEN v_caller
+                                              ELSE account_verified_by
+                                            END,
+           account_verification_notes     = COALESCE(p_notes, account_verification_notes)
      WHERE id = p_learner_id;
 
+    -- Generate bills (idempotent — skips if bills already exist).
+    -- CUTOVER: also skipped entirely for hostellers (billed via Campus Living).
     SELECT count(*) INTO v_bills_existing
       FROM public.billing_student_bills
      WHERE student_id = p_learner_id;
 
-    IF v_bills_existing = 0 THEN
+    IF v_bills_existing = 0 AND NOT v_is_hosteller THEN
         v_due_date := (now() + interval '30 days')::date;
 
         FOR v_item IN SELECT * FROM jsonb_array_elements(v_fee_items)
@@ -11168,23 +11366,34 @@ BEGIN
         END LOOP;
     END IF;
 
-    RETURN jsonb_build_object(
+    v_result := jsonb_build_object(
         'success', true,
         'learner_id', p_learner_id,
         'lifecycle_status', 'account',
         'documents_recorded', jsonb_array_length(p_received_documents),
         'bills_existing', v_bills_existing,
         'bills_generated', v_bills_inserted,
-        'fee_items_count', jsonb_array_length(v_fee_items)
+        'fee_items_count', jsonb_array_length(v_fee_items),
+        'verified', (p_idempotency_key IS NOT NULL)
     );
+
+    IF p_idempotency_key IS NOT NULL THEN
+        INSERT INTO public.admission_account_transition_log
+            (idempotency_key, learner_id, result, created_by)
+        VALUES
+            (p_idempotency_key, p_learner_id, v_result, v_caller)
+        ON CONFLICT (idempotency_key) DO NOTHING;
+    END IF;
+
+    RETURN v_result;
 EXCEPTION
     WHEN OTHERS THEN
         RAISE;
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.admission_account_transition_with_bills(uuid, jsonb, jsonb) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.admission_account_transition_with_bills(uuid, jsonb, jsonb) TO authenticated;
+REVOKE ALL ON FUNCTION public.admission_account_transition_with_bills(uuid, jsonb, jsonb, uuid, text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.admission_account_transition_with_bills(uuid, jsonb, jsonb, uuid, text) TO authenticated;
 -- ============================================================================
 -- 20260509100007 — admission_approve_fee_change_event RPC
 -- ============================================================================
@@ -13661,5 +13870,118 @@ BEGIN
 
   RETURN COALESCE(v_items, '[]'::jsonb);
 END $$;
+
+NOTIFY pgrst, 'reload schema';
+
+-- campus_living_generate_hostel_year_bills
+-- For each hosteller in p_learner_ids, compute the combined bill set for p_hostel_year_id:
+--   year-of-study-filtered academic items + hostel/mess items.
+-- Dedup against existing (student, hostel_year, category|package) bills.
+-- p_dry_run=true: return the plan without inserting. false: insert new bills idempotently.
+CREATE OR REPLACE FUNCTION public.campus_living_generate_hostel_year_bills(
+  p_hostel_year_id uuid,
+  p_learner_ids    uuid[],
+  p_dry_run        boolean DEFAULT true
+)
+RETURNS jsonb
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE
+  v_result      jsonb := '[]'::jsonb;
+  v_learner     uuid;
+  lp            learners_profiles%ROWTYPE;
+  v_year        int;
+  v_academic    jsonb;
+  v_hostel      jsonb;
+  v_item        jsonb;
+  v_proposed    jsonb;
+  v_skipped     jsonb;
+  v_new         int;
+  v_exists      boolean;
+  v_cat         uuid;
+  v_pkg         uuid;
+  v_src         text;
+BEGIN
+  -- permission gate (reuse campus_living.fees.config or the new fees.generate key)
+  IF NOT public.user_has_permission('campus_living.fees.config') THEN
+    RAISE EXCEPTION 'permission denied: campus_living.fees.config' USING ERRCODE = '42501';
+  END IF;
+
+  FOREACH v_learner IN ARRAY p_learner_ids LOOP
+    SELECT * INTO lp FROM learners_profiles WHERE id = v_learner;
+    CONTINUE WHEN NOT FOUND;
+    -- hostellers only
+    CONTINUE WHEN NOT EXISTS (
+      SELECT 1 FROM accommodation_types a WHERE a.id = lp.accommodation_type_id AND a.code = 'hostel');
+
+    v_year     := COALESCE(public.fn_learner_year_of_study(v_learner), 1);
+    v_academic := public.admission_resolve_fee_items_readonly(v_learner, v_year);
+    v_hostel   := public.campus_living_resolve_hostel_fee(v_learner, p_hostel_year_id);
+    v_proposed := '[]'::jsonb; v_skipped := '[]'::jsonb; v_new := 0;
+
+    -- academic items (fee_source='academic', keyed by billing_category_id)
+    FOR v_item IN SELECT * FROM jsonb_array_elements(COALESCE(v_academic,'[]'::jsonb)) LOOP
+      v_cat := (v_item->>'billing_category_id')::uuid; v_src := 'academic';
+      SELECT EXISTS(SELECT 1 FROM billing_student_bills b
+        WHERE b.student_id = v_learner AND b.hostel_year_id = p_hostel_year_id
+          AND b.item_category_id = v_cat AND b.fee_source IN ('academic','hostel_category')
+          AND b.status NOT IN ('cancelled','superseded')) INTO v_exists;
+      IF v_exists THEN v_skipped := v_skipped || (v_item || jsonb_build_object('fee_source','academic'));
+      ELSE
+        v_proposed := v_proposed || (v_item || jsonb_build_object('fee_source',v_src));
+        IF NOT p_dry_run THEN
+          INSERT INTO billing_student_bills (student_id, institution_id, item_category_id,
+            hostel_year_id, fee_source, applies_year_of_study, bill_description, due_date,
+            quantity, unit_amount, total_amount, final_amount, balance_amount, status)
+          VALUES (v_learner, lp.institution_id, v_cat, p_hostel_year_id, v_src, v_year,
+            v_item->>'category_name', now()+interval '30 day', 1,
+            (v_item->>'amount')::numeric, (v_item->>'amount')::numeric,
+            (v_item->>'amount')::numeric, (v_item->>'amount')::numeric, 'unpaid')
+          ON CONFLICT DO NOTHING;  -- partial unique index is the final guard
+        END IF;
+        v_new := v_new + 1;
+      END IF;
+    END LOOP;
+
+    -- hostel/mess items (fee_source from resolver: hostel_package | hostel_category)
+    FOR v_item IN SELECT * FROM jsonb_array_elements(COALESCE(v_hostel,'[]'::jsonb)) LOOP
+      v_src := v_item->>'fee_source'; v_cat := NULLIF(v_item->>'category_id','')::uuid;
+      v_pkg := NULLIF(v_item->>'package_id','')::uuid;
+      IF v_src = 'hostel_package' THEN
+        SELECT EXISTS(SELECT 1 FROM billing_student_bills b WHERE b.student_id=v_learner
+          AND b.hostel_year_id=p_hostel_year_id AND b.package_id=v_pkg
+          AND b.fee_source='hostel_package' AND b.status NOT IN ('cancelled','superseded')) INTO v_exists;
+      ELSE
+        SELECT EXISTS(SELECT 1 FROM billing_student_bills b WHERE b.student_id=v_learner
+          AND b.hostel_year_id=p_hostel_year_id AND b.item_category_id=v_cat
+          AND b.fee_source IN ('academic','hostel_category') AND b.status NOT IN ('cancelled','superseded')) INTO v_exists;
+      END IF;
+      IF v_exists THEN v_skipped := v_skipped || v_item;
+      ELSE
+        v_proposed := v_proposed || v_item;
+        IF NOT p_dry_run THEN
+          INSERT INTO billing_student_bills (student_id, institution_id, item_category_id,
+            hostel_year_id, package_id, fee_source, bill_description, due_date,
+            quantity, unit_amount, total_amount, final_amount, balance_amount, status)
+          VALUES (v_learner, lp.institution_id, v_cat, p_hostel_year_id, v_pkg, v_src,
+            v_item->>'category_name', now()+interval '30 day', 1,
+            (v_item->>'amount')::numeric, (v_item->>'amount')::numeric,
+            (v_item->>'amount')::numeric, (v_item->>'amount')::numeric, 'unpaid')
+          ON CONFLICT DO NOTHING;  -- partial unique index is the final guard
+        END IF;
+        v_new := v_new + 1;
+      END IF;
+    END LOOP;
+
+    v_result := v_result || jsonb_build_object(
+      'learner_id', v_learner, 'year_of_study', v_year,
+      'proposed', v_proposed, 'skipped', v_skipped, 'new_count', v_new);
+  END LOOP;
+
+  RETURN v_result;
+END $$;
+
+REVOKE ALL ON FUNCTION public.campus_living_generate_hostel_year_bills(uuid, uuid[], boolean) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.campus_living_generate_hostel_year_bills(uuid, uuid[], boolean) FROM anon;
+GRANT EXECUTE ON FUNCTION public.campus_living_generate_hostel_year_bills(uuid, uuid[], boolean) TO authenticated;
 
 NOTIFY pgrst, 'reload schema';

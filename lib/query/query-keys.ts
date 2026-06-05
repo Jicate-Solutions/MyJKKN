@@ -23,6 +23,8 @@ export const queryKeys = {
     },
     hostelFeeResolution: (learnerId: string, hostelYearId: string) =>
       ['campus-living', 'hostel-fee-resolution', learnerId, hostelYearId] as const,
+    hostelBillGeneration: (hostelYearId: string) =>
+      ['campus-living', 'hostel-bill-generation', hostelYearId] as const,
   },
   razorpayAccounts: {
     all: ['razorpay-accounts'] as const,
