@@ -36,6 +36,8 @@ export interface GateEntryInput {
   institution_id: string;
   last_name?: string | null;
   program_id?: string | null;
+  /** FK to admission_years — the institution's current cohort, pre-filled but editable. */
+  admission_year_id?: string | null;
   /** UI radio: 'walk_in' = direct, 'referral' = show consultant picker. */
   source: 'walk_in' | 'referral';
   /** Only when source='referral' and a referrer was picked. */

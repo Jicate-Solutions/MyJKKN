@@ -19,6 +19,7 @@
 // place to fix UX copy or add the inline "+ Create new admission year"
 // affordance later.
 
+import { useEffect } from 'react';
 import { Label } from '@/components/ui/label';
 import {
   Select,
@@ -54,6 +55,13 @@ export interface AdmissionYearSelectProps {
   className?: string;
   /** Override placeholder when no institution is picked yet. */
   placeholderNoInstitution?: string;
+  /**
+   * When true and no value is selected yet, auto-fill with the institution's
+   * CURRENT admission year (the option whose `year === current calendar year`,
+   * else the latest = first option, since options are ordered by year DESC).
+   * Pre-filled but still user-editable; never overrides an existing choice.
+   */
+  autoSelectCurrent?: boolean;
 }
 
 export function AdmissionYearSelect({
@@ -65,8 +73,19 @@ export function AdmissionYearSelect({
   label = 'Admission Year',
   className,
   placeholderNoInstitution = 'Select institution first',
+  autoSelectCurrent = false,
 }: AdmissionYearSelectProps) {
   const { admissionYears, loading } = useAdmissionYears(institutionId);
+
+  useEffect(() => {
+    if (!autoSelectCurrent) return;
+    if (loading) return;
+    if (value) return; // don't override an existing/user choice
+    if (!admissionYears.length) return;
+    const cy = new Date().getFullYear();
+    const current = admissionYears.find((y) => y.year === cy) ?? admissionYears[0]; // [0] = latest (desc)
+    if (current) onChange(current.id);
+  }, [autoSelectCurrent, loading, value, admissionYears, onChange]);
 
   const placeholder = !institutionId
     ? placeholderNoInstitution

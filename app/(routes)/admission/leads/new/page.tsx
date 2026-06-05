@@ -277,12 +277,14 @@ function NewLeadPageContent() {
 
   // (Admission-years fetch effect removed; lives inside <AdmissionYearSelect/>.)
 
-  // Clear admission_year_id when the primary program changes (old value no longer applies).
+  // Clear admission_year_id when the institution changes — admission years are
+  // institution-scoped, so switching institution invalidates the old value and
+  // re-triggers <AdmissionYearSelect autoSelectCurrent> for the new institution.
   useEffect(() => {
     setFormData((prev) =>
       prev.admission_year_id ? { ...prev, admission_year_id: '' } : prev
     );
-  }, [selectedProgramId]);
+  }, [selectedInstitutionId]);
 
 
   // Group programs by degree for organized display
@@ -902,6 +904,7 @@ function NewLeadPageContent() {
                       institutionId={institutionId}
                       value={formData.admission_year_id}
                       onChange={(value) => handleChange('admission_year_id', value)}
+                      autoSelectCurrent
                     />
                   </CardContent>
                 </Card>
