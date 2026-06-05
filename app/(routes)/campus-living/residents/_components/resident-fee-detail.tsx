@@ -15,7 +15,8 @@ function formatAmount(amount: number): string {
   }).format(amount ?? 0);
 }
 
-function feeSourceLabel(source: string): string {
+function feeSourceLabel(source?: string | null): string {
+  if (!source) return 'Academic';
   return source
     .split('_')
     .map((w) => (w ? w[0].toUpperCase() + w.slice(1) : w))
