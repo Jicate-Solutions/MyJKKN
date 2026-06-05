@@ -559,6 +559,22 @@ export class StudentBillService {
 
       if (filters.institution_id) {
         query = query.eq('institution_id', filters.institution_id);
+      } else {
+        // Perf (2026-06-05): scope unfiltered lists to the caller's accessible
+        // institutions so Postgres uses the institution_id index instead of a
+        // full-table RLS scan. Without this, institution-scoped (non-admin) users
+        // hit a 57014 "canceling statement due to statement timeout" — the SELECT
+        // RLS evaluates role_has_institution_access() per row across EVERY
+        // institution's bills (~5.8s over ~5.7k rows; with an institution filter
+        // it's an index scan, ~12ms). _user_accessible_institutions() mirrors the
+        // RLS institution scope exactly, so the set of visible rows is unchanged.
+        // Falls back to the prior (unscoped) behavior if the RPC is unavailable.
+        const { data: accessibleIds, error: accessErr } = await (this.supabase as any).rpc(
+          '_user_accessible_institutions'
+        );
+        if (!accessErr && Array.isArray(accessibleIds) && accessibleIds.length > 0) {
+          query = query.in('institution_id', accessibleIds);
+        }
       }
 
       if (filters.item_category_id) {
