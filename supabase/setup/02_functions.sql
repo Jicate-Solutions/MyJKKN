@@ -12476,20 +12476,22 @@ $$;
 
 -- fn_learner_year_of_study: canonical "current year of study" for ANY learner,
 -- mirroring the 3-tier derivation in v_learner_hostelites:
---   Tier 1: admission_years.program_start_year / program_end_year  (preferred)
+--   Tier 1: admission_years.year + programs.program_duration_yrs   (preferred)
 --   Tier 2: batches.start_date / end_date                          (fallback)
 --   Tier 3: learners_profiles.enquiry_date                         (last resort)
--- Upper-clamp via LEAST prevents "year 5 of a 4-year programme".
+-- Upper-clamp via LEAST keeps the value within the programme length.
 -- Lower-clamp via GREATEST(1, …) prevents negative / zero values.
+-- 2026-06-05: re-pointed off admission_years.program_start_year/end_year (dropped by the
+-- admission-year institution-wide collapse) to admission_years.year + programs.program_duration_yrs.
 CREATE OR REPLACE FUNCTION public.fn_learner_year_of_study(p_learner_id uuid)
 RETURNS int
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
   SELECT
     CASE
-      WHEN lp.admission_year_id IS NOT NULL AND ay.program_start_year IS NOT NULL
+      WHEN lp.admission_year_id IS NOT NULL AND ay.year IS NOT NULL
         THEN GREATEST(1, LEAST(
-               EXTRACT(year FROM CURRENT_DATE)::integer - ay.program_start_year + 1,
-               ay.program_end_year - ay.program_start_year + 1
+               EXTRACT(year FROM CURRENT_DATE)::integer - ay.year + 1,
+               pr.program_duration_yrs::integer + 1
              ))
       WHEN lp.batch_id IS NOT NULL AND b.start_date IS NOT NULL
         THEN GREATEST(1, LEAST(
@@ -12503,6 +12505,7 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
   FROM learners_profiles lp
   LEFT JOIN admission_years ay ON ay.id = lp.admission_year_id
   LEFT JOIN batches b ON b.id = lp.batch_id
+  LEFT JOIN programs pr ON pr.id = lp.program_id
   WHERE lp.id = p_learner_id;
 $$;
 
