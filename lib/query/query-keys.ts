@@ -21,6 +21,8 @@ export const queryKeys = {
       fees: (categoryId: string) =>
         ['campus-living', 'my-hostel', 'fees', categoryId] as const,
     },
+    hostelFeeResolution: (learnerId: string, hostelYearId: string) =>
+      ['campus-living', 'hostel-fee-resolution', learnerId, hostelYearId] as const,
   },
   razorpayAccounts: {
     all: ['razorpay-accounts'] as const,
