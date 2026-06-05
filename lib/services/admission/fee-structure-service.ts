@@ -11,6 +11,18 @@ import type {
   FeeStructureCoverageReportRow,
 } from '@/types/admission';
 
+export type FeeItemApplicability = {
+  applies_to: 'first_year_only' | 'every_year' | 'specific_year';
+  applies_year_of_study: number | null;
+};
+
+/** Whether a fee item applies to a learner currently in `yearOfStudy`. */
+export function feeItemAppliesToYear(item: FeeItemApplicability, yearOfStudy: number): boolean {
+  if (item.applies_to === 'every_year') return true;
+  if (item.applies_to === 'first_year_only') return yearOfStudy === 1;
+  return item.applies_year_of_study === yearOfStudy; // 'specific_year'
+}
+
 /**
  * CRUD + clone + lookup + coverage for admission_fee_structures and items.
  *
@@ -318,6 +330,7 @@ export class FeeStructureService {
   static async findByDimensions(
     d: FeeStructureMatrixDimensions,
     community_category_id: string,
+    yearOfStudy: number = 1,
   ): Promise<AdmissionFeeStructureWithItems | null> {
     const supabase = createClientSupabaseClient();
     const gender = d.gender?.toUpperCase() || null;
@@ -363,7 +376,20 @@ export class FeeStructureService {
     if (!structureId) return null;
 
     // 3. Hydrate the full structure (with items + all linked communities)
-    return this.getWithItems(structureId);
+    const full = await this.getWithItems(structureId);
+    if (!full) return null;
+
+    // 4. Filter items to those applicable for the requested year of study,
+    //    mirroring the server-side filter in admission_resolve_fee_items_for_lead.
+    //    getWithItems uses (*) so applies_to / applies_year_of_study are present.
+    const applicableItems = full.items.filter((it) =>
+      feeItemAppliesToYear(
+        { applies_to: it.applies_to, applies_year_of_study: it.applies_year_of_study },
+        yearOfStudy,
+      ),
+    );
+
+    return { ...full, items: applicableItems };
   }
 
   static async create(input: CreateAdmissionFeeStructureInput): Promise<AdmissionFeeStructureWithItems> {
