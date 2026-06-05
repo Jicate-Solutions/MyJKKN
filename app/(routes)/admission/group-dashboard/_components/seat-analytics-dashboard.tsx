@@ -480,6 +480,7 @@ export function SeatAnalyticsDashboard({ institutionIds, programStartYear }: Sea
             institutionId={
               institutionIds && institutionIds.length === 1 ? institutionIds[0] : undefined
             }
+            selectedAY={programStartYear}
           />
         </TabsContent>
       </Tabs>
