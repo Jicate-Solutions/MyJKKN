@@ -28,6 +28,15 @@ type Props = {
    * (group view).
    */
   institutionId?: string;
+  /**
+   * Optional — the academic-year (start year, e.g. 2026 = 2026-27 cycle)
+   * selected by the Director in the page-level AY dropdown. Threaded into
+   * the verdict banner so it can disambiguate the case where the user picks
+   * an AY that the verdict math doesn't anchor on (because the verdict
+   * always picks the latest cycle WITH meaningful trajectory data, not the
+   * dropdown selection). See `yoy-verdict-banner.tsx` Props.selectedAY.
+   */
+  selectedAY?: number | null;
 };
 
 /**
@@ -45,7 +54,7 @@ type Props = {
  * Director-locked editorial aesthetic — cream background, terracotta accent,
  * DM Serif Display + IBM Plex Sans/Mono typography. No purple gradients.
  */
-export function YoYTrajectoryChart({ institutionId }: Props) {
+export function YoYTrajectoryChart({ institutionId, selectedAY }: Props) {
   // Director-locked 2026-06-03: institution picker REPLACES the prior
   // "Group / My institution" toggle. Lets the user pick ANY accessible
   // institution and scopes EVERY view — trajectory, drill sheet, excluded
@@ -131,6 +140,7 @@ export function YoYTrajectoryChart({ institutionId }: Props) {
       <YoYVerdictBanner
         trajectory={data?.trajectory ?? []}
         isLoading={trajectory.isLoading}
+        selectedAY={selectedAY}
       />
 
       {/* Zone 1.5: 8-College Health Stoplight — which Principals to call today */}

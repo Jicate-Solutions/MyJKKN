@@ -16,6 +16,21 @@ import type { YoYTrajectoryRow } from '@/lib/services/admission/yoy-trajectory-s
 type Props = {
   trajectory: YoYTrajectoryRow[];
   isLoading: boolean;
+  /**
+   * Optional — the academic-year (start year, e.g. 2026 = 2026-27 cycle)
+   * selected by the Director in the page-level AY dropdown. When this differs
+   * from the verdict's anchored cycle (which is always the latest cycle with
+   * meaningful data — see `verdict-math.ts` `computeVerdicts`), an inline
+   * "selected AY may differ" note renders under the cycle header so the
+   * Director is never confused about why KPI cards show one AY and the verdict
+   * shows another.
+   *
+   * Director-locked 2026-06-03 (Option b — label, don't filter): we don't
+   * change the verdict math because a young cycle with N=11 admits has no
+   * actionable insight; we just make the anchor explicit. The Days-to-Catch-Up
+   * panel below already projects the selected AY's own pace.
+   */
+  selectedAY?: number | null;
 };
 
 const DIRECTION_STYLE: Record<
@@ -34,7 +49,7 @@ const DIRECTION_STYLE: Record<
  *
  * NO chart here. No axes. No noise. Just the verdict.
  */
-export function YoYVerdictBanner({ trajectory, isLoading }: Props) {
+export function YoYVerdictBanner({ trajectory, isLoading, selectedAY }: Props) {
   const verdicts = computeVerdicts(trajectory);
   const projection = computeProjectionVerdict(trajectory);
   const weekPace = computeWeekPaceVerdict(trajectory);
@@ -58,9 +73,31 @@ export function YoYVerdictBanner({ trajectory, isLoading }: Props) {
     );
   }
 
-  const currentCycle = cycleLabel(verdicts[0]?.priorYear + 1);
+  // The anchored cycle = year+1 of the prior-year being compared against in
+  // computeVerdicts. NB: computeVerdicts picks the MAX year in trajectory data
+  // as currentYear, NOT the user-selected AY (verdict-math.ts L38).
+  const anchoredYear = verdicts[0]?.priorYear + 1;
+  const currentCycle = cycleLabel(anchoredYear);
   // Reverse so newer prior year (more relevant) appears first
   const sortedVerdicts = verdicts.slice().reverse();
+
+  // Option (b): when the user-selected AY differs from the anchored cycle,
+  // surface that gap explicitly. We try to pull the selected AY's running
+  // admit count straight from the trajectory rows (max cumulativeAdmitted
+  // for year === selectedAY). If the selected AY isn't in the trajectory
+  // (too sparse, filtered out upstream), the count line falls back to a
+  // generic note that points to Days-to-Catch-Up below.
+  const showSelectedAYNote =
+    selectedAY != null &&
+    Number.isFinite(selectedAY) &&
+    selectedAY !== anchoredYear;
+  const selectedAYAdmits = showSelectedAYNote
+    ? trajectory
+        .filter((r) => r.year === selectedAY)
+        .reduce((m, r) => Math.max(m, r.cumulativeAdmitted), 0)
+    : 0;
+  const selectedAYInTrajectory =
+    showSelectedAYNote && trajectory.some((r) => r.year === selectedAY);
 
   return (
     <div
@@ -72,11 +109,39 @@ export function YoYVerdictBanner({ trajectory, isLoading }: Props) {
       }}
     >
       <div
-        className="px-6 pt-4 pb-2 text-[10px] uppercase tracking-[0.18em]"
+        className="px-6 pt-4 pb-1 text-[10px] uppercase tracking-[0.18em]"
         style={{ color: '#9a948a', letterSpacing: '0.18em' }}
       >
-        Cycle {currentCycle} · day {verdicts[0]?.comparedAtDayN >= 0 ? '+' : ''}{verdicts[0]?.comparedAtDayN ?? 0} since April 1
+        {showSelectedAYNote ? 'Verdict on latest active cycle · ' : 'Cycle '}
+        {currentCycle} · day {verdicts[0]?.comparedAtDayN >= 0 ? '+' : ''}{verdicts[0]?.comparedAtDayN ?? 0} since April 1
       </div>
+      {showSelectedAYNote && (
+        <div
+          className="px-6 pb-2 text-[11px]"
+          style={{
+            color: '#6e6760',
+            fontFamily: 'var(--font-ibm-plex-sans)',
+            fontStyle: 'italic',
+          }}
+        >
+          {selectedAYInTrajectory ? (
+            <>
+              Selected AY {cycleLabel(selectedAY!)} has{' '}
+              <span
+                className="tabular-nums"
+                style={{ fontFamily: 'var(--font-ibm-plex-mono)', fontStyle: 'normal' }}
+              >
+                {formatIndianNumber(selectedAYAdmits)}
+              </span>{' '}
+              {selectedAYAdmits === 1 ? 'admit' : 'admits'} so far — see Days to Catch Up below for its pace projection.
+            </>
+          ) : (
+            <>
+              Selected AY {cycleLabel(selectedAY!)} differs from the anchored cycle. See Days to Catch Up below for its pace projection.
+            </>
+          )}
+        </div>
+      )}
 
       <div className="grid divide-y sm:grid-cols-2 lg:grid-cols-4 lg:divide-x lg:divide-y-0" style={{ borderColor: '#e7e2d8' }}>
         {sortedVerdicts.map((v) => (
