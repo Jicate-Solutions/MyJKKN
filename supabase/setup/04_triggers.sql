@@ -926,7 +926,8 @@ CREATE TRIGGER trg_expo_event_stalls_touch
 -- learners_profiles admission_year_id scope validator — Added 2026-04-23
 -- Fires BEFORE INSERT/UPDATE OF admission_year_id, institution_id, program_id.
 -- Calls validate_learner_admission_year_scope() (02_functions.sql) which
--- rejects cross-institution / cross-program FK attachment.
+-- rejects cross-institution FK attachment (admission_years is institution-wide
+-- as of 2026-06-05; the program check was dropped).
 -- =====================================================
 DROP TRIGGER IF EXISTS trg_validate_learner_admission_year_scope
   ON public.learners_profiles;
