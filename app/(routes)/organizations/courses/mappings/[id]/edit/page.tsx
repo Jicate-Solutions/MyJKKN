@@ -17,6 +17,7 @@ import { Loader2 } from 'lucide-react';
 import { useCourseMappingDetail } from '@/hooks/organization/use-course-mappings';
 import type { CourseMapping } from '@/types/organizations';
 import { CourseMappingForm } from '../../_components/course-mapping-form';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 
 interface EditCourseMappingPageProps {
   params: Promise<{ id: string }>;
