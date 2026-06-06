@@ -323,6 +323,7 @@ export class StudentSearchService {
             amount,
             frequency
           ),
+          academic_year:academic_years(id, academic_year_name),
           receipt_items:billing_receipt_items(
             *,
             receipt:billing_receipts(*)

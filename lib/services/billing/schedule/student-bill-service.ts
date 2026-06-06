@@ -848,6 +848,7 @@ export class StudentBillService {
             amount,
             frequency
           ),
+          academic_year:academic_years(id, academic_year_name),
           discounts:billing_discounts(
             *,
             authorizer:profiles!fk_billing_discounts_authorizer(id, full_name)
@@ -894,6 +895,7 @@ export class StudentBillService {
             amount,
             frequency
           ),
+          academic_year:academic_years(id, academic_year_name),
           discounts:billing_discounts(*),
           receipt_items:billing_receipt_items(
             *,
