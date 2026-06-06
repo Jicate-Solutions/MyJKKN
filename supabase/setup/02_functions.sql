@@ -14075,6 +14075,8 @@ $$;
 -- 2. Parametric resolver (room). Most-specific matching scope wins; tie-break by
 --    tightest band. Returns ALL categories in the winning scope (allow-set).
 --    Empty result => caller fails open.
+--    Reads hostel_program_eligibility (single combined table; replaces the former
+--    split hostel_program_room_eligibility + hostel_program_mess_eligibility).
 CREATE OR REPLACE FUNCTION public.fn_hostel_effective_room_categories(
   p_institution uuid, p_program uuid, p_quota uuid, p_fee numeric
 ) RETURNS TABLE(category_id uuid)
@@ -14082,14 +14084,15 @@ LANGUAGE sql STABLE
 SET search_path TO 'public'
 AS $$
   WITH candidates AS (
-    SELECT e.room_category_id,
+    SELECT e.room_category_id AS cat,
            e.program_id, e.quota_id, e.fee_min, e.fee_max,
            ( (e.program_id IS NOT NULL)::int * 4
            + (e.quota_id   IS NOT NULL)::int * 2
            + ((e.fee_min IS NOT NULL OR e.fee_max IS NOT NULL))::int * 1 ) AS specificity
-    FROM hostel_program_room_eligibility e
+    FROM hostel_program_eligibility e
     WHERE e.institution_id = p_institution
       AND e.is_active
+      AND e.room_category_id IS NOT NULL
       AND (e.program_id = p_program OR e.program_id IS NULL)
       AND (e.quota_id   = p_quota   OR e.quota_id   IS NULL)
       -- half-open interval [fee_min, fee_max): includes min, excludes max
@@ -14103,7 +14106,7 @@ AS $$
              (COALESCE(fee_max, 9.9e14::numeric) - COALESCE(fee_min, 0)) ASC
     LIMIT 1
   )
-  SELECT c.room_category_id
+  SELECT c.cat
   FROM candidates c JOIN winner w
     ON c.program_id IS NOT DISTINCT FROM w.program_id
    AND c.quota_id   IS NOT DISTINCT FROM w.quota_id
@@ -14111,7 +14114,7 @@ AS $$
    AND c.fee_max    IS NOT DISTINCT FROM w.fee_max;
 $$;
 
--- 3. Parametric resolver (mess) — identical shape on the mess table.
+-- 3. Parametric resolver (mess) — identical shape, reads hostel_program_eligibility.
 CREATE OR REPLACE FUNCTION public.fn_hostel_effective_mess_categories(
   p_institution uuid, p_program uuid, p_quota uuid, p_fee numeric
 ) RETURNS TABLE(category_id uuid)
@@ -14119,14 +14122,15 @@ LANGUAGE sql STABLE
 SET search_path TO 'public'
 AS $$
   WITH candidates AS (
-    SELECT e.mess_category_id,
+    SELECT e.mess_category_id AS cat,
            e.program_id, e.quota_id, e.fee_min, e.fee_max,
            ( (e.program_id IS NOT NULL)::int * 4
            + (e.quota_id   IS NOT NULL)::int * 2
            + ((e.fee_min IS NOT NULL OR e.fee_max IS NOT NULL))::int * 1 ) AS specificity
-    FROM hostel_program_mess_eligibility e
+    FROM hostel_program_eligibility e
     WHERE e.institution_id = p_institution
       AND e.is_active
+      AND e.mess_category_id IS NOT NULL
       AND (e.program_id = p_program OR e.program_id IS NULL)
       AND (e.quota_id   = p_quota   OR e.quota_id   IS NULL)
       -- half-open interval [fee_min, fee_max): includes min, excludes max
@@ -14140,7 +14144,7 @@ AS $$
              (COALESCE(fee_max, 9.9e14::numeric) - COALESCE(fee_min, 0)) ASC
     LIMIT 1
   )
-  SELECT c.mess_category_id
+  SELECT c.cat
   FROM candidates c JOIN winner w
     ON c.program_id IS NOT DISTINCT FROM w.program_id
    AND c.quota_id   IS NOT DISTINCT FROM w.quota_id
