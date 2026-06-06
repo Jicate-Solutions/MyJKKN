@@ -30,6 +30,7 @@ export const myMarksKeys = {
     [...myMarksKeys.all, 'result', examSessionId] as const,
   gradeSystem: () => [...myMarksKeys.all, 'grade-system'] as const,
   resultView: () => [...myMarksKeys.all, 'result-view'] as const,
+  ciaView: () => [...myMarksKeys.all, 'cia-view'] as const,
 };
 
 export function useMyMarksRegistrations() {
@@ -115,6 +116,18 @@ export function useMyMarksResultView() {
     queryFn: () => MyMarksService.getResultView(),
     // Single aggregate call; stable + no retry/refetch churn (route fail-softs 429).
     ...QUERY_CONFIG.STABLE_DATA,
+    retry: 0,
+    refetchOnMount: false,
+  });
+}
+
+export function useMyMarksCiaView() {
+  return useQuery({
+    queryKey: myMarksKeys.ciaView(),
+    queryFn: () => MyMarksService.getCiaView(),
+    // CIA marks change during entry windows but a single cached call per ~couple
+    // minutes is plenty; no retry/refetch churn (route fail-softs on 429).
+    ...QUERY_CONFIG.SEMI_STABLE_DATA,
     retry: 0,
     refetchOnMount: false,
   });

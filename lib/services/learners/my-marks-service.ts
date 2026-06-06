@@ -16,6 +16,7 @@ import type {
   MyMarksResultResponse,
   MyMarksGradeSystemResponse,
   StudentResultView,
+  StudentCiaView,
 } from '@/types/my-marks';
 export type { MyMarksReportRow } from '@/types/my-marks';
 import type { CiaReportCourse, CiaRound } from '@/types/internal-marks';
@@ -154,6 +155,21 @@ export class MyMarksService {
     if (!res.ok) {
       const err = await res.json().catch(() => ({ error: 'Failed to load result' }));
       throw new Error(err.error ?? 'Failed to load result');
+    }
+    const json = await res.json();
+    return json.data;
+  }
+
+  /**
+   * Single aggregate CIA view (replaces registrations + cia-settings +
+   * cia-marks/report for the Internal tab). One call returns all sessions, the
+   * CIA round/component config, and the learner's marks per course per round.
+   */
+  static async getCiaView(): Promise<StudentCiaView> {
+    const res = await fetch('/api/learners/my-marks/cia-view');
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Failed to load internal marks' }));
+      throw new Error(err.error ?? 'Failed to load internal marks');
     }
     const json = await res.json();
     return json.data;
