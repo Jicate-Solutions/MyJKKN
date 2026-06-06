@@ -421,6 +421,17 @@ export default function StudentBillingDetailPage() {
                     </div>
                   </div>
                   <div className='flex items-center gap-3 p-3 rounded-lg bg-gray-50 dark:bg-gray-800'>
+                    <Calendar className='h-4 w-4 text-cyan-600 shrink-0' />
+                    <div className='min-w-0 flex-1'>
+                      <p className='text-sm font-medium text-gray-900 dark:text-gray-100'>
+                        Academic Year
+                      </p>
+                      <p className='text-sm text-muted-foreground truncate'>
+                        {student.academic_year?.academic_year_name || 'N/A'}
+                      </p>
+                    </div>
+                  </div>
+                  <div className='flex items-center gap-3 p-3 rounded-lg bg-gray-50 dark:bg-gray-800'>
                     <GraduationCap className='h-4 w-4 text-purple-600 shrink-0' />
                     <div className='min-w-0 flex-1'>
                       <p className='text-sm font-medium text-gray-900 dark:text-gray-100'>
