@@ -435,7 +435,6 @@ export class StudentBillService {
     try {
       // Check if any academic hierarchy filters are provided
       const hasAcademicFilters = !!(
-        filters.academic_year_id ||
         filters.degree_id ||
         filters.department_id ||
         filters.program_id ||
@@ -489,6 +488,8 @@ export class StudentBillService {
             created_by,
             created_at,
             updated_at,
+            academic_year_id,
+            academic_year:academic_years(id, academic_year_name),
             student:learners_profiles!inner(
               first_name,
               last_name,
@@ -542,6 +543,8 @@ export class StudentBillService {
             created_by,
             created_at,
             updated_at,
+            academic_year_id,
+            academic_year:academic_years(id, academic_year_name),
             student:learners_profiles(
               first_name,
               last_name,
@@ -632,6 +635,14 @@ export class StudentBillService {
         query = query.eq('status', filters.status);
       }
 
+      // Academic year now lives ON the bill (not the student's current year),
+      // so filter the bill's own column. 'unspecified' → bills with no year.
+      if (filters.academic_year_id === 'unspecified') {
+        query = query.is('academic_year_id', null);
+      } else if (filters.academic_year_id) {
+        query = query.eq('academic_year_id', filters.academic_year_id);
+      }
+
       if (filters.due_date_from) {
         query = query.gte('due_date', filters.due_date_from);
       }
@@ -654,13 +665,6 @@ export class StudentBillService {
 
       // Apply learner-embedded filters (only when using the !inner joined query)
       if (hasStudentFilters) {
-        if (filters.academic_year_id) {
-          query = query.eq(
-            'student.academic_year_id',
-            filters.academic_year_id
-          );
-        }
-
         if (filters.degree_id) {
           query = query.eq('student.degree_id', filters.degree_id);
         }
@@ -751,7 +755,8 @@ export class StudentBillService {
           number_of_recurrences: bill.number_of_recurrences,
           created_by: bill.created_by,
           created_at: bill.created_at,
-          updated_at: bill.updated_at
+          updated_at: bill.updated_at,
+          academic_year_id: bill.academic_year_id
         };
 
         // Since we're now using the same query structure for both cases,
@@ -765,6 +770,9 @@ export class StudentBillService {
         const itemCategoryData = Array.isArray(bill.item_category)
           ? bill.item_category[0]
           : bill.item_category;
+        const academicYearData = Array.isArray(bill.academic_year)
+          ? bill.academic_year[0]
+          : bill.academic_year;
 
         return {
           ...baseBill,
@@ -786,7 +794,13 @@ export class StudentBillService {
           item_category: {
             id: bill.item_category_id,
             category_name: itemCategoryData?.category_name || ''
-          }
+          },
+          academic_year: academicYearData
+            ? {
+                id: academicYearData.id,
+                academic_year_name: academicYearData.academic_year_name
+              }
+            : undefined
         };
       });
 
