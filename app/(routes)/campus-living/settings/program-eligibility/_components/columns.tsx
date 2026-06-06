@@ -9,6 +9,22 @@ import type {
 } from '@/types/program-eligibility';
 import { RoomEligibilityRowActions, MessEligibilityRowActions } from './row-actions';
 
+// ₹ rupees → compact lakh label. Trims trailing zeros (400000 => "4L").
+const lakh = (n: number) => `${Number((n / 100000).toFixed(2))}L`;
+function FeeBandCell({ min, max }: { min: number | null; max: number | null }) {
+  let label: string;
+  if (min == null && max == null) label = 'Any';
+  else if (min == null) label = `< ${lakh(max!)}`;
+  else if (max == null) label = `≥ ${lakh(min)}`;
+  else label = `${lakh(min)} – ${lakh(max)}`;
+  return <span className='text-sm tabular-nums'>{label}</span>;
+}
+function QuotaCell({ name }: { name: string | null }) {
+  return name
+    ? <span className='text-sm'>{name}</span>
+    : <Badge variant='secondary' className='font-normal'>Any quota</Badge>;
+}
+
 // Shared cell: scope label — "(All programs — default)" when program_id is null.
 function ScopeCell({ programName }: { programName: string | null }) {
   if (!programName) {
@@ -35,6 +51,16 @@ export const createRoomColumns = (): ColumnDef<ProgramRoomEligibilityRow>[] => [
     accessorKey: 'program_name',
     header: 'Scope',
     cell: ({ row }) => <ScopeCell programName={row.original.program_name} />,
+  },
+  {
+    accessorKey: 'quota_name',
+    header: 'Quota',
+    cell: ({ row }) => <QuotaCell name={row.original.quota_name} />,
+  },
+  {
+    id: 'fee_band',
+    header: 'Fee Band',
+    cell: ({ row }) => <FeeBandCell min={row.original.fee_min} max={row.original.fee_max} />,
   },
   {
     accessorKey: 'room_category_name',
@@ -82,6 +108,16 @@ export const createMessColumns = (): ColumnDef<ProgramMessEligibilityRow>[] => [
     accessorKey: 'program_name',
     header: 'Scope',
     cell: ({ row }) => <ScopeCell programName={row.original.program_name} />,
+  },
+  {
+    accessorKey: 'quota_name',
+    header: 'Quota',
+    cell: ({ row }) => <QuotaCell name={row.original.quota_name} />,
+  },
+  {
+    id: 'fee_band',
+    header: 'Fee Band',
+    cell: ({ row }) => <FeeBandCell min={row.original.fee_min} max={row.original.fee_max} />,
   },
   {
     accessorKey: 'mess_category_name',
