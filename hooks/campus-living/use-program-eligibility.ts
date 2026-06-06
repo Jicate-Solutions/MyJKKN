@@ -152,3 +152,11 @@ export function useActiveMessCategories() {
   });
   return { categories: query.data ?? [], loading: query.isLoading };
 }
+
+export function useActiveQuotas() {
+  const query = useQuery({
+    queryKey: [...ELIG_KEY, 'quotas'],
+    queryFn: () => ProgramEligibilityService.getActiveQuotas(),
+  });
+  return { quotas: query.data ?? [], loading: query.isLoading };
+}
