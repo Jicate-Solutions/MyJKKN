@@ -1,14 +1,10 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { logger } from '@/lib/utils/enhanced-logger';
 import type {
-  ProgramRoomEligibility,
-  ProgramRoomEligibilityRow,
-  CreateProgramRoomEligibilityDto,
-  UpdateProgramRoomEligibilityDto,
-  ProgramMessEligibility,
-  ProgramMessEligibilityRow,
-  CreateProgramMessEligibilityDto,
-  UpdateProgramMessEligibilityDto,
+  ProgramEligibility,
+  ProgramEligibilityRow,
+  CreateProgramEligibilityDto,
+  UpdateProgramEligibilityDto,
 } from '@/types/program-eligibility';
 
 const LOG = 'campus-living/program-eligibility';
@@ -38,188 +34,93 @@ export class ProgramEligibilityService {
     return createClientSupabaseClient();
   }
 
-  // ─── Room eligibility ──────────────────────────────────────────────────
-  // institutionId omitted => list across ALL institutions (the settings page no
-  // longer gates on a single institution; each row carries its own).
-  static async getRoomEligibility(
-    institutionId?: string,
-    programId?: string | null
-  ): Promise<ProgramRoomEligibilityRow[]> {
-    let query = this.supabase
-      .from('hostel_program_room_eligibility')
+  // ─── Combined eligibility CRUD (single table: room + mess per band) ───────
+  static async getEligibility(institutionId?: string): Promise<ProgramEligibilityRow[]> {
+    const sb = this.supabase as any;
+    let query = sb
+      .from('hostel_program_eligibility')
       .select(
-        '*, institution:institutions(name), program:programs(program_name), quota:quotas(name), room_category:hostel_categories(name)'
+        '*, institution:institutions(name), program:programs(program_name), quota:quotas(name), room_category:hostel_categories(name), mess_category:mess_categories(name)'
       )
       .order('institution_id', { ascending: true })
       .order('program_id', { ascending: true, nullsFirst: true })
+      .order('fee_min', { ascending: true, nullsFirst: true })
       .order('created_at', { ascending: true });
-
     if (institutionId) query = query.eq('institution_id', institutionId);
-
-    // Explicit program filter: undefined => all rows; null => default rows only.
-    if (programId !== undefined) {
-      query = programId === null
-        ? query.is('program_id', null)
-        : query.eq('program_id', programId);
-    }
 
     const { data, error } = await query;
     if (error) {
-      logger.error(LOG, 'Database error listing room eligibility', error);
-      throw new Error(error.message || 'Failed to fetch room eligibility');
+      logger.error(LOG, 'Database error listing eligibility', error);
+      throw new Error(error.message || 'Failed to fetch eligibility');
     }
-
     return (data ?? []).map((r: Record<string, unknown>) => {
       const institution = r.institution as { name?: string } | null;
       const program = r.program as { program_name?: string } | null;
       const quota = r.quota as { name?: string } | null;
-      const category = r.room_category as { name?: string } | null;
-      const { institution: _i, program: _p, quota: _q, room_category: _c, ...rest } = r;
+      const room = r.room_category as { name?: string } | null;
+      const mess = r.mess_category as { name?: string } | null;
+      const { institution: _i, program: _p, quota: _q, room_category: _rc, mess_category: _mc, ...rest } = r;
       return {
-        ...(rest as ProgramRoomEligibility),
+        ...(rest as ProgramEligibility),
         institution_name: institution?.name ?? null,
         program_name: program?.program_name ?? null,
         quota_name: quota?.name ?? null,
-        room_category_name: category?.name ?? null,
+        room_category_name: room?.name ?? null,
+        mess_category_name: mess?.name ?? null,
       };
     });
   }
 
-  static async createRoomEligibility(
-    dto: CreateProgramRoomEligibilityDto
-  ): Promise<ProgramRoomEligibility> {
-    const { data, error } = await this.supabase
-      .from('hostel_program_room_eligibility')
-      .insert([{ ...dto, program_id: dto.program_id ?? null, quota_id: dto.quota_id || null, fee_min: dto.fee_min ?? null, fee_max: dto.fee_max ?? null }])
+  static async createEligibility(dto: CreateProgramEligibilityDto): Promise<ProgramEligibility> {
+    const sb = this.supabase as any;
+    const { data, error } = await sb
+      .from('hostel_program_eligibility')
+      .insert([{
+        institution_id: dto.institution_id,
+        program_id: dto.program_id ?? null,
+        quota_id: dto.quota_id || null,
+        fee_min: dto.fee_min ?? null,
+        fee_max: dto.fee_max ?? null,
+        room_category_id: dto.room_category_id || null,
+        mess_category_id: dto.mess_category_id || null,
+        is_monthly_mess_allowed: dto.is_monthly_mess_allowed ?? false,
+        is_active: dto.is_active ?? true,
+        effective_from: dto.effective_from ?? null,
+      }])
       .select('*')
       .single();
     if (error) {
-      logger.error(LOG, 'Database error creating room eligibility', error);
+      logger.error(LOG, 'Database error creating eligibility', error);
       throw new Error(
         error.code === '23505'
-          ? 'This category is already configured for the selected program (or institution default).'
-          : error.message || 'Failed to create room eligibility'
+          ? 'A rule already exists for this institution / program / quota / fee band.'
+          : error.message || 'Failed to create eligibility'
       );
     }
-    return data as ProgramRoomEligibility;
+    return data as ProgramEligibility;
   }
 
-  static async updateRoomEligibility(
-    id: string,
-    dto: UpdateProgramRoomEligibilityDto
-  ): Promise<ProgramRoomEligibility> {
-    const { data, error } = await this.supabase
-      .from('hostel_program_room_eligibility')
+  static async updateEligibility(id: string, dto: UpdateProgramEligibilityDto): Promise<ProgramEligibility> {
+    const sb = this.supabase as any;
+    const { data, error } = await sb
+      .from('hostel_program_eligibility')
       .update({ ...dto, updated_at: new Date().toISOString() })
       .eq('id', id)
       .select('*')
       .single();
     if (error) {
-      logger.error(LOG, 'Database error updating room eligibility', error);
-      throw new Error(error.message || 'Failed to update room eligibility');
+      logger.error(LOG, 'Database error updating eligibility', error);
+      throw new Error(error.message || 'Failed to update eligibility');
     }
-    return data as ProgramRoomEligibility;
+    return data as ProgramEligibility;
   }
 
-  static async deleteRoomEligibility(id: string): Promise<void> {
-    const { error } = await this.supabase
-      .from('hostel_program_room_eligibility')
-      .delete()
-      .eq('id', id);
+  static async deleteEligibility(id: string): Promise<void> {
+    const sb = this.supabase as any;
+    const { error } = await sb.from('hostel_program_eligibility').delete().eq('id', id);
     if (error) {
-      logger.error(LOG, 'Database error deleting room eligibility', error);
-      throw new Error(error.message || 'Failed to delete room eligibility');
-    }
-  }
-
-  // ─── Mess eligibility ──────────────────────────────────────────────────
-  static async getMessEligibility(
-    institutionId?: string,
-    programId?: string | null
-  ): Promise<ProgramMessEligibilityRow[]> {
-    let query = this.supabase
-      .from('hostel_program_mess_eligibility')
-      .select(
-        '*, institution:institutions(name), program:programs(program_name), quota:quotas(name), mess_category:mess_categories(name)'
-      )
-      .order('institution_id', { ascending: true })
-      .order('program_id', { ascending: true, nullsFirst: true })
-      .order('created_at', { ascending: true });
-
-    if (institutionId) query = query.eq('institution_id', institutionId);
-
-    if (programId !== undefined) {
-      query = programId === null
-        ? query.is('program_id', null)
-        : query.eq('program_id', programId);
-    }
-
-    const { data, error } = await query;
-    if (error) {
-      logger.error(LOG, 'Database error listing mess eligibility', error);
-      throw new Error(error.message || 'Failed to fetch mess eligibility');
-    }
-
-    return (data ?? []).map((r: Record<string, unknown>) => {
-      const institution = r.institution as { name?: string } | null;
-      const program = r.program as { program_name?: string } | null;
-      const quota = r.quota as { name?: string } | null;
-      const category = r.mess_category as { name?: string } | null;
-      const { institution: _i, program: _p, quota: _q, mess_category: _c, ...rest } = r;
-      return {
-        ...(rest as ProgramMessEligibility),
-        institution_name: institution?.name ?? null,
-        program_name: program?.program_name ?? null,
-        quota_name: quota?.name ?? null,
-        mess_category_name: category?.name ?? null,
-      };
-    });
-  }
-
-  static async createMessEligibility(
-    dto: CreateProgramMessEligibilityDto
-  ): Promise<ProgramMessEligibility> {
-    const { data, error } = await this.supabase
-      .from('hostel_program_mess_eligibility')
-      .insert([{ ...dto, program_id: dto.program_id ?? null, quota_id: dto.quota_id || null, fee_min: dto.fee_min ?? null, fee_max: dto.fee_max ?? null }])
-      .select('*')
-      .single();
-    if (error) {
-      logger.error(LOG, 'Database error creating mess eligibility', error);
-      throw new Error(
-        error.code === '23505'
-          ? 'This category is already configured for the selected program (or institution default).'
-          : error.message || 'Failed to create mess eligibility'
-      );
-    }
-    return data as ProgramMessEligibility;
-  }
-
-  static async updateMessEligibility(
-    id: string,
-    dto: UpdateProgramMessEligibilityDto
-  ): Promise<ProgramMessEligibility> {
-    const { data, error } = await this.supabase
-      .from('hostel_program_mess_eligibility')
-      .update({ ...dto, updated_at: new Date().toISOString() })
-      .eq('id', id)
-      .select('*')
-      .single();
-    if (error) {
-      logger.error(LOG, 'Database error updating mess eligibility', error);
-      throw new Error(error.message || 'Failed to update mess eligibility');
-    }
-    return data as ProgramMessEligibility;
-  }
-
-  static async deleteMessEligibility(id: string): Promise<void> {
-    const { error } = await this.supabase
-      .from('hostel_program_mess_eligibility')
-      .delete()
-      .eq('id', id);
-    if (error) {
-      logger.error(LOG, 'Database error deleting mess eligibility', error);
-      throw new Error(error.message || 'Failed to delete mess eligibility');
+      logger.error(LOG, 'Database error deleting eligibility', error);
+      throw new Error(error.message || 'Failed to delete eligibility');
     }
   }
 
