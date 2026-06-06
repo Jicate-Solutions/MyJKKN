@@ -34,6 +34,7 @@ export class StudentBillService {
           balance_amount: finalAmount,
           quantity: billData.quantity || 1,
           tax_amount: billData.tax_amount || 0,
+          academic_year_id: billData.academic_year_id || null,
           created_by: currentUserId
         })
         .select(
