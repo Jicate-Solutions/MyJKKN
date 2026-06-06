@@ -1,58 +1,17 @@
-// Per-program eligibility matrix — institution default + per-program override.
-// program_id === null => institution default (applies to all programs in the
-// institution); a concrete program_id overrides for that program.
-// effective_from is reserved for forward-only restriction semantics (later PR).
+// Combined program eligibility — one row maps (institution, program, quota, fee band)
+// to BOTH a room and a mess category. program_id === null => institution default;
+// quota_id === null => any quota. Fee band is half-open [fee_min, fee_max) in rupees
+// (either bound null => unbounded). effective_from is reserved (later PR).
 
-// ─── Room category eligibility ────────────────────────────────────────────
-export interface ProgramRoomEligibility {
+export interface ProgramEligibility {
   id: string;
   institution_id: string;
   program_id: string | null;
-  room_category_id: string;
   quota_id: string | null;
   fee_min: number | null;
   fee_max: number | null;
-  is_active: boolean;
-  effective_from: string | null;
-  created_at: string;
-  updated_at: string;
-  created_by: string | null;
-  updated_by: string | null;
-}
-
-// Joined / display shape used by the data table (resolves names for UI).
-export interface ProgramRoomEligibilityRow extends ProgramRoomEligibility {
-  institution_name: string | null;
-  program_name: string | null; // null => institution default
-  room_category_name: string | null;
-  quota_name: string | null; // null => any quota
-}
-
-export interface CreateProgramRoomEligibilityDto {
-  institution_id: string;
-  program_id?: string | null;
-  room_category_id: string;
-  quota_id?: string | null;
-  fee_min?: number | null;
-  fee_max?: number | null;
-  is_active?: boolean;
-  effective_from?: string | null;
-}
-
-export interface UpdateProgramRoomEligibilityDto {
-  is_active?: boolean;
-  effective_from?: string | null;
-}
-
-// ─── Mess category eligibility (+ per-program monthly flag) ─────────────────
-export interface ProgramMessEligibility {
-  id: string;
-  institution_id: string;
-  program_id: string | null;
-  mess_category_id: string;
-  quota_id: string | null;
-  fee_min: number | null;
-  fee_max: number | null;
+  room_category_id: string | null;
+  mess_category_id: string | null;
   is_monthly_mess_allowed: boolean;
   is_active: boolean;
   effective_from: string | null;
@@ -62,32 +21,34 @@ export interface ProgramMessEligibility {
   updated_by: string | null;
 }
 
-export interface ProgramMessEligibilityRow extends ProgramMessEligibility {
+// Joined / display shape used by the data table (resolves names for UI).
+export interface ProgramEligibilityRow extends ProgramEligibility {
   institution_name: string | null;
   program_name: string | null; // null => institution default
-  mess_category_name: string | null;
   quota_name: string | null; // null => any quota
+  room_category_name: string | null;
+  mess_category_name: string | null;
 }
 
-export interface CreateProgramMessEligibilityDto {
+export interface CreateProgramEligibilityDto {
   institution_id: string;
   program_id?: string | null;
-  mess_category_id: string;
   quota_id?: string | null;
   fee_min?: number | null;
   fee_max?: number | null;
+  room_category_id?: string | null;
+  mess_category_id?: string | null;
   is_monthly_mess_allowed?: boolean;
   is_active?: boolean;
   effective_from?: string | null;
 }
 
-export interface UpdateProgramMessEligibilityDto {
-  is_monthly_mess_allowed?: boolean;
+export interface UpdateProgramEligibilityDto {
   is_active?: boolean;
+  is_monthly_mess_allowed?: boolean;
   effective_from?: string | null;
 }
 
-// ─── Shared filter shape ────────────────────────────────────────────────────
 export interface ProgramEligibilityFilters {
   institution_id: string;
   program_id?: string | null; // omit => all rows for the institution
