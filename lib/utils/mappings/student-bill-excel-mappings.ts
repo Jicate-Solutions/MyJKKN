@@ -15,7 +15,8 @@ export const STUDENT_BILL_TEMPLATE_HEADERS = [
   'Bill Description',
   'Due Date',
   'Billing Amount',
-  'Remarks'
+  'Remarks',
+  'Academic Year (optional)'
 ] as const;
 
 export type StudentBillTemplateHeader = (typeof STUDENT_BILL_TEMPLATE_HEADERS)[number];

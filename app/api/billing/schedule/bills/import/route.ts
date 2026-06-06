@@ -23,6 +23,8 @@ import type { ImportError, ImportResult } from '@/lib/utils/mappings/student-bil
  *   D Due Date         (required)  → ISO yyyy-mm-dd
  *   E Billing Amount   (required)  → number ≥ 0
  *   F Remarks          (optional)
+ *   G Academic Year    (optional)  → resolves to academic_years.id, scoped to
+ *                                    the student's institution; blank → NULL
  *
  * Response: { success, successCount, errorCount, totalRows, errors[] }
  */
@@ -36,7 +38,8 @@ const billRowSchema = z.object({
   bill_description: z.string().optional().nullable(),
   due_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Due date must be yyyy-mm-dd'),
   billing_amount: z.number().nonnegative('Billing amount must be ≥ 0'),
-  remarks: z.string().optional().nullable()
+  remarks: z.string().optional().nullable(),
+  academic_year_name: z.string().optional().nullable()
 });
 
 type CleanedRow = z.infer<typeof billRowSchema>;
@@ -169,7 +172,8 @@ export async function POST(request: NextRequest) {
         bill_description: cellToString(cells[2]) || undefined,
         due_date: cellToISODate(cells[3]) ?? '',
         billing_amount: cellToNumber(cells[4]),
-        remarks: cellToString(cells[5]) || undefined
+        remarks: cellToString(cells[5]) || undefined,
+        academic_year_name: cellToString(cells[6]) || undefined
       };
 
       if (parsed.billing_amount === null) {
@@ -238,6 +242,31 @@ export async function POST(request: NextRequest) {
       }
     });
 
+    // Batch-load academic years for the institutions in play. Years are
+    // per-institution, so the same name (e.g. "2024-2025") repeats across
+    // institutions with different ids — we key resolution by institution.
+    const institutionIds = Array.from(
+      new Set(
+        Array.from(studentByRoll.values())
+          .map((s) => s.institution_id)
+          .filter((x): x is string => Boolean(x))
+      )
+    );
+    const { data: acadYears } = await supabase
+      .from('academic_years')
+      .select('id, academic_year_name, institution_id')
+      .in(
+        'institution_id',
+        institutionIds.length ? institutionIds : ['00000000-0000-0000-0000-000000000000']
+      );
+    const acadYearByInstName = new Map<string, string>();
+    (acadYears ?? []).forEach((y: any) => {
+      acadYearByInstName.set(
+        `${y.institution_id}::${String(y.academic_year_name).trim().toLowerCase()}`,
+        y.id
+      );
+    });
+
     const { data: categories } = await supabase
       .from('billing_categories')
       .select('id, category_name, is_active')
@@ -291,11 +320,30 @@ export async function POST(request: NextRequest) {
         continue;
       }
 
+      // Resolve the optional academic year against this student's institution.
+      // Blank → null ("Unspecified"); a non-blank, unmatched name rejects the row.
+      let academicYearId: string | null = null;
+      if (cleaned.academic_year_name) {
+        const resolved = acadYearByInstName.get(
+          `${studentMatch.institution_id}::${cleaned.academic_year_name.trim().toLowerCase()}`
+        );
+        if (!resolved) {
+          errors.push({
+            row: rowNumber,
+            field: 'Academic Year',
+            message: `Academic year "${cleaned.academic_year_name}" not found for this student's institution.`
+          });
+          continue;
+        }
+        academicYearId = resolved;
+      }
+
       const totalAmount = cleaned.billing_amount; // quantity defaults to 1, no tax in this flow
       insertRows.push({
         student_id: studentMatch.id,
         institution_id: studentMatch.institution_id,
         item_category_id: categoryId,
+        academic_year_id: academicYearId,
         bill_description: cleaned.bill_description || null,
         due_date: cleaned.due_date,
         quantity: 1,
