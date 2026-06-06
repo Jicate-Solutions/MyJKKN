@@ -255,16 +255,6 @@ export function StudentBillsTable({
     }
   };
 
-  const handleSelectAllSelectable = () => {
-    const selectableBillIds = selectableBills.map((bill) => bill.id);
-
-    if (selectedBills.length === selectableBillIds.length) {
-      setSelectedBills([]);
-    } else {
-      setSelectedBills(selectableBillIds);
-    }
-  };
-
   const handleGenerateReceipt = () => {
     if (selectedSelectableBills.length === 0) return;
 
