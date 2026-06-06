@@ -194,7 +194,11 @@ export async function GET(_request: NextRequest) {
     interface CoeExamSession { id: string; }
     const sessionsRaw = await client.get<
       { data: CoeExamSession[] } | CoeExamSession[]
-    >('/api/v1/examination-sessions', { institutions_id: coeInstitutionId });
+    >(
+      '/api/v1/examination-sessions',
+      { institutions_id: coeInstitutionId },
+      { cacheTtlMs: 5 * 60 * 1000 } // institution-level reference data — cache 5 min
+    );
     const sessions = Array.isArray(sessionsRaw)
       ? sessionsRaw
       : sessionsRaw.data ?? [];
@@ -297,12 +301,16 @@ export async function GET(_request: NextRequest) {
         try {
           const mappingRaw = await client.get<
             { data: CoeCourseMappingRow[] } | CoeCourseMappingRow[]
-          >('/api/v1/course-mapping', {
-            institutions_id: coeInstitutionId,
-            program_code: programCode,
-            details: 'true',
-            limit: '5000',
-          });
+          >(
+            '/api/v1/course-mapping',
+            {
+              institutions_id: coeInstitutionId,
+              program_code: programCode,
+              details: 'true',
+              limit: '5000',
+            },
+            { cacheTtlMs: 5 * 60 * 1000 } // program curriculum — cache 5 min
+          );
           const rows = Array.isArray(mappingRaw) ? mappingRaw : mappingRaw.data ?? [];
           rows.forEach((row) => {
             const key = `${row.program_code}::${row.course_code}`;
@@ -355,7 +363,7 @@ export async function GET(_request: NextRequest) {
         try {
           const coursesRaw = await client.get<
             { data: CoeCourseRow[] } | CoeCourseRow[]
-          >('/api/v1/courses', params);
+          >('/api/v1/courses', params, { cacheTtlMs: 5 * 60 * 1000 }); // course catalog — cache 5 min
           const rows = Array.isArray(coursesRaw) ? coursesRaw : coursesRaw.data ?? [];
           rows.forEach((c) => recordName(c.course_code, c.course_title || c.course_name));
         } catch (err) {
@@ -448,6 +456,16 @@ export async function GET(_request: NextRequest) {
       console.warn(
         `[my-marks/registrations] ${error.status} COE-error: ${error.message}`
       );
+      // Fail soft on rate-limit so a 429 burst doesn't cascade into a client
+      // retry storm — return an empty (no registrations) view instead of erroring.
+      if (error.status === 429) {
+        const empty: MyMarksRegistrationsResponse = {
+          semesters: [],
+          current_semester_code: null,
+          exam_session_ids: [],
+        };
+        return NextResponse.json({ data: empty });
+      }
       return NextResponse.json(
         { error: error.message },
         { status: error.status }

@@ -29,6 +29,7 @@ export const myMarksKeys = {
   result: (examSessionId: string) =>
     [...myMarksKeys.all, 'result', examSessionId] as const,
   gradeSystem: () => [...myMarksKeys.all, 'grade-system'] as const,
+  resultView: () => [...myMarksKeys.all, 'result-view'] as const,
 };
 
 export function useMyMarksRegistrations() {
@@ -36,6 +37,9 @@ export function useMyMarksRegistrations() {
     queryKey: myMarksKeys.registrations(),
     queryFn: () => MyMarksService.getRegistrations(),
     ...QUERY_CONFIG.STABLE_DATA,
+    // Scale guard: never retry on failure (the routes fail-soft on 429 already);
+    // a retry here would only add load to the shared COE key under contention.
+    retry: 0,
   });
 }
 
@@ -98,6 +102,21 @@ export function useMyMarksResult(examSessionId: string | undefined) {
     // Published results are stable; before publish the empty response is cheap
     // to re-check, so semi-stable strikes the right balance.
     ...QUERY_CONFIG.SEMI_STABLE_DATA,
+    // Scale guards: no retry (route fail-softs on 429) and no refetch-on-mount
+    // churn — this is the query that was storming under load.
+    retry: 0,
+    refetchOnMount: false,
+  });
+}
+
+export function useMyMarksResultView() {
+  return useQuery({
+    queryKey: myMarksKeys.resultView(),
+    queryFn: () => MyMarksService.getResultView(),
+    // Single aggregate call; stable + no retry/refetch churn (route fail-softs 429).
+    ...QUERY_CONFIG.STABLE_DATA,
+    retry: 0,
+    refetchOnMount: false,
   });
 }
 
@@ -107,5 +126,7 @@ export function useMyMarksGradeSystem() {
     queryFn: () => MyMarksService.getGradeSystem(),
     // Grade bands are institution reference data — they almost never change.
     ...QUERY_CONFIG.STABLE_DATA,
+    // Scale guard: never retry (route fail-softs on 429).
+    retry: 0,
   });
 }

@@ -15,6 +15,7 @@ import type {
   MyMarksInternalFinalResponse,
   MyMarksResultResponse,
   MyMarksGradeSystemResponse,
+  StudentResultView,
 } from '@/types/my-marks';
 export type { MyMarksReportRow } from '@/types/my-marks';
 import type { CiaReportCourse, CiaRound } from '@/types/internal-marks';
@@ -135,6 +136,21 @@ export class MyMarksService {
     const res = await fetch(
       `/api/learners/my-marks/result?${search.toString()}`
     );
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Failed to load result' }));
+      throw new Error(err.error ?? 'Failed to load result');
+    }
+    const json = await res.json();
+    return json.data;
+  }
+
+  /**
+   * Single aggregate result view (replaces registrations + result + grade-system
+   * for the Result tab). One call returns all semesters, courses, grades, SGPA
+   * and the grade-band legend.
+   */
+  static async getResultView(): Promise<StudentResultView> {
+    const res = await fetch('/api/learners/my-marks/result-view');
     if (!res.ok) {
       const err = await res.json().catch(() => ({ error: 'Failed to load result' }));
       throw new Error(err.error ?? 'Failed to load result');

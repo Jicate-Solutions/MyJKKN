@@ -135,7 +135,11 @@ export function InternalMarksShell({
       {/* Sticky semester selector — premium feel on mobile */}
       <div className="sticky top-0 z-10 py-1 bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/60 sm:bg-transparent sm:backdrop-blur-none">
         <SemesterTabs
-          semesters={data.semesters}
+          semesters={data.semesters.map((s) => ({
+            semester_code: s.semester_code,
+            semester_label: s.semester_label,
+            count: s.registrations.length,
+          }))}
           activeCode={activeSemesterCode}
           currentCode={data.current_semester_code}
           onSelect={(code) => {
