@@ -22,6 +22,7 @@ import {
   useProgramsForInstitution,
   useActiveRoomCategories,
   useActiveMessCategories,
+  useActiveQuotas,
 } from '@/hooks/campus-living/use-program-eligibility';
 import type {
   ProgramRoomEligibilityRow,
@@ -29,6 +30,7 @@ import type {
 } from '@/types/program-eligibility';
 
 const INSTITUTION_DEFAULT = '__default__';
+const ANY_QUOTA = '__any_quota__';
 
 type Kind = 'room' | 'mess';
 
@@ -66,11 +68,15 @@ export function ProgramEligibilityFormDialog({
   const [isActive, setIsActive] = useState(true);
   const [isMonthlyMessAllowed, setIsMonthlyMessAllowed] = useState(false);
   const [effectiveFrom, setEffectiveFrom] = useState<string>('');
+  const [quota, setQuota] = useState<string>(ANY_QUOTA);
+  const [feeMinL, setFeeMinL] = useState<string>(''); // lakhs (UI), '' = unbounded
+  const [feeMaxL, setFeeMaxL] = useState<string>('');
 
   // Programs are institution-specific; the scope dropdown follows the picked institution.
   const { programs } = useProgramsForInstitution(selectedInstitution || null);
   const { categories: roomCategories } = useActiveRoomCategories();
   const { categories: messCategories } = useActiveMessCategories();
+  const { quotas } = useActiveQuotas();
 
   useEffect(() => {
     if (!open) return;
@@ -86,6 +92,9 @@ export function ProgramEligibilityFormDialog({
       setIsActive(row?.is_active ?? true);
       setIsMonthlyMessAllowed(messRow?.is_monthly_mess_allowed ?? false);
       setEffectiveFrom(row?.effective_from ?? '');
+      setQuota(row?.quota_id ?? ANY_QUOTA);
+      setFeeMinL(row?.fee_min != null ? String(row.fee_min / 100000) : '');
+      setFeeMaxL(row?.fee_max != null ? String(row.fee_max / 100000) : '');
     } else {
       setSelectedInstitution(institutionId ?? '');
       setScope(INSTITUTION_DEFAULT);
@@ -93,6 +102,9 @@ export function ProgramEligibilityFormDialog({
       setIsActive(true);
       setIsMonthlyMessAllowed(false);
       setEffectiveFrom('');
+      setQuota(ANY_QUOTA);
+      setFeeMinL('');
+      setFeeMaxL('');
     }
   }, [open, isEdit, kind, roomRow, messRow, institutionId]);
 
@@ -111,8 +123,12 @@ export function ProgramEligibilityFormDialog({
     { value: INSTITUTION_DEFAULT, label: 'All programs — institution default' },
     ...programs.map((p) => ({ value: p.id, label: p.program_name })),
   ];
+  const quotaOptions = [
+    { value: ANY_QUOTA, label: 'All quotas — any' },
+    ...quotas.map((q) => ({ value: q.id, label: q.name })),
+  ];
   const categoryOptions = (kind === 'room' ? roomCategories : messCategories).map(
-    (c) => ({ value: c.id, label: c.name })
+    (c) => ({ value: c.id, label: c.type ? `${c.name} (${c.type})` : c.name })
   );
 
   const onSubmit = async () => {
@@ -128,6 +144,17 @@ export function ProgramEligibilityFormDialog({
       setSubmitting(true);
       const programId = scope === INSTITUTION_DEFAULT ? null : scope;
       const effective = effectiveFrom.trim() || null;
+      const quotaId = quota === ANY_QUOTA ? null : quota;
+      const toRupees = (s: string) => {
+        const n = parseFloat(s);
+        return s.trim() !== '' && !Number.isNaN(n) ? Math.round(n * 100000) : null;
+      };
+      const feeMin = toRupees(feeMinL);
+      const feeMax = toRupees(feeMaxL);
+      if (feeMin != null && feeMax != null && feeMin >= feeMax) {
+        toast.error('Fee "min" must be less than "max"');
+        return;
+      }
 
       if (kind === 'room') {
         if (isEdit && roomRow) {
@@ -143,6 +170,9 @@ export function ProgramEligibilityFormDialog({
             room_category_id: categoryId,
             is_active: isActive,
             effective_from: effective,
+            quota_id: quotaId,
+            fee_min: feeMin,
+            fee_max: feeMax,
           });
           toast.success('Room eligibility added');
         }
@@ -162,6 +192,9 @@ export function ProgramEligibilityFormDialog({
             is_active: isActive,
             is_monthly_mess_allowed: isMonthlyMessAllowed,
             effective_from: effective,
+            quota_id: quotaId,
+            fee_min: feeMin,
+            fee_max: feeMax,
           });
           toast.success('Mess eligibility added');
         }
@@ -219,6 +252,57 @@ export function ProgramEligibilityFormDialog({
             <p className='text-xs text-muted-foreground'>
               Choose &ldquo;All programs&rdquo; for the institution default, or a
               specific program to override it.
+            </p>
+          </div>
+
+          <div className='space-y-2'>
+            <Label>Quota</Label>
+            <SearchableSelect
+              value={quota}
+              onValueChange={setQuota}
+              options={quotaOptions}
+              placeholder='Select quota'
+              disabled={isEdit}
+              modal
+            />
+            <p className='text-xs text-muted-foreground'>
+              Choose &ldquo;All quotas&rdquo; to apply regardless of quota, or a
+              specific quota for a finer rule.
+            </p>
+          </div>
+
+          <div className='space-y-2'>
+            <Label>
+              Academic Fee Band (₹ lakhs){' '}
+              <span className='text-muted-foreground font-normal'>(Optional)</span>
+            </Label>
+            <div className='flex items-center gap-2'>
+              <Input
+                type='number'
+                inputMode='decimal'
+                step='0.01'
+                min='0'
+                placeholder='Min'
+                value={feeMinL}
+                onChange={(e) => setFeeMinL(e.target.value)}
+                disabled={isEdit}
+              />
+              <span className='text-muted-foreground text-sm'>to</span>
+              <Input
+                type='number'
+                inputMode='decimal'
+                step='0.01'
+                min='0'
+                placeholder='Max'
+                value={feeMaxL}
+                onChange={(e) => setFeeMaxL(e.target.value)}
+                disabled={isEdit}
+              />
+            </div>
+            <p className='text-xs text-muted-foreground'>
+              Half-open band: includes Min, excludes Max. Leave a side blank for
+              unbounded (e.g. blank–4 = below ₹4L; 5–6 = ₹5L up to under ₹6L).
+              Leave both blank to apply at any fee.
             </p>
           </div>
 
