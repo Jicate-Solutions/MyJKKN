@@ -13925,9 +13925,9 @@ BEGIN
         v_proposed := v_proposed || (v_item || jsonb_build_object('fee_source',v_src));
         IF NOT p_dry_run THEN
           INSERT INTO billing_student_bills (student_id, institution_id, item_category_id,
-            hostel_year_id, fee_source, applies_year_of_study, bill_description, due_date,
+            hostel_year_id, fee_source, applies_year_of_study, academic_year_id, bill_description, due_date,
             quantity, unit_amount, total_amount, final_amount, balance_amount, status)
-          VALUES (v_learner, lp.institution_id, v_cat, p_hostel_year_id, v_src, v_year,
+          VALUES (v_learner, lp.institution_id, v_cat, p_hostel_year_id, v_src, v_year, lp.academic_year_id,
             v_item->>'category_name', now()+interval '30 day', 1,
             (v_item->>'amount')::numeric, (v_item->>'amount')::numeric,
             (v_item->>'amount')::numeric, (v_item->>'amount')::numeric, 'unpaid')
@@ -13955,9 +13955,9 @@ BEGIN
         v_proposed := v_proposed || v_item;
         IF NOT p_dry_run THEN
           INSERT INTO billing_student_bills (student_id, institution_id, item_category_id,
-            hostel_year_id, package_id, fee_source, bill_description, due_date,
+            hostel_year_id, package_id, fee_source, academic_year_id, bill_description, due_date,
             quantity, unit_amount, total_amount, final_amount, balance_amount, status)
-          VALUES (v_learner, lp.institution_id, v_cat, p_hostel_year_id, v_pkg, v_src,
+          VALUES (v_learner, lp.institution_id, v_cat, p_hostel_year_id, v_pkg, v_src, lp.academic_year_id,
             v_item->>'category_name', now()+interval '30 day', 1,
             (v_item->>'amount')::numeric, (v_item->>'amount')::numeric,
             (v_item->>'amount')::numeric, (v_item->>'amount')::numeric, 'unpaid')
