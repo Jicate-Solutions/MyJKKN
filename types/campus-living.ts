@@ -135,6 +135,15 @@ export interface AllocationFilters {
 
 export type LearnerAccommodationType = 'HOSTEL' | 'DAY SCHOLAR' | '' | null;
 
+export interface HosteliteBillStatus {
+  bill_count: number;
+  total_billed: number;
+  total_paid: number;
+  total_outstanding: number;
+  payment_status: 'none' | 'paid' | 'partial' | 'unpaid';
+  academic_year_name: string | null;
+}
+
 export interface LearnerHostelite {
   id: string;
   first_name: string | null;
@@ -171,6 +180,9 @@ export interface LearnerHostelite {
   current_allocation_id?: string | null;
   /** Which date source produced year_of_study. NULL when no source available. PR #823. */
   year_source?: 'admission_year' | 'batch' | 'enquiry' | null;
+  // Current-academic-year billing rollup, merged in by LearnersTab.fetchData
+  // from campus_living_get_hostelite_bill_status (not part of v_learner_hostelites).
+  bill_status?: HosteliteBillStatus;
 }
 
 // Sentinel for the "Unassigned" block filter chip. Matches LEFT JOIN ... IS NULL
