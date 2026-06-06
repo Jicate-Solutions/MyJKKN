@@ -549,6 +549,7 @@ export function AdvancedBillingScheduleFilters({
                 </SelectTrigger>
                 <SelectContent className='max-h-60 overflow-y-auto'>
                   <SelectItem value='all'>All Academic Years</SelectItem>
+                  <SelectItem value='unspecified'>Unspecified</SelectItem>
                   {filterState.academicYears.map((year) => (
                     <SelectItem key={year.id} value={year.id}>
                       {year.name}
