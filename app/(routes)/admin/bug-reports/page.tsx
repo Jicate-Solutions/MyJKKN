@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useMemo, useCallback, useEffect } from 'react';
+import { useState, useMemo, useCallback, useEffect, useRef, Suspense } from 'react';
+import { useSearchParams, useRouter, usePathname } from 'next/navigation';
 import {
   useBugReports,
   useUpdateBugReportStatus,
@@ -167,11 +168,46 @@ const StatCard = ({
   );
 };
 
-export default function AdminBugReportsPage() {
-  const [filters, setFilters] = useState<BugReportFilters>({
-    page: 1,
-    limit: 10
-  });
+function AdminBugReportsContent() {
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
+
+  // Derive filters from URL params so browser refresh preserves page + filter state
+  const filters = useMemo<BugReportFilters>(
+    () => ({
+      page: Number(searchParams.get('page') ?? '1'),
+      limit: Number(searchParams.get('limit') ?? '10'),
+      status: (searchParams.get('status') as BugReportStatus) || undefined,
+      category: searchParams.get('category') || undefined,
+      institution_id: searchParams.get('institution_id') || undefined,
+      department_id: searchParams.get('department_id') || undefined,
+      module_name: searchParams.get('module_name') || undefined,
+      sub_module_name: searchParams.get('sub_module_name') || undefined,
+      search: searchParams.get('search') || undefined
+    }),
+    [searchParams]
+  );
+
+  // Write filter changes back to the URL; router.replace avoids polluting history
+  const setFilters = useCallback(
+    (updater: BugReportFilters | ((prev: BugReportFilters) => BugReportFilters)) => {
+      const nf = typeof updater === 'function' ? updater(filters) : updater;
+      const params = new URLSearchParams();
+      if (nf.page && nf.page !== 1) params.set('page', String(nf.page));
+      if (nf.limit && nf.limit !== 10) params.set('limit', String(nf.limit));
+      if (nf.status) params.set('status', nf.status);
+      if (nf.category) params.set('category', nf.category);
+      if (nf.institution_id) params.set('institution_id', nf.institution_id);
+      if (nf.department_id) params.set('department_id', nf.department_id);
+      if (nf.module_name) params.set('module_name', nf.module_name);
+      if (nf.sub_module_name) params.set('sub_module_name', nf.sub_module_name);
+      if (nf.search) params.set('search', nf.search);
+      const qs = params.toString();
+      router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+    },
+    [filters, pathname, router]
+  );
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [reportToDelete, setReportToDelete] = useState<string | null>(null);
   const [selectedReports, setSelectedReports] = useState<string[]>([]);
@@ -179,12 +215,18 @@ export default function AdminBugReportsPage() {
   const [bulkStatusUpdateOpen, setBulkStatusUpdateOpen] = useState(false);
   const [bulkStatusValue, setBulkStatusValue] =
     useState<BugReportStatus>('seen');
-  const [searchInput, setSearchInput] = useState('');
+  // Seed from URL so the input reflects an already-active search on mount
+  const [searchInput, setSearchInput] = useState(filters.search ?? '');
+  const isFirstSearchMount = useRef(true);
   const { isSuperAdmin } = usePermissions();
 
   // Debounce search: update filters.search 300ms after the user stops typing.
-  // This prevents a fetch on every keystroke while keeping the input responsive.
+  // Skip the very first mount so we don't overwrite the page/filter restored from URL.
   useEffect(() => {
+    if (isFirstSearchMount.current) {
+      isFirstSearchMount.current = false;
+      return;
+    }
     const timer = setTimeout(() => {
       setFilters((prev) => ({
         ...prev,
@@ -985,5 +1027,19 @@ export default function AdminBugReportsPage() {
         </AlertDialogContent>
       </AlertDialog>
     </AdminPermissionGuard>
+  );
+}
+
+export default function AdminBugReportsPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className='flex items-center justify-center h-40'>
+          <Loader2 className='h-8 w-8 animate-spin text-primary' />
+        </div>
+      }
+    >
+      <AdminBugReportsContent />
+    </Suspense>
   );
 }
