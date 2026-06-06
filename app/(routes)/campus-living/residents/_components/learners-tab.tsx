@@ -90,10 +90,16 @@ export function LearnersTab() {
         params.page,
         params.limit,
       );
+      // Batched, non-fatal billing rollup for the visible page (merged onto rows
+      // so the new columns read row.original.bill_status without N+1).
+      const statusMap = await LearnerHosteliteService.getBillStatusForStudents(
+        data.map((d) => d.id),
+      );
+      const rows = data.map((d) => ({ ...d, bill_status: statusMap.get(d.id) }));
       const limit = params.limit || 50;
       return {
         success: true,
-        data,
+        data: rows,
         pagination: {
           page: params.page,
           limit,
