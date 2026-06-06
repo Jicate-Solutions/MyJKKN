@@ -88,15 +88,7 @@ export function ResultTable({ rows }: Props) {
                     />
                   </TableCell>
                   <TableCell className="text-center">
-                    <div className="flex flex-col items-center gap-0.5">
-                      <GradeChip grade={result?.letter_grade} isPass={result?.is_pass} />
-                      {result?.letter_grade && (
-                        <span className="text-[10px] leading-tight text-muted-foreground">
-                          {result.grade_points ?? '—'} pts
-                          {result.grade_description ? ` · ${result.grade_description}` : ''}
-                        </span>
-                      )}
-                    </div>
+                    <GradeChip grade={result?.letter_grade} isPass={result?.is_pass} />
                   </TableCell>
                   <TableCell className="text-center tabular-nums text-sm">
                     {result?.credit ?? '—'}
@@ -198,13 +190,7 @@ function SubjectCardMobile({
           {result?.letter_grade && (
             <div className="mt-2 flex items-center justify-between rounded-md bg-background px-3 py-2 border text-sm">
               <span className="text-muted-foreground">Grade</span>
-              <span className="flex items-center gap-2">
-                <GradeChip grade={result.letter_grade} isPass={result.is_pass} />
-                <span className="text-xs text-muted-foreground">
-                  {result.grade_points ?? '—'} pts
-                  {result.grade_description ? ` · ${result.grade_description}` : ''}
-                </span>
-              </span>
+              <GradeChip grade={result.letter_grade} isPass={result.is_pass} />
             </div>
           )}
           <div className="mt-2">
