@@ -48,6 +48,8 @@ type RawStudentData = {
   // current lifecycle (account / reserved / admitted / active) next to
   // the bill totals. Selected by getStudentForBilling only.
   lifecycle_status?: string;
+  // Accommodation type. Selected by getStudentForBilling only.
+  accommodation_type_id?: string;
   institution?: any;
   academic_year?: any;
   degree?: any;
@@ -55,6 +57,7 @@ type RawStudentData = {
   program?: any;
   semester?: any;
   section?: any;
+  accommodation_type?: any;
 };
 
 export class StudentSearchService {
@@ -105,6 +108,8 @@ export class StudentSearchService {
         id: rawData.section_id,
         section_name: ''
       },
+      accommodation_type_id: rawData.accommodation_type_id,
+      accommodation_type: rawData.accommodation_type || undefined,
       lifecycle_status: rawData.lifecycle_status,
       outstanding_amount: outstandingAmount
     };
@@ -172,6 +177,25 @@ export class StudentSearchService {
 
       if (filters.section_id) {
         query = query.eq('section_id', filters.section_id);
+      }
+
+      // Accommodation-type filter. The UI sends a catalog *code* (e.g. 'hostel');
+      // resolve it to that institution's actual accommodation_type_id(s) and
+      // filter the (left-joined) FK column directly. Using .in() avoids the
+      // PostgREST "can't filter an embedded resource without !inner" pitfall.
+      if (filters.accommodation_type) {
+        const accommodationTypeIds = await this.resolveAccommodationTypeIds(
+          filters.accommodation_type,
+          filters.institution_id
+        );
+        // A real code always resolves to at least one id; the empty-array guard
+        // forces a no-match instead of silently returning every student.
+        query = query.in(
+          'accommodation_type_id',
+          accommodationTypeIds.length > 0
+            ? accommodationTypeIds
+            : ['00000000-0000-0000-0000-000000000000']
+        );
       }
 
       if (filters.first_name) {
@@ -245,6 +269,7 @@ export class StudentSearchService {
           student_mobile,
           college_email,
           lifecycle_status,
+          accommodation_type_id,
           institution_id,
           academic_year_id,
           degree_id,
@@ -258,7 +283,8 @@ export class StudentSearchService {
           department:departments!department_id(id, department_name),
           program:programs!program_id(id, program_name),
           semester:semesters!semester_id(id, semester_name),
-          section:sections!section_id(id, section_name)
+          section:sections!section_id(id, section_name),
+          accommodation_type:accommodation_types!accommodation_type_id(id, code, name)
         `
         )
         .eq('id', studentId)
@@ -500,6 +526,35 @@ export class StudentSearchService {
         outstandingMap.set(id, 0);
       }
       return outstandingMap;
+    }
+  }
+
+  /**
+   * Resolve an accommodation-type catalog code (e.g. 'hostel') to the matching
+   * accommodation_type_id(s). The catalog is per-institution but the codes repeat
+   * across institutions, so we resolve across all accessible institutions unless
+   * an institution filter narrows it. Returns [] on error (caller forces no-match).
+   */
+  private static async resolveAccommodationTypeIds(
+    code: string,
+    institutionId?: string
+  ): Promise<string[]> {
+    try {
+      let query = this.supabase
+        .from('accommodation_types')
+        .select('id')
+        .eq('code', code);
+
+      if (institutionId) {
+        query = query.eq('institution_id', institutionId);
+      }
+
+      const { data, error } = await query;
+      if (error) throw error;
+      return (data || []).map((row: { id: string }) => row.id);
+    } catch (error) {
+      console.error('Error resolving accommodation type ids:', error);
+      return [];
     }
   }
 

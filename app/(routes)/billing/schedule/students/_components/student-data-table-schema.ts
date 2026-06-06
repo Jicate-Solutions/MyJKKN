@@ -18,6 +18,7 @@ export const studentBillingSearchParamsSchema = z.object({
   program_id: z.string().optional(),
   semester_id: z.string().optional(),
   section_id: z.string().optional(),
+  accommodation_type: z.string().optional(),
   first_name: z.string().optional(),
   last_name: z.string().optional(),
   roll_number: z.string().optional(),

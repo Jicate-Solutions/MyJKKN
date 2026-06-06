@@ -399,6 +399,35 @@ export class StudentBillService {
     return results;
   }
 
+  /**
+   * Resolve an accommodation-type catalog code (e.g. 'hostel') to the matching
+   * accommodation_type_id(s). Codes repeat across each institution's catalog, so
+   * we resolve across all institutions unless an institution filter narrows it.
+   * Returns [] on error (caller forces a no-match).
+   */
+  private static async resolveAccommodationTypeIds(
+    code: string,
+    institutionId?: string
+  ): Promise<string[]> {
+    try {
+      let query = (this.supabase as any)
+        .from('accommodation_types')
+        .select('id')
+        .eq('code', code);
+
+      if (institutionId) {
+        query = query.eq('institution_id', institutionId);
+      }
+
+      const { data, error } = await query;
+      if (error) throw error;
+      return (data || []).map((row: { id: string }) => row.id);
+    } catch (error) {
+      console.error('Error resolving accommodation type ids:', error);
+      return [];
+    }
+  }
+
   static async getStudentBills(
     filters: StudentBillFilters = {}
   ): Promise<StudentBillListResponse> {
@@ -413,9 +442,25 @@ export class StudentBillService {
         filters.section_id
       );
 
+      // Accommodation-type filter. The UI sends a catalog *code* (e.g. 'hostel');
+      // resolve it to the matching accommodation_type_id(s) so we can filter the
+      // embedded learner. Like the academic filters, this needs the !inner join
+      // (otherwise PostgREST returns the bill with student: null instead of
+      // excluding it). null = filter inactive; [] = code matched nothing.
+      const accommodationTypeIds: string[] | null = filters.accommodation_type
+        ? await this.resolveAccommodationTypeIds(
+            filters.accommodation_type,
+            filters.institution_id
+          )
+        : null;
+
+      // Any filter that targets a column on the embedded learner requires the
+      // INNER-join variant of the select.
+      const hasStudentFilters = hasAcademicFilters || accommodationTypeIds !== null;
+
       let query;
 
-      if (hasAcademicFilters) {
+      if (hasStudentFilters) {
         // !inner turns the student embed into an INNER JOIN so that
         // .eq('student.column', value) filters actually exclude parent
         // rows where the student doesn't match (without !inner, PostgREST
@@ -453,6 +498,7 @@ export class StudentBillService {
               program_id,
               semester_id,
               section_id,
+              accommodation_type_id,
               department:departments(id, department_name),
               semester:semesters(id, semester_name)
             ),
@@ -605,8 +651,8 @@ export class StudentBillService {
         query = query.eq('is_recurring', filters.is_recurring);
       }
 
-      // Apply academic hierarchy filters (only when using the joined query)
-      if (hasAcademicFilters) {
+      // Apply learner-embedded filters (only when using the !inner joined query)
+      if (hasStudentFilters) {
         if (filters.academic_year_id) {
           query = query.eq(
             'student.academic_year_id',
@@ -632,6 +678,17 @@ export class StudentBillService {
 
         if (filters.section_id) {
           query = query.eq('student.section_id', filters.section_id);
+        }
+
+        // Accommodation-type code resolved to id(s) above. Empty array means the
+        // code matched no catalog row → force a no-match instead of all rows.
+        if (accommodationTypeIds !== null) {
+          query = query.in(
+            'student.accommodation_type_id',
+            accommodationTypeIds.length > 0
+              ? accommodationTypeIds
+              : ['00000000-0000-0000-0000-000000000000']
+          );
         }
       }
 

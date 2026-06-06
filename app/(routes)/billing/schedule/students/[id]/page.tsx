@@ -20,7 +20,8 @@ import {
   TrendingDown,
   AlertCircle,
   IndianRupee,
-  CreditCard
+  CreditCard,
+  Home
 } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Button } from '@/components/ui/button';
@@ -475,6 +476,29 @@ export default function StudentBillingDetailPage() {
                     </div>
                   </div>
                 </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Accommodation Information Card */}
+        <Card className='overflow-hidden'>
+          <CardHeader className='bg-gradient-to-r from-emerald-50 to-teal-50 dark:from-emerald-950 dark:to-teal-950'>
+            <CardTitle className='flex items-center gap-2 text-lg'>
+              <Home className='h-5 w-5' />
+              Accommodation
+            </CardTitle>
+          </CardHeader>
+          <CardContent className='p-4 sm:p-6'>
+            <div className='flex items-center gap-3 p-3 rounded-lg bg-gray-50 dark:bg-gray-800'>
+              <Home className='h-4 w-4 text-emerald-600 shrink-0' />
+              <div className='min-w-0 flex-1'>
+                <p className='text-sm font-medium text-gray-900 dark:text-gray-100'>
+                  Accommodation Type
+                </p>
+                <p className='text-sm text-muted-foreground truncate'>
+                  {student.accommodation_type?.name || 'N/A'}
+                </p>
               </div>
             </div>
           </CardContent>

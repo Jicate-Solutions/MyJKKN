@@ -27,6 +27,9 @@ export const billingScheduleSearchParamsSchema = z.object({
   semester_id: z.string().optional(),
   section_id: z.string().optional(),
 
+  // Accommodation-type filter (accommodation_types.code)
+  accommodation_type: z.string().optional(),
+
   // Date range filter for due_date
   dueDateRange: z
     .string()

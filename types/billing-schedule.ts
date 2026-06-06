@@ -150,6 +150,8 @@ export interface StudentBillFilters {
   program_id?: string;
   semester_id?: string;
   section_id?: string;
+  // accommodation_types.code (hostel | dayscholar | pg | not_applicable)
+  accommodation_type?: string;
   page?: number;
   limit?: number;
   sortBy?: string;
@@ -529,6 +531,17 @@ export interface InvoiceListResponse {
   };
 }
 
+// Accommodation-type filter options. The `value` is an `accommodation_types.code`
+// (identical across every institution's catalog), so the dropdown works without
+// first picking an institution. The service layer resolves the code to that
+// institution's actual `accommodation_type_id`(s) at query time.
+export const ACCOMMODATION_TYPE_OPTIONS = [
+  { value: 'hostel', label: 'Hostel' },
+  { value: 'dayscholar', label: 'Day Scholar' },
+  { value: 'pg', label: 'Paying Guest' },
+  { value: 'not_applicable', label: 'Not Applicable' }
+] as const;
+
 // Student Search and List Interfaces
 export interface StudentSearchFilters {
   institution_id?: string;
@@ -538,6 +551,8 @@ export interface StudentSearchFilters {
   program_id?: string;
   semester_id?: string;
   section_id?: string;
+  // accommodation_types.code (hostel | dayscholar | pg | not_applicable)
+  accommodation_type?: string;
   first_name?: string;
   last_name?: string;
   roll_number?: string;
@@ -562,6 +577,10 @@ export interface StudentForBilling {
   program_id?: string;
   semester_id?: string;
   section_id?: string;
+  // Accommodation type off learners_profiles. Surfaced on the
+  // /billing/schedule/students/[id] detail page (Accommodation card) and used by
+  // the accommodation-type filter on the list pages.
+  accommodation_type_id?: string;
   // 2026-05-21: shown on /billing/schedule/students/[id] header so the
   // accounts team sees the learner's current state (account → reserved →
   // admitted → active) at a glance.
@@ -596,6 +615,11 @@ export interface StudentForBilling {
   section?: {
     id: string;
     section_name: string;
+  };
+  accommodation_type?: {
+    id: string;
+    code: string;
+    name: string;
   };
 }
 

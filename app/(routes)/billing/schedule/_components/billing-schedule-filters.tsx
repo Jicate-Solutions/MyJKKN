@@ -20,6 +20,7 @@ import { ProgramService } from '@/lib/services/organization/program-service';
 import { SemesterService } from '@/lib/services/organization/semester-service';
 import { SectionService } from '@/lib/services/organization/section-service';
 import { BillingScheduleSearchParams } from './data-table-schema';
+import { ACCOMMODATION_TYPE_OPTIONS } from '@/types/billing-schedule';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import { DatePickerWithRange } from '@/components/ui/date-range-picker';
@@ -225,7 +226,8 @@ export function BillingScheduleFilters({
     searchParams.department_id ||
     searchParams.program_id ||
     searchParams.semester_id ||
-    searchParams.section_id
+    searchParams.section_id ||
+    searchParams.accommodation_type
   );
 
   return (
@@ -475,6 +477,28 @@ export function BillingScheduleFilters({
             <SelectItem value='all'>All Types</SelectItem>
             <SelectItem value='false'>One-time</SelectItem>
             <SelectItem value='true'>Recurring</SelectItem>
+          </SelectContent>
+        </Select>
+
+        <Select
+          value={searchParams.accommodation_type || 'all'}
+          onValueChange={(value) =>
+            onFilterChange(
+              'accommodation_type',
+              value === 'all' ? undefined : value
+            )
+          }
+        >
+          <SelectTrigger className='w-full sm:w-[180px]'>
+            <SelectValue placeholder='Accommodation type' />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value='all'>All Accommodation</SelectItem>
+            {ACCOMMODATION_TYPE_OPTIONS.map((option) => (
+              <SelectItem key={option.value} value={option.value}>
+                {option.label}
+              </SelectItem>
+            ))}
           </SelectContent>
         </Select>
       </div>

@@ -20,6 +20,7 @@ import { ProgramService } from '@/lib/services/organization/program-service';
 import { SemesterService } from '@/lib/services/organization/semester-service';
 import { SectionService } from '@/lib/services/organization/section-service';
 import { BillingScheduleSearchParams } from './data-table-schema';
+import { ACCOMMODATION_TYPE_OPTIONS } from '@/types/billing-schedule';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import { DatePickerWithRange } from '@/components/ui/date-range-picker';
@@ -422,6 +423,17 @@ export function AdvancedBillingScheduleFilters({
       });
     }
 
+    if (searchParams.accommodation_type) {
+      const opt = ACCOMMODATION_TYPE_OPTIONS.find(
+        (o) => o.value === searchParams.accommodation_type
+      );
+      filters.push({
+        key: 'accommodation_type',
+        value: searchParams.accommodation_type,
+        label: `Accommodation: ${opt?.label || searchParams.accommodation_type}`
+      });
+    }
+
     return filters;
   }, [searchParams, filterState]);
 
@@ -678,6 +690,31 @@ export function AdvancedBillingScheduleFilters({
                   {filterState.categories.map((category) => (
                     <SelectItem key={category.id} value={category.id}>
                       {category.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className='space-y-2'>
+              <Label>Accommodation Type</Label>
+              <Select
+                value={searchParams.accommodation_type || 'all'}
+                onValueChange={(value) =>
+                  handleSmartFilterChange(
+                    'accommodation_type',
+                    value === 'all' ? undefined : value
+                  )
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder='Select accommodation type' />
+                </SelectTrigger>
+                <SelectContent className='max-h-60 overflow-y-auto'>
+                  <SelectItem value='all'>All Accommodation</SelectItem>
+                  {ACCOMMODATION_TYPE_OPTIONS.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
                     </SelectItem>
                   ))}
                 </SelectContent>

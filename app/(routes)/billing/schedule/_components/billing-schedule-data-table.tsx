@@ -77,7 +77,8 @@ export function BillingScheduleDataTable({
           department_id: search.department_id || undefined,
           program_id: search.program_id || undefined,
           semester_id: search.semester_id || undefined,
-          section_id: search.section_id || undefined
+          section_id: search.section_id || undefined,
+          accommodation_type: search.accommodation_type || undefined
         };
 
         const { data, metadata } = await StudentBillService.getStudentBills(
@@ -115,6 +116,7 @@ export function BillingScheduleDataTable({
       search.program_id,
       search.semester_id,
       search.section_id,
+      search.accommodation_type,
     ]
   );
 
