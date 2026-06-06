@@ -17,6 +17,7 @@ import {
 import { Skeleton } from '@/components/ui/skeleton';
 import { useResources } from '@/hooks/resource-management/use-resources';
 import { useParentCategories } from '@/hooks/resource-management/use-parent-categories';
+import { useSubCategoriesSelect } from '@/hooks/resource-management/use-sub-categories';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import type { Resource } from '@/types/resource-management';
 
@@ -31,13 +32,17 @@ export function ResourceSelector({
 }: ResourceSelectorProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
+  const [selectedSubCategory, setSelectedSubCategory] = useState<string>('all');
   const [selectedInstitution, setSelectedInstitution] = useState<string>('all');
   const [selectedStatus, setSelectedStatus] = useState<string>('available');
 
   // Fetch data
   const { institutions, loading: loadingInstitutions } =
-    useInstitutionsWithAccess();
+    useInstitutionsWithAccess({ entityType: 'all' });
   const { categories, loading: loadingCategories } = useParentCategories();
+  const { categories: subcategories } = useSubCategoriesSelect(
+    selectedCategory === 'all' ? undefined : selectedCategory
+  );
 
   // useResources uses useState(initialFilters) internally — React only reads
   // that argument once on mount, so passing a new object on every render has
@@ -53,11 +58,13 @@ export function ResourceSelector({
       status: (selectedStatus === 'all' ? undefined : selectedStatus) as any,
       parent_category_id:
         selectedCategory === 'all' ? undefined : selectedCategory,
+      subcategory_id:
+        selectedSubCategory === 'all' ? undefined : selectedSubCategory,
       institution_id:
         selectedInstitution === 'all' ? undefined : selectedInstitution,
       search: searchQuery || undefined
     });
-  }, [selectedStatus, selectedCategory, selectedInstitution, searchQuery, updateFilters]);
+  }, [selectedStatus, selectedCategory, selectedSubCategory, selectedInstitution, searchQuery, updateFilters]);
 
   // Filter resources
   const filteredResources = resources.filter((resource: any) => {
@@ -98,7 +105,7 @@ export function ResourceSelector({
         </div>
 
         {/* Filter Row */}
-        <div className='grid gap-4 md:grid-cols-3'>
+        <div className='grid gap-4 md:grid-cols-2 lg:grid-cols-4'>
           {/* Institution Filter */}
           <div className='space-y-2'>
             <label className='text-sm font-medium'>Institution</label>
@@ -125,7 +132,10 @@ export function ResourceSelector({
             <label className='text-sm font-medium'>Category</label>
             <Select
               value={selectedCategory}
-              onValueChange={setSelectedCategory}
+              onValueChange={(value) => {
+                setSelectedCategory(value);
+                setSelectedSubCategory('all');
+              }}
             >
               <SelectTrigger>
                 <SelectValue placeholder='All Categories' />
@@ -135,6 +145,32 @@ export function ResourceSelector({
                 {categories.map((cat: any) => (
                   <SelectItem key={cat.id} value={cat.id}>
                     {cat.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Sub-Category Filter */}
+          <div className='space-y-2'>
+            <label className='text-sm font-medium'>Sub-Category</label>
+            <Select
+              value={selectedSubCategory}
+              onValueChange={setSelectedSubCategory}
+              disabled={selectedCategory === 'all'}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder={
+                  selectedCategory === 'all'
+                    ? 'Select category first'
+                    : 'All Sub-Categories'
+                } />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value='all'>All Sub-Categories</SelectItem>
+                {subcategories.map((sub: any) => (
+                  <SelectItem key={sub.id} value={sub.id}>
+                    {sub.name}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -173,6 +209,13 @@ export function ResourceSelector({
               {categories.find((c: any) => c.id === selectedCategory)?.name}
             </Badge>
           )}
+          {selectedSubCategory !== 'all' && (
+            <Badge variant='secondary' className='gap-1'>
+              <Filter className='h-3 w-3' />
+              Sub-Category:{' '}
+              {subcategories.find((s: any) => s.id === selectedSubCategory)?.name}
+            </Badge>
+          )}
           {selectedInstitution !== 'all' && (
             <Badge variant='secondary' className='gap-1'>
               <Filter className='h-3 w-3' />
@@ -185,6 +228,7 @@ export function ResourceSelector({
           )}
           {(searchQuery ||
             selectedCategory !== 'all' ||
+            selectedSubCategory !== 'all' ||
             selectedInstitution !== 'all') && (
             <Button
               variant='ghost'
@@ -192,6 +236,7 @@ export function ResourceSelector({
               onClick={() => {
                 setSearchQuery('');
                 setSelectedCategory('all');
+                setSelectedSubCategory('all');
                 setSelectedInstitution('all');
               }}
             >
@@ -245,6 +290,7 @@ export function ResourceSelector({
               onClick={() => {
                 setSearchQuery('');
                 setSelectedCategory('all');
+                setSelectedSubCategory('all');
                 setSelectedInstitution('all');
                 setSelectedStatus('available');
               }}

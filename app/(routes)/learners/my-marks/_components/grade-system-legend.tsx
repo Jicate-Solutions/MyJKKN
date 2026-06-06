@@ -24,10 +24,10 @@ import {
 } from '@/components/ui/table';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ListChecks } from 'lucide-react';
-import type { MyMarksGradeBand } from '@/types/my-marks';
+import type { ResultViewGradeBand } from '@/types/my-marks';
 
 interface Props {
-  bands: MyMarksGradeBand[];
+  bands: ResultViewGradeBand[];
   gradeSystemCode?: string | null;
 }
 
@@ -77,8 +77,8 @@ export function GradeSystemLegend({ bands, gradeSystemCode }: Props) {
             </TableHeader>
             <TableBody>
               {sorted.map((b, idx) => (
-                <TableRow key={`${b.grade}-${idx}`}>
-                  <TableCell className="font-bold">{b.grade}</TableCell>
+                <TableRow key={`${b.grade ?? 'band'}-${idx}`}>
+                  <TableCell className="font-bold">{b.grade ?? '—'}</TableCell>
                   <TableCell className="text-center tabular-nums">
                     {b.grade_point ?? '—'}
                   </TableCell>

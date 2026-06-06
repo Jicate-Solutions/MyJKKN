@@ -263,6 +263,18 @@ function PointOfSalePageInner() {
                               {inCart.quantity}
                             </Badge>
                           )}
+                          {/* Product thumbnail */}
+                          <div className="w-full h-20 mb-2 rounded overflow-hidden bg-muted flex items-center justify-center">
+                            {item.image_url ? (
+                              <img
+                                src={item.image_url}
+                                alt={item.name}
+                                className="w-full h-full object-contain"
+                              />
+                            ) : (
+                              <ShoppingCart className="h-8 w-8 text-muted-foreground/30" />
+                            )}
+                          </div>
                           <span className="font-medium text-sm truncate">
                             {item.name}
                           </span>

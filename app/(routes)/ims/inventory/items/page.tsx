@@ -60,6 +60,8 @@ import {
   Package,
   Layers,
   Upload,
+  UploadCloud,
+  X,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useImsStoreContext } from '@/hooks/ims/use-ims-store-context';
@@ -84,6 +86,7 @@ import { AddBatchModal } from '@/components/ims/add-batch-modal';
 import { BatchesDialog } from '@/components/ims/batches-dialog';
 import { ImsPageGuard } from '@/components/ims/ims-page-guard';
 import { usePermissions } from '@/hooks/use-permissions';
+import { StorageService } from '@/lib/storage/storage-service';
 
 const ITEM_TYPES: { label: string; value: ImsItemType }[] = [
   { label: 'Consumable', value: 'consumable' },
@@ -140,6 +143,7 @@ interface ItemFormData {
   opening_stock: number; // only used on create
   opening_batch_number: string; // optional override; auto-generates BTH-YYMMDD-XXXXX if blank
   opening_expiry_date: string; // only relevant if track_expiry is true
+  image_url: string;
   // Edit-mode only: when editing, these mirror ims_stock_summary so the user can
   // adjust the recorded opening_quantity and current stock balance from the dialog.
   edit_opening_quantity: number;
@@ -167,6 +171,7 @@ const emptyFormData: ItemFormData = {
   track_batch: false,
   track_expiry: false,
   is_sellable_to_students: false,
+  image_url: '',
   opening_stock: 0,
   opening_batch_number: '',
   opening_expiry_date: '',
@@ -203,6 +208,7 @@ function InventoryItemsPageInner() {
   const [editingItem, setEditingItem] = useState<ImsItemWithRelations | null>(null);
   const [formData, setFormData] = useState<ItemFormData>(emptyFormData);
   const [importDialogOpen, setImportDialogOpen] = useState(false);
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
 
   // Batch modals state
   const [batchItem, setBatchItem] = useState<ImsItemWithRelations | null>(null);
@@ -246,6 +252,25 @@ function InventoryItemsPageInner() {
   const deleteItem = useDeleteImsItem();
   const toggleActive = useToggleImsItemActive();
 
+  // Upload product image to Supabase Storage; URL is stored in formData so it
+  // gets saved to ims_items.image_url when the form submits.
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setIsUploadingImage(true);
+    try {
+      const scopeId = editingItem?.id || `temp-${Date.now()}`;
+      const { publicUrl, error } = await StorageService.uploadImsItemImage(file, scopeId);
+      if (error) throw error;
+      setFormData((prev) => ({ ...prev, image_url: publicUrl || '' }));
+    } catch (error: any) {
+      toast.error(error?.message || 'Failed to upload image');
+    } finally {
+      setIsUploadingImage(false);
+      e.target.value = '';
+    }
+  };
+
   // Open dialog for new item
   const handleAddNew = () => {
     setEditingItem(null);
@@ -285,6 +310,7 @@ function InventoryItemsPageInner() {
       track_batch: item.track_batch,
       track_expiry: item.track_expiry,
       is_sellable_to_students: item.is_sellable_to_students,
+      image_url: item.image_url || '',
       opening_stock: 0,
       opening_batch_number: '',
       opening_expiry_date: '',
@@ -324,6 +350,7 @@ function InventoryItemsPageInner() {
           track_batch: formData.track_batch,
           track_expiry: formData.track_expiry,
           is_sellable_to_students: formData.is_sellable_to_students,
+          image_url: formData.image_url || null,
         };
         await updateItem.mutateAsync({ id: editingItem.id, data: updateData });
 
@@ -392,6 +419,7 @@ function InventoryItemsPageInner() {
           track_batch: formData.track_batch,
           track_expiry: formData.track_expiry,
           is_sellable_to_students: formData.is_sellable_to_students,
+          image_url: formData.image_url || null,
           store_id: storeId || null,
           institution_id: institutionId || null,
         };
@@ -480,7 +508,7 @@ function InventoryItemsPageInner() {
   };
 
   const isMutating =
-    createItem.isPending || updateItem.isPending;
+    createItem.isPending || updateItem.isPending || isUploadingImage;
 
   return (
     <ContentLayout title="Inventory Items">
@@ -567,6 +595,46 @@ function InventoryItemsPageInner() {
                     }
                     rows={2}
                   />
+                </div>
+
+                {/* Product Image */}
+                <div className="space-y-2">
+                  <Label>Product Image</Label>
+                  {formData.image_url ? (
+                    <div className="relative w-full h-40 border rounded-lg overflow-hidden bg-muted">
+                      <img
+                        src={formData.image_url}
+                        alt="Product thumbnail"
+                        className="w-full h-full object-contain"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setFormData((prev) => ({ ...prev, image_url: '' }))}
+                        className="absolute top-2 right-2 rounded-full bg-destructive text-destructive-foreground p-1 hover:opacity-90"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </div>
+                  ) : (
+                    <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed rounded-lg cursor-pointer hover:bg-accent/50 transition-colors">
+                      {isUploadingImage ? (
+                        <BeatLoader color="hsl(var(--primary))" size={8} />
+                      ) : (
+                        <>
+                          <UploadCloud className="h-8 w-8 text-muted-foreground mb-2" />
+                          <span className="text-sm text-muted-foreground">Click to upload image</span>
+                          <span className="text-xs text-muted-foreground">PNG, JPG, WebP · max 5 MB</span>
+                        </>
+                      )}
+                      <input
+                        type="file"
+                        accept="image/jpeg,image/png,image/webp,image/gif"
+                        className="hidden"
+                        onChange={handleImageUpload}
+                        disabled={isUploadingImage}
+                      />
+                    </label>
+                  )}
                 </div>
 
                 {/* Company / Manufacturer */}
@@ -1268,6 +1336,7 @@ function InventoryItemsPageInner() {
                   <TableHeader>
                     <TableRow>
                       <TableHead>Code</TableHead>
+                      <TableHead className="w-14">Image</TableHead>
                       <TableHead>Name</TableHead>
                       <TableHead>Category</TableHead>
                       <TableHead>Company</TableHead>
@@ -1286,6 +1355,19 @@ function InventoryItemsPageInner() {
                     {(items?.data ?? []).map((item: ImsItemWithRelations) => (
                       <TableRow key={item.id}>
                         <TableCell className="font-mono text-sm">{item.code}</TableCell>
+                        <TableCell>
+                          <div className="w-10 h-10 rounded border bg-muted flex items-center justify-center overflow-hidden">
+                            {item.image_url ? (
+                              <img
+                                src={item.image_url}
+                                alt={item.name}
+                                className="w-full h-full object-contain"
+                              />
+                            ) : (
+                              <Package className="h-4 w-4 text-muted-foreground/40" />
+                            )}
+                          </div>
+                        </TableCell>
                         <TableCell>
                           <p className="font-medium">{item.name}</p>
                         </TableCell>

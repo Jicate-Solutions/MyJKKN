@@ -220,3 +220,171 @@ export interface MyMarksGradeSystemResponse {
   bands: MyMarksGradeBand[];
   grade_system_code: string | null;
 }
+
+// ============================================================================
+// Student Result View (single aggregate endpoint — COE /api/v1/student-result-view)
+// ============================================================================
+
+/** A grade band as returned by the aggregate result-view endpoint. */
+export interface ResultViewGradeBand {
+  grade: string | null;
+  grade_point: number | null;
+  min_mark: number | null;
+  max_mark: number | null;
+  description: string | null;
+  qualify: boolean | null;
+  is_absent: boolean | null;
+  exclude_cgpa: boolean | null;
+  result_status: string | null;
+}
+
+/** One course row within an exam-session tab of the result view. */
+export interface ResultViewCourse {
+  course_code: string | null;
+  course_name: string | null;
+  course_order: number | null;
+  credit: number | null;
+  internal_obtained: number | null;
+  internal_max: number | null;
+  external_obtained: number | null;
+  external_max: number | null;
+  total_obtained: number | null;
+  total_max: number | null;
+  percentage: number | null;
+  letter_grade: string | null;
+  grade_points: number | null;
+  total_grade_points: number | null;
+  is_pass: boolean | null;
+  pass_status: string | null;
+  result_status: string | null;
+  /** Always present. false → result not declared yet (mark fields are null). */
+  is_published: boolean;
+  /** false → arrear / re-appear paper (belongs to an earlier semester). */
+  is_regular: boolean | null;
+  attempt_number: number | null;
+  /** The course's OWN semester (for arrears, earlier than the tab's semester). */
+  semester_code: string | null;
+  semester_index: number | null;
+  /** false → not counted toward SGPA/credits. */
+  credit_included: boolean | null;
+  examination_session_id: string | null;
+}
+
+/**
+ * One exam-session tab. Labelled by the semester of its `is_regular` papers, and
+ * contains every paper sat in that session (regular + arrears). `summary` is the
+ * regular-papers scorecard only.
+ */
+export interface ResultViewSession {
+  examination_session_id: string | null;
+  session_code: string | null;
+  session_name: string | null;
+  session_status: string | null;
+  result_declaration_date: string | null;
+  /** Tab label semester — from the session's regular papers. */
+  semester_code: string | null;
+  semester_label: string;
+  semester_index: number;
+  courses: ResultViewCourse[];
+  summary: {
+    sgpa: number | null;
+    total_credits: number;
+    passed: number;
+    total: number;
+  };
+}
+
+/**
+ * Full payload from COE /api/v1/student-result-view (one call replaces the old
+ * registrations + results + grade-system + courses + course-mapping fan-out).
+ * Grouped by exam session — one tab per session the learner sat.
+ */
+export interface StudentResultView {
+  student: {
+    student_id: string | null;
+    register_number: string | null;
+    student_name: string | null;
+    program_code: string | null;
+    grade_system_code: 'UG' | 'PG' | string;
+  };
+  grade_system: ResultViewGradeBand[];
+  sessions: ResultViewSession[];
+}
+
+// ============================================================================
+// Student CIA View (single aggregate endpoint — COE /api/v1/student-cia-view)
+// ============================================================================
+
+export interface CiaViewComponent {
+  code: string;
+  name: string;
+  max_marks: number | null;
+}
+
+export interface CiaViewRound {
+  round: number;
+  round_name: string;
+  components: CiaViewComponent[];
+}
+
+/** A session's CIA configuration (rounds + components) — drives the grid layout. */
+export interface CiaViewSetting {
+  setting_id: string;
+  setting_name: string | null;
+  rounds: CiaViewRound[];
+}
+
+/** A learner's marks for one course in one round. */
+export interface CiaViewCourseRound {
+  round: number;
+  round_name: string;
+  /** Component code → mark (null if not entered). Keys match component codes. */
+  marks: Record<string, number | null>;
+  total: number | null;
+  max_total: number | null;
+  marks_status: string | null;
+  has_entries: boolean;
+}
+
+export interface CiaViewCourse {
+  course_code: string | null;
+  course_name: string | null;
+  course_order: number | null;
+  internal_max_mark: number | null;
+  /** false → arrear / re-appear paper (belongs to an earlier semester). */
+  is_regular: boolean | null;
+  semester_code: string | null;
+  semester_index: number | null;
+  rounds: CiaViewCourseRound[];
+}
+
+/** One exam-session tab — labelled by its regular papers' semester. */
+export interface CiaViewSession {
+  examination_session_id: string | null;
+  session_code: string | null;
+  session_name: string | null;
+  session_status: string | null;
+  semester_code: string | null;
+  semester_label: string;
+  semester_index: number;
+  /** The session's CIA round/component config. */
+  settings: CiaViewSetting[];
+  /** Regular + arrear courses with the learner's per-round marks. */
+  courses: CiaViewCourse[];
+}
+
+/**
+ * Full payload from COE /api/v1/student-cia-view (one call replaces the old
+ * registrations + cia-settings + cia-marks/report fan-out for the Internal tab).
+ * Grouped by exam session — same model as StudentResultView. No publish gate.
+ */
+export interface StudentCiaView {
+  student: {
+    student_id: string | null;
+    register_number: string | null;
+    student_name: string | null;
+    program_code: string | null;
+    grade_system_code: 'UG' | 'PG' | string;
+  };
+  sessions: CiaViewSession[];
+}

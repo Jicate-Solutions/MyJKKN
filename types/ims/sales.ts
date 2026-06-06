@@ -102,6 +102,7 @@ export interface ImsSellableItem {
   available_quantity: number;
   unit_abbreviation: string;
   category_name: string;
+  image_url: string | null;
 }
 
 export type CreateImsSaleDto = {

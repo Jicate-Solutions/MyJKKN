@@ -240,13 +240,15 @@ export default function AdminBugReportsPage() {
       try {
         await updateStatusMutation.mutateAsync({ reportId, status });
         toast.success(`Report status changed to ${status.replace(/_/g, ' ')}.`);
-        refetch();
-        refetchStats(); // Refetch real-time statistics
+        // invalidateQueries in onSuccess already triggers a background refetch;
+        // calling refetch() here again races with it and can cause the pagination
+        // display to jump. Let invalidateQueries handle it.
+        refetchStats();
       } catch (err: any) {
         toast.error('Could not update the report status.');
       }
     },
-    [updateStatusMutation, refetch, refetchStats]
+    [updateStatusMutation, refetchStats]
   );
 
   const handleDeleteReport = useCallback(async () => {
@@ -257,12 +259,11 @@ export default function AdminBugReportsPage() {
       toast.success('Bug Report Deleted');
       setDeleteConfirmOpen(false);
       setReportToDelete(null);
-      refetch();
-      refetchStats(); // Refetch real-time statistics
+      refetchStats();
     } catch (err) {
       toast.error('Could not delete the bug report.');
     }
-  }, [reportToDelete, deleteReportMutation, refetch, refetchStats]);
+  }, [reportToDelete, deleteReportMutation, refetchStats]);
 
   const handleBulkDelete = useCallback(async () => {
     try {
@@ -272,12 +273,11 @@ export default function AdminBugReportsPage() {
       );
       setBulkDeleteConfirmOpen(false);
       setSelectedReports([]);
-      refetch();
       refetchStats();
     } catch (err: any) {
       toast.error('Could not delete the selected bug reports.');
     }
-  }, [selectedReports, bulkDeleteMutation, refetch, refetchStats]);
+  }, [selectedReports, bulkDeleteMutation, refetchStats]);
 
   const handleBulkStatusUpdate = useCallback(async () => {
     try {
@@ -292,7 +292,6 @@ export default function AdminBugReportsPage() {
       );
       setBulkStatusUpdateOpen(false);
       setSelectedReports([]);
-      refetch();
       refetchStats();
     } catch (err: any) {
       toast.error('Could not update the status of selected bug reports.');
@@ -301,7 +300,6 @@ export default function AdminBugReportsPage() {
     selectedReports,
     bulkStatusValue,
     bulkUpdateStatusMutation,
-    refetch,
     refetchStats
   ]);
 

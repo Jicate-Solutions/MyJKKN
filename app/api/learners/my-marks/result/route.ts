@@ -163,7 +163,18 @@ export async function GET(request: NextRequest) {
         }
       );
     } catch (err) {
-      if (err instanceof CoeApiError && (err.status === 404 || err.status === 400)) {
+      // 404/400 → no published results yet. 429 → rate-limited; fail soft to an
+      // empty state rather than erroring, so the client never enters a retry
+      // storm (the page shows "not published yet" and recovers on a later load).
+      if (
+        err instanceof CoeApiError &&
+        (err.status === 404 || err.status === 400 || err.status === 429)
+      ) {
+        if (err.status === 429) {
+          console.warn(
+            '[my-marks/result] COE 429 (rate limited) — returning empty result to avoid retry storm'
+          );
+        }
         const empty: MyMarksResultResponse = { results: [], declared: false };
         return NextResponse.json({ data: empty });
       }
@@ -215,6 +226,14 @@ export async function GET(request: NextRequest) {
     return res;
   } catch (error) {
     if (error instanceof CoeApiError) {
+      // Fail soft on rate-limit so a 429 burst doesn't cascade into a client
+      // retry storm — return an empty (not declared) view instead of erroring.
+      if (error.status === 429) {
+        console.warn(
+          '[my-marks/result] COE 429 (rate limited) — returning empty result to avoid retry storm'
+        );
+        return NextResponse.json({ data: { results: [], declared: false } });
+      }
       return NextResponse.json(
         { error: error.message, details: error.details },
         { status: error.status }
