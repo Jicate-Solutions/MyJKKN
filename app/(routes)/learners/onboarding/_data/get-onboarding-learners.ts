@@ -131,7 +131,7 @@ export async function getOnboardingLearners(
         academic_year:academic_years(id, academic_year_name, start_date, end_date, is_active),
         regulation:regulations(id, regulation_code, regulation_year),
         batch:batches(id, batch_name, batch_code),
-        admission_year_obj:admission_years!admission_year_id(id, admission_year_name, program_start_year, program_end_year)
+        admission_year_obj:admission_years!admission_year_id(id, admission_year_name, year)
       `
       )
       .eq('lifecycle_status', 'admitted')

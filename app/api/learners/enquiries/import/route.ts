@@ -831,7 +831,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<ImportRes
     // no matching admission_years cohort get admission_year_id=null and surface
     // in scripts/audit-admission-year-backfill.ts for ops review.
     const admissionYearKey = (r: any) =>
-      `${r.data.admission_year ?? ''}::${r.institutionId ?? ''}::${r.programId ?? ''}`;
+      `${r.data.admission_year ?? ''}::${r.institutionId ?? ''}`;
     const admissionYearMap = await (async () => {
       const { resolveAdmissionYearIdBulk } = await import('@/lib/services/admission/resolve-admission-year');
       return resolveAdmissionYearIdBulk(
@@ -839,7 +839,6 @@ export async function POST(request: NextRequest): Promise<NextResponse<ImportRes
         validatedRows.map((r) => ({
           year: r.data.admission_year ?? null,
           institutionId: r.institutionId,
-          programId: r.programId,
         }))
       );
     })();

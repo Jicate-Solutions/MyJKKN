@@ -36,6 +36,8 @@ export interface GateEntryInput {
   institution_id: string;
   last_name?: string | null;
   program_id?: string | null;
+  /** FK to admission_years — the institution's current cohort, pre-filled but editable. */
+  admission_year_id?: string | null;
   /** UI radio: 'walk_in' = direct, 'referral' = show consultant picker. */
   source: 'walk_in' | 'referral';
   /** Only when source='referral' and a referrer was picked. */
@@ -164,8 +166,7 @@ export interface AdmissionLead {
   admission_year?: {
     id: string;
     admission_year_name: string;
-    program_start_year: number;
-    program_end_year: number;
+    year: number;
   } | null;
 
   // Application fields (merged from admission_applications)
@@ -1394,45 +1395,28 @@ export interface FormDeviceBreakdown {
 export interface AdmissionYear {
   id: string;
   institution_id: string;
-  program_id: string;
   admission_year_name: string;
-  program_start_year: number;
-  program_end_year: number;
-  sanctioned_intake: number;
+  year: number;
   is_active: boolean;
   created_by?: string | null;
   created_at: string;
   updated_at: string;
-  institution?: {
-    id: string;
-    name: string;
-    counselling_code: string;
-  };
-  program?: {
-    id: string;
-    program_id: string;
-    program_name: string;
-    program_duration_yrs?: number | null;
-  };
+  institution?: { id: string; name: string; counselling_code: string } | null;
 }
 
 export interface CreateAdmissionYearDto {
   institution_id: string;
-  program_id: string;
   admission_year_name: string;
-  program_start_year: number;
-  program_end_year: number;
-  sanctioned_intake?: number;
+  year: number;
   is_active?: boolean;
 }
 
-export interface UpdateAdmissionYearDto extends Partial<CreateAdmissionYearDto> {}
+export type UpdateAdmissionYearDto = Partial<Omit<CreateAdmissionYearDto, 'institution_id'>>;
 
 export interface AdmissionYearFilters {
   search?: string;
   institution_id?: string;
-  program_id?: string;
-  program_start_year?: number;
+  year?: number;
   isActive?: boolean;
   page?: number;
   limit?: number;
@@ -1641,6 +1625,14 @@ export interface AdmissionFeeStructure {
   community_category_ids: string[];
 }
 
+/**
+ * Per-year applicability of a fee line item. Hostel fees moved to campus-living,
+ * so admission fee structures cover only academic fees — but some fees are
+ * one-time at admission (first_year_only) while most recur annually
+ * (every_year), and a few apply only in a specific year of study.
+ */
+export type FeeItemAppliesTo = 'first_year_only' | 'every_year' | 'specific_year';
+
 export interface AdmissionFeeStructureItem {
   id: string;
   fee_structure_id: string;
@@ -1648,6 +1640,10 @@ export interface AdmissionFeeStructureItem {
   amount: number;
   is_optional: boolean;
   sort_order: number;
+  /** When this fee item is charged across the years of study. */
+  applies_to: FeeItemAppliesTo;
+  /** Required (1..10) only when applies_to === 'specific_year', else null. */
+  applies_year_of_study: number | null;
 }
 
 export interface AdmissionFeeStructureWithItems extends AdmissionFeeStructure {
@@ -1669,7 +1665,7 @@ export type CreateAdmissionFeeStructureInput =
     /** N communities this structure applies to. Must contain at least one. */
     community_category_ids: string[];
     items: Array<Pick<AdmissionFeeStructureItem, 'billing_category_id' | 'amount'> &
-      Partial<Pick<AdmissionFeeStructureItem, 'is_optional' | 'sort_order'>>>;
+      Partial<Pick<AdmissionFeeStructureItem, 'is_optional' | 'sort_order' | 'applies_to' | 'applies_year_of_study'>>>;
   };
 
 export type UpdateAdmissionFeeStructureInput =

@@ -123,10 +123,10 @@ export function resolveRow(
   const progId = deptId ? lookups.programmes.get(`${deptId}::${lower(raw['Programme'])}`) : undefined;
   if (deptId && !progId) errors.push(`Programme "${norm(raw['Programme'])}" not found`);
 
-  const yearId = progId
-    ? lookups.admissionYears.get(`${progId}::${lower(raw['Admission Year'])}`)
+  const yearId = instId
+    ? lookups.admissionYears.get(`${instId}::${lower(raw['Admission Year'])}`)
     : undefined;
-  if (progId && !yearId) errors.push(`Admission Year "${norm(raw['Admission Year'])}" not found for that programme`);
+  if (instId && !yearId) errors.push(`Admission Year "${norm(raw['Admission Year'])}" not found for that institution`);
 
   const quotaId = lookups.quotas.get(lower(raw['Quota']));
   if (!quotaId) errors.push(`Quota "${norm(raw['Quota'])}" not found`);

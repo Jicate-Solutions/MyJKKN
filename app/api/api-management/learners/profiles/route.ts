@@ -86,7 +86,7 @@ export async function GET(request: NextRequest) {
 
     // Build query - select all fields except migration fields.
     // 2026-05-02 (Phase C-8): replaced legacy admission_year integer with the
-    // FK + program_start_year join. Response derives the integer at serialize
+    // FK + admission_years.year join. Response derives the integer at serialize
     // time so external consumers see no shape change.
     const selectFields = `
       id, application_id, lifecycle_status, first_name, last_name, date_of_birth,
@@ -103,7 +103,7 @@ export async function GET(request: NextRequest) {
       college_email, student_photo_url, is_profile_complete, created_at, updated_at,
       created_by, updated_by, aadhar_number, enquiry_date, blood_group,
       admission_year_id, quota_id, community_category_id, caste_id, accommodation_type_id,
-      admission_year_obj:admission_years!admission_year_id(program_start_year),
+      admission_year_obj:admission_years!admission_year_id(year),
       quota_obj:quotas!quota_id(name),
       community_obj:community_categories!community_category_id(code),
       caste_obj:castes!caste_id(name),
@@ -143,7 +143,7 @@ export async function GET(request: NextRequest) {
       const { data: ayRows } = await (supabase as any)
         .from('admission_years')
         .select('id')
-        .eq('program_start_year', yearInt);
+        .eq('year', yearInt);
       const ayIds = (ayRows ?? []).map((r: any) => r.id);
       if (ayIds.length === 0) {
         // No admission_years rows for that year — short-circuit to empty result.
@@ -178,7 +178,7 @@ export async function GET(request: NextRequest) {
     // 2026-05-02 (Phase C-8): Derive legacy admission_year integer from the FK
     // join for back-compat. Strip the join helper from the response shape.
     const learners = (learnersRaw ?? []).map((row: any) => {
-      const ayObj = row.admission_year_obj as { program_start_year?: number } | null;
+      const ayObj = row.admission_year_obj as { year?: number } | null;
       const quotaObj = row.quota_obj as { name?: string } | null;
       const communityObj = row.community_obj as { code?: string } | null;
       const casteObj = row.caste_obj as { name?: string } | null;
@@ -186,7 +186,7 @@ export async function GET(request: NextRequest) {
       const { admission_year_obj: _ay, quota_obj: _q, community_obj: _c, caste_obj: _cs, accommodation_obj: _acc, ...rest } = row;
       return {
         ...rest,
-        admission_year: ayObj?.program_start_year ?? null,
+        admission_year: ayObj?.year ?? null,
         quota: quotaObj?.name ?? null,
         community: communityObj?.code ?? null,
         caste: casteObj?.name ?? null,

@@ -8,7 +8,7 @@ const lookups: BulkResolveLookups = {
   degrees: new Map([['inst-1::undergraduate', 'deg-1']]),
   departments: new Map([['inst-1::deg-1::clinical lab', 'dept-1']]),
   programmes: new Map([['dept-1::b.sc clt', 'prog-1']]),
-  admissionYears: new Map([['prog-1::2026 - 2027', 'yr-1']]),
+  admissionYears: new Map([['inst-1::2026 - 2027', 'yr-1']]),
   quotas: new Map([['management quota', 'q-1']]),
   communities: new Map([['bc', 'c-1'], ['mbc', 'c-2']]),
   categoriesByName: new Map([['application fee', 'cat-app'], ['1 year tuition fee', 'cat-tui']]),
