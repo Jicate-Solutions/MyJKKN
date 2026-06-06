@@ -181,6 +181,22 @@ export const columns: ColumnDef<StudentBill>[] = [
     }
   },
   {
+    accessorKey: 'academic_year',
+    id: 'academic_year',
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title='Academic Year' />
+    ),
+    size: 140,
+    minSize: 120,
+    maxSize: 160,
+    cell: ({ row }) => (
+      <span className='text-sm'>
+        {row.original.academic_year?.academic_year_name ?? 'Unspecified'}
+      </span>
+    ),
+    enableSorting: false
+  },
+  {
     accessorKey: 'final_amount',
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title='Amount' />
