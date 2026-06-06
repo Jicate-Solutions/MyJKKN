@@ -61,11 +61,18 @@ export interface StudentBill {
   created_by?: string;
   created_at: string;
   updated_at: string;
+  // Academic year this bill applies to (academic_years.id). Nullable: legacy
+  // and automated bills may be NULL ("Unspecified"); manual/bulk-create require it.
+  academic_year_id?: string | null;
 
   // Related data
   creator?: {
     id: string;
     full_name: string;
+  };
+  academic_year?: {
+    id: string;
+    academic_year_name: string;
   };
   student?: {
     id: string;
@@ -123,6 +130,9 @@ export interface CreateStudentBillDto {
   fee_source?: string;
   hostel_year_id?: string | null;
   applies_year_of_study?: number | null;
+  // Academic year (academic_years.id) this bill applies to. Required by the
+  // manual create + bulk-create forms; flows straight into the insert.
+  academic_year_id?: string | null;
 }
 
 export interface UpdateStudentBillDto extends Partial<CreateStudentBillDto> {
