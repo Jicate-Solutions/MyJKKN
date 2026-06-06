@@ -4,7 +4,13 @@ import type { ColumnDef } from '@tanstack/react-table';
 import { DataTableColumnHeader } from '@/components/data-table/column-header';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Pencil, Trash2, Eye } from 'lucide-react';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { Pencil, Trash2, Eye, MoreHorizontal } from 'lucide-react';
 import type { LearnerHostelite } from '@/types/campus-living';
 import { formatCurrency } from '@/lib/utils';
 
@@ -179,30 +185,38 @@ export function getLearnerColumns(
 
   const actionsCol: ColumnDef<LearnerHostelite> = {
     id: 'actions',
-    header: () => <span className='sr-only'>Actions</span>,
+    header: () => <div className='text-right'>Actions</div>,
     cell: ({ row }) => (
-      <div className='flex justify-end gap-1'>
-        <Button variant='ghost' size='sm' onClick={() => h.onView(row.original)} title='View details'>
-          <Eye className='h-4 w-4' />
-        </Button>
-        {h.canEdit && (
-          <Button variant='ghost' size='sm' onClick={() => h.onEdit(row.original)} title='Edit hostel details'>
-            <Pencil className='h-4 w-4' />
-          </Button>
-        )}
-        <Button
-          variant='ghost'
-          size='sm'
-          onClick={() => h.onRemove(row.original)}
-          title='Remove from hostel (mark as day scholar)'
-        >
-          <Trash2 className='h-4 w-4 text-destructive' />
-        </Button>
+      <div className='flex justify-end'>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant='ghost' size='sm' className='h-8 w-8 p-0'>
+              <span className='sr-only'>Open actions menu</span>
+              <MoreHorizontal className='h-4 w-4' />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align='end'>
+            <DropdownMenuItem onClick={() => h.onView(row.original)}>
+              <Eye className='mr-2 h-4 w-4' /> View details
+            </DropdownMenuItem>
+            {h.canEdit && (
+              <DropdownMenuItem onClick={() => h.onEdit(row.original)}>
+                <Pencil className='mr-2 h-4 w-4' /> Edit hostel details
+              </DropdownMenuItem>
+            )}
+            <DropdownMenuItem
+              onClick={() => h.onRemove(row.original)}
+              className='text-destructive focus:text-destructive'
+            >
+              <Trash2 className='mr-2 h-4 w-4' /> Remove from hostel
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
     ),
     enableSorting: false,
     enableHiding: false,
-    size: 120,
+    size: 90,
   };
 
   return [
