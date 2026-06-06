@@ -111,7 +111,8 @@ export async function GET(_request: NextRequest) {
             institution_id: coeInstitutionId,
             grade_system_code: code,
             is_active: 'true',
-          }
+          },
+          { cacheTtlMs: 5 * 60 * 1000 } // grade bands rarely change — cache 5 min
         );
         return Array.isArray(raw) ? raw : raw.data ?? [];
       } catch (err) {

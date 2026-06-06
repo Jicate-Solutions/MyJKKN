@@ -3,15 +3,12 @@
 /**
  * Result Table — subject-by-subject published result for a semester.
  *
- * Desktop (md+): table sorted by course_order ASC with Internal / External /
- * Total columns, a Grade chip, Credit, and a Pass/Fail status pill.
+ * Driven by the aggregate result-view payload: each row already carries marks,
+ * grade, credit, the publish gate (is_published), and the regular/arrear flag
+ * (is_regular === false → re-appear paper, badged "Arrear").
  *
- * Mobile (<md): one card per subject. The grade + result pill stay on the
- * collapsed header so students can scan pass/fail at a glance; tapping a card
- * expands the internal/external/total breakdown.
- *
- * Subjects whose result COE hasn't published yet render a muted "Pending" row
- * rather than disappearing — so the student always sees the full subject list.
+ * Desktop (md+): table. Mobile (<md): accordion cards.
+ * Unpublished courses render as "Awaited" (their mark fields are null).
  */
 
 import { useState } from 'react';
@@ -26,11 +23,24 @@ import {
 import { Card, CardContent } from '@/components/ui/card';
 import { ChevronDown, CheckCircle2, XCircle, Clock } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import type { MyMarksRegistration, MyMarksResultRow } from '@/types/my-marks';
 
+/** Flat row shape produced from a ResultViewCourse. */
 export interface ResultRowItem {
-  registration: MyMarksRegistration;
-  result: MyMarksResultRow | null;
+  key: string;
+  course_code: string | null;
+  course_name: string | null;
+  credit: number | null;
+  is_published: boolean;
+  is_regular: boolean | null;
+  internal_obtained: number | null;
+  internal_max: number | null;
+  external_obtained: number | null;
+  external_max: number | null;
+  total_obtained: number | null;
+  total_max: number | null;
+  letter_grade: string | null;
+  is_pass: boolean | null;
+  pass_status: string | null;
 }
 
 interface Props {
@@ -58,43 +68,37 @@ export function ResultTable({ rows }: Props) {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {rows.map(({ registration, result }, idx) => (
-                <TableRow key={registration.registration_id}>
+              {rows.map((row, idx) => (
+                <TableRow key={row.key}>
                   <TableCell className="text-muted-foreground text-sm">
                     {idx + 1}
                   </TableCell>
                   <TableCell className="whitespace-nowrap font-medium tabular-nums">
-                    {registration.course_code}
+                    {row.course_code ?? '—'}
                   </TableCell>
                   <TableCell className="font-medium">
-                    {registration.course_name}
+                    <div className="flex items-center gap-2">
+                      <span>{row.course_name ?? '—'}</span>
+                      <ArrearBadge isRegular={row.is_regular} />
+                    </div>
                   </TableCell>
                   <TableCell className="text-center">
-                    <MarkPair
-                      obtained={result?.internal_obtained}
-                      max={result?.internal_max}
-                    />
+                    <MarkPair obtained={row.internal_obtained} max={row.internal_max} />
                   </TableCell>
                   <TableCell className="text-center">
-                    <MarkPair
-                      obtained={result?.external_obtained}
-                      max={result?.external_max}
-                    />
+                    <MarkPair obtained={row.external_obtained} max={row.external_max} />
                   </TableCell>
                   <TableCell className="text-center font-semibold">
-                    <MarkPair
-                      obtained={result?.total_obtained}
-                      max={result?.total_max}
-                    />
+                    <MarkPair obtained={row.total_obtained} max={row.total_max} />
                   </TableCell>
                   <TableCell className="text-center">
-                    <GradeChip grade={result?.letter_grade} isPass={result?.is_pass} />
+                    <GradeChip grade={row.letter_grade} isPass={row.is_pass} />
                   </TableCell>
                   <TableCell className="text-center tabular-nums text-sm">
-                    {result?.credit ?? '—'}
+                    {row.credit ?? '—'}
                   </TableCell>
                   <TableCell className="text-center">
-                    <ResultPill result={result} />
+                    <ResultPill row={row} />
                   </TableCell>
                 </TableRow>
               ))}
@@ -105,12 +109,8 @@ export function ResultTable({ rows }: Props) {
 
       {/* Mobile cards */}
       <div className="md:hidden flex flex-col gap-3">
-        {rows.map(({ registration, result }) => (
-          <SubjectCardMobile
-            key={registration.registration_id}
-            registration={registration}
-            result={result}
-          />
+        {rows.map((row) => (
+          <SubjectCardMobile key={row.key} row={row} />
         ))}
       </div>
     </>
@@ -121,13 +121,7 @@ export function ResultTable({ rows }: Props) {
 // Mobile card
 // ────────────────────────────────────────────────────────────────────────
 
-function SubjectCardMobile({
-  registration,
-  result,
-}: {
-  registration: MyMarksRegistration;
-  result: MyMarksResultRow | null;
-}) {
+function SubjectCardMobile({ row }: { row: ResultRowItem }) {
   const [open, setOpen] = useState(false);
 
   return (
@@ -138,19 +132,20 @@ function SubjectCardMobile({
         className="w-full text-left flex items-center justify-between gap-3 p-4 min-h-[60px] focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
         <div className="flex flex-col min-w-0">
-          <span className="font-medium truncate">{registration.course_name}</span>
-          <span className="text-xs text-muted-foreground">
-            {registration.course_code}
+          <span className="font-medium truncate flex items-center gap-2">
+            {row.course_name ?? '—'}
+            <ArrearBadge isRegular={row.is_regular} />
           </span>
+          <span className="text-xs text-muted-foreground">{row.course_code ?? '—'}</span>
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
-          <GradeChip grade={result?.letter_grade} isPass={result?.is_pass} />
+          <GradeChip grade={row.letter_grade} isPass={row.is_pass} />
           <div className="text-right">
             <div className="text-base font-bold tabular-nums">
-              {result?.total_obtained ?? '—'}
+              {row.total_obtained ?? '—'}
               <span className="text-xs font-normal text-muted-foreground">
                 {' '}
-                / {result?.total_max ?? '—'}
+                / {row.total_max ?? '—'}
               </span>
             </div>
           </div>
@@ -165,36 +160,16 @@ function SubjectCardMobile({
       {open && (
         <CardContent className="border-t bg-muted/20 pt-3">
           <div className="grid grid-cols-2 gap-2 text-sm">
-            <BreakdownCell
-              label="Internal"
-              obtained={result?.internal_obtained}
-              max={result?.internal_max}
-            />
-            <BreakdownCell
-              label="External"
-              obtained={result?.external_obtained}
-              max={result?.external_max}
-            />
-            <BreakdownCell
-              label="Total"
-              obtained={result?.total_obtained}
-              max={result?.total_max}
-            />
+            <BreakdownCell label="Internal" obtained={row.internal_obtained} max={row.internal_max} />
+            <BreakdownCell label="External" obtained={row.external_obtained} max={row.external_max} />
+            <BreakdownCell label="Total" obtained={row.total_obtained} max={row.total_max} />
             <div className="flex items-center justify-between rounded-md bg-background px-3 py-2 border">
               <span className="text-muted-foreground">Credit</span>
-              <span className="font-semibold tabular-nums">
-                {result?.credit ?? '—'}
-              </span>
+              <span className="font-semibold tabular-nums">{row.credit ?? '—'}</span>
             </div>
           </div>
-          {result?.letter_grade && (
-            <div className="mt-2 flex items-center justify-between rounded-md bg-background px-3 py-2 border text-sm">
-              <span className="text-muted-foreground">Grade</span>
-              <GradeChip grade={result.letter_grade} isPass={result.is_pass} />
-            </div>
-          )}
           <div className="mt-2">
-            <ResultPill result={result} />
+            <ResultPill row={row} />
           </div>
         </CardContent>
       )}
@@ -208,8 +183,8 @@ function BreakdownCell({
   max,
 }: {
   label: string;
-  obtained: number | null | undefined;
-  max: number | null | undefined;
+  obtained: number | null;
+  max: number | null;
 }) {
   return (
     <div className="flex items-center justify-between rounded-md bg-background px-3 py-2 border">
@@ -225,14 +200,7 @@ function BreakdownCell({
 // Atoms
 // ────────────────────────────────────────────────────────────────────────
 
-/** "48 / 60" with the max in muted text, or "—" when the result is pending. */
-function MarkPair({
-  obtained,
-  max,
-}: {
-  obtained: number | null | undefined;
-  max: number | null | undefined;
-}) {
+function MarkPair({ obtained, max }: { obtained: number | null; max: number | null }) {
   if (obtained === null || obtained === undefined) {
     return (
       <span className="text-muted-foreground" title="Result not published yet">
@@ -250,20 +218,31 @@ function MarkPair({
   );
 }
 
+/** "Arrear" chip for re-appear papers (is_regular === false). */
+function ArrearBadge({ isRegular }: { isRegular: boolean | null }) {
+  if (isRegular !== false) return null;
+  return (
+    <span
+      className="inline-flex items-center rounded-full bg-orange-500/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-orange-600 dark:text-orange-400"
+      title="Re-appear / arrear paper"
+    >
+      Arrear
+    </span>
+  );
+}
+
 function GradeChip({
   grade,
   isPass,
 }: {
-  grade: string | null | undefined;
-  isPass: boolean | null | undefined;
+  grade: string | null;
+  isPass: boolean | null;
 }) {
-  if (!grade) {
-    return <span className="text-muted-foreground text-sm">—</span>;
-  }
+  if (!grade) return <span className="text-muted-foreground text-sm">—</span>;
   return (
     <span
       className={cn(
-        'inline-flex items-center justify-center rounded-md px-2 py-0.5 text-xs font-bold tabular-nums',
+        'inline-flex items-center justify-center whitespace-nowrap rounded-md px-2 py-0.5 text-xs font-bold',
         isPass === false
           ? 'bg-destructive/10 text-destructive'
           : 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'
@@ -274,27 +253,27 @@ function GradeChip({
   );
 }
 
-function ResultPill({ result }: { result: MyMarksResultRow | null }) {
-  if (!result) {
+function ResultPill({ row }: { row: ResultRowItem }) {
+  if (!row.is_published) {
     return (
       <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
         <Clock className="h-3 w-3" />
-        Pending
+        Awaited
       </span>
     );
   }
-  if (result.is_pass) {
+  if (row.is_pass) {
     return (
       <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium text-emerald-700 dark:text-emerald-400">
         <CheckCircle2 className="h-3 w-3" />
-        {result.pass_status ?? 'Pass'}
+        {row.pass_status ?? 'Pass'}
       </span>
     );
   }
   return (
     <span className="inline-flex items-center gap-1 rounded-full bg-destructive/10 px-2 py-0.5 text-[11px] font-medium text-destructive">
       <XCircle className="h-3 w-3" />
-      {result.pass_status ?? 'Fail'}
+      {row.pass_status ?? 'Fail'}
     </span>
   );
 }

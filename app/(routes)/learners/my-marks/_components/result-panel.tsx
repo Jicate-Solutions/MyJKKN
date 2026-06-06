@@ -1,179 +1,83 @@
 'use client';
 
 /**
- * Result Panel — content area for a single semester on the Result tab.
+ * Result Panel — renders one exam-session tab from the aggregate view payload.
  *
- * Flow (mirrors AssessmentPanel):
- *   1. Resolve the dominant exam session for the chosen semester. The COE
- *      /results endpoint is keyed by session, so we ask for the session that
- *      most of the semester's registrations belong to.
- *   2. Fetch the caller's published result for that session.
- *   3. Join each result row to the semester's registration list by
- *      course_offering_id (results carry no course label).
- *   4. Render a summary card (SGPA, credits, pass count) + the subject table.
- *
- * When COE hasn't declared the result yet the response is empty — we show a
- * "not published yet" card while still letting the student switch semesters.
+ * No data fetching here: the shell loads the whole StudentResultView in a single
+ * call and passes the active session + grade legend down. The tab lists the
+ * session's regular papers plus any arrears (is_regular === false, badged in the
+ * table). The summary is the regular-papers scorecard (COE-computed).
  */
 
-import { useMemo, type ReactNode } from 'react';
+import type { ReactNode } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Loader2, AlertCircle, Hourglass, Trophy, CheckCircle2, BookOpen } from 'lucide-react';
-import { useMyMarksResult, useMyMarksGradeSystem } from '@/hooks/learners/use-my-marks';
-import type {
-  MyMarksGradeBand,
-  MyMarksResultRow,
-  MyMarksSemesterGroup,
-} from '@/types/my-marks';
+import { Hourglass, BookOpen, CheckCircle2, AlertCircle } from 'lucide-react';
+import type { ResultViewSession, ResultViewGradeBand } from '@/types/my-marks';
 import { ResultTable, type ResultRowItem } from './result-table';
 import { GradeSystemLegend } from './grade-system-legend';
 
-/**
- * Temporarily hide the SGPA stat on the summary card. Flip back to `true`
- * to restore it once the SGPA calculation/source is confirmed.
- */
+// SGPA is hidden for now (kept as a one-line toggle). COE provides it in
+// session.summary.sgpa — flip to true to surface it.
 const SHOW_SGPA = false;
 
-/**
- * Resolve the human grade description for a result row from the grade bands.
- * Primary match is by grade LETTER (authoritative; handles non-range bands
- * like U / AAA). Falls back to a mark-range match when the letter is absent.
- */
-function resolveGradeDescription(
-  bands: MyMarksGradeBand[] | undefined,
-  letterGrade: string | null,
-  totalObtained: number | null
-): string | null {
-  if (!bands || bands.length === 0) return null;
-  if (letterGrade) {
-    const byLetter = bands.find(
-      (b) => b.grade.toUpperCase() === letterGrade.toUpperCase()
-    );
-    if (byLetter) return byLetter.description ?? null;
-  }
-  if (totalObtained !== null) {
-    const byRange = bands.find(
-      (b) =>
-        b.min_mark !== null &&
-        b.max_mark !== null &&
-        totalObtained >= b.min_mark &&
-        totalObtained <= b.max_mark
-    );
-    if (byRange) return byRange.description ?? null;
-  }
-  return null;
-}
+// Summary card (Grade System badge + Credits / Passed / Status + arrear line)
+// hidden for now — flip to true to surface it as a feature.
+const SHOW_SUMMARY = false;
 
 interface Props {
-  semester: MyMarksSemesterGroup;
+  session: ResultViewSession;
+  gradeBands: ResultViewGradeBand[];
+  gradeSystemCode: string | null;
 }
 
-export function ResultPanel({ semester }: Props) {
-  // Dominant exam session within the semester (same heuristic as AssessmentPanel).
-  const dominantSession = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const reg of semester.registrations) {
-      if (!reg.examination_session_id) continue;
-      counts.set(
-        reg.examination_session_id,
-        (counts.get(reg.examination_session_id) ?? 0) + 1
-      );
-    }
-    return [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? undefined;
-  }, [semester]);
+export function ResultPanel({ session, gradeBands, gradeSystemCode }: Props) {
+  const rows: ResultRowItem[] = session.courses.map((c, i) => ({
+    key: `${c.course_code ?? 'course'}-${c.semester_index ?? 'x'}-${i}`,
+    course_code: c.course_code,
+    course_name: c.course_name,
+    credit: c.credit,
+    is_published: c.is_published,
+    is_regular: c.is_regular,
+    internal_obtained: c.internal_obtained,
+    internal_max: c.internal_max,
+    external_obtained: c.external_obtained,
+    external_max: c.external_max,
+    total_obtained: c.total_obtained,
+    total_max: c.total_max,
+    letter_grade: c.letter_grade,
+    is_pass: c.is_pass,
+    pass_status: c.pass_status,
+  }));
 
-  const { data, isLoading, error } = useMyMarksResult(dominantSession);
-  const { data: gradeData } = useMyMarksGradeSystem();
-  const gradeBands = gradeData?.bands;
-  const gradeSystemCode = gradeData?.grade_system_code ?? null;
+  const anyPublished = session.courses.some((c) => c.is_published);
 
-  // Join results → registrations by course_offering_id.
-  const { rows, summary } = useMemo(() => {
-    const byOffering = new Map<string, MyMarksResultRow>();
-    for (const r of data?.results ?? []) {
-      if (r.course_offering_id) byOffering.set(r.course_offering_id, r);
-    }
+  // Semester scorecard = REGULAR papers only (is_regular !== false; null treated
+  // as regular). Computed here rather than trusting session.summary, since COE
+  // folds arrears into that count. Arrears are tracked separately.
+  const regularCourses = session.courses.filter((c) => c.is_regular !== false);
+  const arrearCourses = session.courses.filter((c) => c.is_regular === false);
 
-    const joined: ResultRowItem[] = semester.registrations.map((registration) => {
-      const result = registration.course_offering_id
-        ? byOffering.get(registration.course_offering_id) ?? null
-        : null;
-      // Enrich the result with the course labels it lacks.
-      return {
-        registration,
-        result: result
-          ? {
-              ...result,
-              course_code: registration.course_code,
-              course_name: registration.course_name,
-              grade_description: resolveGradeDescription(
-                gradeBands,
-                result.letter_grade,
-                result.total_obtained
-              ),
-            }
-          : null,
-      };
-    });
+  const regularTotal = regularCourses.length;
+  const regularPassed = regularCourses.filter(
+    (c) => c.is_published && c.is_pass === true
+  ).length;
+  const regularCredits = regularCourses
+    .filter((c) => c.credit_included !== false)
+    .reduce((sum, c) => sum + (c.credit ?? 0), 0);
 
-    // SGPA = Σ(grade_points × credit) / Σ(credit), over published rows.
-    let totalCredits = 0;
-    let weightedPoints = 0;
-    let passCount = 0;
-    let publishedCount = 0;
-    for (const { result } of joined) {
-      if (!result) continue;
-      publishedCount++;
-      const credit = result.credit ?? 0;
-      if (result.is_pass) passCount++;
-      if (credit > 0 && result.grade_points !== null) {
-        totalCredits += credit;
-        weightedPoints +=
-          result.total_grade_points ?? result.grade_points * credit;
-      }
-    }
-    const sgpa = totalCredits > 0 ? weightedPoints / totalCredits : null;
+  const arrearTotal = arrearCourses.length;
+  const arrearCleared = arrearCourses.filter(
+    (c) => c.is_published && c.is_pass === true
+  ).length;
 
-    return {
-      rows: joined,
-      summary: {
-        sgpa,
-        totalCredits,
-        passCount,
-        publishedCount,
-        subjectCount: joined.length,
-        allPass: publishedCount > 0 && passCount === publishedCount,
-      },
-    };
-  }, [data, semester, gradeBands]);
+  // Status INCLUDES arrears: "All Clear" only when no published paper — regular
+  // OR arrear — has failed. A pending/failed arrear keeps the student in Arrears.
+  const statusAllClear = !session.courses.some(
+    (c) => c.is_published && c.is_pass === false
+  );
 
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center py-12">
-        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-        <span className="ml-2 text-sm text-muted-foreground">
-          Loading your result...
-        </span>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-destructive">
-            <AlertCircle className="h-5 w-5" />
-            Could not load your result
-          </CardTitle>
-          <CardDescription>{(error as Error).message}</CardDescription>
-        </CardHeader>
-      </Card>
-    );
-  }
-
-  // Nothing declared yet — keep it encouraging, not error-like.
-  if (!data || !data.declared || summary.publishedCount === 0) {
+  // Nothing declared yet for this session.
+  if (!anyPublished) {
     return (
       <Card>
         <CardHeader>
@@ -182,7 +86,7 @@ export function ResultPanel({ semester }: Props) {
             Result not published yet
           </CardTitle>
           <CardDescription>
-            Your result for {semester.semester_label} will appear here once the
+            Your result for {session.semester_label} will appear here once the
             examination office declares it.
           </CardDescription>
         </CardHeader>
@@ -190,10 +94,9 @@ export function ResultPanel({ semester }: Props) {
           <div className="flex items-center gap-2 rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
             <BookOpen className="h-4 w-4" />
             <span>
-              You have <strong>{semester.registrations.length}</strong> registered
-              course{semester.registrations.length === 1 ? '' : 's'} this semester.
-              Check the <strong>Internal Marks</strong> tab for round-wise CIA marks
-              in the meantime.
+              You have <strong>{session.courses.length}</strong> registered
+              course{session.courses.length === 1 ? '' : 's'} this session
+              {arrearTotal > 0 ? ` (${arrearTotal} arrear)` : ''}.
             </span>
           </div>
         </CardContent>
@@ -203,7 +106,9 @@ export function ResultPanel({ semester }: Props) {
 
   return (
     <div className="space-y-3">
-      {/* Summary card */}
+      {/* Summary card — regular-papers scorecard for this semester.
+          Hidden behind SHOW_SUMMARY until enabled as a feature. */}
+      {SHOW_SUMMARY && (
       <Card className="overflow-hidden">
         <CardContent className="p-4">
           {gradeSystemCode && (
@@ -220,45 +125,64 @@ export function ResultPanel({ semester }: Props) {
             className={
               SHOW_SGPA
                 ? 'grid grid-cols-2 sm:grid-cols-4 gap-3'
-                : 'grid grid-cols-2 sm:grid-cols-3 gap-3'
+                : 'grid grid-cols-3 gap-3'
             }
           >
             {SHOW_SGPA && (
               <SummaryStat
-                icon={<Trophy className="h-4 w-4 text-amber-600" />}
+                icon={<CheckCircle2 className="h-4 w-4 text-amber-600" />}
                 label="SGPA"
-                value={summary.sgpa !== null ? summary.sgpa.toFixed(2) : '—'}
+                value={
+                  session.summary?.sgpa != null
+                    ? session.summary.sgpa.toFixed(2)
+                    : '—'
+                }
                 highlight
               />
             )}
             <SummaryStat
               icon={<BookOpen className="h-4 w-4 text-sky-600" />}
               label="Credits"
-              value={String(summary.totalCredits)}
+              value={String(regularCredits)}
             />
             <SummaryStat
               icon={<CheckCircle2 className="h-4 w-4 text-emerald-600" />}
               label="Passed"
-              value={`${summary.passCount} / ${summary.publishedCount}`}
+              value={`${regularPassed} / ${regularTotal}`}
             />
             <SummaryStat
               icon={
-                summary.allPass ? (
+                statusAllClear ? (
                   <CheckCircle2 className="h-4 w-4 text-emerald-600" />
                 ) : (
                   <AlertCircle className="h-4 w-4 text-destructive" />
                 )
               }
               label="Status"
-              value={summary.allPass ? 'All Clear' : 'Arrears'}
+              value={statusAllClear ? 'All Clear' : 'Arrears'}
             />
           </div>
+
+          {/* Separate arrear line — arrears belong to earlier semesters, so they
+              are tracked apart from the regular semester scorecard. */}
+          {arrearTotal > 0 && (
+            <div className="mt-3 flex items-center gap-2 rounded-md border border-orange-500/20 bg-orange-500/5 px-3 py-2 text-sm">
+              <span className="inline-flex items-center rounded-full bg-orange-500/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-orange-600 dark:text-orange-400">
+                Arrear
+              </span>
+              <span className="text-muted-foreground">Arrears this session:</span>
+              <span className="font-semibold tabular-nums">
+                {arrearCleared} / {arrearTotal} cleared
+              </span>
+            </div>
+          )}
         </CardContent>
       </Card>
+      )}
 
       <ResultTable rows={rows} />
 
-      {gradeBands && gradeBands.length > 0 && (
+      {gradeBands.length > 0 && (
         <GradeSystemLegend bands={gradeBands} gradeSystemCode={gradeSystemCode} />
       )}
     </div>
