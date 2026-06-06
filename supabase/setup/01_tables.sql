@@ -843,7 +843,8 @@ CREATE TABLE IF NOT EXISTS public.billing_student_bills (
     number_of_recurrences INTEGER,
     created_by UUID,
     created_at TIMESTAMPTZ DEFAULT now(),
-    updated_at TIMESTAMPTZ DEFAULT now()
+    updated_at TIMESTAMPTZ DEFAULT now(),
+    academic_year_id uuid REFERENCES public.academic_years(id) ON DELETE SET NULL
 );
 
 -- Billing Invoices
@@ -1587,6 +1588,10 @@ CREATE INDEX IF NOT EXISTS idx_staff_staff_id ON public.staff(staff_id);
 CREATE INDEX IF NOT EXISTS idx_billing_invoices_student_id ON public.billing_invoices(student_id);
 CREATE INDEX IF NOT EXISTS idx_billing_receipts_student_id ON public.billing_receipts(student_id);
 CREATE INDEX IF NOT EXISTS idx_billing_student_bills_student_id ON public.billing_student_bills(student_id);
+CREATE INDEX IF NOT EXISTS idx_billing_student_bills_academic_year
+  ON public.billing_student_bills (academic_year_id);
+CREATE INDEX IF NOT EXISTS idx_billing_student_bills_student_academic_year
+  ON public.billing_student_bills (student_id, academic_year_id);
 
 -- Attendance indexes
 -- Updated: 2025-12-29 - Added indexes for student self-service attendance queries
