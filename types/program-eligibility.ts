@@ -9,6 +9,9 @@ export interface ProgramRoomEligibility {
   institution_id: string;
   program_id: string | null;
   room_category_id: string;
+  quota_id: string | null;
+  fee_min: number | null;
+  fee_max: number | null;
   is_active: boolean;
   effective_from: string | null;
   created_at: string;
@@ -22,12 +25,16 @@ export interface ProgramRoomEligibilityRow extends ProgramRoomEligibility {
   institution_name: string | null;
   program_name: string | null; // null => institution default
   room_category_name: string | null;
+  quota_name: string | null; // null => any quota
 }
 
 export interface CreateProgramRoomEligibilityDto {
   institution_id: string;
   program_id?: string | null;
   room_category_id: string;
+  quota_id?: string | null;
+  fee_min?: number | null;
+  fee_max?: number | null;
   is_active?: boolean;
   effective_from?: string | null;
 }
@@ -43,6 +50,9 @@ export interface ProgramMessEligibility {
   institution_id: string;
   program_id: string | null;
   mess_category_id: string;
+  quota_id: string | null;
+  fee_min: number | null;
+  fee_max: number | null;
   is_monthly_mess_allowed: boolean;
   is_active: boolean;
   effective_from: string | null;
@@ -56,12 +66,16 @@ export interface ProgramMessEligibilityRow extends ProgramMessEligibility {
   institution_name: string | null;
   program_name: string | null; // null => institution default
   mess_category_name: string | null;
+  quota_name: string | null; // null => any quota
 }
 
 export interface CreateProgramMessEligibilityDto {
   institution_id: string;
   program_id?: string | null;
   mess_category_id: string;
+  quota_id?: string | null;
+  fee_min?: number | null;
+  fee_max?: number | null;
   is_monthly_mess_allowed?: boolean;
   is_active?: boolean;
   effective_from?: string | null;
