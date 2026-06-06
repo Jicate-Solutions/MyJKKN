@@ -12867,6 +12867,7 @@ export type Database = {
       }
       billing_student_bills: {
         Row: {
+          academic_year_id: string | null
           applies_year_of_study: number | null
           balance_amount: number | null
           bill_description: string | null
@@ -12895,6 +12896,7 @@ export type Database = {
           updated_at: string | null
         }
         Insert: {
+          academic_year_id?: string | null
           applies_year_of_study?: number | null
           balance_amount?: number | null
           bill_description?: string | null
@@ -12923,6 +12925,7 @@ export type Database = {
           updated_at?: string | null
         }
         Update: {
+          academic_year_id?: string | null
           applies_year_of_study?: number | null
           balance_amount?: number | null
           bill_description?: string | null
@@ -13068,6 +13071,13 @@ export type Database = {
             columns: ["item_category_id"]
             isOneToOne: false
             referencedRelation: "billing_categories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "billing_student_bills_academic_year_id_fkey"
+            columns: ["academic_year_id"]
+            isOneToOne: false
+            referencedRelation: "academic_years"
             referencedColumns: ["id"]
           },
         ]
