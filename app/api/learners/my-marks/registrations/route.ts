@@ -87,6 +87,33 @@ function pickCourseName(courseCode: string, ...candidates: Array<string | undefi
   return courseCode;
 }
 
+/**
+ * Runs `fn` over `items` with at most `limit` promises in flight (a worker
+ * pool). Prevents bursting COE's per-key rate limit (429) when fanning out one
+ * registrations call per exam session on a cold load — the all-at-once
+ * `Promise.all` burst is the likely cause of intermittent "no registrations
+ * after refresh" in production.
+ */
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T, index: number) => Promise<R>
+): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let cursor = 0;
+  const workers = Array.from(
+    { length: Math.min(limit, items.length) },
+    async () => {
+      while (cursor < items.length) {
+        const i = cursor++;
+        results[i] = await fn(items[i], i);
+      }
+    }
+  );
+  await Promise.all(workers);
+  return results;
+}
+
 export async function GET(_request: NextRequest) {
   try {
     const supabase = await createClient();
@@ -181,8 +208,14 @@ export async function GET(_request: NextRequest) {
       return NextResponse.json({ data: empty });
     }
 
-    const perSessionResults = await Promise.all(
-      sessions.map(async (session) => {
+    // Concurrency-limited fan-out (worker pool) instead of all-at-once
+    // Promise.all — bursting one call per session trips COE's per-key 429
+    // limit on cold refreshes, which the catch below would swallow to empty.
+    let failedSessions = 0;
+    const perSessionResults = await mapWithConcurrency(
+      sessions,
+      4,
+      async (session) => {
         try {
           const r = await client.get<
             { data: CoeRegistrationRow[] } | CoeRegistrationRow[]
@@ -200,13 +233,14 @@ export async function GET(_request: NextRequest) {
             examination_session_id: row.examination_session_id ?? session.id,
           }));
         } catch (err) {
+          failedSessions++;
+          const status = err instanceof CoeApiError ? err.status : 'ERR';
           console.warn(
-            `[my-marks/registrations] registrations fetch failed for session ${session.id}:`,
-            err
+            `[my-marks/registrations] registrations fetch failed for session ${session.id} (status ${status}): ${err instanceof Error ? err.message : String(err)}`
           );
           return [] as CoeRegistrationRow[];
         }
-      })
+      }
     );
     const allRegs = perSessionResults.flat();
 
@@ -218,6 +252,16 @@ export async function GET(_request: NextRequest) {
     );
 
     if (myRegs.length === 0) {
+      // Diagnostic: distinguishes "COE returned registrations but none matched
+      // this student/status" (data/register_number issue) from "COE returned
+      // nothing at all" (likely a 403 on registrations:read or wrong COE
+      // instance — the per-session fetch above swallows errors to []).
+      const sampleRegNos = [
+        ...new Set(allRegs.map((r) => r.stu_register_no).filter(Boolean)),
+      ].slice(0, 5);
+      console.warn(
+        `[my-marks/registrations] no approved regs: register_number=${registerNumber} institution=${institutionId} coeInstitution=${coeInstitutionId} | COE returned ${allRegs.length} reg(s) across ${sessions.length} session(s), ${failedSessions} session fetch(es) FAILED (429/error → likely the cause if >0); sample stu_register_no=[${sampleRegNos.join(', ')}]`
+      );
       const empty: MyMarksRegistrationsResponse = {
         semesters: [],
         current_semester_code: null,
