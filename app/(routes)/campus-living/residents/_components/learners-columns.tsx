@@ -28,8 +28,8 @@ export interface LearnerColumnHandlers {
   onRemove: (learner: LearnerHostelite) => void;
 }
 
-// Column order: Roll, Name, Institution (super-admin only), Degree, Program,
-// Semester, Gender, Block, Action.
+// Column order: Roll, Name, Institution (super-admin only), Program,
+// Semester, Block, Bills, Payment, Action.
 export function getLearnerColumns(
   h: LearnerColumnHandlers,
 ): ColumnDef<LearnerHostelite>[] {
@@ -70,15 +70,6 @@ export function getLearnerColumns(
     size: 200,
   };
 
-  const degreeCol: ColumnDef<LearnerHostelite> = {
-    accessorKey: 'degree_name',
-    header: ({ column }) => <DataTableColumnHeader column={column} title='Degree' />,
-    cell: ({ row }) => (
-      <span className='text-sm'>{row.original.degree_name ?? 'Not specified'}</span>
-    ),
-    size: 160,
-  };
-
   const programCol: ColumnDef<LearnerHostelite> = {
     accessorKey: 'program_name',
     header: ({ column }) => <DataTableColumnHeader column={column} title='Program' />,
@@ -95,15 +86,6 @@ export function getLearnerColumns(
       <span className='text-sm'>{row.original.semester_name ?? '—'}</span>
     ),
     size: 120,
-  };
-
-  const genderCol: ColumnDef<LearnerHostelite> = {
-    accessorKey: 'gender',
-    header: ({ column }) => <DataTableColumnHeader column={column} title='Gender' />,
-    cell: ({ row }) => (
-      <span className='text-xs capitalize'>{row.original.gender?.toLowerCase() ?? '—'}</span>
-    ),
-    size: 90,
   };
 
   const blockCol: ColumnDef<LearnerHostelite> = {
@@ -223,10 +205,8 @@ export function getLearnerColumns(
     rollCol,
     nameCol,
     ...(h.isSuperAdmin ? [institutionCol] : []),
-    degreeCol,
     programCol,
     semesterCol,
-    genderCol,
     blockCol,
     billsCol,
     paymentCol,
