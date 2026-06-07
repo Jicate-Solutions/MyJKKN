@@ -287,6 +287,23 @@ export const POLICY_KEYS = {
   // (server-only — runs in the vacancy-price-drops cron, never client).
   FRACTIONAL_OCCUPANCY_EMPTY_VACANCY_DROP_PCT: 'fractional_occupancy.empty_vacancy_drop_pct',
   FRACTIONAL_OCCUPANCY_EMPTY_VACANCY_DROP_INTERVAL_DAYS: 'fractional_occupancy.empty_vacancy_drop_interval_days',
+
+  // Bed Economics — scalar tunables (Bed Economics PR A, 2026-06-07) ---------
+  // Seeded as global system rows by
+  // supabase/migrations/20260607120000_bed_economics_substrate.sql (§3) and read
+  // at runtime by the fn_bed_econ_* RPCs (denominator / mess toggle / sellable
+  // filter / stoplight targets / stale-vacancy window / housekeeping unit cost).
+  // EDIT surface = the super-admin settings panel on the bed-economics dashboard
+  // page (PR B, gear → sheet); storage stays in platform_policies (the single
+  // locked registry). Spec: specs/bed-economics-dashboard-spec-2026-06-07.md §7.1.
+  // Constant strings here MUST match the policy_key values seeded in the migration.
+  BED_ECON_DENOMINATOR: 'bed_econ.denominator',
+  BED_ECON_INCLUDE_MESS_IN_REVENUE: 'bed_econ.include_mess_in_revenue',
+  BED_ECON_SELLABLE_ROOM_PURPOSES: 'bed_econ.sellable_room_purposes',
+  BED_ECON_OCCUPANCY_TARGET_PCT: 'bed_econ.occupancy_target_pct',
+  BED_ECON_COLLECTION_TARGET_PCT: 'bed_econ.collection_target_pct',
+  BED_ECON_STALE_VACANCY_DAYS: 'bed_econ.stale_vacancy_days',
+  BED_ECON_HOUSEKEEPING_COST_PER_ROOM_MONTH: 'bed_econ.housekeeping_cost_per_room_month',
 } as const;
 
 export type PolicyKey = typeof POLICY_KEYS[keyof typeof POLICY_KEYS];
