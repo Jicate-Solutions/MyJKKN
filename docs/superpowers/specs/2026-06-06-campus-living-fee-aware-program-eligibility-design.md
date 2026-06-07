@@ -11,6 +11,15 @@
 > closed band *"Above 5, Below 6"*. This revision keeps **extend tables** + **fail-open** but moves to
 > **min–max fee ranges** and a **strict bill-based fee source** (see §2). Decisions re-confirmed with
 > stakeholder.
+>
+> **Revision 2 (2026-06-06, post-build).** Stakeholder asked to **merge the Room + Mess tabs into a single
+> "Category Eligibility" table** — one row = `(institution, program, quota, fee band)` → **both** a room and a
+> mess category. Replaces the two `hostel_program_*_eligibility` tables with one `hostel_program_eligibility`
+> (`room_category_id` + `mess_category_id` + `is_monthly_mess_allowed`, one row per band). The two `effective`
+> resolvers now read this single table (room reads `room_category_id IS NOT NULL`, mess reads
+> `mess_category_id IS NOT NULL`); the fee fn, composites, allocation-page + self-service enforcement are
+> UNCHANGED. UI collapses to one tab/dialog/table. Trade-off accepted: when room and mess flip at different fee
+> points, enter one combined row per breakpoint (repeating the unchanged category) — matches the screenshot 1:1.
 
 ---
 
