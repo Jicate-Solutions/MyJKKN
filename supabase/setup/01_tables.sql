@@ -4904,4 +4904,40 @@ CREATE INDEX IF NOT EXISTS idx_razorpay_webhook_events_received_at
 CREATE INDEX IF NOT EXISTS idx_razorpay_webhook_events_event_type
   ON public.razorpay_webhook_events (event_type);
 
+-- hostel_program_eligibility (2026-06-06): single combined program-eligibility table.
+-- One row = (institution, program, quota, fee band) granting both a room category
+-- and a mess category. Replaces the former split hostel_program_room_eligibility +
+-- hostel_program_mess_eligibility tables (both were empty; dropped in migration
+-- 20260606160400_program_eligibility_single_table.sql).
+CREATE TABLE IF NOT EXISTS public.hostel_program_eligibility (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  institution_id uuid NOT NULL REFERENCES public.institutions(id) ON DELETE CASCADE,
+  program_id uuid REFERENCES public.programs(id) ON DELETE CASCADE,   -- NULL = institution default
+  quota_id   uuid REFERENCES public.quotas(id) ON DELETE CASCADE,     -- NULL = any quota
+  fee_min numeric(12,2),                                              -- inclusive lower (rupees), NULL = unbounded
+  fee_max numeric(12,2),                                              -- exclusive upper (rupees), NULL = unbounded
+  room_category_id uuid REFERENCES public.hostel_categories(id) ON DELETE CASCADE,
+  mess_category_id uuid REFERENCES public.mess_categories(id)  ON DELETE CASCADE,
+  is_monthly_mess_allowed boolean NOT NULL DEFAULT false,
+  is_active boolean NOT NULL DEFAULT true,
+  effective_from date,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  created_by uuid REFERENCES public.profiles(id),
+  updated_by uuid REFERENCES public.profiles(id),
+  CONSTRAINT chk_prog_elig_fee_range    CHECK (fee_min IS NULL OR fee_max IS NULL OR fee_min < fee_max),
+  CONSTRAINT chk_prog_elig_has_category CHECK (room_category_id IS NOT NULL OR mess_category_id IS NOT NULL)
+);
+
+-- One row per band (institution, program, quota, fee_min, fee_max).
+CREATE UNIQUE INDEX IF NOT EXISTS uq_prog_elig_band ON public.hostel_program_eligibility (
+  institution_id,
+  COALESCE(program_id, '00000000-0000-0000-0000-000000000000'::uuid),
+  COALESCE(quota_id,   '00000000-0000-0000-0000-000000000000'::uuid),
+  COALESCE(fee_min, -1),
+  COALESCE(fee_max, -1)
+);
+CREATE INDEX IF NOT EXISTS idx_prog_elig_resolve
+  ON public.hostel_program_eligibility (institution_id, program_id, quota_id, is_active);
+
 ALTER TABLE public.razorpay_webhook_events ENABLE ROW LEVEL SECURITY;

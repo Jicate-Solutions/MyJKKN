@@ -4,8 +4,15 @@ import type { ColumnDef } from '@tanstack/react-table';
 import { DataTableColumnHeader } from '@/components/data-table/column-header';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Pencil, Trash2, Eye } from 'lucide-react';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { Pencil, Trash2, Eye, MoreHorizontal } from 'lucide-react';
 import type { LearnerHostelite } from '@/types/campus-living';
+import { formatCurrency } from '@/lib/utils';
 
 function fullName(l: LearnerHostelite): string {
   const parts = [l.first_name, l.last_name].filter(Boolean).map((s) => s!.trim());
@@ -21,8 +28,8 @@ export interface LearnerColumnHandlers {
   onRemove: (learner: LearnerHostelite) => void;
 }
 
-// Column order: Roll, Name, Institution (super-admin only), Degree, Program,
-// Semester, Gender, Block, Action.
+// Column order: Roll, Name, Institution (super-admin only), Program,
+// Semester, Block, Bills, Payment, Action.
 export function getLearnerColumns(
   h: LearnerColumnHandlers,
 ): ColumnDef<LearnerHostelite>[] {
@@ -63,15 +70,6 @@ export function getLearnerColumns(
     size: 200,
   };
 
-  const degreeCol: ColumnDef<LearnerHostelite> = {
-    accessorKey: 'degree_name',
-    header: ({ column }) => <DataTableColumnHeader column={column} title='Degree' />,
-    cell: ({ row }) => (
-      <span className='text-sm'>{row.original.degree_name ?? 'Not specified'}</span>
-    ),
-    size: 160,
-  };
-
   const programCol: ColumnDef<LearnerHostelite> = {
     accessorKey: 'program_name',
     header: ({ column }) => <DataTableColumnHeader column={column} title='Program' />,
@@ -90,15 +88,6 @@ export function getLearnerColumns(
     size: 120,
   };
 
-  const genderCol: ColumnDef<LearnerHostelite> = {
-    accessorKey: 'gender',
-    header: ({ column }) => <DataTableColumnHeader column={column} title='Gender' />,
-    cell: ({ row }) => (
-      <span className='text-xs capitalize'>{row.original.gender?.toLowerCase() ?? '—'}</span>
-    ),
-    size: 90,
-  };
-
   const blockCol: ColumnDef<LearnerHostelite> = {
     accessorKey: 'current_block_name',
     header: ({ column }) => <DataTableColumnHeader column={column} title='Block' />,
@@ -111,43 +100,116 @@ export function getLearnerColumns(
     size: 160,
   };
 
+  const billsCol: ColumnDef<LearnerHostelite> = {
+    id: 'current_year_bills',
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title='Current-Year Bills' />
+    ),
+    cell: ({ row }) => {
+      const s = row.original.bill_status;
+      if (!s) return <span className='text-sm text-muted-foreground'>—</span>;
+      const generated = s.bill_count > 0;
+      return (
+        <div className='flex flex-col gap-0.5'>
+          {generated ? (
+            <Badge className='w-fit border-transparent bg-green-100 text-green-800 hover:bg-green-100'>
+              Generated ({s.bill_count})
+            </Badge>
+          ) : (
+            <Badge variant='secondary' className='w-fit'>
+              Not generated
+            </Badge>
+          )}
+          {generated && (
+            <span className='text-xs text-muted-foreground'>
+              Billed {formatCurrency(s.total_billed)}
+            </span>
+          )}
+        </div>
+      );
+    },
+    enableSorting: false,
+    size: 170,
+  };
+
+  const paymentCol: ColumnDef<LearnerHostelite> = {
+    id: 'payment_status',
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title='Payment' />
+    ),
+    cell: ({ row }) => {
+      const s = row.original.bill_status;
+      if (!s || s.bill_count === 0) {
+        return <span className='text-sm text-muted-foreground'>—</span>;
+      }
+      const cfg = {
+        paid: { label: 'Paid', cls: 'bg-green-100 text-green-800 hover:bg-green-100' },
+        partial: { label: 'Partial', cls: 'bg-amber-100 text-amber-800 hover:bg-amber-100' },
+        unpaid: { label: 'Unpaid', cls: 'bg-orange-100 text-orange-800 hover:bg-orange-100' },
+        none: { label: '—', cls: '' },
+      } as const;
+      const c = cfg[s.payment_status] ?? cfg.none;
+      return (
+        <div
+          className='flex flex-col gap-0.5'
+          title={s.academic_year_name ?? undefined}
+        >
+          <Badge className={`w-fit border-transparent ${c.cls}`}>{c.label}</Badge>
+          <span className='text-xs text-muted-foreground'>
+            Paid {formatCurrency(s.total_paid)} · Out {formatCurrency(s.total_outstanding)}
+          </span>
+        </div>
+      );
+    },
+    enableSorting: false,
+    size: 190,
+  };
+
   const actionsCol: ColumnDef<LearnerHostelite> = {
     id: 'actions',
-    header: () => <span className='sr-only'>Actions</span>,
+    header: () => <div className='text-right'>Actions</div>,
     cell: ({ row }) => (
-      <div className='flex justify-end gap-1'>
-        <Button variant='ghost' size='sm' onClick={() => h.onView(row.original)} title='View details'>
-          <Eye className='h-4 w-4' />
-        </Button>
-        {h.canEdit && (
-          <Button variant='ghost' size='sm' onClick={() => h.onEdit(row.original)} title='Edit hostel details'>
-            <Pencil className='h-4 w-4' />
-          </Button>
-        )}
-        <Button
-          variant='ghost'
-          size='sm'
-          onClick={() => h.onRemove(row.original)}
-          title='Remove from hostel (mark as day scholar)'
-        >
-          <Trash2 className='h-4 w-4 text-destructive' />
-        </Button>
+      <div className='flex justify-end'>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant='ghost' size='sm' className='h-8 w-8 p-0'>
+              <span className='sr-only'>Open actions menu</span>
+              <MoreHorizontal className='h-4 w-4' />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align='end'>
+            <DropdownMenuItem onClick={() => h.onView(row.original)}>
+              <Eye className='mr-2 h-4 w-4' /> View details
+            </DropdownMenuItem>
+            {h.canEdit && (
+              <DropdownMenuItem onClick={() => h.onEdit(row.original)}>
+                <Pencil className='mr-2 h-4 w-4' /> Edit hostel details
+              </DropdownMenuItem>
+            )}
+            <DropdownMenuItem
+              onClick={() => h.onRemove(row.original)}
+              className='text-destructive focus:text-destructive'
+            >
+              <Trash2 className='mr-2 h-4 w-4' /> Remove from hostel
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
     ),
     enableSorting: false,
     enableHiding: false,
-    size: 120,
+    size: 90,
   };
 
   return [
     rollCol,
     nameCol,
     ...(h.isSuperAdmin ? [institutionCol] : []),
-    degreeCol,
     programCol,
     semesterCol,
-    genderCol,
     blockCol,
+    billsCol,
+    paymentCol,
     actionsCol,
   ];
 }

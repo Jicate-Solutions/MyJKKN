@@ -47,32 +47,24 @@ export function useLearnerProgramId(learnerId: string | null | undefined) {
 }
 
 /**
- * Effective room-category ids a program may pick at allocation. Wraps β.
- * Returns [] when no eligibility is configured (caller fails open with a hint).
+ * Fee-aware effective room-category ids for a learner (program → quota → fee
+ * band). The whole decision lives in the composite SQL fn. [] => fail open.
  */
-export function useEffectiveRoomCategories(
-  institutionId: string | null | undefined,
-  programId: string | null | undefined,
-) {
+export function useEffectiveRoomCategories(learnerId: string | null | undefined) {
   return useQuery({
-    queryKey: [...ALLOC_ELIG_KEY, 'room-cats', institutionId ?? null, programId ?? null],
-    queryFn: () =>
-      ProgramEligibilityService.getEffectiveRoomCategories(institutionId!, programId!),
-    enabled: !!institutionId && !!programId,
+    queryKey: [...ALLOC_ELIG_KEY, 'room-cats', learnerId ?? null],
+    queryFn: () => ProgramEligibilityService.getEffectiveRoomCategories(learnerId!),
+    enabled: !!learnerId,
     staleTime: 5 * 60 * 1000,
   });
 }
 
-/** Effective mess-category ids a program may pick at allocation. Wraps β. */
-export function useEffectiveMessCategories(
-  institutionId: string | null | undefined,
-  programId: string | null | undefined,
-) {
+/** Fee-aware effective mess-category ids for a learner. */
+export function useEffectiveMessCategories(learnerId: string | null | undefined) {
   return useQuery({
-    queryKey: [...ALLOC_ELIG_KEY, 'mess-cats', institutionId ?? null, programId ?? null],
-    queryFn: () =>
-      ProgramEligibilityService.getEffectiveMessCategories(institutionId!, programId!),
-    enabled: !!institutionId && !!programId,
+    queryKey: [...ALLOC_ELIG_KEY, 'mess-cats', learnerId ?? null],
+    queryFn: () => ProgramEligibilityService.getEffectiveMessCategories(learnerId!),
+    enabled: !!learnerId,
     staleTime: 5 * 60 * 1000,
   });
 }

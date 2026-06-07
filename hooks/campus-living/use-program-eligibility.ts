@@ -2,10 +2,8 @@ import { useCallback } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ProgramEligibilityService } from '@/lib/services/campus-living/program-eligibility-service';
 import type {
-  CreateProgramRoomEligibilityDto,
-  UpdateProgramRoomEligibilityDto,
-  CreateProgramMessEligibilityDto,
-  UpdateProgramMessEligibilityDto,
+  CreateProgramEligibilityDto,
+  UpdateProgramEligibilityDto,
 } from '@/types/program-eligibility';
 
 // Shared React Query cache key. Every component that reads eligibility for a
@@ -14,43 +12,43 @@ import type {
 // no page reload needed (same rationale as use-amenities-categories).
 const ELIG_KEY = ['campus-living', 'program-eligibility'] as const;
 
-// ─── Room eligibility ────────────────────────────────────────────────────
-export function useRoomEligibility(institutionId: string | null) {
+// ─── Combined eligibility (single table: room + mess per band) ──────────────
+export function useEligibility(institutionId: string | null) {
   const queryClient = useQueryClient();
 
   // institutionId === null => list across ALL institutions (page-level view).
   const query = useQuery({
-    queryKey: [...ELIG_KEY, 'room', institutionId ?? 'all'],
+    queryKey: [...ELIG_KEY, 'list', institutionId ?? 'all'],
     queryFn: () =>
-      ProgramEligibilityService.getRoomEligibility(institutionId ?? undefined),
+      ProgramEligibilityService.getEligibility(institutionId ?? undefined),
   });
 
   const invalidate = useCallback(
-    () => queryClient.invalidateQueries({ queryKey: [...ELIG_KEY, 'room'] }),
+    () => queryClient.invalidateQueries({ queryKey: [...ELIG_KEY, 'list'] }),
     [queryClient]
   );
 
-  const createRoomEligibility = useCallback(
-    async (dto: CreateProgramRoomEligibilityDto) => {
-      const result = await ProgramEligibilityService.createRoomEligibility(dto);
+  const createEligibility = useCallback(
+    async (dto: CreateProgramEligibilityDto) => {
+      const result = await ProgramEligibilityService.createEligibility(dto);
       await invalidate();
       return result;
     },
     [invalidate]
   );
 
-  const updateRoomEligibility = useCallback(
-    async (id: string, dto: UpdateProgramRoomEligibilityDto) => {
-      const result = await ProgramEligibilityService.updateRoomEligibility(id, dto);
+  const updateEligibility = useCallback(
+    async (id: string, dto: UpdateProgramEligibilityDto) => {
+      const result = await ProgramEligibilityService.updateEligibility(id, dto);
       await invalidate();
       return result;
     },
     [invalidate]
   );
 
-  const deleteRoomEligibility = useCallback(
+  const deleteEligibility = useCallback(
     async (id: string) => {
-      await ProgramEligibilityService.deleteRoomEligibility(id);
+      await ProgramEligibilityService.deleteEligibility(id);
       await invalidate();
     },
     [invalidate]
@@ -60,61 +58,9 @@ export function useRoomEligibility(institutionId: string | null) {
     rows: query.data ?? [],
     loading: query.isLoading,
     error: query.error ? (query.error as Error).message : null,
-    createRoomEligibility,
-    updateRoomEligibility,
-    deleteRoomEligibility,
-  };
-}
-
-// ─── Mess eligibility ──────────────────────────────────────────────────────
-export function useMessEligibility(institutionId: string | null) {
-  const queryClient = useQueryClient();
-
-  // institutionId === null => list across ALL institutions (page-level view).
-  const query = useQuery({
-    queryKey: [...ELIG_KEY, 'mess', institutionId ?? 'all'],
-    queryFn: () =>
-      ProgramEligibilityService.getMessEligibility(institutionId ?? undefined),
-  });
-
-  const invalidate = useCallback(
-    () => queryClient.invalidateQueries({ queryKey: [...ELIG_KEY, 'mess'] }),
-    [queryClient]
-  );
-
-  const createMessEligibility = useCallback(
-    async (dto: CreateProgramMessEligibilityDto) => {
-      const result = await ProgramEligibilityService.createMessEligibility(dto);
-      await invalidate();
-      return result;
-    },
-    [invalidate]
-  );
-
-  const updateMessEligibility = useCallback(
-    async (id: string, dto: UpdateProgramMessEligibilityDto) => {
-      const result = await ProgramEligibilityService.updateMessEligibility(id, dto);
-      await invalidate();
-      return result;
-    },
-    [invalidate]
-  );
-
-  const deleteMessEligibility = useCallback(
-    async (id: string) => {
-      await ProgramEligibilityService.deleteMessEligibility(id);
-      await invalidate();
-    },
-    [invalidate]
-  );
-
-  return {
-    rows: query.data ?? [],
-    loading: query.isLoading,
-    error: query.error ? (query.error as Error).message : null,
-    createMessEligibility,
-    updateMessEligibility,
-    deleteMessEligibility,
+    createEligibility,
+    updateEligibility,
+    deleteEligibility,
   };
 }
 
@@ -151,4 +97,12 @@ export function useActiveMessCategories() {
     queryFn: () => ProgramEligibilityService.getActiveMessCategories(),
   });
   return { categories: query.data ?? [], loading: query.isLoading };
+}
+
+export function useActiveQuotas() {
+  const query = useQuery({
+    queryKey: [...ELIG_KEY, 'quotas'],
+    queryFn: () => ProgramEligibilityService.getActiveQuotas(),
+  });
+  return { quotas: query.data ?? [], loading: query.isLoading };
 }

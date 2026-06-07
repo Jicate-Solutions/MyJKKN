@@ -13925,9 +13925,9 @@ BEGIN
         v_proposed := v_proposed || (v_item || jsonb_build_object('fee_source',v_src));
         IF NOT p_dry_run THEN
           INSERT INTO billing_student_bills (student_id, institution_id, item_category_id,
-            hostel_year_id, fee_source, applies_year_of_study, bill_description, due_date,
+            hostel_year_id, fee_source, applies_year_of_study, academic_year_id, bill_description, due_date,
             quantity, unit_amount, total_amount, final_amount, balance_amount, status)
-          VALUES (v_learner, lp.institution_id, v_cat, p_hostel_year_id, v_src, v_year,
+          VALUES (v_learner, lp.institution_id, v_cat, p_hostel_year_id, v_src, v_year, lp.academic_year_id,
             v_item->>'category_name', now()+interval '30 day', 1,
             (v_item->>'amount')::numeric, (v_item->>'amount')::numeric,
             (v_item->>'amount')::numeric, (v_item->>'amount')::numeric, 'unpaid')
@@ -13955,9 +13955,9 @@ BEGIN
         v_proposed := v_proposed || v_item;
         IF NOT p_dry_run THEN
           INSERT INTO billing_student_bills (student_id, institution_id, item_category_id,
-            hostel_year_id, package_id, fee_source, bill_description, due_date,
+            hostel_year_id, package_id, fee_source, academic_year_id, bill_description, due_date,
             quantity, unit_amount, total_amount, final_amount, balance_amount, status)
-          VALUES (v_learner, lp.institution_id, v_cat, p_hostel_year_id, v_pkg, v_src,
+          VALUES (v_learner, lp.institution_id, v_cat, p_hostel_year_id, v_pkg, v_src, lp.academic_year_id,
             v_item->>'category_name', now()+interval '30 day', 1,
             (v_item->>'amount')::numeric, (v_item->>'amount')::numeric,
             (v_item->>'amount')::numeric, (v_item->>'amount')::numeric, 'unpaid')
@@ -13978,5 +13978,272 @@ END $$;
 REVOKE ALL ON FUNCTION public.campus_living_generate_hostel_year_bills(uuid, uuid[], boolean) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.campus_living_generate_hostel_year_bills(uuid, uuid[], boolean) FROM anon;
 GRANT EXECUTE ON FUNCTION public.campus_living_generate_hostel_year_bills(uuid, uuid[], boolean) TO authenticated;
+
+-- campus_living_get_hostelite_bill_status (migration 20260606120500)
+-- Per-student current-academic-year billing rollup for the Campus Living
+-- Residents → Learners tab. SECURITY DEFINER so campus-living operators (who
+-- typically lack billing.schedule.view) can read aggregates; scoped to the
+-- caller's accessible institutions to prevent cross-institution leakage.
+
+CREATE OR REPLACE FUNCTION public.campus_living_get_hostelite_bill_status(p_student_ids uuid[])
+RETURNS TABLE (
+  student_id uuid,
+  academic_year_id uuid,
+  academic_year_name text,
+  bill_count integer,
+  total_billed numeric,
+  total_paid numeric,
+  total_outstanding numeric,
+  payment_status text
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+BEGIN
+  IF NOT public.user_has_permission('campus_living.residents.view') THEN
+    RAISE EXCEPTION 'permission denied: campus_living.residents.view' USING ERRCODE = '42501';
+  END IF;
+
+  RETURN QUERY
+  WITH students AS (
+    SELECT lp.id AS sid, lp.academic_year_id AS ayid
+    FROM learners_profiles lp
+    WHERE lp.id = ANY(p_student_ids)
+      AND lp.institution_id = ANY(public._user_accessible_institutions())
+  ),
+  agg AS (
+    SELECT b.student_id AS sid,
+           count(*)::int AS bill_count,
+           COALESCE(sum(b.final_amount), 0) AS total_billed,
+           COALESCE(sum(b.balance_amount), 0) AS total_outstanding
+    FROM billing_student_bills b
+    JOIN students s ON s.sid = b.student_id
+    WHERE s.ayid IS NOT NULL
+      AND b.academic_year_id = s.ayid
+      AND b.status NOT IN ('cancelled', 'superseded')
+    GROUP BY b.student_id
+  )
+  SELECT
+    s.sid,
+    s.ayid,
+    ay.academic_year_name::text,
+    COALESCE(a.bill_count, 0)::int,
+    COALESCE(a.total_billed, 0)::numeric,
+    (COALESCE(a.total_billed, 0) - COALESCE(a.total_outstanding, 0))::numeric,
+    COALESCE(a.total_outstanding, 0)::numeric,
+    (CASE
+      WHEN COALESCE(a.bill_count, 0) = 0 THEN 'none'
+      WHEN COALESCE(a.total_outstanding, 0) <= 0 THEN 'paid'
+      WHEN (COALESCE(a.total_billed, 0) - COALESCE(a.total_outstanding, 0)) > 0 THEN 'partial'
+      ELSE 'unpaid'
+    END)::text
+  FROM students s
+  LEFT JOIN agg a ON a.sid = s.sid
+  LEFT JOIN academic_years ay ON ay.id = s.ayid;
+END
+$function$;
+
+GRANT EXECUTE ON FUNCTION public.campus_living_get_hostelite_bill_status(uuid[]) TO authenticated;
+
+-- ============================================================
+-- Fee-aware program eligibility — fee source + resolvers.
+-- Migration: 20260606160100_fee_aware_eligibility_functions.sql
+-- SINGLE source of truth: nothing else computes the gating fee or the category set.
+-- ============================================================
+
+-- 1. The gating fee = current-academic-year academic bill total.
+--    NO COALESCE: SUM over zero rows = NULL = "no fee data" => caller fails open.
+--    SECURITY DEFINER so campus-living operators without billing read still get it
+--    (returns only an aggregate numeric — no row leakage).
+CREATE OR REPLACE FUNCTION public.fn_learner_current_year_academic_fee(p_learner_id uuid)
+RETURNS numeric
+LANGUAGE sql STABLE SECURITY DEFINER
+SET search_path TO 'public'
+AS $$
+  -- Bills predating academic_year_id stamping have NULL here and are excluded;
+  -- a learner with no matching (tagged) bill yields NULL => caller fails open. Intentional.
+  SELECT SUM(b.final_amount)
+  FROM billing_student_bills b
+  JOIN learners_profiles lp ON lp.id = b.student_id
+  WHERE b.student_id = p_learner_id
+    AND b.fee_source = 'academic'
+    AND b.status NOT IN ('cancelled','superseded')
+    AND b.academic_year_id = lp.academic_year_id;
+$$;
+
+-- 2. Parametric resolver (room). Most-specific matching scope wins; tie-break by
+--    tightest band. Returns ALL categories in the winning scope (allow-set).
+--    Empty result => caller fails open.
+--    Reads hostel_program_eligibility (single combined table; replaces the former
+--    split hostel_program_room_eligibility + hostel_program_mess_eligibility).
+CREATE OR REPLACE FUNCTION public.fn_hostel_effective_room_categories(
+  p_institution uuid, p_program uuid, p_quota uuid, p_fee numeric
+) RETURNS TABLE(category_id uuid)
+LANGUAGE sql STABLE
+SET search_path TO 'public'
+AS $$
+  WITH candidates AS (
+    SELECT e.room_category_id AS cat,
+           e.program_id, e.quota_id, e.fee_min, e.fee_max,
+           ( (e.program_id IS NOT NULL)::int * 4
+           + (e.quota_id   IS NOT NULL)::int * 2
+           + ((e.fee_min IS NOT NULL OR e.fee_max IS NOT NULL))::int * 1 ) AS specificity
+    FROM hostel_program_eligibility e
+    WHERE e.institution_id = p_institution
+      AND e.is_active
+      AND e.room_category_id IS NOT NULL
+      AND (e.program_id = p_program OR e.program_id IS NULL)
+      AND (e.quota_id   = p_quota   OR e.quota_id   IS NULL)
+      -- half-open interval [fee_min, fee_max): includes min, excludes max
+      AND (e.fee_min IS NULL OR p_fee >= e.fee_min)
+      AND (e.fee_max IS NULL OR p_fee <  e.fee_max)
+  ),
+  winner AS (
+    SELECT program_id, quota_id, fee_min, fee_max
+    FROM candidates
+    ORDER BY specificity DESC,
+             (COALESCE(fee_max, 9.9e14::numeric) - COALESCE(fee_min, 0)) ASC
+    LIMIT 1
+  )
+  SELECT c.cat
+  FROM candidates c JOIN winner w
+    ON c.program_id IS NOT DISTINCT FROM w.program_id
+   AND c.quota_id   IS NOT DISTINCT FROM w.quota_id
+   AND c.fee_min    IS NOT DISTINCT FROM w.fee_min
+   AND c.fee_max    IS NOT DISTINCT FROM w.fee_max;
+$$;
+
+-- 3. Parametric resolver (mess) — identical shape, reads hostel_program_eligibility.
+CREATE OR REPLACE FUNCTION public.fn_hostel_effective_mess_categories(
+  p_institution uuid, p_program uuid, p_quota uuid, p_fee numeric
+) RETURNS TABLE(category_id uuid)
+LANGUAGE sql STABLE
+SET search_path TO 'public'
+AS $$
+  WITH candidates AS (
+    SELECT e.mess_category_id AS cat,
+           e.program_id, e.quota_id, e.fee_min, e.fee_max,
+           ( (e.program_id IS NOT NULL)::int * 4
+           + (e.quota_id   IS NOT NULL)::int * 2
+           + ((e.fee_min IS NOT NULL OR e.fee_max IS NOT NULL))::int * 1 ) AS specificity
+    FROM hostel_program_eligibility e
+    WHERE e.institution_id = p_institution
+      AND e.is_active
+      AND e.mess_category_id IS NOT NULL
+      AND (e.program_id = p_program OR e.program_id IS NULL)
+      AND (e.quota_id   = p_quota   OR e.quota_id   IS NULL)
+      -- half-open interval [fee_min, fee_max): includes min, excludes max
+      AND (e.fee_min IS NULL OR p_fee >= e.fee_min)
+      AND (e.fee_max IS NULL OR p_fee <  e.fee_max)
+  ),
+  winner AS (
+    SELECT program_id, quota_id, fee_min, fee_max
+    FROM candidates
+    ORDER BY specificity DESC,
+             (COALESCE(fee_max, 9.9e14::numeric) - COALESCE(fee_min, 0)) ASC
+    LIMIT 1
+  )
+  SELECT c.cat
+  FROM candidates c JOIN winner w
+    ON c.program_id IS NOT DISTINCT FROM w.program_id
+   AND c.quota_id   IS NOT DISTINCT FROM w.quota_id
+   AND c.fee_min    IS NOT DISTINCT FROM w.fee_min
+   AND c.fee_max    IS NOT DISTINCT FROM w.fee_max;
+$$;
+
+-- 4. Composite (room): the interface callers use. Reads the learner's dims +
+--    fee, then resolves. NULL fee or NULL program => empty => fail-open.
+--    SECURITY DEFINER so it reliably reads learners_profiles; returns only ids.
+CREATE OR REPLACE FUNCTION public.fn_hostel_learner_room_categories(p_learner_id uuid)
+RETURNS TABLE(category_id uuid)
+LANGUAGE plpgsql STABLE SECURITY DEFINER
+SET search_path TO 'public'
+AS $$
+DECLARE
+  v_institution uuid; v_program uuid; v_quota uuid; v_fee numeric;
+BEGIN
+  SELECT lp.institution_id, lp.program_id, lp.quota_id
+    INTO v_institution, v_program, v_quota
+  FROM learners_profiles lp WHERE lp.id = p_learner_id;
+
+  IF v_institution IS NULL THEN RETURN; END IF;        -- no institution => fail-open
+  IF v_program IS NULL THEN RETURN; END IF;            -- no program => fail-open
+  v_fee := fn_learner_current_year_academic_fee(p_learner_id);
+  IF v_fee IS NULL THEN RETURN; END IF;                -- no bill data => fail-open
+
+  RETURN QUERY
+    SELECT r.category_id
+    FROM fn_hostel_effective_room_categories(v_institution, v_program, v_quota, v_fee) r;
+END $$;
+
+-- 5. Composite (mess).
+CREATE OR REPLACE FUNCTION public.fn_hostel_learner_mess_categories(p_learner_id uuid)
+RETURNS TABLE(category_id uuid)
+LANGUAGE plpgsql STABLE SECURITY DEFINER
+SET search_path TO 'public'
+AS $$
+DECLARE
+  v_institution uuid; v_program uuid; v_quota uuid; v_fee numeric;
+BEGIN
+  SELECT lp.institution_id, lp.program_id, lp.quota_id
+    INTO v_institution, v_program, v_quota
+  FROM learners_profiles lp WHERE lp.id = p_learner_id;
+
+  IF v_institution IS NULL THEN RETURN; END IF;        -- no institution => fail-open
+  IF v_program IS NULL THEN RETURN; END IF;            -- no program => fail-open
+  v_fee := fn_learner_current_year_academic_fee(p_learner_id);
+  IF v_fee IS NULL THEN RETURN; END IF;                -- no bill data => fail-open
+
+  RETURN QUERY
+    SELECT m.category_id
+    FROM fn_hostel_effective_mess_categories(v_institution, v_program, v_quota, v_fee) m;
+END $$;
+
+GRANT EXECUTE ON FUNCTION public.fn_hostel_learner_room_categories(uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_hostel_learner_mess_categories(uuid) TO authenticated;
+
+-- Lock down: revoke the Supabase-default anon/PUBLIC EXECUTE. The fee fn is
+-- SECURITY DEFINER over billing data; the resolvers + composites run internally
+-- via the DEFINER composites (owner has EXECUTE), so only the two composites
+-- need a direct grant (the allocation page calls them as `authenticated`).
+-- NOTE: Supabase grants EXECUTE directly to `anon` (not via PUBLIC) on every new
+-- public function, so the revoke MUST name `anon` explicitly — `FROM PUBLIC`
+-- alone leaves the explicit anon grant intact.
+REVOKE EXECUTE ON FUNCTION public.fn_learner_current_year_academic_fee(uuid) FROM anon, PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.fn_hostel_effective_room_categories(uuid,uuid,uuid,numeric) FROM anon, PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.fn_hostel_effective_mess_categories(uuid,uuid,uuid,numeric) FROM anon, PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.fn_hostel_learner_room_categories(uuid) FROM anon, PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.fn_hostel_learner_mess_categories(uuid) FROM anon, PUBLIC;
+GRANT EXECUTE ON FUNCTION public.fn_hostel_learner_room_categories(uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_hostel_learner_mess_categories(uuid) TO authenticated;
+
+-- Self-service room-category picker — gender filter + fee-aware eligibility gate (fail-open).
+CREATE OR REPLACE FUNCTION public.fn_my_manual_categories()
+RETURNS TABLE(id uuid, name text, type text)
+LANGUAGE plpgsql
+STABLE SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_gender  text;
+  v_learner uuid;
+  v_elig    uuid[];
+BEGIN
+  SELECT lower(trim(gender)) INTO v_gender FROM profiles WHERE profiles.id = auth.uid();
+  v_learner := get_my_learner_id();
+
+  -- Fee-aware allow-set for this learner. NULL (no rule / no bill data) => fail-open.
+  SELECT array_agg(category_id) INTO v_elig
+  FROM fn_hostel_learner_room_categories(v_learner);
+
+  RETURN QUERY
+  SELECT c.id, c.name, c.type FROM hostel_categories c
+  WHERE c.allocation_mode='manual' AND c.is_active
+    AND ((v_gender IN ('male','m')   AND c.type='boys')
+         OR (v_gender IN ('female','f') AND c.type='girls'))
+    AND (v_elig IS NULL OR c.id = ANY(v_elig))
+  ORDER BY c.sort_order;
+END $function$;
 
 NOTIFY pgrst, 'reload schema';

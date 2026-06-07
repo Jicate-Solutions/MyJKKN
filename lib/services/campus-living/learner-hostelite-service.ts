@@ -13,6 +13,7 @@ import { logger } from '@/lib/utils/enhanced-logger';
 import { accommodationLegacyFromCode } from '@/lib/utils/accommodation-type-resolver';
 import {
   UNASSIGNED_BLOCK,
+  type HosteliteBillStatus,
   type LearnerHostelite,
   type LearnerHostelitesFilters,
   type LearnerDetailBundle,
@@ -475,6 +476,51 @@ export class LearnerHosteliteService {
       if (r.year_of_study !== null) set.add(r.year_of_study);
     });
     return Array.from(set).sort((a, b) => a - b);
+  }
+
+  // ── Current-year billing rollup for a page of hostelers ───────────────
+  // Batched, non-fatal cross-module read. Calls the SECURITY DEFINER RPC
+  // campus_living_get_hostelite_bill_status (scoped to accessible institutions)
+  // so campus-living operators without billing.schedule.view can still see
+  // per-student rollups. Returns a Map keyed by student_id (= learner id).
+  static async getBillStatusForStudents(
+    studentIds: string[],
+  ): Promise<Map<string, HosteliteBillStatus>> {
+    const map = new Map<string, HosteliteBillStatus>();
+    if (!studentIds.length) return map;
+    try {
+      const supabase = createClientSupabaseClient();
+      const { data, error } = await (supabase as any).rpc(
+        'campus_living_get_hostelite_bill_status',
+        { p_student_ids: studentIds },
+      );
+      if (error) {
+        logger.error(
+          'campus-living/learner-hostelite',
+          'getBillStatusForStudents failed',
+          error,
+        );
+        return map; // non-fatal — table still lists residents without billing cols
+      }
+      for (const row of (data ?? []) as Array<Record<string, unknown>>) {
+        map.set(String(row.student_id), {
+          bill_count: Number(row.bill_count ?? 0),
+          total_billed: Number(row.total_billed ?? 0),
+          total_paid: Number(row.total_paid ?? 0),
+          total_outstanding: Number(row.total_outstanding ?? 0),
+          payment_status:
+            (row.payment_status as HosteliteBillStatus['payment_status']) ?? 'none',
+          academic_year_name: (row.academic_year_name as string | null) ?? null,
+        });
+      }
+    } catch (err) {
+      logger.error(
+        'campus-living/learner-hostelite',
+        'getBillStatusForStudents unexpected',
+        err,
+      );
+    }
+    return map;
   }
 
   // ── Search candidate learners for the "Add to Hostel" picker ─────────

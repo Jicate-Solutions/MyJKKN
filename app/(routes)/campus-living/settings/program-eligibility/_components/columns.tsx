@@ -3,13 +3,24 @@
 import { ColumnDef } from '@tanstack/react-table';
 import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
-import type {
-  ProgramRoomEligibilityRow,
-  ProgramMessEligibilityRow,
-} from '@/types/program-eligibility';
-import { RoomEligibilityRowActions, MessEligibilityRowActions } from './row-actions';
+import type { ProgramEligibilityRow } from '@/types/program-eligibility';
+import { EligibilityRowActions } from './row-actions';
 
-// Shared cell: scope label — "(All programs — default)" when program_id is null.
+// ₹ rupees → compact lakh label. Trims trailing zeros (400000 => "4L").
+const lakh = (n: number) => `${Number((n / 100000).toFixed(2))}L`;
+function FeeBandCell({ min, max }: { min: number | null; max: number | null }) {
+  let label: string;
+  if (min == null && max == null) label = 'Any';
+  else if (min == null) label = `< ${lakh(max!)}`;
+  else if (max == null) label = `≥ ${lakh(min)}`;
+  else label = `${lakh(min)} – ${lakh(max)}`;
+  return <span className='text-sm tabular-nums'>{label}</span>;
+}
+function QuotaCell({ name }: { name: string | null }) {
+  return name
+    ? <span className='text-sm'>{name}</span>
+    : <Badge variant='secondary' className='font-normal'>Any quota</Badge>;
+}
 function ScopeCell({ programName }: { programName: string | null }) {
   if (!programName) {
     return (
@@ -21,20 +32,28 @@ function ScopeCell({ programName }: { programName: string | null }) {
   return <span className='font-medium'>{programName}</span>;
 }
 
-export const createRoomColumns = (): ColumnDef<ProgramRoomEligibilityRow>[] => [
+export const createEligibilityColumns = (): ColumnDef<ProgramEligibilityRow>[] => [
   {
     accessorKey: 'institution_name',
     header: 'Institution',
     cell: ({ row }) => (
-      <span className='text-sm font-medium'>
-        {row.original.institution_name || '—'}
-      </span>
+      <span className='text-sm font-medium'>{row.original.institution_name || '—'}</span>
     ),
   },
   {
     accessorKey: 'program_name',
     header: 'Scope',
     cell: ({ row }) => <ScopeCell programName={row.original.program_name} />,
+  },
+  {
+    accessorKey: 'quota_name',
+    header: 'Quota',
+    cell: ({ row }) => <QuotaCell name={row.original.quota_name} />,
+  },
+  {
+    id: 'fee_band',
+    header: 'Fee Band',
+    cell: ({ row }) => <FeeBandCell min={row.original.fee_min} max={row.original.fee_max} />,
   },
   {
     accessorKey: 'room_category_name',
@@ -42,46 +61,6 @@ export const createRoomColumns = (): ColumnDef<ProgramRoomEligibilityRow>[] => [
     cell: ({ row }) => (
       <span className='text-sm'>{row.original.room_category_name || '—'}</span>
     ),
-  },
-  {
-    accessorKey: 'is_active',
-    header: 'Status',
-    cell: ({ row }) => (
-      <Badge variant={row.original.is_active ? 'default' : 'outline'}>
-        {row.original.is_active ? 'Allowed' : 'Disabled'}
-      </Badge>
-    ),
-  },
-  {
-    accessorKey: 'effective_from',
-    header: 'Effective From',
-    cell: ({ row }) => (
-      <span className='text-muted-foreground text-sm'>
-        {row.original.effective_from || '—'}
-      </span>
-    ),
-  },
-  {
-    id: 'actions',
-    header: '',
-    cell: ({ row }) => <RoomEligibilityRowActions row={row.original} />,
-  },
-];
-
-export const createMessColumns = (): ColumnDef<ProgramMessEligibilityRow>[] => [
-  {
-    accessorKey: 'institution_name',
-    header: 'Institution',
-    cell: ({ row }) => (
-      <span className='text-sm font-medium'>
-        {row.original.institution_name || '—'}
-      </span>
-    ),
-  },
-  {
-    accessorKey: 'program_name',
-    header: 'Scope',
-    cell: ({ row }) => <ScopeCell programName={row.original.program_name} />,
   },
   {
     accessorKey: 'mess_category_name',
@@ -118,6 +97,6 @@ export const createMessColumns = (): ColumnDef<ProgramMessEligibilityRow>[] => [
   {
     id: 'actions',
     header: '',
-    cell: ({ row }) => <MessEligibilityRowActions row={row.original} />,
+    cell: ({ row }) => <EligibilityRowActions row={row.original} />,
   },
 ];
