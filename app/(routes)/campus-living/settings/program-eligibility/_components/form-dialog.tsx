@@ -52,6 +52,7 @@ export function ProgramEligibilityFormDialog({
   const [selectedInstitution, setSelectedInstitution] = useState<string>('');
   const [scope, setScope] = useState<string>(INSTITUTION_DEFAULT);
   const [quota, setQuota] = useState<string>(ANY_QUOTA);
+  const [hostelType, setHostelType] = useState<string>(''); // 'boys' | 'girls' — UI-only filter (derived from category.type)
   const [feeMinL, setFeeMinL] = useState<string>('');
   const [feeMaxL, setFeeMaxL] = useState<string>('');
   const [roomCategoryId, setRoomCategoryId] = useState<string>(NO_CATEGORY);
@@ -68,6 +69,7 @@ export function ProgramEligibilityFormDialog({
   useEffect(() => {
     if (!open) return;
     if (isEdit && row) {
+      setHostelType('');
       setSelectedInstitution(row.institution_id ?? institutionId ?? '');
       setScope(row.program_id ?? INSTITUTION_DEFAULT);
       setQuota(row.quota_id ?? ANY_QUOTA);
@@ -79,6 +81,7 @@ export function ProgramEligibilityFormDialog({
       setEffectiveFrom(row.effective_from ?? '');
       setIsActive(row.is_active ?? true);
     } else {
+      setHostelType('');
       setSelectedInstitution(institutionId ?? '');
       setScope(INSTITUTION_DEFAULT);
       setQuota(ANY_QUOTA);
@@ -92,10 +95,27 @@ export function ProgramEligibilityFormDialog({
     }
   }, [open, isEdit, row, institutionId]);
 
+  // Edit mode: derive the hostel type from the saved category once the lists load
+  // (categories are locked in edit, so this only drives correct display/filtering).
+  useEffect(() => {
+    if (!open || !isEdit || !row || hostelType) return;
+    const derived =
+      roomCategories.find((c) => c.id === row.room_category_id)?.type ??
+      messCategories.find((c) => c.id === row.mess_category_id)?.type ??
+      '';
+    if (derived) setHostelType(derived);
+  }, [open, isEdit, row, roomCategories, messCategories, hostelType]);
+
   // Switching institution (create mode) clears the program scope.
   const onInstitutionChange = (value: string) => {
     setSelectedInstitution(value);
     setScope(INSTITUTION_DEFAULT);
+  };
+
+  const onHostelTypeChange = (value: string) => {
+    setHostelType(value);
+    setRoomCategoryId(NO_CATEGORY);
+    setMessCategoryId(NO_CATEGORY);
   };
 
   const institutionOptions = institutions.map((i) => ({ value: i.id, label: i.name }));
@@ -109,16 +129,24 @@ export function ProgramEligibilityFormDialog({
   ];
   const roomCategoryOptions = [
     { value: NO_CATEGORY, label: '— None —' },
-    ...roomCategories.map((c) => ({ value: c.id, label: c.type ? `${c.name} (${c.type})` : c.name })),
+    ...roomCategories
+      .filter((c) => !hostelType || c.type === hostelType)
+      .map((c) => ({ value: c.id, label: c.name })),
   ];
   const messCategoryOptions = [
     { value: NO_CATEGORY, label: '— None —' },
-    ...messCategories.map((c) => ({ value: c.id, label: c.type ? `${c.name} (${c.type})` : c.name })),
+    ...messCategories
+      .filter((c) => !hostelType || c.type === hostelType)
+      .map((c) => ({ value: c.id, label: c.name })),
   ];
 
   const onSubmit = async () => {
     if (!isEdit && !selectedInstitution) {
       toast.error('Please select an institution');
+      return;
+    }
+    if (!isEdit && !hostelType) {
+      toast.error('Please select a hostel type');
       return;
     }
     const roomId = roomCategoryId === NO_CATEGORY ? null : roomCategoryId;
@@ -216,13 +244,31 @@ export function ProgramEligibilityFormDialog({
           </div>
 
           <div className='space-y-2'>
+            <Label>Hostel Type</Label>
+            <SearchableSelect
+              value={hostelType}
+              onValueChange={onHostelTypeChange}
+              options={[
+                { value: 'boys', label: 'Boys' },
+                { value: 'girls', label: 'Girls' },
+              ]}
+              placeholder='Select hostel type'
+              disabled={isEdit}
+              modal
+            />
+            <p className='text-xs text-muted-foreground'>
+              Pick Boys or Girls — the category lists below then show only that type.
+            </p>
+          </div>
+
+          <div className='space-y-2'>
             <Label>Room Category</Label>
-            <SearchableSelect value={roomCategoryId} onValueChange={setRoomCategoryId} options={roomCategoryOptions} placeholder='Select room category' disabled={isEdit} modal />
+            <SearchableSelect value={roomCategoryId} onValueChange={setRoomCategoryId} options={roomCategoryOptions} placeholder={hostelType ? 'Select room category' : 'Select hostel type first'} disabled={isEdit || !hostelType} modal />
           </div>
 
           <div className='space-y-2'>
             <Label>Mess Category</Label>
-            <SearchableSelect value={messCategoryId} onValueChange={setMessCategoryId} options={messCategoryOptions} placeholder='Select mess category' disabled={isEdit} modal />
+            <SearchableSelect value={messCategoryId} onValueChange={setMessCategoryId} options={messCategoryOptions} placeholder={hostelType ? 'Select mess category' : 'Select hostel type first'} disabled={isEdit || !hostelType} modal />
           </div>
           <p className='text-xs text-muted-foreground'>Pick a room, a mess, or both for this band. Categories are gender-specific &mdash; add the rule once per gender you admit.</p>
 
