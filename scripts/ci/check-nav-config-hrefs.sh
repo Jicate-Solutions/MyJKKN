@@ -55,6 +55,15 @@ while IFS= read -r nav; do
       continue
     fi
 
+    # 3. Trailing dynamic segment: /a/b/standard is served by app/(routes)/a/b/[tier]/page.tsx.
+    #    (2026-06-07: /campus-living/mess/menu-editor/standard false-positive — the
+    #    page exists as menu-editor/[tier]/page.tsx. Mid-path dynamics still unsupported.)
+    parent_dir=$(dirname "$path")
+    if compgen -G "${ROUTES_ROOT}${parent_dir}/\[*\]/page.tsx" > /dev/null 2>&1; then
+      checked=$((checked + 1))
+      continue
+    fi
+
     echo "::error file=$nav::nav-config promises href '$path' but neither $candidate1 nor $candidate2 exists. Either create the page or remove the nav entry."
     fail=1
 

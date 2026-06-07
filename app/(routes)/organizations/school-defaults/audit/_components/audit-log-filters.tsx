@@ -85,14 +85,14 @@ export default function AuditLogFilters({
 
         <div>
           <label className="text-sm font-medium mb-1 block">School</label>
-          <Select value={filters.school} onValueChange={(v) =>
-            onFilterChange({ ...filters, school: v })
+          <Select value={filters.school === '' ? 'all' : filters.school} onValueChange={(v) =>
+            onFilterChange({ ...filters, school: v === 'all' ? '' : v })
           }>
             <SelectTrigger>
               <SelectValue placeholder="All schools" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="">All Schools</SelectItem>
+              <SelectItem value="all">All Schools</SelectItem>
               {schoolOptions.map((opt) => (
                 <SelectItem key={opt.value} value={opt.value}>
                   {opt.label}
