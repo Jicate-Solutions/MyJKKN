@@ -11,7 +11,7 @@
 
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
-import { SuperAdminOnly } from '@/components/auth/admin-permission-guard';
+import { PermissionGuard } from '@/components/auth/permission-guard';
 
 import { TypedWidgetPolicyEditor } from './_components/TypedWidgetPolicyEditor';
 
@@ -22,7 +22,9 @@ export const navMeta = {
 
 export default function PdeClinicalReasoningPolicyPage() {
   return (
-    <SuperAdminOnly
+    <PermissionGuard
+      module="pde.admin"
+      action="view"
       fallback={
         <ContentLayout title="PDE Policy — Clinical Reasoning">
           <div className="rounded-md border border-border bg-muted/30 p-6 text-sm text-muted-foreground">
@@ -46,6 +48,6 @@ export default function PdeClinicalReasoningPolicyPage() {
         />
         <TypedWidgetPolicyEditor />
       </ContentLayout>
-    </SuperAdminOnly>
+    </PermissionGuard>
   );
 }

@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { ContentLayout } from '@/components/layout/content-layout';
-import { SuperAdminOnly } from '@/components/auth/admin-permission-guard';
+import { PermissionGuard } from '@/components/auth/permission-guard';
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -183,7 +183,9 @@ export default function EngagementDashboardPage() {
   const { data: events, isLoading: eventsLoading } = useRecentEvents(courseFilter);
 
   return (
-    <SuperAdminOnly
+    <PermissionGuard
+      module="pde.admin.engagement"
+      action="view"
       fallback={
         <ContentLayout title="Engagement Dashboard">
           <div className="rounded-md border border-border bg-muted/30 p-6 text-sm text-muted-foreground">
@@ -317,6 +319,6 @@ export default function EngagementDashboardPage() {
         </Card>
       </div>
     </ContentLayout>
-    </SuperAdminOnly>
+    </PermissionGuard>
   );
 }

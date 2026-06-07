@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
-import { SuperAdminOnly } from '@/components/auth/admin-permission-guard';
+import { PermissionGuard } from '@/components/auth/permission-guard';
 import { PageBreadcrumb } from '@/components/navigation/Breadcrumbs';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -40,7 +40,9 @@ export default function AdminAssessmentsPage() {
   const courses = coursesData?.data || [];
 
   return (
-    <SuperAdminOnly
+    <PermissionGuard
+      module="pde.admin.assessments"
+      action="view"
       fallback={
         <ContentLayout title="PDE Assessments">
           <div className="rounded-md border border-border bg-muted/30 p-6 text-sm text-muted-foreground">
@@ -167,6 +169,6 @@ export default function AdminAssessmentsPage() {
         </Card>
       </div>
     </ContentLayout>
-    </SuperAdminOnly>
+    </PermissionGuard>
   );
 }
