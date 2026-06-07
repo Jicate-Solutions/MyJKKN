@@ -103,10 +103,11 @@ export default function AutoAllocatePage() {
         <div>
           <h1 className="text-2xl font-bold py-1">Auto-Allocate (Classic)</h1>
           <p className="text-sm text-muted-foreground">
-            Fills the selected block&apos;s eligible rooms with the matching-category,
-            unallocated hostelites in alphabetical order — institution and access are
-            derived from the block and the physical-room rules. The result is a proposed
-            batch a warden approves before it&apos;s committed.
+            Fills the selected block&apos;s eligible rooms with unallocated hostelites in
+            alphabetical order. Students are chosen by their <strong>fee-aware eligibility</strong>{' '}
+            for the selected category — falling back to their saved category when no rule
+            applies — and institution / room access come from the block and its physical-room
+            rules. The result is a proposed batch a warden approves before it&apos;s committed.
           </p>
         </div>
 
