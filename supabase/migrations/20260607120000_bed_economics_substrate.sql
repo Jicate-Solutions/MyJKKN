@@ -446,7 +446,7 @@ BEGIN
   INTO v_refunds
   FROM public.billing_refunds rf
   JOIN public.billing_receipts rc ON rc.id = rf.receipt_id
-  WHERE rf.approval_status = 'approved'
+  WHERE rf.approval_status IN ('approved','processed')
     AND EXISTS (
       SELECT 1
       FROM public.billing_receipt_items ri
@@ -645,8 +645,16 @@ BEGIN
            SUM(b.final_amount) AS billed,
            SUM(b.final_amount - COALESCE(b.balance_amount,0)) AS collected
     FROM public.billing_student_bills b
-    JOIN public.hostel_allocations a
-      ON a.learner_id = b.student_id AND a.check_out_date IS NULL
+    -- One block per billed learner (latest active allocation) — prevents
+    -- double-counting a bill across blocks if a learner ever has >1 active
+    -- allocation row (review finding M2, 2026-06-07).
+    JOIN LATERAL (
+      SELECT ia.block_id
+      FROM public.hostel_allocations ia
+      WHERE ia.learner_id = b.student_id AND ia.check_out_date IS NULL
+      ORDER BY ia.allocation_date DESC, ia.created_at DESC
+      LIMIT 1
+    ) a ON true
     WHERE b.hostel_year_id = p_hostel_year_id
       AND b.fee_source IN ('hostel_category','hostel_package')
       AND b.status NOT IN ('cancelled','superseded')
@@ -855,8 +863,16 @@ BEGIN
   block_revenue AS (
     SELECT a.block_id, SUM(b.final_amount) AS billed
     FROM public.billing_student_bills b
-    JOIN public.hostel_allocations a
-      ON a.learner_id = b.student_id AND a.check_out_date IS NULL
+    -- One block per billed learner (latest active allocation) — prevents
+    -- double-counting a bill across blocks if a learner ever has >1 active
+    -- allocation row (review finding M2, 2026-06-07).
+    JOIN LATERAL (
+      SELECT ia.block_id
+      FROM public.hostel_allocations ia
+      WHERE ia.learner_id = b.student_id AND ia.check_out_date IS NULL
+      ORDER BY ia.allocation_date DESC, ia.created_at DESC
+      LIMIT 1
+    ) a ON true
     WHERE b.hostel_year_id = p_hostel_year_id
       AND b.fee_source IN ('hostel_category','hostel_package')
       AND b.status NOT IN ('cancelled','superseded')
