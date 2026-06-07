@@ -269,7 +269,8 @@
       "Bash(:)",
       "Bash(break)",
       "mcp__plugin_claude-mem_mcp-search__smart_outline",
-      "WebFetch(domain:docs.claude.com)"
+      "WebFetch(domain:docs.claude.com)",
+      "mcp__ide__executeCode"
     ],
     "deny": [],
     "ask": []
