@@ -85,7 +85,7 @@ export function ReadinessStrip({ hostelYearId }: Props) {
       label: 'Bills generated',
       passText: `${formatInt(data.hostel_bills_count)} hostel bill(s) generated.`,
       gapText: `0 hostel bills generated. Billed / collected revenue stays ₹0 until you run generation.`,
-      action: { label: 'Generate bills', href: '/campus-living/residents' },
+      action: { label: 'Generate bills', href: '/campus-living/residents?tab=generate' },
     },
     {
       id: 'R3',

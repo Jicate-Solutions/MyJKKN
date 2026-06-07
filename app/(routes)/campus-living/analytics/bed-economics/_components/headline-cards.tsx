@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import {
   AlertTriangle,
   BedDouble,
@@ -14,7 +14,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
-import { useBedEconSummary } from '@/hooks/campus-living/use-bed-economics';
+import { bedEconomicsKeys, useBedEconSummary } from '@/hooks/campus-living/use-bed-economics';
 import { BED_ECON_POLICY_KEYS } from './policy-keys';
 import { formatInt, formatPct, formatRupees } from './format';
 
@@ -36,12 +36,14 @@ type Props = {
 
 export function HeadlineCards({ hostelYearId, institutionId }: Props) {
   const { data, isLoading, error } = useBedEconSummary(hostelYearId, institutionId);
-  const [targets, setTargets] = useState({ occupancy: 85, collection: 90 });
 
-  // Read the two stoplight target policies directly (lightweight, zero-deploy).
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
+  // Stoplight target policies as a React Query entry under the bed-economics
+  // key prefix — the settings panel's invalidateQueries(bedEconomicsKeys.all)
+  // refetches these live, so threshold colours never lag a saved policy edit
+  // (review finding m1, 2026-06-07).
+  const { data: targets = { occupancy: 85, collection: 90 } } = useQuery({
+    queryKey: [...bedEconomicsKeys.all, 'stoplight-targets'],
+    queryFn: async () => {
       const supabase = createClientSupabaseClient();
       const { data: rows } = await supabase
         .from('platform_policies')
@@ -52,18 +54,14 @@ export function HeadlineCards({ hostelYearId, institutionId }: Props) {
         ])
         .eq('scope_type', 'global')
         .is('scope_id', null);
-      if (cancelled || !rows) return;
-      const occ = rows.find((r) => r.policy_key === BED_ECON_POLICY_KEYS.OCCUPANCY_TARGET_PCT);
-      const col = rows.find((r) => r.policy_key === BED_ECON_POLICY_KEYS.COLLECTION_TARGET_PCT);
-      setTargets({
+      const occ = rows?.find((r) => r.policy_key === BED_ECON_POLICY_KEYS.OCCUPANCY_TARGET_PCT);
+      const col = rows?.find((r) => r.policy_key === BED_ECON_POLICY_KEYS.COLLECTION_TARGET_PCT);
+      return {
         occupancy: typeof occ?.value === 'number' ? occ.value : 85,
         collection: typeof col?.value === 'number' ? col.value : 90,
-      });
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+      };
+    },
+  });
 
   if (isLoading) {
     return (

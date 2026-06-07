@@ -313,6 +313,16 @@ export function SettingsPanel() {
                       onChange={(arr) => setDraft(key, arr)}
                     />
                   )}
+                  {!['boolean', 'enum', 'number', 'array'].includes(row.data_type) && (
+                    /* Unrecognized data_type (edited via the central policies
+                       UI?) — degrade to a text editor instead of silently
+                       rendering nothing (review finding m2, 2026-06-07). */
+                    <Input
+                      value={String(valueFor(key) ?? '')}
+                      onChange={(e) => setDraft(key, e.target.value)}
+                      aria-label="Policy value (raw)"
+                    />
+                  )}
                 </div>
               );
             })
