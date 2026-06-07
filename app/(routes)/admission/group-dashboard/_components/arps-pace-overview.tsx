@@ -17,8 +17,10 @@
  * action_log) + auto-detect lever pulls + 4-role views.
  */
 
-import { AlertTriangle, AlertCircle, CheckCircle2, MinusCircle, Database, TrendingUp, TrendingDown, Equal, Info } from 'lucide-react';
+import { AlertTriangle, AlertCircle, CheckCircle2, MinusCircle, Database, TrendingUp, TrendingDown, Equal, Info, Settings, ListTodo } from 'lucide-react';
+import Link from 'next/link';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
@@ -300,6 +302,25 @@ export function ArpsPaceOverview() {
               </Tooltip>
             </div>
           </div>
+        </div>
+
+        {/* Phase 2 navigation row (Director-locked 2026-06-07) */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <Button asChild variant="outline" size="sm">
+            <Link href="/admission/group-dashboard/setup">
+              <Settings className="h-3.5 w-3.5 mr-1.5" />
+              Cycle Setup
+            </Link>
+          </Button>
+          <Button asChild variant="outline" size="sm">
+            <Link href="/admission/group-dashboard/actions">
+              <ListTodo className="h-3.5 w-3.5 mr-1.5" />
+              Action Log
+            </Link>
+          </Button>
+          <span className="text-xs text-stone-500 ml-2">
+            Set targets &amp; costs, capture lever pulls — see the methodology footnote below for v1 scope.
+          </span>
         </div>
 
         {/* Alert ribbon */}
