@@ -54,8 +54,8 @@ export function useAllocationBatchActions() {
   );
 
   const generate = useCallback(
-    async (blockId: string, categoryId: string, hostelYearId: string) => {
-      const id = await AllocationBatchService.generate(blockId, categoryId, hostelYearId);
+    async (blockId: string, categoryId: string, hostelYearId: string, requireBill: boolean) => {
+      const id = await AllocationBatchService.generate(blockId, categoryId, hostelYearId, requireBill);
       await invalidate();
       return id;
     },
