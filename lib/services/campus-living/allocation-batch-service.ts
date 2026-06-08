@@ -28,61 +28,22 @@ export class AllocationBatchService {
   }
 
   // ── Auto-allocation engine RPCs ──
-  static async preview(
-    blockId: string,
-    categoryId: string
-  ): Promise<AllocatePreview> {
-    const { data, error } = await this.rpcCall('fn_auto_allocate_preview', {
-      p_block_id: blockId,
-      p_category_id: categoryId,
-    });
-    if (error) {
-      logger.error(LOG, 'preview failed', error);
-      throw new Error(error.message || 'Failed to preview allocation');
-    }
+  static async preview(blockId: string): Promise<AllocatePreview> {
+    const { data, error } = await this.rpcCall('fn_auto_allocate_preview', { p_block_id: blockId });
+    if (error) { logger.error(LOG, 'preview failed', error); throw new Error(error.message || 'Failed to preview allocation'); }
     const row = Array.isArray(data) ? data[0] : data;
-    return (row ?? {
-      cohort_eligible: 0,
-      no_profile: 0,
-      already_allocated: 0,
-      available_beds: 0,
-      rules_set: false,
-    }) as AllocatePreview;
+    return (row ?? { cohort_eligible: 0, no_profile: 0, already_allocated: 0, available_beds: 0, rules_set: false }) as AllocatePreview;
   }
 
-  static async previewCandidates(
-    blockId: string,
-    categoryId: string,
-    requireBill: boolean
-  ): Promise<AllocationCandidate[]> {
-    const { data, error } = await this.rpcCall('fn_auto_allocate_candidates', {
-      p_block_id: blockId,
-      p_category_id: categoryId,
-      p_require_bill: requireBill,
-    });
-    if (error) {
-      logger.error(LOG, 'previewCandidates failed', error);
-      throw new Error(error.message || 'Failed to preview candidates');
-    }
+  static async previewCandidates(blockId: string): Promise<AllocationCandidate[]> {
+    const { data, error } = await this.rpcCall('fn_auto_allocate_candidates', { p_block_id: blockId });
+    if (error) { logger.error(LOG, 'previewCandidates failed', error); throw new Error(error.message || 'Failed to preview candidates'); }
     return (Array.isArray(data) ? data : []) as AllocationCandidate[];
   }
 
-  static async generate(
-    blockId: string,
-    categoryId: string,
-    hostelYearId: string,
-    requireBill: boolean
-  ): Promise<string> {
-    const { data, error } = await this.rpcCall('fn_auto_allocate_classic', {
-      p_block_id: blockId,
-      p_category_id: categoryId,
-      p_hostel_year_id: hostelYearId,
-      p_require_bill: requireBill,
-    });
-    if (error) {
-      logger.error(LOG, 'generate failed', error);
-      throw new Error(error.message || 'Failed to generate allocation batch');
-    }
+  static async generate(blockId: string, hostelYearId: string): Promise<string> {
+    const { data, error } = await this.rpcCall('fn_auto_allocate_classic', { p_block_id: blockId, p_hostel_year_id: hostelYearId });
+    if (error) { logger.error(LOG, 'generate failed', error); throw new Error(error.message || 'Failed to generate allocation batch'); }
     return data as string;
   }
 

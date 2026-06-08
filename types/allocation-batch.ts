@@ -4,7 +4,7 @@ export interface AllocationBatch {
   id: string;
   institution_id: string | null;
   block_id: string | null;
-  category_id: string;
+  category_id: string | null;
   hostel_year_id: string | null;
   academic_year_id: string | null;
   status: AllocationBatchStatus;
@@ -74,14 +74,17 @@ export interface AllocationCandidate {
   gender_ok: boolean;
   not_allocated: boolean;
   physical_rule_ok: boolean;
+  bed_available: boolean;
   academic_year_id: string | null;
   academic_year_name: string | null;
   academic_bill_count: number;
   current_year_bill_count: number;
   bill_other_year_name: string | null;
   current_year_fee: number | null;
-  fee_resolved: boolean;
-  fee_category_match: boolean;
+  resolved_room_category_id: string | null;
+  resolved_room_category_name: string | null;
+  resolved_mess_category_id: string | null;
+  resolved_mess_category_name: string | null;
   bill_state: BillState;
   stage: CandidateStage;
   verdict: CandidateVerdict;
