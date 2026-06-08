@@ -21,7 +21,7 @@ import {
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { MoreHorizontal, Pencil, EyeOff, Eye, Loader2 } from 'lucide-react';
-import { toast } from 'react-hot-toast';
+import { toast } from 'sonner';
 import { useBlockEconomics } from '@/hooks/campus-living/use-block-economics';
 import type { BlockEconomicsEntry } from '@/lib/services/campus-living/block-economics-service';
 import { BlockEconomicsFormDialog } from './block-economics-form-dialog';
