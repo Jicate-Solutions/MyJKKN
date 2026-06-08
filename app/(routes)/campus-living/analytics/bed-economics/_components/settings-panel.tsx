@@ -153,6 +153,12 @@ export function SettingsPanel() {
 
   const dirty = Object.keys(drafts).length > 0;
 
+  // A number field cleared to blank is held as '' (never coerced to 0). Block
+  // Save while any such field is empty so an emptied field never writes 0.
+  const hasBlankNumber = Object.entries(drafts).some(
+    ([key, value]) => rows[key]?.data_type === 'number' && value === '',
+  );
+
   function setDraft(key: string, value: PolicyValue) {
     setDrafts((d) => ({ ...d, [key]: value }));
   }
@@ -173,35 +179,71 @@ export function SettingsPanel() {
       const {
         data: { user },
       } = await supabase.auth.getUser();
+      const updatedAt = new Date().toISOString();
 
       const updates = Object.entries(drafts);
-      for (const [key, value] of updates) {
-        const { error: upErr } = await supabase
-          .from('platform_policies')
-          .update({
-            value, // supabase-js JSON-encodes for the JSONB column
-            updated_by: user?.id ?? null,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('policy_key', key)
-          .eq('scope_type', 'global')
-          .is('scope_id', null);
-        if (upErr) throw upErr;
+
+      // Fire all policy updates concurrently. settled (not Promise.all-throw)
+      // so one failure doesn't hide which others succeeded.
+      const results = await Promise.all(
+        updates.map(async ([key, value]) => {
+          const { error: upErr } = await supabase
+            .from('platform_policies')
+            .update({
+              value, // supabase-js JSON-encodes for the JSONB column
+              updated_by: user?.id ?? null,
+              updated_at: updatedAt,
+            })
+            .eq('policy_key', key)
+            .eq('scope_type', 'global')
+            .is('scope_id', null);
+          return { key, value, error: upErr };
+        }),
+      );
+
+      const succeeded = results.filter((r) => !r.error);
+      const failed = results.filter((r) => r.error);
+
+      // Refetch every bed-econ metric so the page reflects whatever saved.
+      if (succeeded.length > 0) {
+        await queryClient.invalidateQueries({ queryKey: bedEconomicsKeys.all });
+
+        // Update local mirror for the rows that actually saved.
+        setRows((prev) => {
+          const next = { ...prev };
+          for (const { key, value } of succeeded) {
+            if (next[key]) next[key] = { ...next[key], value };
+          }
+          return next;
+        });
       }
 
-      // Refetch every bed-econ metric so the page reflects the new policy live.
-      await queryClient.invalidateQueries({ queryKey: bedEconomicsKeys.all });
-
-      // Update local mirror, clear drafts.
-      setRows((prev) => {
-        const next = { ...prev };
-        for (const [key, value] of updates) {
-          if (next[key]) next[key] = { ...next[key], value };
+      // Keep only the failed keys dirty (drop the saved ones) so a retry
+      // touches just the ones that still need it — never silent partial state.
+      const savedKeys = new Set(succeeded.map((r) => r.key));
+      setDrafts((prev) => {
+        const next: Record<string, PolicyValue> = {};
+        for (const [key, value] of Object.entries(prev)) {
+          if (!savedKeys.has(key)) next[key] = value;
         }
         return next;
       });
-      setDrafts({});
-      toast.success('Bed-economics policies updated.');
+
+      if (failed.length === 0) {
+        toast.success('Bed-economics policies updated.');
+      } else {
+        const label = (k: string) => POLICY_META[k]?.label ?? k;
+        const failedLabels = failed.map((r) => label(r.key)).join(', ');
+        if (succeeded.length > 0) {
+          const savedLabels = succeeded.map((r) => label(r.key)).join(', ');
+          toast.error(
+            `Saved: ${savedLabels}. Failed (still unsaved): ${failedLabels}.`,
+          );
+        } else {
+          const firstMsg = failed[0].error?.message ?? 'unknown error';
+          toast.error(`Save failed for ${failedLabels}: ${firstMsg}`);
+        }
+      }
     } catch (e) {
       toast.error(`Save failed: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
@@ -291,14 +333,21 @@ export function SettingsPanel() {
                     </Select>
                   )}
 
-                  {/* Number → numeric input */}
+                  {/* Number → numeric input. A blank field is held as an empty
+                      string (not coerced to 0) so clearing a value never
+                      silently writes 0; Save is disabled while any number
+                      field is blank (see `hasBlankNumber`). */}
                   {row.data_type === 'number' && (
                     <Input
                       type="number"
                       value={String(valueFor(key) ?? '')}
                       onChange={(e) => {
-                        const n = e.target.value === '' ? 0 : Number(e.target.value);
-                        setDraft(key, Number.isFinite(n) ? n : 0);
+                        if (e.target.value === '') {
+                          setDraft(key, '');
+                          return;
+                        }
+                        const n = Number(e.target.value);
+                        if (Number.isFinite(n)) setDraft(key, n);
                       }}
                       className="w-full"
                     />
@@ -335,7 +384,7 @@ export function SettingsPanel() {
               <RotateCcw className="mr-1 h-3.5 w-3.5" />
               Revert
             </Button>
-            <Button size="sm" disabled={!dirty || saving} onClick={save}>
+            <Button size="sm" disabled={!dirty || saving || hasBlankNumber} onClick={save}>
               <Save className="mr-1 h-3.5 w-3.5" />
               {saving ? 'Saving…' : 'Save'}
             </Button>

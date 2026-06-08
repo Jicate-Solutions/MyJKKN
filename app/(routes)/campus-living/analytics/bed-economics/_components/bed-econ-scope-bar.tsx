@@ -46,6 +46,7 @@ export function BedEconScopeBar({
   const [institutions, setInstitutions] = useState<Institution[]>([]);
   const [years, setYears] = useState<HostelYear[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   // Load institutions (JKKN colleges only) + hostel years; default year to
   // is_current. Runs once; selection defaults are pushed up via callbacks.
@@ -53,11 +54,22 @@ export function BedEconScopeBar({
     let cancelled = false;
     (async () => {
       const supabase = createClientSupabaseClient();
-      const [{ data: instData }, yearList] = await Promise.all([
-        supabase.from('institutions').select('id, name').like('name', 'JKKN%').order('name'),
-        HostelYearService.getYears({ limit: 100 }).then((r) => r.data).catch(() => [] as HostelYear[]),
-      ]);
+      // Surface a failed institutions fetch instead of silently leaving an
+      // empty picker — a Supabase/RLS error here would otherwise look like
+      // "no institutions exist".
+      const { data: instData, error: instErr } = await supabase
+        .from('institutions')
+        .select('id, name')
+        .like('name', 'JKKN%')
+        .order('name');
+      const yearList = await HostelYearService.getYears({ limit: 100 })
+        .then((r) => r.data)
+        .catch(() => [] as HostelYear[]);
       if (cancelled) return;
+
+      if (instErr) {
+        setLoadError(`Could not load institutions: ${instErr.message}`);
+      }
 
       // Exclude non-residential / non-academic entities by name pattern,
       // mirroring the admission picker's exclude-list.
@@ -98,47 +110,54 @@ export function BedEconScopeBar({
         </p>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2">
-        {/* Institution picker — default "All institutions" (network view). */}
-        <Select
-          value={institutionId ?? ALL_VALUE}
-          onValueChange={(v) => onInstitutionChange(v === ALL_VALUE ? null : v)}
-          disabled={loading}
-        >
-          <SelectTrigger className="w-[200px]">
-            <div className="flex items-center gap-2">
-              <Building2 className="h-4 w-4 text-muted-foreground" />
-              <SelectValue placeholder="All institutions" />
-            </div>
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value={ALL_VALUE}>All institutions</SelectItem>
-            {institutions.map((i) => (
-              <SelectItem key={i.id} value={i.id}>
-                {shorten(i.name)}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+      <div className="flex flex-col items-end gap-1">
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Institution picker — default "All institutions" (network view). */}
+          <Select
+            value={institutionId ?? ALL_VALUE}
+            onValueChange={(v) => onInstitutionChange(v === ALL_VALUE ? null : v)}
+            disabled={loading}
+          >
+            <SelectTrigger className="w-[200px]">
+              <div className="flex items-center gap-2">
+                <Building2 className="h-4 w-4 text-muted-foreground" />
+                <SelectValue placeholder="All institutions" />
+              </div>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL_VALUE}>All institutions</SelectItem>
+              {institutions.map((i) => (
+                <SelectItem key={i.id} value={i.id}>
+                  {shorten(i.name)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
 
-        {/* Hostel-year picker — defaults to is_current. */}
-        <Select
-          value={hostelYearId ?? ''}
-          onValueChange={(v) => onHostelYearChange(v || null)}
-          disabled={loading || years.length === 0}
-        >
-          <SelectTrigger className="w-[160px]">
-            <SelectValue placeholder="Hostel year" />
-          </SelectTrigger>
-          <SelectContent>
-            {years.map((y) => (
-              <SelectItem key={y.id} value={y.id}>
-                {y.name}
-                {y.is_current ? ' (current)' : ''}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+          {/* Hostel-year picker — defaults to is_current. */}
+          <Select
+            value={hostelYearId ?? ''}
+            onValueChange={(v) => onHostelYearChange(v || null)}
+            disabled={loading || years.length === 0}
+          >
+            <SelectTrigger className="w-[160px]">
+              <SelectValue placeholder="Hostel year" />
+            </SelectTrigger>
+            <SelectContent>
+              {years.map((y) => (
+                <SelectItem key={y.id} value={y.id}>
+                  {y.name}
+                  {y.is_current ? ' (current)' : ''}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        {loadError && (
+          <p className="text-xs text-destructive" role="alert">
+            {loadError}
+          </p>
+        )}
       </div>
     </div>
   );

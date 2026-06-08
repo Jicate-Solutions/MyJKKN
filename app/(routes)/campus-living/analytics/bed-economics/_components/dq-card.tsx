@@ -25,23 +25,34 @@ import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { formatInt } from './format';
 
 /**
- * Data-quality card (spec §8 item 8 + §5 DQ + §2 capacity triple-mismatch).
+ * Data-quality card (spec §8 item 8 + §5 DQ + §2 capacity reconciliation).
  *
- * The live inventory has three disagreeing bed counts — hostel_rooms.capacity
- * (Σ968), actual_capacity (Σ351), and hostel_beds rows (567). This card
- * surfaces that disagreement per block so ops can fix it in Rooms, and flags
- * any room where active residents exceed capacity (over-occupancy invisible to
- * v_hostel_room_occupancy.beds_available, which floors at 0).
+ * Scoped to student rooms only (room_purpose = 'student'), mirroring the
+ * dashboard RPCs which filter on sellable purposes. Beds are materialised when
+ * a student is allocated, so a block with 0 bed rows is normal, not an error —
+ * boys' hostels run beds-on-demand by design, girls' hostels were bulk
+ * materialised. The denominator the RPCs use is COALESCE(actual_capacity,
+ * capacity), so a block is only flagged when a materialised bed count actually
+ * contradicts that effective capacity, or when a room is over-occupied.
  *
- * Reads raw inventory columns directly (no contract RPC exposes the triple) —
- * super-admin RLS allows the full read; same direct-query pattern as the scope
- * bar's institutions query.
+ * Reads raw inventory columns directly (no contract RPC exposes the bed-row
+ * count) — super-admin RLS allows the full read; same direct-query pattern as
+ * the scope bar's institutions query.
  */
 
 type Props = {
   /** When set, restricts to blocks attached to this institution. */
   institutionId: string | null;
 };
+
+/**
+ * Per-block reconciliation status:
+ * - 'beds_on_demand': no bed rows yet — normal, beds are created on allocation.
+ * - 'ok': materialised bed count matches effective capacity.
+ * - 'check': materialised bed count contradicts effective capacity.
+ * Over-occupancy is tracked separately (always a red flag regardless of status).
+ */
+type BlockStatus = 'beds_on_demand' | 'ok' | 'check';
 
 type BlockDq = {
   block_id: string;
@@ -51,6 +62,20 @@ type BlockDq = {
   bed_rows: number;
   over_occupied_rooms: number;
 };
+
+/**
+ * Effective capacity mirrors the RPCs' COALESCE(actual_capacity, capacity).
+ * actual_capacity here is the SUM of per-room actual values; a sum of 0 means
+ * "unset" at the block level, so we fall back to the capacity sum.
+ */
+function effectiveCapacity(r: BlockDq): number {
+  return r.actual_capacity > 0 ? r.actual_capacity : r.capacity;
+}
+
+function blockStatus(r: BlockDq): BlockStatus {
+  if (r.bed_rows === 0) return 'beds_on_demand';
+  return r.bed_rows === effectiveCapacity(r) ? 'ok' : 'check';
+}
 
 export function DqCard({ institutionId }: Props) {
   const [rows, setRows] = useState<BlockDq[] | null>(null);
@@ -84,9 +109,12 @@ export function DqCard({ institutionId }: Props) {
 
         // Pull blocks + rooms + bed counts. Bed rows counted per room then
         // rolled up; over-occupancy needs an active-allocation count per room.
+        // Student rooms only — non-student rooms (warden/office/sick) must not
+        // count toward capacity, matching the RPCs' sellable_purposes filter.
         let roomsQuery = supabase
           .from('hostel_rooms')
-          .select('id, block_id, capacity, actual_capacity');
+          .select('id, block_id, capacity, actual_capacity, room_purpose')
+          .eq('room_purpose', 'student');
         if (scopedBlockIds) roomsQuery = roomsQuery.in('block_id', scopedBlockIds);
         const { data: roomsData, error: roomsErr } = await roomsQuery;
         if (roomsErr) throw roomsErr;
@@ -186,9 +214,9 @@ export function DqCard({ institutionId }: Props) {
   }
 
   const list = rows ?? [];
-  const anyMismatch = list.some(
-    (r) => !(r.capacity === r.actual_capacity && r.actual_capacity === r.bed_rows),
-  );
+  // Only a genuine contradiction ('check') or over-occupancy needs attention;
+  // 'beds_on_demand' (0 bed rows) and 'ok' are both healthy.
+  const anyCheck = list.some((r) => blockStatus(r) === 'check');
   const anyOver = list.some((r) => r.over_occupied_rooms > 0);
 
   return (
@@ -199,8 +227,9 @@ export function DqCard({ institutionId }: Props) {
           Data quality
         </CardTitle>
         <CardDescription>
-          Inventory bed-count definitions per block. When the three disagree, the
-          occupancy denominator is ambiguous — fix in Rooms.
+          Student-room capacity per block. Beds are created when a student is
+          allocated, so a 0 bed-count is normal. A block is flagged only when a
+          materialised bed count contradicts the room&rsquo;s capacity.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -210,11 +239,12 @@ export function DqCard({ institutionId }: Props) {
           </div>
         ) : (
           <>
-            {!anyMismatch && !anyOver && (
+            {!anyCheck && !anyOver && (
               <Alert className="border-green-200 bg-green-50">
                 <CheckCircle2 className="h-4 w-4 text-green-600" />
                 <AlertDescription className="text-xs text-green-800">
-                  All blocks agree on capacity, actual capacity, and bed rows. No over-occupancy.
+                  Inventory is healthy. Every materialised bed count matches its
+                  block&rsquo;s capacity, and no rooms are over-occupied.
                 </AlertDescription>
               </Alert>
             )}
@@ -231,9 +261,8 @@ export function DqCard({ institutionId }: Props) {
                 </TableHeader>
                 <TableBody>
                   {list.map((r) => {
-                    const mismatch = !(
-                      r.capacity === r.actual_capacity && r.actual_capacity === r.bed_rows
-                    );
+                    const status = blockStatus(r);
+                    const delta = r.bed_rows - effectiveCapacity(r);
                     return (
                       <TableRow key={r.block_id}>
                         <TableCell className="font-medium">{r.block_name}</TableCell>
@@ -242,17 +271,31 @@ export function DqCard({ institutionId }: Props) {
                         <TableCell className="text-right tabular-nums">{formatInt(r.bed_rows)}</TableCell>
                         <TableCell className="text-right">
                           <div className="flex flex-wrap items-center justify-end gap-1">
-                            {mismatch ? (
-                              <Badge variant="secondary" className="text-[10px] text-amber-700">
-                                Disagree
+                            {status === 'beds_on_demand' ? (
+                              <Badge variant="secondary" className="text-[10px] text-green-700">
+                                Beds on allocation
                               </Badge>
-                            ) : (
+                            ) : status === 'ok' ? (
                               <Badge variant="secondary" className="text-[10px] text-green-700">
                                 OK
                               </Badge>
+                            ) : (
+                              <Badge
+                                variant="secondary"
+                                className="text-[10px] text-amber-700"
+                                title={`Bed rows ${delta > 0 ? 'exceed' : 'fall short of'} capacity by ${Math.abs(delta)}`}
+                              >
+                                Check ({delta > 0 ? '+' : ''}
+                                {delta})
+                              </Badge>
                             )}
                             {r.over_occupied_rooms > 0 && (
-                              <Badge variant="destructive" className="text-[10px]">
+                              <Badge
+                                variant="destructive"
+                                className="text-[10px]"
+                                title="rooms with more residents than capacity"
+                                aria-label="rooms with more residents than capacity"
+                              >
                                 {r.over_occupied_rooms} over-occ
                               </Badge>
                             )}
@@ -264,7 +307,7 @@ export function DqCard({ institutionId }: Props) {
                 </TableBody>
               </Table>
             </div>
-            {(anyMismatch || anyOver) && (
+            {(anyCheck || anyOver) && (
               <Link
                 href="/campus-living/blocks"
                 className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"

@@ -16,7 +16,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { bedEconomicsKeys, useBedEconSummary } from '@/hooks/campus-living/use-bed-economics';
 import { BED_ECON_POLICY_KEYS } from './policy-keys';
-import { formatInt, formatPct, formatRupees } from './format';
+import { formatDecimal, formatInt, formatPct, formatRupees } from './format';
 
 /**
  * Headline metric cards (spec §5-B/C + §8 item 3):
@@ -99,6 +99,10 @@ export function HeadlineCards({ hostelYearId, institutionId }: Props) {
         label="Bed Occupancy"
         value={formatPct(data.bed_occupancy_pct)}
         sub={`${formatInt(data.occupied_beds)} of ${formatInt(data.sellable_beds)} beds (${data.denominator})`}
+        extraLines={[
+          `Room occupancy: ${formatPct(data.room_occupancy_pct)}`,
+          `Density: ${formatDecimal(data.density_beds_per_occupied_room)} beds/occupied room`,
+        ]}
         consequence="Every empty bed is a flat fee unbilled this year."
         tone={occTone}
       />
@@ -107,6 +111,12 @@ export function HeadlineCards({ hostelYearId, institutionId }: Props) {
         label="RevPAB"
         value={formatRupees(data.rev_pab)}
         sub="Billed revenue per available bed"
+        extraLines={[
+          `RevPOB: ${formatRupees(data.rev_pob)} (per occupied bed)`,
+          ...(data.premium_addon_billed > 0
+            ? [`Incl. premium add-on: ${formatRupees(data.premium_addon_billed)}`]
+            : []),
+        ]}
         consequence="What each sellable bed earns on average — vacant beds drag it down."
         tone="neutral"
       />
@@ -123,6 +133,11 @@ export function HeadlineCards({ hostelYearId, institutionId }: Props) {
         label="Collection"
         value={formatPct(data.collection_pct)}
         sub={`${formatRupees(data.collected)} collected`}
+        extraLines={
+          data.refunds > 0
+            ? [`Gross ${formatRupees(data.collected_gross)} − refunds ${formatRupees(data.refunds)}`]
+            : undefined
+        }
         consequence="Of what's billed, how much has come in (net of refunds)."
         tone={colTone}
       />
@@ -164,6 +179,7 @@ function MetricCard({
   label,
   value,
   sub,
+  extraLines,
   consequence,
   tone,
   wide,
@@ -172,6 +188,7 @@ function MetricCard({
   label: string;
   value: string;
   sub: string;
+  extraLines?: string[];
   consequence: string;
   tone: Tone;
   wide?: boolean;
@@ -208,6 +225,11 @@ function MetricCard({
         </div>
         <p className={`text-2xl font-bold leading-tight ${valueTone}`}>{value}</p>
         <p className="text-[11px] text-muted-foreground">{sub}</p>
+        {extraLines?.map((line) => (
+          <p key={line} className="text-[11px] text-muted-foreground">
+            {line}
+          </p>
+        ))}
         <p className="mt-auto text-[11px] leading-snug text-muted-foreground/80">{consequence}</p>
       </CardContent>
     </Card>
