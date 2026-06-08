@@ -141,17 +141,17 @@ export function ProgramEligibilityFormDialog({
   ];
 
   const onSubmit = async () => {
-    if (!isEdit && !selectedInstitution) {
+    if (!selectedInstitution) {
       toast.error('Please select an institution');
       return;
     }
-    if (!isEdit && !hostelType) {
+    if (!hostelType) {
       toast.error('Please select a hostel type');
       return;
     }
     const roomId = roomCategoryId === NO_CATEGORY ? null : roomCategoryId;
     const messId = messCategoryId === NO_CATEGORY ? null : messCategoryId;
-    if (!isEdit && !roomId && !messId) {
+    if (!roomId && !messId) {
       toast.error('Pick at least a room or a mess category');
       return;
     }
@@ -174,6 +174,12 @@ export function ProgramEligibilityFormDialog({
 
       if (isEdit && row) {
         await updateEligibility(row.id, {
+          program_id: programId,
+          quota_id: quotaId,
+          fee_min: feeMin,
+          fee_max: feeMax,
+          room_category_id: roomId,
+          mess_category_id: messId,
           is_active: isActive,
           is_monthly_mess_allowed: isMonthlyMessAllowed,
           effective_from: effective,
@@ -211,7 +217,7 @@ export function ProgramEligibilityFormDialog({
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>
             {isEdit
-              ? 'Update this rule. Scope, quota, fee band and categories are fixed once created.'
+              ? 'Update the scope, quota, fee band, categories or status. Institution is fixed — delete & recreate to move it.'
               : 'Map a program + quota + fee band to the room and mess categories those students may use.'}
           </DialogDescription>
         </DialogHeader>
@@ -224,21 +230,21 @@ export function ProgramEligibilityFormDialog({
 
           <div className='space-y-2'>
             <Label>Scope</Label>
-            <SearchableSelect value={scope} onValueChange={setScope} options={programOptions} placeholder={selectedInstitution ? 'Select scope' : 'Select an institution first'} disabled={isEdit || !selectedInstitution} modal />
+            <SearchableSelect value={scope} onValueChange={setScope} options={programOptions} placeholder={selectedInstitution ? 'Select scope' : 'Select an institution first'} disabled={!selectedInstitution} modal />
             <p className='text-xs text-muted-foreground'>Choose &ldquo;All programs&rdquo; for the institution default, or a specific program to override it.</p>
           </div>
 
           <div className='space-y-2'>
             <Label>Quota</Label>
-            <SearchableSelect value={quota} onValueChange={setQuota} options={quotaOptions} placeholder='Select quota' disabled={isEdit} modal />
+            <SearchableSelect value={quota} onValueChange={setQuota} options={quotaOptions} placeholder='Select quota' modal />
           </div>
 
           <div className='space-y-2'>
             <Label>Academic Fee Band (₹ lakhs) <span className='text-muted-foreground font-normal'>(Optional)</span></Label>
             <div className='flex items-center gap-2'>
-              <Input type='number' inputMode='decimal' step='0.01' min='0' placeholder='Min' value={feeMinL} onChange={(e) => setFeeMinL(e.target.value)} disabled={isEdit} />
+              <Input type='number' inputMode='decimal' step='0.01' min='0' placeholder='Min' value={feeMinL} onChange={(e) => setFeeMinL(e.target.value)} />
               <span className='text-muted-foreground text-sm'>to</span>
-              <Input type='number' inputMode='decimal' step='0.01' min='0' placeholder='Max' value={feeMaxL} onChange={(e) => setFeeMaxL(e.target.value)} disabled={isEdit} />
+              <Input type='number' inputMode='decimal' step='0.01' min='0' placeholder='Max' value={feeMaxL} onChange={(e) => setFeeMaxL(e.target.value)} />
             </div>
             <p className='text-xs text-muted-foreground'>Half-open band: includes Min, excludes Max. Leave a side blank for unbounded (blank&ndash;4 = below &#8377;4L; 5&ndash;6 = &#8377;5L up to under &#8377;6L). Both blank = any fee.</p>
           </div>
@@ -253,7 +259,6 @@ export function ProgramEligibilityFormDialog({
                 { value: 'girls', label: 'Girls' },
               ]}
               placeholder='Select hostel type'
-              disabled={isEdit}
               modal
             />
             <p className='text-xs text-muted-foreground'>
@@ -263,12 +268,12 @@ export function ProgramEligibilityFormDialog({
 
           <div className='space-y-2'>
             <Label>Room Category</Label>
-            <SearchableSelect value={roomCategoryId} onValueChange={setRoomCategoryId} options={roomCategoryOptions} placeholder={hostelType ? 'Select room category' : 'Select hostel type first'} disabled={isEdit || !hostelType} modal />
+            <SearchableSelect value={roomCategoryId} onValueChange={setRoomCategoryId} options={roomCategoryOptions} placeholder={hostelType ? 'Select room category' : 'Select hostel type first'} disabled={!hostelType} modal />
           </div>
 
           <div className='space-y-2'>
             <Label>Mess Category</Label>
-            <SearchableSelect value={messCategoryId} onValueChange={setMessCategoryId} options={messCategoryOptions} placeholder={hostelType ? 'Select mess category' : 'Select hostel type first'} disabled={isEdit || !hostelType} modal />
+            <SearchableSelect value={messCategoryId} onValueChange={setMessCategoryId} options={messCategoryOptions} placeholder={hostelType ? 'Select mess category' : 'Select hostel type first'} disabled={!hostelType} modal />
           </div>
           <p className='text-xs text-muted-foreground'>Pick a room, a mess, or both for this band. Categories are gender-specific &mdash; add the rule once per gender you admit.</p>
 

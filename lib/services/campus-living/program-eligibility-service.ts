@@ -110,7 +110,11 @@ export class ProgramEligibilityService {
       .single();
     if (error) {
       logger.error(LOG, 'Database error updating eligibility', error);
-      throw new Error(error.message || 'Failed to update eligibility');
+      throw new Error(
+        error.code === '23505'
+          ? 'A rule already exists for this institution / program / quota / fee band.'
+          : error.message || 'Failed to update eligibility'
+      );
     }
     return data as ProgramEligibility;
   }

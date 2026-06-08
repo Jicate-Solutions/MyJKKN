@@ -44,6 +44,14 @@ export interface CreateProgramEligibilityDto {
 }
 
 export interface UpdateProgramEligibilityDto {
+  // Scope / quota / fee band / categories are editable (institution stays fixed —
+  // delete & recreate to move tenant). All optional; only the keys sent are updated.
+  program_id?: string | null;
+  quota_id?: string | null;
+  fee_min?: number | null;
+  fee_max?: number | null;
+  room_category_id?: string | null;
+  mess_category_id?: string | null;
   is_active?: boolean;
   is_monthly_mess_allowed?: boolean;
   effective_from?: string | null;
