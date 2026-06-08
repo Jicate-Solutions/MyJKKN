@@ -81,7 +81,8 @@ export function CandidateValidationTable({
           <AlertTriangle className="h-4 w-4" />
           <AlertTitle>No hosteller has a current-year bill tagged</AlertTitle>
           <AlertDescription>
-            The fee condition is inactive, so allocation falls back to saved categories. Generate
+            Category Eligibility rules that depend on a current-year academic fee will not
+            resolve a category for any student — those students will be skipped. Generate
             current-academic-year bills under{' '}
             <Link
               href="/campus-living/residents?tab=generate"
@@ -109,7 +110,8 @@ export function CandidateValidationTable({
                 <th className="px-2 text-center">Gender</th>
                 <th className="px-2 text-center">Not alloc.</th>
                 <th className="px-2 text-center">Phys. rule</th>
-                <th className="px-2">Category</th>
+                <th className="px-2">Room cat.</th>
+                <th className="px-2">Mess cat.</th>
                 <th className="px-2">Verdict</th>
               </tr>
             </thead>
@@ -144,9 +146,8 @@ export function CandidateValidationTable({
                     <td className="px-2 text-center">
                       <YesNo ok={c.physical_rule_ok} na={prereqFail} />
                     </td>
-                    <td className="px-2 text-xs text-muted-foreground">
-                      {prereqFail ? '—' : c.fee_resolved ? 'fee rule' : 'saved (fail-open)'}
-                    </td>
+                    <td className="px-2 text-xs">{c.resolved_room_category_name ?? <span className="text-muted-foreground">—</span>}</td>
+                    <td className="px-2 text-xs">{c.resolved_mess_category_name ?? <span className="text-muted-foreground">—</span>}</td>
                     <td className="px-2">
                       {c.verdict === 'in' ? (
                         <Badge className="bg-green-600 hover:bg-green-600">In</Badge>
@@ -159,8 +160,8 @@ export function CandidateValidationTable({
               })}
               {candidates.length === 0 && (
                 <tr>
-                  <td colSpan={9} className="py-6 text-center text-sm text-muted-foreground">
-                    No candidates match this block + category.
+                  <td colSpan={10} className="py-6 text-center text-sm text-muted-foreground">
+                    No candidates found for this block.
                   </td>
                 </tr>
               )}
