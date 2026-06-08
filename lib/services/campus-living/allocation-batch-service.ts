@@ -7,6 +7,7 @@ import type {
   ProposedAllocation,
   AutoCategoryOption,
   AcademicYearOption,
+  AllocationCandidate,
 } from '@/types/allocation-batch';
 
 const LOG = 'campus-living/allocation-batch';
@@ -49,15 +50,34 @@ export class AllocationBatchService {
     }) as AllocatePreview;
   }
 
+  static async previewCandidates(
+    blockId: string,
+    categoryId: string,
+    requireBill: boolean
+  ): Promise<AllocationCandidate[]> {
+    const { data, error } = await this.rpcCall('fn_auto_allocate_candidates', {
+      p_block_id: blockId,
+      p_category_id: categoryId,
+      p_require_bill: requireBill,
+    });
+    if (error) {
+      logger.error(LOG, 'previewCandidates failed', error);
+      throw new Error(error.message || 'Failed to preview candidates');
+    }
+    return (Array.isArray(data) ? data : []) as AllocationCandidate[];
+  }
+
   static async generate(
     blockId: string,
     categoryId: string,
-    hostelYearId: string
+    hostelYearId: string,
+    requireBill: boolean
   ): Promise<string> {
     const { data, error } = await this.rpcCall('fn_auto_allocate_classic', {
       p_block_id: blockId,
       p_category_id: categoryId,
       p_hostel_year_id: hostelYearId,
+      p_require_bill: requireBill,
     });
     if (error) {
       logger.error(LOG, 'generate failed', error);
