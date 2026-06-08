@@ -313,3 +313,5 @@ export default process.env.CI ? withSentryConfig(nextConfig, {
   }
 }) : nextConfig;
 // Env-var rollout trigger 1780199813 — Meta integration tokens.
+
+// 2026-06-08: Trigger build to pick up updated Meta tokens (JKKN Institutions App 437028995095541)
