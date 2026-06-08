@@ -147,17 +147,23 @@ export async function sendIgDmReply(params: {
 
   if (res.status === 422) {
     const body = await readJson<unknown>(res);
-    if (!body.success && body.error === 'outside_messaging_window') {
-      const details = (body.details ?? {}) as {
-        last_inbound_at?: string | null;
-        hours_elapsed?: number | null;
-      };
-      return {
-        kind: 'outside_window',
-        message: body.message ?? 'Messaging window expired.',
-        lastInboundAt: details.last_inbound_at ?? null,
-        hoursElapsed: details.hours_elapsed ?? null,
-      };
+    // Nested narrowing (not compound `&&`) so TS reliably narrows `body` to ApiErr
+    // before we touch `body.error`, `body.details`, `body.message`. Strict-mode
+    // discriminated-union narrowing can drop across `&&` boundaries in some
+    // configs (exactOptionalPropertyTypes etc.); this shape is robust.
+    if (!body.success) {
+      if (body.error === 'outside_messaging_window') {
+        const details = (body.details ?? {}) as {
+          last_inbound_at?: string | null;
+          hours_elapsed?: number | null;
+        };
+        return {
+          kind: 'outside_window',
+          message: body.message ?? 'Messaging window expired.',
+          lastInboundAt: details.last_inbound_at ?? null,
+          hoursElapsed: details.hours_elapsed ?? null,
+        };
+      }
     }
   }
 
