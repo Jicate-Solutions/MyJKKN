@@ -15,10 +15,13 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import Link from 'next/link';
-import { Loader2, Wand2, Users, BedDouble, AlertTriangle } from 'lucide-react';
+import { Loader2, Wand2, AlertTriangle } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { usePermissions } from '@/hooks/use-permissions';
+import { Switch } from '@/components/ui/switch';
+import { CandidateValidationTable } from './_components/candidate-validation-table';
+import type { AllocationCandidate } from '@/types/allocation-batch';
 import {
   useAutoCategories,
   useAutoBlocks,
@@ -27,7 +30,6 @@ import {
 } from '@/hooks/campus-living/use-allocation-batches';
 import { useBlockHasEligibilityRules } from '@/hooks/campus-living/use-room-eligibility';
 import { AllocationBatchService } from '@/lib/services/campus-living/allocation-batch-service';
-import type { AllocatePreview } from '@/types/allocation-batch';
 
 export const navMeta = { invokedFrom: '/campus-living/allocations' } as const;
 
@@ -49,7 +51,9 @@ export default function AutoAllocatePage() {
     ? categories.filter((c) => c.type === genderType)
     : [];
 
-  const [preview, setPreview] = useState<AllocatePreview | null>(null);
+  const [candidates, setCandidates] = useState<AllocationCandidate[] | null>(null);
+  const [availableBeds, setAvailableBeds] = useState(0);
+  const [requireBill, setRequireBill] = useState(true);
   const [previewing, setPreviewing] = useState(false);
   const [generating, setGenerating] = useState(false);
   const { generate } = useAllocationBatchActions();
@@ -64,9 +68,14 @@ export default function AutoAllocatePage() {
   const runPreview = async () => {
     if (!blockId || !categoryId || blockMissingRules) return;
     setPreviewing(true);
-    setPreview(null);
+    setCandidates(null);
     try {
-      setPreview(await AllocationBatchService.preview(blockId, categoryId));
+      const [cands, agg] = await Promise.all([
+        AllocationBatchService.previewCandidates(blockId, categoryId, requireBill),
+        AllocationBatchService.preview(blockId, categoryId),
+      ]);
+      setCandidates(cands);
+      setAvailableBeds(agg.available_beds);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Failed to preview');
     } finally {
@@ -78,7 +87,7 @@ export default function AutoAllocatePage() {
     if (!blockId || !categoryId || !yearId || blockMissingRules) return;
     setGenerating(true);
     try {
-      const batchId = await generate(blockId, categoryId, yearId);
+      const batchId = await generate(blockId, categoryId, yearId, requireBill);
       toast.success('Proposed allocation generated — awaiting warden approval');
       router.push(`/campus-living/allocations/batches/${batchId}`);
     } catch (e) {
@@ -119,7 +128,7 @@ export default function AutoAllocatePage() {
           <CardContent className="grid gap-4 sm:grid-cols-3">
             <div className="space-y-2">
               <Label>Type</Label>
-              <Select value={genderType} onValueChange={(v) => { setGenderType(v); setBlockId(''); setCategoryId(''); setPreview(null); }}>
+              <Select value={genderType} onValueChange={(v) => { setGenderType(v); setBlockId(''); setCategoryId(''); setCandidates(null); }}>
                 <SelectTrigger><SelectValue placeholder="Boys / Girls" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="boys">Boys</SelectItem>
@@ -129,7 +138,7 @@ export default function AutoAllocatePage() {
             </div>
             <div className="space-y-2">
               <Label>Block</Label>
-              <Select value={blockId} onValueChange={(v) => { setBlockId(v); setPreview(null); }} disabled={!genderType}>
+              <Select value={blockId} onValueChange={(v) => { setBlockId(v); setCandidates(null); }} disabled={!genderType}>
                 <SelectTrigger><SelectValue placeholder={genderType ? 'Select block' : 'Pick a type first'} /></SelectTrigger>
                 <SelectContent>
                   {typedBlocks.map((b) => <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>)}
@@ -138,7 +147,7 @@ export default function AutoAllocatePage() {
             </div>
             <div className="space-y-2">
               <Label>Category</Label>
-              <Select value={categoryId} onValueChange={(v) => { setCategoryId(v); setPreview(null); }} disabled={!genderType}>
+              <Select value={categoryId} onValueChange={(v) => { setCategoryId(v); setCandidates(null); }} disabled={!genderType}>
                 <SelectTrigger><SelectValue placeholder={genderType ? 'Auto category' : 'Pick a type first'} /></SelectTrigger>
                 <SelectContent>
                   {typedCategories.map((c) => (
@@ -177,6 +186,23 @@ export default function AutoAllocatePage() {
           </Alert>
         )}
 
+        <div className="flex items-center gap-2">
+          <Switch
+            id="require-bill"
+            checked={requireBill}
+            onCheckedChange={(v) => {
+              setRequireBill(v);
+              setCandidates(null);
+            }}
+          />
+          <Label htmlFor="require-bill">
+            Require current-year bill
+            <span className="ml-1 text-xs text-muted-foreground">
+              (academic year + matching bill are mandatory)
+            </span>
+          </Label>
+        </div>
+
         <div className="flex gap-3">
           <Button
             variant="outline"
@@ -196,36 +222,10 @@ export default function AutoAllocatePage() {
           )}
         </div>
 
-        {preview && (
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Preview</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                <Stat icon={<Users className="h-4 w-4" />} label="Eligible cohort" value={preview.cohort_eligible} />
-                <Stat icon={<BedDouble className="h-4 w-4" />} label="Available beds" value={preview.available_beds} />
-                <Stat label="No login profile" value={preview.no_profile} muted />
-                <Stat label="Already allocated" value={preview.already_allocated} muted />
-              </div>
-              <p className="text-xs text-muted-foreground mt-3">
-                Up to {Math.min(preview.cohort_eligible, preview.available_beds)} learners
-                will be placed (limited by beds). Eligibility rules + gender are enforced,
-                so some may be skipped.
-              </p>
-            </CardContent>
-          </Card>
+        {candidates && (
+          <CandidateValidationTable candidates={candidates} availableBeds={availableBeds} />
         )}
       </div>
     </ContentLayout>
-  );
-}
-
-function Stat({ icon, label, value, muted }: { icon?: React.ReactNode; label: string; value: number; muted?: boolean }) {
-  return (
-    <div className={`rounded-lg border p-3 ${muted ? 'opacity-70' : ''}`}>
-      <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-1">{icon}{label}</div>
-      <p className="text-2xl font-bold">{value}</p>
-    </div>
   );
 }
