@@ -28,6 +28,7 @@ import {
 import type { FbPageMetric } from '@/lib/facebook/types';
 
 const DORMANCY_THRESHOLD_DAYS_FALLBACK = 30;
+const GRAPH_VERSION = 'v25.0';
 
 function getServiceClient(): SupabaseClient {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -113,6 +114,211 @@ function flattenInsightValue(value: number | Record<string, number> | undefined)
   return 0;
 }
 
+// ──────────────────────────────────────────────────────────────────────
+// Discovery: when fb_pages is empty, seed it from the Meta /me/accounts
+// endpoint. Uses MESSENGER_PAGE_ACCESS_TOKEN (canonical for this app —
+// bound to JKKN Institutions App 437028995095541) and falls back to the
+// legacy META_PAGE_ACCESS_TOKEN name used elsewhere in the codebase.
+//
+// Each /me/accounts row already carries a long-lived per-page token, so
+// we insert it directly into fb_pages.access_token — no second call.
+//
+// institution_id resolution:
+//   1. exact ILIKE match on institutions.name (Page name → institution name)
+//   2. heuristic substring match (e.g. "JKKN Dental" → "JKKN College of Dental")
+//   3. fallback to first JKKN institution (alphabetical) — Director can re-link
+//      via the admin UI; the cron MUST seed *something* because institution_id
+//      is NOT NULL on fb_pages and we don't want pages_discovered:0 again.
+// ──────────────────────────────────────────────────────────────────────
+interface MeAccountsPage {
+  id: string;
+  name?: string;
+  access_token?: string;
+  category?: string;
+  instagram_business_account?: { id: string; username?: string };
+}
+
+interface MeAccountsResponse {
+  data?: MeAccountsPage[];
+  error?: { message?: string; code?: number; type?: string };
+}
+
+async function resolveInstitutionId(
+  supabase: SupabaseClient,
+  pageName: string | null | undefined,
+  fallbackInstitutionId: string | null
+): Promise<string | null> {
+  if (pageName && pageName.trim()) {
+    // 1. exact-ish match: page name contained in institution name, or vice versa
+    const { data: exact } = await supabase
+      .from('institutions')
+      .select('id, name')
+      .ilike('name', `%${pageName.trim()}%`)
+      .limit(1);
+    if (exact && exact.length > 0) return exact[0].id as string;
+
+    // 2. token-based heuristic: strip "JKKN ", "College", "of" and look for
+    //    a distinctive keyword (Dental, Pharmacy, Engineering, …)
+    const tokens = pageName
+      .toLowerCase()
+      .replace(/jkkn|college|of|the|institute|institution|&|and/g, ' ')
+      .split(/\s+/)
+      .map((t) => t.trim())
+      .filter((t) => t.length >= 4);
+    for (const tok of tokens) {
+      const { data: heur } = await supabase
+        .from('institutions')
+        .select('id, name')
+        .ilike('name', `%${tok}%`)
+        .limit(1);
+      if (heur && heur.length > 0) return heur[0].id as string;
+    }
+  }
+
+  return fallbackInstitutionId;
+}
+
+async function discoverAndSeedFbPages(
+  supabase: SupabaseClient
+): Promise<{
+  discovered: number;
+  inserted: number;
+  errors: Array<{ fb_page_id?: string; name?: string; error: string }>;
+}> {
+  const errors: Array<{ fb_page_id?: string; name?: string; error: string }> = [];
+  const token =
+    process.env.MESSENGER_PAGE_ACCESS_TOKEN ||
+    process.env.META_PAGE_ACCESS_TOKEN ||
+    '';
+  if (!token) {
+    return {
+      discovered: 0,
+      inserted: 0,
+      errors: [{ error: 'no token (MESSENGER_PAGE_ACCESS_TOKEN / META_PAGE_ACCESS_TOKEN)' }],
+    };
+  }
+
+  // Fetch the Pages list from Meta. Includes the per-Page access_token
+  // (long-lived when the source token is a System User token) plus the
+  // linked Instagram business account id when present.
+  let pages: MeAccountsPage[] = [];
+  const url =
+    `https://graph.facebook.com/${GRAPH_VERSION}/me/accounts` +
+    `?fields=id,name,access_token,category,instagram_business_account{id,username}` +
+    `&limit=100&access_token=${encodeURIComponent(token)}`;
+  try {
+    const res = await fetch(url, { cache: 'no-store' });
+    const json = (await res.json()) as MeAccountsResponse;
+    if (!res.ok || json.error) {
+      const msg =
+        json.error?.message ?? `Meta /me/accounts returned HTTP ${res.status}`;
+      await logApiCall(supabase, {
+        page_id: null,
+        event_type: 'discover',
+        status: 'error',
+        payload: { endpoint: '/me/accounts' },
+        error_message: msg,
+      });
+      return { discovered: 0, inserted: 0, errors: [{ error: msg }] };
+    }
+    pages = json.data ?? [];
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : 'unknown';
+    await logApiCall(supabase, {
+      page_id: null,
+      event_type: 'discover',
+      status: 'error',
+      payload: { endpoint: '/me/accounts' },
+      error_message: msg,
+    });
+    return { discovered: 0, inserted: 0, errors: [{ error: msg }] };
+  }
+
+  if (pages.length === 0) {
+    await logApiCall(supabase, {
+      page_id: null,
+      event_type: 'discover',
+      status: 'success',
+      payload: { endpoint: '/me/accounts', pages_returned: 0 },
+    });
+    return { discovered: 0, inserted: 0, errors: [] };
+  }
+
+  // Pre-fetch a fallback institution_id so we can satisfy the NOT NULL
+  // constraint even when no name match is found. We pick the first JKKN
+  // institution alphabetically — Director can move pages to the correct
+  // owner via the admin UI once discovered.
+  let fallbackInstitutionId: string | null = null;
+  const { data: fallbackRow } = await supabase
+    .from('institutions')
+    .select('id')
+    .ilike('name', 'JKKN%')
+    .order('name', { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  if (fallbackRow?.id) fallbackInstitutionId = fallbackRow.id as string;
+
+  let inserted = 0;
+  for (const p of pages) {
+    if (!p.id) continue;
+    try {
+      const institutionId = await resolveInstitutionId(
+        supabase,
+        p.name ?? null,
+        fallbackInstitutionId
+      );
+      if (!institutionId) {
+        errors.push({
+          fb_page_id: p.id,
+          name: p.name,
+          error: 'no institution found and no JKKN fallback available',
+        });
+        continue;
+      }
+
+      const { error: insErr } = await supabase
+        .from('fb_pages')
+        .upsert(
+          {
+            institution_id: institutionId,
+            fb_page_id: p.id,
+            name: p.name ?? p.id,
+            category: p.category ?? null,
+            access_token: p.access_token ?? null,
+            status: 'active',
+          },
+          { onConflict: 'fb_page_id', ignoreDuplicates: true }
+        );
+      if (insErr) {
+        errors.push({
+          fb_page_id: p.id,
+          name: p.name,
+          error: insErr.message,
+        });
+        continue;
+      }
+      inserted++;
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'unknown';
+      errors.push({ fb_page_id: p.id, name: p.name, error: msg });
+    }
+  }
+
+  await logApiCall(supabase, {
+    page_id: null,
+    event_type: 'discover',
+    status: 'success',
+    payload: {
+      endpoint: '/me/accounts',
+      pages_returned: pages.length,
+      pages_inserted: inserted,
+      errors_count: errors.length,
+    },
+  });
+
+  return { discovered: pages.length, inserted, errors };
+}
+
 const PAGE_METRICS_DAY: FbPageMetric[] = [
   'page_impressions',
   'page_impressions_unique',
@@ -132,8 +338,11 @@ export async function GET(request: Request): Promise<Response> {
   const supabase = getServiceClient();
 
   let pagesPolled = 0;
+  let pagesDiscovered = 0;
+  let pagesSeeded = 0;
   let errorsCount = 0;
   const perPageErrors: Array<{ id: string; error: string }> = [];
+  const discoveryErrors: Array<{ fb_page_id?: string; name?: string; error: string }> = [];
 
   try {
     // ----------------------------------------------------------------
@@ -164,6 +373,24 @@ export async function GET(request: Request): Promise<Response> {
       'fb.pages.dormancy_threshold_days',
       DORMANCY_THRESHOLD_DAYS_FALLBACK
     );
+
+    // ----------------------------------------------------------------
+    // Discovery step: when fb_pages is empty, seed it from Meta.
+    // This fixes the silent pages_polled:0 case where the cron has
+    // nothing to iterate over because no Page has been connected yet.
+    // ----------------------------------------------------------------
+    const { count: existingCount } = await supabase
+      .from('fb_pages')
+      .select('id', { count: 'exact', head: true });
+    if (existingCount === 0) {
+      const result = await discoverAndSeedFbPages(supabase);
+      pagesDiscovered = result.discovered;
+      pagesSeeded = result.inserted;
+      if (result.errors.length > 0) {
+        errorsCount += result.errors.length;
+        discoveryErrors.push(...result.errors);
+      }
+    }
 
     // Only poll pages whose last_polled_at is older than pollIntervalMinutes
     const pollCutoff = new Date(
@@ -474,9 +701,12 @@ export async function GET(request: Request): Promise<Response> {
     return NextResponse.json({
       success: true,
       pages_polled: pagesPolled,
+      pages_discovered: pagesDiscovered,
+      pages_seeded: pagesSeeded,
       errors_count: errorsCount,
       duration_ms: durationMs,
       errors: perPageErrors,
+      discovery_errors: discoveryErrors,
     });
   } catch (e) {
     Sentry.captureException(e, {
@@ -486,9 +716,12 @@ export async function GET(request: Request): Promise<Response> {
       {
         success: false,
         pages_polled: pagesPolled,
+        pages_discovered: pagesDiscovered,
+        pages_seeded: pagesSeeded,
         errors_count: errorsCount + 1,
         duration_ms: Date.now() - start,
         error: e instanceof Error ? e.message : 'unknown',
+        discovery_errors: discoveryErrors,
       },
       { status: 500 }
     );
