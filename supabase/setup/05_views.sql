@@ -944,11 +944,11 @@ WHERE (leave_types.scope)::text = 'staff'::text;
 -- preserves that form. The default anon/authenticated/service_role SELECT grants
 -- are re-applied below to match Supabase's defaults.
 --
--- Lifecycle filter added 2026-06-08 (migration
--- 20260608130000_hostel_residents_lifecycle_filter.sql): residents = hostel AND
--- lifecycle_status IN (active, reserved, admitted). Excludes enquiry_submitted /
--- graduated / inactive / rejected / 'account' (the latter narrower than billing's
--- BILLABLE_LIFECYCLE_STATUSES, by stakeholder choice).
+-- Lifecycle filter (migrations 20260608130000 -> 20260608150000, revised
+-- 2026-06-08): residents = hostel AND lifecycle_status = 'active' ONLY. All
+-- non-active statuses (reserved/admitted/account/enquiry_submitted/graduated/
+-- inactive/rejected) are excluded from the Residents list AND the Generate-bills
+-- surface. lifecycle_status column exposed by migration 20260608140000.
 DROP VIEW IF EXISTS public.v_learner_hostelites;
 
 CREATE VIEW v_learner_hostelites AS
@@ -1006,7 +1006,7 @@ CREATE VIEW v_learner_hostelites AS
      LEFT JOIN degrees dg ON dg.id = lp.degree_id
      LEFT JOIN semesters sm ON sm.id = lp.semester_id
   WHERE acc.code = 'hostel'::text
-    AND lp.lifecycle_status::text IN ('active', 'reserved', 'admitted');
+    AND lp.lifecycle_status::text = 'active';
 
 GRANT ALL ON v_learner_hostelites TO anon, authenticated, service_role;
 
