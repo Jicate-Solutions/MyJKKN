@@ -994,7 +994,8 @@ CREATE VIEW v_learner_hostelites AS
             ELSE NULL::text
         END AS year_source,
     dg.degree_name,
-    sm.semester_name
+    sm.semester_name,
+    lp.lifecycle_status
    FROM learners_profiles lp
      LEFT JOIN accommodation_types acc ON acc.id = lp.accommodation_type_id
      LEFT JOIN admission_years ay ON ay.id = lp.admission_year_id

@@ -29,7 +29,7 @@ export interface LearnerColumnHandlers {
 }
 
 // Column order: Roll, Name, Institution (super-admin only), Program,
-// Semester, Block, Bills, Payment, Action.
+// Semester, Block, Status, Bills, Action.
 export function getLearnerColumns(
   h: LearnerColumnHandlers,
 ): ColumnDef<LearnerHostelite>[] {
@@ -100,6 +100,30 @@ export function getLearnerColumns(
     size: 160,
   };
 
+  // Lifecycle status — the view is filtered to active/reserved/admitted, so only
+  // those three appear, but the column makes the distinction explicit.
+  const statusCol: ColumnDef<LearnerHostelite> = {
+    id: 'lifecycle_status',
+    accessorFn: (r) => r.lifecycle_status,
+    header: ({ column }) => <DataTableColumnHeader column={column} title='Status' />,
+    cell: ({ row }) => {
+      const s = row.original.lifecycle_status;
+      if (!s) return <span className='text-sm text-muted-foreground'>—</span>;
+      const cls: Record<string, string> = {
+        active: 'bg-green-100 text-green-800 hover:bg-green-100',
+        reserved: 'bg-blue-100 text-blue-800 hover:bg-blue-100',
+        admitted: 'bg-violet-100 text-violet-800 hover:bg-violet-100',
+      };
+      return (
+        <Badge className={`w-fit border-transparent ${cls[s] ?? ''}`}>
+          {s.charAt(0).toUpperCase() + s.slice(1)}
+        </Badge>
+      );
+    },
+    enableSorting: false,
+    size: 120,
+  };
+
   const billsCol: ColumnDef<LearnerHostelite> = {
     id: 'current_year_bills',
     header: ({ column }) => (
@@ -130,39 +154,6 @@ export function getLearnerColumns(
     },
     enableSorting: false,
     size: 170,
-  };
-
-  const paymentCol: ColumnDef<LearnerHostelite> = {
-    id: 'payment_status',
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title='Payment' />
-    ),
-    cell: ({ row }) => {
-      const s = row.original.bill_status;
-      if (!s || s.bill_count === 0) {
-        return <span className='text-sm text-muted-foreground'>—</span>;
-      }
-      const cfg = {
-        paid: { label: 'Paid', cls: 'bg-green-100 text-green-800 hover:bg-green-100' },
-        partial: { label: 'Partial', cls: 'bg-amber-100 text-amber-800 hover:bg-amber-100' },
-        unpaid: { label: 'Unpaid', cls: 'bg-orange-100 text-orange-800 hover:bg-orange-100' },
-        none: { label: '—', cls: '' },
-      } as const;
-      const c = cfg[s.payment_status] ?? cfg.none;
-      return (
-        <div
-          className='flex flex-col gap-0.5'
-          title={s.academic_year_name ?? undefined}
-        >
-          <Badge className={`w-fit border-transparent ${c.cls}`}>{c.label}</Badge>
-          <span className='text-xs text-muted-foreground'>
-            Paid {formatCurrency(s.total_paid)} · Out {formatCurrency(s.total_outstanding)}
-          </span>
-        </div>
-      );
-    },
-    enableSorting: false,
-    size: 190,
   };
 
   const actionsCol: ColumnDef<LearnerHostelite> = {
@@ -208,8 +199,8 @@ export function getLearnerColumns(
     programCol,
     semesterCol,
     blockCol,
+    statusCol,
     billsCol,
-    paymentCol,
     actionsCol,
   ];
 }
