@@ -170,6 +170,10 @@
       "schedule": "0 * * * *"
     },
     {
+      "path": "/api/cron/meta-subscription-drift-check",
+      "schedule": "30 21 * * *"
+    },
+    {
       "path": "/api/cron/meta-ads-sync?secret=${CRON_SECRET}",
       "schedule": "0 */2 * * *"
     },

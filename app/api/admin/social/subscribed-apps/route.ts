@@ -104,6 +104,61 @@ async function fetchSubscribedApps(
   }
 }
 
+interface AuditSummary {
+  last_check_at: string | null;
+  latest_run_id: string | null;
+  drifts_in_last_7d: number;
+  latest_run_verdict_counts: {
+    healthy: number;
+    drift: number;
+    empty: number;
+  } | null;
+}
+
+async function loadAuditSummary(): Promise<AuditSummary | null> {
+  try {
+    const supabase = await createClient();
+    const { data: latestRow } = await supabase
+      .from('meta_subscription_audit')
+      .select('run_id, checked_at')
+      .order('checked_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (!latestRow) return null;
+
+    const { data: latestRunRows } = await supabase
+      .from('meta_subscription_audit')
+      .select('verdict')
+      .eq('run_id', latestRow.run_id);
+
+    const counts = { healthy: 0, drift: 0, empty: 0 };
+    for (const r of (latestRunRows ?? []) as Array<{
+      verdict: 'healthy' | 'drift' | 'empty';
+    }>) {
+      counts[r.verdict]++;
+    }
+
+    const sevenDaysAgo = new Date(
+      Date.now() - 7 * 24 * 3600 * 1000
+    ).toISOString();
+    const { count: driftCount } = await supabase
+      .from('meta_subscription_audit')
+      .select('*', { count: 'exact', head: true })
+      .eq('verdict', 'drift')
+      .gte('checked_at', sevenDaysAgo);
+
+    return {
+      last_check_at: latestRow.checked_at,
+      latest_run_id: latestRow.run_id,
+      drifts_in_last_7d: driftCount ?? 0,
+      latest_run_verdict_counts: counts,
+    };
+  } catch {
+    return null;
+  }
+}
+
 export async function GET() {
   const auth = await requireAdmin();
   if (!auth.ok) {
@@ -113,6 +168,8 @@ export async function GET() {
     );
   }
 
+  const auditSummary = await loadAuditSummary();
+
   const token = process.env.META_PAGE_ACCESS_TOKEN;
   if (!token) {
     return NextResponse.json(
@@ -120,6 +177,7 @@ export async function GET() {
         pages: [],
         fetched_at: new Date().toISOString(),
         known_app_ids: KNOWN_APP_IDS,
+        audit_summary: auditSummary,
         error: 'META_PAGE_ACCESS_TOKEN not configured.',
       },
       {
@@ -143,6 +201,7 @@ export async function GET() {
           pages: [],
           fetched_at: new Date().toISOString(),
           known_app_ids: KNOWN_APP_IDS,
+          audit_summary: auditSummary,
           error:
             accountsJson.error?.message ??
             `Meta /me/accounts returned HTTP ${accountsRes.status}`,
@@ -187,6 +246,7 @@ export async function GET() {
         pages,
         fetched_at: new Date().toISOString(),
         known_app_ids: KNOWN_APP_IDS,
+        audit_summary: auditSummary,
       },
       {
         status: 200,
@@ -199,6 +259,7 @@ export async function GET() {
         pages: [],
         fetched_at: new Date().toISOString(),
         known_app_ids: KNOWN_APP_IDS,
+        audit_summary: auditSummary,
         error: err instanceof Error ? err.message : 'Meta request failed.',
       },
       {
