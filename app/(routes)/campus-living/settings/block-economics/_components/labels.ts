@@ -36,10 +36,13 @@ export const CAPEX_CATEGORIES: CostCategory[] = [
   'capex_renovation',
 ];
 
-/** ₹ in Indian formatting (en-IN), e.g. 1234567 → ₹12,34,567. */
+/**
+ * ₹ in Indian formatting (en-IN), rounded to whole rupees for display —
+ * e.g. 1234567 → ₹12,34,567. Matches the Bed Economics dashboard's
+ * format.ts so table figures read consistently across the feature. The form
+ * input still accepts paise (step="0.01"); rounding applies only on display.
+ */
 export function formatRupees(amount: number | null | undefined): string {
-  if (amount === null || amount === undefined) return '—';
-  return `₹${Number(amount).toLocaleString('en-IN', {
-    maximumFractionDigits: 2,
-  })}`;
+  if (amount === null || amount === undefined || Number.isNaN(amount)) return '—';
+  return `₹${Math.round(amount).toLocaleString('en-IN')}`;
 }
