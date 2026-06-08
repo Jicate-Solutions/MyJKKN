@@ -169,11 +169,28 @@ export async function GET(request: Request): Promise<Response> {
   }
 
   const start = Date.now();
-  const supabase = getServiceClient();
-
   let accountsPolled = 0;
   let errorsCount = 0;
   const perAccountErrors: Array<{ id: string; error: string }> = [];
+  let supabase: SupabaseClient;
+  try {
+    supabase = getServiceClient();
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : 'supabase credential init failed';
+    Sentry.captureException(e, {
+      tags: { feature: 'instagram', event: 'metrics_poller_init_failure' },
+    });
+    return NextResponse.json(
+      {
+        success: false,
+        accounts_polled: 0,
+        errors_count: 1,
+        duration_ms: Date.now() - start,
+        error: msg,
+      },
+      { status: 500 }
+    );
+  }
 
   try {
     const [pollIntervalHours, dormancyThresholdDays] = await Promise.all([
@@ -186,15 +203,32 @@ export async function GET(request: Request): Promise<Response> {
       Date.now() - pollIntervalHours * 60 * 60 * 1000
     ).toISOString();
 
+    // NOTE: ig_accounts substrate (migration 20260530140000) intentionally does
+    // NOT carry per-account access tokens or last_post_at — long-lived system-user
+    // tokens are supplied via env (META_IG_SYSTEM_USER_TOKEN), and last-post tracking
+    // is derived from ig_posts.posted_at. We select only the columns that exist;
+    // the rest are filled at runtime below.
     const { data: accounts, error: acctErr } = await supabase
       .from('ig_accounts')
-      .select('id, ig_user_id, access_token, last_polled_at, last_post_at')
+      .select('id, ig_user_id, last_polled_at')
       .eq('status', 'active')
       .or(`last_polled_at.is.null,last_polled_at.lt.${pollCutoff}`);
 
     if (acctErr) throw acctErr;
 
-    const accountList: PollAccount[] = (accounts ?? []) as PollAccount[];
+    const systemToken =
+      process.env.META_IG_SYSTEM_USER_TOKEN ||
+      process.env.MESSENGER_PAGE_ACCESS_TOKEN ||
+      '';
+
+    // Hydrate the runtime shape the per-account loop expects.
+    const accountList: PollAccount[] = (accounts ?? []).map((a) => ({
+      id: (a as { id: string }).id,
+      ig_user_id: (a as { ig_user_id: string }).ig_user_id,
+      access_token: systemToken,
+      last_polled_at: (a as { last_polled_at: string | null }).last_polled_at,
+      last_post_at: null,
+    }));
 
     for (const account of accountList) {
       const acctStart = Date.now();
@@ -434,13 +468,35 @@ export async function GET(request: Request): Promise<Response> {
     Sentry.captureException(e, {
       tags: { feature: 'instagram', event: 'metrics_poller_fatal' },
     });
+    // Surface real diagnostics — never "unknown". Handles Error instances,
+    // PostgREST error objects ({message,details,hint,code}), and unknown shapes.
+    let errMessage = 'unknown';
+    let errName: string | undefined;
+    let errStack: string | undefined;
+    if (e instanceof Error) {
+      errMessage = e.message;
+      errName = e.name;
+      errStack = e.stack?.slice(0, 500);
+    } else if (typeof e === 'object' && e !== null) {
+      const obj = e as Record<string, unknown>;
+      const parts: string[] = [];
+      if (typeof obj.message === 'string') parts.push(obj.message);
+      if (typeof obj.details === 'string') parts.push(`details=${obj.details}`);
+      if (typeof obj.hint === 'string') parts.push(`hint=${obj.hint}`);
+      if (typeof obj.code === 'string') parts.push(`code=${obj.code}`);
+      errMessage = parts.length > 0 ? parts.join(' | ') : JSON.stringify(obj).slice(0, 500);
+    } else if (typeof e === 'string') {
+      errMessage = e;
+    }
     return NextResponse.json(
       {
         success: false,
         accounts_polled: accountsPolled,
         errors_count: errorsCount + 1,
         duration_ms: Date.now() - start,
-        error: e instanceof Error ? e.message : 'unknown',
+        error: errMessage,
+        error_name: errName,
+        error_stack: errStack,
       },
       { status: 500 }
     );
