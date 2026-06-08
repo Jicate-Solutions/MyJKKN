@@ -226,6 +226,24 @@ export async function importMetaLead(
     })
     .eq('id', eventRowId);
 
+  // 9. Back-link the admission_leads row to this event for the "Received
+  //    Leads" admin view. Failure here is non-fatal — capture already
+  //    succeeded; this is only the reverse-lookup pointer.
+  //
+  // We only set this on `created` (the meta-leadgen event is the *origin*
+  // of the lead). On `merged` the lead pre-existed via another channel,
+  // so overwriting the pointer would lose that original attribution.
+  if (capture.action === 'created') {
+    try {
+      await db
+        .from('admission_leads')
+        .update({ meta_leadgen_event_id: eventRowId })
+        .eq('id', capture.lead.id);
+    } catch {
+      // Audit-only failure; do not change the import status.
+    }
+  }
+
   return { status, leadId: capture.lead.id, eventRowId };
 }
 
