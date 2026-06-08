@@ -154,6 +154,28 @@ export interface BedEconTrendRow {
   capacity_nominal: number;
 }
 
+/**
+ * fn_bed_econ_premium_potential(p_hostel_year_id, p_institution_id, p_assumed_base_inr)
+ * — Premium Revenue model (Director request 2026-06-08). One row per gender×tier
+ * with inventory + real levers (uplift %, AC) and the ₹-gap vs current billing.
+ */
+export interface BedEconPremiumPotentialRow {
+  gender: string;
+  tier: string;
+  tier_key: string;
+  beds: number;
+  occupied_beds: number;
+  empty_beds: number;
+  uplift_pct: number;
+  ac_rooms: number;
+  base_potential: number;
+  uplift_potential: number;
+  ac_potential: number;
+  total_potential: number;
+  currently_billed: number;
+  gap: number;
+}
+
 /** fn_bed_econ_consolidation(p_hostel_year_id, p_institution_id) — C6 scenario. */
 export interface BedEconConsolidation {
   hostel_year_id: string;
