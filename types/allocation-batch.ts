@@ -58,3 +58,32 @@ export interface AcademicYearOption {
   id: string;
   label: string;
 }
+
+export type BillState = 'matched' | 'different_year' | 'untagged' | 'none';
+export type CandidateStage = 'prerequisite' | 'eligibility' | 'ok';
+export type CandidateVerdict = 'in' | 'out';
+
+/** One row from fn_auto_allocate_candidates — a learner's per-condition verdict. */
+export interface AllocationCandidate {
+  learner_id: string;
+  full_name: string;
+  email: string | null;
+  program_name: string | null;
+  gender: string | null;
+  has_profile: boolean;
+  gender_ok: boolean;
+  not_allocated: boolean;
+  physical_rule_ok: boolean;
+  academic_year_id: string | null;
+  academic_year_name: string | null;
+  academic_bill_count: number;
+  current_year_bill_count: number;
+  bill_other_year_name: string | null;
+  current_year_fee: number | null;
+  fee_resolved: boolean;
+  fee_category_match: boolean;
+  bill_state: BillState;
+  stage: CandidateStage;
+  verdict: CandidateVerdict;
+  exclusion_reason: string | null;
+}
