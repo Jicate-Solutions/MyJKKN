@@ -11,8 +11,9 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { RefreshCw, FlaskConical, Settings2 } from 'lucide-react';
+import { RefreshCw, FlaskConical, Settings2, ExternalLink, CheckCircle2, AlertCircle } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { SuperAdminOnly } from '@/components/auth/admin-permission-guard';
 import { PageBreadcrumb } from '@/components/navigation';
@@ -20,6 +21,8 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Skeleton } from '@/components/ui/skeleton';
+import { useLeadAdsSubmissions } from '@/hooks/admin/use-lead-ads-submissions';
+import type { LeadAdsSubmission } from '@/lib/services/admin/lead-ads-service';
 import {
   Table,
   TableBody,
@@ -181,6 +184,8 @@ export default function LeadAdsAdminPage() {
           query={formsQuery}
           onEdit={(f) => setEditingForm(f)}
         />
+
+        <ReceivedLeadsSection />
 
         <EventsSection query={eventsQuery} />
       </div>
@@ -554,6 +559,126 @@ function EventsSection({ query }: { query: ReturnType<typeof useQuery<EventRow[]
       )}
     </div>
   );
+}
+
+// --------------------------------------------------------------------------
+// Received Leads section
+//
+// Surfaces meta_leadgen_events hydrated by the importer, joined with the
+// admission_leads row when the importer succeeded. This is the answer to
+// "what Lead Ads submissions have we actually received and what happened
+// to them?" — a level above the raw event log.
+// --------------------------------------------------------------------------
+
+function ReceivedLeadsSection() {
+  const submissionsQuery = useLeadAdsSubmissions({ limit: 50 });
+  const rows = submissionsQuery.data ?? [];
+
+  return (
+    <div>
+      <div className="flex items-baseline justify-between mb-3">
+        <div>
+          <h2 className="text-lg font-semibold">Received leads</h2>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Webhook submissions with hydrated form data, linked to the CRM lead the
+            importer created. Refreshes every 30 seconds.
+          </p>
+        </div>
+      </div>
+
+      {submissionsQuery.isLoading ? (
+        <Skeleton className="h-48 w-full" />
+      ) : submissionsQuery.error ? (
+        <Alert variant="destructive">
+          <AlertDescription>
+            Failed to load submissions: {(submissionsQuery.error as Error).message}
+          </AlertDescription>
+        </Alert>
+      ) : rows.length === 0 ? (
+        <Alert>
+          <AlertDescription>
+            No Lead Ads submissions received yet. Once Meta sends a leadgen webhook,
+            the row will appear here. If you see events in <strong>Recent events</strong>{' '}
+            but nothing here, the importer hasn&apos;t hydrated them yet — check that
+            the <code>meta.leadgen.is_enabled</code> policy is on and{' '}
+            <code>META_LEAD_ADS_PAGE_ACCESS_TOKEN</code> is set.
+          </AlertDescription>
+        </Alert>
+      ) : (
+        <div className="rounded-md border bg-white">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Submitted</TableHead>
+                <TableHead>Form</TableHead>
+                <TableHead>Name</TableHead>
+                <TableHead>Email</TableHead>
+                <TableHead>Phone</TableHead>
+                <TableHead>CRM lead</TableHead>
+                <TableHead className="text-right">Status</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {rows.map((r) => (
+                <ReceivedLeadRow key={r.event_id} row={r} />
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ReceivedLeadRow({ row }: { row: LeadAdsSubmission }) {
+  return (
+    <TableRow>
+      <TableCell className="text-xs">{formatTs(row.submitted_at)}</TableCell>
+      <TableCell className="text-xs">
+        <div className="font-medium">{row.form_name ?? '—'}</div>
+        <div className="text-muted-foreground">{row.fb_form_id ?? ''}</div>
+      </TableCell>
+      <TableCell className="text-sm">{row.full_name ?? '—'}</TableCell>
+      <TableCell className="text-xs">{row.email ?? '—'}</TableCell>
+      <TableCell className="text-xs">{row.phone ?? '—'}</TableCell>
+      <TableCell>
+        {row.lead_id ? (
+          <Link
+            href={`/admission/leads/${row.lead_id}`}
+            className="inline-flex items-center gap-1 text-xs text-blue-600 hover:underline"
+            prefetch={false}
+          >
+            <CheckCircle2 className="w-3.5 h-3.5" />
+            {row.lead_full_name ?? 'View lead'}
+            <ExternalLink className="w-3 h-3" />
+          </Link>
+        ) : row.status === 'failed' || row.status === 'skipped' ? (
+          <span
+            className="inline-flex items-center gap-1 text-xs text-amber-600"
+            title={row.error_message ?? ''}
+          >
+            <AlertCircle className="w-3.5 h-3.5" />
+            not created
+          </span>
+        ) : (
+          <span className="text-xs text-muted-foreground">processing…</span>
+        )}
+      </TableCell>
+      <TableCell className="text-right">
+        <Badge variant={submissionStatusVariant(row.status)}>
+          {row.status}
+        </Badge>
+      </TableCell>
+    </TableRow>
+  );
+}
+
+function submissionStatusVariant(
+  s: LeadAdsSubmission['status']
+): 'default' | 'secondary' | 'destructive' {
+  if (s === 'imported' || s === 'merged') return 'default';
+  if (s === 'failed') return 'destructive';
+  return 'secondary';
 }
 
 // --------------------------------------------------------------------------
