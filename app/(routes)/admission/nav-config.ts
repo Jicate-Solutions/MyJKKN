@@ -318,10 +318,17 @@ const config: ModuleNavConfig = {
           href: '/admission/inbox/messenger',
           matchPaths: ['/admission/inbox/messenger'],
         },
-        // Instagram DMs chip omitted — /admission/inbox/instagram page.tsx
-        // hasn't been created yet. Meta marathon shipped the IG webhook +
-        // DB substrate (PR #1153) but not the UI page. Add chip when page
-        // ships in a follow-up.
+        {
+          // Instagram DM inbox. Page reads from ig_dm_conversations /
+          // ig_dm_messages (substrate: PR #1153). Empty state surfaces the
+          // "Awaiting IG Advanced Access approval" notice until Meta
+          // approves the App Review submission documented in
+          // docs/meta-integration-app-review-submission-2026.md.
+          label: 'Instagram',
+          icon: 'Instagram',
+          href: '/admission/inbox/instagram',
+          matchPaths: ['/admission/inbox/instagram'],
+        },
       ],
     },
     {
