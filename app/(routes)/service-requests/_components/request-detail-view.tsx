@@ -34,6 +34,7 @@ import {
   roleKeyToLabel,
   type EligibleApprover,
 } from '@/hooks/service-requests/use-eligible-approvers';
+import { useTmsLabels } from '@/hooks/service-requests/use-tms-lookups';
 
 interface RequestDetailViewProps {
   request: ServiceRequest;
@@ -60,6 +61,19 @@ function buildFieldTypeMap(request: ServiceRequest): Record<string, string> {
   if (request.service_type?.fields) {
     for (const field of request.service_type.fields) {
       map[field.field_key] = field.field_type;
+    }
+  }
+  return map;
+}
+
+/** Maps field_key → its select options so stored values resolve back to labels */
+function buildFieldOptionsMap(
+  request: ServiceRequest
+): Record<string, Array<{ label: string; value: string }>> {
+  const map: Record<string, Array<{ label: string; value: string }>> = {};
+  if (request.service_type?.fields) {
+    for (const field of request.service_type.fields) {
+      if (field.field_options) map[field.field_key] = field.field_options;
     }
   }
   return map;
@@ -182,6 +196,55 @@ export function RequestDetailView({
 }: RequestDetailViewProps) {
   const fieldLabelMap = buildFieldLabelMap(request);
   const fieldTypeMap = buildFieldTypeMap(request);
+  const fieldOptionsMap = buildFieldOptionsMap(request);
+
+  // Bus Pass requests store the route/stop as UUIDs in form_data; resolve them
+  // back to display names. Field keys are discovered by field_type, so this
+  // works regardless of what the service type named them.
+  const routeFieldKey = request.service_type?.fields?.find(
+    (f) => f.field_type === 'tms_route'
+  )?.field_key;
+  const stopFieldKey = request.service_type?.fields?.find(
+    (f) => f.field_type === 'tms_route_stop'
+  )?.field_key;
+  const routeId = routeFieldKey
+    ? (request.form_data?.[routeFieldKey] as string | undefined)
+    : undefined;
+  const stopId = stopFieldKey
+    ? (request.form_data?.[stopFieldKey] as string | undefined)
+    : undefined;
+  const { data: tmsLabels, isLoading: tmsLoading } = useTmsLabels(routeId, stopId);
+
+  /**
+   * Turns a raw stored form_data value into a human-readable string. The form
+   * stores IDs / codes for lookup + dropdown fields; the detail view must map
+   * them back to the label that was shown when the request was filed.
+   */
+  const resolveFieldValue = (key: string, value: any): string => {
+    const type = fieldTypeMap[key];
+
+    if (type === 'tms_route') {
+      return tmsLabels?.routeLabel ?? (tmsLoading ? 'Loading…' : String(value || '—'));
+    }
+    if (type === 'tms_route_stop') {
+      return tmsLabels?.stopLabel ?? (tmsLoading ? 'Loading…' : String(value || '—'));
+    }
+    if (type === 'passenger_type') {
+      if (value === 'learner') return 'Learner';
+      if (value === 'staff') return 'Staff';
+      return String(value || '—');
+    }
+    if (type === 'select') {
+      // Cascading options store only the part after "||"; match either form.
+      const match = fieldOptionsMap[key]?.find(
+        (o) => o.value === value || o.value.split('||')[1] === value
+      );
+      if (match) return match.label;
+    }
+    if (typeof value === 'boolean') return value ? 'Yes' : 'No';
+    return String(value || '—');
+  };
+
   const approvalSteps = [...(request.service_type?.approval_steps || [])].sort(
     (a, b) => a.step_order - b.step_order
   );
@@ -464,11 +527,7 @@ export function RequestDetailView({
                             {fieldLabelMap[key] || key.replace(/_/g, ' ')}
                           </p>
                           <p className="text-sm font-medium break-words">
-                            {typeof value === 'boolean'
-                              ? value
-                                ? 'Yes'
-                                : 'No'
-                              : String(value || '—')}
+                            {resolveFieldValue(key, value)}
                           </p>
                         </div>
                       ))}
