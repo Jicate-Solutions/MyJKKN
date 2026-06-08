@@ -943,6 +943,12 @@ WHERE (leave_types.scope)::text = 'staff'::text;
 -- existing view's columns via CREATE OR REPLACE — 42P16). This reference mirror
 -- preserves that form. The default anon/authenticated/service_role SELECT grants
 -- are re-applied below to match Supabase's defaults.
+--
+-- Lifecycle filter added 2026-06-08 (migration
+-- 20260608130000_hostel_residents_lifecycle_filter.sql): residents = hostel AND
+-- lifecycle_status IN (active, reserved, admitted). Excludes enquiry_submitted /
+-- graduated / inactive / rejected / 'account' (the latter narrower than billing's
+-- BILLABLE_LIFECYCLE_STATUSES, by stakeholder choice).
 DROP VIEW IF EXISTS public.v_learner_hostelites;
 
 CREATE VIEW v_learner_hostelites AS
@@ -998,7 +1004,8 @@ CREATE VIEW v_learner_hostelites AS
      LEFT JOIN hostel_blocks hb ON hb.id = ha.block_id
      LEFT JOIN degrees dg ON dg.id = lp.degree_id
      LEFT JOIN semesters sm ON sm.id = lp.semester_id
-  WHERE acc.code = 'hostel'::text;
+  WHERE acc.code = 'hostel'::text
+    AND lp.lifecycle_status::text IN ('active', 'reserved', 'admitted');
 
 GRANT ALL ON v_learner_hostelites TO anon, authenticated, service_role;
 
