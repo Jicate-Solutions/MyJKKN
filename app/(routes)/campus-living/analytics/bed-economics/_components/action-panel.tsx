@@ -35,10 +35,10 @@ export function ActionPanel({ hostelYearId, institutionId }: Props) {
   const consolidation = useBedEconConsolidation(hostelYearId, institutionId);
 
   // Top vacant rooms by annualised loss (the "money walking past the door" list).
-  const topVacancies = useMemo(() => {
+  const { topVacancies, totalVacancies } = useMemo(() => {
     const list = [...(vacancy.data ?? [])].filter((r) => r.vacant_beds > 0);
     list.sort((a, b) => b.vacancy_loss - a.vacancy_loss);
-    return list.slice(0, 8);
+    return { topVacancies: list.slice(0, 8), totalVacancies: list.length };
   }, [vacancy.data]);
 
   // Premium conversion candidates: rooms with an open premium discount.
@@ -48,7 +48,7 @@ export function ActionPanel({ hostelYearId, institutionId }: Props) {
   );
 
   return (
-    <div className="grid gap-4 lg:grid-cols-3">
+    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
       {/* 1. Stale / costly vacancies */}
       <Card>
         <CardHeader>
@@ -56,7 +56,12 @@ export function ActionPanel({ hostelYearId, institutionId }: Props) {
             <BedDouble className="h-4 w-4 text-amber-600" />
             Costly vacancies
           </CardTitle>
-          <CardDescription>Vacant beds ranked by annualised loss.</CardDescription>
+          <CardDescription>
+            Vacant beds ranked by annualised loss
+            {totalVacancies > topVacancies.length
+              ? ` (showing top ${topVacancies.length} of ${totalVacancies}).`
+              : '.'}
+          </CardDescription>
         </CardHeader>
         <CardContent>
           {vacancy.isLoading ? (

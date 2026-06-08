@@ -45,7 +45,10 @@ type SortKey = keyof Pick<
 
 export function BlockLeagueTable({ hostelYearId, institutionId }: Props) {
   const { data, isLoading, error } = useBedEconBlockGrid(hostelYearId, institutionId);
-  const [sortKey, setSortKey] = useState<SortKey>('billed');
+  // Default sort: sellable_beds desc. billed is 0 for every block during the
+  // pre-billing launch window, so a billed-default would be arbitrary order;
+  // bed count is stable and meaningful before any bills exist.
+  const [sortKey, setSortKey] = useState<SortKey>('sellable_beds');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
 
   const rows = useMemo(() => {
@@ -58,9 +61,16 @@ export function BlockLeagueTable({ hostelYearId, institutionId }: Props) {
         const cmp = String(av ?? '').localeCompare(String(bv ?? ''));
         return sortDir === 'asc' ? cmp : -cmp;
       }
-      // Numeric / null — nulls sort last regardless of direction.
-      const an = av === null || av === undefined ? -Infinity : (av as number);
-      const bn = bv === null || bv === undefined ? -Infinity : (bv as number);
+      // Numeric / null — nulls always sort LAST in both directions. We can't
+      // fold null into ±Infinity (that pins it to one end and flips with
+      // direction), so handle nulls explicitly before the numeric compare.
+      const aNull = av === null || av === undefined;
+      const bNull = bv === null || bv === undefined;
+      if (aNull && bNull) return 0;
+      if (aNull) return 1;
+      if (bNull) return -1;
+      const an = av as number;
+      const bn = bv as number;
       return sortDir === 'asc' ? an - bn : bn - an;
     });
     return list;
@@ -130,7 +140,14 @@ export function BlockLeagueTable({ hostelYearId, institutionId }: Props) {
               <TableBody>
                 {rows.map((r) => (
                   <TableRow key={r.block_id}>
-                    <TableCell className="font-medium">{r.block_name}</TableCell>
+                    <TableCell className="font-medium">
+                      <Link
+                        href={`/campus-living/blocks/${r.block_id}`}
+                        className="cursor-pointer hover:underline"
+                      >
+                        {r.block_name}
+                      </Link>
+                    </TableCell>
                     <TableCell>
                       <div className="flex flex-wrap items-center gap-1.5">
                         <span className="text-xs text-muted-foreground">{r.institution_names}</span>
@@ -178,6 +195,9 @@ export function BlockLeagueTable({ hostelYearId, institutionId }: Props) {
             * Shared block — bed counts shown under each institution are not additive across institutions (counted once at network level).
           </p>
         )}
+        <p className="mt-3 text-[11px] text-muted-foreground">
+          Per-block revenue attributes a bill to the block of the learner&apos;s current allocation; bills without a current allocation count in the network total but no block row.
+        </p>
       </CardContent>
     </Card>
   );

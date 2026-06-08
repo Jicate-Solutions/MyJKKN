@@ -76,11 +76,12 @@ export function TrendChart({ hostelYearId, institutionId }: Props) {
     for (const r of rows) {
       if (!earliest || r.snapshot_date < earliest) earliest = r.snapshot_date;
       const entry = byDate.get(r.snapshot_date) ?? { date: r.snapshot_date };
-      const pct =
-        r.beds_sellable > 0
-          ? Math.round((r.beds_occupied / r.beds_sellable) * 1000) / 10
-          : 0;
-      entry[r.block_id] = pct;
+      // When a block has no sellable beds on a date, occupancy % is undefined
+      // (not 0%). Omit the key so connectNulls={false} breaks the line into a
+      // gap rather than dropping it to a misleading real-looking 0%.
+      if (r.beds_sellable > 0) {
+        entry[r.block_id] = Math.round((r.beds_occupied / r.beds_sellable) * 1000) / 10;
+      }
       byDate.set(r.snapshot_date, entry);
     }
 
