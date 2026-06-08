@@ -17,6 +17,7 @@ import type {
   BedEconCostRow,
   BedEconTrendRow,
   BedEconConsolidation,
+  BedEconPremiumPotentialRow,
 } from '@/types/bed-economics';
 
 export class BedEconomicsService {
@@ -133,5 +134,24 @@ export class BedEconomicsService {
     );
     if (error) throw new Error(`Bed-econ consolidation RPC failed: ${error.message}`);
     return data as unknown as BedEconConsolidation;
+  }
+
+  /** Premium Revenue model — per gender×tier potential at an assumed base rate. */
+  static async getPremiumPotential(
+    hostelYearId: string,
+    institutionId?: string,
+    assumedBaseInr?: number,
+  ): Promise<BedEconPremiumPotentialRow[]> {
+    const supabase = createClientSupabaseClient();
+    const { data, error } = await supabase.rpc(
+      'fn_bed_econ_premium_potential' as never,
+      {
+        p_hostel_year_id: hostelYearId,
+        p_institution_id: institutionId ?? null,
+        p_assumed_base_inr: assumedBaseInr ?? null,
+      } as never,
+    );
+    if (error) throw new Error(`Bed-econ premium potential RPC failed: ${error.message}`);
+    return (data as unknown as BedEconPremiumPotentialRow[]) ?? [];
   }
 }

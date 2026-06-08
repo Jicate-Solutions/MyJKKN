@@ -12,6 +12,7 @@ import { BlockLeagueTable } from './_components/block-league-table';
 import { ActionPanel } from './_components/action-panel';
 import { TrendChart } from './_components/trend-chart';
 import { CostReturnSection } from './_components/cost-return-section';
+import { PremiumRevenueSection } from './_components/premium-revenue-section';
 import { DqCard } from './_components/dq-card';
 import { SettingsPanel } from './_components/settings-panel';
 
@@ -117,7 +118,10 @@ export default function BedEconomicsPage() {
         {/* 7. Cost & return */}
         <CostReturnSection hostelYearId={scopedHostelYearId} institutionId={scopedInstitutionId} />
 
-        {/* 8. Data quality */}
+        {/* 8. Premium revenue — maximise yield per premium bed */}
+        <PremiumRevenueSection hostelYearId={scopedHostelYearId} institutionId={scopedInstitutionId} />
+
+        {/* 9. Data quality */}
         <DqCard institutionId={institutionId} />
       </div>
     </ContentLayout>

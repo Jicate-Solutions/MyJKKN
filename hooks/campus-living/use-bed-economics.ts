@@ -33,6 +33,8 @@ export const bedEconomicsKeys = {
     ['bed-economics', 'trend', filters] as const,
   consolidation: (filters: Record<string, unknown>) =>
     ['bed-economics', 'consolidation', filters] as const,
+  premiumPotential: (filters: Record<string, unknown>) =>
+    ['bed-economics', 'premium-potential', filters] as const,
 };
 
 // --- Query hooks ---
@@ -117,6 +119,20 @@ export function useBedEconConsolidation(
     queryKey: bedEconomicsKeys.consolidation({ hostelYearId, institutionId }),
     queryFn: () =>
       BedEconomicsService.getConsolidation(hostelYearId as string, institutionId),
+    enabled: isSuperAdmin && !!hostelYearId,
+  });
+}
+
+export function useBedEconPremiumPotential(
+  hostelYearId: string | undefined,
+  institutionId?: string,
+  assumedBaseInr?: number,
+) {
+  const { isSuperAdmin } = usePermissions();
+  return useQuery({
+    queryKey: bedEconomicsKeys.premiumPotential({ hostelYearId, institutionId, assumedBaseInr }),
+    queryFn: () =>
+      BedEconomicsService.getPremiumPotential(hostelYearId as string, institutionId, assumedBaseInr),
     enabled: isSuperAdmin && !!hostelYearId,
   });
 }
