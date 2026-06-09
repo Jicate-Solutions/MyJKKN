@@ -45,7 +45,7 @@ function parseValue(raw: unknown): ArtifactsValue {
 
 export default function TeachingArtifactsPage() {
   return (
-    <PermissionGuard module="users" action="manage">
+    <PermissionGuard module="hr.policies" action="view">
       <ContentLayout title="HR Policy — Teaching Artifacts">
         <PageBreadcrumb
           items={[

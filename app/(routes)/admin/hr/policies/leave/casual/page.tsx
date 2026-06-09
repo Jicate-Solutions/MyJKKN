@@ -63,7 +63,7 @@ const SCHEMA_NOTES = [
 
 export default function CasualLeavePolicyPage() {
   return (
-    <PermissionGuard module="users" action="manage">
+    <PermissionGuard module="hr.policies" action="view">
       <ContentLayout title="Casual leave + outpass + permission">
         <PageBreadcrumb
           items={[

@@ -87,7 +87,7 @@ function parseValue(raw: unknown): FeedbackValue {
 
 export default function FeedbackEvaluationPage() {
   return (
-    <PermissionGuard module="users" action="manage">
+    <PermissionGuard module="hr.policies" action="view">
       <ContentLayout title="HR Policy — Student Feedback & Evaluation">
         <PageBreadcrumb
           items={[

@@ -166,7 +166,7 @@ function parseValue(raw: unknown): StaffDevValue {
 
 export default function StaffDevelopmentPage() {
   return (
-    <PermissionGuard module="users" action="manage">
+    <PermissionGuard module="hr.policies" action="view">
       <ContentLayout title="HR Policy — Staff Development">
         <PageBreadcrumb
           items={[

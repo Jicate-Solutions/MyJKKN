@@ -28,7 +28,7 @@ const SCHEMA_NOTES = [
 
 export default function CadresPolicyPage() {
   return (
-    <PermissionGuard module="users" action="manage">
+    <PermissionGuard module="hr.policies" action="view">
       <ContentLayout title="Cadres">
         <PageBreadcrumb
           items={[

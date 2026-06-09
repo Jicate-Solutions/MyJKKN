@@ -36,7 +36,7 @@ const SCHEMA_NOTES = [
 
 export default function InstitutionMetaPolicyPage() {
   return (
-    <PermissionGuard module="users" action="manage">
+    <PermissionGuard module="hr.policies" action="view">
       <ContentLayout title="Institution metadata">
         <PageBreadcrumb
           items={[

@@ -80,7 +80,7 @@ const FIELDS: FieldSpec[] = [
 
 export default function SocialMediaConductPage() {
   return (
-    <PermissionGuard module="users" action="manage">
+    <PermissionGuard module="hr.policies" action="view">
       <ContentLayout title="Social Media Conduct">
         <PageBreadcrumb
           items={[

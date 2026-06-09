@@ -75,7 +75,7 @@ const FIELDS: FieldSpec[] = [
 
 export default function GenAiUsagePage() {
   return (
-    <PermissionGuard module="users" action="manage">
+    <PermissionGuard module="hr.policies" action="view">
       <ContentLayout title="GenAI Usage">
         <PageBreadcrumb
           items={[

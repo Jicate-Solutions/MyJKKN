@@ -149,7 +149,7 @@ const POLICY_EDITORS: ReadonlyArray<PolicyEditorEntry> = [
 
 export default function HrPoliciesIndexPage() {
   return (
-    <PermissionGuard module="users" action="manage">
+    <PermissionGuard module="hr.policies" action="view">
       <ContentLayout title="HR Policies">
         <PageBreadcrumb
           items={[

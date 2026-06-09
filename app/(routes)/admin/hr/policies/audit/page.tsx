@@ -26,7 +26,7 @@ export const dynamic = 'force-dynamic';
 
 export default function HrPoliciesAuditPage() {
   return (
-    <PermissionGuard module="users" action="manage">
+    <PermissionGuard module="hr.policies" action="view">
       <ContentLayout title="HR Policies — Audit Trail">
         <PageBreadcrumb
           items={[

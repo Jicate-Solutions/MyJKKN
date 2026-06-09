@@ -47,7 +47,7 @@ const FIELDS: FieldSpec[] = [
 
 export default function WfhRulesPage() {
   return (
-    <PermissionGuard module="users" action="manage">
+    <PermissionGuard module="hr.policies" action="view">
       <ContentLayout title="R&D — Work-From-Home Rules">
         <PageBreadcrumb
           items={[

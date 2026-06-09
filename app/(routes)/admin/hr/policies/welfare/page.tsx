@@ -27,7 +27,7 @@ const SCHEMA_NOTES = [
 
 export default function WelfareActivitiesPolicyPage() {
   return (
-    <PermissionGuard module="users" action="manage">
+    <PermissionGuard module="hr.policies" action="view">
       <ContentLayout title="Welfare activities">
         <PageBreadcrumb
           items={[

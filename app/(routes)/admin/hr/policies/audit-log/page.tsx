@@ -66,7 +66,7 @@ export default async function HrPoliciesAuditLogPage({
 }) {
   const params = await searchParams;
   return (
-    <PermissionGuard module="users" action="manage">
+    <PermissionGuard module="hr.policies" action="view">
       <ContentLayout title="HR Policies — Audit log">
         <PageBreadcrumb
           items={[

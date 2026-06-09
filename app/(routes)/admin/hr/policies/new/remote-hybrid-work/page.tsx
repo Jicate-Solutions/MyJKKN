@@ -111,7 +111,7 @@ const FIELDS: FieldSpec[] = [
 
 export default function RemoteHybridWorkPage() {
   return (
-    <PermissionGuard module="users" action="manage">
+    <PermissionGuard module="hr.policies" action="view">
       <ContentLayout title="Remote & Hybrid Work">
         <PageBreadcrumb
           items={[

@@ -39,7 +39,7 @@ const SCHEMA_NOTES = [
 
 export default function CompensatoryLeavePolicyPage() {
   return (
-    <PermissionGuard module="users" action="manage">
+    <PermissionGuard module="hr.policies" action="view">
       <ContentLayout title="Compensatory off">
         <PageBreadcrumb
           items={[

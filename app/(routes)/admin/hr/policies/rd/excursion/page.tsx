@@ -83,7 +83,7 @@ const BASE_FIELDS: FieldSpec[] = [
 
 export default function ExcursionPage() {
   return (
-    <PermissionGuard module="users" action="manage">
+    <PermissionGuard module="hr.policies" action="view">
       <ContentLayout title="R&D — Excursion Eligibility">
         <PageBreadcrumb
           items={[

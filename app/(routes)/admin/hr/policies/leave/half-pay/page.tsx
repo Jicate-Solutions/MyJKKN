@@ -132,7 +132,7 @@ export default function HalfPayLeavePolicyPage() {
     profile?.institution_id ?? (institutions.length > 0 ? institutions[0].id : '');
 
   return (
-    <PermissionGuard module="users" action="manage">
+    <PermissionGuard module="hr.policies" action="view">
       <ContentLayout title="Half-pay leave">
         <PageBreadcrumb
           items={[

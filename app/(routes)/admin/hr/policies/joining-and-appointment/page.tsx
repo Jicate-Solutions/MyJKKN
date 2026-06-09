@@ -114,7 +114,7 @@ function parseValue(raw: unknown): JoiningValue {
 
 export default function JoiningAndAppointmentPage() {
   return (
-    <PermissionGuard module="users" action="manage">
+    <PermissionGuard module="hr.policies" action="view">
       <ContentLayout title="HR Policy — Joining & Appointment">
         <PageBreadcrumb
           items={[

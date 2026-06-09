@@ -86,7 +86,7 @@ function parseValue(raw: unknown): OnDutyValue {
 
 export default function OnDutyLeavePage() {
   return (
-    <PermissionGuard module="users" action="manage">
+    <PermissionGuard module="hr.policies" action="view">
       <ContentLayout title="HR Policy — On-Duty (OD) Leave">
         <PageBreadcrumb
           items={[

@@ -79,7 +79,7 @@ const FIELDS: FieldSpec[] = [
 
 export default function PublicationIncentivesPage() {
   return (
-    <PermissionGuard module="users" action="manage">
+    <PermissionGuard module="hr.policies" action="view">
       <ContentLayout title="R&D — Publication Incentives">
         <PageBreadcrumb
           items={[

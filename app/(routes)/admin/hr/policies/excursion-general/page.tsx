@@ -46,7 +46,7 @@ const SCHEMA_NOTES = [
 
 export default function ExcursionGeneralPolicyPage() {
   return (
-    <PermissionGuard module="users" action="manage">
+    <PermissionGuard module="hr.policies" action="view">
       <ContentLayout title="Excursion programme">
         <PageBreadcrumb
           items={[
