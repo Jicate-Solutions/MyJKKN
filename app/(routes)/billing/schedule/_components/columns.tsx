@@ -40,7 +40,8 @@ export const columns: ColumnDef<StudentBill>[] = [
       />
     ),
     enableSorting: false,
-    enableHiding: false
+    enableHiding: false,
+    enableResizing: false
   },
   {
     accessorKey: 'student',
@@ -279,6 +280,7 @@ export const columns: ColumnDef<StudentBill>[] = [
     cell: ({ row }) => <DataTableRowActions row={row} />,
     enableSorting: false,
     enableHiding: false,
+    enableResizing: false,
     size: 60,
     minSize: 60,
     maxSize: 80
