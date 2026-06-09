@@ -416,6 +416,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/billing/schedule': 'billing.schedule.view',
   '/billing/schedule/new': 'billing.schedule.create',
   '/billing/schedule/bulk-create': 'billing.schedule.create',
+  '/billing/schedule/bulk-edit': 'billing.schedule.update',
   '/billing/schedule/[id]': 'billing.schedule.view',
   '/billing/schedule/[id]/edit': 'billing.schedule.update',
   '/billing/schedule/students': 'billing.schedule.view',

@@ -128,6 +128,8 @@ const NAV_EXCLUDE = new Set<string>([
   '/billing/categories/new',
   '/billing/discounts/new',
   '/billing/refunds/new',
+  // Billing button-invoked bulk-action pages (linked from /billing/schedule header)
+  '/billing/schedule/bulk-edit',
 
   // Board of Studies /new forms
   '/bos/compositions/new',

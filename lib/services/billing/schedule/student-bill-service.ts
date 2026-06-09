@@ -9,6 +9,10 @@ import type {
   BulkBillScheduleDto,
   BulkOperationResult
 } from '@/types/billing-schedule';
+import type {
+  BulkEditDownloadFilters,
+  BillForBulkEdit
+} from '@/lib/utils/mappings/student-bill-bulk-edit-mappings';
 
 export class StudentBillService {
   private static supabase = createClientSupabaseClient();
@@ -1196,5 +1200,114 @@ export class StudentBillService {
       console.error('Error calculating total refund amount:', error);
       return 0;
     }
+  }
+
+  /** Cap mirrored by the bulk-edit template route + filter-panel warning. */
+  static readonly BULK_EDIT_DOWNLOAD_CAP = 5000;
+
+  /**
+   * Apply the bulk-edit download filters to a billing_student_bills query.
+   * Shared by getBillsForBulkEdit + countBillsForBulkEdit so the count never
+   * drifts from the exported set.
+   */
+  private static applyBulkEditFilters(query: any, filters: BulkEditDownloadFilters) {
+    if (filters.institution_id) {
+      query = query.eq('institution_id', filters.institution_id);
+    }
+    if (filters.item_category_id) {
+      query = query.eq('item_category_id', filters.item_category_id);
+    }
+    if (filters.status) {
+      query = query.eq('status', filters.status);
+    }
+    if (filters.academic_year_id === 'unspecified') {
+      query = query.is('academic_year_id', null);
+    } else if (filters.academic_year_id) {
+      query = query.eq('academic_year_id', filters.academic_year_id);
+    }
+    if (filters.due_date_from) {
+      query = query.gte('due_date', filters.due_date_from);
+    }
+    if (filters.due_date_to) {
+      query = query.lte('due_date', filters.due_date_to);
+    }
+    return query;
+  }
+
+  /**
+   * Existing bills (current values) for the bulk-edit export, capped.
+   * RLS (via the injected client) scopes rows to the caller.
+   */
+  static async getBillsForBulkEdit(
+    filters: BulkEditDownloadFilters,
+    client: any
+  ): Promise<BillForBulkEdit[]> {
+    let query = client
+      .from('billing_student_bills')
+      .select(
+        `
+        id,
+        institution_id,
+        status,
+        final_amount,
+        bill_description,
+        due_date,
+        remarks,
+        student:learners_profiles(first_name, last_name, roll_number),
+        institution:institutions(name),
+        academic_year:academic_years(academic_year_name),
+        item_category:billing_categories(category_name)
+      `
+      )
+      .order('created_at', { ascending: false })
+      .limit(StudentBillService.BULK_EDIT_DOWNLOAD_CAP);
+
+    query = StudentBillService.applyBulkEditFilters(query, filters);
+
+    const { data, error } = await query;
+    if (error) throw error;
+
+    return (data || []).map((b: any): BillForBulkEdit => {
+      const student = Array.isArray(b.student) ? b.student[0] : b.student;
+      const institution = Array.isArray(b.institution)
+        ? b.institution[0]
+        : b.institution;
+      const ay = Array.isArray(b.academic_year)
+        ? b.academic_year[0]
+        : b.academic_year;
+      const cat = Array.isArray(b.item_category)
+        ? b.item_category[0]
+        : b.item_category;
+      return {
+        bill_id: b.id,
+        institution_id: b.institution_id,
+        institution_name: institution?.name || '',
+        roll_number: student?.roll_number || '',
+        student_name:
+          `${student?.first_name || ''} ${student?.last_name || ''}`.trim() ||
+          'Unknown',
+        status: b.status,
+        final_amount: b.final_amount ?? 0,
+        academic_year_name: ay?.academic_year_name ?? null,
+        category_name: cat?.category_name || '',
+        bill_description: b.bill_description ?? null,
+        due_date: b.due_date,
+        remarks: b.remarks ?? null
+      };
+    });
+  }
+
+  /** Count of bills matching the bulk-edit filters (live preview). */
+  static async countBillsForBulkEdit(
+    filters: BulkEditDownloadFilters,
+    client: any
+  ): Promise<number> {
+    let query = client
+      .from('billing_student_bills')
+      .select('id', { count: 'exact', head: true });
+    query = StudentBillService.applyBulkEditFilters(query, filters);
+    const { count, error } = await query;
+    if (error) throw error;
+    return count || 0;
   }
 }
