@@ -19,7 +19,7 @@ import { Compass } from 'lucide-react';
 
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
-import { PermissionGuard } from '@/components/auth/permission-guard';
+import { SuperAdminOnly } from '@/components/auth/admin-permission-guard';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { usePermissions } from '@/hooks/use-permissions';
 
@@ -29,7 +29,7 @@ import { WindowPolicyCard } from './_components/window-policy-card';
 
 export default function InstagramAttributionPage() {
   return (
-    <PermissionGuard module="users" action="manage">
+    <SuperAdminOnly>
       <ContentLayout title="Instagram Attribution">
         <PageBreadcrumb
           items={[
@@ -40,7 +40,7 @@ export default function InstagramAttributionPage() {
         />
         <Content />
       </ContentLayout>
-    </PermissionGuard>
+    </SuperAdminOnly>
   );
 }
 

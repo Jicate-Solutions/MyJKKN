@@ -41,7 +41,7 @@ import { toast } from 'sonner';
 
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
-import { PermissionGuard } from '@/components/auth/permission-guard';
+import { SuperAdminOnly } from '@/components/auth/admin-permission-guard';
 import {
   Card,
   CardContent,
@@ -72,11 +72,11 @@ import {
 } from './_components/drilldown-policy-service';
 
 // ---------------------------------------------------------------------------
-// Page wrapper — gated by PermissionGuard. Matches nav-config exactly.
+// Page wrapper — gated by SuperAdminOnly. Matches nav-config exactly.
 // ---------------------------------------------------------------------------
 export default function DashboardDrilldownsPage() {
   return (
-    <PermissionGuard module="users" action="manage">
+    <SuperAdminOnly>
       <ContentLayout title="Dashboard Drilldown Configuration">
         <PageBreadcrumb
           items={[
@@ -87,7 +87,7 @@ export default function DashboardDrilldownsPage() {
         />
         <DashboardDrilldownsContent />
       </ContentLayout>
-    </PermissionGuard>
+    </SuperAdminOnly>
   );
 }
 
