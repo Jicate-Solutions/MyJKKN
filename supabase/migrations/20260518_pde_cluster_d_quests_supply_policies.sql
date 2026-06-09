@@ -8,7 +8,7 @@
 -- when a learner fails a real-world quest.
 --
 -- Pattern: every governance decision = row in platform_policies. Director
--- edits via /admin/pde/policies/quests UI → behavior changes on next
+-- edits via /pde/admin/policies/quests UI → behavior changes on next
 -- quest sourcing run. Zero deploys, zero developer round-trips.
 --
 -- Read at runtime via fn_get_policy('pde.quests.<key>', institution_id).

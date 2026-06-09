@@ -186,10 +186,10 @@ export const POLICY_KEYS = {
   HR_DASHBOARD_ROLE_GROUPS: 'hr.dashboard.role_groups',
 
   // Nav landing pages (super-admin-tunable redirect targets for module roots).
-  // Consumed by app/(routes)/admin/page.tsx + /admin/lti/page.tsx + /admin/pde/page.tsx
-  // + /learn/pde/page.tsx + the 4 sweep hubs added 2026-06-02
-  // (/learn/pde/cases, /admin/pde/rubrics, /admin/pde/accreditation-evidence,
-  // /admin/pde/transcript).
+  // Consumed by app/(routes)/admin/page.tsx + /admin/lti/page.tsx + /pde/admin/page.tsx
+  // + /pde/learn/page.tsx + the 4 sweep hubs added 2026-06-02
+  // (/pde/learn/cases, /pde/admin/rubrics, /pde/admin/accreditation-evidence,
+  // /pde/admin/transcript).
   // Editable via /admin/landing-pages — zero-deploy redirect retargeting.
   NAV_ADMIN_DEFAULT_LANDING: 'nav.admin.default_landing',
   NAV_ADMIN_LTI_DEFAULT_LANDING: 'nav.admin.lti.default_landing',
@@ -199,6 +199,9 @@ export const POLICY_KEYS = {
   NAV_ADMIN_PDE_TRANSCRIPT_DEFAULT_LANDING: 'nav.admin.pde.transcript.default_landing',
   NAV_LEARN_PDE_DEFAULT_LANDING: 'nav.learn.pde.default_landing',
   NAV_LEARN_PDE_CASES_DEFAULT_LANDING: 'nav.learn.pde.cases.default_landing',
+  // PDE Module Extraction (2026-06-09): top-level /pde landing.
+  // Consumed by app/(routes)/pde/page.tsx — the new unified PDE module hub.
+  NAV_PDE_DEFAULT_LANDING: 'nav.pde.default_landing',
 
   // HR Recruitment approvals — viewer-scope enforcement.
   // Consumed by lib/services/hr/recruitment-service.ts (resolveViewerScope).
@@ -242,7 +245,7 @@ export const POLICY_KEYS = {
   // communities. Each row is a JSONB object with evidence_required, min_*
   // thresholds, validator_role, deliverables, and scoring_band.
   // Seeded by 20260518_pde_social_leadership_rubrics.sql (scope=global).
-  // Editable via /admin/pde/rubrics/social-leadership (Director-only).
+  // Editable via /pde/admin/rubrics/social-leadership (Director-only).
   // Consumer (future): demonstration-evaluator services will read these via
   // fn_get_policy to validate Phase-8 submissions. No deploy needed to retune.
   PDE_RUBRICS_SOCIAL_LEADERSHIP_PEER_MENTOR: 'pde.rubrics.social_leadership.peer_mentor',
@@ -253,7 +256,7 @@ export const POLICY_KEYS = {
   // 4 rubric rows that define how JKKN students earn the cultural & civic
   // literacy slice of their PDE score. Seeded by
   // supabase/migrations/20260518_pde_cultural_civic_rubrics.sql.
-  // Edited via /admin/pde/rubrics/cultural-civic (Director-only).
+  // Edited via /pde/admin/rubrics/cultural-civic (Director-only).
   // Reflects NEP 2020 §4.6-4.7 (IKS + mother-tongue), §4.23 (fundamental
   // duties / constitutional values), §11.8 (community-service credit).
   // JKKN-Tamil-Nadu rooted: Tamil is the primary approved language; local-
@@ -270,7 +273,7 @@ export const POLICY_KEYS = {
   //   { discipline, rubric: [{skill, evidence_required, validator_role,
   //     scoring_band:[min,max], passing_threshold}],
   //     min_demonstrations_per_year, validity_period_months }
-  // Edited via /admin/pde/rubrics/embodied (super-admin). Consumed by PDE
+  // Edited via /pde/admin/rubrics/embodied (super-admin). Consumed by PDE
   // demonstration gate logic at runtime — no deploy required to retune.
   PDE_RUBRICS_EMBODIED_MEDICAL: 'pde.rubrics.embodied.medical',
   PDE_RUBRICS_EMBODIED_PHARMACY: 'pde.rubrics.embodied.pharmacy',

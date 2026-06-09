@@ -1262,23 +1262,23 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "children": []
       },
       {
-        "path": "/admin/pde",
+        "path": "/pde/admin",
         "label": "Pde",
         "iconName": "FileText",
         "children": [
           {
-            "path": "/admin/pde/accreditation-evidence",
+            "path": "/pde/admin/accreditation-evidence",
             "label": "Accreditation Evidence",
             "iconName": "FileText",
             "children": []
           },
           {
-            "path": "/admin/pde/assessments",
+            "path": "/pde/admin/assessments",
             "label": "Assessments",
             "iconName": "ClipboardCheck",
             "children": [
               {
-                "path": "/admin/pde/assessments/create",
+                "path": "/pde/admin/assessments/create",
                 "label": "Create",
                 "iconName": "Plus",
                 "children": []
@@ -1286,42 +1286,42 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             ]
           },
           {
-            "path": "/admin/pde/at-risk",
+            "path": "/pde/admin/at-risk",
             "label": "At Risk",
             "iconName": "FileText",
             "children": []
           },
           {
-            "path": "/admin/pde/bos-evidence",
+            "path": "/pde/admin/bos-evidence",
             "label": "BoS PDE Evidence",
             "iconName": "FileSearch",
             "children": []
           },
           {
-            "path": "/admin/pde/bridge",
+            "path": "/pde/admin/bridge",
             "label": "PDE Bridge (legacy → new)",
             "iconName": "GitMerge",
             "children": []
           },
           {
-            "path": "/admin/pde/capabilities",
+            "path": "/pde/admin/capabilities",
             "label": "Capabilities",
             "iconName": "Cpu",
             "children": []
           },
           {
-            "path": "/admin/pde/cohort",
+            "path": "/pde/admin/cohort",
             "label": "PDE Cohort Comparison",
             "iconName": "BarChart3",
             "children": []
           },
           {
-            "path": "/admin/pde/compliance",
+            "path": "/pde/admin/compliance",
             "label": "PDE Compliance",
             "iconName": "ShieldCheck",
             "children": [
               {
-                "path": "/admin/pde/compliance/per-college",
+                "path": "/pde/admin/compliance/per-college",
                 "label": "PDE Per-College Compliance",
                 "iconName": "ShieldCheck",
                 "children": []
@@ -1329,78 +1329,78 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             ]
           },
           {
-            "path": "/admin/pde/demonstrations",
+            "path": "/pde/admin/demonstrations",
             "label": "PDE Demonstrations",
             "iconName": "Inbox",
             "children": []
           },
           {
-            "path": "/admin/pde/engagement",
+            "path": "/pde/admin/engagement",
             "label": "Engagement",
             "iconName": "FileText",
             "children": []
           },
           {
-            "path": "/admin/pde/feedback-moderation",
+            "path": "/pde/admin/feedback-moderation",
             "label": "PDE Feedback Moderation",
             "iconName": "ShieldAlert",
             "children": []
           },
           {
-            "path": "/admin/pde/kpi",
+            "path": "/pde/admin/kpi",
             "label": "PDE KPI Dashboard",
             "iconName": "Gauge",
             "children": []
           },
           {
-            "path": "/admin/pde/lti",
+            "path": "/pde/admin/lti",
             "label": "Lti",
             "iconName": "PlugZap",
             "children": []
           },
           {
-            "path": "/admin/pde/placement-signals",
+            "path": "/pde/admin/placement-signals",
             "label": "PDE Placement Signals",
             "iconName": "Megaphone",
             "children": []
           },
           {
-            "path": "/admin/pde/policies",
+            "path": "/pde/admin/policies",
             "label": "Policies",
             "iconName": "BookText",
             "children": [
               {
-                "path": "/admin/pde/policies/clinical-reasoning",
+                "path": "/pde/admin/policies/clinical-reasoning",
                 "label": "PDE Clinical Reasoning",
                 "iconName": "Stethoscope",
                 "children": []
               },
               {
-                "path": "/admin/pde/policies/governance",
+                "path": "/pde/admin/policies/governance",
                 "label": "PDE Gamification & Defense",
                 "iconName": "ShieldCheck",
                 "children": []
               },
               {
-                "path": "/admin/pde/policies/quests",
+                "path": "/pde/admin/policies/quests",
                 "label": "PDE Quests & Supply",
                 "iconName": "Boxes",
                 "children": []
               },
               {
-                "path": "/admin/pde/policies/rollout",
+                "path": "/pde/admin/policies/rollout",
                 "label": "PDE Rollout & Compliance",
                 "iconName": "Map",
                 "children": []
               },
               {
-                "path": "/admin/pde/policies/scoring",
+                "path": "/pde/admin/policies/scoring",
                 "label": "PDE Scoring & Integrity",
                 "iconName": "Sliders",
                 "children": []
               },
               {
-                "path": "/admin/pde/policies/visibility",
+                "path": "/pde/admin/policies/visibility",
                 "label": "PDE Visibility & Transparency",
                 "iconName": "Eye",
                 "children": []
@@ -1408,18 +1408,18 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             ]
           },
           {
-            "path": "/admin/pde/quest-supply",
+            "path": "/pde/admin/quest-supply",
             "label": "PDE Quest Supply",
             "iconName": "Inbox",
             "children": []
           },
           {
-            "path": "/admin/pde/quests",
+            "path": "/pde/admin/quests",
             "label": "Quests",
             "iconName": "Trophy",
             "children": [
               {
-                "path": "/admin/pde/quests/create",
+                "path": "/pde/admin/quests/create",
                 "label": "Create",
                 "iconName": "Plus",
                 "children": []
@@ -1427,24 +1427,24 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             ]
           },
           {
-            "path": "/admin/pde/rubrics",
+            "path": "/pde/admin/rubrics",
             "label": "Rubrics",
             "iconName": "FileText",
             "children": [
               {
-                "path": "/admin/pde/rubrics/cultural-civic",
+                "path": "/pde/admin/rubrics/cultural-civic",
                 "label": "PDE Rubrics — Cultural & Civic",
                 "iconName": "BookHeart",
                 "children": []
               },
               {
-                "path": "/admin/pde/rubrics/embodied",
+                "path": "/pde/admin/rubrics/embodied",
                 "label": "PDE Embodied Practice Rubrics",
                 "iconName": "Activity",
                 "children": []
               },
               {
-                "path": "/admin/pde/rubrics/social-leadership",
+                "path": "/pde/admin/rubrics/social-leadership",
                 "label": "PDE Rubrics — Social & Leadership",
                 "iconName": "Users",
                 "children": []
@@ -1452,7 +1452,7 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             ]
           },
           {
-            "path": "/admin/pde/transcript",
+            "path": "/pde/admin/transcript",
             "label": "Transcript",
             "iconName": "FileText",
             "children": []
@@ -3538,29 +3538,29 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         ]
       },
       {
-        "path": "/faculty/pde",
+        "path": "/pde/faculty",
         "label": "Pde",
         "iconName": "FileText",
         "children": [
           {
-            "path": "/faculty/pde/analytics",
+            "path": "/pde/faculty/analytics",
             "label": "Analytics",
             "iconName": "BarChart",
             "children": []
           },
           {
-            "path": "/faculty/pde/assessments",
+            "path": "/pde/faculty/assessments",
             "label": "Assessments",
             "iconName": "ClipboardCheck",
             "children": []
           },
           {
-            "path": "/faculty/pde/cases",
+            "path": "/pde/faculty/cases",
             "label": "Cases",
             "iconName": "FileText",
             "children": [
               {
-                "path": "/faculty/pde/cases/new",
+                "path": "/pde/faculty/cases/new",
                 "label": "New",
                 "iconName": "Plus",
                 "children": []
@@ -3568,19 +3568,19 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             ]
           },
           {
-            "path": "/faculty/pde/dashboard",
+            "path": "/pde/faculty/dashboard",
             "label": "Dashboard",
             "iconName": "LayoutGrid",
             "children": []
           },
           {
-            "path": "/faculty/pde/demonstrations",
+            "path": "/pde/faculty/demonstrations",
             "label": "Demonstrations",
             "iconName": "FileText",
             "children": []
           },
           {
-            "path": "/faculty/pde/quests",
+            "path": "/pde/faculty/quests",
             "label": "Quests",
             "iconName": "Trophy",
             "children": []
@@ -4252,29 +4252,29 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "children": []
       },
       {
-        "path": "/learn/pde",
+        "path": "/pde/learn",
         "label": "Pde",
         "iconName": "FileText",
         "children": [
           {
-            "path": "/learn/pde/cases",
+            "path": "/pde/learn/cases",
             "label": "Cases",
             "iconName": "FileText",
             "children": []
           },
           {
-            "path": "/learn/pde/cohort",
+            "path": "/pde/learn/cohort",
             "label": "PDE Cohort Comparison",
             "iconName": "Users",
             "children": []
           },
           {
-            "path": "/learn/pde/demonstrations",
+            "path": "/pde/learn/demonstrations",
             "label": "Demonstrations",
             "iconName": "FileText",
             "children": [
               {
-                "path": "/learn/pde/demonstrations/new",
+                "path": "/pde/learn/demonstrations/new",
                 "label": "New",
                 "iconName": "Plus",
                 "children": []
@@ -4282,7 +4282,7 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             ]
           },
           {
-            "path": "/learn/pde/transcript",
+            "path": "/pde/learn/transcript",
             "label": "Transcript",
             "iconName": "FileText",
             "children": []

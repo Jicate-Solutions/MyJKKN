@@ -37,7 +37,7 @@
 ## 22 Locked Decisions (6-batch Director interview, 2026-05-21 / 22)
 
 ### Batch 1 — Foundation
-1. **Route placement:** New PDE sub-route `/learn/pde/cases/[caseSlug]` + faculty mirror `/faculty/pde/cases/`
+1. **Route placement:** New PDE sub-route `/pde/learn/cases/[caseSlug]` + faculty mirror `/pde/faculty/cases/`
 2. **Capability slug:** Single `clinical_reasoning`; domain breakdown stored in `demonstration_evidence.domain_scores` JSONB
 3. **Sakthi WOZ timing:** Wait for MyJKKN port (~2-3 weeks). No standalone URL to Sakthi.
 4. **Standalone fate:** Kill `aicbl.vercel.app` + jicate-prototypes Supabase ref entirely after port deploys
@@ -69,7 +69,7 @@
 ### Batch 6 — Authoring & quality
 21. **Bulk authoring:** Visual form-builder (default) + JSON paste-import tab (power users)
 22. **Question types (3):** `free_text_socratic` (AI-graded), `mcq_warmup` (single-correct), `image_tag` (faculty draws regions; AI Gemini-Vision validates student reasoning text per click)
-23. **Cap reset:** Faculty action in `/faculty/pde/cases/[slug]/attempts/<student>` — [Grant N more attempts] with mandatory reason, logged to `pde_engagement_events`
+23. **Cap reset:** Faculty action in `/pde/faculty/cases/[slug]/attempts/<student>` — [Grant N more attempts] with mandatory reason, logged to `pde_engagement_events`
 24. **Accreditation evidence:** Auto-insert on score ≥ threshold; threshold configurable in `platform_policies` (`clinical_reasoning.evidence_threshold_pct = 60`)
 
 ### Batch 7 — Mobile + privacy + substrate scope
@@ -278,7 +278,7 @@ $$ LANGUAGE plpgsql STABLE;
 ### From MyJKKN repo (during PR 7 / Agent E decommission)
 - ✂️ `lib/pde/external-providers/aicbl/handler.ts` (after its logic is in-lined)
 - ✂️ `lib/services/pde-bridge-service.ts` (if exclusively for AICBL — verify)
-- ✂️ `/admin/pde/bridge` route (if exclusively for AICBL — verify)
+- ✂️ `/pde/admin/bridge` route (if exclusively for AICBL — verify)
 
 ### What survives (the IP being preserved)
 - ✅ Socratic prompt template (`DEFAULT_TEMPLATE` in AICBL's `get-feedback.ts`)
@@ -298,9 +298,9 @@ $$ LANGUAGE plpgsql STABLE;
 |---|---|---|
 | **A — Substrate + schema + seeds** | `supabase/migrations/`, `lib/services/pde-policy-clinical-reasoning.ts` | (1) Typed-widget columns on `platform_policies` (2) All schema additions to `pde_assessments`, `pde_assessment_questions`, `pde_submissions`, `vac_lessons` (3) `pde_capabilities` clinical_reasoning seed (4) `vac_courses` BDS Clinical Reasoning seed + auto-enroll trigger + BDS backfill (5) 8 clinical_reasoning policy rows with typed-widget metadata (6) `fn_get_policy_clinical_reasoning` RPC (7) Leukoplakia case seed (1 lesson + 1 assessment + 4 questions) (8) Apply migrations via Supabase Management API + verify each landed |
 | **B — Coach service** | `lib/services/pde-coach-clinical-reasoning.ts`, `lib/services/pde-service.ts`, `app/api/pde/coach/route.ts` | (1) Port AICBL's `get-feedback.ts` Socratic logic to MyJKKN (2) Replace placeholder body in `PDEService.sendCoachMessage` for `context_type='clinical_case'` (3) Route through `lib/services/platform/ai-providers.ts` + `ai-clients/` (4) Read 4 policies via `fn_get_policy_clinical_reasoning` (provider, model, max_sentences, prompt_template) (5) Implement attempt-cap check (5 lifetime) (6) Cost tracking via `ai_model_usage` insert (7) Handle AI failure UX: throw appropriate FeedbackError; route returns 4xx so client shows toast+retry |
-| **C — Student UI** | `app/(routes)/learn/pde/cases/**`, `hooks/pde/use-clinical-reasoning.ts`, types | (1) `/learn/pde/cases/[caseSlug]/page.tsx` — case attempt page with phone-responsive design at 360px/768px/1024px+ (2) Q renderers: `<FreeTextSocraticQuestion>`, `<MCQWarmupQuestion>`, `<ImageTagQuestion>` (canvas + click capture) (3) Attempt counter (X of 5) + cap-reached state (4) AI feedback panel with retry-on-failure (5) `/learn/pde/cases/[caseSlug]/summary/[attemptId]/page.tsx` post-case review (6) `useLogEngagement` integration to write `pde_engagement_events` (event_type='clinical_case_completed') (7) Multi-device manual test before commit |
-| **D — Faculty CRUD + authoring** | `app/(routes)/faculty/pde/cases/**`, faculty-side hooks + components | (1) `/faculty/pde/cases/page.tsx` list with status filters + per-cohort views (2) `/faculty/pde/cases/new/page.tsx` visual form-builder (patient details + Q editor + ground_truth + key_concepts + domain weight sliders summing to 100%) + JSON paste-import tab (3) `/faculty/pde/cases/[id]/edit` (draft/publish/archive transitions, versioning on edit) (4) `/faculty/pde/cases/[slug]/attempts/page.tsx` cohort-level analytics + per-student drill (5) `/faculty/pde/cases/[slug]/attempts/[studentId]/page.tsx` full transcript view + [Grant N more attempts] cap-reset action with reason capture (6) Preview-as-student mode (real Gemini, no save) (7) Image-tag region authoring (canvas + bounding-box drawing) |
-| **E — Admin policies + OSCE scoring + decommission** | `app/(routes)/admin/pde/policies/clinical-reasoning/**`, `lib/services/pde-osce-scoring.ts`, `app/api/pde/clinical-reasoning/score/route.ts`, decommission steps | (1) `/admin/pde/policies/clinical-reasoning/page.tsx` mirroring `<ScoringPolicyEditor>` pattern — but as `<TypedWidgetPolicyEditor>` that reads ui_widget/ui_options/ui_consequence/ui_cascade from platform_policies and renders the appropriate widget (number input / dropdown / textarea / etc.) (2) Port AICBL's `lib/osce/rubric.ts` (107 LOC) + `extractor.ts` (135 LOC) to `lib/services/pde-osce-scoring.ts` (3) `/api/pde/clinical-reasoning/score/route.ts` — server endpoint called after final Q of an attempt (4) Accreditation evidence auto-insert into `quality_evidence_mappings` when score ≥ threshold (reads threshold from `platform_policies`) (5) Update `pde_learner_capabilities` (upsert, keep max score) (6) Write `pde_engagement_events` row for case completion (7) PR #727 closure note + `aicbl.vercel.app` decommission checklist (action only after MyJKKN port verified live) |
+| **C — Student UI** | `app/(routes)/pde/learn/cases/**`, `hooks/pde/use-clinical-reasoning.ts`, types | (1) `/pde/learn/cases/[caseSlug]/page.tsx` — case attempt page with phone-responsive design at 360px/768px/1024px+ (2) Q renderers: `<FreeTextSocraticQuestion>`, `<MCQWarmupQuestion>`, `<ImageTagQuestion>` (canvas + click capture) (3) Attempt counter (X of 5) + cap-reached state (4) AI feedback panel with retry-on-failure (5) `/pde/learn/cases/[caseSlug]/summary/[attemptId]/page.tsx` post-case review (6) `useLogEngagement` integration to write `pde_engagement_events` (event_type='clinical_case_completed') (7) Multi-device manual test before commit |
+| **D — Faculty CRUD + authoring** | `app/(routes)/pde/faculty/cases/**`, faculty-side hooks + components | (1) `/pde/faculty/cases/page.tsx` list with status filters + per-cohort views (2) `/pde/faculty/cases/new/page.tsx` visual form-builder (patient details + Q editor + ground_truth + key_concepts + domain weight sliders summing to 100%) + JSON paste-import tab (3) `/pde/faculty/cases/[id]/edit` (draft/publish/archive transitions, versioning on edit) (4) `/pde/faculty/cases/[slug]/attempts/page.tsx` cohort-level analytics + per-student drill (5) `/pde/faculty/cases/[slug]/attempts/[studentId]/page.tsx` full transcript view + [Grant N more attempts] cap-reset action with reason capture (6) Preview-as-student mode (real Gemini, no save) (7) Image-tag region authoring (canvas + bounding-box drawing) |
+| **E — Admin policies + OSCE scoring + decommission** | `app/(routes)/pde/admin/policies/clinical-reasoning/**`, `lib/services/pde-osce-scoring.ts`, `app/api/pde/clinical-reasoning/score/route.ts`, decommission steps | (1) `/pde/admin/policies/clinical-reasoning/page.tsx` mirroring `<ScoringPolicyEditor>` pattern — but as `<TypedWidgetPolicyEditor>` that reads ui_widget/ui_options/ui_consequence/ui_cascade from platform_policies and renders the appropriate widget (number input / dropdown / textarea / etc.) (2) Port AICBL's `lib/osce/rubric.ts` (107 LOC) + `extractor.ts` (135 LOC) to `lib/services/pde-osce-scoring.ts` (3) `/api/pde/clinical-reasoning/score/route.ts` — server endpoint called after final Q of an attempt (4) Accreditation evidence auto-insert into `quality_evidence_mappings` when score ≥ threshold (reads threshold from `platform_policies`) (5) Update `pde_learner_capabilities` (upsert, keep max score) (6) Write `pde_engagement_events` row for case completion (7) PR #727 closure note + `aicbl.vercel.app` decommission checklist (action only after MyJKKN port verified live) |
 
 ### Dependencies / sequencing
 - A → must finish before B/C/D/E can compile-check against new schema
@@ -336,12 +336,12 @@ Every agent spawn prompt MUST include:
 3. `npm run build` passes locally (Turbopack)
 4. `npm run lint` passes locally
 5. All migrations applied to prod Supabase via Management API and verified via `information_schema.columns` probes
-6. Visual proof bookend: pre-merge localhost screenshots of `/learn/pde/cases/leukoplakia`, `/faculty/pde/cases`, `/admin/pde/policies/clinical-reasoning`
+6. Visual proof bookend: pre-merge localhost screenshots of `/pde/learn/cases/leukoplakia`, `/pde/faculty/cases`, `/pde/admin/policies/clinical-reasoning`
 7. Single PR opened to jicate/main, Ready (not DRAFT), with verbatim body referencing this spec
 8. Per `feedback_session_prs_must_be_one_click_mergeable`: NO Director-side fix-after-handoff allowed
 
 ### Integration "done" (post-merge)
-A real dental BDS student logs into MyJKKN, opens `/learn/pde/cases/leukoplakia`, completes all 4 Socratic questions with AI feedback, sees their OSCE score, and the Director can verify all three of:
+A real dental BDS student logs into MyJKKN, opens `/pde/learn/cases/leukoplakia`, completes all 4 Socratic questions with AI feedback, sees their OSCE score, and the Director can verify all three of:
 1. `SELECT count(*) FROM pde_engagement_events WHERE event_type='clinical_case_completed' AND learner_id=<bds-student-uuid>` ≥ 1
 2. `SELECT demonstration_score FROM pde_learner_capabilities WHERE learner_id=<bds-student-uuid> AND capability_id=(SELECT id FROM pde_capabilities WHERE slug='clinical_reasoning')` returns the OSCE percentage
 3. `https://aicbl.vercel.app` returns 404 (standalone decommissioned)

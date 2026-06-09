@@ -33,7 +33,7 @@
 // Bucketing
 // ---------
 // Real institutions are matched to college slugs via the same substring
-// heuristic used in `app/(routes)/admin/pde/cohort/_components/CohortHeatmap.tsx`
+// heuristic used in `app/(routes)/pde/admin/cohort/_components/CohortHeatmap.tsx`
 // so the two pages tell a coherent story. Slugs not represented by any real
 // institution still appear as empty rows (so the matrix is always 8×7).
 //

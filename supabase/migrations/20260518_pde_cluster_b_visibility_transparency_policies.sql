@@ -9,7 +9,7 @@
 -- own metrics (numeric score, percentile, audit trail).
 --
 -- Pattern: every governance decision = row in platform_policies. Director
--- edits via /admin/pde/policies/visibility UI → behavior changes on next
+-- edits via /pde/admin/policies/visibility UI → behavior changes on next
 -- learner view. Zero deploys, zero developer round-trips.
 --
 -- Read at runtime via fn_get_policy('pde.visibility.<key>', institution_id).

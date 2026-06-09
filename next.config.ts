@@ -157,9 +157,46 @@ const nextConfig: NextConfig = {
       },
       // PR-A4 (2026-04-17): /admin/pde/naac-evidence → accreditation-evidence/[body]
       // Preserves bookmarks + external links pointing at the NAAC-specific URL.
+      // Destination updated 2026-06-09 to point at the post-extraction path
+      // (/pde/admin/* instead of /admin/pde/*) so this is a 1-hop redirect.
       {
         source: '/admin/pde/naac-evidence',
-        destination: '/admin/pde/accreditation-evidence/naac',
+        destination: '/pde/admin/accreditation-evidence/naac',
+        permanent: true
+      },
+      // PDE Module Extraction (2026-06-09): /{admin,faculty,learn}/pde/* → /pde/{admin,faculty,learn}/*
+      // PDE was previously stuffed under 3 role-prefixed surfaces, inheriting
+      // the full /admin/layout.tsx chrome (the 43-chip nav strip Director called
+      // out 2026-06-09). The 3 subtrees now live under a unified /pde/* module.
+      // 308 (permanent) preserves bookmarks + in-flight email links indefinitely.
+      {
+        source: '/admin/pde',
+        destination: '/pde/admin',
+        permanent: true
+      },
+      {
+        source: '/admin/pde/:path*',
+        destination: '/pde/admin/:path*',
+        permanent: true
+      },
+      {
+        source: '/faculty/pde',
+        destination: '/pde/faculty',
+        permanent: true
+      },
+      {
+        source: '/faculty/pde/:path*',
+        destination: '/pde/faculty/:path*',
+        permanent: true
+      },
+      {
+        source: '/learn/pde',
+        destination: '/pde/learn',
+        permanent: true
+      },
+      {
+        source: '/learn/pde/:path*',
+        destination: '/pde/learn/:path*',
         permanent: true
       },
       // Internship URL migration (2026-06-02):

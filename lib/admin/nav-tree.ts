@@ -269,8 +269,8 @@ export function getAdminNavTree(): AdminCategoryNode[] {
  *  - 'system' category: pathname must match one of the synthetic system
  *    pages exactly (no nesting expected).
  *  - Active page within a category: longest-prefix match (so a deep route
- *    like `/admin/pde/quests/create` highlights `/admin/pde/quests`, not
- *    just `/admin/pde`).
+ *    like `/pde/admin/quests/create` highlights `/pde/admin/quests`, not
+ *    just `/pde/admin`).
  *
  * Returns null when pathname is not an admin route or no category matches.
  */

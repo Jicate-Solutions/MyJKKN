@@ -1507,7 +1507,7 @@ export const PERMISSION_CATEGORIES = [
       { key: 'pde.profile.view', label: 'View Learner Profile' },
       { key: 'pde.leaderboard.view', label: 'View Leaderboard' },
       // Added 2026-04-27 — menu-coverage baseline cleanup. Admin + Faculty
-      // PDE surfaces (under /admin/pde/* and /faculty/pde/*) had no
+      // PDE surfaces (under /pde/admin/* and /pde/faculty/*) had no
       // MENU_PERMISSIONS entries and were hidden for every non-super-admin.
       // PDE Admin (Super Admin / IQAC / Lifecycle leads)
       { key: 'pde.admin.view', label: 'View PDE Admin Dashboard' },
