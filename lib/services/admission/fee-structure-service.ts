@@ -79,6 +79,7 @@ export class FeeStructureService {
         department_name: string | null;
         programme_name: string | null;
         quota_name: string | null;
+        accommodation_name: string | null;
         /** Comma-joined community names, for legacy single-cell rendering. */
         community_name: string | null;
         /** All community names attached to this structure (via junction). */
@@ -133,6 +134,7 @@ export class FeeStructureService {
         department:departments(id, department_name),
         programme:programs(id, program_name),
         quota:quotas(id, name),
+        accommodation:accommodation_types(id, name),
         communities:admission_fee_structure_communities(community_category_id, community_category:community_categories(id, name)),
         admission_year:admission_years(id, admission_year_name),
         items:admission_fee_structure_items(id)
@@ -167,6 +169,7 @@ export class FeeStructureService {
       department: { department_name: string } | null;
       programme: { program_name: string } | null;
       quota: { name: string } | null;
+      accommodation: { name: string } | null;
       communities: Array<{
         community_category_id: string;
         community_category: { id: string; name: string } | null;
@@ -189,6 +192,7 @@ export class FeeStructureService {
         department_name: joined.department?.department_name ?? null,
         programme_name: joined.programme?.program_name ?? null,
         quota_name: joined.quota?.name ?? null,
+        accommodation_name: joined.accommodation?.name ?? null,
         // Backwards-compat single-name field — joins all linked communities
         // for legacy table cells. Most consumers should switch to
         // `community_names` (plural) when rendering chips.
@@ -242,6 +246,7 @@ export class FeeStructureService {
         department_name: string | null;
         programme_name: string | null;
         quota_name: string | null;
+        accommodation_name: string | null;
         community_name: string | null;
         community_names: string[];
         admission_year_name: string | null;
@@ -264,6 +269,7 @@ export class FeeStructureService {
         department:departments(id, department_name),
         programme:programs(id, program_name),
         quota:quotas(id, name),
+        accommodation:accommodation_types(id, name),
         communities:admission_fee_structure_communities(community_category_id, community_category:community_categories(id, name)),
         admission_year:admission_years(id, admission_year_name),
         items:admission_fee_structure_items(*, billing_category:billing_categories(id, category_name, frequency))
@@ -279,6 +285,7 @@ export class FeeStructureService {
       department: { department_name: string } | null;
       programme: { program_name: string } | null;
       quota: { name: string } | null;
+      accommodation: { name: string } | null;
       communities: Array<{
         community_category_id: string;
         community_category: { id: string; name: string } | null;
@@ -302,6 +309,7 @@ export class FeeStructureService {
       department_name: joined.department?.department_name ?? null,
       programme_name: joined.programme?.program_name ?? null,
       quota_name: joined.quota?.name ?? null,
+      accommodation_name: joined.accommodation?.name ?? null,
       community_name: communityNames.join(', ') || null,
       community_names: communityNames,
       admission_year_name: joined.admission_year?.admission_year_name ?? null,
