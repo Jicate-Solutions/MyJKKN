@@ -949,6 +949,13 @@ WHERE (leave_types.scope)::text = 'staff'::text;
 -- non-active statuses (reserved/admitted/account/enquiry_submitted/graduated/
 -- inactive/rejected) are excluded from the Residents list AND the Generate-bills
 -- surface. lifecycle_status column exposed by migration 20260608140000.
+--
+-- academic_year_name appended 2026-06-09 (migration
+-- 20260609120000_add_academic_year_name_to_v_learner_hostelites.sql) as the LAST
+-- column for the Learners table's Academic Year display column — LEFT JOIN to
+-- academic_years (alias 'acy'; 'ay' is admission_years). Mirror kept as
+-- DROP+CREATE; the live migration uses CREATE OR REPLACE since the new column is
+-- appended at the end.
 DROP VIEW IF EXISTS public.v_learner_hostelites;
 
 CREATE VIEW v_learner_hostelites AS
@@ -995,16 +1002,22 @@ CREATE VIEW v_learner_hostelites AS
         END AS year_source,
     dg.degree_name,
     sm.semester_name,
-    lp.lifecycle_status
+    lp.lifecycle_status,
+    acy.academic_year_name
    FROM learners_profiles lp
      LEFT JOIN accommodation_types acc ON acc.id = lp.accommodation_type_id
      LEFT JOIN admission_years ay ON ay.id = lp.admission_year_id
      LEFT JOIN batches b ON b.id = lp.batch_id
      LEFT JOIN programs pr ON pr.id = lp.program_id
-     LEFT JOIN hostel_allocations ha ON ha.learner_id = lp.id AND ha.status = 'active'::allocation_status_enum
+     -- Bridge: hostel_allocations.learner_id is an FK to profiles.id, NOT
+     -- learners_profiles.id. profiles.learner_id = learners_profiles.id is 1:1.
+     -- (migration 20260609140000_fix_v_learner_hostelites_alloc_profiles_bridge.sql)
+     LEFT JOIN profiles palloc ON palloc.learner_id = lp.id
+     LEFT JOIN hostel_allocations ha ON ha.learner_id = palloc.id AND ha.status = 'active'::allocation_status_enum
      LEFT JOIN hostel_blocks hb ON hb.id = ha.block_id
      LEFT JOIN degrees dg ON dg.id = lp.degree_id
      LEFT JOIN semesters sm ON sm.id = lp.semester_id
+     LEFT JOIN academic_years acy ON acy.id = lp.academic_year_id
   WHERE acc.code = 'hostel'::text
     AND lp.lifecycle_status::text = 'active';
 

@@ -109,7 +109,7 @@ export function CandidateValidationTable({
                 <th className="px-2 text-center">Profile</th>
                 <th className="px-2 text-center">Gender</th>
                 <th className="px-2 text-center">Not alloc.</th>
-                <th className="px-2 text-center">Phys. rule</th>
+                <th className="px-2 text-center">Phys. access</th>
                 <th className="px-2">Room cat.</th>
                 <th className="px-2">Mess cat.</th>
                 <th className="px-2">Verdict</th>
