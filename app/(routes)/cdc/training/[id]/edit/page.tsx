@@ -23,7 +23,7 @@ interface Props {
 
 export default function EditTrainingProgrammePage(props: Props) {
   return (
-    <PermissionGuard module="cdc.training" action="update">
+    <PermissionGuard module="cdc.training" action="edit">
       <EditTrainingProgrammeContent {...props} />
     </PermissionGuard>
   );
