@@ -319,13 +319,13 @@ export class FeeStructureService {
   }
 
   /**
-   * Find a single active structure that matches the 7 matrix dimensions AND
-   * covers the given community via the junction. Used by the editor when the
-   * tree-rail leaf includes a community: returns the structure that serves
-   * that community for those 7 dims (or null if none).
-   *
-   * The trigger `_fee_structure_community_no_overlap` guarantees this lookup
-   * cannot match more than one active structure, so `.maybeSingle()` is safe.
+   * Find the single active structure matching the 6 hard dims + community,
+   * with `gender` and `accommodation_type_id` as OPTIONAL refinements (NULL =
+   * "Any"). Fetches all active candidates sharing the hard dims + community
+   * (the overlap trigger keeps that set tiny), filters to those whose optional
+   * dims match (exact OR wildcard-NULL), then ranks: accommodation-specific >
+   * gender-specific > most-recently-updated. This MUST stay in lockstep with
+   * admission_resolve_fee_items_for_lead's ORDER BY — preview must equal billed.
    */
   static async findByDimensions(
     d: FeeStructureMatrixDimensions,
@@ -334,54 +334,66 @@ export class FeeStructureService {
   ): Promise<AdmissionFeeStructureWithItems | null> {
     const supabase = createClientSupabaseClient();
     const gender = d.gender?.toUpperCase() || null;
+    const accommodation = d.accommodation_type_id || null;
 
-    // 1. Build base query for 7 dims + community + active status
-    const buildQuery = (genderFilter: 'exact' | 'any') =>
-      supabase
-        .from('admission_fee_structure_communities')
-        .select(
-          `fee_structure_id,
-           structure:admission_fee_structures!inner(id, status, gender,
-             institution_id, degree_id, department_id, programme_id,
-             quota_id, accommodation_type_id, admission_year_id)`,
-        )
-        .eq('community_category_id', community_category_id)
-        .eq('structure.institution_id', d.institution_id)
-        .eq('structure.degree_id', d.degree_id)
-        .eq('structure.department_id', d.department_id)
-        .eq('structure.programme_id', d.programme_id)
-        .eq('structure.quota_id', d.quota_id)
-        .eq('structure.admission_year_id', d.admission_year_id)
-        .eq('structure.status', 'active');
+    const { data: rows, error } = await supabase
+      .from('admission_fee_structure_communities')
+      .select(
+        `fee_structure_id,
+         structure:admission_fee_structures!inner(id, status, gender,
+           accommodation_type_id, institution_id, degree_id, department_id,
+           programme_id, quota_id, admission_year_id, updated_at)`,
+      )
+      .eq('community_category_id', community_category_id)
+      .eq('structure.institution_id', d.institution_id)
+      .eq('structure.degree_id', d.degree_id)
+      .eq('structure.department_id', d.department_id)
+      .eq('structure.programme_id', d.programme_id)
+      .eq('structure.quota_id', d.quota_id)
+      .eq('structure.admission_year_id', d.admission_year_id)
+      .eq('structure.status', 'active');
+    if (error) throw error;
 
-    // 2. Prefer exact gender match, fall back to gender-NULL (wildcard)
-    let structureId: string | undefined;
-
-    if (gender) {
-      const { data: exactRows, error: exactErr } = await buildQuery('exact')
-        .eq('structure.gender', gender)
-        .limit(1);
-      if (exactErr) throw exactErr;
-      structureId = exactRows?.[0]?.fee_structure_id;
+    interface Candidate {
+      id: string;
+      gender: string | null;
+      accommodation_type_id: string | null;
+      updated_at: string | null;
     }
 
-    if (!structureId) {
-      const { data: anyRows, error: anyErr } = await buildQuery('any')
-        .is('structure.gender', null)
-        .limit(1);
-      if (anyErr) throw anyErr;
-      structureId = anyRows?.[0]?.fee_structure_id;
-    }
+    // The embedded to-one `structure` comes back as an object (PostgREST FK
+    // embed); cast defensively in case the client types it as an array.
+    const candidates: Candidate[] = (rows ?? [])
+      .map((r: any) => (Array.isArray(r.structure) ? r.structure[0] : r.structure))
+      .filter((s: Candidate | null | undefined): s is Candidate => !!s)
+      .filter(
+        (s) =>
+          (s.gender === gender || s.gender === null) &&
+          (s.accommodation_type_id === accommodation ||
+            s.accommodation_type_id === null),
+      );
 
-    if (!structureId) return null;
+    if (candidates.length === 0) return null;
 
-    // 3. Hydrate the full structure (with items + all linked communities)
-    const full = await this.getWithItems(structureId);
+    // Rank: accommodation-specific first, then gender-specific, then newest.
+    // Mirrors the RPC's `ORDER BY accommodation_type_id IS NOT NULL DESC,
+    // gender IS NOT NULL DESC, updated_at DESC`.
+    candidates.sort((a, b) => {
+      const accA = a.accommodation_type_id !== null ? 1 : 0;
+      const accB = b.accommodation_type_id !== null ? 1 : 0;
+      if (accA !== accB) return accB - accA;
+      const genA = a.gender !== null ? 1 : 0;
+      const genB = b.gender !== null ? 1 : 0;
+      if (genA !== genB) return genB - genA;
+      return (b.updated_at ?? '').localeCompare(a.updated_at ?? '');
+    });
+
+    // Hydrate the full structure (with items + all linked communities), then
+    // filter items to those applicable for the requested year of study,
+    // mirroring the server-side filter in admission_resolve_fee_items_for_lead.
+    const full = await this.getWithItems(candidates[0].id);
     if (!full) return null;
 
-    // 4. Filter items to those applicable for the requested year of study,
-    //    mirroring the server-side filter in admission_resolve_fee_items_for_lead.
-    //    getWithItems uses (*) so applies_to / applies_year_of_study are present.
     const applicableItems = full.items.filter((it) =>
       feeItemAppliesToYear(
         { applies_to: it.applies_to, applies_year_of_study: it.applies_year_of_study },
@@ -636,6 +648,7 @@ export class FeeStructureService {
       quota_id:              overrides?.quota_id              ?? source.quota_id,
       admission_year_id:     newAcademicYearId,
       gender:                overrides?.gender                ?? source.gender ?? undefined,
+      accommodation_type_id: overrides?.accommodation_type_id ?? source.accommodation_type_id ?? undefined,
     };
     return this.create({
       ...dims,
