@@ -63,6 +63,7 @@ import {
   Clock,
   Trash2,
   UserCircle,
+  Home,
 } from 'lucide-react';
 import { AdmissionErrorBoundary } from '@/components/admission';
 import { PermissionGuard } from '@/components/auth/permission-guard';
@@ -93,6 +94,7 @@ type DetailRow = AdmissionFeeStructure & {
   department_name: string | null;
   programme_name: string | null;
   quota_name: string | null;
+  accommodation_name: string | null;
   community_name: string | null;
   admission_year_name: string | null;
   items: DetailRowItem[];
@@ -396,6 +398,12 @@ function FeeStructureDetailPageContent({ id }: { id: string }) {
                     label="Gender"
                     name={structure.gender ?? 'Any Gender'}
                     id={structure.gender ? '' : 'applies to all'}
+                  />
+                  <DimCard
+                    icon={<Home className="h-4 w-4" />}
+                    label="Accommodation"
+                    name={structure.accommodation_name ?? 'Any Accommodation'}
+                    id={structure.accommodation_type_id ? '' : 'applies to all'}
                   />
                 </div>
                 <p className="text-xs text-muted-foreground mt-3">
