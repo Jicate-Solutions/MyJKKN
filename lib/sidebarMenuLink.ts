@@ -984,6 +984,11 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/pde/faculty/cases/[id]/attempts': 'pde.faculty.view',
   '/pde/faculty/cases/[id]/attempts/[studentId]': 'pde.faculty.view',
   '/pde/learn/cases/[caseSlug]': 'pde.profile.view',
+  // PDE learner surfaces — added to the unified 'PDE' sidebar group
+  // (sidebar-unify, 2026-06-09). Same learner-facing key as cases.
+  '/pde/learn/demonstrations': 'pde.profile.view',
+  '/pde/learn/cohort': 'pde.profile.view',
+  '/pde/learn/transcript': 'pde.profile.view',
 
   '/ims/dashboard': 'ims.dashboard.view',
   '/ims/financial': 'ims.financial.view',
@@ -1744,14 +1749,8 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/admin/lti/analytics', label: 'LTI · Analytics', active: pathname === '/admin/lti/analytics' },
             { href: '/admin/lti/grade-sync', label: 'LTI · Grade Sync', active: pathname === '/admin/lti/grade-sync' },
             { href: '/admin/lti/launches', label: 'LTI · Launch Debug', active: pathname === '/admin/lti/launches' },
-            // PDE (Admin)
-            { href: '/pde/admin', label: 'PDE · Dashboard', active: pathname === '/pde/admin' },
-            { href: '/pde/admin/assessments', label: 'PDE · Assessments', active: pathname === '/pde/admin/assessments' || pathname === '/pde/admin/assessments/create' },
-            { href: '/pde/admin/quests', label: 'PDE · Quests', active: pathname === '/pde/admin/quests' || pathname === '/pde/admin/quests/create' },
-            { href: '/pde/admin/capabilities', label: 'PDE · Capabilities', active: pathname === '/pde/admin/capabilities' },
-            { href: '/pde/admin/engagement', label: 'PDE · Engagement', active: pathname === '/pde/admin/engagement' },
-            { href: '/pde/admin/at-risk', label: 'PDE · At-Risk', active: pathname === '/pde/admin/at-risk' },
-            { href: '/pde/admin/lti', label: 'PDE · LTI Config', active: pathname === '/pde/admin/lti' },
+            // PDE admin entries moved to the unified 'PDE' sidebar group (PR
+            // sidebar-unify, 2026-06-09). See groupLabel: 'PDE' below.
             // Other
             { href: '/audit-trail', label: 'Audit Trail', active: pathname.startsWith('/audit-trail') },
             { href: '/admin/lifecycle', label: 'Lifecycle Analytics', active: pathname.startsWith('/admin/lifecycle') },
@@ -1793,21 +1792,11 @@ export function GetPages(pathname: string): MenuGroup[] {
       // Wave 2 merged 'Learning' + 'Value Added Courses' into 'Learning & Courses'.
       // The /vac entry below was previously its own groupLabel; now folded here.
       groupLabel: 'Learning & Courses',
+      // The legacy 'Learning' menu (/learn/* quest board, capability tree, build
+      // arena, channels, profile, leaderboard) moved to the unified 'PDE'
+      // sidebar group (PR sidebar-unify, 2026-06-09) — those are PDE learner
+      // surfaces (gated by pde.* keys). VAC stays here.
       menus: [
-        {
-          href: '/learn',
-          label: 'Learning',
-          active: pathname === '/learn' || pathname.startsWith('/learn/'),
-          icon: BookOpen,
-          submenus: [
-            { href: '/learn/quests', label: 'Quest Board', active: pathname === '/learn/quests' || pathname.startsWith('/learn/quests/') },
-            { href: '/learn/capabilities', label: 'Capability Tree', active: pathname.startsWith('/learn/capabilities') },
-            { href: '/learn/build', label: 'Build Arena', active: pathname.startsWith('/learn/build') },
-            { href: '/learn/channels', label: 'Channels', active: pathname.startsWith('/learn/channels') },
-            { href: '/learn/profile', label: 'Profile', active: pathname === '/learn/profile' },
-            { href: '/learn/leaderboard', label: 'Leaderboard', active: pathname === '/learn/leaderboard' },
-          ]
-        },
         {
           href: '/vac',
           label: 'Value Added Courses',
@@ -1823,6 +1812,64 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/vac/admin/analytics', label: 'Admin · Analytics', active: pathname.startsWith('/vac/admin/analytics') },
             { href: '/vac/admin/case', label: 'Admin · CASE', active: pathname.startsWith('/vac/admin/case') },
             { href: '/vac/admin/settings', label: 'Admin · Settings', active: pathname.startsWith('/vac/admin/settings') },
+          ]
+        }
+      ]
+    },
+    {
+      // PDE (Principal Development Engine) — unified module group.
+      // Phase 2 of the module extraction (PR #1257 moved the routes to
+      // /pde/{admin,faculty,learn}/*; this PR unifies the sidebar entries that
+      // were previously scattered across Administration / Faculty /
+      // Learning & Courses). Three role-scoped menus; each entry is gated by
+      // its MENU_PERMISSIONS key, so users only see the menus their role grants
+      // (learners see Learner, faculty see Faculty, admins see Administration).
+      groupLabel: 'PDE',
+      menus: [
+        {
+          href: '/pde/learn/demonstrations',
+          label: 'Learner',
+          active: pathname.startsWith('/pde/learn') || pathname.startsWith('/learn/'),
+          icon: BookOpen,
+          submenus: [
+            { href: '/pde/learn/demonstrations', label: 'My Demonstrations', active: pathname.startsWith('/pde/learn/demonstrations') },
+            { href: '/pde/learn/cohort', label: 'Cohort Comparison', active: pathname.startsWith('/pde/learn/cohort') },
+            { href: '/pde/learn/transcript', label: 'My Transcript', active: pathname.startsWith('/pde/learn/transcript') },
+            { href: '/learn/quests', label: 'Quest Board', active: pathname === '/learn/quests' || pathname.startsWith('/learn/quests/') },
+            { href: '/learn/capabilities', label: 'Capability Tree', active: pathname.startsWith('/learn/capabilities') },
+            { href: '/learn/build', label: 'Build Arena', active: pathname.startsWith('/learn/build') },
+            { href: '/learn/channels', label: 'Channels', active: pathname.startsWith('/learn/channels') },
+            { href: '/learn/profile', label: 'Profile', active: pathname === '/learn/profile' },
+            { href: '/learn/leaderboard', label: 'Leaderboard', active: pathname === '/learn/leaderboard' },
+          ]
+        },
+        {
+          href: '/pde/faculty/dashboard',
+          label: 'Faculty',
+          active: pathname.startsWith('/pde/faculty'),
+          icon: GraduationCap,
+          submenus: [
+            { href: '/pde/faculty/dashboard', label: 'Dashboard', active: pathname === '/pde/faculty/dashboard' },
+            { href: '/pde/faculty/assessments', label: 'Assessments', active: pathname === '/pde/faculty/assessments' },
+            { href: '/pde/faculty/quests', label: 'Quests', active: pathname === '/pde/faculty/quests' },
+            { href: '/pde/faculty/demonstrations', label: 'Demonstrations', active: pathname === '/pde/faculty/demonstrations' },
+            { href: '/pde/faculty/cases', label: 'Clinical Cases', active: pathname.startsWith('/pde/faculty/cases') },
+            { href: '/pde/faculty/analytics', label: 'Analytics', active: pathname === '/pde/faculty/analytics' },
+          ]
+        },
+        {
+          href: '/pde/admin',
+          label: 'Administration',
+          active: pathname.startsWith('/pde/admin'),
+          icon: Brain,
+          submenus: [
+            { href: '/pde/admin', label: 'Dashboard', active: pathname === '/pde/admin' },
+            { href: '/pde/admin/assessments', label: 'Assessments', active: pathname === '/pde/admin/assessments' || pathname === '/pde/admin/assessments/create' },
+            { href: '/pde/admin/quests', label: 'Quests', active: pathname === '/pde/admin/quests' || pathname === '/pde/admin/quests/create' },
+            { href: '/pde/admin/capabilities', label: 'Capabilities', active: pathname === '/pde/admin/capabilities' },
+            { href: '/pde/admin/engagement', label: 'Engagement', active: pathname === '/pde/admin/engagement' },
+            { href: '/pde/admin/at-risk', label: 'At-Risk', active: pathname === '/pde/admin/at-risk' },
+            { href: '/pde/admin/lti', label: 'LTI Config', active: pathname === '/pde/admin/lti' },
           ]
         }
       ]
@@ -1967,12 +2014,8 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/faculty/innovation/portfolio', label: 'Innovation · Portfolio', active: pathname === '/faculty/innovation/portfolio' },
             { href: '/faculty/innovation/approval-queue', label: 'Innovation · Approvals', active: pathname === '/faculty/innovation/approval-queue' },
             { href: '/faculty/innovation/collab-request', label: 'Innovation · Collab Request', active: pathname === '/faculty/innovation/collab-request' },
-            { href: '/pde/faculty', label: 'PDE · Landing', active: pathname === '/pde/faculty' },
-            { href: '/pde/faculty/dashboard', label: 'PDE · Dashboard', active: pathname === '/pde/faculty/dashboard' },
-            { href: '/pde/faculty/assessments', label: 'PDE · Assessments', active: pathname === '/pde/faculty/assessments' },
-            { href: '/pde/faculty/quests', label: 'PDE · Quests', active: pathname === '/pde/faculty/quests' },
-            { href: '/pde/faculty/demonstrations', label: 'PDE · Demonstrations', active: pathname === '/pde/faculty/demonstrations' },
-            { href: '/pde/faculty/analytics', label: 'PDE · Analytics', active: pathname === '/pde/faculty/analytics' },
+            // PDE faculty entries moved to the unified 'PDE' sidebar group (PR
+            // sidebar-unify, 2026-06-09). See groupLabel: 'PDE' below.
           ]
         }
       ]
