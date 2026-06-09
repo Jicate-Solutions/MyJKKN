@@ -1262,204 +1262,6 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "children": []
       },
       {
-        "path": "/pde/admin",
-        "label": "Pde",
-        "iconName": "FileText",
-        "children": [
-          {
-            "path": "/pde/admin/accreditation-evidence",
-            "label": "Accreditation Evidence",
-            "iconName": "FileText",
-            "children": []
-          },
-          {
-            "path": "/pde/admin/assessments",
-            "label": "Assessments",
-            "iconName": "ClipboardCheck",
-            "children": [
-              {
-                "path": "/pde/admin/assessments/create",
-                "label": "Create",
-                "iconName": "Plus",
-                "children": []
-              }
-            ]
-          },
-          {
-            "path": "/pde/admin/at-risk",
-            "label": "At Risk",
-            "iconName": "FileText",
-            "children": []
-          },
-          {
-            "path": "/pde/admin/bos-evidence",
-            "label": "BoS PDE Evidence",
-            "iconName": "FileSearch",
-            "children": []
-          },
-          {
-            "path": "/pde/admin/bridge",
-            "label": "PDE Bridge (legacy → new)",
-            "iconName": "GitMerge",
-            "children": []
-          },
-          {
-            "path": "/pde/admin/capabilities",
-            "label": "Capabilities",
-            "iconName": "Cpu",
-            "children": []
-          },
-          {
-            "path": "/pde/admin/cohort",
-            "label": "PDE Cohort Comparison",
-            "iconName": "BarChart3",
-            "children": []
-          },
-          {
-            "path": "/pde/admin/compliance",
-            "label": "PDE Compliance",
-            "iconName": "ShieldCheck",
-            "children": [
-              {
-                "path": "/pde/admin/compliance/per-college",
-                "label": "PDE Per-College Compliance",
-                "iconName": "ShieldCheck",
-                "children": []
-              }
-            ]
-          },
-          {
-            "path": "/pde/admin/demonstrations",
-            "label": "PDE Demonstrations",
-            "iconName": "Inbox",
-            "children": []
-          },
-          {
-            "path": "/pde/admin/engagement",
-            "label": "Engagement",
-            "iconName": "FileText",
-            "children": []
-          },
-          {
-            "path": "/pde/admin/feedback-moderation",
-            "label": "PDE Feedback Moderation",
-            "iconName": "ShieldAlert",
-            "children": []
-          },
-          {
-            "path": "/pde/admin/kpi",
-            "label": "PDE KPI Dashboard",
-            "iconName": "Gauge",
-            "children": []
-          },
-          {
-            "path": "/pde/admin/lti",
-            "label": "Lti",
-            "iconName": "PlugZap",
-            "children": []
-          },
-          {
-            "path": "/pde/admin/placement-signals",
-            "label": "PDE Placement Signals",
-            "iconName": "Megaphone",
-            "children": []
-          },
-          {
-            "path": "/pde/admin/policies",
-            "label": "Policies",
-            "iconName": "BookText",
-            "children": [
-              {
-                "path": "/pde/admin/policies/clinical-reasoning",
-                "label": "PDE Clinical Reasoning",
-                "iconName": "Stethoscope",
-                "children": []
-              },
-              {
-                "path": "/pde/admin/policies/governance",
-                "label": "PDE Gamification & Defense",
-                "iconName": "ShieldCheck",
-                "children": []
-              },
-              {
-                "path": "/pde/admin/policies/quests",
-                "label": "PDE Quests & Supply",
-                "iconName": "Boxes",
-                "children": []
-              },
-              {
-                "path": "/pde/admin/policies/rollout",
-                "label": "PDE Rollout & Compliance",
-                "iconName": "Map",
-                "children": []
-              },
-              {
-                "path": "/pde/admin/policies/scoring",
-                "label": "PDE Scoring & Integrity",
-                "iconName": "Sliders",
-                "children": []
-              },
-              {
-                "path": "/pde/admin/policies/visibility",
-                "label": "PDE Visibility & Transparency",
-                "iconName": "Eye",
-                "children": []
-              }
-            ]
-          },
-          {
-            "path": "/pde/admin/quest-supply",
-            "label": "PDE Quest Supply",
-            "iconName": "Inbox",
-            "children": []
-          },
-          {
-            "path": "/pde/admin/quests",
-            "label": "Quests",
-            "iconName": "Trophy",
-            "children": [
-              {
-                "path": "/pde/admin/quests/create",
-                "label": "Create",
-                "iconName": "Plus",
-                "children": []
-              }
-            ]
-          },
-          {
-            "path": "/pde/admin/rubrics",
-            "label": "Rubrics",
-            "iconName": "FileText",
-            "children": [
-              {
-                "path": "/pde/admin/rubrics/cultural-civic",
-                "label": "PDE Rubrics — Cultural & Civic",
-                "iconName": "BookHeart",
-                "children": []
-              },
-              {
-                "path": "/pde/admin/rubrics/embodied",
-                "label": "PDE Embodied Practice Rubrics",
-                "iconName": "Activity",
-                "children": []
-              },
-              {
-                "path": "/pde/admin/rubrics/social-leadership",
-                "label": "PDE Rubrics — Social & Leadership",
-                "iconName": "Users",
-                "children": []
-              }
-            ]
-          },
-          {
-            "path": "/pde/admin/transcript",
-            "label": "Transcript",
-            "iconName": "FileText",
-            "children": []
-          }
-        ]
-      },
-      {
         "path": "/admin/reset-driver-passwords",
         "label": "Reset Driver Passwords",
         "iconName": "FileText",
@@ -1742,13 +1544,32 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "path": "/admission/group-dashboard",
         "label": "Group Dashboard",
         "iconName": "LayoutGrid",
-        "children": []
+        "children": [
+          {
+            "path": "/admission/group-dashboard/actions",
+            "label": "Actions",
+            "iconName": "GraduationCap",
+            "children": []
+          },
+          {
+            "path": "/admission/group-dashboard/setup",
+            "label": "Setup",
+            "iconName": "GraduationCap",
+            "children": []
+          }
+        ]
       },
       {
         "path": "/admission/inbox",
         "label": "Inbox",
         "iconName": "Inbox",
         "children": [
+          {
+            "path": "/admission/inbox/instagram",
+            "label": "Instagram",
+            "iconName": "Inbox",
+            "children": []
+          },
           {
             "path": "/admission/inbox/messenger",
             "label": "Messenger",
@@ -2435,6 +2256,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
+            "path": "/billing/schedule/bulk-edit",
+            "label": "Bulk Edit",
+            "iconName": "CalendarClock",
+            "children": []
+          },
+          {
             "path": "/billing/schedule/new",
             "label": "New",
             "iconName": "Plus",
@@ -2666,6 +2493,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "path": "/campus-living/analytics/attendance",
             "label": "Attendance",
             "iconName": "CheckSquare",
+            "children": []
+          },
+          {
+            "path": "/campus-living/analytics/bed-economics",
+            "label": "Bed Economics",
+            "iconName": "FileText",
             "children": []
           },
           {
@@ -3181,6 +3014,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
+            "path": "/campus-living/settings/block-economics",
+            "label": "Block Economics",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
             "path": "/campus-living/settings/categories",
             "label": "Categories",
             "iconName": "Tags",
@@ -3533,56 +3372,6 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "path": "/faculty/innovation/submit",
             "label": "Submit",
             "iconName": "Lightbulb",
-            "children": []
-          }
-        ]
-      },
-      {
-        "path": "/pde/faculty",
-        "label": "Pde",
-        "iconName": "FileText",
-        "children": [
-          {
-            "path": "/pde/faculty/analytics",
-            "label": "Analytics",
-            "iconName": "BarChart",
-            "children": []
-          },
-          {
-            "path": "/pde/faculty/assessments",
-            "label": "Assessments",
-            "iconName": "ClipboardCheck",
-            "children": []
-          },
-          {
-            "path": "/pde/faculty/cases",
-            "label": "Cases",
-            "iconName": "FileText",
-            "children": [
-              {
-                "path": "/pde/faculty/cases/new",
-                "label": "New",
-                "iconName": "Plus",
-                "children": []
-              }
-            ]
-          },
-          {
-            "path": "/pde/faculty/dashboard",
-            "label": "Dashboard",
-            "iconName": "LayoutGrid",
-            "children": []
-          },
-          {
-            "path": "/pde/faculty/demonstrations",
-            "label": "Demonstrations",
-            "iconName": "FileText",
-            "children": []
-          },
-          {
-            "path": "/pde/faculty/quests",
-            "label": "Quests",
-            "iconName": "Trophy",
             "children": []
           }
         ]
@@ -4252,44 +4041,6 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "children": []
       },
       {
-        "path": "/pde/learn",
-        "label": "Pde",
-        "iconName": "FileText",
-        "children": [
-          {
-            "path": "/pde/learn/cases",
-            "label": "Cases",
-            "iconName": "FileText",
-            "children": []
-          },
-          {
-            "path": "/pde/learn/cohort",
-            "label": "PDE Cohort Comparison",
-            "iconName": "Users",
-            "children": []
-          },
-          {
-            "path": "/pde/learn/demonstrations",
-            "label": "Demonstrations",
-            "iconName": "FileText",
-            "children": [
-              {
-                "path": "/pde/learn/demonstrations/new",
-                "label": "New",
-                "iconName": "Plus",
-                "children": []
-              }
-            ]
-          },
-          {
-            "path": "/pde/learn/transcript",
-            "label": "Transcript",
-            "iconName": "FileText",
-            "children": []
-          }
-        ]
-      },
-      {
         "path": "/learn/profile",
         "label": "Profile",
         "iconName": "UserCircle",
@@ -4898,6 +4649,299 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "path": "/organizations/semesters/new",
             "label": "New",
             "iconName": "Plus",
+            "children": []
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "path": "/pde",
+    "label": "Pde",
+    "iconName": "FileText",
+    "children": [
+      {
+        "path": "/pde/admin",
+        "label": "Admin",
+        "iconName": "FileText",
+        "children": [
+          {
+            "path": "/pde/admin/accreditation-evidence",
+            "label": "Accreditation Evidence",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/pde/admin/assessments",
+            "label": "Assessments",
+            "iconName": "ClipboardCheck",
+            "children": [
+              {
+                "path": "/pde/admin/assessments/create",
+                "label": "Create",
+                "iconName": "Plus",
+                "children": []
+              }
+            ]
+          },
+          {
+            "path": "/pde/admin/at-risk",
+            "label": "At Risk",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/pde/admin/bos-evidence",
+            "label": "BoS PDE Evidence",
+            "iconName": "FileSearch",
+            "children": []
+          },
+          {
+            "path": "/pde/admin/bridge",
+            "label": "PDE Bridge (legacy → new)",
+            "iconName": "GitMerge",
+            "children": []
+          },
+          {
+            "path": "/pde/admin/capabilities",
+            "label": "Capabilities",
+            "iconName": "Cpu",
+            "children": []
+          },
+          {
+            "path": "/pde/admin/cohort",
+            "label": "PDE Cohort Comparison",
+            "iconName": "BarChart3",
+            "children": []
+          },
+          {
+            "path": "/pde/admin/compliance",
+            "label": "PDE Compliance",
+            "iconName": "ShieldCheck",
+            "children": [
+              {
+                "path": "/pde/admin/compliance/per-college",
+                "label": "PDE Per-College Compliance",
+                "iconName": "ShieldCheck",
+                "children": []
+              }
+            ]
+          },
+          {
+            "path": "/pde/admin/demonstrations",
+            "label": "PDE Demonstrations",
+            "iconName": "Inbox",
+            "children": []
+          },
+          {
+            "path": "/pde/admin/engagement",
+            "label": "Engagement",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/pde/admin/feedback-moderation",
+            "label": "PDE Feedback Moderation",
+            "iconName": "ShieldAlert",
+            "children": []
+          },
+          {
+            "path": "/pde/admin/kpi",
+            "label": "PDE KPI Dashboard",
+            "iconName": "Gauge",
+            "children": []
+          },
+          {
+            "path": "/pde/admin/lti",
+            "label": "Lti",
+            "iconName": "PlugZap",
+            "children": []
+          },
+          {
+            "path": "/pde/admin/placement-signals",
+            "label": "PDE Placement Signals",
+            "iconName": "Megaphone",
+            "children": []
+          },
+          {
+            "path": "/pde/admin/policies",
+            "label": "Policies",
+            "iconName": "BookText",
+            "children": [
+              {
+                "path": "/pde/admin/policies/clinical-reasoning",
+                "label": "PDE Clinical Reasoning",
+                "iconName": "Stethoscope",
+                "children": []
+              },
+              {
+                "path": "/pde/admin/policies/governance",
+                "label": "PDE Gamification & Defense",
+                "iconName": "ShieldCheck",
+                "children": []
+              },
+              {
+                "path": "/pde/admin/policies/quests",
+                "label": "PDE Quests & Supply",
+                "iconName": "Boxes",
+                "children": []
+              },
+              {
+                "path": "/pde/admin/policies/rollout",
+                "label": "PDE Rollout & Compliance",
+                "iconName": "Map",
+                "children": []
+              },
+              {
+                "path": "/pde/admin/policies/scoring",
+                "label": "PDE Scoring & Integrity",
+                "iconName": "Sliders",
+                "children": []
+              },
+              {
+                "path": "/pde/admin/policies/visibility",
+                "label": "PDE Visibility & Transparency",
+                "iconName": "Eye",
+                "children": []
+              }
+            ]
+          },
+          {
+            "path": "/pde/admin/quest-supply",
+            "label": "PDE Quest Supply",
+            "iconName": "Inbox",
+            "children": []
+          },
+          {
+            "path": "/pde/admin/quests",
+            "label": "Quests",
+            "iconName": "Trophy",
+            "children": [
+              {
+                "path": "/pde/admin/quests/create",
+                "label": "Create",
+                "iconName": "Plus",
+                "children": []
+              }
+            ]
+          },
+          {
+            "path": "/pde/admin/rubrics",
+            "label": "Rubrics",
+            "iconName": "FileText",
+            "children": [
+              {
+                "path": "/pde/admin/rubrics/cultural-civic",
+                "label": "PDE Rubrics — Cultural & Civic",
+                "iconName": "BookHeart",
+                "children": []
+              },
+              {
+                "path": "/pde/admin/rubrics/embodied",
+                "label": "PDE Embodied Practice Rubrics",
+                "iconName": "Activity",
+                "children": []
+              },
+              {
+                "path": "/pde/admin/rubrics/social-leadership",
+                "label": "PDE Rubrics — Social & Leadership",
+                "iconName": "Users",
+                "children": []
+              }
+            ]
+          },
+          {
+            "path": "/pde/admin/transcript",
+            "label": "Transcript",
+            "iconName": "FileText",
+            "children": []
+          }
+        ]
+      },
+      {
+        "path": "/pde/faculty",
+        "label": "Faculty",
+        "iconName": "FileText",
+        "children": [
+          {
+            "path": "/pde/faculty/analytics",
+            "label": "Analytics",
+            "iconName": "BarChart",
+            "children": []
+          },
+          {
+            "path": "/pde/faculty/assessments",
+            "label": "Assessments",
+            "iconName": "ClipboardCheck",
+            "children": []
+          },
+          {
+            "path": "/pde/faculty/cases",
+            "label": "Cases",
+            "iconName": "FileText",
+            "children": [
+              {
+                "path": "/pde/faculty/cases/new",
+                "label": "New",
+                "iconName": "Plus",
+                "children": []
+              }
+            ]
+          },
+          {
+            "path": "/pde/faculty/dashboard",
+            "label": "Dashboard",
+            "iconName": "LayoutGrid",
+            "children": []
+          },
+          {
+            "path": "/pde/faculty/demonstrations",
+            "label": "Demonstrations",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/pde/faculty/quests",
+            "label": "Quests",
+            "iconName": "Trophy",
+            "children": []
+          }
+        ]
+      },
+      {
+        "path": "/pde/learn",
+        "label": "Learn",
+        "iconName": "FileText",
+        "children": [
+          {
+            "path": "/pde/learn/cases",
+            "label": "Cases",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/pde/learn/cohort",
+            "label": "PDE Cohort Comparison",
+            "iconName": "Users",
+            "children": []
+          },
+          {
+            "path": "/pde/learn/demonstrations",
+            "label": "Demonstrations",
+            "iconName": "FileText",
+            "children": [
+              {
+                "path": "/pde/learn/demonstrations/new",
+                "label": "New",
+                "iconName": "Plus",
+                "children": []
+              }
+            ]
+          },
+          {
+            "path": "/pde/learn/transcript",
+            "label": "Transcript",
+            "iconName": "FileText",
             "children": []
           }
         ]

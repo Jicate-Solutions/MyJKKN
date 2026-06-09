@@ -114,6 +114,10 @@ export const ROUTE_PREFIX_TO_MODULE: ReadonlyArray<readonly [string, string]> = 
   ['/admin/lifecycle', 'Lifecycle Analytics'],
   ['/admin/lti', 'System'],
   ['/pde/admin', 'PDE Learning'],
+  // /pde/* catch-all — covers /pde/faculty/* and /pde/learn/* (the case-based
+  // learning surfaces). Must come after the more-specific /pde/admin above so
+  // the linear scan keeps that explicit mapping; both roll up to PDE Learning.
+  ['/pde', 'PDE Learning'],
   ['/admin/page-metadata', 'System'],
   ['/admin/saml', 'System'],
   ['/admin/ai-query-tools', 'System'],
