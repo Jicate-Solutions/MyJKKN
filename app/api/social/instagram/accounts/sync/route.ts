@@ -7,7 +7,10 @@ export const dynamic = 'force-dynamic';
  * Upserts on ig_user_id — safe to call repeatedly (idempotent).
  *
  * Body:
- *   institution_id: string   — fallback institution to associate accounts with
+ *   institution_id?: string  — fallback institution to associate accounts with.
+ *                              Optional for super_admin (per-account resolution
+ *                              via fb_pages covers mapped accounts); required
+ *                              for institution_admin.
  *   ig_user_ids?: string[]   — optional: only sync these specific account IDs
  *                              (omit to sync all accounts linked to our Pages)
  *
@@ -98,15 +101,12 @@ export async function POST(request: NextRequest) {
       ig_user_ids?: string[];
     };
 
-    const institutionId = body.institution_id;
-    if (!institutionId?.trim()) {
-      return NextResponse.json(
-        { success: false, error: 'institution_id is required' },
-        { status: 400 }
-      );
-    }
+    const institutionId = body.institution_id?.trim() || null;
 
-    // Auth gate
+    // Auth gate. super_admin may omit institution_id — per-account
+    // institution resolution happens via the fb_pages join below, so a
+    // group-level sync (the /admin/social/instagram Discover button) needs
+    // no explicit institution. institution_admin must name their own.
     const { data: profile } = await supabase
       .from('profiles')
       .select('institution_id, role')
@@ -115,9 +115,17 @@ export async function POST(request: NextRequest) {
 
     const isSuperAdmin = profile?.role === 'super_admin';
     const isInstitutionAdmin =
-      profile?.role === 'institution_admin' && profile?.institution_id === institutionId;
+      profile?.role === 'institution_admin' &&
+      !!institutionId &&
+      profile?.institution_id === institutionId;
 
     if (!isSuperAdmin && !isInstitutionAdmin) {
+      if (profile?.role === 'institution_admin' && !institutionId) {
+        return NextResponse.json(
+          { success: false, error: 'institution_id is required' },
+          { status: 400 }
+        );
+      }
       return NextResponse.json({ success: false, error: 'Access denied' }, { status: 403 });
     }
 
@@ -239,6 +247,20 @@ export async function POST(request: NextRequest) {
           const now = new Date().toISOString();
           const resolvedInstitutionId =
             (parent?.pageId && institutionByPageId.get(parent.pageId)) || institutionId;
+          if (!resolvedInstitutionId) {
+            // institution_id is NOT NULL on ig_accounts. No fb_pages parent
+            // mapping and no body fallback (super_admin group-level sync) —
+            // skip rather than fail the insert.
+            results.push({
+              ig_user_id: igUserId,
+              username: parent?.igUsername || '',
+              status: 'error',
+              error:
+                'no institution mapping: account has no fb_pages parent and no institution_id was provided',
+            });
+            failed++;
+            return;
+          }
           const accountType =
             igProfile.account_type && VALID_ACCOUNT_TYPES.has(igProfile.account_type)
               ? igProfile.account_type
