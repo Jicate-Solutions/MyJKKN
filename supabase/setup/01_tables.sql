@@ -646,7 +646,11 @@ CREATE TABLE IF NOT EXISTS public.staff (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
     created_by UUID,
     updated_by UUID,
-    institution_email TEXT NOT NULL,
+    -- Updated: 2026-06-09 - Made nullable. institution_email is OPTIONAL for all
+    -- staff (BUG-003989/3980/3962): non-teaching/labour employees have no
+    -- @jkkn.ac.in address. UNIQUE index allows multiple NULLs; the
+    -- sync_staff_to_profiles trigger skips profile-link when it is NULL.
+    institution_email TEXT,
     -- Updated: 2026-04-14 - role_key FK to custom_roles.role_key; drives dynamic role assignment on profile sync.
     role_key VARCHAR(50) NOT NULL DEFAULT 'faculty' REFERENCES public.custom_roles(role_key) ON UPDATE CASCADE
 );
