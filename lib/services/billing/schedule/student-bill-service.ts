@@ -459,8 +459,13 @@ export class StudentBillService {
         : null;
 
       // Any filter that targets a column on the embedded learner requires the
-      // INNER-join variant of the select.
-      const hasStudentFilters = hasAcademicFilters || accommodationTypeIds !== null;
+      // INNER-join variant of the select. lifecycle_status lives on
+      // learners_profiles, so it joins the same club as the academic +
+      // accommodation filters.
+      const hasStudentFilters =
+        hasAcademicFilters ||
+        accommodationTypeIds !== null ||
+        !!filters.lifecycle_status;
 
       let query;
 
@@ -498,6 +503,7 @@ export class StudentBillService {
               first_name,
               last_name,
               roll_number,
+              lifecycle_status,
               academic_year_id,
               degree_id,
               department_id,
@@ -553,6 +559,7 @@ export class StudentBillService {
               first_name,
               last_name,
               roll_number,
+              lifecycle_status,
               department:departments(id, department_name),
               semester:semesters(id, semester_name)
             ),
@@ -689,6 +696,10 @@ export class StudentBillService {
           query = query.eq('student.section_id', filters.section_id);
         }
 
+        if (filters.lifecycle_status) {
+          query = query.eq('student.lifecycle_status', filters.lifecycle_status);
+        }
+
         // Accommodation-type code resolved to id(s) above. Empty array means the
         // code matched no catalog row → force a no-match instead of all rows.
         if (accommodationTypeIds !== null) {
@@ -787,6 +798,7 @@ export class StudentBillService {
             roll_number: studentData?.roll_number || '',
             college_email: '', // Not queried to keep it light
             student_mobile: '', // Not queried to keep it light
+            lifecycle_status: studentData?.lifecycle_status || undefined,
             department: studentData?.department || undefined,
             semester: studentData?.semester || undefined
           },

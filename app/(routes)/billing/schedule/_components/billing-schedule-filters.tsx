@@ -20,7 +20,10 @@ import { ProgramService } from '@/lib/services/organization/program-service';
 import { SemesterService } from '@/lib/services/organization/semester-service';
 import { SectionService } from '@/lib/services/organization/section-service';
 import { BillingScheduleSearchParams } from './data-table-schema';
-import { ACCOMMODATION_TYPE_OPTIONS } from '@/types/billing-schedule';
+import {
+  ACCOMMODATION_TYPE_OPTIONS,
+  LIFECYCLE_STATUS_FILTER_OPTIONS
+} from '@/types/billing-schedule';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import { DatePickerWithRange } from '@/components/ui/date-range-picker';
@@ -216,6 +219,7 @@ export function BillingScheduleFilters({
   const hasActiveFilters = !!(
     searchParams.institution_id ||
     searchParams.status ||
+    searchParams.lifecycle_status ||
     searchParams.item_category_id ||
     searchParams.is_recurring ||
     searchParams.amount_from ||
@@ -459,6 +463,28 @@ export function BillingScheduleFilters({
             <SelectItem value='overdue'>Overdue</SelectItem>
             <SelectItem value='cancelled'>Cancelled</SelectItem>
             <SelectItem value='refunded'>Refunded</SelectItem>
+          </SelectContent>
+        </Select>
+
+        <Select
+          value={searchParams.lifecycle_status || 'all'}
+          onValueChange={(value) =>
+            onFilterChange(
+              'lifecycle_status',
+              value === 'all' ? undefined : value
+            )
+          }
+        >
+          <SelectTrigger className='w-full sm:w-[160px]'>
+            <SelectValue placeholder='Learner status' />
+          </SelectTrigger>
+          <SelectContent className='max-h-60 overflow-y-auto'>
+            <SelectItem value='all'>All Learner Status</SelectItem>
+            {LIFECYCLE_STATUS_FILTER_OPTIONS.map((option) => (
+              <SelectItem key={option.value} value={option.value}>
+                {option.label}
+              </SelectItem>
+            ))}
           </SelectContent>
         </Select>
 

@@ -60,6 +60,7 @@ export function BillingScheduleDataTable({
           student_id: search.student_id || undefined,
           item_category_id: search.item_category_id || undefined,
           status: search.status || undefined,
+          lifecycle_status: search.lifecycle_status || undefined,
           is_recurring:
             search.is_recurring === 'true'
               ? true
@@ -105,6 +106,7 @@ export function BillingScheduleDataTable({
       search.student_id,
       search.item_category_id,
       search.status,
+      search.lifecycle_status,
       search.is_recurring,
       search.amount_from,
       search.amount_to,

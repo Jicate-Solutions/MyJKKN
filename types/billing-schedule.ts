@@ -81,6 +81,9 @@ export interface StudentBill {
     roll_number?: string;
     college_email: string;
     student_mobile: string;
+    // Learner lifecycle state off learners_profiles (account → reserved →
+    // admitted → active …). Surfaced as the "Learner Status" table column.
+    lifecycle_status?: string;
     degree?: {
       id: string;
       degree_name: string;
@@ -148,6 +151,9 @@ export interface StudentBillFilters {
   institution_id?: string;
   item_category_id?: string;
   status?: BillStatus;
+  // learners_profiles.lifecycle_status — filters bills by the learner's
+  // lifecycle state (routes the query through the !inner learner join).
+  lifecycle_status?: string;
   due_date_from?: string;
   due_date_to?: string;
   amount_from?: number;
@@ -550,6 +556,23 @@ export const ACCOMMODATION_TYPE_OPTIONS = [
   { value: 'dayscholar', label: 'Day Scholar' },
   { value: 'pg', label: 'Paying Guest' },
   { value: 'not_applicable', label: 'Not Applicable' }
+] as const;
+
+// Learner lifecycle-status filter options for the billing schedule list.
+// Scoped to the states a learner can be in once bills exist (the 'account'
+// step onward — that's when bills are generated). `value` is the
+// learners_profiles.lifecycle_status enum code; labels mirror
+// components/learners/lifecycle-status-badge.tsx. Ordered by lifecycle
+// progression so the dropdown reads top-to-bottom like the funnel.
+export const LIFECYCLE_STATUS_FILTER_OPTIONS = [
+  { value: 'account', label: 'Account' },
+  { value: 'reserved', label: 'Reserved' },
+  { value: 'admitted', label: 'Admitted' },
+  { value: 'active', label: 'Active' },
+  { value: 'inactive', label: 'Inactive' },
+  { value: 'graduated', label: 'Graduated' },
+  { value: 'alumni', label: 'Alumni' },
+  { value: 'exited', label: 'Exited' }
 ] as const;
 
 // Student Search and List Interfaces

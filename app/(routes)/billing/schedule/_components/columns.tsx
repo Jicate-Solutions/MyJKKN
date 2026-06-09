@@ -5,6 +5,8 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { DataTableColumnHeader } from '@/components/data-table/column-header';
 import { StudentBill } from '@/types/billing-schedule';
 import { Badge } from '@/components/ui/badge';
+import { LifecycleStatusBadge } from '@/components/learners/lifecycle-status-badge';
+import type { LifecycleStatus } from '@/types/learner-profile';
 import { format } from 'date-fns';
 import { DataTableRowActions } from './row-actions';
 import Link from 'next/link';
@@ -259,6 +261,26 @@ export const columns: ColumnDef<StudentBill>[] = [
     filterFn: (row, id, value) => {
       return value.includes(row.getValue(id));
     }
+  },
+  {
+    accessorKey: 'lifecycle_status',
+    id: 'lifecycle_status',
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title='Learner Status' />
+    ),
+    size: 140,
+    minSize: 120,
+    maxSize: 170,
+    cell: ({ row }) => {
+      const status = row.original.student?.lifecycle_status;
+      if (!status) {
+        return <span className='text-sm text-muted-foreground'>—</span>;
+      }
+      return <LifecycleStatusBadge status={status as LifecycleStatus} />;
+    },
+    // lifecycle_status lives on the embedded learner, not on the bill row, so
+    // server-side ordering by it isn't wired — keep it unsortable.
+    enableSorting: false
   },
 
   {
