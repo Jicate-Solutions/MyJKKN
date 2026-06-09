@@ -2,7 +2,7 @@
 
 import React from 'react';
 import toast from 'react-hot-toast';
-import { DataTable } from '@/components/data-table/data-table';
+import { DataTable, type DataFetchParams } from '@/components/data-table/data-table';
 import { columns } from './columns';
 import type { BillingScheduleSearchParams } from './data-table-schema';
 import { Button } from '@/components/ui/button';
@@ -10,6 +10,9 @@ import { Plus, TrashIcon, Users, Ban, FileText, Search } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { StudentBillService } from '@/lib/services/billing/schedule/student-bill-service';
 import { StudentBill } from '@/types/billing-schedule';
+import { getStatusLabel } from '@/components/learners/lifecycle-status-badge';
+import type { LifecycleStatus } from '@/types/learner-profile';
+import { format } from 'date-fns';
 import { usePermissions } from '@/hooks/use-permissions';
 import { Skeleton } from '@/components/ui/skeleton';
 import { DeleteConfirmationModal } from '@/components/billing/delete-confirmation-modal';
@@ -20,6 +23,63 @@ interface BillingScheduleDataTableProps {
 }
 
 const CANCELLABLE_STATUSES = ['unpaid', 'partially_paid', 'overdue'];
+
+// Upper bound on rows pulled by "Select all across pages". Generous for the
+// billing list's scale; if a filtered set somehow exceeds it, only the first
+// SELECT_ALL_CAP are selected (the banner count reflects the real selection).
+const SELECT_ALL_CAP = 5000;
+
+// ── Export shaping ───────────────────────────────────────────────────────
+// The shared DataTable export resolves each cell via a FLAT key lookup
+// (transformedItem[key]); it does NOT walk nested relations. A StudentBill
+// keeps its data under bill.student.*, bill.institution.*, etc., so without a
+// transformFunction every row serialises to {} (an empty export file). This
+// flattener maps each bill into the flat, human-labelled keys the export
+// columns read — including the learner's lifecycle status.
+const PAYMENT_STATUS_EXPORT_LABELS: Record<string, string> = {
+  paid: 'Paid',
+  unpaid: 'Unpaid',
+  partially_paid: 'Partially Paid',
+  overdue: 'Overdue',
+  cancelled: 'Cancelled',
+  refunded: 'Refunded',
+  superseded: 'Superseded'
+};
+
+function formatBillDate(value?: string | null): string {
+  if (!value) return '';
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? '' : format(d, 'dd MMM yyyy');
+}
+
+function transformBillForExport(
+  bill: StudentBill
+): Record<string, string | number> {
+  const name = `${bill.student?.first_name || ''} ${
+    bill.student?.last_name || ''
+  }`.trim();
+  const lifecycle = bill.student?.lifecycle_status;
+  return {
+    studentName: name || '—',
+    institutionName: bill.institution?.name || '',
+    departmentSemester: [
+      bill.student?.department?.department_name,
+      bill.student?.semester?.semester_name
+    ]
+      .filter(Boolean)
+      .join(' / '),
+    category: bill.item_category?.category_name || '',
+    dueDate: formatBillDate(bill.due_date),
+    amount: bill.final_amount ?? 0,
+    paymentStatus:
+      PAYMENT_STATUS_EXPORT_LABELS[bill.status] || bill.status || '',
+    learnerStatus: lifecycle
+      ? getStatusLabel(lifecycle as LifecycleStatus)
+      : '',
+    billType: bill.is_recurring ? 'Recurring' : 'One-time',
+    createdAt: formatBillDate(bill.created_at)
+  };
+}
 
 export function BillingScheduleDataTable({
   search
@@ -39,68 +99,36 @@ export function BillingScheduleDataTable({
   const canCancelBills =
     isSuperAdmin || canAccess('billing.schedule', 'update');
 
-  const fetchData = React.useCallback(
-    async (params: {
-      page: number;
-      limit: number;
-      search: string;
-      from_date: string;
-      to_date: string;
-      sort_by: string;
-      sort_order: string;
-    }) => {
-      try {
-        const filters = {
-          page: params.page,
-          limit: params.limit,
-          search: params.search || undefined,
-          sortBy: params.sort_by || undefined,
-          sortDirection: (params.sort_order as 'asc' | 'desc') || undefined,
-          institution_id: search.institution_id || undefined,
-          student_id: search.student_id || undefined,
-          item_category_id: search.item_category_id || undefined,
-          status: search.status || undefined,
-          lifecycle_status: search.lifecycle_status || undefined,
-          is_recurring:
-            search.is_recurring === 'true'
-              ? true
-              : search.is_recurring === 'false'
-              ? false
-              : undefined,
-          amount_from: search.amount_from || undefined,
-          amount_to: search.amount_to || undefined,
-          due_date_from:
-            search.dueDateRange?.from?.toISOString().split('T')[0] || undefined,
-          due_date_to:
-            search.dueDateRange?.to?.toISOString().split('T')[0] || undefined,
-          academic_year_id: search.academic_year_id || undefined,
-          degree_id: search.degree_id || undefined,
-          department_id: search.department_id || undefined,
-          program_id: search.program_id || undefined,
-          semester_id: search.semester_id || undefined,
-          section_id: search.section_id || undefined,
-          accommodation_type: search.accommodation_type || undefined
-        };
-
-        const { data, metadata } = await StudentBillService.getStudentBills(
-          filters
-        );
-
-        return {
-          success: true,
-          data: data || [],
-          pagination: {
-            page: params.page,
-            limit: params.limit,
-            total_pages: metadata?.totalPages ?? 0,
-            total_items: metadata?.total ?? 0
-          }
-        };
-      } catch (error) {
-        console.error('Error fetching student bills:', error);
-        throw error;
-      }
-    },
+  // Dimension filters shared by the paged fetch AND the cross-page "select all"
+  // fetch, so both honour the exact same URL filters. Search/sort come per-call
+  // from the table; everything else is the user's current filter selection.
+  const dimensionFilters = React.useMemo(
+    () => ({
+      institution_id: search.institution_id || undefined,
+      student_id: search.student_id || undefined,
+      item_category_id: search.item_category_id || undefined,
+      status: search.status || undefined,
+      lifecycle_status: search.lifecycle_status || undefined,
+      is_recurring:
+        search.is_recurring === 'true'
+          ? true
+          : search.is_recurring === 'false'
+          ? false
+          : undefined,
+      amount_from: search.amount_from || undefined,
+      amount_to: search.amount_to || undefined,
+      due_date_from:
+        search.dueDateRange?.from?.toISOString().split('T')[0] || undefined,
+      due_date_to:
+        search.dueDateRange?.to?.toISOString().split('T')[0] || undefined,
+      academic_year_id: search.academic_year_id || undefined,
+      degree_id: search.degree_id || undefined,
+      department_id: search.department_id || undefined,
+      program_id: search.program_id || undefined,
+      semester_id: search.semester_id || undefined,
+      section_id: search.section_id || undefined,
+      accommodation_type: search.accommodation_type || undefined
+    }),
     [
       search.institution_id,
       search.student_id,
@@ -118,8 +146,56 @@ export function BillingScheduleDataTable({
       search.program_id,
       search.semester_id,
       search.section_id,
-      search.accommodation_type,
+      search.accommodation_type
     ]
+  );
+
+  const fetchData = React.useCallback(
+    async (params: DataFetchParams) => {
+      try {
+        const { data, metadata } = await StudentBillService.getStudentBills({
+          page: params.page,
+          limit: params.limit,
+          search: params.search || undefined,
+          sortBy: params.sort_by || undefined,
+          sortDirection: (params.sort_order as 'asc' | 'desc') || undefined,
+          ...dimensionFilters
+        });
+
+        return {
+          success: true,
+          data: data || [],
+          pagination: {
+            page: params.page,
+            limit: params.limit,
+            total_pages: metadata?.totalPages ?? 0,
+            total_items: metadata?.total ?? 0
+          }
+        };
+      } catch (error) {
+        console.error('Error fetching student bills:', error);
+        throw error;
+      }
+    },
+    [dimensionFilters]
+  );
+
+  // Powers the "Select all N across pages" banner: returns every bill matching
+  // the current filters (capped), so selecting all then bulk-cancelling or
+  // deleting acts on the full set rather than just the visible page.
+  const fetchAllItemsFn = React.useCallback(
+    async (params: DataFetchParams): Promise<StudentBill[]> => {
+      const { data } = await StudentBillService.getStudentBills({
+        page: 1,
+        limit: SELECT_ALL_CAP,
+        search: params.search || undefined,
+        sortBy: params.sort_by || undefined,
+        sortDirection: (params.sort_order as 'asc' | 'desc') || undefined,
+        ...dimensionFilters
+      });
+      return data || [];
+    },
+    [dimensionFilters]
   );
 
   // ── Delete modal state ───────────────────────────────────────────
@@ -384,42 +460,52 @@ export function BillingScheduleDataTable({
     <>
       <DataTable
         fetchDataFn={fetchData}
+        fetchAllItemsFn={fetchAllItemsFn}
         getColumns={() => columns as any}
         exportConfig={{
           entityName: 'student-bills',
+          // Keys below are the FLAT keys emitted by transformBillForExport
+          // (NOT the bill's nested paths). columnMapping turns each into its
+          // sheet header label; `headers` fixes the column order; columnWidths
+          // align by index. The transformFunction is what actually populates
+          // the cells — without it the export is empty (see helper comment).
           columnMapping: {
-            student_name: 'Student',
-            'institution.name': 'Institution',
-            department_semester: 'Department / Semester',
-            'item_category.category_name': 'Category',
-            due_date: 'Due Date',
-            final_amount: 'Amount',
-            status: 'Status',
-            is_recurring: 'Type',
-            created_at: 'Created At'
+            studentName: 'Student',
+            institutionName: 'Institution',
+            departmentSemester: 'Department / Semester',
+            category: 'Category',
+            dueDate: 'Due Date',
+            amount: 'Amount',
+            paymentStatus: 'Status',
+            learnerStatus: 'Learner Status',
+            billType: 'Type',
+            createdAt: 'Created At'
           },
           columnWidths: [
-            { wch: 20 },
+            { wch: 22 },
             { wch: 25 },
-            { wch: 25 },
+            { wch: 28 },
             { wch: 20 },
-            { wch: 15 },
-            { wch: 15 },
-            { wch: 10 },
-            { wch: 10 },
-            { wch: 15 }
+            { wch: 14 },
+            { wch: 14 },
+            { wch: 14 },
+            { wch: 16 },
+            { wch: 12 },
+            { wch: 14 }
           ],
           headers: [
-            'Student',
-            'Institution',
-            'Department / Semester',
-            'Category',
-            'Due Date',
-            'Amount',
-            'Status',
-            'Type',
-            'Created At'
-          ]
+            'studentName',
+            'institutionName',
+            'departmentSemester',
+            'category',
+            'dueDate',
+            'amount',
+            'paymentStatus',
+            'learnerStatus',
+            'billType',
+            'createdAt'
+          ],
+          transformFunction: transformBillForExport
         }}
         idField='id'
         config={{

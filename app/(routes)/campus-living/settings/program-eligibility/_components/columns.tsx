@@ -5,16 +5,10 @@ import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
 import type { ProgramEligibilityRow } from '@/types/program-eligibility';
 import { EligibilityRowActions } from './row-actions';
+import { formatFeeBand } from './format';
 
-// ₹ rupees → compact lakh label. Trims trailing zeros (400000 => "4L").
-const lakh = (n: number) => `${Number((n / 100000).toFixed(2))}L`;
 function FeeBandCell({ min, max }: { min: number | null; max: number | null }) {
-  let label: string;
-  if (min == null && max == null) label = 'Any';
-  else if (min == null) label = `< ${lakh(max!)}`;
-  else if (max == null) label = `≥ ${lakh(min)}`;
-  else label = `${lakh(min)} – ${lakh(max)}`;
-  return <span className='text-sm tabular-nums'>{label}</span>;
+  return <span className='text-sm tabular-nums'>{formatFeeBand(min, max)}</span>;
 }
 function QuotaCell({ name }: { name: string | null }) {
   return name

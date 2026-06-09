@@ -22,9 +22,10 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { Edit, Trash2, Loader2 } from 'lucide-react';
+import { Edit, Eye, Trash2, Loader2 } from 'lucide-react';
 import { useRoomEligibilityRules } from '@/hooks/campus-living/use-room-eligibility';
 import { RoomEligibilityFormDialog } from './room-eligibility-form-dialog';
+import { RoomRuleDetailDialog } from './room-rule-detail-dialog';
 import type { RoomEligibilityRuleRow } from '@/types/room-eligibility';
 
 const scopeLabel = (r: RoomEligibilityRuleRow) =>
@@ -44,6 +45,8 @@ const predicateParts = (r: RoomEligibilityRuleRow) =>
 export function RoomRulesTable() {
   // null => list rules across ALL institutions; each rule carries its own.
   const { rows, loading, error, deleteRule } = useRoomEligibilityRules(null);
+  const [viewing, setViewing] = useState<RoomEligibilityRuleRow | null>(null);
+  const [viewOpen, setViewOpen] = useState(false);
   const [editing, setEditing] = useState<RoomEligibilityRuleRow | null>(null);
   const [editOpen, setEditOpen] = useState(false);
   const [pendingDelete, setPendingDelete] =
@@ -143,6 +146,16 @@ export function RoomRulesTable() {
                       variant="ghost"
                       size="sm"
                       onClick={() => {
+                        setViewing(r);
+                        setViewOpen(true);
+                      }}
+                    >
+                      <Eye className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
                         setEditing(r);
                         setEditOpen(true);
                       }}
@@ -164,6 +177,17 @@ export function RoomRulesTable() {
           })}
         </TableBody>
       </Table>
+
+      {viewing && (
+        <RoomRuleDetailDialog
+          open={viewOpen}
+          onOpenChange={(o) => {
+            setViewOpen(o);
+            if (!o) setViewing(null);
+          }}
+          rule={viewing}
+        />
+      )}
 
       {editing && (
         <RoomEligibilityFormDialog
