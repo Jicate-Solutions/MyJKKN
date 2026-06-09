@@ -25,7 +25,7 @@ import { ArrowLeft, AlertTriangle } from 'lucide-react';
 
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
-import { PermissionGuard } from '@/components/auth/permission-guard';
+import { SuperAdminOnly } from '@/components/auth/admin-permission-guard';
 import { Button } from '@/components/ui/button';
 import {
   Card,
@@ -68,7 +68,7 @@ function previousMonth(): { year: number; month: number } {
 
 export default function NewPayrollPeriodPage() {
   return (
-    <PermissionGuard module="users" action="manage">
+    <SuperAdminOnly>
       <ContentLayout title="Create Payroll Period">
         <PageBreadcrumb
           items={[
@@ -81,7 +81,7 @@ export default function NewPayrollPeriodPage() {
         />
         <NewPayrollPeriodContent />
       </ContentLayout>
-    </PermissionGuard>
+    </SuperAdminOnly>
   );
 }
 

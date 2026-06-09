@@ -11,7 +11,7 @@
 // can re-save (creates a NEW row — append-only history) or hit Approve to
 // stamp approved_at on the latest row.
 //
-// Permission: HR officer / admin / super_admin (PermissionGuard module=users).
+// Permission: HR officer / admin / super_admin (SuperAdminOnly module=users).
 // RLS pins data visibility.
 // ============================================================================
 
@@ -24,7 +24,7 @@ import { toast } from 'sonner';
 
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
-import { PermissionGuard } from '@/components/auth/permission-guard';
+import { SuperAdminOnly } from '@/components/auth/admin-permission-guard';
 import {
   Card,
   CardContent,
@@ -73,7 +73,7 @@ function diffYears(fromIso: string | null): number {
 
 export default function FnfCalculatorPage() {
   return (
-    <PermissionGuard module="users" action="manage">
+    <SuperAdminOnly>
       <ContentLayout title="Full & Final Settlement">
         <PageBreadcrumb
           items={[
@@ -86,7 +86,7 @@ export default function FnfCalculatorPage() {
         />
         <FnfContent />
       </ContentLayout>
-    </PermissionGuard>
+    </SuperAdminOnly>
   );
 }
 

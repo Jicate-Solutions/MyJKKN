@@ -2,7 +2,7 @@
 // /admin/hr/forms/[id]/builder — Visual drag-drop form builder
 // =====================================================================
 // Wave 3 M9 follow-up (2026-05-15). Director-lock R5-Q1: all 10 widget
-// types supported. Director-lock R5-Q2: super_admin only (PermissionGuard).
+// types supported. Director-lock R5-Q2: super_admin only (SuperAdminOnly).
 //
 // Server component loads the form by id, hands it off to the client-side
 // builder which is a two-pane layout: widget palette (left) + canvas
@@ -20,7 +20,7 @@ import { FileText } from 'lucide-react';
 
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
-import { PermissionGuard } from '@/components/auth/permission-guard';
+import { SuperAdminOnly } from '@/components/auth/admin-permission-guard';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { createClient } from '@/lib/supabase/server';
 import { formBuilderService } from '@/lib/services/hr/form-builder-service';
@@ -34,7 +34,7 @@ interface PageProps {
 export default async function HrFormBuilderPage({ params }: PageProps) {
   const { id } = await params;
   return (
-    <PermissionGuard module="users" action="manage">
+    <SuperAdminOnly>
       <ContentLayout title="HR Form Builder">
         <PageBreadcrumb
           items={[
@@ -46,7 +46,7 @@ export default async function HrFormBuilderPage({ params }: PageProps) {
         />
         <BuilderShell id={id} />
       </ContentLayout>
-    </PermissionGuard>
+    </SuperAdminOnly>
   );
 }
 
