@@ -137,7 +137,7 @@ export function PaymentSelectionModal({
               </DialogTitle>
               <DialogDescription>
                 {step === 'select'
-                  ? 'Choose one or more bills to pay via HDFC SmartGateway'
+                  ? 'Choose one or more bills to pay via Razorpay'
                   : 'Choose to pay the full balance or enter custom amounts'}
               </DialogDescription>
             </div>
@@ -190,19 +190,33 @@ export function PaymentSelectionModal({
                     onCheckedChange={() => handleToggleBill(bill.id)}
                   />
                   <div className="flex-1 space-y-1">
-                    <div className="flex items-center justify-between">
+                    <div className="flex items-center justify-between gap-2">
                       <label
                         htmlFor={`bill-${bill.id}`}
                         className="font-medium cursor-pointer"
                       >
-                        {(bill as any).bill_number}
+                        {bill.item_category?.category_name ??
+                          bill.bill_description ??
+                          'Bill'}
                       </label>
                       <Badge variant={getStatusBadgeVariant(bill.status)}>
-                        {bill.status.toUpperCase()}
+                        {bill.status.replace(/_/g, ' ').toUpperCase()}
                       </Badge>
                     </div>
-                    <div className="text-sm text-muted-foreground">
-                      Due: {format(new Date(bill.due_date), 'dd MMM yyyy')}
+                    {/* Secondary identifiers so the user can tell bills apart:
+                        the description (when it differs from the category) and
+                        the academic year, alongside the due date. */}
+                    {bill.bill_description &&
+                      bill.bill_description !== bill.item_category?.category_name && (
+                        <div className="text-sm text-foreground/80">
+                          {bill.bill_description}
+                        </div>
+                      )}
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-sm text-muted-foreground">
+                      {bill.academic_year?.academic_year_name && (
+                        <span>AY: {bill.academic_year.academic_year_name}</span>
+                      )}
+                      <span>Due: {format(new Date(bill.due_date), 'dd MMM yyyy')}</span>
                     </div>
                     <div className="flex items-center justify-between text-sm">
                       <span className="text-muted-foreground">
