@@ -84,6 +84,7 @@ const NAV_EXCLUDE = new Set<string>([
   '/learn',
   '/learners',
   '/organizations',
+  '/pde', // PDE module root (PR #1257) — redirects to nav.pde.default_landing (/pde/learn/demonstrations)
   '/resource-management',
   '/staff',
   '/startup-studio',
