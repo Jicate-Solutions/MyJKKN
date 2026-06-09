@@ -42,10 +42,46 @@ export interface ProposedAllocation {
   learner_name: string;
   learner_institution: string | null;
   learner_program: string | null;
+  learner_semester: string | null;
   block_name: string | null;
   room_number: string | null;
   bed_number: string | null;
   status: string;
+}
+
+/** Shape returned by fn_explain_allocation — why a resident was allocated to a room. */
+export interface AllocationEligibilityExplain {
+  allocation_id: string;
+  room_number: string | null;
+  status: string;
+  category: {
+    allocated_room_category: string | null;
+    resolved_room_category: string | null;
+    room_category_matched: boolean;
+    resolved_mess_category: string | null;
+    academic_year: string | null;
+    academic_fee: number | null;
+    gender: string | null;
+    gender_ok: boolean;
+  };
+  physical: {
+    institution_served: boolean;
+    is_rule_covered: boolean;
+    rule_matched: boolean;
+    open_room: boolean;
+    access_ok: boolean;
+    covering_rules: Array<{
+      rule_name: string;
+      floor: number | null;
+      matched: boolean;
+      cohort: string | null;
+    }>;
+  };
+  bill: {
+    current_year_bills: number;
+    academic_bills: number;
+  };
+  error?: string;
 }
 
 export interface AutoCategoryOption {
