@@ -137,11 +137,11 @@ export async function GET(request: NextRequest) {
       }
       if (categoryNames.length > 0) {
         sheet.getCell(`H${row}`).dataValidation = {
-          type: 'list', allowBlank: false,
+          type: 'list', allowBlank: true,
           formulae: [`Lists!$B$2:$B$${categoryNames.length + 1}`],
           showErrorMessage: true, errorStyle: 'warning',
           errorTitle: 'Invalid Billing Category',
-          error: 'Pick a category from the dropdown.'
+          error: 'Pick a category from the dropdown, or leave blank to keep the current one.'
         };
       }
       sheet.getCell(`J${row}`).dataValidation = {
@@ -167,7 +167,7 @@ export async function GET(request: NextRequest) {
       `1. This file contains ${bills.length} existing bill${bills.length !== 1 ? 's' : ''} matching your filters, pre-filled with their CURRENT values.`,
       '2. EDIT ONLY the light-purple columns: Academic Year, Billing Category, Bill Description, Due Date, Remarks.',
       '3. Do NOT edit or delete the Bill ID column — it is the key used to match your edits back to each bill. Reordering rows is fine.',
-      '4. Academic Year / Bill Description / Remarks: leave blank to CLEAR the field. Billing Category and Due Date are required.',
+      '4. Academic Year / Bill Description / Remarks: leave blank to CLEAR the field. Billing Category: leave blank to keep the current one. Due Date is required.',
       '5. Academic Year must match an existing year for that bill\'s institution (pick from the dropdown).',
       '6. Money and status are NOT editable here — Final Amount and Status are shown for context only.',
       '7. Save as .xlsx and upload. You will see a preview of every change before anything is written.'

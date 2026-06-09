@@ -244,16 +244,19 @@ export class BulkEditBillsService {
         pushChange('academic_year', currentAyDisp, desiredAyDisp);
       }
 
-      // -- Billing Category (required) --
-      if (!r.cat_name) {
-        rowErrors.push({ row: r.row, field: 'Billing Category', message: 'Billing category is required.' });
-      } else {
+      // -- Billing Category (blank = keep current, never forced) --
+      // NOT strictly required: legacy bills with a NULL category (the data class
+      // most likely to need an Academic-Year backfill) export with a blank
+      // category cell. Forcing a value there would reject the very rows this
+      // feature exists to fix. A blank cell therefore means "leave as-is"; only
+      // a non-blank value is validated and applied as a re-classification.
+      if (r.cat_name) {
         const catId = catByName.get(r.cat_name);
         if (!catId) {
           rowErrors.push({ row: r.row, field: 'Billing Category', message: `Billing category "${r.cat_name}" does not exist or is inactive.` });
         } else if (catId !== bill.item_category_id) {
           update.item_category_id = catId;
-          pushChange('item_category', bill.item_category?.category_name || '(unknown)', r.cat_name);
+          pushChange('item_category', bill.item_category?.category_name || '(unspecified)', r.cat_name);
         }
       }
 

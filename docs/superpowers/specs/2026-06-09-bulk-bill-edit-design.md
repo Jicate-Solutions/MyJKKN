@@ -43,7 +43,7 @@ money or reconciliation, so editing a paid/cancelled/refunded bill is harmless.
 | Field (DB column)            | Editable | Resolution / semantics                                                            |
 |------------------------------|:--------:|-----------------------------------------------------------------------------------|
 | `academic_year_id`           |   ✏️     | Resolve **name → id scoped to the bill's `institution_id`**. Blank cell = clear to `NULL` ("Unspecified"). |
-| `item_category_id`           |   ✏️     | Resolve **name → id** against **active** `billing_categories`. Required: blank → row error. Re-classification only; does **not** change any amount. |
+| `item_category_id`           |   ✏️     | Resolve **name → id** against **active** `billing_categories`. **Blank = keep current** (never forced — legacy bills with a NULL category must stay editable for backfill). Re-classification only; does **not** change any amount. |
 | `bill_description`           |   ✏️     | Free text. Blank cell = clear to `NULL`.                                            |
 | `due_date`                   |   ✏️     | ISO `yyyy-mm-dd`. Required: blank/unparseable → row error.                          |
 | `remarks`                    |   ✏️     | Free text. Blank cell = clear to `NULL`.                                            |
@@ -133,7 +133,7 @@ Single data sheet `Bills`, plus hidden `Lists` (dropdown sources) and an
 | E   | Status               | 🔒 read-only | context (paid / unpaid / cancelled / …)                               |
 | F   | Final Amount         | 🔒 read-only | context — visibly proves money is untouched                          |
 | G   | **Academic Year**    | ✏️ dropdown  | active `academic_years` names; **blank = clear to NULL**             |
-| H   | **Billing Category** | ✏️ dropdown  | active `billing_categories` names; **required**                     |
+| H   | **Billing Category** | ✏️ dropdown  | active `billing_categories` names; **blank = keep current** (not forced) |
 | I   | **Bill Description** | ✏️ free text | blank = clear                                                         |
 | J   | **Due Date**         | ✏️ date      | `yyyy-mm-dd`, **required**                                            |
 | K   | **Remarks**          | ✏️ free text | blank = clear                                                         |
@@ -193,7 +193,7 @@ A row is **valid** when all of:
 - Bill exists **and is visible to the caller** (RLS) — else "bill not found or no access".
 - Academic Year blank, **or** resolves to an `academic_years.id` for **that bill's
   institution** (per-institution names; resolve keyed by `institution_id::name`).
-- Billing Category resolves to an **active** `billing_categories.id` (required).
+- Billing Category, when provided, resolves to an **active** `billing_categories.id`. A blank cell keeps the bill's current category (not forced — so NULL-category legacy bills stay editable).
 - Due Date parseable to `yyyy-mm-dd` (required).
 
 **Partial-success contract:** valid rows commit even when other rows fail;
