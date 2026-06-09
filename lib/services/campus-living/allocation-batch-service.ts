@@ -8,6 +8,7 @@ import type {
   AutoCategoryOption,
   AcademicYearOption,
   AllocationCandidate,
+  AllocationEligibilityExplain,
 } from '@/types/allocation-batch';
 
 const LOG = 'campus-living/allocation-batch';
@@ -147,6 +148,7 @@ export class AllocationBatchService {
            full_name, email,
            institution:institutions!profiles_institution_id_fkey(name),
            learner_profile:learners_profiles!profiles_learner_id_fkey(
+             semester_id,
              program:programs!fk_learners_profiles_program(program_name)
            )
          )`
@@ -157,31 +159,64 @@ export class AllocationBatchService {
       throw new Error(aErr.message || 'Failed to load batch allocations');
     }
 
-    const allocations: ProposedAllocation[] = (allocs ?? [])
-      .map((a: Record<string, unknown>) => {
-        const block = a.block as { name?: string } | null;
-        const room = a.room as { room_number?: string; floor?: number } | null;
-        const bed = a.bed as { bed_number?: string } | null;
-        const learner = a.learner as {
-          full_name?: string;
-          email?: string;
-          institution?: { name?: string } | null;
-          learner_profile?: { program?: { program_name?: string } | null } | null;
+    const rawRows = (allocs ?? []).map((a: Record<string, unknown>) => {
+      const block = a.block as { name?: string } | null;
+      const room = a.room as { room_number?: string; floor?: number } | null;
+      const bed = a.bed as { bed_number?: string } | null;
+      const learner = a.learner as {
+        full_name?: string;
+        email?: string;
+        institution?: { name?: string } | null;
+        learner_profile?: {
+          semester_id?: string | null;
+          program?: { program_name?: string } | null;
         } | null;
-        return {
-          id: a.id as string,
-          learner_name: learner?.full_name || learner?.email || '—',
-          learner_institution: learner?.institution?.name ?? null,
-          learner_program: learner?.learner_profile?.program?.program_name ?? null,
-          block_name: block?.name ?? null,
-          room_number: room?.room_number ?? null,
-          bed_number: bed?.bed_number ?? null,
-          status: a.status as string,
-        };
-      })
+      } | null;
+      return {
+        id: a.id as string,
+        learner_name: learner?.full_name || learner?.email || '—',
+        learner_institution: learner?.institution?.name ?? null,
+        learner_program: learner?.learner_profile?.program?.program_name ?? null,
+        semester_id: learner?.learner_profile?.semester_id ?? null,
+        block_name: block?.name ?? null,
+        room_number: room?.room_number ?? null,
+        bed_number: bed?.bed_number ?? null,
+        status: a.status as string,
+      };
+    });
+
+    // learners_profiles.semester_id has no embeddable named FK, so resolve names
+    // in one lightweight follow-up query keyed by the distinct semester ids.
+    const semesterIds = [...new Set(rawRows.map((r) => r.semester_id).filter(Boolean))] as string[];
+    const semesterNames = new Map<string, string>();
+    if (semesterIds.length > 0) {
+      const { data: sems } = await this.supabase
+        .from('semesters')
+        .select('id, semester_name')
+        .in('id', semesterIds);
+      (sems ?? []).forEach((s: Record<string, unknown>) =>
+        semesterNames.set(s.id as string, s.semester_name as string)
+      );
+    }
+
+    const allocations: ProposedAllocation[] = rawRows
+      .map(({ semester_id, ...r }) => ({
+        ...r,
+        learner_semester: semester_id ? semesterNames.get(semester_id) ?? null : null,
+      }))
       .sort((x, y) => x.learner_name.localeCompare(y.learner_name));
 
     return { batch, allocations };
+  }
+
+  // Per-allocation eligibility explanation (why this resident → this room).
+  static async explainAllocation(allocationId: string): Promise<AllocationEligibilityExplain> {
+    const { data, error } = await this.rpcCall('fn_explain_allocation', { p_allocation_id: allocationId });
+    if (error) {
+      logger.error(LOG, 'explainAllocation failed', error);
+      throw new Error(error.message || 'Failed to explain allocation');
+    }
+    return data as AllocationEligibilityExplain;
   }
 
   // ── Loaders ──
