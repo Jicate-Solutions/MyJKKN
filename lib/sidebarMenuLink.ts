@@ -436,7 +436,6 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/billing/refunds/[id]/edit': 'billing.refunds.edit',
   '/billing/apportionment': 'billing.apportionment.view',
   '/billing/apportionment/rules': 'billing.apportionment.view',
-  '/billing/apportionment/[billId]': 'billing.apportionment.view',
   '/billing/invoices': 'billing.invoices.view',
   '/billing/invoices/[id]': 'billing.invoices.view',
   '/billing/invoices/[id]/edit': 'billing.invoices.edit',
