@@ -31,9 +31,9 @@ export interface AllocatePreview {
   cohort_eligible: number;
   no_profile: number;
   already_allocated: number;
-  /** Beds in rooms covered by an active physical-room rule (auto-allocation is rule-driven). */
+  /** All free student beds in the block (rule-covered OR rule-free — no-rule rooms are open to all served institutions). */
   available_beds: number;
-  /** Does the block have any active physical-room eligibility rule? Drives the "set rules first" guard. */
+  /** Does the block have any active physical-room eligibility rule? Informational only (no longer gates auto-allocation). */
   rules_set: boolean;
 }
 

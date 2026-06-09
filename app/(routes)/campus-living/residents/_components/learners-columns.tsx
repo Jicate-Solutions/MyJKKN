@@ -29,7 +29,7 @@ export interface LearnerColumnHandlers {
 }
 
 // Column order: Roll, Name, Institution (super-admin only), Program,
-// Semester, Block, Status, Bills, Action.
+// Semester, Academic Year, Block, Status, Bills, Action.
 export function getLearnerColumns(
   h: LearnerColumnHandlers,
 ): ColumnDef<LearnerHostelite>[] {
@@ -86,6 +86,20 @@ export function getLearnerColumns(
       <span className='text-sm'>{row.original.semester_name ?? '—'}</span>
     ),
     size: 120,
+  };
+
+  // Academic Year — the current term label (learners_profiles.academic_year_id),
+  // surfaced as academic_year_name by v_learner_hostelites. Not in the service's
+  // SORTABLE set, so sorting is disabled to avoid a no-op sort affordance.
+  const academicYearCol: ColumnDef<LearnerHostelite> = {
+    id: 'academic_year_name',
+    accessorFn: (r) => r.academic_year_name,
+    header: ({ column }) => <DataTableColumnHeader column={column} title='Academic Year' />,
+    cell: ({ row }) => (
+      <span className='text-sm'>{row.original.academic_year_name ?? '—'}</span>
+    ),
+    enableSorting: false,
+    size: 140,
   };
 
   const blockCol: ColumnDef<LearnerHostelite> = {
@@ -198,6 +212,7 @@ export function getLearnerColumns(
     ...(h.isSuperAdmin ? [institutionCol] : []),
     programCol,
     semesterCol,
+    academicYearCol,
     blockCol,
     statusCol,
     billsCol,

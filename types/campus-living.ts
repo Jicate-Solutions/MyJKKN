@@ -144,6 +144,27 @@ export interface HosteliteBillStatus {
   academic_year_name: string | null;
 }
 
+// One itemized bill for the Residents → Learners detail drawer. Each row of
+// billing_student_bills IS a line item (a billing category with its own amount /
+// balance / status). Returned by the campus_living_get_hostelite_bills RPC;
+// paid_amount is final_amount - balance_amount. Covers ALL academic years and
+// both hostel and academic (tuition) fee sources.
+export interface LearnerBillItem {
+  id: string;
+  item_category_id: string | null;
+  category_name: string | null;
+  bill_description: string | null;
+  due_date: string | null;
+  final_amount: number | null;
+  balance_amount: number | null;
+  paid_amount: number | null;
+  status: string | null;
+  fee_source: string | null;
+  applies_year_of_study: number | null;
+  academic_year_id: string | null;
+  academic_year_name: string | null;
+}
+
 export interface LearnerHostelite {
   id: string;
   first_name: string | null;
@@ -169,6 +190,7 @@ export interface LearnerHostelite {
   program_name?: string | null;
   degree_name?: string | null;
   semester_name?: string | null;
+  academic_year_name?: string | null;
   current_block_name?: string | null;
   current_block_code?: string | null;
   // Surfaced from v_learner_hostelites (PR pending — bugs BUG-003325 + BUG-003326).
@@ -291,6 +313,8 @@ export interface LearnerDetailBundle {
   recentAttendance: LearnerAttendanceSummary[];
   openVacateRequest: LearnerVacateRequestSummary | null;
   recentLeaves: LearnerLeaveSummary[];
+  // Itemized bills across all academic years (campus_living_get_hostelite_bills).
+  bills: LearnerBillItem[];
 }
 
 // ─── Hostel leave (mirrors migration 20260222000015 + 20260424 approval-chain rewire) ───

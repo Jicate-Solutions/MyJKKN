@@ -14053,6 +14053,71 @@ $function$;
 
 GRANT EXECUTE ON FUNCTION public.campus_living_get_hostelite_bill_status(uuid[]) TO authenticated;
 
+-- campus_living_get_hostelite_bills (migration 20260609130000)
+-- Itemized bill list for ONE hostelite, powering the Billing details section of
+-- the Residents → Learners detail drawer. Each billing_student_bills row is a
+-- line item (category + amount + balance + status); paid_amount = final - balance.
+-- SECURITY DEFINER + gated on campus_living.residents.view so wardens without
+-- billing.* SELECT can read it (a direct read returns 0 rows under RLS); scoped
+-- to accessible institutions. ALL academic years; cancelled/superseded excluded.
+
+CREATE OR REPLACE FUNCTION public.campus_living_get_hostelite_bills(p_student_id uuid)
+RETURNS TABLE (
+  id uuid,
+  item_category_id uuid,
+  category_name text,
+  bill_description text,
+  due_date date,
+  final_amount numeric,
+  balance_amount numeric,
+  paid_amount numeric,
+  status text,
+  fee_source text,
+  applies_year_of_study integer,
+  academic_year_id uuid,
+  academic_year_name text
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+BEGIN
+  IF NOT public.user_has_permission('campus_living.residents.view') THEN
+    RAISE EXCEPTION 'permission denied: campus_living.residents.view' USING ERRCODE = '42501';
+  END IF;
+
+  RETURN QUERY
+  SELECT
+    b.id,
+    b.item_category_id,
+    bc.category_name::text,
+    b.bill_description,
+    b.due_date,
+    b.final_amount,
+    b.balance_amount,
+    (COALESCE(b.final_amount, 0) - COALESCE(b.balance_amount, 0))::numeric AS paid_amount,
+    b.status::text,
+    b.fee_source,
+    b.applies_year_of_study,
+    b.academic_year_id,
+    ay.academic_year_name::text
+  FROM billing_student_bills b
+  JOIN learners_profiles lp ON lp.id = b.student_id
+  LEFT JOIN billing_categories bc ON bc.id = b.item_category_id
+  LEFT JOIN academic_years ay ON ay.id = b.academic_year_id
+  WHERE b.student_id = p_student_id
+    AND lp.institution_id = ANY(public._user_accessible_institutions())
+    AND b.status NOT IN ('cancelled', 'superseded')
+  ORDER BY ay.academic_year_name DESC NULLS LAST,
+           b.due_date ASC NULLS LAST,
+           bc.category_name ASC NULLS LAST;
+END
+$function$;
+
+REVOKE ALL ON FUNCTION public.campus_living_get_hostelite_bills(uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.campus_living_get_hostelite_bills(uuid) FROM anon;
+GRANT EXECUTE ON FUNCTION public.campus_living_get_hostelite_bills(uuid) TO authenticated;
+
 -- ============================================================
 -- Fee-aware program eligibility — fee source + resolvers.
 -- Migration: 20260606160100_fee_aware_eligibility_functions.sql
@@ -14264,6 +14329,56 @@ END $function$;
 -- (Applied in migration 20260608160000_auto_allocate_rules_driven.sql)
 
 -- 1) Generator: strict rules-driven sweep + mess assignment.
+-- Physical-room eligibility helper: fail-OPEN on rooms with no covering rule (2026-06-09).
+-- A room covered by an active physical-room rule stays restricted to learners that rule
+-- matches; a room with NO covering rule is open to all (caller still enforces category +
+-- gender + block-institution access). Only the auto-allocate RPCs call this helper.
+CREATE OR REPLACE FUNCTION public.fn_learner_strictly_eligible_for_room(p_learner_id uuid, p_room_id uuid)
+RETURNS boolean
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_block uuid;
+  v_floor int;
+  v_inst uuid; v_degree uuid; v_dept uuid; v_program uuid; v_semester uuid;
+  v_has_covering boolean;
+  v_matches boolean;
+BEGIN
+  SELECT block_id, floor INTO v_block, v_floor FROM hostel_rooms WHERE id = p_room_id;
+  IF v_block IS NULL THEN RETURN false; END IF;
+
+  SELECT institution_id, degree_id, department_id, program_id, semester_id
+    INTO v_inst, v_degree, v_dept, v_program, v_semester
+    FROM learners_profiles WHERE id = p_learner_id;
+
+  WITH covering AS (
+    SELECT r.*
+    FROM hostel_room_eligibility_rules r
+    WHERE r.is_active
+      AND r.block_id = v_block
+      AND CASE
+            WHEN EXISTS (SELECT 1 FROM hostel_room_eligibility_rule_rooms rr WHERE rr.rule_id = r.id)
+              THEN EXISTS (SELECT 1 FROM hostel_room_eligibility_rule_rooms rr
+                           WHERE rr.rule_id = r.id AND rr.room_id = p_room_id)
+            ELSE (r.floor IS NULL OR r.floor = v_floor)
+          END
+  )
+  SELECT EXISTS (SELECT 1 FROM covering),
+         EXISTS (
+           SELECT 1 FROM covering c
+           WHERE c.institution_id = v_inst
+             AND (c.degree_id     IS NULL OR c.degree_id     = v_degree)
+             AND (c.department_id IS NULL OR c.department_id = v_dept)
+             AND (c.program_id    IS NULL OR c.program_id    = v_program)
+             AND (c.semester_id   IS NULL OR c.semester_id   = v_semester)
+         )
+    INTO v_has_covering, v_matches;
+
+  -- FAIL-OPEN: covered room -> must match a covering rule; uncovered room -> open to all.
+  RETURN v_matches OR NOT v_has_covering;
+END;
+$function$;
+
 CREATE OR REPLACE FUNCTION public.fn_auto_allocate_classic(p_block_id uuid, p_hostel_year_id uuid)
 RETURNS uuid
 LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public'
@@ -14281,9 +14396,8 @@ BEGIN
   SELECT hostel_type::text INTO v_block_type FROM hostel_blocks WHERE id=p_block_id;
   IF v_block_type IS NULL THEN RAISE EXCEPTION 'Block not found'; END IF;
 
-  IF NOT EXISTS (SELECT 1 FROM hostel_room_eligibility_rules WHERE block_id = p_block_id AND is_active) THEN
-    RAISE EXCEPTION 'No physical-room rules are set for this block. Set rules under Program Eligibility -> Physical Rooms before auto-allocating.';
-  END IF;
+  -- NOTE: no longer requires the block to have physical-room rules. Rooms without a
+  -- covering rule are open to all served institutions (fn_learner_strictly_eligible_for_room).
 
   SELECT id INTO v_tier FROM hostel_tier_policy WHERE tier_key='standard' AND institution_id IS NULL AND is_active LIMIT 1;
   IF v_tier IS NULL THEN SELECT id INTO v_tier FROM hostel_tier_policy WHERE tier_key='standard' AND is_active LIMIT 1; END IF;
@@ -14293,6 +14407,9 @@ BEGIN
   VALUES (p_block_id, NULL, p_hostel_year_id, 'pending_approval', v_actor)
   RETURNING id INTO v_batch;
 
+  -- Cohort in institution-priority order: primary institution first, then by institution
+  -- name, then learners A->Z. Greedy bed-claim in this order means earlier institutions get
+  -- first pick of shared/open rooms.
   FOR cand IN
     SELECT lp.id AS lp_id, p.id AS profile_id, lp.semester_id AS sem_id,
            lp.academic_year_id AS ay_id, lp.institution_id AS inst,
@@ -14300,13 +14417,16 @@ BEGIN
            room_elig.cats AS room_cats, mess_elig.cats AS mess_cats
     FROM learners_profiles lp
     JOIN profiles p ON p.learner_id = lp.id
+    JOIN hostel_block_institutions hbi ON hbi.block_id = p_block_id AND hbi.institution_id = lp.institution_id
+    JOIN institutions inst_t ON inst_t.id = lp.institution_id
     LEFT JOIN LATERAL (SELECT array_agg(category_id) AS cats FROM fn_hostel_learner_room_categories(lp.id)) room_elig ON true
     LEFT JOIN LATERAL (SELECT array_agg(category_id) AS cats FROM fn_hostel_learner_mess_categories(lp.id)) mess_elig ON true
     WHERE lp.accommodation_type_id IN (SELECT id FROM accommodation_types WHERE code = 'hostel')
-      AND lp.institution_id IN (SELECT institution_id FROM hostel_block_institutions WHERE block_id = p_block_id)
       AND room_elig.cats IS NOT NULL  -- STRICT: rules must resolve a room category
       AND NOT EXISTS (SELECT 1 FROM hostel_allocations a WHERE a.learner_id=p.id AND a.status IN ('active','pending_approval'))
-    ORDER BY lower(coalesce(lp.first_name,'')), lower(coalesce(lp.last_name,'')), lp.id
+    ORDER BY hbi.is_primary DESC,
+             lower(coalesce(inst_t.name,'')),
+             lower(coalesce(lp.first_name,'')), lower(coalesce(lp.last_name,'')), lp.id
   LOOP
     v_ay := COALESCE(cand.ay_id, (SELECT id FROM academic_years WHERE institution_id=cand.inst AND is_active ORDER BY start_date DESC LIMIT 1));
     IF v_ay IS NULL THEN v_skip := v_skip + 1; CONTINUE; END IF;
@@ -14352,7 +14472,7 @@ BEGIN
 
   UPDATE hostel_allocation_batches
     SET allocated_count = v_alloc, skipped_count = v_skip,
-        notes = format('%s allocated (rules-driven: each learner placed into their Category-Eligibility room category; mess category assigned from rules). %s skipped (no rule-covered bed free / gender / no academic year). Strict: learners with no rule-resolved category (e.g. no current-year bill) are excluded from the cohort.', v_alloc, v_skip)
+        notes = format('%s allocated (rules-driven category + mess; physical rooms fail-open: reserved rooms go to their cohort, unreserved rooms open to served institutions; filled primary-institution first, then A-Z). %s skipped (no free bed they can occupy / gender / no academic year). Strict: learners with no rule-resolved room category (e.g. no current-year bill) are excluded from the cohort.', v_alloc, v_skip)
     WHERE id = v_batch;
 
   RETURN v_batch;
@@ -14386,7 +14506,9 @@ AS $function$
   base AS (
     SELECT
       c.id AS learner_id,
-      COALESCE(p.full_name, p.email, '—') AS full_name,
+      COALESCE(p.full_name,
+               NULLIF(btrim(coalesce(c.first_name,'') || ' ' || coalesce(c.last_name,'')), ''),
+               p.email, '—') AS full_name,
       p.email, prog.program_name, lower(trim(p.gender)) AS gender,
       (p.id IS NOT NULL) AS has_profile,
       c.academic_year_id, ay.academic_year_name, c.room_cats, c.mess_cats,
@@ -14400,17 +14522,18 @@ AS $function$
          ORDER BY b.created_at DESC LIMIT 1) AS bill_other_year_name,
       fn_learner_current_year_academic_fee(c.id) AS current_year_fee,
       NOT EXISTS (SELECT 1 FROM hostel_allocations a WHERE a.learner_id=p.id AND a.status IN ('active','pending_approval')) AS not_allocated,
+      -- physical ACCESS (fail-open): a student room in their category they may occupy —
+      -- gender-matched, served by their institution, and either rule-matched or rule-free.
       EXISTS (
-        SELECT 1 FROM hostel_room_eligibility_rules r
-        WHERE r.is_active AND r.block_id=p_block_id AND r.institution_id=c.institution_id
-          AND (r.degree_id IS NULL OR r.degree_id=c.degree_id)
-          AND (r.department_id IS NULL OR r.department_id=c.department_id)
-          AND (r.program_id IS NULL OR r.program_id=c.program_id)
-          AND (r.semester_id IS NULL OR r.semester_id=c.semester_id)
-          AND EXISTS (SELECT 1 FROM hostel_rooms rm WHERE rm.block_id=p_block_id AND rm.room_purpose='student' AND rm.category_id = ANY(c.room_cats)
-                AND CASE WHEN EXISTS (SELECT 1 FROM hostel_room_eligibility_rule_rooms rr WHERE rr.rule_id=r.id)
-                      THEN EXISTS (SELECT 1 FROM hostel_room_eligibility_rule_rooms rr WHERE rr.rule_id=r.id AND rr.room_id=rm.id)
-                      ELSE (r.floor IS NULL OR r.floor=rm.floor) END)
+        SELECT 1 FROM hostel_rooms rm
+        JOIN hostel_categories hc ON hc.id = rm.category_id
+        WHERE rm.block_id=p_block_id AND rm.room_purpose='student'
+          AND rm.category_id = ANY(c.room_cats)
+          AND (hc.type IS NULL
+               OR (hc.type='boys'  AND lower(trim(p.gender)) IN ('male','m'))
+               OR (hc.type='girls' AND lower(trim(p.gender)) IN ('female','f')))
+          AND fn_room_serves_institution(rm.id, c.institution_id)
+          AND fn_learner_strictly_eligible_for_room(c.id, rm.id)
       ) AS physical_rule_ok,
       EXISTS (
         SELECT 1 FROM hostel_beds bd JOIN hostel_rooms r ON r.id=bd.room_id
@@ -14477,8 +14600,8 @@ AS $function$
       WHEN NOT s.has_profile THEN 'No login profile'
       WHEN NOT s.gender_ok THEN 'Gender does not match the resolved room category'
       WHEN NOT s.not_allocated THEN 'Already allocated'
-      WHEN NOT s.physical_rule_ok THEN 'No physical-room rule covers this student'
-      WHEN NOT s.bed_available THEN 'No rule-covered bed free in their resolved category'
+      WHEN NOT s.physical_rule_ok THEN 'No room they can occupy in their category — all matching rooms are reserved for other cohorts'
+      WHEN NOT s.bed_available THEN 'Their category rooms are full — no free bed'
       ELSE NULL
     END AS exclusion_reason
   FROM scored s
@@ -14506,7 +14629,6 @@ AS $function$
        WHERE c.room_cats IS NOT NULL AND EXISTS (SELECT 1 FROM hostel_allocations a WHERE a.learner_id=p.id AND a.status IN ('active','pending_approval'))),
     (SELECT count(*)::int FROM hostel_beds b JOIN hostel_rooms r ON r.id=b.room_id
        WHERE r.block_id=p_block_id AND r.room_purpose='student' AND b.status='available'
-         AND fn_room_has_eligibility_rule(r.id)
          AND NOT EXISTS (SELECT 1 FROM hostel_allocations a WHERE a.bed_id=b.id AND a.status IN ('active','pending_approval'))),
     EXISTS (SELECT 1 FROM hostel_room_eligibility_rules WHERE block_id=p_block_id AND is_active);
 $function$;

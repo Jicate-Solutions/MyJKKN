@@ -54,13 +54,22 @@ export function OverviewTab() {
 
   const { data: summary, isLoading: summaryLoading } = useMyHostelSummary();
 
+  // Display query includes a not-yet-approved (proposed) allocation so a freshly
+  // allocated student sees "awaiting approval" instead of "no allocation yet".
+  // Distinct key from the active-only gating query in page.tsx (canRequestVacate).
   const { data: allocations, isLoading: allocLoading } = useQuery({
-    queryKey: ['hostel-allocations', 'by-learner', profileId],
-    queryFn: () => HostelAllocationService.getAllocationByLearner(profileId, true),
+    queryKey: ['hostel-allocations', 'by-learner-display', profileId],
+    queryFn: () =>
+      HostelAllocationService.getAllocationByLearner(profileId, true, [
+        'active',
+        'pending_approval',
+        'pending_vacate',
+      ]),
     enabled: !!profileId,
   });
 
   const activeAllocation = (allocations ?? [])[0] as any;
+  const isPendingApproval = activeAllocation?.status === 'pending_approval';
 
   if (summaryLoading || allocLoading) {
     return (
@@ -118,9 +127,13 @@ export function OverviewTab() {
           <CardHeader>
             <CardTitle className='flex items-center gap-2'>
               <BedDouble className='h-5 w-5 text-primary' />
-              Current Room Allocation
+              {isPendingApproval ? 'Proposed Room Allocation' : 'Current Room Allocation'}
             </CardTitle>
-            <CardDescription>Where you are currently assigned.</CardDescription>
+            <CardDescription>
+              {isPendingApproval
+                ? 'Proposed by auto-allocation — awaiting warden approval.'
+                : 'Where you are currently assigned.'}
+            </CardDescription>
           </CardHeader>
           <CardContent className='space-y-4'>
             <div className='grid grid-cols-2 sm:grid-cols-4 gap-3'>
@@ -152,10 +165,14 @@ export function OverviewTab() {
             <div className='flex items-center gap-2'>
               <Badge
                 variant={
-                  activeAllocation.status === 'pending_vacate' ? 'secondary' : 'success'
+                  activeAllocation.status === 'active' ? 'success' : 'secondary'
                 }
               >
-                {activeAllocation.status === 'pending_vacate' ? 'Pending vacate' : 'Active'}
+                {activeAllocation.status === 'pending_approval'
+                  ? 'Awaiting approval'
+                  : activeAllocation.status === 'pending_vacate'
+                    ? 'Pending vacate'
+                    : 'Active'}
               </Badge>
               {activeAllocation.fee_status && (
                 <Badge variant='outline'>Fee: {activeAllocation.fee_status}</Badge>

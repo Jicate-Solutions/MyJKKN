@@ -14,10 +14,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import Link from 'next/link';
-import { Loader2, Wand2, AlertTriangle } from 'lucide-react';
+import { Loader2, Wand2 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { usePermissions } from '@/hooks/use-permissions';
 import { CandidateValidationTable } from './_components/candidate-validation-table';
 import type { AllocationCandidate } from '@/types/allocation-batch';
@@ -26,7 +24,6 @@ import {
   useHostelYears,
   useAllocationBatchActions,
 } from '@/hooks/campus-living/use-allocation-batches';
-import { useBlockHasEligibilityRules } from '@/hooks/campus-living/use-room-eligibility';
 import { AllocationBatchService } from '@/lib/services/campus-living/allocation-batch-service';
 
 export const navMeta = { invokedFrom: '/campus-living/allocations' } as const;
@@ -50,15 +47,10 @@ export default function AutoAllocatePage() {
   const [generating, setGenerating] = useState(false);
   const { generate } = useAllocationBatchActions();
 
-  // Auto-allocation is rule-driven: a block with no active physical-room rule
-  // cannot be auto-allocated. Guard the UI (the RPC enforces it server-side too).
-  const { hasRules, loading: rulesLoading } = useBlockHasEligibilityRules(blockId || null);
-  const blockMissingRules = !!blockId && !rulesLoading && !hasRules;
-
   const canGenerate = isSuperAdmin || can('campus_living.allocations.create');
 
   const runPreview = async () => {
-    if (!blockId || blockMissingRules) return;
+    if (!blockId) return;
     setPreviewing(true);
     setCandidates(null);
     try {
@@ -76,7 +68,7 @@ export default function AutoAllocatePage() {
   };
 
   const runGenerate = async () => {
-    if (!blockId || !yearId || blockMissingRules) return;
+    if (!blockId || !yearId) return;
     setGenerating(true);
     try {
       const batchId = await generate(blockId, yearId);
@@ -106,8 +98,10 @@ export default function AutoAllocatePage() {
           <p className="text-sm text-muted-foreground">
             Fills the block&apos;s eligible rooms with unallocated hostelites, placing each into
             the room category the Category Eligibility rules resolve for them (and assigning their
-            mess category). Students with no rule-resolved category — e.g. no current-year bill —
-            are skipped. The result is a proposed batch a warden approves.
+            mess category). Rooms reserved by a physical-room rule go to that rule&apos;s cohort;
+            rooms with no rule are open to any eligible student of the block&apos;s institutions,
+            filled primary-institution first. Students with no rule-resolved category — e.g. no
+            current-year bill — are skipped. The result is a proposed batch a warden approves.
           </p>
         </div>
 
@@ -148,36 +142,18 @@ export default function AutoAllocatePage() {
           </CardContent>
         </Card>
 
-        {blockMissingRules && (
-          <Alert variant="destructive">
-            <AlertTriangle className="h-4 w-4" />
-            <AlertTitle>No physical-room rules set for this block</AlertTitle>
-            <AlertDescription>
-              Auto-allocation is rule-driven — it only fills rooms reserved by a
-              physical-room rule. Set rules for this block first under{' '}
-              <Link
-                href="/campus-living/settings/program-eligibility"
-                className="font-medium underline underline-offset-2"
-              >
-                Program Eligibility → Physical Rooms
-              </Link>
-              , then come back to auto-allocate.
-            </AlertDescription>
-          </Alert>
-        )}
-
         <div className="flex gap-3">
           <Button
             variant="outline"
             onClick={runPreview}
-            disabled={!blockId || previewing || rulesLoading || blockMissingRules}
+            disabled={!blockId || previewing}
           >
             {previewing && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Preview
           </Button>
           {canGenerate && (
             <Button
               onClick={runGenerate}
-              disabled={!blockId || !yearId || generating || rulesLoading || blockMissingRules}
+              disabled={!blockId || !yearId || generating}
             >
               {generating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Wand2 className="mr-2 h-4 w-4" />}
               Generate proposed batch
