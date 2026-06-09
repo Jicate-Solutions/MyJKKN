@@ -9,7 +9,7 @@
  * filesystem-derived nav tree and renders one chip per sub-page.
  *
  * Active-page detection uses longest-prefix match so deep routes like
- * `/admin/pde/quests/create` correctly highlight the `Quests` chip rather
+ * `/pde/admin/quests/create` correctly highlight the `Quests` chip rather
  * than the parent `PDE` index.
  *
  * Filtering
@@ -74,7 +74,7 @@ export function AdminCategoryNav({
   // Don't render a 1-chip strip — there's nothing to navigate between.
   if (visiblePages.length < 2) return null;
 
-  // Longest-prefix match for active page (so /admin/pde/quests/create
+  // Longest-prefix match for active page (so /pde/admin/quests/create
   // highlights the "Quests" chip, not "PDE").
   let activeHref: string | null = null;
   let bestLen = -1;

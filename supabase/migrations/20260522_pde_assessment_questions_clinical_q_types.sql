@@ -34,7 +34,7 @@ BEGIN
     ALTER TABLE pde_assessment_questions
       ADD CONSTRAINT pde_assessment_questions_question_type_check
       CHECK (question_type IN (
-        -- Standard quiz types (used by /admin/pde/assessments/create + auto-generate route):
+        -- Standard quiz types (used by /pde/admin/assessments/create + auto-generate route):
         'multiple_choice', 'true_false', 'short_answer',
         -- Clinical case types (decisions 22 + 25 + 26):
         'free_text_socratic', 'mcq_warmup', 'image_tag'

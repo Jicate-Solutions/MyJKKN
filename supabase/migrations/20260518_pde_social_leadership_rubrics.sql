@@ -18,7 +18,7 @@
 --   - scoring_band: pass + distinction thresholds for the demonstration
 --
 -- Pattern: every rubric = row in platform_policies. Director edits via
--- /admin/pde/rubrics/social-leadership UI → next demonstration submission
+-- /pde/admin/rubrics/social-leadership UI → next demonstration submission
 -- uses the new thresholds. Zero deploys.
 --
 -- Read at runtime via fn_get_policy('pde.rubrics.social_leadership.<key>').

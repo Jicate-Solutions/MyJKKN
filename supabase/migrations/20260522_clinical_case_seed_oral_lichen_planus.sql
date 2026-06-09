@@ -13,7 +13,7 @@
 -- structurally equivalent, fully-authored case — gives downstream agents
 -- (B coach, C student UI, D faculty CRUD) a real case to test against.
 -- Sakthi will author Leukoplakia + other oral medicine cases via the
--- faculty UI when Agent D ships /faculty/pde/cases/new.
+-- faculty UI when Agent D ships /pde/faculty/cases/new.
 --
 -- Creates 3 rows:
 --   - vac_lessons (case_scenario JSONB with patient details)

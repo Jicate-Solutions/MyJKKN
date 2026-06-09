@@ -871,13 +871,13 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/admin/lti': 'lti.monitor',
 
   // Administration — PDE admin tree (Super Admin / IQAC / Lifecycle leads)
-  '/admin/pde': 'pde.admin.view',
-  '/admin/pde/assessments': 'pde.admin.assessments.view',
-  '/admin/pde/at-risk': 'pde.admin.at_risk.view',
-  '/admin/pde/capabilities': 'pde.admin.capabilities.view',
-  '/admin/pde/engagement': 'pde.admin.engagement.view',
-  '/admin/pde/lti': 'pde.admin.lti.view',
-  '/admin/pde/quests': 'pde.admin.quests.view',
+  '/pde/admin': 'pde.admin.view',
+  '/pde/admin/assessments': 'pde.admin.assessments.view',
+  '/pde/admin/at-risk': 'pde.admin.at_risk.view',
+  '/pde/admin/capabilities': 'pde.admin.capabilities.view',
+  '/pde/admin/engagement': 'pde.admin.engagement.view',
+  '/pde/admin/lti': 'pde.admin.lti.view',
+  '/pde/admin/quests': 'pde.admin.quests.view',
 
   // Board of Studies — parent landing (children /bos/{compositions,experts,...} above)
   '/bos': 'bos.view',
@@ -887,12 +887,12 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/events/marathon/new': 'events.marathon.create',
 
   // Faculty — PDE faculty tree (Faculty / HOD / Mentor surface)
-  '/faculty/pde': 'pde.faculty.view',
-  '/faculty/pde/analytics': 'pde.faculty.analytics.view',
-  '/faculty/pde/assessments': 'pde.faculty.assessments.view',
-  '/faculty/pde/dashboard': 'pde.faculty.dashboard.view',
-  '/faculty/pde/demonstrations': 'pde.faculty.demonstrations.view',
-  '/faculty/pde/quests': 'pde.faculty.quests.view',
+  '/pde/faculty': 'pde.faculty.view',
+  '/pde/faculty/analytics': 'pde.faculty.analytics.view',
+  '/pde/faculty/assessments': 'pde.faculty.assessments.view',
+  '/pde/faculty/dashboard': 'pde.faculty.dashboard.view',
+  '/pde/faculty/demonstrations': 'pde.faculty.demonstrations.view',
+  '/pde/faculty/quests': 'pde.faculty.quests.view',
 
   // Health & Wellness — 9 tier-2 surfaces (parent /health is a PARENT in the
   // sidebar so it's auto-shown when any child is grantable)
@@ -967,23 +967,23 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/cdc/exports': 'cdc.exports.view',
 
   // PDE — Clinical Reasoning (AICBL → PDE port, PR #1059)
-  // Closes the [unused-prefix] /admin/pde audit-coverage warning by giving the
+  // Closes the [unused-prefix] /pde/admin audit-coverage warning by giving the
   // prefix at least one MENU_PERMISSIONS entry. Faculty cases (CRUD) and the
   // student case attempt URL also wired so RBAC enforces the documented matrix:
-  //   - /admin/pde/policies/clinical-reasoning → Director / institution_admin /
+  //   - /pde/admin/policies/clinical-reasoning → Director / institution_admin /
   //     super_admin (uses pde.admin.view)
-  //   - /faculty/pde/cases (+ subroutes) → faculty / institution_admin /
+  //   - /pde/faculty/cases (+ subroutes) → faculty / institution_admin /
   //     super_admin (uses pde.faculty.view)
-  //   - /learn/pde/cases/[caseSlug] → auto-discoverable for BDS-enrolled
+  //   - /pde/learn/cases/[caseSlug] → auto-discoverable for BDS-enrolled
   //     learners (uses pde.profile.view; VAC course-page wiring is a follow-up)
-  '/admin/pde/policies/clinical-reasoning': 'pde.admin.view',
-  '/faculty/pde/cases': 'pde.faculty.view',
-  '/faculty/pde/cases/new': 'pde.faculty.view',
-  '/faculty/pde/cases/[id]/edit': 'pde.faculty.view',
-  '/faculty/pde/cases/[id]/preview': 'pde.faculty.view',
-  '/faculty/pde/cases/[id]/attempts': 'pde.faculty.view',
-  '/faculty/pde/cases/[id]/attempts/[studentId]': 'pde.faculty.view',
-  '/learn/pde/cases/[caseSlug]': 'pde.profile.view',
+  '/pde/admin/policies/clinical-reasoning': 'pde.admin.view',
+  '/pde/faculty/cases': 'pde.faculty.view',
+  '/pde/faculty/cases/new': 'pde.faculty.view',
+  '/pde/faculty/cases/[id]/edit': 'pde.faculty.view',
+  '/pde/faculty/cases/[id]/preview': 'pde.faculty.view',
+  '/pde/faculty/cases/[id]/attempts': 'pde.faculty.view',
+  '/pde/faculty/cases/[id]/attempts/[studentId]': 'pde.faculty.view',
+  '/pde/learn/cases/[caseSlug]': 'pde.profile.view',
 
   '/ims/dashboard': 'ims.dashboard.view',
   '/ims/financial': 'ims.financial.view',
@@ -1745,13 +1745,13 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/admin/lti/grade-sync', label: 'LTI · Grade Sync', active: pathname === '/admin/lti/grade-sync' },
             { href: '/admin/lti/launches', label: 'LTI · Launch Debug', active: pathname === '/admin/lti/launches' },
             // PDE (Admin)
-            { href: '/admin/pde', label: 'PDE · Dashboard', active: pathname === '/admin/pde' },
-            { href: '/admin/pde/assessments', label: 'PDE · Assessments', active: pathname === '/admin/pde/assessments' || pathname === '/admin/pde/assessments/create' },
-            { href: '/admin/pde/quests', label: 'PDE · Quests', active: pathname === '/admin/pde/quests' || pathname === '/admin/pde/quests/create' },
-            { href: '/admin/pde/capabilities', label: 'PDE · Capabilities', active: pathname === '/admin/pde/capabilities' },
-            { href: '/admin/pde/engagement', label: 'PDE · Engagement', active: pathname === '/admin/pde/engagement' },
-            { href: '/admin/pde/at-risk', label: 'PDE · At-Risk', active: pathname === '/admin/pde/at-risk' },
-            { href: '/admin/pde/lti', label: 'PDE · LTI Config', active: pathname === '/admin/pde/lti' },
+            { href: '/pde/admin', label: 'PDE · Dashboard', active: pathname === '/pde/admin' },
+            { href: '/pde/admin/assessments', label: 'PDE · Assessments', active: pathname === '/pde/admin/assessments' || pathname === '/pde/admin/assessments/create' },
+            { href: '/pde/admin/quests', label: 'PDE · Quests', active: pathname === '/pde/admin/quests' || pathname === '/pde/admin/quests/create' },
+            { href: '/pde/admin/capabilities', label: 'PDE · Capabilities', active: pathname === '/pde/admin/capabilities' },
+            { href: '/pde/admin/engagement', label: 'PDE · Engagement', active: pathname === '/pde/admin/engagement' },
+            { href: '/pde/admin/at-risk', label: 'PDE · At-Risk', active: pathname === '/pde/admin/at-risk' },
+            { href: '/pde/admin/lti', label: 'PDE · LTI Config', active: pathname === '/pde/admin/lti' },
             // Other
             { href: '/audit-trail', label: 'Audit Trail', active: pathname.startsWith('/audit-trail') },
             { href: '/admin/lifecycle', label: 'Lifecycle Analytics', active: pathname.startsWith('/admin/lifecycle') },
@@ -1967,12 +1967,12 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/faculty/innovation/portfolio', label: 'Innovation · Portfolio', active: pathname === '/faculty/innovation/portfolio' },
             { href: '/faculty/innovation/approval-queue', label: 'Innovation · Approvals', active: pathname === '/faculty/innovation/approval-queue' },
             { href: '/faculty/innovation/collab-request', label: 'Innovation · Collab Request', active: pathname === '/faculty/innovation/collab-request' },
-            { href: '/faculty/pde', label: 'PDE · Landing', active: pathname === '/faculty/pde' },
-            { href: '/faculty/pde/dashboard', label: 'PDE · Dashboard', active: pathname === '/faculty/pde/dashboard' },
-            { href: '/faculty/pde/assessments', label: 'PDE · Assessments', active: pathname === '/faculty/pde/assessments' },
-            { href: '/faculty/pde/quests', label: 'PDE · Quests', active: pathname === '/faculty/pde/quests' },
-            { href: '/faculty/pde/demonstrations', label: 'PDE · Demonstrations', active: pathname === '/faculty/pde/demonstrations' },
-            { href: '/faculty/pde/analytics', label: 'PDE · Analytics', active: pathname === '/faculty/pde/analytics' },
+            { href: '/pde/faculty', label: 'PDE · Landing', active: pathname === '/pde/faculty' },
+            { href: '/pde/faculty/dashboard', label: 'PDE · Dashboard', active: pathname === '/pde/faculty/dashboard' },
+            { href: '/pde/faculty/assessments', label: 'PDE · Assessments', active: pathname === '/pde/faculty/assessments' },
+            { href: '/pde/faculty/quests', label: 'PDE · Quests', active: pathname === '/pde/faculty/quests' },
+            { href: '/pde/faculty/demonstrations', label: 'PDE · Demonstrations', active: pathname === '/pde/faculty/demonstrations' },
+            { href: '/pde/faculty/analytics', label: 'PDE · Analytics', active: pathname === '/pde/faculty/analytics' },
           ]
         }
       ]

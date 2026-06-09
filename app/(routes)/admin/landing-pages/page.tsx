@@ -9,7 +9,7 @@
 //
 // Edits take effect on the next page navigation — no deploy needed.
 // Server-side consumers (e.g. /admin/page.tsx, /admin/lti/page.tsx,
-// /admin/pde/page.tsx) read the same rows via fn_get_policy_text.
+// /pde/admin/page.tsx) read the same rows via fn_get_policy_text.
 //
 // Sister PR (Agent J) ships the migration that seeds the 3 nav.* rows
 // and rewrites the consumer redirects. Until that lands this page shows

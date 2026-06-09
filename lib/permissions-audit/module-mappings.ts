@@ -113,7 +113,7 @@ export const ROUTE_PREFIX_TO_MODULE: ReadonlyArray<readonly [string, string]> = 
   ['/admin/notifications', 'Notifications'],
   ['/admin/lifecycle', 'Lifecycle Analytics'],
   ['/admin/lti', 'System'],
-  ['/admin/pde', 'PDE Learning'],
+  ['/pde/admin', 'PDE Learning'],
   ['/admin/page-metadata', 'System'],
   ['/admin/saml', 'System'],
   ['/admin/ai-query-tools', 'System'],
