@@ -80,7 +80,7 @@ export default function TeamLayout({ children }: { children: ReactNode }) {
   const meta = resolveMeta(pathname);
 
   return (
-    <PermissionGuard module="admission" action="view">
+    <PermissionGuard module="admission.counselors.team" action="view">
       <AdmissionErrorBoundary>
         <ContentLayout title={meta.contentTitle}>
           <div className="space-y-6">

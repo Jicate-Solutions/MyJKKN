@@ -31,7 +31,7 @@ import { toast } from 'sonner';
 
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
-import { PermissionGuard } from '@/components/auth/permission-guard';
+import { SuperAdminOnly } from '@/components/auth/admin-permission-guard';
 import {
   Card,
   CardContent,
@@ -68,7 +68,7 @@ interface StaffDetail {
 
 export default function TerminationReviewPage() {
   return (
-    <PermissionGuard module="users" action="manage">
+    <SuperAdminOnly>
       <ContentLayout title="Termination Review">
         <PageBreadcrumb
           items={[
@@ -81,7 +81,7 @@ export default function TerminationReviewPage() {
         />
         <ReviewContent />
       </ContentLayout>
-    </PermissionGuard>
+    </SuperAdminOnly>
   );
 }
 

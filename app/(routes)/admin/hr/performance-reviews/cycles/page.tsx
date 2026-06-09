@@ -16,7 +16,7 @@ import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
-import { PermissionGuard } from '@/components/auth/permission-guard';
+import { SuperAdminOnly } from '@/components/auth/admin-permission-guard';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -156,7 +156,7 @@ export default function HrPerformanceReviewCyclesPage() {
   }
 
   return (
-    <PermissionGuard module="users" action="manage">
+    <SuperAdminOnly>
     <ContentLayout title="Performance Review Cycles">
       <div className="space-y-4">
         {/* Policy summary banner — load-bearing context for the Director. */}
@@ -315,6 +315,6 @@ export default function HrPerformanceReviewCyclesPage() {
         </Card>
       </div>
     </ContentLayout>
-    </PermissionGuard>
+    </SuperAdminOnly>
   );
 }

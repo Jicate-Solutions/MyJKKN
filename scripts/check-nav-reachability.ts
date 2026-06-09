@@ -84,6 +84,7 @@ const NAV_EXCLUDE = new Set<string>([
   '/learn',
   '/learners',
   '/organizations',
+  '/pde', // PDE module root (PR #1257) — redirects to nav.pde.default_landing (/pde/learn/demonstrations)
   '/resource-management',
   '/staff',
   '/startup-studio',
@@ -111,8 +112,8 @@ const NAV_EXCLUDE = new Set<string>([
 
   // Admin /new forms
   '/admin/notifications/audiences/new',
-  '/admin/pde/assessments/create',
-  '/admin/pde/quests/create',
+  '/pde/admin/assessments/create',
+  '/pde/admin/quests/create',
 
   // Admission /new forms
   '/admission/consultants/new',
@@ -232,7 +233,7 @@ const NAV_EXCLUDE = new Set<string>([
   // Admin button-invoked sub-views (linked from the reachable parent page)
   '/admin/hr/forms/submissions', // ← /admin/hr/forms "View submissions"
   '/admin/hr/performance-reviews/cycles', // ← /admin/hr/performance-reviews
-  '/admin/pde/compliance/per-college', // ← /admin/pde/compliance drill-down
+  '/pde/admin/compliance/per-college', // ← /pde/admin/compliance drill-down
 
   // Board of Studies /new forms
   '/bos/courses/new',
@@ -254,8 +255,8 @@ const NAV_EXCLUDE = new Set<string>([
   '/events/marathon/new',
 
   // Faculty / Learn PDE /new forms
-  '/faculty/pde/cases/new',
-  '/learn/pde/demonstrations/new',
+  '/pde/faculty/cases/new',
+  '/pde/learn/demonstrations/new',
 
   // IMS button-invoked sub-view (from the sale detail page)
   '/ims/sales/history',

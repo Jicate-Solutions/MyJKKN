@@ -13,7 +13,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
-import { PermissionGuard } from '@/components/auth/permission-guard';
+import { SuperAdminOnly } from '@/components/auth/admin-permission-guard';
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -134,7 +134,7 @@ export default function NewTrainingProgramPage() {
   }
 
   return (
-    <PermissionGuard module="users" action="manage">
+    <SuperAdminOnly>
     <ContentLayout title="New Training Program">
       <Breadcrumb>
         <BreadcrumbList>
@@ -303,6 +303,6 @@ export default function NewTrainingProgramPage() {
         </Card>
       </div>
     </ContentLayout>
-    </PermissionGuard>
+    </SuperAdminOnly>
   );
 }

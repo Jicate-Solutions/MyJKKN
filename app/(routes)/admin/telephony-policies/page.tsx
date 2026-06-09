@@ -18,7 +18,7 @@
 //   2. (future) telephony.cdr_sync.config — Agent 3 will add this in a
 //      sister PR. Section is stubbed below for clarity.
 //
-// Permission: super_admin / admin only (PermissionGuard).
+// Permission: super_admin / admin only (SuperAdminOnly).
 // =====================================================================
 
 import { useEffect, useMemo, useState } from 'react';
@@ -28,7 +28,7 @@ import { toast } from 'sonner';
 
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
-import { PermissionGuard } from '@/components/auth/permission-guard';
+import { SuperAdminOnly } from '@/components/auth/admin-permission-guard';
 import {
   Card,
   CardContent,
@@ -76,11 +76,11 @@ const EXOVOICE_TASK_OPTIONS = [
 ] as const;
 
 // ---------------------------------------------------------------------------
-// Page wrapper — gated by PermissionGuard.
+// Page wrapper — gated by SuperAdminOnly.
 // ---------------------------------------------------------------------------
 export default function TelephonyPoliciesPage() {
   return (
-    <PermissionGuard module="users" action="manage">
+    <SuperAdminOnly>
       <ContentLayout title="Telephony Policies">
         <PageBreadcrumb
           items={[
@@ -91,7 +91,7 @@ export default function TelephonyPoliciesPage() {
         />
         <TelephonyPoliciesContent />
       </ContentLayout>
-    </PermissionGuard>
+    </SuperAdminOnly>
   );
 }
 

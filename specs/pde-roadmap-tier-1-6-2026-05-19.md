@@ -34,18 +34,18 @@
 - `lib/services/pde-policy-reader.ts` — 20 typed accessors over `fn_get_policy_json`. Exports: `PDE_POLICY_KEYS`, `getDemonstrationWeights()`, `getPeerBiasDetectionEnabled()`, `getValidatorAuditThreshold()`, `getAiDeliverableCreditPolicy()`, `getAgencyIndexMode()`, `getCohortComparisonScope()`, `getCapabilityVersioningPolicy()`, `getIndividualMetricDisplay()`, `getPaceCapCoordinatorsPer60d()`, `getPerCollegeComplianceTargets()`, `getHodBlockingEscalation()`, `getTierEligibility()`, `getQuestsRiskTiers()`, `getQuestsSupplySources()`, `getQuestsCompensationModel()`, `getFailedQuestRecovery()`, `getAgencyGamingDefense()`, `getFeedbackIdentityPolicy()`, `getPlacementSignalResponse()`, `getFrameworkBranding()`. Each accepts optional `institutionId` for per-institution overrides.
 
 ### Admin editors (live, SuperAdminOnly-gated)
-- `/admin/pde/policies/scoring` (#959)
-- `/admin/pde/policies/visibility` (#963)
-- `/admin/pde/policies/rollout` (#962)
-- `/admin/pde/policies/quests` (#961)
-- `/admin/pde/policies/governance` (#960)
-- `/admin/pde/rubrics/embodied` (#976)
-- `/admin/pde/rubrics/social-leadership` (#970)
-- `/admin/pde/rubrics/cultural-civic` (#967)
+- `/pde/admin/policies/scoring` (#959)
+- `/pde/admin/policies/visibility` (#963)
+- `/pde/admin/policies/rollout` (#962)
+- `/pde/admin/policies/quests` (#961)
+- `/pde/admin/policies/governance` (#960)
+- `/pde/admin/rubrics/embodied` (#976)
+- `/pde/admin/rubrics/social-leadership` (#970)
+- `/pde/admin/rubrics/cultural-civic` (#967)
 
 ### Existing PDE module (pre-substrate, parallel mental model — see Tier 4)
 - Tables: `pde_assessments`, `pde_assessment_questions`, `pde_submissions`, `pde_certificates`, `pde_quests`, `pde_quest_enrollments`, `pde_quest_submissions`, `pde_capabilities`, `pde_learner_capabilities`, `pde_engagement_events`, `pde_engagement_daily`, `pde_agency_index`, `pde_build_sessions`, `pde_channels`, `pde_messages`, `pde_reputation`, `pde_badges`, `pde_learner_badges`, `pde_coach_conversations`.
-- Routes: `/learn/quests`, `/learn/capabilities`, `/learn/build`, `/learn/assess`, `/learn/leaderboard`, `/learn/profile`, `/learn/channels`, `/learn/certificate/[id]`, `/admin/pde/assessments`, `/admin/pde/capabilities`, `/admin/pde/quests`, `/admin/pde/engagement`, `/admin/pde/at-risk`, `/admin/pde/lti`.
+- Routes: `/learn/quests`, `/learn/capabilities`, `/learn/build`, `/learn/assess`, `/learn/leaderboard`, `/learn/profile`, `/learn/channels`, `/learn/certificate/[id]`, `/pde/admin/assessments`, `/pde/admin/capabilities`, `/pde/admin/quests`, `/pde/admin/engagement`, `/pde/admin/at-risk`, `/pde/admin/lti`.
 - Service: `lib/services/pde-service.ts` (1370 lines, `PDEService` class).
 
 ---
@@ -57,19 +57,19 @@
 **Risk surface:** new student-facing UI; first prod write to `pde_demonstrations`. RLS already enforced.
 
 ### T1.1 — Learner-side demonstration UI (Agent K)
-- `/app/(routes)/learn/pde/demonstrations/page.tsx` — list "my demonstrations"
-- `/app/(routes)/learn/pde/demonstrations/new/page.tsx` — submission form
-- `/app/(routes)/learn/pde/demonstrations/new/_components/DemonstrationForm.tsx`
-- `/app/(routes)/learn/pde/demonstrations/_components/DemonstrationList.tsx`
+- `/app/(routes)/pde/learn/demonstrations/page.tsx` — list "my demonstrations"
+- `/app/(routes)/pde/learn/demonstrations/new/page.tsx` — submission form
+- `/app/(routes)/pde/learn/demonstrations/new/_components/DemonstrationForm.tsx`
+- `/app/(routes)/pde/learn/demonstrations/_components/DemonstrationList.tsx`
 - `/app/api/pde/demonstrations/route.ts` — GET own + POST new
 - `/lib/services/pde-demonstration-service.ts` — CRUD + rubric resolver
 - Reads: `pde.rubrics.*` (for rubric selector via `pde-policy-reader`)
 - Writes: `pde_demonstrations` INSERT (status `draft` → `submitted`)
 
 ### T1.2 — Validator + Scoring (Agent L)
-- `/app/(routes)/admin/pde/demonstrations/page.tsx` — inbox of pending validations
-- `/app/(routes)/admin/pde/demonstrations/[id]/page.tsx` — detail + validate form
-- `/app/(routes)/admin/pde/demonstrations/_components/ValidationForm.tsx`
+- `/app/(routes)/pde/admin/demonstrations/page.tsx` — inbox of pending validations
+- `/app/(routes)/pde/admin/demonstrations/[id]/page.tsx` — detail + validate form
+- `/app/(routes)/pde/admin/demonstrations/_components/ValidationForm.tsx`
 - `/app/api/pde/demonstrations/[id]/validate/route.ts` — POST validation
 - `/app/api/pde/demonstrations/[id]/score/route.ts` — POST scoring (consumes `pde.scoring.demonstration_weights`)
 - `/lib/services/pde-validator-service.ts`
@@ -79,10 +79,10 @@
 - Writes: `pde_demonstrations.validator_ids/notes/raw_score/weighted_score/passed/scored_at`, status `submitted` → `validated` → `scored`
 
 ### T1.3 — Cohort comparison dashboard (Agent N)
-- `/app/(routes)/admin/pde/cohort/page.tsx` — admin overview by category × cohort
-- `/app/(routes)/learn/pde/cohort/page.tsx` — learner-facing peer-relative view
-- `/app/(routes)/admin/pde/cohort/_components/CohortHeatmap.tsx`
-- `/app/(routes)/learn/pde/cohort/_components/PeerRelativeCard.tsx`
+- `/app/(routes)/pde/admin/cohort/page.tsx` — admin overview by category × cohort
+- `/app/(routes)/pde/learn/cohort/page.tsx` — learner-facing peer-relative view
+- `/app/(routes)/pde/admin/cohort/_components/CohortHeatmap.tsx`
+- `/app/(routes)/pde/learn/cohort/_components/PeerRelativeCard.tsx`
 - `/lib/services/pde-cohort-service.ts` — consumes `pde.visibility.*` via `pde-policy-reader`
 - Reads: `pde_demonstrations` (aggregated), `pde.visibility.cohort_comparison_scope`
 - Writes: nothing
@@ -96,7 +96,7 @@ Most policy rows are still inert after Tier 1. Tier 2 wires them to actual behav
 - **Pace-cap enforcement** for coordinator onboarding (consumes `pde.rollout.pace_cap_coordinators_per_60d`). New service `lib/services/pde-pace-cap-service.ts`. Possibly new table `pde_coordinator_onboarding_log` OR reuse `audit_logs`.
 - **HOD-escalation hook** when HOD blocks a learner (consumes `pde.rollout.hod_blocking_escalation`). Hooks into existing HOD workflows.
 - **Course-tier eligibility checker** (consumes `pde.rollout.tier_eligibility`). Service that gates which courses can wrap PDE.
-- **Per-college compliance dashboard** (consumes `pde.rollout.per_college_compliance_targets` — 8 colleges × 7 categories). `/admin/pde/compliance/per-college/page.tsx`.
+- **Per-college compliance dashboard** (consumes `pde.rollout.per_college_compliance_targets` — 8 colleges × 7 categories). `/pde/admin/compliance/per-college/page.tsx`.
 - **Capability versioning logic** (consumes `pde.visibility.capability_versioning_policy` — grandfather-with-upgrade). Modifies existing `pde_capabilities` consumer.
 - **AI deliverable detection** (consumes `pde.scoring.ai_deliverable_credit_policy`). Service `lib/services/pde-ai-detection-service.ts` — heuristic + optional LLM classification.
 - **Peer-bias detection** (consumes `pde.scoring.peer_bias_detection_enabled`). Plugs into peer-validator path of T1.2.
@@ -121,7 +121,7 @@ Most policy rows are still inert after Tier 1. Tier 2 wires them to actual behav
 - **Course linkage** — demonstrations tied to academic courses + lessons via new FK or junction table.
 - **BoS (Board of Studies) integration** — surface demonstrations as part of curriculum approval flows.
 - **Per-learner PDE transcript** — downloadable, NAAC/NBA-ready PDF. Service + route + email delivery.
-- **Accreditation evidence wiring** — existing `/admin/pde/accreditation-evidence/[body]` route needs feeding from new demonstrations.
+- **Accreditation evidence wiring** — existing `/pde/admin/accreditation-evidence/[body]` route needs feeding from new demonstrations.
 
 ---
 

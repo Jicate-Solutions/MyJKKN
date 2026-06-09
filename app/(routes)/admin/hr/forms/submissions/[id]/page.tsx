@@ -10,7 +10,7 @@ import { ArrowLeft } from 'lucide-react';
 
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
-import { PermissionGuard } from '@/components/auth/permission-guard';
+import { SuperAdminOnly } from '@/components/auth/admin-permission-guard';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -33,7 +33,7 @@ interface PageProps {
 
 export default async function HrSubmissionDetailPage({ params }: PageProps) {
   return (
-    <PermissionGuard module="users" action="manage">
+    <SuperAdminOnly>
       <ContentLayout title="HR Form Submission">
         <PageBreadcrumb
           items={[
@@ -46,7 +46,7 @@ export default async function HrSubmissionDetailPage({ params }: PageProps) {
         />
         <SubmissionDetailContent params={params} />
       </ContentLayout>
-    </PermissionGuard>
+    </SuperAdminOnly>
   );
 }
 

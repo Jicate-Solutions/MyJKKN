@@ -12,7 +12,7 @@
  * - Filter chips: Institution dropdown + Status dropdown. URL-persisted via
  *   ?institution_id=...&status=... query params (browser back/forward works).
  * - "Create period" CTA navigates to /admin/hr/payroll/periods/new.
- * - PermissionGuard restricts to 'users' / 'manage' (HR admin + super_admin).
+ * - SuperAdminOnly restricts to 'users' / 'manage' (HR admin + super_admin).
  */
 
 import { useMemo } from 'react';
@@ -22,7 +22,7 @@ import { Plus } from 'lucide-react';
 
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
-import { PermissionGuard } from '@/components/auth/permission-guard';
+import { SuperAdminOnly } from '@/components/auth/admin-permission-guard';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import {
@@ -57,7 +57,7 @@ const STATUS_OPTIONS: Array<{ value: PayrollPeriodStatus | 'all'; label: string 
 
 export default function PayrollPeriodsListPage() {
   return (
-    <PermissionGuard module="users" action="manage">
+    <SuperAdminOnly>
       <ContentLayout title="Payroll Periods">
         <PageBreadcrumb
           items={[
@@ -69,7 +69,7 @@ export default function PayrollPeriodsListPage() {
         />
         <PayrollPeriodsListContent />
       </ContentLayout>
-    </PermissionGuard>
+    </SuperAdminOnly>
   );
 }
 

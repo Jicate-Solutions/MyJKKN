@@ -8,7 +8,7 @@
 -- which course tiers are eligible for PDE wrapping.
 --
 -- Pattern: every governance decision = row in platform_policies. Director
--- edits via /admin/pde/policies/rollout UI → behavior changes on next
+-- edits via /pde/admin/policies/rollout UI → behavior changes on next
 -- coordinator onboarding cycle. Zero deploys, zero developer round-trips.
 --
 -- Read at runtime via fn_get_policy('pde.rollout.<key>', institution_id).

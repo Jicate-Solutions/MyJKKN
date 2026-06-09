@@ -14,7 +14,7 @@
 //   - F&F net payable (if calculated)
 //   - Link to the F&F calculator
 //
-// Permission: HR officer / admin / super_admin (PermissionGuard module=users).
+// Permission: HR officer / admin / super_admin (SuperAdminOnly module=users).
 // RLS pins data visibility.
 // ============================================================================
 
@@ -25,7 +25,7 @@ import { format } from 'date-fns';
 
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
-import { PermissionGuard } from '@/components/auth/permission-guard';
+import { SuperAdminOnly } from '@/components/auth/admin-permission-guard';
 import {
   Card,
   CardContent,
@@ -67,7 +67,7 @@ interface RetirementCase {
 
 export default function RetirementsPage() {
   return (
-    <PermissionGuard module="users" action="manage">
+    <SuperAdminOnly>
       <ContentLayout title="Retirements">
         <PageBreadcrumb
           items={[
@@ -80,7 +80,7 @@ export default function RetirementsPage() {
         />
         <RetirementsContent />
       </ContentLayout>
-    </PermissionGuard>
+    </SuperAdminOnly>
   );
 }
 

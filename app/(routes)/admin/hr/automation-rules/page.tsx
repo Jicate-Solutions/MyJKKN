@@ -30,7 +30,7 @@ import { toast } from 'sonner';
 
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
-import { PermissionGuard } from '@/components/auth/permission-guard';
+import { SuperAdminOnly } from '@/components/auth/admin-permission-guard';
 import {
   Card,
   CardContent,
@@ -129,11 +129,11 @@ const DEDUCTION_TYPE_LABEL: Record<DeductionType, string> = {
 };
 
 // ---------------------------------------------------------------------------
-// Page wrapper — gated by PermissionGuard (admin or super_admin to view).
+// Page wrapper — gated by SuperAdminOnly (admin or super_admin to view).
 // ---------------------------------------------------------------------------
 export default function HRAutomationRulesPage() {
   return (
-    <PermissionGuard module="users" action="manage">
+    <SuperAdminOnly>
       <ContentLayout title="HR Automation Rules">
         <PageBreadcrumb
           items={[
@@ -145,7 +145,7 @@ export default function HRAutomationRulesPage() {
         />
         <HRAutomationRulesContent />
       </ContentLayout>
-    </PermissionGuard>
+    </SuperAdminOnly>
   );
 }
 
