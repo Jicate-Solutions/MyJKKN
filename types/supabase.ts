@@ -38028,6 +38028,7 @@ export type Database = {
           academic_year_id: string
           allocated_allocation_id: string | null
           created_at: string | null
+          entry_kind: string
           id: string
           institution_id: string
           learner_id: string
@@ -38043,12 +38044,14 @@ export type Database = {
             | null
           priority_score: number | null
           status: Database["public"]["Enums"]["waitlist_status_enum"]
+          target_hostel_category_id: string | null
           updated_at: string | null
         }
         Insert: {
           academic_year_id: string
           allocated_allocation_id?: string | null
           created_at?: string | null
+          entry_kind?: string
           id?: string
           institution_id: string
           learner_id: string
@@ -38064,12 +38067,14 @@ export type Database = {
             | null
           priority_score?: number | null
           status?: Database["public"]["Enums"]["waitlist_status_enum"]
+          target_hostel_category_id?: string | null
           updated_at?: string | null
         }
         Update: {
           academic_year_id?: string
           allocated_allocation_id?: string | null
           created_at?: string | null
+          entry_kind?: string
           id?: string
           institution_id?: string
           learner_id?: string
@@ -38085,6 +38090,7 @@ export type Database = {
             | null
           priority_score?: number | null
           status?: Database["public"]["Enums"]["waitlist_status_enum"]
+          target_hostel_category_id?: string | null
           updated_at?: string | null
         }
         Relationships: [
