@@ -10877,11 +10877,11 @@ GRANT EXECUTE ON FUNCTION public.fn_get_generator_config(TEXT, JSONB) TO authent
 -- ============================================================================
 
 CREATE OR REPLACE FUNCTION public.admission_resolve_fee_items_for_lead(p_learner_id uuid)
-RETURNS jsonb
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = public
-AS $$
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
 DECLARE
     v_lead              record;
     v_structure_id      uuid;
@@ -10906,7 +10906,10 @@ BEGIN
         RETURN COALESCE((SELECT fee_items FROM public.learners_profiles WHERE id = p_learner_id), '[]'::jsonb);
     END IF;
 
-    -- Lookup: prefer exact gender match, fall back to gender IS NULL (any)
+    -- accommodation_type_id is an OPTIONAL match dimension (NULL = Any). Prefer
+    -- an accommodation-specific structure, then a gender-specific one, then the
+    -- most recently updated, as the deterministic tiebreak. Hostel ROOM/MESS
+    -- fees still live in campus-living; this only routes academic/common fees.
     SELECT afs.id INTO v_structure_id
       FROM public.admission_fee_structures afs
      WHERE afs.institution_id        = v_lead.institution_id
@@ -10922,7 +10925,11 @@ BEGIN
                 AND j.community_category_id = v_lead.community_category_id
            )
        AND (afs.gender = UPPER(v_lead.gender) OR afs.gender IS NULL)
-     ORDER BY afs.gender IS NOT NULL DESC
+       AND (afs.accommodation_type_id = v_lead.accommodation_type_id
+            OR afs.accommodation_type_id IS NULL)
+     ORDER BY afs.accommodation_type_id IS NOT NULL DESC,
+              afs.gender IS NOT NULL DESC,
+              afs.updated_at DESC
      LIMIT 1;
 
     IF v_structure_id IS NULL THEN
@@ -10997,7 +11004,7 @@ BEGIN
 
     RETURN v_resolved;
 END;
-$$;
+$function$;
 
 REVOKE ALL ON FUNCTION public.admission_resolve_fee_items_for_lead(uuid) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.admission_resolve_fee_items_for_lead(uuid) TO authenticated;
