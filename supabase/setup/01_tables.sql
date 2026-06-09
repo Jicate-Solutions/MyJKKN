@@ -4944,4 +4944,31 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_prog_elig_band ON public.hostel_program_eli
 CREATE INDEX IF NOT EXISTS idx_prog_elig_resolve
   ON public.hostel_program_eligibility (institution_id, program_id, quota_id, is_active);
 
+-- hostel_waitlist: waitlist for hostel room allocation and self-service category-upgrade intent.
+-- Originally created in migration 20260222000015_campus_living_enums_and_tables.sql.
+-- Columns target_hostel_category_id and entry_kind added in 20260609160000_hostel_waitlist_upgrade_columns.sql.
+CREATE TABLE IF NOT EXISTS public.hostel_waitlist (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    institution_id UUID NOT NULL REFERENCES public.institutions(id),
+    learner_id UUID NOT NULL,
+    academic_year_id UUID NOT NULL,
+    preferred_block_id UUID REFERENCES public.hostel_blocks(id),
+    preferred_room_type room_type_enum,
+    preferred_ac_status ac_status_enum,
+    priority_score INT DEFAULT 0,
+    status waitlist_status_enum NOT NULL DEFAULT 'waiting',
+    offered_at TIMESTAMPTZ,
+    offer_expires_at TIMESTAMPTZ,
+    allocated_allocation_id UUID,
+    notes TEXT,
+    target_hostel_category_id UUID REFERENCES public.hostel_categories(id),
+    entry_kind TEXT NOT NULL DEFAULT 'allocation',
+    created_at TIMESTAMPTZ DEFAULT now(),
+    updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_hostel_waitlist_active_upgrade
+  ON public.hostel_waitlist (learner_id, target_hostel_category_id)
+  WHERE entry_kind = 'upgrade' AND status = 'waiting';
+
 ALTER TABLE public.razorpay_webhook_events ENABLE ROW LEVEL SECURITY;

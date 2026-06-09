@@ -3,6 +3,8 @@
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { useMyHostelSummary, useMyCategoryFees } from '@/hooks/campus-living/use-my-hostel';
 import { Building2, UtensilsCrossed, Info, Loader2 } from 'lucide-react';
+import { RoomCategoryUpgradeCard } from './room-category-upgrade-card';
+import { MessCategoryUpgradeCard } from './mess-category-upgrade-card';
 
 // ---------------------------------------------------------------------------
 // CategoryFeesTab
@@ -36,6 +38,9 @@ export function CategoryFeesTab() {
 
   const totalAmount =
     fees && fees.length > 0 ? fees.reduce((sum, f) => sum + (f.amount ?? 0), 0) : null;
+
+  const currentRoomFee = (fees ?? []).find((f) => !f.mess_category_id)?.amount ?? 0;
+  const currentMessFee = (fees ?? []).find((f) => f.mess_category_id)?.amount ?? 0;
 
   return (
     <div className='space-y-6'>
@@ -156,6 +161,16 @@ export function CategoryFeesTab() {
           )}
         </CardContent>
       </Card>
+
+      {/* Self-service upgrades */}
+      <RoomCategoryUpgradeCard
+        currentCategoryName={summary.hostelCategory?.name ?? null}
+        currentFee={currentRoomFee}
+      />
+      <MessCategoryUpgradeCard
+        currentMessName={summary.messCategory?.name ?? null}
+        currentFee={currentMessFee}
+      />
     </div>
   );
 }
