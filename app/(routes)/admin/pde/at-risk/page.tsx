@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
-import { SuperAdminOnly } from '@/components/auth/admin-permission-guard';
+import { PermissionGuard } from '@/components/auth/permission-guard';
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -80,7 +80,9 @@ export default function AtRiskLearnersPage() {
   const strugglingCount = (learners || []).filter(l => l.risk_level === 'struggling').length;
 
   return (
-    <SuperAdminOnly
+    <PermissionGuard
+      module="pde.admin.at_risk"
+      action="view"
       fallback={
         <ContentLayout title="At-Risk Learners">
           <div className="rounded-md border border-border bg-muted/30 p-6 text-sm text-muted-foreground">
@@ -288,6 +290,6 @@ export default function AtRiskLearnersPage() {
         </Card>
       </div>
     </ContentLayout>
-    </SuperAdminOnly>
+    </PermissionGuard>
   );
 }

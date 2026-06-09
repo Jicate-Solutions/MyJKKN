@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { ContentLayout } from '@/components/layout/content-layout';
-import { SuperAdminOnly } from '@/components/auth/admin-permission-guard';
+import { PermissionGuard } from '@/components/auth/permission-guard';
 import { PageBreadcrumb } from '@/components/navigation/Breadcrumbs';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -92,7 +92,9 @@ export default function LTIConfigPage() {
   };
 
   return (
-    <SuperAdminOnly
+    <PermissionGuard
+      module="pde.admin.lti"
+      action="view"
       fallback={
         <ContentLayout title="LTI Configuration">
           <div className="rounded-md border border-border bg-muted/30 p-6 text-sm text-muted-foreground">
@@ -191,6 +193,6 @@ export default function LTIConfigPage() {
         <Card className="border-dashed"><CardContent className="pt-4"><div className="flex items-start gap-3 text-sm"><ArrowRight className="w-5 h-5 text-muted-foreground flex-shrink-0 mt-0.5" /><div><p className="font-medium text-muted-foreground">Phase 4: Full LTI 1.3 Handshake</p><p className="text-muted-foreground text-xs mt-1">This page manages tool registration. Full OIDC login, JWT validation, and AGS will be built in Phase 4.</p></div></div></CardContent></Card>
       </div>
     </ContentLayout>
-    </SuperAdminOnly>
+    </PermissionGuard>
   );
 }
