@@ -15,7 +15,7 @@ import { Loader2, Plus, RefreshCw, Trash2, History, AlertCircle } from 'lucide-r
 
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
-import { PermissionGuard } from '@/components/auth/permission-guard';
+import { SuperAdminOnly } from '@/components/auth/admin-permission-guard';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -39,7 +39,7 @@ import type {
 
 export default function MetaAudiencesPage() {
   return (
-    <PermissionGuard module="users" action="manage">
+    <SuperAdminOnly>
       <ContentLayout title="Meta Custom Audiences">
         <PageBreadcrumb
           items={[
@@ -51,7 +51,7 @@ export default function MetaAudiencesPage() {
         />
         <Content />
       </ContentLayout>
-    </PermissionGuard>
+    </SuperAdminOnly>
   );
 }
 
