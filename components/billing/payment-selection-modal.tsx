@@ -17,7 +17,7 @@ import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
 import { OnlinePaymentButton, type RazorpayLaunchProps } from './online-payment-button';
-import { RazorpayCheckoutLauncher } from './razorpay-checkout-launcher';
+import { RazorpayHostedRedirect } from './razorpay-hosted-redirect';
 import { OnlinePaymentAmountSelector } from './online-payment-amount-selector';
 import { format } from 'date-fns';
 import type { StudentBill } from '@/types/billing-schedule';
@@ -39,8 +39,9 @@ export function PaymentSelectionModal({
   const [selectedBillIds, setSelectedBillIds] = useState<Set<string>>(new Set());
   const [step, setStep] = useState<'select' | 'amount'>('select');
   const [billAmounts, setBillAmounts] = useState<Record<string, number>>({});
-  // Razorpay launcher lives OUTSIDE the <Dialog> so closing the dialog (handleClose)
-  // doesn't unmount it before checkout.js opens the modal.
+  // The Razorpay hosted-redirect component lives OUTSIDE the <Dialog> so closing
+  // the dialog (handleClose) doesn't unmount it before it POSTs the form to
+  // Razorpay's hosted page.
   const [razorpayLaunch, setRazorpayLaunch] = useState<RazorpayLaunchProps | null>(null);
 
   // Filter only unpaid bills
@@ -269,8 +270,9 @@ export function PaymentSelectionModal({
                 disabled={selectedBillIds.size === 0 || Object.keys(billAmounts).length === 0}
                 onSuccess={handleClose}
                 onRazorpaySession={(p) => {
-                  // Mount the launcher (sibling of this Dialog) FIRST, then close
-                  // the dialog. The launcher survives the close and opens the modal.
+                  // Mount the redirect component (sibling of this Dialog) FIRST,
+                  // then close the dialog. It survives the close and POSTs the
+                  // form that navigates the browser to Razorpay's hosted page.
                   setRazorpayLaunch(p);
                   handleClose();
                 }}
@@ -282,7 +284,7 @@ export function PaymentSelectionModal({
     </Dialog>
 
     {razorpayLaunch && (
-      <RazorpayCheckoutLauncher
+      <RazorpayHostedRedirect
         {...razorpayLaunch}
         onClose={() => setRazorpayLaunch(null)}
       />

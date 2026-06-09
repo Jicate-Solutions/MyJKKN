@@ -51,9 +51,9 @@ export async function POST(request: NextRequest) {
     }
 
     // ------------------------------------------------------------------
-    // Task 15: Razorpay callback branch.
-    // Razorpay Checkout.js POSTs razorpay_order_id, razorpay_payment_id,
-    // razorpay_signature in the form body. Detect that and route through
+    // Razorpay callback branch (hosted checkout).
+    // Razorpay's hosted checkout POSTs razorpay_order_id, razorpay_payment_id,
+    // razorpay_signature to this callback_url. Detect that and route through
     // the signature-verification + dual-inquiry path.
     // ------------------------------------------------------------------
     if (formData) {
@@ -81,7 +81,7 @@ export async function POST(request: NextRequest) {
           txn.id,
           txn.student_id,
           txn.institution_id,
-          'razorpay_modal',
+          'razorpay_hosted',
           ipAddress,
           userAgent
         );
