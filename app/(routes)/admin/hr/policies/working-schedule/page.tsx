@@ -42,7 +42,7 @@ const SCHEMA_NOTES = [
 
 export default function WorkingSchedulePolicyPage() {
   return (
-    <PermissionGuard module="users" action="manage">
+    <PermissionGuard module="hr.policies" action="view">
       <ContentLayout title="Working schedule">
         <PageBreadcrumb
           items={[

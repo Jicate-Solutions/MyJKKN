@@ -54,7 +54,7 @@ function parseValue(raw: unknown): MarriageValue {
 
 export default function MarriageLeavePage() {
   return (
-    <PermissionGuard module="users" action="manage">
+    <PermissionGuard module="hr.policies" action="view">
       <ContentLayout title="HR Policy — Marriage Leave">
         <PageBreadcrumb
           items={[

@@ -40,7 +40,7 @@ function parseValue(raw: unknown): AcademicValue {
 
 export default function AcademicScopePage() {
   return (
-    <PermissionGuard module="users" action="manage">
+    <PermissionGuard module="hr.policies" action="view">
       <ContentLayout title="HR Policy — Academic Scope">
         <PageBreadcrumb
           items={[

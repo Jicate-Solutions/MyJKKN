@@ -32,7 +32,7 @@ const SCHEMA_NOTES = [
 
 export default function FacilitiesPolicyPage() {
   return (
-    <PermissionGuard module="users" action="manage">
+    <PermissionGuard module="hr.policies" action="view">
       <ContentLayout title="Facilities">
         <PageBreadcrumb
           items={[

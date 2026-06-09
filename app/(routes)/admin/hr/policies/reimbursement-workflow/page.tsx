@@ -40,7 +40,7 @@ const SCHEMA_NOTES = [
 
 export default function ReimbursementWorkflowPolicyPage() {
   return (
-    <PermissionGuard module="users" action="manage">
+    <PermissionGuard module="hr.policies" action="view">
       <ContentLayout title="Reimbursement workflow">
         <PageBreadcrumb
           items={[

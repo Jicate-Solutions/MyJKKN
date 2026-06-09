@@ -112,7 +112,7 @@ function parseValue(raw: unknown): PerfReviewValue {
 
 export default function PerformanceReviewPage() {
   return (
-    <PermissionGuard module="users" action="manage">
+    <PermissionGuard module="hr.policies" action="view">
       <ContentLayout title="HR Policy — Performance Review">
         <PageBreadcrumb
           items={[

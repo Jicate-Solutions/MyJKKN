@@ -75,7 +75,7 @@ function parseValue(raw: unknown): RolesValue {
 
 export default function RolesResponsibilitiesPage() {
   return (
-    <PermissionGuard module="users" action="manage">
+    <PermissionGuard module="hr.policies" action="view">
       <ContentLayout title="HR Policy — Roles & Responsibilities">
         <PageBreadcrumb
           items={[

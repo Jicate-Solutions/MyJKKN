@@ -89,7 +89,7 @@ function parseValue(raw: unknown): HolidaysAndLopValue {
 
 export default function HolidaysAndLopPage() {
   return (
-    <PermissionGuard module="users" action="manage">
+    <PermissionGuard module="hr.policies" action="view">
       <ContentLayout title="HR Policy — Holidays & Loss of Pay">
         <PageBreadcrumb
           items={[

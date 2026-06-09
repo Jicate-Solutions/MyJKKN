@@ -99,7 +99,7 @@ function parseValue(raw: unknown): MemoTermValue {
 
 export default function MemoTerminationPage() {
   return (
-    <PermissionGuard module="users" action="manage">
+    <PermissionGuard module="hr.policies" action="view">
       <ContentLayout title="HR Policy — Memo & Termination Triggers">
         <PageBreadcrumb
           items={[

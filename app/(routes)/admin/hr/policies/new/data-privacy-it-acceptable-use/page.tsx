@@ -158,7 +158,7 @@ const FIELDS: FieldSpec[] = [
 
 export default function DataPrivacyItAcceptableUsePage() {
   return (
-    <PermissionGuard module="users" action="manage">
+    <PermissionGuard module="hr.policies" action="view">
       <ContentLayout title="Data Privacy & IT Acceptable Use">
         <PageBreadcrumb
           items={[
