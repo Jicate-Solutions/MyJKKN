@@ -6,7 +6,7 @@
 // widget React components, and workflow engine ship in follow-up PRs.
 //
 // Director-lock R5-Q2 (memory: project_wave3_hr_policy_lock_2026_05_15):
-//   Form-builder access is super_admin only. PermissionGuard enforces.
+//   Form-builder access is super_admin only. SuperAdminOnly enforces.
 //
 // Spec: specs/wave-3-policy-driven-hr-manual-2026-05-15.md §W3-M9
 // =====================================================================
@@ -15,7 +15,7 @@ import { FileText, AlertTriangle, Pencil, Workflow } from 'lucide-react';
 
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
-import { PermissionGuard } from '@/components/auth/permission-guard';
+import { SuperAdminOnly } from '@/components/auth/admin-permission-guard';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -44,7 +44,7 @@ import type { HrForm } from '@/types/hr-forms';
 
 export default function HrFormsIndexPage() {
   return (
-    <PermissionGuard module="users" action="manage">
+    <SuperAdminOnly>
       <ContentLayout title="HR Forms — Form Builder Substrate">
         <PageBreadcrumb
           items={[
@@ -55,7 +55,7 @@ export default function HrFormsIndexPage() {
         />
         <HrFormsIndexContent />
       </ContentLayout>
-    </PermissionGuard>
+    </SuperAdminOnly>
   );
 }
 

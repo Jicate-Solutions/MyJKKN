@@ -15,7 +15,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
-import { PermissionGuard } from '@/components/auth/permission-guard';
+import { SuperAdminOnly } from '@/components/auth/admin-permission-guard';
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -151,7 +151,7 @@ export default function AdminTrainingDetailPage() {
   }
 
   return (
-    <PermissionGuard module="users" action="manage">
+    <SuperAdminOnly>
     <ContentLayout title={program?.title ?? 'Training Program'}>
       <Breadcrumb>
         <BreadcrumbList>
@@ -358,6 +358,6 @@ export default function AdminTrainingDetailPage() {
         )}
       </div>
     </ContentLayout>
-    </PermissionGuard>
+    </SuperAdminOnly>
   );
 }

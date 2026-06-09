@@ -25,7 +25,7 @@
 //   4. noc                     Confirmation (NOC)            principal
 //   5. final_settlement        Final Settlement              hr_officer
 //
-// Permission: super_admin only (PermissionGuard "users" / "manage").
+// Permission: super_admin only (SuperAdminOnly "users" / "manage").
 // ============================================================================
 
 import { useEffect, useMemo, useState } from 'react';
@@ -36,7 +36,7 @@ import { toast } from 'sonner';
 
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
-import { PermissionGuard } from '@/components/auth/permission-guard';
+import { SuperAdminOnly } from '@/components/auth/admin-permission-guard';
 import {
   Card,
   CardContent,
@@ -149,7 +149,7 @@ const DEFAULT_STEPS: WorkflowStep[] = [
 // ---------------------------------------------------------------------------
 export default function HrOffboardingWorkflowPage() {
   return (
-    <PermissionGuard module="users" action="manage">
+    <SuperAdminOnly>
       <ContentLayout title="HR Offboarding Workflow">
         <PageBreadcrumb
           items={[
@@ -162,7 +162,7 @@ export default function HrOffboardingWorkflowPage() {
         <OperationalCasesSummary />
         <OffboardingWorkflowContent />
       </ContentLayout>
-    </PermissionGuard>
+    </SuperAdminOnly>
   );
 }
 

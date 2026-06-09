@@ -25,7 +25,7 @@ import { toast } from 'sonner';
 
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
-import { PermissionGuard } from '@/components/auth/permission-guard';
+import { SuperAdminOnly } from '@/components/auth/admin-permission-guard';
 import {
   Card,
   CardContent,
@@ -73,7 +73,7 @@ interface ApproverOption {
 
 export default function InitiateTerminationPage() {
   return (
-    <PermissionGuard module="users" action="manage">
+    <SuperAdminOnly>
       <ContentLayout title="Initiate Termination">
         <PageBreadcrumb
           items={[
@@ -86,7 +86,7 @@ export default function InitiateTerminationPage() {
         />
         <InitiateContent />
       </ContentLayout>
-    </PermissionGuard>
+    </SuperAdminOnly>
   );
 }
 

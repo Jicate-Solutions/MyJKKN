@@ -6,7 +6,7 @@
 // Filters hr_offboarding_cases to separation_type='termination' and renders
 // the SEDC -> Legal -> Director approval-chain progress for each row.
 //
-// Permission: super_admin / admin (PermissionGuard "users" / "manage").
+// Permission: super_admin / admin (SuperAdminOnly "users" / "manage").
 // RLS narrows what each caller sees beyond that.
 //
 // Companion service: lib/services/hr/termination-service.ts
@@ -29,7 +29,7 @@ import { toast } from 'sonner';
 
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
-import { PermissionGuard } from '@/components/auth/permission-guard';
+import { SuperAdminOnly } from '@/components/auth/admin-permission-guard';
 import {
   Card,
   CardContent,
@@ -80,7 +80,7 @@ interface TerminationRow extends TerminationCase {
 // ---------------------------------------------------------------------------
 export default function HrTerminationsListPage() {
   return (
-    <PermissionGuard module="users" action="manage">
+    <SuperAdminOnly>
       <ContentLayout title="HR — Terminations">
         <PageBreadcrumb
           items={[
@@ -92,7 +92,7 @@ export default function HrTerminationsListPage() {
         />
         <TerminationListContent />
       </ContentLayout>
-    </PermissionGuard>
+    </SuperAdminOnly>
   );
 }
 

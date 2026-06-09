@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { Archive, Camera, ChevronRight, Download, Eye, Plus } from 'lucide-react';
 
 import { ContentLayout } from '@/components/layout/content-layout';
-import { PermissionGuard } from '@/components/auth/permission-guard';
+import { SuperAdminOnly } from '@/components/auth/admin-permission-guard';
 import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from '@/components/ui/breadcrumb';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -104,7 +104,7 @@ export default function SnapshotsPage() {
   }
 
   return (
-    <PermissionGuard module="users" action="manage">
+    <SuperAdminOnly>
     <ContentLayout title="Signal Snapshots">
       <Breadcrumb>
         <BreadcrumbList>
@@ -223,6 +223,6 @@ export default function SnapshotsPage() {
         </DialogContent>
       </Dialog>
     </ContentLayout>
-    </PermissionGuard>
+    </SuperAdminOnly>
   );
 }

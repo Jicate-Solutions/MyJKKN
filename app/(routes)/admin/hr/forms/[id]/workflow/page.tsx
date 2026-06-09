@@ -5,7 +5,7 @@
 // step picker, then hands off to the WorkflowEditor client component.
 //
 // Director-lock R5-Q2: form-builder writes are super_admin only. Read-side
-// is guarded by PermissionGuard at the page level.
+// is guarded by SuperAdminOnly at the page level.
 //
 // Director-lock R6-Q3: each form has its own approval chain. Steps live in
 // hr_forms.approval_workflow.steps[] as an ordered array — this editor is
@@ -16,7 +16,7 @@ import { notFound } from 'next/navigation';
 
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
-import { PermissionGuard } from '@/components/auth/permission-guard';
+import { SuperAdminOnly } from '@/components/auth/admin-permission-guard';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, AlertTriangle } from 'lucide-react';
@@ -33,7 +33,7 @@ interface PageProps {
 
 export default async function HrFormWorkflowPage({ params }: PageProps) {
   return (
-    <PermissionGuard module="users" action="manage">
+    <SuperAdminOnly>
       <ContentLayout title="HR Form Workflow Editor">
         <PageBreadcrumb
           items={[
@@ -45,7 +45,7 @@ export default async function HrFormWorkflowPage({ params }: PageProps) {
         />
         <WorkflowEditorContent params={params} />
       </ContentLayout>
-    </PermissionGuard>
+    </SuperAdminOnly>
   );
 }
 
