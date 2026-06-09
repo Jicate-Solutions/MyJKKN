@@ -37,21 +37,24 @@ Attached are the server-side **dual-inquiry** logs for a sample transaction:
 - Request/response for `GET https://api.razorpay.com/v1/payments/{payment_id}`
 - The webhook payload received at our signed webhook endpoint and its signature-verification result.
 
-All payment confirmation is performed **server-side**: on Razorpay's callback to our `callback_url`, our server validates the HMAC `razorpay_signature`, then independently calls **both** Razorpay endpoints above, verifies the amount matches **to the paise**, and writes the verified status to our database. The success/failure shown to the user is sourced from that verified database status — never from client/redirect parameters.
+All payment confirmation is performed **server-side**: on Razorpay's callback to our `callback_url`, our server validates the HMAC `razorpay_signature`, then independently calls **both** Razorpay endpoints above, verifies the amount matches **to the paise**, and writes the verified status to our database. The success/failure shown to the user is sourced from that verified database status — never from client/redirect parameters. **Failed transactions are recorded too** — the gateway error response (code, description, source, step, reason) is stored against the transaction, and our signed webhook independently reconciles the outcome.
 
-**Sample successful transactions (completed in the application):**
+**Sample transactions completed through the Hosted Checkout (all on JKKN Testing Institution):**
 
-| | Transaction A | Transaction B | Transaction C |
+| | Transaction A (Success) | Transaction B (Success) | Transaction C (Failed) |
 | --- | --- | --- | --- |
-| Customer | «FILL: name» | «FILL: name» | «FILL: name» |
-| Amount | ₹10,000.00 | ₹8,000.00 | ₹40,000.00 |
-| Status | Success | Success | Success |
-| Razorpay Order ID | order_Sz0tiOERJCyWUx | order_SxoqlFzKmXoJpk | order_SxekFtco1d3uKR |
-| Razorpay Payment ID | pay_Sz0twxSOlAthIE | pay_SxorGNudveoT5I | pay_Sxekm1MBVWkcHv |
-| Our Transaction Ref | P20260608045854HMBS2 | P20260605043246F7ZT4 | P20260604183942L7V56 |
-| Date (IST) | 08-Jun-2026 10:29 AM | 05-Jun-2026 10:03 AM | 05-Jun-2026 00:10 AM |
+| Customer | BOOBAL A (Roll No 87596328) | BOOBAL A (Roll No 87596328) | BOOBAL A (Roll No 87596328) |
+| Amount | ₹10,000.00 | ₹10,000.00 | ₹40,000.00 |
+| Status | Success (captured) | Success (captured) | Failed (declined by bank) |
+| Payment method | Net Banking | Net Banking | Net Banking |
+| Razorpay Order ID | order_SzbYQVTlHod5Ky | order_Szb5iN604GYw8R | order_SzcBjzwltgoEBf |
+| Razorpay Payment ID | pay_SzbYePz4WwJKfX | pay_Szb6fu0RqQzUQJ | pay_SzcBxkdWrGVJha |
+| Our Transaction Ref | P20260609165024F1XGK | P20260609162313M7LQL | P20260609172737MMU6L |
+| Date (IST) | 09-Jun-2026 10:20 PM | 09-Jun-2026 09:54 PM | 09-Jun-2026 10:57 PM |
 
-> Note: replace the table above with the transaction(s) you run through the **hosted** flow after deployment, so the order/payment IDs match the attached hosted-checkout screenshots. Include at least one **failed** transaction as well (its response is also stored in our database).
+The failed transaction (C) was stored with the gateway error response: `error_code: BAD_REQUEST_ERROR`, `error_step: payment_authorization`, `error_source: bank`, `error_reason: payment_failed`, `error_description: "Your payment didn't go through as it was declined by the bank…"`.
+
+> Note: ensure the order/payment IDs above match the IDs visible in your attached screenshots; remove any row you did not screenshot.
 
 ## 3. Pre-audit confirmations
 
@@ -87,8 +90,8 @@ All payment confirmation is performed **server-side**: on Razorpay's callback to
 | Plugin Name and version (If Any) | No third-party plugin — custom integration. Razorpay Hosted Checkout (`/v1/checkout/embedded`) + Razorpay REST API (`/v1/orders`, `/v1/payments`) |
 | Web / Mobile / Both | **Web** (responsive web application; also installable PWA). App/Domain: https://www.jkkn.ai |
 | Transaction Flow verified | **Yes** |
-| Multiple Amount Values (If Applicable) | ₹8,000.00, ₹10,000.00 and ₹40,000.00 (all successful — see section 2) |
-| Transactions response is being stored in the database (including Failed) | **Yes** |
+| Multiple Amount Values (If Applicable) | ₹10,000.00 (success) and ₹40,000.00 (failed attempt) — see section 2 |
+| Transactions response is being stored in the database (including Failed) | **Yes** — both a successful (`P20260609165024F1XGK`) and a failed (`P20260609172737MMU6L`) transaction are stored with their full gateway responses |
 
 ## 5. Transaction flow summary (for reference)
 
