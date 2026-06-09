@@ -14659,6 +14659,7 @@ DECLARE
   v_bill_total numeric;
   v_desc       text := p_description;
   v_action     text;
+  v_inserted   int := 0;
 BEGIN
   SELECT institution_id INTO v_inst FROM learners_profiles WHERE id = p_learner_lp;
 
@@ -14701,7 +14702,12 @@ BEGIN
       p_learner_lp, v_inst, p_new_item_cat, p_hostel_year_id, 'hostel_category',
       v_desc, now() + interval '30 day', 1, v_bill_total, v_bill_total, v_bill_total,
       v_bill_total, 'unpaid'
-    ) ON CONFLICT DO NOTHING;  -- partial unique index guards a duplicate new-category bill
+    ) ON CONFLICT DO NOTHING;
+    GET DIAGNOSTICS v_inserted = ROW_COUNT;
+    IF v_inserted = 0 THEN
+      v_action := 'exists';
+      v_bill_total := 0;
+    END IF;
   END IF;
 
   RETURN jsonb_build_object('action', v_action, 'new_amount', p_new_amount,
@@ -14723,14 +14729,14 @@ BEGIN
   IF v_year IS NULL THEN RETURN; END IF;
   SELECT hostel_category_id INTO v_cur_cat FROM learners_profiles WHERE id = v_lp;
   SELECT COALESCE(amount,0) INTO v_cur_fee FROM hostel_fees
-    WHERE hostel_category_id = v_cur_cat AND hostel_year_id = v_year AND is_active LIMIT 1;
+    WHERE hostel_category_id = v_cur_cat AND hostel_year_id = v_year AND mess_category_id IS NULL AND is_active LIMIT 1;
 
   RETURN QUERY
   SELECT mc.id, mc.name, mc.type, hf.amount,
          (SELECT count(*)::int FROM fn_my_room_options(mc.id))
   FROM fn_my_manual_categories() mc
   JOIN hostel_fees hf
-    ON hf.hostel_category_id = mc.id AND hf.hostel_year_id = v_year AND hf.is_active
+    ON hf.hostel_category_id = mc.id AND hf.hostel_year_id = v_year AND hf.mess_category_id IS NULL AND hf.is_active
   WHERE mc.id <> COALESCE(v_cur_cat, '00000000-0000-0000-0000-000000000000'::uuid)
     AND hf.amount >= v_cur_fee
   ORDER BY hf.amount;
@@ -14786,13 +14792,13 @@ BEGIN
   IF v_year IS NULL THEN RAISE EXCEPTION 'No current hostel year configured'; END IF;
 
   SELECT amount INTO v_new_fee FROM hostel_fees
-    WHERE hostel_category_id = p_new_category_id AND hostel_year_id = v_year AND is_active LIMIT 1;
+    WHERE hostel_category_id = p_new_category_id AND hostel_year_id = v_year AND mess_category_id IS NULL AND is_active LIMIT 1;
   IF v_new_fee IS NULL THEN RAISE EXCEPTION 'Selected category has no published fee for the current hostel year'; END IF;
   SELECT name INTO v_new_name FROM hostel_categories WHERE id = p_new_category_id;
 
   SELECT hostel_category_id INTO v_cur_cat FROM learners_profiles WHERE id = v_lp;
   SELECT COALESCE(amount,0) INTO v_cur_fee FROM hostel_fees
-    WHERE hostel_category_id = v_cur_cat AND hostel_year_id = v_year AND is_active LIMIT 1;
+    WHERE hostel_category_id = v_cur_cat AND hostel_year_id = v_year AND mess_category_id IS NULL AND is_active LIMIT 1;
   IF v_new_fee < v_cur_fee THEN RAISE EXCEPTION 'Downgrades are not allowed (new fee < current fee)'; END IF;
 
   IF NOT EXISTS (
