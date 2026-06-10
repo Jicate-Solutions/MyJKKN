@@ -290,13 +290,27 @@ const NAV_EXCLUDE = new Set<string>([
 
   // External education-consultant persona portal — reached via the
   // consultant's own login, NOT the staff sidebar. No staff chip surface
-  // by design (managed from /admin/consultants/portal-access).
+  // by design (managed from /admission/consultants/admin/portal-access).
   '/consultant-portal',
   '/consultant-portal/commissions',
   '/consultant-portal/leads',
   '/consultant-portal/leads/submit',
   '/consultant-portal/profile',
   '/consultant-portal/rewards',
+
+  // 2026-06-10 admin-cluster relocation — consultants. Super-admin policy
+  // pages relocated from /admin/consultants/* ("one module = one URL
+  // prefix"). Under /admin they were chip-reachable only via manifest
+  // auto-render (no nav-config there); the admission module HAS a
+  // nav-config, which suppresses auto-render, so the new paths have no
+  // chip surface yet. Reached by direct URL / the 307 redirects from the
+  // old paths. Follow-up: wire literal hrefs into admission nav-config.
+  // The bare /admission/consultants/admin hub (card links to the 3 pages
+  // below) exists so the cluster root + old-URL redirect don't 404.
+  '/admission/consultants/admin',
+  '/admission/consultants/admin/commission-triggers',
+  '/admission/consultants/admin/portal-access',
+  '/admission/consultants/admin/tier-policy',
 ]);
 
 /** Walk app/(routes)/ collecting {url} for every static page.tsx. */

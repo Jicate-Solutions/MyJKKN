@@ -491,31 +491,6 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         ]
       },
       {
-        "path": "/admin/consultants",
-        "label": "Consultants",
-        "iconName": "Users",
-        "children": [
-          {
-            "path": "/admin/consultants/commission-triggers",
-            "label": "Commission Triggers",
-            "iconName": "Coins",
-            "children": []
-          },
-          {
-            "path": "/admin/consultants/portal-access",
-            "label": "Portal Access Policy",
-            "iconName": "KeyRound",
-            "children": []
-          },
-          {
-            "path": "/admin/consultants/tier-policy",
-            "label": "Consultant Tier Policy",
-            "iconName": "Award",
-            "children": []
-          }
-        ]
-      },
-      {
         "path": "/admin/dashboard",
         "label": "Dashboard",
         "iconName": "LayoutGrid",
@@ -762,6 +737,31 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "label": "Consultants",
         "iconName": "Users",
         "children": [
+          {
+            "path": "/admission/consultants/admin",
+            "label": "Consultant Admin",
+            "iconName": "Settings",
+            "children": [
+              {
+                "path": "/admission/consultants/admin/commission-triggers",
+                "label": "Commission Triggers",
+                "iconName": "Coins",
+                "children": []
+              },
+              {
+                "path": "/admission/consultants/admin/portal-access",
+                "label": "Portal Access Policy",
+                "iconName": "KeyRound",
+                "children": []
+              },
+              {
+                "path": "/admission/consultants/admin/tier-policy",
+                "label": "Consultant Tier Policy",
+                "iconName": "Award",
+                "children": []
+              }
+            ]
+          },
           {
             "path": "/admission/consultants/analytics",
             "label": "Analytics",
